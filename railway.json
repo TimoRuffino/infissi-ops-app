@@ -1,10 +1,13 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "nixpacks"
+    "builder": "nixpacks",
+    "buildCommand": "pnpm install && pnpm build"
   },
   "deploy": {
+    "startCommand": "pnpm start",
     "restartPolicyType": "always",
-    "restartPolicyMaxRetries": 3
+    "restartPolicyMaxRetries": 3,
+    "healthcheckPath": "/api/trpc/auth.me"
   }
 }
