@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Dev Server (Express + Vite)",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs", "watch", "server/_core/index.ts"],
+      "env": { "NODE_ENV": "development", "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" },
+      "port": 3000
+    }
+  ]
+}
