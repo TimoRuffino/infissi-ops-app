@@ -1,15 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let interventi: any[] = [
-  { id: 1, commessaId: 1, squadraId: 1, tipo: "posa", stato: "in_corso", dataPianificata: "2026-04-09", dataInizio: new Date("2026-04-09T08:00:00"), dataFine: null, indirizzo: "Via Roma 15, Palermo", note: "Posa appartamento 3B - finestre e portefinestre", createdAt: new Date("2026-04-01"), updatedAt: new Date("2026-04-09") },
-  { id: 2, commessaId: 2, squadraId: null, tipo: "rilievo", stato: "pianificato", dataPianificata: "2026-04-11", dataInizio: null, dataFine: null, indirizzo: "Via dei Giardini 42, Palermo", note: "Rilievo completo villa - tutti i piani", createdAt: new Date("2026-04-05"), updatedAt: new Date("2026-04-05") },
-  { id: 3, commessaId: 5, squadraId: 2, tipo: "sopralluogo", stato: "pianificato", dataPianificata: "2026-04-10", dataInizio: null, dataFine: null, indirizzo: "Lungomare C. Colombo 12, Palermo", note: "Verifica predisposizioni piano 3", createdAt: new Date("2026-04-07"), updatedAt: new Date("2026-04-07") },
-  { id: 4, commessaId: 1, squadraId: 1, tipo: "posa", stato: "completato", dataPianificata: "2026-03-28", dataInizio: new Date("2026-03-28T07:30:00"), dataFine: new Date("2026-03-28T17:00:00"), indirizzo: "Via Roma 15, Palermo", note: "Posa appartamento 2A completata", createdAt: new Date("2026-03-20"), updatedAt: new Date("2026-03-28") },
-  { id: 5, commessaId: 4, squadraId: 2, tipo: "assistenza", stato: "pianificato", dataPianificata: "2026-04-12", dataInizio: null, dataFine: null, indirizzo: "Via Maqueda 200, Palermo", note: "Regolazione maniglie aule piano 2", createdAt: new Date("2026-04-08"), updatedAt: new Date("2026-04-08") },
-];
+let interventi: any[] = [];
 
-let nextId = 6;
+let nextId = 1;
 
 export const interventiRouter = router({
   list: publicProcedure

@@ -1,29 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let verbali: any[] = [
-  {
-    id: 1,
-    interventoId: 4,
-    commessaId: 1,
-    tipo: "chiusura_lavori",
-    data: "2026-03-28",
-    firmaCliente: true,
-    firmaTecnico: true,
-    firmaClienteData: "data:image/png;base64,PLACEHOLDER",
-    firmaTecnicoData: "data:image/png;base64,PLACEHOLDER",
-    noteCliente: "Lavoro eseguito a regola d'arte",
-    noteTecnico: "Posa completata senza anomalie",
-    apertureCompletate: 4,
-    apertureTotali: 4,
-    anomalieRiscontrate: 0,
-    stato: "firmato",
-    createdAt: new Date("2026-03-28"),
-    updatedAt: new Date("2026-03-28"),
-  },
-];
+let verbali: any[] = [];
 
-let nextId = 2;
+let nextId = 1;
 
 export const verbaliRouter = router({
   byIntervento: publicProcedure.input(z.number()).query(({ input }) => {

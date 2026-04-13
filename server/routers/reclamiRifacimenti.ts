@@ -3,60 +3,15 @@ import { publicProcedure, router } from "../_core/trpc";
 
 // --- Reclami (complaints) ---
 
-let reclami: any[] = [
-  {
-    id: 1,
-    commessaId: 4,
-    clienteNome: "Scuola Elementare Manzoni",
-    descrizione: "Infiltrazione d'acqua dalla finestra del corridoio al primo piano durante pioggia intensa",
-    responsabile: "Marco Ruffino",
-    stato: "aperto",
-    dataApertura: "2026-04-10",
-    dataRisoluzione: null,
-    soluzione: null,
-    createdAt: new Date("2026-04-10"),
-    updatedAt: new Date("2026-04-10"),
-  },
-  {
-    id: 2,
-    commessaId: 1,
-    clienteNome: "Condominio Parco Verde",
-    descrizione: "Maniglia portafinestra soggiorno non chiude correttamente, segnalata difficolta' nella rotazione",
-    responsabile: "Luca Bianchi",
-    stato: "risolto",
-    dataApertura: "2026-03-15",
-    dataRisoluzione: "2026-03-22",
-    soluzione: "Regolata ferramenta e sostituita maniglia difettosa in garanzia",
-    createdAt: new Date("2026-03-15"),
-    updatedAt: new Date("2026-03-22"),
-  },
-];
+let reclami: any[] = [];
 
-let nextReclamoId = 3;
+let nextReclamoId = 1;
 
 // --- Rifacimenti (remakes) ---
 
-let rifacimenti: any[] = [
-  {
-    id: 1,
-    commessaId: 4,
-    clienteNome: "Scuola Elementare Manzoni",
-    descrizione: "Vetro camera aula 3A arrivato con dimensioni errate, necessario rifacimento completo",
-    elemento: "Vetrocamera 120x150 basso emissivo",
-    fornitoreCoinvolto: "Guardian Glass",
-    ordineRifacimentoId: "RIF-2026-001",
-    costoStimato: 480.00,
-    responsabilita: "esterna",
-    responsabile: "Marco Ruffino",
-    stato: "in_produzione",
-    dataApertura: "2026-04-05",
-    dataChiusura: null,
-    createdAt: new Date("2026-04-05"),
-    updatedAt: new Date("2026-04-08"),
-  },
-];
+let rifacimenti: any[] = [];
 
-let nextRifacimentoId = 2;
+let nextRifacimentoId = 1;
 
 // --- Router ---
 

@@ -1,13 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let anomalie: any[] = [
-  { id: 1, commessaId: 1, aperturaId: 2, interventoId: 1, categoria: "misura_errata", priorita: "alta", stato: "aperta", descrizione: "Soglia portafinestra non combaciante, differenza di 5mm sul lato sinistro", risoluzione: null, segnalataBy: null, risoltaBy: null, risoltaAt: null, createdAt: new Date("2026-04-09T10:30:00"), updatedAt: new Date("2026-04-09T10:30:00") },
-  { id: 2, commessaId: 1, aperturaId: 1, interventoId: 4, categoria: "problema_accessorio", priorita: "bassa", stato: "risolta", descrizione: "Maniglia finestra soggiorno leggermente disallineata", risoluzione: "Regolata e lubrificata in sede", segnalataBy: null, risoltaBy: null, risoltaAt: new Date("2026-03-28T16:00:00"), createdAt: new Date("2026-03-28T14:00:00"), updatedAt: new Date("2026-03-28T16:00:00") },
-  { id: 3, commessaId: 5, aperturaId: 6, interventoId: null, categoria: "danno_trasporto", priorita: "critica", stato: "in_gestione", descrizione: "Vetro scorrevole panoramico incrinato in basso a destra - danno da trasporto", risoluzione: null, segnalataBy: null, risoltaBy: null, risoltaAt: null, createdAt: new Date("2026-04-08T09:00:00"), updatedAt: new Date("2026-04-08T14:00:00") },
-];
+let anomalie: any[] = [];
 
-let nextId = 4;
+let nextId = 1;
 
 export const anomalieRouter = router({
   list: publicProcedure

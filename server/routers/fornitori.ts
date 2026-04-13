@@ -52,126 +52,9 @@ type RigaOrdine = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let fornitori: Fornitore[] = [
-  {
-    id: 1,
-    ragioneSociale: "Schüco Italia S.r.l.",
-    partitaIva: "01234567891",
-    indirizzo: "Via dell'Industria 20",
-    citta: "Bologna",
-    telefono: "051 600 1234",
-    email: "ordini@schuco.it",
-    categoria: "alluminio",
-    referenteCommerciale: "Paolo Bianchi",
-    scontistica: 15,
-    note: "Fornitore principale profili alluminio. Lead time 3-4 settimane.",
-    attivo: true,
-    createdAt: new Date("2025-06-01"),
-    updatedAt: new Date("2026-01-15"),
-  },
-  {
-    id: 2,
-    ragioneSociale: "Vetro Sud S.p.A.",
-    partitaIva: "09876543211",
-    indirizzo: "Zona Industriale ASI",
-    citta: "Catania",
-    telefono: "095 789 0123",
-    email: "commerciale@vetrosud.it",
-    categoria: "vetro",
-    referenteCommerciale: "Maria Greco",
-    scontistica: 10,
-    note: "Vetri basso-emissivi e stratificati. Consegna 10gg lavorativi.",
-    attivo: true,
-    createdAt: new Date("2025-08-01"),
-    updatedAt: new Date("2026-02-10"),
-  },
-  {
-    id: 3,
-    ragioneSociale: "Roto Frank AG",
-    partitaIva: "DE123456789",
-    indirizzo: "Stuttgarter Str. 145",
-    citta: "Leinfelden",
-    telefono: "+49 711 7598 0",
-    email: "orders@roto-frank.com",
-    categoria: "ferramenta",
-    referenteCommerciale: "Hans Weber",
-    scontistica: 8,
-    note: "Ferramenta anta-ribalta, cerniere, maniglie. Ordine minimo €500.",
-    attivo: true,
-    createdAt: new Date("2025-09-15"),
-    updatedAt: new Date("2026-03-01"),
-  },
-  {
-    id: 4,
-    ragioneSociale: "Guarniflex S.r.l.",
-    partitaIva: "04567890123",
-    indirizzo: "Via Artigianato 8",
-    citta: "Brescia",
-    telefono: "030 222 3344",
-    email: "info@guarniflex.it",
-    categoria: "guarnizioni",
-    note: "Guarnizioni EPDM e TPE per profili Schüco e Reynaers.",
-    attivo: true,
-    createdAt: new Date("2026-01-10"),
-    updatedAt: new Date("2026-01-10"),
-  },
-];
+let fornitori: Fornitore[] = [];
 
-let ordini: OrdineFornitore[] = [
-  {
-    id: 1,
-    fornitoreId: 1,
-    commessaId: 1,
-    codiceOrdine: "ORD-2026-001",
-    stato: "ricevuto",
-    dataOrdine: "2026-02-20",
-    dataConsegnaPrevista: "2026-03-15",
-    dataConsegnaEffettiva: "2026-03-14",
-    righe: [
-      { id: 1, descrizione: "Profilo ASS 77 PD HI", codiceArticolo: "SCH-ASS77-01", quantita: 120, quantitaRicevuta: 120, unitaMisura: "ml", prezzoUnitario: 18.50, lotto: "L2026-0342", conforme: true },
-      { id: 2, descrizione: "Traverso ASS 77 PD", codiceArticolo: "SCH-ASS77-TR", quantita: 60, quantitaRicevuta: 60, unitaMisura: "ml", prezzoUnitario: 14.20, lotto: "L2026-0342", conforme: true },
-    ],
-    noteOrdine: "Profili per commessa Condominio Via Roma - Blocco A",
-    noteRicevimento: "Consegna anticipata 1gg. Materiale conforme.",
-    importoTotale: 3072,
-    createdAt: new Date("2026-02-20"),
-    updatedAt: new Date("2026-03-14"),
-  },
-  {
-    id: 2,
-    fornitoreId: 2,
-    commessaId: 1,
-    codiceOrdine: "ORD-2026-002",
-    stato: "confermato",
-    dataOrdine: "2026-03-01",
-    dataConsegnaPrevista: "2026-03-20",
-    righe: [
-      { id: 1, descrizione: "Vetrocamera 4/16/4 BE", codiceArticolo: "VS-4164BE", quantita: 24, quantitaRicevuta: 0, unitaMisura: "pz", prezzoUnitario: 45.00 },
-      { id: 2, descrizione: "Vetro stratificato 33.1 satinato", codiceArticolo: "VS-331SAT", quantita: 6, quantitaRicevuta: 0, unitaMisura: "pz", prezzoUnitario: 78.00 },
-    ],
-    noteOrdine: "Vetri per aperture piano 1 e 2",
-    importoTotale: 1548,
-    createdAt: new Date("2026-03-01"),
-    updatedAt: new Date("2026-03-05"),
-  },
-  {
-    id: 3,
-    fornitoreId: 3,
-    commessaId: 5,
-    codiceOrdine: "ORD-2026-003",
-    stato: "in_transito",
-    dataOrdine: "2026-03-20",
-    dataConsegnaPrevista: "2026-04-10",
-    righe: [
-      { id: 1, descrizione: "Kit ferramenta anta-ribalta NT", codiceArticolo: "RF-NT-KIT", quantita: 80, quantitaRicevuta: 0, unitaMisura: "kit", prezzoUnitario: 32.00 },
-      { id: 2, descrizione: "Maniglia DK Secustik", codiceArticolo: "RF-DK-SEC", quantita: 80, quantitaRicevuta: 0, unitaMisura: "pz", prezzoUnitario: 12.50 },
-    ],
-    noteOrdine: "Ferramenta per Residence Blu Mare - scorrevoli fronte mare",
-    importoTotale: 3560,
-    createdAt: new Date("2026-03-20"),
-    updatedAt: new Date("2026-03-25"),
-  },
-];
+let ordini: OrdineFornitore[] = [];
 
 type Listino = {
   id: number;
@@ -185,16 +68,12 @@ type Listino = {
   createdAt: Date;
 };
 
-let listini: Listino[] = [
-  { id: 1, fornitoreId: 1, nome: "Listino Profili ASS 2026", versione: "v2.1", dataValidita: "2026-01-01", nomeFile: "schuco_listino_2026_v2.1.pdf", tipo: "pdf", note: "Aggiornamento prezzi Q1 2026", createdAt: new Date("2026-01-05") },
-  { id: 2, fornitoreId: 1, nome: "Listino Profili ASS 2025", versione: "v1.0", dataValidita: "2025-01-01", nomeFile: "schuco_listino_2025.pdf", tipo: "pdf", createdAt: new Date("2025-01-10") },
-  { id: 3, fornitoreId: 2, nome: "Listino Vetri 2026", versione: "v1.0", dataValidita: "2026-03-01", nomeFile: "vetrosud_listino_2026.xlsx", tipo: "excel", note: "Inclusi nuovi vetri selettivi", createdAt: new Date("2026-03-01") },
-];
-let nextListinoId = 4;
+let listini: Listino[] = [];
+let nextListinoId = 1;
 
-let nextFornitoreId = 5;
-let nextOrdineId = 4;
-let nextRigaId = 10;
+let nextFornitoreId = 1;
+let nextOrdineId = 1;
+let nextRigaId = 1;
 
 // ── Router ──────────────────────────────────────────────────────────────────
 

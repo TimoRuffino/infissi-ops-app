@@ -1,74 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let garanzie: any[] = [
-  {
-    id: 1,
-    commessaId: 4,
-    aperturaId: null,
-    tipo: "prodotto",
-    descrizione: "Garanzia serramenti PVC 10 anni",
-    fornitore: "Finstral S.p.A.",
-    dataInizio: "2026-01-12",
-    dataScadenza: "2036-01-12",
-    durataMesi: 120,
-    stato: "attiva",
-    documentoRif: "GAR-2026-001",
-    note: "Copre difetti di fabbricazione e tenuta termica",
-    createdAt: new Date("2026-01-12"),
-    updatedAt: new Date("2026-01-12"),
-  },
-  {
-    id: 2,
-    commessaId: 4,
-    aperturaId: null,
-    tipo: "posa",
-    descrizione: "Garanzia posa in opera 5 anni",
-    fornitore: "Ruffino Group",
-    dataInizio: "2026-01-12",
-    dataScadenza: "2031-01-12",
-    durataMesi: 60,
-    stato: "attiva",
-    documentoRif: "GAR-2026-002",
-    note: "Copre difetti di installazione e sigillatura",
-    createdAt: new Date("2026-01-12"),
-    updatedAt: new Date("2026-01-12"),
-  },
-  {
-    id: 3,
-    commessaId: 1,
-    aperturaId: null,
-    tipo: "prodotto",
-    descrizione: "Garanzia vetrocamera 10 anni",
-    fornitore: "Guardian Glass",
-    dataInizio: "2026-04-09",
-    dataScadenza: "2036-04-09",
-    durataMesi: 120,
-    stato: "attiva",
-    documentoRif: "GAR-2026-003",
-    note: "Garanzia anti-appannamento e tenuta gas",
-    createdAt: new Date("2026-04-09"),
-    updatedAt: new Date("2026-04-09"),
-  },
-  {
-    id: 4,
-    commessaId: 1,
-    aperturaId: null,
-    tipo: "accessorio",
-    descrizione: "Garanzia ferramenta Roto 5 anni",
-    fornitore: "Roto Frank AG",
-    dataInizio: "2026-04-09",
-    dataScadenza: "2031-04-09",
-    durataMesi: 60,
-    stato: "attiva",
-    documentoRif: "GAR-2026-004",
-    note: null,
-    createdAt: new Date("2026-04-09"),
-    updatedAt: new Date("2026-04-09"),
-  },
-];
+let garanzie: any[] = [];
 
-let nextId = 5;
+let nextId = 1;
 
 export const garanzieRouter = router({
   list: publicProcedure

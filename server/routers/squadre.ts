@@ -1,13 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let squadre: any[] = [
-  { id: 1, nome: "Squadra Alpha", caposquadra: "Marco Ferretti", telefono: "333 111 2222", note: "Specializzata in PVC e alluminio", attiva: true, createdAt: new Date("2025-06-01"), updatedAt: new Date("2025-06-01") },
-  { id: 2, nome: "Squadra Beta", caposquadra: "Salvatore Amato", telefono: "333 333 4444", note: "Specializzata in grandi vetrate e scorrevoli", attiva: true, createdAt: new Date("2025-06-01"), updatedAt: new Date("2025-06-01") },
-  { id: 3, nome: "Assistenza Tecnica", caposquadra: "Giuseppe Lo Presti", telefono: "333 555 6666", note: "Post-vendita e manutenzione", attiva: true, createdAt: new Date("2025-09-01"), updatedAt: new Date("2025-09-01") },
-];
+let squadre: any[] = [];
 
-let nextId = 4;
+let nextId = 1;
 
 export const squadreRouter = router({
   list: publicProcedure.query(() => {

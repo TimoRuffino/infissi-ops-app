@@ -1,12 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 
-let tickets: any[] = [
-  { id: 1, commessaId: 4, aperturaId: null, oggetto: "Maniglia aula 2B bloccata", descrizione: "La maniglia della finestra in aula 2B si blocca in posizione anta-ribalta", categoria: "regolazione", priorita: "media", stato: "aperto", assegnatoA: null, dataRisoluzione: null, esitoIntervento: null, apertoBy: null, createdAt: new Date("2026-04-07"), updatedAt: new Date("2026-04-07") },
-  { id: 2, commessaId: 4, aperturaId: null, oggetto: "Infiltrazione aula 3A", descrizione: "Segnalata infiltrazione d'acqua in caso di pioggia intensa dalla finestra angolare aula 3A", categoria: "difetto_posa", priorita: "alta", stato: "assegnato", assegnatoA: null, dataRisoluzione: null, esitoIntervento: null, apertoBy: null, createdAt: new Date("2026-04-02"), updatedAt: new Date("2026-04-03") },
-];
+let tickets: any[] = [];
 
-let nextId = 3;
+let nextId = 1;
 
 export const ticketRouter = router({
   list: publicProcedure
