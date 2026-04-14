@@ -162,11 +162,6 @@ export default function Planning() {
       setDraggingId(null);
     },
   });
-  const updateStato = trpc.interventi.updateStato.useMutation({
-    onSuccess: () => {
-      utils.interventi.invalidate();
-    },
-  });
   const deleteIntervento = trpc.interventi.delete.useMutation({
     onSuccess: () => {
       utils.interventi.invalidate();
@@ -753,9 +748,7 @@ function MonthView(props: {
                     draggable
                     onDragStart={(e) => props.onDragStart(e, i)}
                     onClick={() => props.onEdit(i)}
-                    className={`text-[9px] px-1 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${tipoColors[i.tipo] ?? "bg-gray-100"} ${
-                      i.stato === "annullato" ? "line-through opacity-50" : ""
-                    } ${props.draggingId === i.id ? "opacity-40" : ""}`}
+                    className={`text-[9px] px-1 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${tipoColors[i.tipo] ?? "bg-gray-100"} ${props.draggingId === i.id ? "opacity-40" : ""}`}
                   >
                     {i.oraInizio ? `${i.oraInizio} ` : ""}{tipoLabels[i.tipo] ?? i.tipo}
                   </div>
@@ -782,7 +775,6 @@ function InterventoBlock(props: {
   size: "small" | "large";
 }) {
   const i = props.intervento;
-  const isAnnullato = i.stato === "annullato";
   const isDragging = props.draggingId === i.id;
   return (
     <div
@@ -790,11 +782,11 @@ function InterventoBlock(props: {
       onDragStart={props.onDragStart}
       className={`rounded border p-2 cursor-pointer hover:shadow-sm transition-all ${
         tipoColors[i.tipo] ?? "bg-gray-50"
-      } ${isAnnullato ? "opacity-50" : ""} ${isDragging ? "opacity-30" : ""}`}
+      } ${isDragging ? "opacity-30" : ""}`}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1" onClick={props.onEdit}>
-          <div className={`font-semibold text-${props.size === "large" ? "xs" : "[10px]"} uppercase tracking-wide flex items-center gap-1 ${isAnnullato ? "line-through" : ""}`}>
+          <div className={`font-semibold text-${props.size === "large" ? "xs" : "[10px]"} uppercase tracking-wide flex items-center gap-1`}>
             {i.oraInizio && (
               <span className="inline-flex items-center gap-0.5 font-mono">
                 <Clock className="h-2.5 w-2.5" />
@@ -820,15 +812,13 @@ function InterventoBlock(props: {
             {(i.stato ?? "pianificato").replace(/_/g, " ")}
           </Badge>
         </div>
-        {!isAnnullato && (
-          <button
-            onClick={(e) => { e.stopPropagation(); props.onAnnulla(); }}
-            className="shrink-0 rounded p-0.5 hover:bg-red-100 hover:text-red-700 transition-colors"
-            title="Annulla appuntamento"
-          >
-            <X className={props.size === "large" ? "h-4 w-4" : "h-3 w-3"} />
-          </button>
-        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); props.onAnnulla(); }}
+          className="shrink-0 rounded p-0.5 hover:bg-red-100 hover:text-red-700 transition-colors"
+          title="Elimina appuntamento"
+        >
+          <X className={props.size === "large" ? "h-4 w-4" : "h-3 w-3"} />
+        </button>
       </div>
     </div>
   );

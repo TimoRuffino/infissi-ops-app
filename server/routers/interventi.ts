@@ -4,6 +4,19 @@ import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
+  // One-shot cleanup: hard-delete any legacy "annullato" records so they
+  // no longer appear in the calendar. Mutates the loaded array in place,
+  // then schedules a save so the DB reflects the pruned state.
+  const before = loaded.length;
+  for (let i = loaded.length - 1; i >= 0; i--) {
+    if (loaded[i]?.stato === "annullato") loaded.splice(i, 1);
+  }
+  const removed = before - loaded.length;
+  if (removed > 0) {
+    console.log(`[interventi] pruned ${removed} legacy annullato record(s) on load`);
+    // Defer save until after bootstrap so ensureSchema has completed.
+    setTimeout(() => _interventiStore.save(), 0);
+  }
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const interventi = _interventiStore.items;

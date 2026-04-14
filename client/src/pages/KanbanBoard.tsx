@@ -337,8 +337,10 @@ export default function KanbanBoard() {
                     {colonne.map((col) => {
                       const items = byStato[col.id] ?? [];
                       const allColIdx = COLONNE_FLAT.findIndex((c) => c.id === col.id);
-                      const prevStato = allColIdx > 0 ? COLONNE_FLAT[allColIdx - 1].id : null;
-                      const nextStato = allColIdx < COLONNE_FLAT.length - 1 ? COLONNE_FLAT[allColIdx + 1].id : null;
+                      const prevCol = allColIdx > 0 ? COLONNE_FLAT[allColIdx - 1] : null;
+                      const nextCol = allColIdx < COLONNE_FLAT.length - 1 ? COLONNE_FLAT[allColIdx + 1] : null;
+                      const prevStato = prevCol?.id ?? null;
+                      const nextStato = nextCol?.id ?? null;
                       const urgentiCount = items.filter((c: any) => c.priorita === "urgente").length;
 
                       return (
@@ -423,40 +425,46 @@ export default function KanbanBoard() {
                                       </Button>
                                     )}
 
-                                    <div className="flex gap-1 pt-1 border-t">
-                                      {prevStato ? (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 flex-1 text-[10px] px-1 text-muted-foreground hover:text-foreground"
+                                    <div className="grid grid-cols-2 gap-1.5 pt-2 mt-1 border-t">
+                                      {prevCol ? (
+                                        <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleMove(c.id, prevStato);
+                                            handleMove(c.id, prevCol.id);
                                           }}
-                                          title="Torna indietro"
+                                          title={`Torna a ${prevCol.label}`}
+                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-1 leading-tight text-slate-700 transition-all hover:border-slate-400 hover:bg-slate-100 hover:shadow-sm active:scale-[0.98]"
                                         >
-                                          <ChevronLeft className="h-3 w-3" />
-                                          Indietro
-                                        </Button>
+                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
+                                            <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+                                            Indietro
+                                          </span>
+                                          <span className="block w-full truncate text-[9px] font-normal text-slate-500">
+                                            {prevCol.short}
+                                          </span>
+                                        </button>
                                       ) : (
-                                        <div className="flex-1" />
+                                        <div />
                                       )}
-                                      {nextStato ? (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 flex-1 text-[10px] px-1 text-primary hover:bg-primary/10"
+                                      {nextCol ? (
+                                        <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleMove(c.id, nextStato);
+                                            handleMove(c.id, nextCol.id);
                                           }}
-                                          title="Avanza stato"
+                                          title={`Avanza a ${nextCol.label}`}
+                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-emerald-600 bg-emerald-600 px-1.5 py-1 leading-tight text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.98]"
                                         >
-                                          Avanza
-                                          <ChevronRight className="h-3 w-3" />
-                                        </Button>
+                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
+                                            Avanza
+                                            <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                                          </span>
+                                          <span className="block w-full truncate text-[9px] font-normal opacity-90">
+                                            {nextCol.short}
+                                          </span>
+                                        </button>
                                       ) : (
-                                        <div className="flex-1" />
+                                        <div />
                                       )}
                                     </div>
                                   </CardContent>

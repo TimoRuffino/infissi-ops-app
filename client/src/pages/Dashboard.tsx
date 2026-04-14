@@ -261,17 +261,34 @@ export default function Dashboard() {
   const anomalieStats = trpc.anomalie.stats.useQuery(undefined, liveOpts);
   const ticketStats = trpc.ticket.stats.useQuery(undefined, liveOpts);
   const garanzieStats = trpc.garanzie.stats.useQuery(undefined, liveOpts);
-  const interventiOggi = trpc.interventi.list.useQuery(
+  const interventiOggiRaw = trpc.interventi.list.useQuery(
     {
       from: new Date().toISOString().split("T")[0],
       to: new Date().toISOString().split("T")[0],
     },
     liveOpts
   );
-  const interventiSettimana = trpc.interventi.list.useQuery({}, liveOpts);
+  const interventiSettimanaRaw = trpc.interventi.list.useQuery({}, liveOpts);
   const commesseRecenti = trpc.commesse.list.useQuery({}, liveOpts);
   const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, liveOpts);
   const squadre = trpc.squadre.list.useQuery(undefined, liveOpts);
+
+  // Filter out any legacy "annullato" records so deleted appointments never
+  // show up on the dashboard even before the server-side cleanup kicks in.
+  const interventiOggi = useMemo(
+    () => ({
+      ...interventiOggiRaw,
+      data: interventiOggiRaw.data?.filter((i: any) => i.stato !== "annullato"),
+    }),
+    [interventiOggiRaw]
+  );
+  const interventiSettimana = useMemo(
+    () => ({
+      ...interventiSettimanaRaw,
+      data: interventiSettimanaRaw.data?.filter((i: any) => i.stato !== "annullato"),
+    }),
+    [interventiSettimanaRaw]
+  );
 
   const cs = commesseStats.data;
   const as_ = anomalieStats.data;
