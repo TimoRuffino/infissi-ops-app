@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Eye, EyeOff, LogIn } from "lucide-react";
 
 export default function LoginPage() {
@@ -126,21 +125,6 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
-          </CardContent>
-        </Card>
-
-        {/* Demo credentials hint */}
-        <Card className="bg-muted/50 border-dashed">
-          <CardContent className="p-4">
-            <p className="text-xs font-medium text-muted-foreground mb-2">
-              Accesso rapido:
-            </p>
-            <div className="space-y-1.5 text-xs text-muted-foreground">
-              <div className="flex justify-between items-center">
-                <span className="font-medium">admin@ruffinogroup.it</span>
-                <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">Admin</Badge>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>
