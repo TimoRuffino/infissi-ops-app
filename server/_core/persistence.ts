@@ -152,18 +152,34 @@ export async function bootstrapAll() {
       const rows = await sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`;
       if (rows.length > 0) {
         const raw = rows[0].data;
+        const rawType = Array.isArray(raw) ? "array" : typeof raw;
         // JSONB driver returns parsed JSON; re-serialize then parse with reviver
         // to restore Date objects from ISO strings.
-        const restored = JSON.parse(JSON.stringify(raw), reviveDates);
+        let restored: any;
+        try {
+          restored = JSON.parse(JSON.stringify(raw), reviveDates);
+        } catch (parseErr) {
+          console.error(
+            `[persistence] parse failed for ${key} (rawType=${rawType}):`,
+            parseErr
+          );
+          restored = raw;
+        }
         if (Array.isArray(restored)) {
           store.items.length = 0;
           store.items.push(...restored);
+        } else {
+          console.warn(
+            `[persistence] load ${key}: DB row exists but data is not an array (rawType=${rawType}, got=${typeof restored}). Ignoring.`
+          );
         }
+      } else {
+        console.log(`[persistence] load ${key}: no row in DB (cold)`);
       }
       store.onLoad?.(store.items);
       console.log(`[persistence] loaded ${key}: ${store.items.length} items`);
     } catch (e) {
-      console.error(`[persistence] load failed for ${key}:`, e);
+      console.error(`[persistence] load FAILED for ${key}:`, e);
       store.onLoad?.(store.items);
     }
   }
