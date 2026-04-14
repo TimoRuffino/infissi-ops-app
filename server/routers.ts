@@ -17,6 +17,8 @@ import { produzioneRouter } from "./routers/produzione";
 import { timelineRouter } from "./routers/timeline";
 import { reclamiRifacimentiRouter } from "./routers/reclamiRifacimenti";
 import { utentiRouter, getUtentiStore } from "./routers/utenti";
+import { preventiviContrattiRouter } from "./routers/preventiviContratti";
+import { notificheRouter } from "./routers/notifiche";
 import { createLocalToken, type LocalUser } from "./localAuth";
 import { TRPCError } from "@trpc/server";
 
@@ -51,14 +53,19 @@ export const appRouter = router({
           });
         }
 
+        const ruoli: string[] = Array.isArray(utente.ruoli) && utente.ruoli.length > 0
+          ? utente.ruoli
+          : [utente.ruolo ?? "direzione"];
+        const primaryRuolo = ruoli[0];
         const localUser: LocalUser = {
           id: utente.id,
           openId: `local-${utente.id}`,
           name: `${utente.nome} ${utente.cognome}`,
           email: utente.email,
           loginMethod: "local",
-          role: utente.ruolo === "direzione" ? "admin" : "user",
-          ruolo: utente.ruolo,
+          role: ruoli.includes("direzione") ? "admin" : "user",
+          ruolo: primaryRuolo,
+          ruoli,
           createdAt: utente.createdAt,
           updatedAt: utente.updatedAt,
           lastSignedIn: new Date(),
@@ -94,6 +101,8 @@ export const appRouter = router({
   timeline: timelineRouter,
   reclamiRifacimenti: reclamiRifacimentiRouter,
   utenti: utentiRouter,
+  preventiviContratti: preventiviContrattiRouter,
+  notifiche: notificheRouter,
 });
 
 export type AppRouter = typeof appRouter;

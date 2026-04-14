@@ -47,6 +47,18 @@ const prioritaStyle: Record<string, string> = {
   bassa: "secondary",
 };
 
+const emptyForm = {
+  clienteId: "" as string,
+  cliente: "",
+  indirizzo: "",
+  citta: "",
+  telefono: "",
+  email: "",
+  priorita: "media" as "bassa" | "media" | "alta" | "urgente",
+  note: "",
+  consegnaIndicativa: "60" as "30" | "60" | "90",
+};
+
 export default function CommesseList() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
@@ -66,6 +78,7 @@ export default function CommesseList() {
       utils.commesse.invalidate();
       utils.clienti.invalidate();
       setDialogOpen(false);
+      setForm(emptyForm);
     },
   });
 
@@ -76,18 +89,7 @@ export default function CommesseList() {
     },
   });
 
-  const [form, setForm] = useState({
-    codice: "",
-    clienteId: "" as string, // stored as string for select value
-    cliente: "",
-    indirizzo: "",
-    citta: "",
-    telefono: "",
-    email: "",
-    priorita: "media" as const,
-    note: "",
-    dataConsegnaPrevista: "",
-  });
+  const [form, setForm] = useState(emptyForm);
 
   function handleClienteSelect(clienteIdStr: string) {
     if (clienteIdStr === "__new__") {
@@ -97,10 +99,11 @@ export default function CommesseList() {
     const id = parseInt(clienteIdStr, 10);
     const c = clientiList.data?.find((x: any) => x.id === id);
     if (c) {
+      const nomeCognome = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
       setForm({
         ...form,
         clienteId: clienteIdStr,
-        cliente: c.ragioneSociale,
+        cliente: nomeCognome,
         indirizzo: c.indirizzo ?? "",
         citta: c.citta ?? "",
         telefono: c.telefono ?? "",
@@ -110,9 +113,8 @@ export default function CommesseList() {
   }
 
   function handleCreate() {
-    if (!form.codice || !form.cliente) return;
+    if (!form.cliente) return;
     createMutation.mutate({
-      codice: form.codice,
       clienteId: form.clienteId ? parseInt(form.clienteId, 10) : undefined,
       cliente: form.cliente,
       indirizzo: form.indirizzo || undefined,
@@ -121,19 +123,7 @@ export default function CommesseList() {
       email: form.email || undefined,
       priorita: form.priorita,
       note: form.note || undefined,
-      dataConsegnaPrevista: form.dataConsegnaPrevista || undefined,
-    });
-    setForm({
-      codice: "",
-      clienteId: "",
-      cliente: "",
-      indirizzo: "",
-      citta: "",
-      telefono: "",
-      email: "",
-      priorita: "media",
-      note: "",
-      dataConsegnaPrevista: "",
+      consegnaIndicativa: form.consegnaIndicativa,
     });
   }
 
@@ -153,41 +143,13 @@ export default function CommesseList() {
               Nuova commessa
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nuova commessa</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Codice *</Label>
-                  <Input
-                    placeholder="COM-2026-005"
-                    value={form.codice}
-                    onChange={(e) =>
-                      setForm({ ...form, codice: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Priorita</Label>
-                  <Select
-                    value={form.priorita}
-                    onValueChange={(v: any) =>
-                      setForm({ ...form, priorita: v })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bassa">Bassa</SelectItem>
-                      <SelectItem value="media">Media</SelectItem>
-                      <SelectItem value="alta">Alta</SelectItem>
-                      <SelectItem value="urgente">Urgente</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Il codice sara generato automaticamente (formato COM-ANNO-NUMERO).
               </div>
               <div className="space-y-2">
                 <Label>Cliente *</Label>
@@ -207,7 +169,7 @@ export default function CommesseList() {
                     </SelectItem>
                     {clientiList.data?.map((c: any) => (
                       <SelectItem key={c.id} value={String(c.id)}>
-                        {c.ragioneSociale}
+                        {`${c.nome ?? ""} ${c.cognome ?? ""}`.trim()}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -223,6 +185,45 @@ export default function CommesseList() {
                 {form.clienteId !== "" && (
                   <p className="text-xs text-muted-foreground mt-1">{form.cliente}</p>
                 )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Priorita</Label>
+                  <Select
+                    value={form.priorita}
+                    onValueChange={(v: any) =>
+                      setForm({ ...form, priorita: v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bassa">Bassa</SelectItem>
+                      <SelectItem value="media">Media</SelectItem>
+                      <SelectItem value="alta">Alta</SelectItem>
+                      <SelectItem value="urgente">Urgente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Consegna indicativa</Label>
+                  <Select
+                    value={form.consegnaIndicativa}
+                    onValueChange={(v: any) =>
+                      setForm({ ...form, consegnaIndicativa: v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="30">+30 giorni</SelectItem>
+                      <SelectItem value="60">+60 giorni</SelectItem>
+                      <SelectItem value="90">+90 giorni</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -265,16 +266,6 @@ export default function CommesseList() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Consegna prevista</Label>
-                <Input
-                  type="date"
-                  value={form.dataConsegnaPrevista}
-                  onChange={(e) =>
-                    setForm({ ...form, dataConsegnaPrevista: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
                 <Label>Note</Label>
                 <Textarea
                   value={form.note}
@@ -282,7 +273,7 @@ export default function CommesseList() {
                   rows={2}
                 />
               </div>
-              <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              <Button onClick={handleCreate} disabled={!form.cliente || createMutation.isPending}>
                 {createMutation.isPending ? "Creazione..." : "Crea commessa"}
               </Button>
             </div>
@@ -352,19 +343,25 @@ export default function CommesseList() {
                     )}
                   </div>
                   <h3 className="font-semibold text-sm">{c.cliente}</h3>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                     {c.indirizzo && (
                       <span className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {c.indirizzo}, {c.citta}
+                        {c.indirizzo}
+                        {c.citta ? `, ${c.citta}` : ""}
                       </span>
                     )}
-                    {c.dataConsegnaPrevista && (
+                    {c.dataConsegnaConfermata ? (
+                      <span className="flex items-center gap-1 font-medium text-foreground">
+                        <Calendar className="h-3 w-3" />
+                        Consegna prevista: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+                      </span>
+                    ) : c.consegnaIndicativa ? (
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
-                        Consegna: {c.dataConsegnaPrevista}
+                        Consegna indicativa: +{c.consegnaIndicativa}gg
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <Button

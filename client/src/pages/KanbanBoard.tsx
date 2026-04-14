@@ -2,7 +2,24 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Calendar, AlertTriangle, ChevronRight, ChevronLeft } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  MapPin,
+  Calendar,
+  AlertTriangle,
+  ChevronRight,
+  ChevronLeft,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 
 const COLONNE = [
@@ -30,8 +47,19 @@ export default function KanbanBoard() {
   const commesse = trpc.commesse.list.useQuery({});
   const utils = trpc.useUtils();
 
+  const [consegnaTarget, setConsegnaTarget] = useState<{ id: number; codice: string } | null>(null);
+  const [consegnaDate, setConsegnaDate] = useState("");
+
   const updateCommessa = trpc.commesse.update.useMutation({
     onSuccess: () => utils.commesse.invalidate(),
+  });
+
+  const confermaDataConsegna = trpc.commesse.confermaDataConsegna.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      setConsegnaTarget(null);
+      setConsegnaDate("");
+    },
   });
 
   function getCommesseByStato(stato: string) {
@@ -72,69 +100,96 @@ export default function KanbanBoard() {
 
               {/* Cards */}
               <div className="space-y-2 min-h-[120px] bg-muted/30 rounded-lg p-1.5">
-                {items.map((c: any) => (
-                  <Card
-                    key={c.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => setLocation(`/commesse/${c.id}`)}
-                  >
-                    <CardContent className="p-2 space-y-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-mono text-[9px] text-muted-foreground truncate">
-                          {c.codice}
-                        </span>
-                        {(c.priorita === "urgente" || c.priorita === "alta") && (
-                          <Badge className={`text-[8px] px-1 py-0 shrink-0 ${prioritaColors[c.priorita]}`}>
-                            {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
-                            {c.priorita.toUpperCase()}
-                          </Badge>
+                {items.map((c: any) => {
+                  const isProduzione = c.stato === "produzione";
+                  const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
+                  return (
+                    <Card
+                      key={c.id}
+                      className={`cursor-pointer hover:shadow-md transition-shadow ${needsConsegna ? "ring-1 ring-amber-400" : ""}`}
+                      onClick={() => setLocation(`/commesse/${c.id}`)}
+                    >
+                      <CardContent className="p-2 space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-mono text-[9px] text-muted-foreground truncate">
+                            {c.codice}
+                          </span>
+                          {(c.priorita === "urgente" || c.priorita === "alta") && (
+                            <Badge className={`text-[8px] px-1 py-0 shrink-0 ${prioritaColors[c.priorita]}`}>
+                              {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
+                              {c.priorita.toUpperCase()}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[11px] font-semibold leading-tight truncate">{c.cliente}</p>
+                        {c.citta && (
+                          <p className="text-[9px] text-muted-foreground flex items-center gap-0.5 truncate">
+                            <MapPin className="h-2 w-2 shrink-0" /> {c.citta}
+                          </p>
                         )}
-                      </div>
-                      <p className="text-[11px] font-semibold leading-tight truncate">{c.cliente}</p>
-                      {c.citta && (
-                        <p className="text-[9px] text-muted-foreground flex items-center gap-0.5 truncate">
-                          <MapPin className="h-2 w-2 shrink-0" /> {c.citta}
-                        </p>
-                      )}
-                      {c.dataConsegnaPrevista && (
-                        <p className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                          <Calendar className="h-2 w-2 shrink-0" /> {c.dataConsegnaPrevista}
-                        </p>
-                      )}
-                      {/* Move buttons */}
-                      <div className="flex gap-1 mt-1">
-                        {prevStato && (
+                        {c.dataConsegnaConfermata ? (
+                          <p className="text-[9px] font-medium text-foreground flex items-center gap-0.5">
+                            <CheckCircle2 className="h-2 w-2 shrink-0 text-green-600" />
+                            Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+                          </p>
+                        ) : c.consegnaIndicativa ? (
+                          <p className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+                            <Calendar className="h-2 w-2 shrink-0" /> +{c.consegnaIndicativa}gg indic.
+                          </p>
+                        ) : null}
+
+                        {/* Produzione: prompt for delivery date */}
+                        {needsConsegna && (
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
-                            className="h-5 flex-1 text-[9px] px-1 text-muted-foreground hover:text-foreground"
+                            className="h-6 w-full text-[9px] px-1 mt-1 border-amber-400 text-amber-700 hover:bg-amber-50"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleMove(c.id, prevStato);
+                              setConsegnaTarget({ id: c.id, codice: c.codice });
+                              setConsegnaDate("");
                             }}
                           >
-                            <ChevronLeft className="h-3 w-3" />
-                            Indietro
+                            <Clock className="h-2.5 w-2.5 mr-1" />
+                            Aggiorna data consegna
                           </Button>
                         )}
-                        {nextStato && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-5 flex-1 text-[9px] px-1 text-primary hover:bg-primary/10"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleMove(c.id, nextStato);
-                            }}
-                          >
-                            Avanza
-                            <ChevronRight className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                        {/* Move buttons */}
+                        <div className="flex gap-1 mt-1">
+                          {prevStato && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 flex-1 text-[9px] px-1 text-muted-foreground hover:text-foreground"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMove(c.id, prevStato);
+                              }}
+                            >
+                              <ChevronLeft className="h-3 w-3" />
+                              Indietro
+                            </Button>
+                          )}
+                          {nextStato && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 flex-1 text-[9px] px-1 text-primary hover:bg-primary/10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMove(c.id, nextStato);
+                              }}
+                            >
+                              Avanza
+                              <ChevronRight className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
                 {items.length === 0 && (
                   <p className="text-[9px] text-muted-foreground text-center py-4">—</p>
                 )}
@@ -143,6 +198,34 @@ export default function KanbanBoard() {
           );
         })}
       </div>
+
+      {/* Conferma data consegna dialog */}
+      <Dialog open={!!consegnaTarget} onOpenChange={(o) => !o && setConsegnaTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Aggiorna data consegna — {consegnaTarget?.codice}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Inserisci la data di consegna prevista confermata dal produttore. Sara visibile sulla commessa.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Data consegna</Label>
+              <Input
+                type="date"
+                value={consegnaDate}
+                onChange={(e) => setConsegnaDate(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={() => consegnaTarget && confermaDataConsegna.mutate({ id: consegnaTarget.id, dataConsegna: consegnaDate })}
+              disabled={!consegnaDate || confermaDataConsegna.isPending}
+            >
+              Conferma data
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

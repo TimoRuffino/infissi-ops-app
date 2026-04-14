@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -27,29 +27,28 @@ import {
   Phone,
   Mail,
   Calendar,
-  Ruler,
-  AlertTriangle,
-  ClipboardCheck,
   Hammer,
   FileText,
   Contact,
   Trash2,
   ChevronRight,
   Pencil,
+  Upload,
+  Download,
+  File as FileIcon,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
 
-const statoAperturaColors: Record<string, string> = {
-  da_rilevare: "bg-gray-100 text-gray-700",
-  rilevata: "bg-blue-100 text-blue-800",
-  ordinata: "bg-purple-100 text-purple-800",
-  consegnata: "bg-amber-100 text-amber-800",
-  in_posa: "bg-orange-100 text-orange-800",
-  posata: "bg-green-100 text-green-800",
-  verificata: "bg-emerald-100 text-emerald-800",
+const tipoDocColors: Record<string, string> = {
+  preventivo: "bg-blue-100 text-blue-800",
+  contratto: "bg-green-100 text-green-800",
+  foto: "bg-amber-100 text-amber-800",
+  altro: "bg-slate-100 text-slate-700",
 };
 
 export default function CommessaDetail() {
@@ -58,15 +57,18 @@ export default function CommessaDetail() {
   const commessaId = parseInt(params.id ?? "0");
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
-  const aperture = trpc.aperture.byCommessa.useQuery(commessaId);
+  const documenti = trpc.preventiviContratti.byCommessa.useQuery(commessaId);
   const interventi = trpc.interventi.list.useQuery({ commessaId });
   const anomalie = trpc.anomalie.list.useQuery({ commessaId });
-
   const squadre = trpc.squadre.list.useQuery();
 
   const utils = trpc.useUtils();
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; label: string } | null>(null);
   const [interventoDialog, setInterventoDialog] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
+  const [consegnaDialog, setConsegnaDialog] = useState(false);
+  const [uploadDialog, setUploadDialog] = useState(false);
+
   const [interventoForm, setInterventoForm] = useState({
     tipo: "posa" as string,
     dataPianificata: "",
@@ -75,11 +77,29 @@ export default function CommessaDetail() {
     note: "",
   });
 
-  const deleteApertura = trpc.aperture.delete.useMutation({
-    onSuccess: () => { utils.aperture.byCommessa.invalidate(commessaId); setDeleteTarget(null); },
+  const [editForm, setEditForm] = useState({
+    indirizzo: "",
+    citta: "",
+    telefono: "",
+    email: "",
+    priorita: "media" as "bassa" | "media" | "alta" | "urgente",
+    consegnaIndicativa: "60" as "30" | "60" | "90",
+    note: "",
   });
+
+  const [consegnaDate, setConsegnaDate] = useState("");
+
+  const [uploadForm, setUploadForm] = useState({
+    file: null as File | null,
+    tipo: "preventivo" as "preventivo" | "contratto" | "foto" | "altro",
+    note: "",
+  });
+
   const deleteIntervento = trpc.interventi.delete.useMutation({
     onSuccess: () => { utils.interventi.list.invalidate(); setDeleteTarget(null); },
+  });
+  const deleteDocumento = trpc.preventiviContratti.delete.useMutation({
+    onSuccess: () => { utils.preventiviContratti.byCommessa.invalidate(commessaId); setDeleteTarget(null); },
   });
   const createIntervento = trpc.interventi.create.useMutation({
     onSuccess: () => {
@@ -89,50 +109,82 @@ export default function CommessaDetail() {
     },
   });
   const updateCommessa = trpc.commesse.update.useMutation({
-    onSuccess: () => utils.commesse.byId.invalidate(commessaId),
+    onSuccess: () => {
+      utils.commesse.byId.invalidate(commessaId);
+      setEditDialog(false);
+    },
+  });
+  const confermaDataConsegna = trpc.commesse.confermaDataConsegna.useMutation({
+    onSuccess: () => {
+      utils.commesse.byId.invalidate(commessaId);
+      setConsegnaDialog(false);
+      setConsegnaDate("");
+    },
+  });
+  const uploadDocumento = trpc.preventiviContratti.upload.useMutation({
+    onSuccess: () => {
+      utils.preventiviContratti.byCommessa.invalidate(commessaId);
+      setUploadDialog(false);
+      setUploadForm({ file: null, tipo: "preventivo", note: "" });
+    },
   });
   const deleteCommessa = trpc.commesse.delete.useMutation({
     onSuccess: () => { setDeleteTarget(null); setLocation("/commesse"); },
   });
 
-  const [aperturaDialog, setAperturaDialog] = useState(false);
-  const [aperturaForm, setAperturaForm] = useState({
-    codice: "",
-    descrizione: "",
-    piano: "",
-    locale: "",
-    tipologia: "finestra" as const,
-    larghezza: "",
-    altezza: "",
-    materiale: "",
-    colore: "",
-    vetro: "",
-    noteRilievo: "",
-    criticitaAccesso: "",
-  });
+  function openEdit() {
+    if (!commessa.data) return;
+    const c: any = commessa.data;
+    setEditForm({
+      indirizzo: c.indirizzo ?? "",
+      citta: c.citta ?? "",
+      telefono: c.telefono ?? "",
+      email: c.email ?? "",
+      priorita: c.priorita ?? "media",
+      consegnaIndicativa: c.consegnaIndicativa ?? "60",
+      note: c.note ?? "",
+    });
+    setEditDialog(true);
+  }
 
-  const createApertura = trpc.aperture.create.useMutation({
-    onSuccess: () => {
-      utils.aperture.byCommessa.invalidate(commessaId);
-      setAperturaDialog(false);
-      setAperturaForm({
-        codice: "",
-        descrizione: "",
-        piano: "",
-        locale: "",
-        tipologia: "finestra",
-        larghezza: "",
-        altezza: "",
-        materiale: "",
-        colore: "",
-        vetro: "",
-        noteRilievo: "",
-        criticitaAccesso: "",
+  async function handleUpload() {
+    if (!uploadForm.file) return;
+    const file = uploadForm.file;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(",")[1] ?? "";
+      uploadDocumento.mutate({
+        commessaId,
+        nome: file.name,
+        tipo: uploadForm.tipo,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        dataBase64: base64,
+        note: uploadForm.note || undefined,
       });
-    },
-  });
+    };
+    reader.readAsDataURL(file);
+  }
 
-  const c = commessa.data;
+  function downloadDocumento(docId: number) {
+    // Fetch full record with data and trigger download via blob
+    utils.preventiviContratti.byId.fetch(docId).then((doc: any) => {
+      if (!doc?.dataBase64) return;
+      const byteChars = atob(doc.dataBase64);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes], { type: doc.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.nome;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  const c: any = commessa.data;
   if (!c) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
@@ -182,6 +234,10 @@ export default function CommessaDetail() {
                 Scheda cliente
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={openEdit}>
+              <Pencil className="h-3.5 w-3.5 mr-1" />
+              Modifica
+            </Button>
             {c.stato !== "archiviata" && (() => {
               const next: Record<string, string> = {
                 preventivo: "misure_esecutive", misure_esecutive: "aggiornamento_contratto",
@@ -218,7 +274,7 @@ export default function CommessaDetail() {
           {c.indirizzo && (
             <span className="flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5" />
-              {c.indirizzo}, {c.citta}
+              {c.indirizzo}{c.citta ? `, ${c.citta}` : ""}
             </span>
           )}
           {c.telefono && (
@@ -233,25 +289,51 @@ export default function CommessaDetail() {
               {c.email}
             </span>
           )}
-          {c.dataConsegnaPrevista && (
+          {c.dataConsegnaConfermata ? (
+            <span className="flex items-center gap-1 font-medium text-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+              Data consegna prevista: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+            </span>
+          ) : c.consegnaIndicativa ? (
             <span className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              Consegna prevista: {c.dataConsegnaPrevista}
+              Consegna indicativa: +{c.consegnaIndicativa} giorni
             </span>
-          )}
+          ) : null}
         </div>
         {c.note && (
           <p className="text-sm text-muted-foreground mt-2 border-l-2 pl-3">
             {c.note}
           </p>
         )}
+
+        {/* Produzione trigger: ask for delivery date confirmation */}
+        {c.stato === "produzione" && !c.dataConsegnaConfermata && (
+          <Card className="mt-4 border-amber-300 bg-amber-50/50">
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">Commessa in produzione</p>
+                  <p className="text-xs text-muted-foreground">
+                    Aggiorna la data di consegna prevista per finalizzare lo stato
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" onClick={() => setConsegnaDialog(true)}>
+                <Calendar className="h-3.5 w-3.5 mr-1" />
+                Aggiorna data consegna
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="aperture">
+      <Tabs defaultValue="preventivi">
         <TabsList>
-          <TabsTrigger value="aperture">
-            Aperture ({aperture.data?.length ?? 0})
+          <TabsTrigger value="preventivi">
+            Preventivi / Contratti ({documenti.data?.length ?? 0})
           </TabsTrigger>
           <TabsTrigger value="interventi">
             Interventi ({interventi.data?.length ?? 0})
@@ -264,294 +346,121 @@ export default function CommessaDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Aperture Tab */}
-        <TabsContent value="aperture" className="space-y-4 mt-4">
+        {/* Preventivi/Contratti Tab */}
+        <TabsContent value="preventivi" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Dialog open={aperturaDialog} onOpenChange={setAperturaDialog}>
+            <Dialog open={uploadDialog} onOpenChange={setUploadDialog}>
               <DialogTrigger asChild>
                 <Button size="sm">
-                  <Plus className="h-4 w-4 mr-1" />
-                  Nuova apertura
+                  <Upload className="h-4 w-4 mr-1" />
+                  Carica file
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+              <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Nuova apertura — Rilievo</DialogTitle>
+                  <DialogTitle>Carica file</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-3 py-2">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Codice *</Label>
-                      <Input
-                        placeholder="A1-F01"
-                        value={aperturaForm.codice}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            codice: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Tipologia</Label>
-                      <Select
-                        value={aperturaForm.tipologia}
-                        onValueChange={(v: any) =>
-                          setAperturaForm({ ...aperturaForm, tipologia: v })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="finestra">Finestra</SelectItem>
-                          <SelectItem value="portafinestra">
-                            Portafinestra
-                          </SelectItem>
-                          <SelectItem value="porta">Porta</SelectItem>
-                          <SelectItem value="scorrevole">Scorrevole</SelectItem>
-                          <SelectItem value="fisso">Fisso</SelectItem>
-                          <SelectItem value="altro">Altro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label>Tipo documento</Label>
+                    <Select
+                      value={uploadForm.tipo}
+                      onValueChange={(v: any) => setUploadForm({ ...uploadForm, tipo: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="preventivo">Preventivo</SelectItem>
+                        <SelectItem value="contratto">Contratto</SelectItem>
+                        <SelectItem value="foto">Foto</SelectItem>
+                        <SelectItem value="altro">Altro</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Descrizione</Label>
+                    <Label>File (max 10MB)</Label>
                     <Input
-                      value={aperturaForm.descrizione}
+                      type="file"
                       onChange={(e) =>
-                        setAperturaForm({
-                          ...aperturaForm,
-                          descrizione: e.target.value,
+                        setUploadForm({
+                          ...uploadForm,
+                          file: e.target.files?.[0] ?? null,
                         })
                       }
                     />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Piano</Label>
-                      <Input
-                        placeholder="PT, 1, 2..."
-                        value={aperturaForm.piano}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            piano: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Locale</Label>
-                      <Input
-                        placeholder="Soggiorno, Camera..."
-                        value={aperturaForm.locale}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            locale: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Larghezza (mm)</Label>
-                      <Input
-                        type="number"
-                        value={aperturaForm.larghezza}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            larghezza: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Altezza (mm)</Label>
-                      <Input
-                        type="number"
-                        value={aperturaForm.altezza}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            altezza: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Materiale</Label>
-                      <Input
-                        placeholder="PVC, Alluminio..."
-                        value={aperturaForm.materiale}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            materiale: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Colore</Label>
-                      <Input
-                        value={aperturaForm.colore}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            colore: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Vetro</Label>
-                      <Input
-                        placeholder="Doppio vetro 4/16/4..."
-                        value={aperturaForm.vetro}
-                        onChange={(e) =>
-                          setAperturaForm({
-                            ...aperturaForm,
-                            vetro: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
+                    {uploadForm.file && (
+                      <p className="text-xs text-muted-foreground">
+                        {uploadForm.file.name} — {(uploadForm.file.size / 1024).toFixed(1)} KB
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Note rilievo</Label>
+                    <Label>Note</Label>
                     <Textarea
                       rows={2}
-                      value={aperturaForm.noteRilievo}
-                      onChange={(e) =>
-                        setAperturaForm({
-                          ...aperturaForm,
-                          noteRilievo: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Criticita accesso</Label>
-                    <Textarea
-                      rows={2}
-                      placeholder="Passaggi stretti, scale, ascensore..."
-                      value={aperturaForm.criticitaAccesso}
-                      onChange={(e) =>
-                        setAperturaForm({
-                          ...aperturaForm,
-                          criticitaAccesso: e.target.value,
-                        })
-                      }
+                      value={uploadForm.note}
+                      onChange={(e) => setUploadForm({ ...uploadForm, note: e.target.value })}
                     />
                   </div>
                   <Button
-                    onClick={() =>
-                      createApertura.mutate({
-                        commessaId,
-                        ...aperturaForm,
-                        larghezza: aperturaForm.larghezza || undefined,
-                        altezza: aperturaForm.altezza || undefined,
-                        noteRilievo: aperturaForm.noteRilievo || undefined,
-                        criticitaAccesso:
-                          aperturaForm.criticitaAccesso || undefined,
-                      })
-                    }
-                    disabled={
-                      !aperturaForm.codice || createApertura.isPending
-                    }
+                    onClick={handleUpload}
+                    disabled={!uploadForm.file || uploadDocumento.isPending}
                   >
-                    Salva apertura
+                    {uploadDocumento.isPending ? "Caricamento..." : "Carica"}
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
           </div>
 
-          {aperture.data?.length === 0 ? (
+          {documenti.data?.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground text-sm">
-              Nessuna apertura registrata. Inizia il rilievo aggiungendo le
-              aperture.
+              Nessun documento caricato. Carica preventivi, contratti o foto.
             </div>
           ) : (
-            <div className="grid gap-3">
-              {aperture.data?.map((a: any) => (
-                <Card key={a.id} className="hover:shadow-sm transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-semibold">
-                            {a.codice}
-                          </span>
-                          <span
-                            className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${statoAperturaColors[a.stato] ?? "bg-gray-100"}`}
+            <div className="grid gap-2">
+              {documenti.data?.map((d: any) => (
+                <Card key={d.id}>
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <FileIcon className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate">{d.nome}</span>
+                          <Badge
+                            variant="secondary"
+                            className={`text-[10px] ${tipoDocColors[d.tipo] ?? ""}`}
                           >
-                            {a.stato.replace(/_/g, " ")}
-                          </span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {a.tipologia}
+                            {d.tipo}
                           </Badge>
                         </div>
-                        {a.descrizione && (
-                          <p className="text-sm font-medium">
-                            {a.descrizione}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          {a.piano && <span>Piano: {a.piano}</span>}
-                          {a.locale && <span>Locale: {a.locale}</span>}
-                          {a.larghezza && a.altezza && (
-                            <span className="flex items-center gap-1">
-                              <Ruler className="h-3 w-3" />
-                              {a.larghezza} x {a.altezza} mm
-                            </span>
-                          )}
-                          {a.materiale && <span>{a.materiale}</span>}
-                          {a.colore && <span>{a.colore}</span>}
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                          <span>{(d.size / 1024).toFixed(1)} KB</span>
+                          <span>{new Date(d.createdAt).toLocaleDateString("it-IT")}</span>
                         </div>
-                        {a.noteRilievo && (
-                          <p className="text-xs text-muted-foreground border-l-2 pl-2 mt-1">
-                            {a.noteRilievo}
-                          </p>
-                        )}
-                        {a.criticitaAccesso && (
-                          <p className="text-xs text-destructive flex items-center gap-1 mt-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            {a.criticitaAccesso}
-                          </p>
+                        {d.note && (
+                          <p className="text-xs text-muted-foreground mt-1">{d.note}</p>
                         )}
                       </div>
-                      <div className="flex gap-1 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-xs"
-                          onClick={() =>
-                            setLocation(
-                              `/commesse/${commessaId}/aperture/${a.id}/rilievo`
-                            )
-                          }
-                        >
-                          <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
-                          Rilievo
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2"
-                          onClick={() => setDeleteTarget({ type: "apertura", id: a.id, label: a.codice })}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => downloadDocumento(d.id)}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => setDeleteTarget({ type: "documento", id: d.id, label: d.nome })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -619,7 +528,7 @@ export default function CommessaDetail() {
                       tipo: interventoForm.tipo as any,
                       dataPianificata: interventoForm.dataPianificata || undefined,
                       squadraId: interventoForm.squadraId && interventoForm.squadraId !== "__none__" ? parseInt(interventoForm.squadraId) : null,
-                      indirizzo: interventoForm.indirizzo || c.indirizzo ? `${c.indirizzo}, ${c.citta}` : undefined,
+                      indirizzo: interventoForm.indirizzo || (c.indirizzo ? `${c.indirizzo}, ${c.citta}` : undefined),
                       note: interventoForm.note || undefined,
                     })}
                     disabled={createIntervento.isPending}
@@ -770,6 +679,123 @@ export default function CommessaDetail() {
         </TabsContent>
       </Tabs>
 
+      {/* Edit commessa dialog */}
+      <Dialog open={editDialog} onOpenChange={setEditDialog}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Modifica commessa {c.codice}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Priorita</Label>
+                <Select
+                  value={editForm.priorita}
+                  onValueChange={(v: any) => setEditForm({ ...editForm, priorita: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bassa">Bassa</SelectItem>
+                    <SelectItem value="media">Media</SelectItem>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="urgente">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Consegna indicativa</Label>
+                <Select
+                  value={editForm.consegnaIndicativa}
+                  onValueChange={(v: any) => setEditForm({ ...editForm, consegnaIndicativa: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">+30 giorni</SelectItem>
+                    <SelectItem value="60">+60 giorni</SelectItem>
+                    <SelectItem value="90">+90 giorni</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Indirizzo</Label>
+                <Input value={editForm.indirizzo} onChange={(e) => setEditForm({ ...editForm, indirizzo: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Citta</Label>
+                <Input value={editForm.citta} onChange={(e) => setEditForm({ ...editForm, citta: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Telefono</Label>
+                <Input value={editForm.telefono} onChange={(e) => setEditForm({ ...editForm, telefono: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note</Label>
+              <Textarea
+                rows={3}
+                value={editForm.note}
+                onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+              />
+            </div>
+            <Button
+              onClick={() => updateCommessa.mutate({
+                id: commessaId,
+                indirizzo: editForm.indirizzo,
+                citta: editForm.citta,
+                telefono: editForm.telefono,
+                email: editForm.email,
+                priorita: editForm.priorita,
+                consegnaIndicativa: editForm.consegnaIndicativa,
+                note: editForm.note,
+              })}
+              disabled={updateCommessa.isPending}
+            >
+              Salva modifiche
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conferma data consegna dialog (produzione) */}
+      <Dialog open={consegnaDialog} onOpenChange={setConsegnaDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Aggiorna data consegna</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Inserisci la data di consegna prevista confermata dal produttore.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Data consegna</Label>
+              <Input
+                type="date"
+                value={consegnaDate}
+                onChange={(e) => setConsegnaDate(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={() => confermaDataConsegna.mutate({ id: commessaId, dataConsegna: consegnaDate })}
+              disabled={!consegnaDate || confermaDataConsegna.isPending}
+            >
+              Conferma data
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
@@ -778,7 +804,7 @@ export default function CommessaDetail() {
         description={`Stai per eliminare "${deleteTarget?.label}". Questa azione non puo essere annullata.`}
         onConfirm={() => {
           if (!deleteTarget) return;
-          if (deleteTarget.type === "apertura") deleteApertura.mutate(deleteTarget.id);
+          if (deleteTarget.type === "documento") deleteDocumento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "intervento") deleteIntervento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "commessa") deleteCommessa.mutate(deleteTarget.id);
         }}

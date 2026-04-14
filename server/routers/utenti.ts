@@ -9,8 +9,13 @@ const RUOLI = [
   "tecnico_rilievi",
   "squadra_posa",
   "post_vendita",
+  "ordini",
 ] as const;
 type Ruolo = typeof RUOLI[number];
+
+const MAX_RUOLI = 3;
+
+const ruoliSchema = z.array(z.enum(RUOLI)).min(1).max(MAX_RUOLI);
 
 // In-memory store (replace with Drizzle queries when DB is available)
 let utenti: any[] = [
@@ -20,7 +25,7 @@ let utenti: any[] = [
     cognome: "Ruffino",
     email: "admin@ruffinogroup.it",
     telefono: "",
-    ruolo: "direzione" as Ruolo,
+    ruoli: ["direzione"] as Ruolo[],
     password: "Tars0520@",
     attivo: true,
     createdAt: new Date("2025-01-01"),
@@ -32,7 +37,7 @@ let utenti: any[] = [
     cognome: "Saltarella",
     email: "l.saltarella@ruffinogroup.com",
     telefono: "",
-    ruolo: "amministrazione" as Ruolo,
+    ruoli: ["amministrazione"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -44,7 +49,7 @@ let utenti: any[] = [
     cognome: "Facci",
     email: "a.facci@ruffinogroup.com",
     telefono: "",
-    ruolo: "commerciale" as Ruolo,
+    ruoli: ["commerciale"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -56,7 +61,7 @@ let utenti: any[] = [
     cognome: "Lenzo",
     email: "s.lenzo@ruffinogroup.com",
     telefono: "",
-    ruolo: "commerciale" as Ruolo,
+    ruoli: ["commerciale"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -68,7 +73,7 @@ let utenti: any[] = [
     cognome: "Ruffino",
     email: "n.ruffino@ruffinogroup.com",
     telefono: "",
-    ruolo: "amministrazione" as Ruolo,
+    ruoli: ["amministrazione"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -80,7 +85,7 @@ let utenti: any[] = [
     cognome: "Ruffino",
     email: "m.ruffino@ruffinogroup.com",
     telefono: "",
-    ruolo: "tecnico_rilievi" as Ruolo,
+    ruoli: ["tecnico_rilievi"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -92,7 +97,7 @@ let utenti: any[] = [
     cognome: "Ruffino",
     email: "f.ruffino@ruffinogroup.com",
     telefono: "",
-    ruolo: "direzione" as Ruolo,
+    ruoli: ["direzione", "tecnico_rilievi"] as Ruolo[],
     password: "Ruffino2026@",
     attivo: true,
     createdAt: new Date("2026-04-13"),
@@ -118,7 +123,7 @@ export const utentiRouter = router({
     .query(({ input }) => {
       let result = [...utenti];
       if (input?.ruolo) {
-        result = result.filter((u) => u.ruolo === input.ruolo);
+        result = result.filter((u) => (u.ruoli ?? []).includes(input.ruolo));
       }
       if (input?.search) {
         const q = input.search.toLowerCase();
@@ -149,7 +154,7 @@ export const utentiRouter = router({
         cognome: z.string().min(1),
         email: z.string().email(),
         telefono: z.string().optional(),
-        ruolo: z.enum(RUOLI),
+        ruoli: ruoliSchema,
         password: z.string().min(4),
         attivo: z.boolean().optional(),
       })
@@ -182,7 +187,7 @@ export const utentiRouter = router({
         cognome: z.string().min(1).optional(),
         email: z.string().email().optional(),
         telefono: z.string().optional(),
-        ruolo: z.enum(RUOLI).optional(),
+        ruoli: ruoliSchema.optional(),
         password: z.string().min(4).optional(),
         attivo: z.boolean().optional(),
       })
@@ -209,7 +214,7 @@ export const utentiRouter = router({
     const total = utenti.length;
     const attivi = utenti.filter((u) => u.attivo).length;
     const perRuolo = RUOLI.reduce((acc, ruolo) => {
-      acc[ruolo] = utenti.filter((u) => u.ruolo === ruolo).length;
+      acc[ruolo] = utenti.filter((u) => (u.ruoli ?? []).includes(ruolo)).length;
       return acc;
     }, {} as Record<string, number>);
     return { total, attivi, perRuolo };

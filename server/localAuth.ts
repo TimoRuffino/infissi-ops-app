@@ -16,7 +16,8 @@ export type LocalUser = {
   email: string | null;
   loginMethod: string | null;
   role: "user" | "admin";
-  ruolo: string;
+  ruolo: string; // primary role (first of ruoli), kept for backward compat
+  ruoli: string[]; // 1..3 roles
   createdAt: Date;
   updatedAt: Date;
   lastSignedIn: Date;
@@ -32,6 +33,7 @@ export async function createLocalToken(user: LocalUser): Promise<string> {
     name: user.name,
     role: user.role,
     ruolo: user.ruolo,
+    ruoli: user.ruoli,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("7d")
@@ -65,6 +67,9 @@ export async function verifyLocalSession(
     if (!payload.sub || !payload.email) return null;
 
     // Reconstruct user from JWT payload
+    const ruoliFromJwt = Array.isArray(payload.ruoli) ? (payload.ruoli as string[]) : null;
+    const ruoloFromJwt = (payload.ruolo as string) || "direzione";
+    const ruoli = ruoliFromJwt && ruoliFromJwt.length > 0 ? ruoliFromJwt : [ruoloFromJwt];
     const user: LocalUser = {
       id: Number(payload.sub),
       openId: `local-${payload.sub}`,
@@ -72,7 +77,8 @@ export async function verifyLocalSession(
       email: (payload.email as string) || null,
       loginMethod: "local",
       role: (payload.role as "user" | "admin") || "user",
-      ruolo: (payload.ruolo as string) || "direzione",
+      ruolo: ruoloFromJwt,
+      ruoli,
       createdAt: new Date(),
       updatedAt: new Date(),
       lastSignedIn: new Date(),

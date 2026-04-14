@@ -13,6 +13,7 @@ import {
   Hammer,
   ChevronLeft,
   ChevronRight,
+  Flame,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
@@ -259,6 +260,7 @@ export default function Dashboard() {
   });
   const interventiSettimana = trpc.interventi.list.useQuery({});
   const commesseRecenti = trpc.commesse.list.useQuery({});
+  const commessePerPriorita = trpc.commesse.byPriorita.useQuery();
   const squadre = trpc.squadre.list.useQuery();
 
   const cs = commesseStats.data;
@@ -580,6 +582,57 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Clienti per priorita commesse */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Flame className="h-4 w-4" />
+            Clienti per priorita commesse
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {([
+              { key: "urgente", label: "Urgente", color: "border-red-400 bg-red-50", badge: "bg-red-600 text-white" },
+              { key: "alta", label: "Alta", color: "border-orange-400 bg-orange-50", badge: "bg-orange-500 text-white" },
+              { key: "media", label: "Media", color: "border-amber-300 bg-amber-50", badge: "bg-amber-400 text-white" },
+              { key: "bassa", label: "Bassa", color: "border-slate-300 bg-slate-50", badge: "bg-slate-400 text-white" },
+            ] as const).map((pri) => {
+              const list: any[] = (commessePerPriorita.data as any)?.[pri.key] ?? [];
+              return (
+                <div key={pri.key} className={`rounded-md border ${pri.color} p-3`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${pri.badge}`}>
+                      {pri.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{list.length}</span>
+                  </div>
+                  {list.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">—</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+                      {list.map((c) => (
+                        <div
+                          key={c.id}
+                          className="cursor-pointer rounded-sm bg-white p-2 hover:shadow-sm transition-shadow"
+                          onClick={() => setLocation(`/commesse/${c.id}`)}
+                        >
+                          <div className="font-mono text-[9px] text-muted-foreground">{c.codice}</div>
+                          <div className="text-xs font-medium truncate">{c.cliente}</div>
+                          <div className="text-[10px] text-muted-foreground uppercase truncate">
+                            {c.stato.replace(/_/g, " ")}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Quick anomalies view */}
       {(as_?.critiche ?? 0) > 0 && (

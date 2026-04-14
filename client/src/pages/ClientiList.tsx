@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -48,6 +49,30 @@ const tipoLabels: Record<string, string> = {
   ente_pubblico: "Ente pubblico",
 };
 
+const praticaEdiliziaLabels: Record<string, string> = {
+  nessuna: "Nessuna pratica edilizia",
+  cil: "CIL",
+  cila: "CILA",
+  scia: "SCIA",
+};
+
+const emptyForm = {
+  nome: "",
+  cognome: "",
+  tipo: "privato" as const,
+  codiceFiscale: "",
+  partitaIva: "",
+  indirizzo: "",
+  citta: "",
+  cap: "",
+  telefono: "",
+  email: "",
+  detrazione: false,
+  interesseFinanziamento: false,
+  praticaEdilizia: "nessuna" as "nessuna" | "cil" | "cila" | "scia",
+  note: "",
+};
+
 export default function ClientiList() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
@@ -65,33 +90,11 @@ export default function ClientiList() {
     onSuccess: () => {
       utils.clienti.invalidate();
       setDialogOpen(false);
-      setForm({
-        ragioneSociale: "",
-        tipo: "privato",
-        codiceFiscale: "",
-        partitaIva: "",
-        indirizzo: "",
-        citta: "",
-        cap: "",
-        telefono: "",
-        email: "",
-        note: "",
-      });
+      setForm(emptyForm);
     },
   });
 
-  const [form, setForm] = useState({
-    ragioneSociale: "",
-    tipo: "privato" as const,
-    codiceFiscale: "",
-    partitaIva: "",
-    indirizzo: "",
-    citta: "",
-    cap: "",
-    telefono: "",
-    email: "",
-    note: "",
-  });
+  const [form, setForm] = useState(emptyForm);
 
   return (
     <div className="space-y-6">
@@ -120,31 +123,38 @@ export default function ClientiList() {
             <div className="grid gap-3 py-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Ragione sociale *</Label>
+                  <Label>Nome *</Label>
                   <Input
-                    value={form.ragioneSociale}
-                    onChange={(e) =>
-                      setForm({ ...form, ragioneSociale: e.target.value })
-                    }
+                    value={form.nome}
+                    onChange={(e) => setForm({ ...form, nome: e.target.value })}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Tipo</Label>
-                  <Select
-                    value={form.tipo}
-                    onValueChange={(v: any) => setForm({ ...form, tipo: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="privato">Privato</SelectItem>
-                      <SelectItem value="azienda">Azienda</SelectItem>
-                      <SelectItem value="condominio">Condominio</SelectItem>
-                      <SelectItem value="ente_pubblico">Ente pubblico</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Cognome *</Label>
+                  <Input
+                    value={form.cognome}
+                    onChange={(e) =>
+                      setForm({ ...form, cognome: e.target.value })
+                    }
+                  />
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Select
+                  value={form.tipo}
+                  onValueChange={(v: any) => setForm({ ...form, tipo: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="privato">Privato</SelectItem>
+                    <SelectItem value="azienda">Azienda</SelectItem>
+                    <SelectItem value="condominio">Condominio</SelectItem>
+                    <SelectItem value="ente_pubblico">Ente pubblico</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -180,9 +190,7 @@ export default function ClientiList() {
                   <Label>CAP</Label>
                   <Input
                     value={form.cap}
-                    onChange={(e) =>
-                      setForm({ ...form, cap: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, cap: e.target.value })}
                   />
                 </div>
               </div>
@@ -215,6 +223,51 @@ export default function ClientiList() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Detrazione</div>
+                    <div className="text-xs text-muted-foreground">Si / No</div>
+                  </div>
+                  <Switch
+                    checked={form.detrazione}
+                    onCheckedChange={(v) =>
+                      setForm({ ...form, detrazione: v })
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Interesse finanziamento</div>
+                    <div className="text-xs text-muted-foreground">Si / No</div>
+                  </div>
+                  <Switch
+                    checked={form.interesseFinanziamento}
+                    onCheckedChange={(v) =>
+                      setForm({ ...form, interesseFinanziamento: v })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Pratica edilizia</Label>
+                <Select
+                  value={form.praticaEdilizia}
+                  onValueChange={(v: any) =>
+                    setForm({ ...form, praticaEdilizia: v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nessuna">Nessuna pratica edilizia</SelectItem>
+                    <SelectItem value="cil">CIL</SelectItem>
+                    <SelectItem value="cila">CILA</SelectItem>
+                    <SelectItem value="scia">SCIA</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5">
                 <Label>Note</Label>
                 <Textarea
@@ -226,7 +279,8 @@ export default function ClientiList() {
               <Button
                 onClick={() =>
                   createCliente.mutate({
-                    ragioneSociale: form.ragioneSociale,
+                    nome: form.nome,
+                    cognome: form.cognome,
                     tipo: form.tipo as any,
                     codiceFiscale: form.codiceFiscale || undefined,
                     partitaIva: form.partitaIva || undefined,
@@ -235,10 +289,15 @@ export default function ClientiList() {
                     cap: form.cap || undefined,
                     telefono: form.telefono || undefined,
                     email: form.email || undefined,
+                    detrazione: form.detrazione,
+                    interesseFinanziamento: form.interesseFinanziamento,
+                    praticaEdilizia: form.praticaEdilizia,
                     note: form.note || undefined,
                   })
                 }
-                disabled={!form.ragioneSociale || createCliente.isPending}
+                disabled={
+                  !form.nome || !form.cognome || createCliente.isPending
+                }
               >
                 Crea cliente
               </Button>
@@ -288,6 +347,7 @@ export default function ClientiList() {
         <div className="grid gap-3">
           {clienti.data?.map((c: any) => {
             const TipoIcon = tipoIcons[c.tipo] ?? User;
+            const displayName = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
             return (
               <Card
                 key={c.id}
@@ -297,18 +357,34 @@ export default function ClientiList() {
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <TipoIcon className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold">{c.ragioneSociale}</span>
+                        <span className="font-semibold">{displayName}</span>
                         <Badge variant="outline" className="text-[10px]">
                           {tipoLabels[c.tipo] ?? c.tipo}
                         </Badge>
+                        {c.detrazione && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Detrazione
+                          </Badge>
+                        )}
+                        {c.interesseFinanziamento && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Finanziamento
+                          </Badge>
+                        )}
+                        {c.praticaEdilizia && c.praticaEdilizia !== "nessuna" && (
+                          <Badge variant="secondary" className="text-[10px] uppercase">
+                            {c.praticaEdilizia}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                         {c.indirizzo && (
                           <span className="flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
-                            {c.indirizzo}, {c.citta}
+                            {c.indirizzo}
+                            {c.citta ? `, ${c.citta}` : ""}
                           </span>
                         )}
                         {c.telefono && (
@@ -324,19 +400,6 @@ export default function ClientiList() {
                           </span>
                         )}
                       </div>
-                      {c.referenti?.length > 0 && (
-                        <div className="flex gap-2 flex-wrap mt-1">
-                          {c.referenti.map((r: any, idx: number) => (
-                            <Badge
-                              key={idx}
-                              variant="secondary"
-                              className="text-[10px]"
-                            >
-                              {r.nome} ({r.ruolo.replace(/_/g, " ")})
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     <Badge variant="secondary" className="text-xs shrink-0">
                       {c.commesseIds?.length ?? 0} commesse

@@ -26,6 +26,12 @@ export function addCommessaToCliente(clienteId: number, commessaId: number) {
   }
 }
 
+export function getClienteById(id: number) {
+  return clienti.find((c) => c.id === id) ?? null;
+}
+
+const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
+
 export const clientiRouter = router({
   list: publicProcedure
     .input(
@@ -41,12 +47,14 @@ export const clientiRouter = router({
         const q = input.search.toLowerCase();
         result = result.filter(
           (c) =>
-            c.ragioneSociale.toLowerCase().includes(q) ||
+            `${c.nome} ${c.cognome}`.toLowerCase().includes(q) ||
             c.citta?.toLowerCase().includes(q) ||
             c.email?.toLowerCase().includes(q)
         );
       }
-      return result.sort((a, b) => a.ragioneSociale.localeCompare(b.ragioneSociale));
+      return result.sort((a, b) =>
+        `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)
+      );
     }),
 
   byId: publicProcedure.input(z.number()).query(({ input }) => {
@@ -56,8 +64,9 @@ export const clientiRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        ragioneSociale: z.string().min(1),
-        tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]),
+        nome: z.string().min(1),
+        cognome: z.string().min(1),
+        tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
         codiceFiscale: z.string().optional(),
         partitaIva: z.string().optional(),
         indirizzo: z.string().optional(),
@@ -65,6 +74,9 @@ export const clientiRouter = router({
         cap: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
+        detrazione: z.boolean().optional(),
+        interesseFinanziamento: z.boolean().optional(),
+        praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
         referenti: z.array(z.object({
           nome: z.string(),
           ruolo: z.string(),
@@ -74,13 +86,18 @@ export const clientiRouter = router({
         note: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const cliente = {
         id: nextId++,
         ...input,
+        tipo: input.tipo ?? "privato",
+        detrazione: input.detrazione ?? false,
+        interesseFinanziamento: input.interesseFinanziamento ?? false,
+        praticaEdilizia: input.praticaEdilizia ?? "nessuna",
         referenti: input.referenti ?? [],
         commesseIds: [] as number[],
+        createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -92,7 +109,8 @@ export const clientiRouter = router({
     .input(
       z.object({
         id: z.number(),
-        ragioneSociale: z.string().optional(),
+        nome: z.string().optional(),
+        cognome: z.string().optional(),
         tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
         codiceFiscale: z.string().optional(),
         partitaIva: z.string().optional(),
@@ -101,6 +119,9 @@ export const clientiRouter = router({
         cap: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
+        detrazione: z.boolean().optional(),
+        interesseFinanziamento: z.boolean().optional(),
+        praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
         referenti: z.array(z.object({
           nome: z.string(),
           ruolo: z.string(),

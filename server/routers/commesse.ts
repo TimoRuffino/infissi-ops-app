@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-import { addCommessaToCliente } from "./clienti";
+import { addCommessaToCliente, getClienteById } from "./clienti";
 
 // ── State machine: allowed transitions ──────────────────────────────────────
 const STATI_COMMESSA = [
@@ -48,18 +48,41 @@ let commesse: any[] = [];
 
 let nextId = 1;
 
+// Auto-generate codice: COM-YYYY-NNN (zero-padded, sequential per year)
+function generaCodiceCommessa(): string {
+  const year = new Date().getFullYear();
+  const yearCodes = commesse
+    .filter((c) => typeof c.codice === "string" && c.codice.startsWith(`COM-${year}-`))
+    .map((c) => parseInt(c.codice.split("-")[2] ?? "0", 10))
+    .filter((n) => !isNaN(n));
+  const next = (yearCodes.length ? Math.max(...yearCodes) : 0) + 1;
+  return `COM-${year}-${String(next).padStart(3, "0")}`;
+}
+
+export function getCommesseStore() {
+  return commesse;
+}
+
+export function getCommessaById(id: number) {
+  return commesse.find((c) => c.id === id) ?? null;
+}
+
 export const commesseRouter = router({
   list: publicProcedure
     .input(
       z.object({
         stato: z.string().optional(),
         search: z.string().optional(),
+        clienteId: z.number().optional(),
       }).optional()
     )
     .query(({ input }) => {
       let result = [...commesse];
       if (input?.stato) {
         result = result.filter((c) => c.stato === input.stato);
+      }
+      if (input?.clienteId) {
+        result = result.filter((c) => c.clienteId === input.clienteId);
       }
       if (input?.search) {
         const q = input.search.toLowerCase();
@@ -80,32 +103,47 @@ export const commesseRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        codice: z.string().min(1),
         clienteId: z.number().optional(),
-        cliente: z.string().min(1),
+        cliente: z.string().optional(),
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         note: z.string().optional(),
-        dataConsegnaPrevista: z.string().optional(),
+        consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const id = nextId++;
-      const { clienteId: inputClienteId, ...rest } = input;
+      const { clienteId: inputClienteId, cliente: clienteName, ...rest } = input;
+
+      // Derive cliente display name from cliente record if clienteId given
+      let clienteDisplay = clienteName ?? "";
+      if (inputClienteId) {
+        const c = getClienteById(inputClienteId);
+        if (c) clienteDisplay = `${c.nome} ${c.cognome}`.trim();
+      }
+
       const commessa = {
         id,
+        codice: generaCodiceCommessa(),
         clienteId: inputClienteId ?? null,
-        ...rest,
+        cliente: clienteDisplay,
+        indirizzo: rest.indirizzo ?? null,
+        citta: rest.citta ?? null,
+        telefono: rest.telefono ?? null,
+        email: rest.email ?? null,
         stato: "preventivo" as const,
         priorita: input.priorita ?? "media",
         squadraId: null,
         dataApertura: now.toISOString().split("T")[0],
-        dataConsegnaPrevista: input.dataConsegnaPrevista ?? null,
+        consegnaIndicativa: input.consegnaIndicativa ?? null, // "30" | "60" | "90"
+        dataConsegnaConfermata: null, // set when stato=produzione
         dataChiusura: null,
+        note: rest.note ?? null,
+        createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -122,15 +160,17 @@ export const commesseRouter = router({
       z.object({
         id: z.number(),
         cliente: z.string().optional(),
+        clienteId: z.number().nullable().optional(),
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
-        stato: z.enum(["preventivo", "misure_esecutive", "aggiornamento_contratto", "fatture_pagamento", "da_ordinare", "produzione", "ordini_ultimazione", "attesa_posa", "finiture_saldo", "interventi_regolazioni", "archiviata"]).optional(),
+        stato: z.enum(STATI_COMMESSA).optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         squadraId: z.number().nullable().optional(),
         note: z.string().optional(),
-        dataConsegnaPrevista: z.string().optional(),
+        consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),
+        dataConsegnaConfermata: z.string().nullable().optional(),
       })
     )
     .mutation(({ input }) => {
@@ -145,6 +185,20 @@ export const commesseRouter = router({
       if (input.stato === "archiviata") {
         commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
       }
+      return commesse[idx];
+    }),
+
+  // Dedicated endpoint for confirming delivery date when stato hits produzione
+  confermaDataConsegna: publicProcedure
+    .input(z.object({ id: z.number(), dataConsegna: z.string() }))
+    .mutation(({ input }) => {
+      const idx = commesse.findIndex((c) => c.id === input.id);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      commesse[idx] = {
+        ...commesse[idx],
+        dataConsegnaConfermata: input.dataConsegna,
+        updatedAt: new Date(),
+      };
       return commesse[idx];
     }),
 
@@ -166,5 +220,19 @@ export const commesseRouter = router({
       (c) => c.priorita === "urgente" && c.stato !== "archiviata"
     ).length;
     return { total, preventivi, inCorso, chiuse, urgenti };
+  }),
+
+  // Aggregated by priority for dashboard card
+  byPriorita: publicProcedure.query(() => {
+    const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
+    for (const c of commesse) {
+      if (c.stato === "archiviata") continue;
+      if (buckets[c.priorita]) buckets[c.priorita].push(c);
+    }
+    // Sort each bucket newest first
+    for (const k of Object.keys(buckets)) {
+      buckets[k].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    }
+    return buckets;
   }),
 });
