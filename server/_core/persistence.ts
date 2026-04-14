@@ -113,15 +113,18 @@ async function flushSave(key: string) {
     // Guarantee schema before any write — protects against the race where a
     // module-level seed schedules a save before bootstrapAll runs ensureSchema.
     await ensureSchema();
-    const json = JSON.stringify(store.items);
+    // Use sql.json() so postgres-js encodes as proper JSONB (not a JSON
+    // string primitive). Passing a pre-stringified value + ::jsonb cast
+    // double-encodes it — stored as jsonb string, not jsonb array.
+    const payload = sql.json(store.items as any);
     await sql`
       INSERT INTO kv_store (key, data, updated_at)
-      VALUES (${key}, ${json}::jsonb, NOW())
+      VALUES (${key}, ${payload}, NOW())
       ON CONFLICT (key) DO UPDATE
         SET data = EXCLUDED.data, updated_at = NOW()
     `;
     console.log(
-      `[persistence] saved ${key}: ${store.items.length} items (${json.length}b)`
+      `[persistence] saved ${key}: ${store.items.length} items`
     );
   } catch (e) {
     console.error(`[persistence] save FAILED for ${key}:`, e);
@@ -151,10 +154,27 @@ export async function bootstrapAll() {
     try {
       const rows = await sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`;
       if (rows.length > 0) {
-        const raw = rows[0].data;
+        let raw = rows[0].data;
+        // Legacy recovery: early versions double-encoded the payload
+        // (stored as a JSONB string whose value is the JSON text of the
+        // array). Detect and unwrap.
+        if (typeof raw === "string") {
+          try {
+            raw = JSON.parse(raw);
+            console.warn(
+              `[persistence] load ${key}: unwrapped legacy double-encoded payload — will be rewritten on next save`
+            );
+            // Schedule a rewrite with the correct JSONB encoding.
+            setTimeout(() => scheduleSave(key), 0);
+          } catch (e) {
+            console.error(
+              `[persistence] load ${key}: payload is a string but not JSON:`,
+              e
+            );
+          }
+        }
         const rawType = Array.isArray(raw) ? "array" : typeof raw;
-        // JSONB driver returns parsed JSON; re-serialize then parse with reviver
-        // to restore Date objects from ISO strings.
+        // Re-serialize + parse with reviver to restore Date objects from ISO.
         let restored: any;
         try {
           restored = JSON.parse(JSON.stringify(raw), reviveDates);
@@ -170,7 +190,7 @@ export async function bootstrapAll() {
           store.items.push(...restored);
         } else {
           console.warn(
-            `[persistence] load ${key}: DB row exists but data is not an array (rawType=${rawType}, got=${typeof restored}). Ignoring.`
+            `[persistence] load ${key}: DB row exists but data is not an array (rawType=${rawType}). Ignoring.`
           );
         }
       } else {
