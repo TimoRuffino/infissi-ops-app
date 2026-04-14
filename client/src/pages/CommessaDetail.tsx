@@ -492,7 +492,6 @@ export default function CommessaDetail() {
                           <SelectItem value="rilievo">Rilievo</SelectItem>
                           <SelectItem value="posa">Posa</SelectItem>
                           <SelectItem value="assistenza">Assistenza</SelectItem>
-                          <SelectItem value="sopralluogo">Sopralluogo</SelectItem>
                           <SelectItem value="altro">Altro</SelectItem>
                         </SelectContent>
                       </Select>

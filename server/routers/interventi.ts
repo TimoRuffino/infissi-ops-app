@@ -33,19 +33,30 @@ export const interventiRouter = router({
 
   create: publicProcedure
     .input(z.object({
-      commessaId: z.number(),
+      commessaId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
-      tipo: z.enum(["rilievo", "posa", "assistenza", "sopralluogo", "altro"]),
+      tipo: z.enum(["rilievo", "posa", "assistenza", "altro"]),
       dataPianificata: z.string().optional(),
+      oraInizio: z.string().nullable().optional(), // "HH:MM"
+      oraFine: z.string().nullable().optional(),   // "HH:MM"
       indirizzo: z.string().optional(),
       note: z.string().optional(),
+      ticketId: z.number().nullable().optional(),
+      reclamoId: z.number().nullable().optional(),
+      rifacimentoId: z.number().nullable().optional(),
     }))
     .mutation(({ input }) => {
       const now = new Date();
       const intervento = {
         id: nextId++,
         ...input,
+        commessaId: input.commessaId ?? null,
         squadraId: input.squadraId ?? null,
+        ticketId: input.ticketId ?? null,
+        reclamoId: input.reclamoId ?? null,
+        rifacimentoId: input.rifacimentoId ?? null,
+        oraInizio: input.oraInizio ?? null,
+        oraFine: input.oraFine ?? null,
         stato: "pianificato" as const,
         dataInizio: null,
         dataFine: null,
@@ -61,10 +72,15 @@ export const interventiRouter = router({
     .input(z.object({
       id: z.number(),
       squadraId: z.number().nullable().optional(),
-      tipo: z.enum(["rilievo", "posa", "assistenza", "sopralluogo", "altro"]).optional(),
+      tipo: z.enum(["rilievo", "posa", "assistenza", "altro"]).optional(),
       dataPianificata: z.string().optional(),
+      oraInizio: z.string().nullable().optional(),
+      oraFine: z.string().nullable().optional(),
       indirizzo: z.string().optional(),
       note: z.string().optional(),
+      ticketId: z.number().nullable().optional(),
+      reclamoId: z.number().nullable().optional(),
+      rifacimentoId: z.number().nullable().optional(),
     }))
     .mutation(({ input }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);

@@ -11,7 +11,6 @@ import CommessaDetail from "./pages/CommessaDetail";
 import Planning from "./pages/Planning";
 import TicketList from "./pages/TicketList";
 import RilievoDetail from "./pages/RilievoDetail";
-import PosaAssistita from "./pages/PosaAssistita";
 import VerbaleChiusura from "./pages/VerbaleChiusura";
 import GaranzieList from "./pages/GaranzieList";
 import SquadreList from "./pages/SquadreList";
@@ -35,7 +34,6 @@ function Router() {
         <Route path="/commesse" component={CommesseList} />
         <Route path="/commesse/:id" component={CommessaDetail} />
         <Route path="/commesse/:commessaId/aperture/:aperturaId/rilievo" component={RilievoDetail} />
-        <Route path="/posa/:interventoId" component={PosaAssistita} />
         <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
         <Route path="/planning" component={Planning} />
         <Route path="/ticket" component={TicketList} />

@@ -11,6 +11,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   MapPin,
   Calendar,
   AlertTriangle,
@@ -18,29 +25,45 @@ import {
   ChevronLeft,
   CheckCircle2,
   Clock,
+  Search,
+  Filter,
+  Eye,
+  EyeOff,
+  LayoutGrid,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 
-const COLONNE = [
-  { id: "preventivo", label: "Preventivo", color: "bg-slate-500" },
-  { id: "misure_esecutive", label: "Misure Esecutive", color: "bg-blue-500" },
-  { id: "aggiornamento_contratto", label: "Agg. Contratto", color: "bg-cyan-500" },
-  { id: "fatture_pagamento", label: "Fatture / Pagamento", color: "bg-amber-500" },
-  { id: "da_ordinare", label: "Da Ordinare", color: "bg-yellow-500" },
-  { id: "produzione", label: "Produzione", color: "bg-indigo-500" },
-  { id: "ordini_ultimazione", label: "Ordini Ultimaz.", color: "bg-purple-500" },
-  { id: "attesa_posa", label: "Attesa Posa", color: "bg-orange-500" },
-  { id: "finiture_saldo", label: "Finiture / Saldo", color: "bg-green-500" },
-  { id: "interventi_regolazioni", label: "Interventi / Regolaz.", color: "bg-teal-500" },
-] as const;
+type ColonnaConfig = {
+  id: string;
+  label: string;
+  short: string;
+  dot: string; // dot color (bg-*-500)
+  accent: string; // header bg accent (bg-*-50)
+  ring: string; // border when items present
+};
+
+const COLONNE: ReadonlyArray<ColonnaConfig> = [
+  { id: "preventivo",              label: "Preventivo",              short: "Preventivo",       dot: "bg-slate-500",  accent: "bg-slate-50",  ring: "border-slate-200" },
+  { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",           dot: "bg-blue-500",   accent: "bg-blue-50",   ring: "border-blue-200" },
+  { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto",   dot: "bg-cyan-500",   accent: "bg-cyan-50",   ring: "border-cyan-200" },
+  { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",          dot: "bg-amber-500",  accent: "bg-amber-50",  ring: "border-amber-200" },
+  { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",      dot: "bg-yellow-500", accent: "bg-yellow-50", ring: "border-yellow-200" },
+  { id: "produzione",              label: "Produzione",              short: "Produzione",       dot: "bg-indigo-500", accent: "bg-indigo-50", ring: "border-indigo-200" },
+  { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",     dot: "bg-purple-500", accent: "bg-purple-50", ring: "border-purple-200" },
+  { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",      dot: "bg-orange-500", accent: "bg-orange-50", ring: "border-orange-200" },
+  { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",         dot: "bg-green-500",  accent: "bg-green-50",  ring: "border-green-200" },
+  { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",       dot: "bg-teal-500",   accent: "bg-teal-50",   ring: "border-teal-200" },
+];
 
 const prioritaColors: Record<string, string> = {
-  urgente: "bg-red-100 text-red-800",
-  alta: "bg-orange-100 text-orange-800",
-  media: "bg-gray-100 text-gray-700",
-  bassa: "bg-gray-50 text-gray-500",
+  urgente: "bg-red-100 text-red-800 border-red-200",
+  alta:    "bg-orange-100 text-orange-800 border-orange-200",
+  media:   "bg-slate-100 text-slate-700 border-slate-200",
+  bassa:   "bg-slate-50 text-slate-500 border-slate-200",
 };
+
+const prioritaOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, bassa: 3 };
 
 export default function KanbanBoard() {
   const [, setLocation] = useLocation();
@@ -49,9 +72,17 @@ export default function KanbanBoard() {
 
   const [consegnaTarget, setConsegnaTarget] = useState<{ id: number; codice: string } | null>(null);
   const [consegnaDate, setConsegnaDate] = useState("");
+  const [search, setSearch] = useState("");
+  const [filtroPriorita, setFiltroPriorita] = useState<string>("tutte");
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   const updateCommessa = trpc.commesse.update.useMutation({
-    onSuccess: () => utils.commesse.invalidate(),
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      setMoveError(null);
+    },
+    onError: (err) => setMoveError(err.message ?? "Errore spostamento"),
   });
 
   const confermaDataConsegna = trpc.commesse.confermaDataConsegna.useMutation({
@@ -62,141 +93,283 @@ export default function KanbanBoard() {
     },
   });
 
-  function getCommesseByStato(stato: string) {
-    return commesse.data?.filter((c: any) => c.stato === stato) ?? [];
-  }
+  // Apply filters once, then bucket by stato
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (commesse.data ?? []).filter((c: any) => {
+      if (filtroPriorita !== "tutte" && c.priorita !== filtroPriorita) return false;
+      if (q) {
+        const hay = `${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [commesse.data, search, filtroPriorita]);
+
+  const byStato = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const col of COLONNE) map[col.id] = [];
+    for (const c of filtered) {
+      if (map[c.stato]) map[c.stato].push(c);
+    }
+    // sort each column: urgent first, then newest
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) => {
+        const pa = prioritaOrder[a.priorita] ?? 9;
+        const pb = prioritaOrder[b.priorita] ?? 9;
+        if (pa !== pb) return pa - pb;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+    }
+    return map;
+  }, [filtered]);
+
+  // Global stats
+  const totals = useMemo(() => {
+    const list = commesse.data ?? [];
+    const active = list.filter((c: any) => c.stato !== "archiviata");
+    const urgenti = active.filter((c: any) => c.priorita === "urgente").length;
+    const alte = active.filter((c: any) => c.priorita === "alta").length;
+    const inProduzione = active.filter((c: any) => c.stato === "produzione" && !c.dataConsegnaConfermata).length;
+    return { total: active.length, urgenti, alte, inProduzione };
+  }, [commesse.data]);
 
   function handleMove(commessaId: number, newStato: string) {
+    setMoveError(null);
     updateCommessa.mutate({ id: commessaId, stato: newStato as any });
   }
 
+  const visibleColonne = hideEmpty
+    ? COLONNE.filter((col) => (byStato[col.id]?.length ?? 0) > 0)
+    : COLONNE;
+
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Board Commesse</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Stato avanzamento — avanza o arretra le commesse
-        </p>
+      {/* Header */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <LayoutGrid className="h-6 w-6" />
+            Board Commesse
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Stato avanzamento — avanza o arretra le commesse con i bottoni
+          </p>
+        </div>
+
+        {/* Summary cards */}
+        <div className="flex gap-2 flex-wrap">
+          <Card className="px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attive</div>
+            <div className="text-xl font-bold leading-none mt-1">{totals.total}</div>
+          </Card>
+          <Card className="px-3 py-2 border-red-200">
+            <div className="text-[10px] uppercase tracking-wide text-red-600">Urgenti</div>
+            <div className="text-xl font-bold leading-none mt-1 text-red-700">{totals.urgenti}</div>
+          </Card>
+          <Card className="px-3 py-2 border-orange-200">
+            <div className="text-[10px] uppercase tracking-wide text-orange-600">Alte</div>
+            <div className="text-xl font-bold leading-none mt-1 text-orange-700">{totals.alte}</div>
+          </Card>
+          <Card className="px-3 py-2 border-amber-200">
+            <div className="text-[10px] uppercase tracking-wide text-amber-600">Consegne da confermare</div>
+            <div className="text-xl font-bold leading-none mt-1 text-amber-700">{totals.inProduzione}</div>
+          </Card>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {COLONNE.map((col, colIdx) => {
-          const items = getCommesseByStato(col.id);
-          const prevStato = colIdx > 0 ? COLONNE[colIdx - 1].id : null;
-          const nextStato = colIdx < COLONNE.length - 1 ? COLONNE[colIdx + 1].id : null;
+      {/* Controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Cerca codice, cliente, città..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+        <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
+          <SelectTrigger className="w-[170px] h-9">
+            <Filter className="h-3.5 w-3.5 mr-1.5" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tutte">Tutte le priorità</SelectItem>
+            <SelectItem value="urgente">Urgente</SelectItem>
+            <SelectItem value="alta">Alta</SelectItem>
+            <SelectItem value="media">Media</SelectItem>
+            <SelectItem value="bassa">Bassa</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setHideEmpty((v) => !v)}
+          className="h-9"
+        >
+          {hideEmpty ? <Eye className="h-3.5 w-3.5 mr-1.5" /> : <EyeOff className="h-3.5 w-3.5 mr-1.5" />}
+          {hideEmpty ? "Mostra vuote" : "Nascondi vuote"}
+        </Button>
+      </div>
 
-          return (
-            <div key={col.id} className="min-w-0">
-              {/* Column header */}
-              <div className="flex items-center gap-1.5 mb-2 px-1">
-                <div className={`w-2 h-2 rounded-full shrink-0 ${col.color}`} />
-                <span className="text-[11px] font-semibold uppercase tracking-wide truncate">
-                  {col.label}
-                </span>
-                <Badge variant="secondary" className="text-[10px] ml-auto shrink-0">
-                  {items.length}
-                </Badge>
-              </div>
+      {moveError && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="p-3 text-sm text-red-800 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {moveError}
+          </CardContent>
+        </Card>
+      )}
 
-              {/* Cards */}
-              <div className="space-y-2 min-h-[120px] bg-muted/30 rounded-lg p-1.5">
-                {items.map((c: any) => {
-                  const isProduzione = c.stato === "produzione";
-                  const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
-                  return (
-                    <Card
-                      key={c.id}
-                      className={`cursor-pointer hover:shadow-md transition-shadow ${needsConsegna ? "ring-1 ring-amber-400" : ""}`}
-                      onClick={() => setLocation(`/commesse/${c.id}`)}
-                    >
-                      <CardContent className="p-2 space-y-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-mono text-[9px] text-muted-foreground truncate">
-                            {c.codice}
-                          </span>
-                          {(c.priorita === "urgente" || c.priorita === "alta") && (
-                            <Badge className={`text-[8px] px-1 py-0 shrink-0 ${prioritaColors[c.priorita]}`}>
+      {/* Kanban — horizontal scroll with fixed column width */}
+      <div className="overflow-x-auto pb-3 -mx-2 px-2">
+        <div className="flex gap-3 min-w-max">
+          {visibleColonne.map((col, colIdx) => {
+            const items = byStato[col.id] ?? [];
+            const allColIdx = COLONNE.findIndex((c) => c.id === col.id);
+            const prevStato = allColIdx > 0 ? COLONNE[allColIdx - 1].id : null;
+            const nextStato = allColIdx < COLONNE.length - 1 ? COLONNE[allColIdx + 1].id : null;
+            const urgentiCount = items.filter((c: any) => c.priorita === "urgente").length;
+
+            return (
+              <div key={col.id} className="w-[280px] shrink-0 flex flex-col">
+                {/* Column header */}
+                <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 ${col.accent} ${col.ring}`}>
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`} />
+                  <span className="text-xs font-semibold uppercase tracking-wide truncate flex-1">
+                    {col.label}
+                  </span>
+                  {urgentiCount > 0 && (
+                    <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5 shrink-0">
+                      <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                      {urgentiCount}
+                    </Badge>
+                  )}
+                  <Badge variant="secondary" className="text-[11px] h-5 shrink-0">
+                    {items.length}
+                  </Badge>
+                </div>
+
+                {/* Cards container */}
+                <div className={`flex-1 space-y-2 min-h-[180px] bg-muted/20 rounded-b-lg border border-t-0 p-2 ${col.ring}`}>
+                  {items.map((c: any) => {
+                    const isProduzione = c.stato === "produzione";
+                    const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
+                    return (
+                      <Card
+                        key={c.id}
+                        className={`cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                          needsConsegna ? "ring-2 ring-amber-400" : ""
+                        }`}
+                        onClick={() => setLocation(`/commesse/${c.id}`)}
+                      >
+                        <CardContent className="p-2.5 space-y-1.5">
+                          {/* top row: codice + priority */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[10px] text-muted-foreground truncate">
+                              {c.codice}
+                            </span>
+                            <Badge className={`text-[9px] px-1.5 py-0 border ${prioritaColors[c.priorita] ?? ""}`}>
                               {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
-                              {c.priorita.toUpperCase()}
+                              {c.priorita?.toUpperCase() ?? ""}
                             </Badge>
+                          </div>
+
+                          {/* cliente */}
+                          <p className="text-sm font-semibold leading-tight truncate" title={c.cliente}>
+                            {c.cliente}
+                          </p>
+
+                          {/* city */}
+                          {c.citta && (
+                            <p className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
+                              <MapPin className="h-3 w-3 shrink-0" />
+                              {c.citta}
+                            </p>
                           )}
-                        </div>
-                        <p className="text-[11px] font-semibold leading-tight truncate">{c.cliente}</p>
-                        {c.citta && (
-                          <p className="text-[9px] text-muted-foreground flex items-center gap-0.5 truncate">
-                            <MapPin className="h-2 w-2 shrink-0" /> {c.citta}
-                          </p>
-                        )}
-                        {c.dataConsegnaConfermata ? (
-                          <p className="text-[9px] font-medium text-foreground flex items-center gap-0.5">
-                            <CheckCircle2 className="h-2 w-2 shrink-0 text-green-600" />
-                            Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
-                          </p>
-                        ) : c.consegnaIndicativa ? (
-                          <p className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                            <Calendar className="h-2 w-2 shrink-0" /> +{c.consegnaIndicativa}gg indic.
-                          </p>
-                        ) : null}
 
-                        {/* Produzione: prompt for delivery date */}
-                        {needsConsegna && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 w-full text-[9px] px-1 mt-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConsegnaTarget({ id: c.id, codice: c.codice });
-                              setConsegnaDate("");
-                            }}
-                          >
-                            <Clock className="h-2.5 w-2.5 mr-1" />
-                            Aggiorna data consegna
-                          </Button>
-                        )}
+                          {/* delivery */}
+                          {c.dataConsegnaConfermata ? (
+                            <div className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 rounded px-1.5 py-0.5">
+                              <CheckCircle2 className="h-3 w-3 shrink-0" />
+                              Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+                            </div>
+                          ) : c.consegnaIndicativa ? (
+                            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <Calendar className="h-3 w-3 shrink-0" />
+                              Indicativa: +{c.consegnaIndicativa}gg
+                            </div>
+                          ) : null}
 
-                        {/* Move buttons */}
-                        <div className="flex gap-1 mt-1">
-                          {prevStato && (
+                          {/* produzione CTA */}
+                          {needsConsegna && (
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="h-5 flex-1 text-[9px] px-1 text-muted-foreground hover:text-foreground"
+                              className="h-7 w-full text-[10px] border-amber-400 text-amber-700 hover:bg-amber-50"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleMove(c.id, prevStato);
+                                setConsegnaTarget({ id: c.id, codice: c.codice });
+                                setConsegnaDate("");
                               }}
                             >
-                              <ChevronLeft className="h-3 w-3" />
-                              Indietro
+                              <Clock className="h-3 w-3 mr-1" />
+                              Aggiorna data consegna
                             </Button>
                           )}
-                          {nextStato && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 flex-1 text-[9px] px-1 text-primary hover:bg-primary/10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleMove(c.id, nextStato);
-                              }}
-                            >
-                              Avanza
-                              <ChevronRight className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-                {items.length === 0 && (
-                  <p className="text-[9px] text-muted-foreground text-center py-4">—</p>
-                )}
+
+                          {/* Move buttons */}
+                          <div className="flex gap-1 pt-1 border-t">
+                            {prevStato ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 flex-1 text-[10px] px-1 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMove(c.id, prevStato);
+                                }}
+                                title="Torna indietro"
+                              >
+                                <ChevronLeft className="h-3 w-3" />
+                                Indietro
+                              </Button>
+                            ) : (
+                              <div className="flex-1" />
+                            )}
+                            {nextStato ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 flex-1 text-[10px] px-1 text-primary hover:bg-primary/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMove(c.id, nextStato);
+                                }}
+                                title="Avanza stato"
+                              >
+                                Avanza
+                                <ChevronRight className="h-3 w-3" />
+                              </Button>
+                            ) : (
+                              <div className="flex-1" />
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  {items.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground text-center py-6 italic">
+                      Nessuna commessa
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* Conferma data consegna dialog */}
@@ -207,7 +380,7 @@ export default function KanbanBoard() {
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Inserisci la data di consegna prevista confermata dal produttore. Sara visibile sulla commessa.
+              Inserisci la data di consegna prevista confermata dal produttore. Sarà visibile sulla commessa nel board.
             </p>
             <div className="space-y-1.5">
               <Label>Data consegna</Label>

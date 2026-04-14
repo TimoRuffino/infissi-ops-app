@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import TicketList from "./TicketList";
 
 type DeleteTarget = { type: "reclamo" | "rifacimento"; id: number; label: string } | null;
 
@@ -88,8 +89,8 @@ export default function ReclamiRifacimenti() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Reclami & Rifacimenti</h1>
-        <p className="text-muted-foreground text-sm mt-1">Gestione reclami e rifacimenti post-vendita</p>
+        <h1 className="text-2xl font-bold tracking-tight">Post Vendita</h1>
+        <p className="text-muted-foreground text-sm mt-1">Ticket, reclami e rifacimenti</p>
       </div>
 
       {/* KPI */}
@@ -132,11 +133,16 @@ export default function ReclamiRifacimenti() {
         </Card>
       </div>
 
-      <Tabs defaultValue="reclami">
+      <Tabs defaultValue="ticket">
         <TabsList>
+          <TabsTrigger value="ticket">Ticket</TabsTrigger>
           <TabsTrigger value="reclami">Reclami ({reclami.data?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="rifacimenti">Rifacimenti ({rifacimenti.data?.length ?? 0})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="ticket" className="mt-4">
+          <TicketList />
+        </TabsContent>
 
         {/* ── Reclami ────────────────────────────────────────────── */}
         <TabsContent value="reclami" className="space-y-4 mt-4">

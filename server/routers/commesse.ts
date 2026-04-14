@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { addCommessaToCliente, getClienteById } from "./clienti";
+import { hasPreventivoOrContratto } from "./preventiviContratti";
 import { persistedStore } from "../_core/persistence";
 
 // ── State machine: allowed transitions ──────────────────────────────────────
@@ -183,6 +184,16 @@ export const commesseRouter = router({
       // Enforce state machine on stato transitions
       if (input.stato && input.stato !== commesse[idx].stato) {
         validateTransizione(commesse[idx].stato, input.stato);
+        // Gate: cannot leave "preventivo" without at least one preventivo/contratto doc
+        if (
+          commesse[idx].stato === "preventivo" &&
+          input.stato === "misure_esecutive" &&
+          !hasPreventivoOrContratto(commesse[idx].id)
+        ) {
+          throw new Error(
+            "Impossibile avanzare: caricare almeno un file di tipo Preventivo o Contratto sulla commessa."
+          );
+        }
       }
       const { id, ...updates } = input;
       commesse[idx] = { ...commesse[idx], ...updates, updatedAt: new Date() };

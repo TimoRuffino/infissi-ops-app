@@ -44,7 +44,7 @@ const STATO_LABEL: Record<string, string> = {
   fatture_pagamento: "Fatture / Pagamento",
   da_ordinare: "Da Ordinare",
   produzione: "Produzione",
-  ordini_ultimazione: "Ordini Ultimazione",
+  ordini_ultimazione: "Richiesta Secondo Acconto",
   attesa_posa: "Attesa Posa",
   finiture_saldo: "Finiture / Saldo",
   interventi_regolazioni: "Interventi / Regolazioni",

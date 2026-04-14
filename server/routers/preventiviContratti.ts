@@ -28,6 +28,16 @@ const documenti = _documentiStore.items;
 // Cap per-file size: ~10MB base64 = ~7.5MB raw. Reasonable for MVP.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
+// Gate helper used by commesse state-machine: transitions out of "preventivo"
+// require at least one uploaded document of type "preventivo" or "contratto".
+export function hasPreventivoOrContratto(commessaId: number): boolean {
+  return documenti.some(
+    (d) =>
+      d.commessaId === commessaId &&
+      (d.tipo === "preventivo" || d.tipo === "contratto")
+  );
+}
+
 export const preventiviContrattiRouter = router({
   byCommessa: publicProcedure.input(z.number()).query(({ input }) => {
     return documenti

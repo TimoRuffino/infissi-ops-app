@@ -304,7 +304,7 @@ export default function CommesseList() {
             <SelectItem value="fatture_pagamento">Fatture/Pagamento</SelectItem>
             <SelectItem value="da_ordinare">Da ordinare</SelectItem>
             <SelectItem value="produzione">Produzione</SelectItem>
-            <SelectItem value="ordini_ultimazione">Ordini ultimazione</SelectItem>
+            <SelectItem value="ordini_ultimazione">Richiesta Secondo Acconto</SelectItem>
             <SelectItem value="attesa_posa">Attesa posa</SelectItem>
             <SelectItem value="finiture_saldo">Finiture/Saldo</SelectItem>
             <SelectItem value="interventi_regolazioni">Interventi/Regolaz.</SelectItem>

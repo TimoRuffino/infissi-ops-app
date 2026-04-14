@@ -70,10 +70,9 @@ const PIE_COLORS = ["#4f46e5", "#0d9488", "#f59e0b", "#ef4444", "#8b5cf6", "#06b
 
 // ── Calendar types with colors (PRD Sez.11.2) ──
 const CALENDARI = [
-  { key: "rilievo", label: "Misure Esecutive", color: "#2563eb" },
+  { key: "rilievo", label: "Rilievo", color: "#2563eb" },
   { key: "posa", label: "Posa", color: "#059669" },
   { key: "assistenza", label: "Interventi/Regolazioni", color: "#d97706" },
-  { key: "sopralluogo", label: "Showroom/Sopralluogo", color: "#7c3aed" },
   { key: "altro", label: "Altro", color: "#6b7280" },
 ] as const;
 

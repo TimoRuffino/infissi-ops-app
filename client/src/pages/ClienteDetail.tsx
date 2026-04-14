@@ -89,7 +89,7 @@ export default function ClienteDetail() {
   });
   const [interventoForm, setInterventoForm] = useState({
     commessaId: 0,
-    tipo: "sopralluogo",
+    tipo: "rilievo",
     dataPianificata: "",
     note: "",
   });
@@ -908,10 +908,10 @@ export default function ClienteDetail() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="sopralluogo">Sopralluogo</SelectItem>
                     <SelectItem value="rilievo">Rilievo</SelectItem>
                     <SelectItem value="posa">Posa</SelectItem>
                     <SelectItem value="assistenza">Assistenza</SelectItem>
+                    <SelectItem value="altro">Altro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
