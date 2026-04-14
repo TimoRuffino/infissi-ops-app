@@ -249,18 +249,29 @@ function CalendarioSettimana({
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
-  const commesseStats = trpc.commesse.stats.useQuery();
-  const anomalieStats = trpc.anomalie.stats.useQuery();
-  const ticketStats = trpc.ticket.stats.useQuery();
-  const garanzieStats = trpc.garanzie.stats.useQuery();
-  const interventiOggi = trpc.interventi.list.useQuery({
-    from: new Date().toISOString().split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
-  const interventiSettimana = trpc.interventi.list.useQuery({});
-  const commesseRecenti = trpc.commesse.list.useQuery({});
-  const commessePerPriorita = trpc.commesse.byPriorita.useQuery();
-  const squadre = trpc.squadre.list.useQuery();
+
+  // Keep dashboard synced: poll every 30s + refetch on focus/mount/reconnect
+  // (focus/mount/reconnect come from global QueryClient defaults in main.tsx).
+  const liveOpts = {
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  } as const;
+
+  const commesseStats = trpc.commesse.stats.useQuery(undefined, liveOpts);
+  const anomalieStats = trpc.anomalie.stats.useQuery(undefined, liveOpts);
+  const ticketStats = trpc.ticket.stats.useQuery(undefined, liveOpts);
+  const garanzieStats = trpc.garanzie.stats.useQuery(undefined, liveOpts);
+  const interventiOggi = trpc.interventi.list.useQuery(
+    {
+      from: new Date().toISOString().split("T")[0],
+      to: new Date().toISOString().split("T")[0],
+    },
+    liveOpts
+  );
+  const interventiSettimana = trpc.interventi.list.useQuery({}, liveOpts);
+  const commesseRecenti = trpc.commesse.list.useQuery({}, liveOpts);
+  const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, liveOpts);
+  const squadre = trpc.squadre.list.useQuery(undefined, liveOpts);
 
   const cs = commesseStats.data;
   const as_ = anomalieStats.data;
