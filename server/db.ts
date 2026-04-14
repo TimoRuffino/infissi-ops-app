@@ -1,18 +1,50 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { eq, sql as dsql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _schemaReady = false;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const client = postgres(process.env.DATABASE_URL, {
+        max: 3,
+        idle_timeout: 20,
+        connect_timeout: 10,
+        ssl:
+          process.env.DATABASE_URL.includes("sslmode=require") ||
+          process.env.DATABASE_URL.includes("railway")
+            ? { rejectUnauthorized: false }
+            : undefined,
+      });
+      _db = drizzle(client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+    }
+  }
+  if (_db && !_schemaReady) {
+    try {
+      await _db.execute(dsql`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          "openId" VARCHAR(64) NOT NULL UNIQUE,
+          name TEXT,
+          email VARCHAR(320),
+          "loginMethod" VARCHAR(64),
+          role TEXT NOT NULL DEFAULT 'user',
+          "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "lastSignedIn" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      _schemaReady = true;
+    } catch (e) {
+      console.warn("[Database] ensureSchema failed:", e);
     }
   }
   return _db;
@@ -56,8 +88,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.role = user.role;
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = "admin";
+      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -68,9 +100,13 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
+    await db
+      .insert(users)
+      .values(values)
+      .onConflictDoUpdate({
+        target: users.openId,
+        set: updateSet,
+      });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -88,5 +124,3 @@ export async function getUserByOpenId(openId: string) {
 
   return result.length > 0 ? result[0] : undefined;
 }
-
-// TODO: add feature queries here as your schema grows.

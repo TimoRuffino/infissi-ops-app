@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // ── Referenti (contacts per client) ─────────────────────────────────────────
 
@@ -12,9 +13,12 @@ type Referente = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let clienti: any[] = [];
-
 let nextId = 1;
+
+const _store = persistedStore<any>("clienti", (items) => {
+  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+});
+const clienti = _store.items;
 
 // ── Exported store operations (used by commesse router) ─────────────────────
 
@@ -23,6 +27,7 @@ export function addCommessaToCliente(clienteId: number, commessaId: number) {
   if (idx === -1) return;
   if (!clienti[idx].commesseIds.includes(commessaId)) {
     clienti[idx].commesseIds = [...clienti[idx].commesseIds, commessaId];
+    _store.save();
   }
 }
 
@@ -102,6 +107,7 @@ export const clientiRouter = router({
         updatedAt: now,
       };
       clienti.push(cliente);
+      _store.save();
       return cliente;
     }),
 
@@ -136,6 +142,7 @@ export const clientiRouter = router({
       if (idx === -1) throw new Error("Cliente non trovato");
       const { id, ...updates } = input;
       clienti[idx] = { ...clienti[idx], ...updates, updatedAt: new Date() };
+      _store.save();
       return clienti[idx];
     }),
 
@@ -143,6 +150,7 @@ export const clientiRouter = router({
     const idx = clienti.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Cliente non trovato");
     clienti.splice(idx, 1);
+    _store.save();
     return { success: true };
   }),
 

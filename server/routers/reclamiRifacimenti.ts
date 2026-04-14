@@ -1,17 +1,22 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // --- Reclami (complaints) ---
 
-let reclami: any[] = [];
-
 let nextReclamoId = 1;
+const _reclamiStore = persistedStore<any>("reclami", (loaded) => {
+  nextReclamoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const reclami = _reclamiStore.items;
 
 // --- Rifacimenti (remakes) ---
 
-let rifacimenti: any[] = [];
-
 let nextRifacimentoId = 1;
+const _rifacimentiStore = persistedStore<any>("rifacimenti", (loaded) => {
+  nextRifacimentoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const rifacimenti = _rifacimentiStore.items;
 
 // --- Router ---
 
@@ -50,6 +55,7 @@ export const reclamiRifacimentiRouter = router({
           updatedAt: now,
         };
         reclami.push(reclamo);
+        _reclamiStore.save();
         return reclamo;
       }),
 
@@ -70,6 +76,7 @@ export const reclamiRifacimentiRouter = router({
           (updates as any).dataRisoluzione = new Date().toISOString().split("T")[0];
         }
         reclami[idx] = { ...reclami[idx], ...updates, updatedAt: new Date() };
+        _reclamiStore.save();
         return reclami[idx];
       }),
 
@@ -77,6 +84,7 @@ export const reclamiRifacimentiRouter = router({
       const idx = reclami.findIndex((r) => r.id === input);
       if (idx === -1) throw new Error("Reclamo non trovato");
       reclami.splice(idx, 1);
+      _reclamiStore.save();
       return { success: true };
     }),
 
@@ -132,6 +140,7 @@ export const reclamiRifacimentiRouter = router({
           updatedAt: now,
         };
         rifacimenti.push(rifacimento);
+        _rifacimentiStore.save();
         return rifacimento;
       }),
 
@@ -156,6 +165,7 @@ export const reclamiRifacimentiRouter = router({
           (updates as any).dataChiusura = new Date().toISOString().split("T")[0];
         }
         rifacimenti[idx] = { ...rifacimenti[idx], ...updates, updatedAt: new Date() };
+        _rifacimentiStore.save();
         return rifacimenti[idx];
       }),
 
@@ -163,6 +173,7 @@ export const reclamiRifacimentiRouter = router({
       const idx = rifacimenti.findIndex((r) => r.id === input);
       if (idx === -1) throw new Error("Rifacimento non trovato");
       rifacimenti.splice(idx, 1);
+      _rifacimentiStore.save();
       return { success: true };
     }),
 

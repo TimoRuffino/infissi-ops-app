@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let anomalie: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const anomalie = _anomalieStore.items;
 
 export const anomalieRouter = router({
   list: publicProcedure
@@ -44,6 +47,7 @@ export const anomalieRouter = router({
         updatedAt: now,
       };
       anomalie.push(anomalia);
+      _anomalieStore.save();
       return anomalia;
     }),
 
@@ -60,6 +64,7 @@ export const anomalieRouter = router({
       if (idx === -1) throw new Error("Anomalia non trovata");
       const { id, ...updates } = input;
       anomalie[idx] = { ...anomalie[idx], ...updates, updatedAt: new Date() };
+      _anomalieStore.save();
       return anomalie[idx];
     }),
 
@@ -67,6 +72,7 @@ export const anomalieRouter = router({
     const idx = anomalie.findIndex((a) => a.id === input);
     if (idx === -1) throw new Error("Anomalia non trovata");
     anomalie.splice(idx, 1);
+    _anomalieStore.save();
     return { success: true };
   }),
 
@@ -82,6 +88,7 @@ export const anomalieRouter = router({
       anomalie[idx].risoluzione = input.risoluzione;
       anomalie[idx].risoltaAt = new Date();
       anomalie[idx].updatedAt = new Date();
+      _anomalieStore.save();
       return anomalie[idx];
     }),
 

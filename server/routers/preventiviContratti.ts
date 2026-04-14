@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -18,8 +19,11 @@ type Documento = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let documenti: Documento[] = [];
 let nextId = 1;
+const _documentiStore = persistedStore<Documento>("preventivi_documenti", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const documenti = _documentiStore.items;
 
 // Cap per-file size: ~10MB base64 = ~7.5MB raw. Reasonable for MVP.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
@@ -66,6 +70,7 @@ export const preventiviContrattiRouter = router({
         createdAt: new Date(),
       };
       documenti.push(doc);
+      _documentiStore.save();
       const { dataBase64, ...rest } = doc;
       return { ...rest, hasData: true };
     }),
@@ -74,6 +79,7 @@ export const preventiviContrattiRouter = router({
     const idx = documenti.findIndex((d) => d.id === input);
     if (idx === -1) throw new Error("Documento non trovato");
     documenti.splice(idx, 1);
+    _documentiStore.save();
     return { success: true };
   }),
 });

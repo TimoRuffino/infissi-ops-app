@@ -1,9 +1,13 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let tickets: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+
+const _store = persistedStore<any>("tickets", (items) => {
+  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+});
+const tickets = _store.items;
 
 export const ticketRouter = router({
   list: publicProcedure
@@ -43,6 +47,7 @@ export const ticketRouter = router({
         updatedAt: now,
       };
       tickets.push(t);
+      _store.save();
       return t;
     }),
 
@@ -59,6 +64,7 @@ export const ticketRouter = router({
       if (idx === -1) throw new Error("Ticket non trovato");
       const { id, ...updates } = input;
       tickets[idx] = { ...tickets[idx], ...updates, updatedAt: new Date() };
+      _store.save();
       return tickets[idx];
     }),
 
@@ -66,6 +72,7 @@ export const ticketRouter = router({
     const idx = tickets.findIndex((t) => t.id === input);
     if (idx === -1) throw new Error("Ticket non trovato");
     tickets.splice(idx, 1);
+    _store.save();
     return { success: true };
   }),
 
@@ -82,6 +89,7 @@ export const ticketRouter = router({
       if (input.esitoIntervento) tickets[idx].esitoIntervento = input.esitoIntervento;
       if (input.stato === "risolto" || input.stato === "chiuso") tickets[idx].dataRisoluzione = new Date();
       tickets[idx].updatedAt = new Date();
+      _store.save();
       return tickets[idx];
     }),
 

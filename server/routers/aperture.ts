@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let aperture: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _apertureStore = persistedStore<any>("aperture", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const aperture = _apertureStore.items;
 
 export const apertureRouter = router({
   byCommessa: publicProcedure.input(z.number()).query(({ input }) => {
@@ -45,6 +48,7 @@ export const apertureRouter = router({
         updatedAt: now,
       };
       aperture.push(apertura);
+      _apertureStore.save();
       return apertura;
     }),
 
@@ -72,6 +76,7 @@ export const apertureRouter = router({
       if (idx === -1) throw new Error("Apertura non trovata");
       const { id, ...updates } = input;
       aperture[idx] = { ...aperture[idx], ...updates, updatedAt: new Date() };
+      _apertureStore.save();
       return aperture[idx];
     }),
 
@@ -79,6 +84,7 @@ export const apertureRouter = router({
     const idx = aperture.findIndex((a) => a.id === input);
     if (idx === -1) throw new Error("Apertura non trovata");
     aperture.splice(idx, 1);
+    _apertureStore.save();
     return { success: true };
   }),
 });

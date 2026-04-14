@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -73,17 +74,40 @@ type NonConformita = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let distinteBasi: DistintaBase[] = [];
-
-let fasiProduzione: FaseProduzione[] = [];
-
-let nonConformita: NonConformita[] = [];
-
 let nextBomId = 1;
 let nextFaseId = 1;
 let nextNcId = 1;
 let nextCompId = 1;
 let nextCheckId = 1;
+
+const _distinteStore = persistedStore<DistintaBase>("produzione_distinte", (loaded) => {
+  nextBomId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  let maxComp = 0;
+  for (const d of loaded) {
+    for (const c of (d as any).componenti ?? []) {
+      if (c.id > maxComp) maxComp = c.id;
+    }
+  }
+  nextCompId = maxComp + 1;
+});
+const distinteBasi = _distinteStore.items;
+
+const _fasiStore = persistedStore<FaseProduzione>("produzione_fasi", (loaded) => {
+  nextFaseId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  let maxCheck = 0;
+  for (const f of loaded) {
+    for (const c of (f as any).checklistItems ?? []) {
+      if (c.id > maxCheck) maxCheck = c.id;
+    }
+  }
+  nextCheckId = maxCheck + 1;
+});
+const fasiProduzione = _fasiStore.items;
+
+const _ncStore = persistedStore<NonConformita>("produzione_nc", (loaded) => {
+  nextNcId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const nonConformita = _ncStore.items;
 
 // ── Router ──────────────────────────────────────────────────────────────────
 
@@ -133,6 +157,7 @@ export const produzioneRouter = router({
           updatedAt: now,
         };
         distinteBasi.push(bom);
+        _distinteStore.save();
         return bom;
       }),
 
@@ -153,6 +178,7 @@ export const produzioneRouter = router({
         distinteBasi[idx].noteValidazione = input.noteValidazione;
         distinteBasi[idx].dataValidazione = new Date().toISOString().split("T")[0];
         distinteBasi[idx].updatedAt = new Date();
+        _distinteStore.save();
         return distinteBasi[idx];
       }),
 
@@ -163,6 +189,7 @@ export const produzioneRouter = router({
         if (idx === -1) throw new Error("Distinta base non trovata");
         distinteBasi[idx].stato = input.stato;
         distinteBasi[idx].updatedAt = new Date();
+        _distinteStore.save();
         return distinteBasi[idx];
       }),
 
@@ -170,6 +197,7 @@ export const produzioneRouter = router({
       const idx = distinteBasi.findIndex((d) => d.id === input);
       if (idx === -1) throw new Error("Distinta base non trovata");
       distinteBasi.splice(idx, 1);
+      _distinteStore.save();
       return { success: true };
     }),
 
@@ -219,6 +247,7 @@ export const produzioneRouter = router({
           fasiProduzione[idx].dataFine = new Date().toISOString().split("T")[0];
         }
         fasiProduzione[idx].updatedAt = new Date();
+        _fasiStore.save();
         return fasiProduzione[idx];
       }),
 
@@ -232,6 +261,7 @@ export const produzioneRouter = router({
         fasiProduzione[faseIdx].checklistItems[itemIdx].completato = input.completato;
         if (input.esito) fasiProduzione[faseIdx].checklistItems[itemIdx].esito = input.esito;
         fasiProduzione[faseIdx].updatedAt = new Date();
+        _fasiStore.save();
         return fasiProduzione[faseIdx];
       }),
 
@@ -239,6 +269,7 @@ export const produzioneRouter = router({
       const idx = fasiProduzione.findIndex((f) => f.id === input);
       if (idx === -1) throw new Error("Fase non trovata");
       fasiProduzione.splice(idx, 1);
+      _fasiStore.save();
       return { success: true };
     }),
 
@@ -289,6 +320,7 @@ export const produzioneRouter = router({
           updatedAt: now,
         };
         nonConformita.push(nc);
+        _ncStore.save();
         return nc;
       }),
 
@@ -307,6 +339,7 @@ export const produzioneRouter = router({
         if (input.azioneCorrettiva) nonConformita[idx].azioneCorrettiva = input.azioneCorrettiva;
         if (input.stato === "chiusa") nonConformita[idx].dataChiusura = new Date().toISOString().split("T")[0];
         nonConformita[idx].updatedAt = new Date();
+        _ncStore.save();
         return nonConformita[idx];
       }),
 
@@ -314,6 +347,7 @@ export const produzioneRouter = router({
       const idx = nonConformita.findIndex((n) => n.id === input);
       if (idx === -1) throw new Error("Non conformita non trovata");
       nonConformita.splice(idx, 1);
+      _ncStore.save();
       return { success: true };
     }),
 

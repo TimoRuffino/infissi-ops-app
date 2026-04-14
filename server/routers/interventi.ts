@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let interventi: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _interventiStore = persistedStore<any>("interventi", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const interventi = _interventiStore.items;
 
 export const interventiRouter = router({
   list: publicProcedure
@@ -50,6 +53,7 @@ export const interventiRouter = router({
         updatedAt: now,
       };
       interventi.push(intervento);
+      _interventiStore.save();
       return intervento;
     }),
 
@@ -67,6 +71,7 @@ export const interventiRouter = router({
       if (idx === -1) throw new Error("Intervento non trovato");
       const { id, ...updates } = input;
       interventi[idx] = { ...interventi[idx], ...updates, updatedAt: new Date() };
+      _interventiStore.save();
       return interventi[idx];
     }),
 
@@ -74,6 +79,7 @@ export const interventiRouter = router({
     const idx = interventi.findIndex((i) => i.id === input);
     if (idx === -1) throw new Error("Intervento non trovato");
     interventi.splice(idx, 1);
+    _interventiStore.save();
     return { success: true };
   }),
 
@@ -89,6 +95,7 @@ export const interventiRouter = router({
       if (input.stato === "in_corso") interventi[idx].dataInizio = new Date();
       if (input.stato === "completato") interventi[idx].dataFine = new Date();
       interventi[idx].updatedAt = new Date();
+      _interventiStore.save();
       return interventi[idx];
     }),
 });

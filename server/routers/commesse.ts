@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { addCommessaToCliente, getClienteById } from "./clienti";
+import { persistedStore } from "../_core/persistence";
 
 // ── State machine: allowed transitions ──────────────────────────────────────
 const STATI_COMMESSA = [
@@ -43,10 +44,12 @@ function validateTransizione(statoAttuale: string, nuovoStato: string): void {
   }
 }
 
-// In-memory store (replace with Drizzle queries when DB is available)
-let commesse: any[] = [];
-
 let nextId = 1;
+
+const _store = persistedStore<any>("commesse", (items) => {
+  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+});
+const commesse = _store.items;
 
 // Auto-generate codice: COM-YYYY-NNN (zero-padded, sequential per year)
 function generaCodiceCommessa(): string {
@@ -152,6 +155,7 @@ export const commesseRouter = router({
       if (inputClienteId) {
         addCommessaToCliente(inputClienteId, id);
       }
+      _store.save();
       return commessa;
     }),
 
@@ -185,6 +189,7 @@ export const commesseRouter = router({
       if (input.stato === "archiviata") {
         commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
       }
+      _store.save();
       return commesse[idx];
     }),
 
@@ -199,6 +204,7 @@ export const commesseRouter = router({
         dataConsegnaConfermata: input.dataConsegna,
         updatedAt: new Date(),
       };
+      _store.save();
       return commesse[idx];
     }),
 
@@ -206,6 +212,7 @@ export const commesseRouter = router({
     const idx = commesse.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Commessa non trovata");
     commesse.splice(idx, 1);
+    _store.save();
     return { success: true };
   }),
 

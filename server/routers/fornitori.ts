@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,12 +51,6 @@ type RigaOrdine = {
   noteDifetto?: string;
 };
 
-// ── In-memory data ──────────────────────────────────────────────────────────
-
-let fornitori: Fornitore[] = [];
-
-let ordini: OrdineFornitore[] = [];
-
 type Listino = {
   id: number;
   fornitoreId: number;
@@ -68,12 +63,35 @@ type Listino = {
   createdAt: Date;
 };
 
-let listini: Listino[] = [];
-let nextListinoId = 1;
+// ── In-memory data ──────────────────────────────────────────────────────────
 
 let nextFornitoreId = 1;
 let nextOrdineId = 1;
 let nextRigaId = 1;
+let nextListinoId = 1;
+
+const _fornitoriStore = persistedStore<Fornitore>("fornitori", (loaded) => {
+  nextFornitoreId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const fornitori = _fornitoriStore.items;
+
+const _ordiniStore = persistedStore<OrdineFornitore>("fornitori_ordini", (loaded) => {
+  nextOrdineId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  // Recompute nextRigaId by scanning child righe[] across all ordini
+  let maxRigaId = 0;
+  for (const o of loaded) {
+    for (const r of (o as any).righe ?? []) {
+      if (r.id > maxRigaId) maxRigaId = r.id;
+    }
+  }
+  nextRigaId = maxRigaId + 1;
+});
+const ordini = _ordiniStore.items;
+
+const _listiniStore = persistedStore<Listino>("fornitori_listini", (loaded) => {
+  nextListinoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const listini = _listiniStore.items;
 
 // ── Router ──────────────────────────────────────────────────────────────────
 
@@ -132,6 +150,7 @@ export const fornitoriRouter = router({
         updatedAt: now,
       };
       fornitori.push(fornitore);
+      _fornitoriStore.save();
       return fornitore;
     }),
 
@@ -157,6 +176,7 @@ export const fornitoriRouter = router({
       if (idx === -1) throw new Error("Fornitore non trovato");
       const { id, ...updates } = input;
       fornitori[idx] = { ...fornitori[idx], ...updates, updatedAt: new Date() };
+      _fornitoriStore.save();
       return fornitori[idx];
     }),
 
@@ -164,6 +184,7 @@ export const fornitoriRouter = router({
     const idx = fornitori.findIndex((f) => f.id === input);
     if (idx === -1) throw new Error("Fornitore non trovato");
     fornitori.splice(idx, 1);
+    _fornitoriStore.save();
     return { success: true };
   }),
 
@@ -258,6 +279,7 @@ export const fornitoriRouter = router({
           updatedAt: now,
         };
         ordini.push(ordine);
+        _ordiniStore.save();
         return ordine;
       }),
 
@@ -296,6 +318,7 @@ export const fornitoriRouter = router({
             }
           }
         }
+        _ordiniStore.save();
         return ordini[idx];
       }),
 
@@ -303,6 +326,7 @@ export const fornitoriRouter = router({
       const idx = ordini.findIndex((o) => o.id === input);
       if (idx === -1) throw new Error("Ordine non trovato");
       ordini.splice(idx, 1);
+      _ordiniStore.save();
       return { success: true };
     }),
   }),
@@ -334,6 +358,7 @@ export const fornitoriRouter = router({
           createdAt: new Date(),
         };
         listini.push(listino);
+        _listiniStore.save();
         return listino;
       }),
 
@@ -341,6 +366,7 @@ export const fornitoriRouter = router({
       const idx = listini.findIndex((l) => l.id === input);
       if (idx === -1) throw new Error("Listino non trovato");
       listini.splice(idx, 1);
+      _listiniStore.save();
       return { success: true };
     }),
   }),

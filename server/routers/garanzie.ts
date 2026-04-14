@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let garanzie: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _garanzieStore = persistedStore<any>("garanzie", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const garanzie = _garanzieStore.items;
 
 export const garanzieRouter = router({
   list: publicProcedure
@@ -52,6 +55,7 @@ export const garanzieRouter = router({
         updatedAt: now,
       };
       garanzie.push(garanzia);
+      _garanzieStore.save();
       return garanzia;
     }),
 
@@ -70,6 +74,7 @@ export const garanzieRouter = router({
       if (idx === -1) throw new Error("Garanzia non trovata");
       const { id, ...updates } = input;
       garanzie[idx] = { ...garanzie[idx], ...updates, updatedAt: new Date() };
+      _garanzieStore.save();
       return garanzie[idx];
     }),
 
@@ -77,6 +82,7 @@ export const garanzieRouter = router({
     const idx = garanzie.findIndex((g) => g.id === input);
     if (idx === -1) throw new Error("Garanzia non trovata");
     garanzie.splice(idx, 1);
+    _garanzieStore.save();
     return { success: true };
   }),
 

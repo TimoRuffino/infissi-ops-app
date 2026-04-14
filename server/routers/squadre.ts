@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let squadre: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _squadreStore = persistedStore<any>("squadre", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const squadre = _squadreStore.items;
 
 export const squadreRouter = router({
   list: publicProcedure.query(() => {
@@ -25,6 +28,7 @@ export const squadreRouter = router({
       const now = new Date();
       const squadra = { id: nextId++, ...input, attiva: true, createdAt: now, updatedAt: now };
       squadre.push(squadra);
+      _squadreStore.save();
       return squadra;
     }),
 
@@ -42,6 +46,7 @@ export const squadreRouter = router({
       if (idx === -1) throw new Error("Squadra non trovata");
       const { id, ...updates } = input;
       squadre[idx] = { ...squadre[idx], ...updates, updatedAt: new Date() };
+      _squadreStore.save();
       return squadre[idx];
     }),
 
@@ -49,6 +54,7 @@ export const squadreRouter = router({
     const idx = squadre.findIndex((s) => s.id === input);
     if (idx === -1) throw new Error("Squadra non trovata");
     squadre.splice(idx, 1);
+    _squadreStore.save();
     return { success: true };
   }),
 });

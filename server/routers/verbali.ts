@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-
-let verbali: any[] = [];
+import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
+const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const verbali = _verbaliStore.items;
 
 export const verbaliRouter = router({
   byIntervento: publicProcedure.input(z.number()).query(({ input }) => {
@@ -46,6 +49,7 @@ export const verbaliRouter = router({
         updatedAt: now,
       };
       verbali.push(verbale);
+      _verbaliStore.save();
       return verbale;
     }),
 
@@ -71,6 +75,7 @@ export const verbaliRouter = router({
       if (verbali[idx].firmaCliente && verbali[idx].firmaTecnico) {
         verbali[idx].stato = "firmato";
       }
+      _verbaliStore.save();
       return verbali[idx];
     }),
 });

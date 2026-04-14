@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
+import { persistedStore } from "../_core/persistence";
 
 // ── 19-step order timeline ────────────────────────────────────────────────────
 const STEP_LABELS: string[] = [
@@ -39,8 +40,11 @@ interface TimelineStep {
 }
 
 // In-memory store (replace with Drizzle queries when DB is available)
-let steps: TimelineStep[] = [];
 let nextId = 1;
+const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
+  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const steps = _stepsStore.items;
 
 function createStepsForCommessa(commessaId: number): TimelineStep[] {
   const newSteps: TimelineStep[] = STEP_LABELS.map((label, idx) => ({
@@ -55,6 +59,7 @@ function createStepsForCommessa(commessaId: number): TimelineStep[] {
     allegato: null,
   }));
   steps.push(...newSteps);
+  _stepsStore.save();
   return newSteps;
 }
 
@@ -104,6 +109,7 @@ export const timelineRouter = router({
       if (idx === -1) throw new Error("Step non trovato");
       const { id, ...updates } = input;
       steps[idx] = { ...steps[idx], ...updates } as TimelineStep;
+      _stepsStore.save();
       return steps[idx];
     }),
 
