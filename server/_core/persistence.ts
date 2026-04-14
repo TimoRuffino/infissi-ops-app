@@ -93,7 +93,10 @@ function scheduleSave(key: string) {
 }
 
 async function flushSave(key: string) {
-  if (!sql) return;
+  if (!sql) {
+    console.warn(`[persistence] save skipped for ${key} — no DATABASE_URL`);
+    return;
+  }
   const store = registry.get(key);
   if (!store) return;
   try {
@@ -104,8 +107,11 @@ async function flushSave(key: string) {
       ON CONFLICT (key) DO UPDATE
         SET data = EXCLUDED.data, updated_at = NOW()
     `;
+    console.log(
+      `[persistence] saved ${key}: ${store.items.length} items (${json.length}b)`
+    );
   } catch (e) {
-    console.error(`[persistence] save failed for ${key}:`, e);
+    console.error(`[persistence] save FAILED for ${key}:`, e);
   }
 }
 
