@@ -30,6 +30,8 @@ import {
   Eye,
   EyeOff,
   LayoutGrid,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -38,23 +40,61 @@ type ColonnaConfig = {
   id: string;
   label: string;
   short: string;
-  dot: string; // dot color (bg-*-500)
-  accent: string; // header bg accent (bg-*-50)
-  ring: string; // border when items present
+  dot: string;
+  accent: string;
+  ring: string;
 };
 
-const COLONNE: ReadonlyArray<ColonnaConfig> = [
-  { id: "preventivo",              label: "Preventivo",              short: "Preventivo",       dot: "bg-slate-500",  accent: "bg-slate-50",  ring: "border-slate-200" },
-  { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",           dot: "bg-blue-500",   accent: "bg-blue-50",   ring: "border-blue-200" },
-  { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto",   dot: "bg-cyan-500",   accent: "bg-cyan-50",   ring: "border-cyan-200" },
-  { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",          dot: "bg-amber-500",  accent: "bg-amber-50",  ring: "border-amber-200" },
-  { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",      dot: "bg-yellow-500", accent: "bg-yellow-50", ring: "border-yellow-200" },
-  { id: "produzione",              label: "Produzione",              short: "Produzione",       dot: "bg-indigo-500", accent: "bg-indigo-50", ring: "border-indigo-200" },
-  { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",     dot: "bg-purple-500", accent: "bg-purple-50", ring: "border-purple-200" },
-  { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",      dot: "bg-orange-500", accent: "bg-orange-50", ring: "border-orange-200" },
-  { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",         dot: "bg-green-500",  accent: "bg-green-50",  ring: "border-green-200" },
-  { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",       dot: "bg-teal-500",   accent: "bg-teal-50",   ring: "border-teal-200" },
+type FaseConfig = {
+  id: string;
+  label: string;
+  description: string;
+  colonne: ReadonlyArray<ColonnaConfig>;
+};
+
+const FASI: ReadonlyArray<FaseConfig> = [
+  {
+    id: "vendita",
+    label: "Vendita",
+    description: "Dal preventivo alla conferma",
+    colonne: [
+      { id: "preventivo",              label: "Preventivo",              short: "Preventivo",     dot: "bg-slate-500",  accent: "bg-slate-50",  ring: "border-slate-200" },
+      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",         dot: "bg-blue-500",   accent: "bg-blue-50",   ring: "border-blue-200" },
+      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto", dot: "bg-cyan-500",   accent: "bg-cyan-50",   ring: "border-cyan-200" },
+    ],
+  },
+  {
+    id: "ordine",
+    label: "Ordine & Produzione",
+    description: "Fatturazione, ordine, costruzione",
+    colonne: [
+      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",        dot: "bg-amber-500",  accent: "bg-amber-50",  ring: "border-amber-200" },
+      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",    dot: "bg-yellow-500", accent: "bg-yellow-50", ring: "border-yellow-200" },
+      { id: "produzione",              label: "Produzione",              short: "Produzione",     dot: "bg-indigo-500", accent: "bg-indigo-50", ring: "border-indigo-200" },
+    ],
+  },
+  {
+    id: "consegna",
+    label: "Consegna & Posa",
+    description: "Secondo acconto, attesa, posa",
+    colonne: [
+      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",   dot: "bg-purple-500", accent: "bg-purple-50", ring: "border-purple-200" },
+      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",    dot: "bg-orange-500", accent: "bg-orange-50", ring: "border-orange-200" },
+    ],
+  },
+  {
+    id: "chiusura",
+    label: "Chiusura",
+    description: "Saldo e interventi finali",
+    colonne: [
+      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",       dot: "bg-green-500",  accent: "bg-green-50",  ring: "border-green-200" },
+      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",     dot: "bg-teal-500",   accent: "bg-teal-50",   ring: "border-teal-200" },
+    ],
+  },
 ];
+
+// Flat list derived from FASI — preserves stato order for prev/next navigation
+const COLONNE_FLAT: ReadonlyArray<ColonnaConfig> = FASI.flatMap((f) => f.colonne);
 
 const prioritaColors: Record<string, string> = {
   urgente: "bg-red-100 text-red-800 border-red-200",
@@ -75,6 +115,8 @@ export default function KanbanBoard() {
   const [search, setSearch] = useState("");
   const [filtroPriorita, setFiltroPriorita] = useState<string>("tutte");
   const [hideEmpty, setHideEmpty] = useState(false);
+  const [faseFiltro, setFaseFiltro] = useState<string>("tutte");
+  const [fasiCollapsed, setFasiCollapsed] = useState<Record<string, boolean>>({});
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const updateCommessa = trpc.commesse.update.useMutation({
@@ -93,7 +135,6 @@ export default function KanbanBoard() {
     },
   });
 
-  // Apply filters once, then bucket by stato
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (commesse.data ?? []).filter((c: any) => {
@@ -108,11 +149,10 @@ export default function KanbanBoard() {
 
   const byStato = useMemo(() => {
     const map: Record<string, any[]> = {};
-    for (const col of COLONNE) map[col.id] = [];
+    for (const col of COLONNE_FLAT) map[col.id] = [];
     for (const c of filtered) {
       if (map[c.stato]) map[c.stato].push(c);
     }
-    // sort each column: urgent first, then newest
     for (const k of Object.keys(map)) {
       map[k].sort((a, b) => {
         const pa = prioritaOrder[a.priorita] ?? 9;
@@ -124,7 +164,6 @@ export default function KanbanBoard() {
     return map;
   }, [filtered]);
 
-  // Global stats
   const totals = useMemo(() => {
     const list = commesse.data ?? [];
     const active = list.filter((c: any) => c.stato !== "archiviata");
@@ -139,9 +178,9 @@ export default function KanbanBoard() {
     updateCommessa.mutate({ id: commessaId, stato: newStato as any });
   }
 
-  const visibleColonne = hideEmpty
-    ? COLONNE.filter((col) => (byStato[col.id]?.length ?? 0) > 0)
-    : COLONNE;
+  const fasiVisibili = FASI.filter(
+    (f) => faseFiltro === "tutte" || faseFiltro === f.id
+  );
 
   return (
     <div className="space-y-4">
@@ -153,11 +192,10 @@ export default function KanbanBoard() {
             Board Commesse
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Stato avanzamento — avanza o arretra le commesse con i bottoni
+            Flusso per fasi — scorri verticalmente per vedere tutto
           </p>
         </div>
 
-        {/* Summary cards */}
         <div className="flex gap-2 flex-wrap">
           <Card className="px-3 py-2">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attive</div>
@@ -213,6 +251,35 @@ export default function KanbanBoard() {
         </Button>
       </div>
 
+      {/* Phase chips */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Button
+          variant={faseFiltro === "tutte" ? "default" : "outline"}
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => setFaseFiltro("tutte")}
+        >
+          Tutte le fasi
+        </Button>
+        {FASI.map((f) => {
+          const count = f.colonne.reduce((s, c) => s + (byStato[c.id]?.length ?? 0), 0);
+          return (
+            <Button
+              key={f.id}
+              variant={faseFiltro === f.id ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setFaseFiltro(f.id)}
+            >
+              {f.label}
+              <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
+                {count}
+              </Badge>
+            </Button>
+          );
+        })}
+      </div>
+
       {moveError && (
         <Card className="border-red-300 bg-red-50">
           <CardContent className="p-3 text-sm text-red-800 flex items-center gap-2">
@@ -222,157 +289,197 @@ export default function KanbanBoard() {
         </Card>
       )}
 
-      {/* Kanban — horizontal scroll with fixed column width */}
-      <div className="overflow-x-auto pb-3 -mx-2 px-2">
-        <div className="flex gap-3 min-w-max">
-          {visibleColonne.map((col, colIdx) => {
-            const items = byStato[col.id] ?? [];
-            const allColIdx = COLONNE.findIndex((c) => c.id === col.id);
-            const prevStato = allColIdx > 0 ? COLONNE[allColIdx - 1].id : null;
-            const nextStato = allColIdx < COLONNE.length - 1 ? COLONNE[allColIdx + 1].id : null;
-            const urgentiCount = items.filter((c: any) => c.priorita === "urgente").length;
+      {/* Phase stacks */}
+      <div className="space-y-4">
+        {fasiVisibili.map((fase) => {
+          const colonne = hideEmpty
+            ? fase.colonne.filter((c) => (byStato[c.id]?.length ?? 0) > 0)
+            : fase.colonne;
+          if (colonne.length === 0) return null;
 
-            return (
-              <div key={col.id} className="w-[280px] shrink-0 flex flex-col">
-                {/* Column header */}
-                <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 ${col.accent} ${col.ring}`}>
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`} />
-                  <span className="text-xs font-semibold uppercase tracking-wide truncate flex-1">
-                    {col.label}
-                  </span>
-                  {urgentiCount > 0 && (
-                    <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5 shrink-0">
+          const fasePz = fase.colonne.reduce((s, c) => s + (byStato[c.id]?.length ?? 0), 0);
+          const faseUrgenti = fase.colonne.reduce(
+            (s, c) => s + (byStato[c.id]?.filter((x: any) => x.priorita === "urgente").length ?? 0),
+            0
+          );
+          const collapsed = fasiCollapsed[fase.id];
+
+          return (
+            <section
+              key={fase.id}
+              className="rounded-xl border bg-card/30"
+            >
+              {/* Phase header */}
+              <button
+                onClick={() => setFasiCollapsed((m) => ({ ...m, [fase.id]: !m[fase.id] }))}
+                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors rounded-t-xl"
+                aria-label={collapsed ? "Espandi fase" : "Comprimi fase"}
+              >
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <h2 className="text-sm font-bold uppercase tracking-wide">{fase.label}</h2>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">· {fase.description}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {faseUrgenti > 0 && (
+                    <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5">
                       <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                      {urgentiCount}
+                      {faseUrgenti}
                     </Badge>
                   )}
-                  <Badge variant="secondary" className="text-[11px] h-5 shrink-0">
-                    {items.length}
-                  </Badge>
+                  <Badge variant="secondary" className="text-[11px] h-5">{fasePz}</Badge>
+                  {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </div>
+              </button>
 
-                {/* Cards container */}
-                <div className={`flex-1 space-y-2 min-h-[180px] bg-muted/20 rounded-b-lg border border-t-0 p-2 ${col.ring}`}>
-                  {items.map((c: any) => {
-                    const isProduzione = c.stato === "produzione";
-                    const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
-                    return (
-                      <Card
-                        key={c.id}
-                        className={`cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all ${
-                          needsConsegna ? "ring-2 ring-amber-400" : ""
-                        }`}
-                        onClick={() => setLocation(`/commesse/${c.id}`)}
-                      >
-                        <CardContent className="p-2.5 space-y-1.5">
-                          {/* top row: codice + priority */}
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-[10px] text-muted-foreground truncate">
-                              {c.codice}
+              {!collapsed && (
+                <div className="px-3 pb-3">
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+                    {colonne.map((col) => {
+                      const items = byStato[col.id] ?? [];
+                      const allColIdx = COLONNE_FLAT.findIndex((c) => c.id === col.id);
+                      const prevStato = allColIdx > 0 ? COLONNE_FLAT[allColIdx - 1].id : null;
+                      const nextStato = allColIdx < COLONNE_FLAT.length - 1 ? COLONNE_FLAT[allColIdx + 1].id : null;
+                      const urgentiCount = items.filter((c: any) => c.priorita === "urgente").length;
+
+                      return (
+                        <div key={col.id} className="flex flex-col min-w-0">
+                          {/* Column header */}
+                          <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 ${col.accent} ${col.ring}`}>
+                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`} />
+                            <span className="text-xs font-semibold uppercase tracking-wide truncate flex-1">
+                              {col.label}
                             </span>
-                            <Badge className={`text-[9px] px-1.5 py-0 border ${prioritaColors[c.priorita] ?? ""}`}>
-                              {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
-                              {c.priorita?.toUpperCase() ?? ""}
+                            {urgentiCount > 0 && (
+                              <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5 shrink-0">
+                                <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                                {urgentiCount}
+                              </Badge>
+                            )}
+                            <Badge variant="secondary" className="text-[11px] h-5 shrink-0">
+                              {items.length}
                             </Badge>
                           </div>
 
-                          {/* cliente */}
-                          <p className="text-sm font-semibold leading-tight truncate" title={c.cliente}>
-                            {c.cliente}
-                          </p>
+                          {/* Cards container */}
+                          <div className={`flex-1 space-y-2 min-h-[120px] bg-muted/10 rounded-b-lg border border-t-0 p-2 ${col.ring}`}>
+                            {items.map((c: any) => {
+                              const isProduzione = c.stato === "produzione";
+                              const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
+                              return (
+                                <Card
+                                  key={c.id}
+                                  className={`cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                                    needsConsegna ? "ring-2 ring-amber-400" : ""
+                                  }`}
+                                  onClick={() => setLocation(`/commesse/${c.id}`)}
+                                >
+                                  <CardContent className="p-2.5 space-y-1.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-mono text-[10px] text-muted-foreground truncate">
+                                        {c.codice}
+                                      </span>
+                                      <Badge className={`text-[9px] px-1.5 py-0 border ${prioritaColors[c.priorita] ?? ""}`}>
+                                        {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
+                                        {c.priorita?.toUpperCase() ?? ""}
+                                      </Badge>
+                                    </div>
 
-                          {/* city */}
-                          {c.citta && (
-                            <p className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
-                              <MapPin className="h-3 w-3 shrink-0" />
-                              {c.citta}
-                            </p>
-                          )}
+                                    <p className="text-sm font-semibold leading-tight truncate" title={c.cliente}>
+                                      {c.cliente}
+                                    </p>
 
-                          {/* delivery */}
-                          {c.dataConsegnaConfermata ? (
-                            <div className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 rounded px-1.5 py-0.5">
-                              <CheckCircle2 className="h-3 w-3 shrink-0" />
-                              Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
-                            </div>
-                          ) : c.consegnaIndicativa ? (
-                            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                              <Calendar className="h-3 w-3 shrink-0" />
-                              Indicativa: +{c.consegnaIndicativa}gg
-                            </div>
-                          ) : null}
+                                    {c.citta && (
+                                      <p className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
+                                        <MapPin className="h-3 w-3 shrink-0" />
+                                        {c.citta}
+                                      </p>
+                                    )}
 
-                          {/* produzione CTA */}
-                          {needsConsegna && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 w-full text-[10px] border-amber-400 text-amber-700 hover:bg-amber-50"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setConsegnaTarget({ id: c.id, codice: c.codice });
-                                setConsegnaDate("");
-                              }}
-                            >
-                              <Clock className="h-3 w-3 mr-1" />
-                              Aggiorna data consegna
-                            </Button>
-                          )}
+                                    {c.dataConsegnaConfermata ? (
+                                      <div className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 rounded px-1.5 py-0.5">
+                                        <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                        Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+                                      </div>
+                                    ) : c.consegnaIndicativa ? (
+                                      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                        <Calendar className="h-3 w-3 shrink-0" />
+                                        Indicativa: +{c.consegnaIndicativa}gg
+                                      </div>
+                                    ) : null}
 
-                          {/* Move buttons */}
-                          <div className="flex gap-1 pt-1 border-t">
-                            {prevStato ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 flex-1 text-[10px] px-1 text-muted-foreground hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMove(c.id, prevStato);
-                                }}
-                                title="Torna indietro"
-                              >
-                                <ChevronLeft className="h-3 w-3" />
-                                Indietro
-                              </Button>
-                            ) : (
-                              <div className="flex-1" />
-                            )}
-                            {nextStato ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 flex-1 text-[10px] px-1 text-primary hover:bg-primary/10"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMove(c.id, nextStato);
-                                }}
-                                title="Avanza stato"
-                              >
-                                Avanza
-                                <ChevronRight className="h-3 w-3" />
-                              </Button>
-                            ) : (
-                              <div className="flex-1" />
+                                    {needsConsegna && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 w-full text-[10px] border-amber-400 text-amber-700 hover:bg-amber-50"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setConsegnaTarget({ id: c.id, codice: c.codice });
+                                          setConsegnaDate("");
+                                        }}
+                                      >
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        Aggiorna data consegna
+                                      </Button>
+                                    )}
+
+                                    <div className="flex gap-1 pt-1 border-t">
+                                      {prevStato ? (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 flex-1 text-[10px] px-1 text-muted-foreground hover:text-foreground"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleMove(c.id, prevStato);
+                                          }}
+                                          title="Torna indietro"
+                                        >
+                                          <ChevronLeft className="h-3 w-3" />
+                                          Indietro
+                                        </Button>
+                                      ) : (
+                                        <div className="flex-1" />
+                                      )}
+                                      {nextStato ? (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 flex-1 text-[10px] px-1 text-primary hover:bg-primary/10"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleMove(c.id, nextStato);
+                                          }}
+                                          title="Avanza stato"
+                                        >
+                                          Avanza
+                                          <ChevronRight className="h-3 w-3" />
+                                        </Button>
+                                      ) : (
+                                        <div className="flex-1" />
+                                      )}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                            {items.length === 0 && (
+                              <p className="text-[11px] text-muted-foreground text-center py-6 italic">
+                                Nessuna commessa
+                              </p>
                             )}
                           </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                  {items.length === 0 && (
-                    <p className="text-[11px] text-muted-foreground text-center py-6 italic">
-                      Nessuna commessa
-                    </p>
-                  )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              )}
+            </section>
+          );
+        })}
       </div>
 
-      {/* Conferma data consegna dialog */}
       <Dialog open={!!consegnaTarget} onOpenChange={(o) => !o && setConsegnaTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
