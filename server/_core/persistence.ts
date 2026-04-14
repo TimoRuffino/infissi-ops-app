@@ -26,16 +26,26 @@ const sql = DATABASE_URL
     })
   : null;
 
-let schemaReady = false;
+let schemaPromise: Promise<void> | null = null;
 
-async function ensureSchema() {
-  if (!sql || schemaReady) return;
-  await sql`CREATE TABLE IF NOT EXISTS kv_store (
-    key TEXT PRIMARY KEY,
-    data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  schemaReady = true;
+function ensureSchema(): Promise<void> {
+  if (!sql) return Promise.resolve();
+  if (!schemaPromise) {
+    schemaPromise = sql`CREATE TABLE IF NOT EXISTS kv_store (
+      key TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`.then(
+      () => undefined,
+      (e) => {
+        console.error("[persistence] ensureSchema failed:", e);
+        // Reset so next attempt can retry.
+        schemaPromise = null;
+        throw e;
+      }
+    );
+  }
+  return schemaPromise;
 }
 
 type StoreEntry = {
@@ -100,6 +110,9 @@ async function flushSave(key: string) {
   const store = registry.get(key);
   if (!store) return;
   try {
+    // Guarantee schema before any write — protects against the race where a
+    // module-level seed schedules a save before bootstrapAll runs ensureSchema.
+    await ensureSchema();
     const json = JSON.stringify(store.items);
     await sql`
       INSERT INTO kv_store (key, data, updated_at)
