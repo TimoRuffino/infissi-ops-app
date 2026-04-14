@@ -165,16 +165,22 @@ export default function Planning() {
   const updateStato = trpc.interventi.updateStato.useMutation({
     onSuccess: () => {
       utils.interventi.invalidate();
+    },
+  });
+  const deleteIntervento = trpc.interventi.delete.useMutation({
+    onSuccess: () => {
+      utils.interventi.invalidate();
       setAnnullaTarget(null);
     },
   });
 
-  // Index interventi by day
+  // Index interventi by day — hide annullati (legacy) since they should not appear
   const byDay = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const i of interventi.data ?? []) {
       const key = i.dataPianificata;
       if (!key) continue;
+      if (i.stato === "annullato") continue;
       (map[key] ||= []).push(i);
     }
     // Sort each day by oraInizio then tipo
@@ -558,9 +564,9 @@ export default function Planning() {
       <ConfirmDialog
         open={!!annullaTarget}
         onOpenChange={(open: boolean) => !open && setAnnullaTarget(null)}
-        title="Annulla appuntamento"
-        description={`Confermi l'annullamento dell'appuntamento "${annullaTarget?.label}"? Sarà marcato come annullato.`}
-        onConfirm={() => annullaTarget && updateStato.mutate({ id: annullaTarget.id, stato: "annullato" })}
+        title="Elimina appuntamento"
+        description={`Confermi l'eliminazione dell'appuntamento "${annullaTarget?.label}"? L'appuntamento verrà rimosso definitivamente dal calendario.`}
+        onConfirm={() => annullaTarget && deleteIntervento.mutate(annullaTarget.id)}
       />
     </div>
   );
