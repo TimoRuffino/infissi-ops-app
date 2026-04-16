@@ -19,10 +19,11 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, MapPin, Calendar, User, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, MapPin, Calendar, User, Trash2, UserPlus } from "lucide-react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import SearchSelect from "@/components/SearchSelect";
 
 type DeleteTarget = { id: number; label: string } | null;
 
@@ -57,6 +58,18 @@ const emptyForm = {
   priorita: "media" as "bassa" | "media" | "alta" | "urgente",
   note: "",
   consegnaIndicativa: "60" as "30" | "60" | "90",
+  assegnatoA: "" as string,
+};
+
+const emptyClienteForm = {
+  nome: "",
+  cognome: "",
+  tipo: "privato" as "privato" | "azienda" | "condominio" | "ente_pubblico",
+  telefono: "",
+  email: "",
+  indirizzo: "",
+  citta: "",
+  assegnatoA: "" as string,
 };
 
 export default function CommesseList() {
@@ -66,11 +79,22 @@ export default function CommesseList() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
+  const [onlyMine, setOnlyMine] = useState(false);
+  const currentUser = trpc.auth.me.useQuery(undefined, { retry: false });
+
   const commesse = trpc.commesse.list.useQuery({
     search: search || undefined,
     stato: filtroStato !== "tutti" ? filtroStato : undefined,
+    assegnatoA: onlyMine && currentUser.data ? currentUser.data.id : undefined,
   });
   const clientiList = trpc.clienti.list.useQuery({});
+  const utentiList = trpc.utenti.list.useQuery(undefined);
+
+  const utenteById = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const u of utentiList.data ?? []) map.set(u.id, u);
+    return map;
+  }, [utentiList.data]);
 
   const utils = trpc.useUtils();
   const createMutation = trpc.commesse.create.useMutation({
@@ -82,6 +106,28 @@ export default function CommesseList() {
     },
   });
 
+  // Inline cliente creation from inside the "Nuova commessa" dialog.
+  const createClienteMutation = trpc.clienti.create.useMutation({
+    onSuccess: (cliente) => {
+      utils.clienti.invalidate();
+      // Auto-select the freshly created cliente in the commessa form + inherit
+      // its fields.
+      const nomeCognome = `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim();
+      setForm((prev) => ({
+        ...prev,
+        clienteId: String(cliente.id),
+        cliente: nomeCognome,
+        indirizzo: cliente.indirizzo ?? "",
+        citta: cliente.citta ?? "",
+        telefono: cliente.telefono ?? "",
+        email: cliente.email ?? "",
+        assegnatoA: cliente.assegnatoA ? String(cliente.assegnatoA) : prev.assegnatoA,
+      }));
+      setClienteDialogOpen(false);
+      setClienteForm(emptyClienteForm);
+    },
+  });
+
   const deleteCommessa = trpc.commesse.delete.useMutation({
     onSuccess: () => {
       utils.commesse.invalidate();
@@ -90,9 +136,12 @@ export default function CommesseList() {
   });
 
   const [form, setForm] = useState(emptyForm);
+  const [clienteDialogOpen, setClienteDialogOpen] = useState(false);
+  const [clienteForm, setClienteForm] = useState(emptyClienteForm);
 
   function handleClienteSelect(clienteIdStr: string) {
-    if (clienteIdStr === "__new__") {
+    // Empty string from "Cliente non registrato" clear action.
+    if (!clienteIdStr) {
       setForm({ ...form, clienteId: "", cliente: "", indirizzo: "", citta: "", telefono: "", email: "" });
       return;
     }
@@ -108,6 +157,9 @@ export default function CommesseList() {
         citta: c.citta ?? "",
         telefono: c.telefono ?? "",
         email: c.email ?? "",
+        // Inherit cliente owner by default so the commessa is tagged to the
+        // same user that onboarded the cliente.
+        assegnatoA: c.assegnatoA ? String(c.assegnatoA) : form.assegnatoA,
       });
     }
   }
@@ -124,8 +176,45 @@ export default function CommesseList() {
       priorita: form.priorita,
       note: form.note || undefined,
       consegnaIndicativa: form.consegnaIndicativa,
+      assegnatoA: form.assegnatoA ? parseInt(form.assegnatoA, 10) : undefined,
     });
   }
+
+  function handleCreateCliente() {
+    if (!clienteForm.nome || !clienteForm.cognome) return;
+    createClienteMutation.mutate({
+      nome: clienteForm.nome,
+      cognome: clienteForm.cognome,
+      tipo: clienteForm.tipo,
+      telefono: clienteForm.telefono || undefined,
+      email: clienteForm.email || undefined,
+      indirizzo: clienteForm.indirizzo || undefined,
+      citta: clienteForm.citta || undefined,
+      assegnatoA: clienteForm.assegnatoA ? parseInt(clienteForm.assegnatoA, 10) : undefined,
+    });
+  }
+
+  // Build options for SearchSelect
+  const clienteOptions = useMemo(
+    () =>
+      (clientiList.data ?? []).map((c: any) => ({
+        value: String(c.id),
+        label: `${c.nome ?? ""} ${c.cognome ?? ""}`.trim() || "(senza nome)",
+        keywords: [c.email, c.telefono, c.citta].filter(Boolean).join(" "),
+        hint: c.citta ?? undefined,
+      })),
+    [clientiList.data]
+  );
+  const utenteOptions = useMemo(
+    () =>
+      (utentiList.data ?? []).map((u: any) => ({
+        value: String(u.id),
+        label: `${u.nome ?? ""} ${u.cognome ?? ""}`.trim(),
+        keywords: u.email,
+        hint: Array.isArray(u.ruoli) ? u.ruoli[0] : undefined,
+      })),
+    [utentiList.data]
+  );
 
   return (
     <div className="space-y-6">
@@ -153,30 +242,46 @@ export default function CommesseList() {
               </div>
               <div className="space-y-2">
                 <Label>Cliente *</Label>
-                <Select
-                  value={form.clienteId || "__new__"}
-                  onValueChange={handleClienteSelect}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleziona cliente..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__new__">
-                      <span className="flex items-center gap-2 text-muted-foreground">
-                        <User className="h-3.5 w-3.5" />
-                        Cliente non registrato
-                      </span>
-                    </SelectItem>
-                    {clientiList.data?.map((c: any) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {`${c.nome ?? ""} ${c.cognome ?? ""}`.trim()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-1.5">
+                  <div className="flex-1">
+                    <SearchSelect
+                      options={clienteOptions}
+                      value={form.clienteId}
+                      onChange={handleClienteSelect}
+                      placeholder="Cerca cliente..."
+                      searchPlaceholder="Nome, email, città..."
+                      emptyText="Nessun cliente trovato"
+                      allowClear
+                      clearLabel="Cliente non registrato"
+                      onCreate={() => {
+                        setClienteForm({
+                          ...emptyClienteForm,
+                          assegnatoA: currentUser.data ? String(currentUser.data.id) : "",
+                        });
+                        setClienteDialogOpen(true);
+                      }}
+                      createLabel="+ Crea nuovo cliente"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Crea nuovo cliente"
+                    onClick={() => {
+                      setClienteForm({
+                        ...emptyClienteForm,
+                        assegnatoA: currentUser.data ? String(currentUser.data.id) : "",
+                      });
+                      setClienteDialogOpen(true);
+                    }}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                  </Button>
+                </div>
                 {form.clienteId === "" && (
                   <Input
-                    placeholder="Nome cliente *"
+                    placeholder="Nome cliente non registrato *"
                     value={form.cliente}
                     onChange={(e) => setForm({ ...form, cliente: e.target.value })}
                     className="mt-1.5"
@@ -185,6 +290,18 @@ export default function CommesseList() {
                 {form.clienteId !== "" && (
                   <p className="text-xs text-muted-foreground mt-1">{form.cliente}</p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Assegnata a</Label>
+                <SearchSelect
+                  options={utenteOptions}
+                  value={form.assegnatoA}
+                  onChange={(v) => setForm({ ...form, assegnatoA: v })}
+                  placeholder="Nessuno"
+                  searchPlaceholder="Cerca utente..."
+                  allowClear
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -311,6 +428,16 @@ export default function CommesseList() {
             <SelectItem value="archiviata">Archiviata</SelectItem>
           </SelectContent>
         </Select>
+        {currentUser.data && (
+          <Button
+            variant={onlyMine ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOnlyMine(!onlyMine)}
+          >
+            <User className="h-3.5 w-3.5 mr-1" />
+            {onlyMine ? "Solo mie" : "Tutte"}
+          </Button>
+        )}
       </div>
 
       {/* Commesse grid */}
@@ -343,6 +470,14 @@ export default function CommesseList() {
                     )}
                   </div>
                   <h3 className="font-semibold text-sm">{c.cliente}</h3>
+                  {c.assegnatoA && utenteById.get(c.assegnatoA) && (
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      <span>
+                        {utenteById.get(c.assegnatoA).nome} {utenteById.get(c.assegnatoA).cognome}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                     {c.indirizzo && (
                       <span className="flex items-center gap-1">
@@ -391,6 +526,99 @@ export default function CommesseList() {
         description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
         onConfirm={() => deleteTarget && deleteCommessa.mutate(deleteTarget.id)}
       />
+
+      {/* Inline "Nuovo cliente" dialog — nested under Nuova commessa */}
+      <Dialog open={clienteDialogOpen} onOpenChange={setClienteDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nuovo cliente</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Nome *</Label>
+                <Input
+                  value={clienteForm.nome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cognome *</Label>
+                <Input
+                  value={clienteForm.cognome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, cognome: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo</Label>
+              <Select
+                value={clienteForm.tipo}
+                onValueChange={(v: any) => setClienteForm({ ...clienteForm, tipo: v })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="privato">Privato</SelectItem>
+                  <SelectItem value="azienda">Azienda</SelectItem>
+                  <SelectItem value="condominio">Condominio</SelectItem>
+                  <SelectItem value="ente_pubblico">Ente pubblico</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Telefono</Label>
+                <Input
+                  value={clienteForm.telefono}
+                  onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input
+                  value={clienteForm.email}
+                  onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Indirizzo</Label>
+                <Input
+                  value={clienteForm.indirizzo}
+                  onChange={(e) => setClienteForm({ ...clienteForm, indirizzo: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Citta</Label>
+                <Input
+                  value={clienteForm.citta}
+                  onChange={(e) => setClienteForm({ ...clienteForm, citta: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Assegnato a</Label>
+              <SearchSelect
+                options={utenteOptions}
+                value={clienteForm.assegnatoA}
+                onChange={(v) => setClienteForm({ ...clienteForm, assegnatoA: v })}
+                placeholder="Nessuno"
+                searchPlaceholder="Cerca utente..."
+                allowClear
+              />
+            </div>
+            <Button
+              onClick={handleCreateCliente}
+              disabled={
+                !clienteForm.nome || !clienteForm.cognome || createClienteMutation.isPending
+              }
+            >
+              {createClienteMutation.isPending ? "Creazione..." : "Crea e seleziona"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

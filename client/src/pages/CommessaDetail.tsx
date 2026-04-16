@@ -42,17 +42,56 @@ import {
   Eye,
   Send,
   Package,
+  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
+import SearchSelect from "@/components/SearchSelect";
 
 const tipoDocColors: Record<string, string> = {
   preventivo: "bg-blue-100 text-blue-800",
   contratto: "bg-green-100 text-green-800",
-  foto: "bg-amber-100 text-amber-800",
+  misure: "bg-sky-100 text-sky-800",
+  fattura: "bg-amber-100 text-amber-800",
+  ordine: "bg-yellow-100 text-yellow-800",
+  conferma_ordine: "bg-yellow-100 text-yellow-800",
+  ddt_consegna: "bg-orange-100 text-orange-800",
+  ddt_posa: "bg-orange-100 text-orange-800",
+  ddt_finale: "bg-teal-100 text-teal-800",
+  saldo: "bg-purple-100 text-purple-800",
+  foto: "bg-pink-100 text-pink-800",
   altro: "bg-slate-100 text-slate-700",
+};
+
+const DOC_TIPO_LABEL: Record<string, string> = {
+  preventivo: "Preventivo",
+  contratto: "Contratto",
+  misure: "Misure esecutive",
+  fattura: "Fattura",
+  ordine: "Ordine fornitore",
+  conferma_ordine: "Conferma ordine",
+  ddt_consegna: "DDT consegna",
+  ddt_posa: "DDT posa",
+  ddt_finale: "DDT finale",
+  saldo: "Ricevuta saldo",
+  foto: "Foto",
+  altro: "Altro",
+};
+
+// Mirror of REQUIRED_DOC_TIPI_PER_STATO on the server — used to hint the
+// user which doc tipo they should upload for the current state.
+const SUGGESTED_TIPO_FOR_STATO: Record<string, string> = {
+  preventivo: "preventivo",
+  misure_esecutive: "misure",
+  aggiornamento_contratto: "contratto",
+  fatture_pagamento: "fattura",
+  da_ordinare: "ordine",
+  ordini_ultimazione: "saldo",
+  attesa_posa: "ddt_consegna",
+  finiture_saldo: "ddt_posa",
+  interventi_regolazioni: "ddt_finale",
 };
 
 export default function CommessaDetail() {
@@ -62,9 +101,11 @@ export default function CommessaDetail() {
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
   const documenti = trpc.preventiviContratti.byCommessa.useQuery(commessaId);
+  const statoGate = trpc.preventiviContratti.statoGate.useQuery(commessaId);
   const interventi = trpc.interventi.list.useQuery({ commessaId });
   const anomalie = trpc.anomalie.list.useQuery({ commessaId });
   const squadre = trpc.squadre.list.useQuery();
+  const utenti = trpc.utenti.list.useQuery(undefined);
 
   const utils = trpc.useUtils();
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; label: string } | null>(null);
@@ -95,7 +136,7 @@ export default function CommessaDetail() {
 
   const [uploadForm, setUploadForm] = useState({
     file: null as File | null,
-    tipo: "preventivo" as "preventivo" | "contratto" | "foto" | "altro",
+    tipo: "preventivo" as string,
     note: "",
   });
 
@@ -138,7 +179,10 @@ export default function CommessaDetail() {
     onSuccess: () => { utils.interventi.list.invalidate(); setDeleteTarget(null); },
   });
   const deleteDocumento = trpc.preventiviContratti.delete.useMutation({
-    onSuccess: () => { utils.preventiviContratti.byCommessa.invalidate(commessaId); setDeleteTarget(null); },
+    onSuccess: () => {
+      utils.preventiviContratti.invalidate();
+      setDeleteTarget(null);
+    },
   });
   const createIntervento = trpc.interventi.create.useMutation({
     onSuccess: () => {
@@ -162,7 +206,7 @@ export default function CommessaDetail() {
   });
   const uploadDocumento = trpc.preventiviContratti.upload.useMutation({
     onSuccess: () => {
-      utils.preventiviContratti.byCommessa.invalidate(commessaId);
+      utils.preventiviContratti.invalidate();
       setUploadDialog(false);
       setUploadForm({ file: null, tipo: "preventivo", note: "" });
     },
@@ -246,7 +290,7 @@ export default function CommessaDetail() {
       uploadDocumento.mutate({
         commessaId,
         nome: file.name,
-        tipo: uploadForm.tipo,
+        tipo: uploadForm.tipo as any,
         mimeType: file.type || "application/octet-stream",
         size: file.size,
         dataBase64: base64,
@@ -354,6 +398,63 @@ export default function CommessaDetail() {
     const href = `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${subject}&body=${body}`;
     window.open(href, "_blank", "noopener,noreferrer");
     setEmailDoc(null);
+  }
+
+  // Windows/Outlook-desktop path: download an .eml (RFC 822 multipart/mixed)
+  // with the doc bundled as attachment and X-Unsent:1 so Outlook opens it as a
+  // new draft ready to send. Double-clicking the file launches Outlook with
+  // recipient, subject, body and attachment all prefilled — no manual attach.
+  function sendViaEmlDownload() {
+    if (!emailDoc) return;
+    utils.preventiviContratti.byId.fetch(emailDoc.id).then((doc: any) => {
+      if (!doc?.dataBase64) return;
+      const CRLF = "\r\n";
+      const BOUNDARY = "=_bnd_" + Math.random().toString(36).slice(2, 12);
+      // UTF-8 safe btoa via percent-encoding round-trip.
+      const b64utf8 = (s: string) =>
+        btoa(unescape(encodeURIComponent(s)));
+      const chunk76 = (s: string) =>
+        s.replace(/[\r\n]/g, "").match(/.{1,76}/g)?.join(CRLF) ?? "";
+      const encSubject = `=?UTF-8?B?${b64utf8(emailForm.subject)}?=`;
+      const bodyB64 = chunk76(b64utf8(emailForm.body));
+      const attachB64 = chunk76(doc.dataBase64);
+      const safeName = (doc.nome as string).replace(/"/g, "_");
+      const eml = [
+        "From: ",
+        `To: ${emailForm.to}`,
+        `Subject: ${encSubject}`,
+        `Date: ${new Date().toUTCString()}`,
+        "X-Unsent: 1",
+        "MIME-Version: 1.0",
+        `Content-Type: multipart/mixed; boundary="${BOUNDARY}"`,
+        "",
+        `--${BOUNDARY}`,
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        bodyB64,
+        "",
+        `--${BOUNDARY}`,
+        `Content-Type: ${doc.mimeType ?? "application/octet-stream"}; name="${safeName}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${safeName}"`,
+        "",
+        attachB64,
+        "",
+        `--${BOUNDARY}--`,
+        "",
+      ].join(CRLF);
+      const blob = new Blob([eml], { type: "message/rfc822" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${emailForm.subject || "messaggio"}.eml`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setEmailDoc(null);
+    });
   }
 
   // Last resort: copy full message to clipboard so user can paste anywhere.
@@ -487,11 +588,20 @@ export default function CommessaDetail() {
                 finiture_saldo: "interventi_regolazioni", interventi_regolazioni: "archiviata",
               };
               const nextStato = next[c.stato];
+              const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
               return nextStato ? (
                 <Button
                   size="sm"
                   onClick={() => updateCommessa.mutate({ id: commessaId, stato: nextStato as any })}
-                  disabled={updateCommessa.isPending}
+                  disabled={updateCommessa.isPending || gateBlocked}
+                  title={
+                    gateBlocked
+                      ? `Carica prima un file di tipo ${(statoGate.data?.required ?? [])
+                          .filter((r) => !r.satisfied)
+                          .map((r) => r.label)
+                          .join(" o ")}`
+                      : undefined
+                  }
                 >
                   <ChevronRight className="h-3.5 w-3.5 mr-1" />
                   {nextStato.replace(/_/g, " ")}
@@ -567,7 +677,81 @@ export default function CommessaDetail() {
             </CardContent>
           </Card>
         )}
+
+        {/* File gate banner: shows required doc tipi for current stato and
+            blocks forward transitions until at least one is uploaded. */}
+        {statoGate.data && statoGate.data.required.length > 0 && (
+          <Card
+            className={
+              statoGate.data.canAdvance
+                ? "mt-4 border-emerald-300 bg-emerald-50/50"
+                : "mt-4 border-amber-300 bg-amber-50/50"
+            }
+          >
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  {statoGate.data.canAdvance ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {statoGate.data.canAdvance
+                        ? "Documenti richiesti caricati"
+                        : "Documenti richiesti per avanzare"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {statoGate.data.canAdvance
+                        ? "Puoi avanzare la commessa allo stato successivo."
+                        : "Carica almeno uno dei file richiesti per sbloccare l'avanzamento."}
+                    </p>
+                  </div>
+                </div>
+                {!statoGate.data.canAdvance && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const missing = statoGate.data!.required.find((r) => !r.satisfied);
+                      if (missing) {
+                        setUploadForm((prev) => ({ ...prev, tipo: missing.tipo }));
+                      }
+                      setUploadDialog(true);
+                    }}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    Carica file
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 pl-8">
+                {statoGate.data.required.map((r) => (
+                  <Badge
+                    key={r.tipo}
+                    variant="outline"
+                    className={
+                      r.satisfied
+                        ? "border-emerald-400 bg-emerald-100 text-emerald-800"
+                        : "border-amber-400 bg-amber-100 text-amber-800"
+                    }
+                  >
+                    {r.satisfied ? (
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                    ) : (
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                    )}
+                    {r.label}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
+      <TimelineOrdine commessaId={commessaId} />
 
       {/* Tabs */}
       <Tabs defaultValue="preventivi">
@@ -584,15 +768,25 @@ export default function CommessaDetail() {
           <TabsTrigger value="anomalie">
             Anomalie ({anomalie.data?.length ?? 0})
           </TabsTrigger>
-          <TabsTrigger value="timeline">
-            Timeline ordine
-          </TabsTrigger>
         </TabsList>
 
         {/* Preventivi/Contratti Tab */}
         <TabsContent value="preventivi" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Dialog open={uploadDialog} onOpenChange={setUploadDialog}>
+            <Dialog
+              open={uploadDialog}
+              onOpenChange={(open) => {
+                setUploadDialog(open);
+                if (open) {
+                  // Preset tipo to the state-required document when the user
+                  // opens the upload dialog — one less click in 90% of cases.
+                  const suggested = SUGGESTED_TIPO_FOR_STATO[c.stato];
+                  if (suggested) {
+                    setUploadForm((prev) => ({ ...prev, tipo: suggested }));
+                  }
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Upload className="h-4 w-4 mr-1" />
@@ -616,10 +810,23 @@ export default function CommessaDetail() {
                       <SelectContent>
                         <SelectItem value="preventivo">Preventivo</SelectItem>
                         <SelectItem value="contratto">Contratto</SelectItem>
+                        <SelectItem value="misure">Misure esecutive</SelectItem>
+                        <SelectItem value="fattura">Fattura</SelectItem>
+                        <SelectItem value="ordine">Ordine fornitore</SelectItem>
+                        <SelectItem value="conferma_ordine">Conferma ordine</SelectItem>
+                        <SelectItem value="ddt_consegna">DDT consegna</SelectItem>
+                        <SelectItem value="ddt_posa">DDT posa</SelectItem>
+                        <SelectItem value="ddt_finale">DDT finale</SelectItem>
+                        <SelectItem value="saldo">Ricevuta saldo</SelectItem>
                         <SelectItem value="foto">Foto</SelectItem>
                         <SelectItem value="altro">Altro</SelectItem>
                       </SelectContent>
                     </Select>
+                    {SUGGESTED_TIPO_FOR_STATO[c.stato] && uploadForm.tipo === SUGGESTED_TIPO_FOR_STATO[c.stato] && (
+                      <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                        Tipo suggerito per lo stato corrente — caricando questo file si sbloccher&agrave; l&apos;avanzamento
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>File (max 10MB)</Label>
@@ -839,15 +1046,22 @@ export default function CommessaDetail() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Squadra</Label>
-                    <Select value={interventoForm.squadraId} onValueChange={(v) => setInterventoForm({ ...interventoForm, squadraId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Nessuna</SelectItem>
-                        {squadre.data?.map((s: any) => (
-                          <SelectItem key={s.id} value={String(s.id)}>{s.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchSelect
+                      options={(squadre.data ?? []).map((s: any) => ({
+                        value: String(s.id),
+                        label: s.nome,
+                        keywords: [s.nome, s.caposquadra].filter(Boolean).join(" "),
+                        hint: s.caposquadra ?? undefined,
+                      }))}
+                      value={interventoForm.squadraId}
+                      onChange={(v) =>
+                        setInterventoForm({ ...interventoForm, squadraId: v })
+                      }
+                      placeholder="Nessuna"
+                      searchPlaceholder="Cerca squadra..."
+                      allowClear
+                      clearLabel="— Nessuna —"
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Indirizzo</Label>
@@ -1006,11 +1220,6 @@ export default function CommessaDetail() {
               ))}
             </div>
           )}
-        </TabsContent>
-
-        {/* Timeline ordine tab */}
-        <TabsContent value="timeline" className="mt-4">
-          <TimelineOrdine commessaId={commessaId} />
         </TabsContent>
       </Tabs>
 
@@ -1353,11 +1562,18 @@ export default function CommessaDetail() {
                 onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
               />
             </div>
-            <p className="text-xs text-muted-foreground border-l-2 border-amber-400 pl-2">
-              Il file "{emailDoc?.nome}" verra' scaricato automaticamente. Allega manualmente il file scaricato nel client che si apre.
+            <p className="text-xs text-muted-foreground border-l-2 border-emerald-400 pl-2">
+              <b>Outlook desktop (.eml)</b>: scarica il file allegato già dentro, doppio click apre Outlook in bozza pronta. Le altre opzioni aprono il client scelto e scaricano l'allegato da attaccare a mano.
             </p>
             <div className="grid gap-2">
               <Button
+                onClick={sendViaEmlDownload}
+                disabled={!emailForm.to || !emailForm.subject}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" /> Scarica .eml per Outlook desktop
+              </Button>
+              <Button
+                variant="outline"
                 onClick={sendEmail}
                 disabled={!emailForm.to || !emailForm.subject}
               >
@@ -1393,7 +1609,7 @@ export default function CommessaDetail() {
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground leading-snug">
-              Su Windows il client predefinito si apre solo se configurato (Outlook desktop, Mail, etc). Se non funziona usa <b>Outlook Web</b> o <b>Gmail Web</b> per aprire la compose online.
+              Su Windows con Outlook installato il pulsante <b>.eml</b> funziona senza configurazione extra. Altrimenti usa <b>Outlook Web</b> o <b>Gmail Web</b>.
             </p>
           </div>
         </DialogContent>

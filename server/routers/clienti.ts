@@ -17,6 +17,12 @@ let nextId = 1;
 
 const _store = persistedStore<any>("clienti", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+  // Backfill assegnatoA on legacy records — defaults to createdBy if present.
+  for (const c of items) {
+    if ((c as any).assegnatoA === undefined) {
+      (c as any).assegnatoA = (c as any).createdBy ?? null;
+    }
+  }
 });
 const clienti = _store.items;
 
@@ -43,11 +49,15 @@ export const clientiRouter = router({
       z.object({
         search: z.string().optional(),
         tipo: z.string().optional(),
+        assegnatoA: z.number().optional(),
       }).optional()
     )
     .query(({ input }) => {
       let result = [...clienti];
       if (input?.tipo) result = result.filter((c) => c.tipo === input.tipo);
+      if (input?.assegnatoA !== undefined) {
+        result = result.filter((c) => c.assegnatoA === input.assegnatoA);
+      }
       if (input?.search) {
         const q = input.search.toLowerCase();
         result = result.filter(
@@ -89,19 +99,24 @@ export const clientiRouter = router({
           email: z.string().optional(),
         })).optional(),
         note: z.string().optional(),
+        assegnatoA: z.number().nullable().optional(),
       })
     )
     .mutation(({ input, ctx }) => {
       const now = new Date();
+      const { assegnatoA: inputAssegnato, ...rest } = input;
       const cliente = {
         id: nextId++,
-        ...input,
+        ...rest,
         tipo: input.tipo ?? "privato",
         detrazione: input.detrazione ?? false,
         interesseFinanziamento: input.interesseFinanziamento ?? false,
         praticaEdilizia: input.praticaEdilizia ?? "nessuna",
         referenti: input.referenti ?? [],
         commesseIds: [] as number[],
+        // Default owner: explicit input, else current user. Ownership binds
+        // every future commessa back to the user who onboarded the cliente.
+        assegnatoA: inputAssegnato !== undefined ? inputAssegnato : ctx.user?.id ?? null,
         createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
@@ -135,6 +150,7 @@ export const clientiRouter = router({
           email: z.string().optional(),
         })).optional(),
         note: z.string().optional(),
+        assegnatoA: z.number().nullable().optional(),
       })
     )
     .mutation(({ input }) => {

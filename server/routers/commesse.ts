@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { addCommessaToCliente, getClienteById } from "./clienti";
-import { hasPreventivoOrContratto } from "./preventiviContratti";
+import {
+  hasPreventivoOrContratto,
+  statoHasRequiredDoc,
+  REQUIRED_DOC_TIPI_PER_STATO,
+  DOC_TIPO_LABEL,
+} from "./preventiviContratti";
 import { persistedStore } from "../_core/persistence";
 
 // ── State machine: allowed transitions ──────────────────────────────────────
@@ -56,9 +61,13 @@ function nextProdottoId(commessa: any): number {
 
 const _store = persistedStore<any>("commesse", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
-  // Backfill prodotti[] on legacy records so the field is always an array.
   for (const c of items) {
+    // Backfill prodotti[] so the field is always an array.
     if (!Array.isArray((c as any).prodotti)) (c as any).prodotti = [];
+    // Backfill assegnatoA on legacy records — falls back to createdBy if set.
+    if ((c as any).assegnatoA === undefined) {
+      (c as any).assegnatoA = (c as any).createdBy ?? null;
+    }
   }
 });
 const commesse = _store.items;
@@ -89,6 +98,7 @@ export const commesseRouter = router({
         stato: z.string().optional(),
         search: z.string().optional(),
         clienteId: z.number().optional(),
+        assegnatoA: z.number().optional(),
       }).optional()
     )
     .query(({ input }) => {
@@ -98,6 +108,9 @@ export const commesseRouter = router({
       }
       if (input?.clienteId) {
         result = result.filter((c) => c.clienteId === input.clienteId);
+      }
+      if (input?.assegnatoA !== undefined) {
+        result = result.filter((c) => c.assegnatoA === input.assegnatoA);
       }
       if (input?.search) {
         const q = input.search.toLowerCase();
@@ -127,6 +140,7 @@ export const commesseRouter = router({
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         note: z.string().optional(),
         consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
+        assegnatoA: z.number().nullable().optional(),
       })
     )
     .mutation(({ input, ctx }) => {
@@ -134,12 +148,21 @@ export const commesseRouter = router({
       const id = nextId++;
       const { clienteId: inputClienteId, cliente: clienteName, ...rest } = input;
 
-      // Derive cliente display name from cliente record if clienteId given
+      // Derive cliente display name + inherit owner from cliente if linked.
       let clienteDisplay = clienteName ?? "";
+      let inheritedAssegnatoA: number | null = null;
       if (inputClienteId) {
         const c = getClienteById(inputClienteId);
-        if (c) clienteDisplay = `${c.nome} ${c.cognome}`.trim();
+        if (c) {
+          clienteDisplay = `${c.nome} ${c.cognome}`.trim();
+          inheritedAssegnatoA = c.assegnatoA ?? null;
+        }
       }
+      // Owner resolution priority: explicit input > cliente's owner > current user.
+      const assegnatoA =
+        input.assegnatoA !== undefined
+          ? input.assegnatoA
+          : inheritedAssegnatoA ?? ctx.user?.id ?? null;
 
       const commessa = {
         id,
@@ -159,6 +182,7 @@ export const commesseRouter = router({
         dataChiusura: null,
         note: rest.note ?? null,
         prodotti: [] as any[],
+        assegnatoA,
         createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
@@ -188,6 +212,7 @@ export const commesseRouter = router({
         note: z.string().optional(),
         consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),
         dataConsegnaConfermata: z.string().nullable().optional(),
+        assegnatoA: z.number().nullable().optional(),
       })
     )
     .mutation(({ input }) => {
@@ -196,15 +221,19 @@ export const commesseRouter = router({
       // Enforce state machine on stato transitions
       if (input.stato && input.stato !== commesse[idx].stato) {
         validateTransizione(commesse[idx].stato, input.stato);
-        // Gate: cannot leave "preventivo" without at least one preventivo/contratto doc
-        if (
-          commesse[idx].stato === "preventivo" &&
-          input.stato === "misure_esecutive" &&
-          !hasPreventivoOrContratto(commesse[idx].id)
-        ) {
-          throw new Error(
-            "Impossibile avanzare: caricare almeno un file di tipo Preventivo o Contratto sulla commessa."
-          );
+        // Gate: forward transitions require the current stato's required doc
+        // to have been uploaded. Backward transitions are always allowed.
+        const currentIdx = STATI_COMMESSA.indexOf(commesse[idx].stato as any);
+        const nextIdx = STATI_COMMESSA.indexOf(input.stato as any);
+        const isForward = nextIdx > currentIdx;
+        if (isForward) {
+          const required = REQUIRED_DOC_TIPI_PER_STATO[commesse[idx].stato] ?? [];
+          if (required.length > 0 && !statoHasRequiredDoc(commesse[idx].id, commesse[idx].stato)) {
+            const labels = required.map((t) => DOC_TIPO_LABEL[t]).join(" o ");
+            throw new Error(
+              `Impossibile avanzare: caricare almeno un file di tipo "${labels}" sulla commessa.`
+            );
+          }
         }
       }
       const { id, ...updates } = input;

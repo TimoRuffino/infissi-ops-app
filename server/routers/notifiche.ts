@@ -37,6 +37,15 @@ const STATO_ROLE_ROUTING: Record<string, string> = {
   finiture_saldo: "amministrazione",
 };
 
+// Stati that must generate a daily reminder to the owner/creator regardless
+// of priority aging — these are the bottleneck states where idle days cost
+// real money.
+const STATO_DAILY_REMINDER = new Set([
+  "aggiornamento_contratto",
+  "fatture_pagamento",
+  "da_ordinare",
+]);
+
 const STATO_LABEL: Record<string, string> = {
   preventivo: "Preventivo",
   misure_esecutive: "Misure Esecutive",
@@ -64,7 +73,7 @@ type Notifica = {
   stato: string;
   statoLabel: string;
   priorita: string;
-  type: "priority_aging" | "stato_role";
+  type: "priority_aging" | "stato_role" | "stato_daily";
   message: string;
   severity: "info" | "warning" | "urgent";
   createdAt: Date;
@@ -78,10 +87,10 @@ function buildNotifichePerUtente(userId: number, ruoli: string[]): Notifica[] {
   for (const c of commesse) {
     if (c.stato === "archiviata") continue;
 
-    const isCreator = c.createdBy === userId;
+    const isOwner = c.assegnatoA === userId || c.createdBy === userId;
 
-    // 1. Priority aging (only for creator)
-    if (isCreator) {
+    // 1. Priority aging (only for owner/creator)
+    if (isOwner) {
       const threshold = PRIORITY_THRESHOLD_DAYS[c.priorita] ?? 5;
       const age = daysBetween(now, new Date(c.updatedAt));
       if (age >= threshold) {
@@ -103,7 +112,32 @@ function buildNotifichePerUtente(userId: number, ruoli: string[]): Notifica[] {
       }
     }
 
-    // 2. Stato + role routing
+    // 2. 24h reminder on bottleneck stati (owner/creator). Fires once per
+    // calendar day from the second day onward and escalates severity by age.
+    if (isOwner && STATO_DAILY_REMINDER.has(c.stato)) {
+      const age = daysBetween(now, new Date(c.updatedAt));
+      if (age >= 1) {
+        const severity: Notifica["severity"] =
+          age >= 5 ? "urgent" : age >= 3 ? "warning" : "info";
+        out.push({
+          // Include day-of-year so the id changes every 24h → client treats
+          // it as a new notification without any server-side timer.
+          id: `daily-${c.id}-${c.stato}-${now.toISOString().slice(0, 10)}`,
+          commessaId: c.id,
+          commessaCodice: c.codice,
+          cliente: c.cliente,
+          stato: c.stato,
+          statoLabel: STATO_LABEL[c.stato] ?? c.stato,
+          priorita: c.priorita,
+          type: "stato_daily",
+          message: `Promemoria giornaliero: commessa in "${STATO_LABEL[c.stato] ?? c.stato}" da ${age} giorn${age === 1 ? "o" : "i"}`,
+          severity,
+          createdAt: new Date(c.updatedAt),
+        });
+      }
+    }
+
+    // 3. Stato + role routing
     const targetRole = STATO_ROLE_ROUTING[c.stato];
     if (targetRole && ruoli.includes(targetRole)) {
       out.push({

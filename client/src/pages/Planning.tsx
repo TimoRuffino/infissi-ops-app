@@ -34,6 +34,7 @@ import {
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import SearchSelect from "@/components/SearchSelect";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function toDateStr(d: Date) {
@@ -435,36 +436,41 @@ export default function Planning() {
                  form.linkKind === "ticket" ? "Ticket" :
                  form.linkKind === "reclamo" ? "Reclamo" : "Rifacimento"}
               </Label>
-              <Select
+              <SearchSelect
+                options={
+                  form.linkKind === "commessa"
+                    ? (commesse.data ?? []).map((c: any) => ({
+                        value: String(c.id),
+                        label: `${c.codice} — ${c.cliente}`,
+                        keywords: [c.codice, c.cliente, c.citta, c.indirizzo]
+                          .filter(Boolean)
+                          .join(" "),
+                      }))
+                    : form.linkKind === "ticket"
+                    ? (ticketList.data ?? []).map((t: any) => ({
+                        value: String(t.id),
+                        label: `#${t.id} — ${t.oggetto ?? t.titolo ?? "Ticket"}`,
+                        keywords: [t.oggetto, t.titolo, t.descrizione]
+                          .filter(Boolean)
+                          .join(" "),
+                      }))
+                    : form.linkKind === "reclamo"
+                    ? (reclami.data ?? []).map((r: any) => ({
+                        value: String(r.id),
+                        label: `#${r.id} — ${r.oggetto ?? r.descrizione ?? "Reclamo"}`,
+                        keywords: [r.oggetto, r.descrizione].filter(Boolean).join(" "),
+                      }))
+                    : (rifacimenti.data ?? []).map((r: any) => ({
+                        value: String(r.id),
+                        label: `#${r.id} — ${r.descrizione ?? "Rifacimento"}`,
+                        keywords: r.descrizione ?? "",
+                      }))
+                }
                 value={form.linkId}
-                onValueChange={(v) => setForm({ ...form, linkId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {form.linkKind === "commessa" && commesse.data?.map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.codice} — {c.cliente}
-                    </SelectItem>
-                  ))}
-                  {form.linkKind === "ticket" && ticketList.data?.map((t: any) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      #{t.id} — {t.oggetto ?? t.titolo ?? "Ticket"}
-                    </SelectItem>
-                  ))}
-                  {form.linkKind === "reclamo" && reclami.data?.map((r: any) => (
-                    <SelectItem key={r.id} value={String(r.id)}>
-                      #{r.id} — {r.oggetto ?? r.descrizione ?? "Reclamo"}
-                    </SelectItem>
-                  ))}
-                  {form.linkKind === "rifacimento" && rifacimenti.data?.map((r: any) => (
-                    <SelectItem key={r.id} value={String(r.id)}>
-                      #{r.id} — {r.descrizione ?? "Rifacimento"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(v) => setForm({ ...form, linkId: v })}
+                placeholder="Seleziona..."
+                searchPlaceholder="Cerca per codice, cliente..."
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -514,21 +520,19 @@ export default function Planning() {
 
             <div className="space-y-1.5">
               <Label>Squadra</Label>
-              <Select
+              <SearchSelect
+                options={(squadre.data ?? []).map((s: any) => ({
+                  value: String(s.id),
+                  label: `${s.nome}${s.caposquadra ? ` — ${s.caposquadra}` : ""}`,
+                  keywords: [s.nome, s.caposquadra].filter(Boolean).join(" "),
+                }))}
                 value={form.squadraId}
-                onValueChange={(v) => setForm({ ...form, squadraId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Non assegnata" />
-                </SelectTrigger>
-                <SelectContent>
-                  {squadre.data?.map((s: any) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.nome} {s.caposquadra ? `— ${s.caposquadra}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(v) => setForm({ ...form, squadraId: v })}
+                placeholder="Non assegnata"
+                searchPlaceholder="Cerca squadra..."
+                allowClear
+                clearLabel="— Non assegnata —"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Indirizzo</Label>

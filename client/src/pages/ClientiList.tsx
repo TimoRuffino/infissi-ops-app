@@ -31,9 +31,11 @@ import {
   User,
   Landmark,
   Home,
+  UserCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import SearchSelect from "@/components/SearchSelect";
 
 const tipoIcons: Record<string, any> = {
   privato: User,
@@ -71,17 +73,23 @@ const emptyForm = {
   interesseFinanziamento: false,
   praticaEdilizia: "nessuna" as "nessuna" | "cil" | "cila" | "scia",
   note: "",
+  assegnatoA: null as number | null,
 };
 
 export default function ClientiList() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string | undefined>(undefined);
+  const [onlyMine, setOnlyMine] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  const currentUser = trpc.auth.me.useQuery();
+  const utentiList = trpc.utenti.list.useQuery(undefined);
 
   const clienti = trpc.clienti.list.useQuery({
     search: search || undefined,
     tipo: tipoFilter,
+    assegnatoA: onlyMine ? (currentUser.data?.id as number | undefined) : undefined,
   });
   const stats = trpc.clienti.stats.useQuery();
   const utils = trpc.useUtils();
@@ -95,6 +103,23 @@ export default function ClientiList() {
   });
 
   const [form, setForm] = useState(emptyForm);
+
+  const utenteById = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const u of utentiList.data ?? []) map.set(u.id, u);
+    return map;
+  }, [utentiList.data]);
+
+  const utenteOptions = useMemo(
+    () =>
+      (utentiList.data ?? []).map((u: any) => ({
+        value: String(u.id),
+        label: u.nome ?? u.email ?? `Utente ${u.id}`,
+        keywords: [u.email, u.ruolo, u.ruoli?.join(" ")].filter(Boolean).join(" "),
+        hint: u.ruolo ?? u.ruoli?.[0],
+      })),
+    [utentiList.data]
+  );
 
   return (
     <div className="space-y-6">
@@ -276,6 +301,20 @@ export default function ClientiList() {
                   onChange={(e) => setForm({ ...form, note: e.target.value })}
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label>Assegnato a</Label>
+                <SearchSelect
+                  options={utenteOptions}
+                  value={form.assegnatoA != null ? String(form.assegnatoA) : ""}
+                  onChange={(v) =>
+                    setForm({ ...form, assegnatoA: v ? parseInt(v) : null })
+                  }
+                  placeholder="Seleziona utente (default: me)"
+                  searchPlaceholder="Cerca utente..."
+                  allowClear
+                  clearLabel="— Non assegnato —"
+                />
+              </div>
               <Button
                 onClick={() =>
                   createCliente.mutate({
@@ -293,6 +332,7 @@ export default function ClientiList() {
                     interesseFinanziamento: form.interesseFinanziamento,
                     praticaEdilizia: form.praticaEdilizia,
                     note: form.note || undefined,
+                    assegnatoA: form.assegnatoA,
                   })
                 }
                 disabled={
@@ -317,7 +357,7 @@ export default function ClientiList() {
             className="pl-9"
           />
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 flex-wrap">
           <Button
             variant={!tipoFilter ? "default" : "outline"}
             size="sm"
@@ -335,6 +375,16 @@ export default function ClientiList() {
               {label}
             </Button>
           ))}
+          <div className="w-px bg-border mx-1" />
+          <Button
+            variant={onlyMine ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOnlyMine((v) => !v)}
+            title="Filtra solo i clienti assegnati a me"
+          >
+            <UserCircle className="h-3.5 w-3.5 mr-1" />
+            {onlyMine ? "Solo mie" : "Tutte"}
+          </Button>
         </div>
       </div>
 
@@ -401,9 +451,17 @@ export default function ClientiList() {
                         )}
                       </div>
                     </div>
-                    <Badge variant="secondary" className="text-xs shrink-0">
-                      {c.commesseIds?.length ?? 0} commesse
-                    </Badge>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge variant="secondary" className="text-xs">
+                        {c.commesseIds?.length ?? 0} commesse
+                      </Badge>
+                      {c.assegnatoA != null && utenteById.get(c.assegnatoA) && (
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <UserCircle className="h-3 w-3" />
+                          {utenteById.get(c.assegnatoA)?.nome ?? "—"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
