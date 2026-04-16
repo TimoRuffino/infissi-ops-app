@@ -303,17 +303,81 @@ export default function CommessaDetail() {
     setEmailDoc(doc);
   }
 
+  // Encoding helper — URLSearchParams uses + for spaces, but mailto expects
+  // %20 in the body. Also encodes newlines as %0A which mail clients honor.
+  function encodeForMailto(value: string): string {
+    return encodeURIComponent(value).replace(/'/g, "%27");
+  }
+
+  // Primary send: mailto link. On Windows this only works if the user has a
+  // default mail handler registered (Outlook desktop, Thunderbird, or Outlook
+  // Web via protocol handler). We use an anchor click instead of
+  // `window.location.href` because some browsers (Edge/Chrome on Win) swallow
+  // the protocol navigation silently otherwise.
   function sendEmail() {
     if (!emailDoc) return;
-    // Auto-download the file so user can attach it in their mail client.
     downloadDocumento(emailDoc.id);
-    const params = new URLSearchParams({
-      subject: emailForm.subject,
-      body: emailForm.body,
-    });
-    const href = `mailto:${encodeURIComponent(emailForm.to)}?${params.toString().replace(/\+/g, "%20")}`;
-    window.location.href = href;
+    const to = encodeForMailto(emailForm.to);
+    const subject = encodeForMailto(emailForm.subject);
+    const body = encodeForMailto(emailForm.body);
+    const href = `mailto:${to}?subject=${subject}&body=${body}`;
+    const a = document.createElement("a");
+    a.href = href;
+    a.rel = "noopener";
+    a.target = "_self";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     setEmailDoc(null);
+  }
+
+  // Windows fallback #1: Outlook on the Web (works with any Microsoft 365 /
+  // outlook.com account — opens compose prefilled in a new tab).
+  function sendViaOutlookWeb() {
+    if (!emailDoc) return;
+    downloadDocumento(emailDoc.id);
+    const to = encodeURIComponent(emailForm.to);
+    const subject = encodeURIComponent(emailForm.subject);
+    const body = encodeURIComponent(emailForm.body);
+    const href = `https://outlook.office.com/mail/deeplink/compose?to=${to}&subject=${subject}&body=${body}`;
+    window.open(href, "_blank", "noopener,noreferrer");
+    setEmailDoc(null);
+  }
+
+  // Windows fallback #2: Gmail compose (works for any google account).
+  function sendViaGmail() {
+    if (!emailDoc) return;
+    downloadDocumento(emailDoc.id);
+    const to = encodeURIComponent(emailForm.to);
+    const subject = encodeURIComponent(emailForm.subject);
+    const body = encodeURIComponent(emailForm.body);
+    const href = `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${subject}&body=${body}`;
+    window.open(href, "_blank", "noopener,noreferrer");
+    setEmailDoc(null);
+  }
+
+  // Last resort: copy full message to clipboard so user can paste anywhere.
+  async function copyEmailToClipboard() {
+    const text = [
+      `A: ${emailForm.to}`,
+      `Oggetto: ${emailForm.subject}`,
+      ``,
+      emailForm.body,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for older browsers / non-https contexts
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    if (emailDoc) downloadDocumento(emailDoc.id);
   }
 
   function openProdottoEdit(p: any) {
@@ -1290,14 +1354,47 @@ export default function CommessaDetail() {
               />
             </div>
             <p className="text-xs text-muted-foreground border-l-2 border-amber-400 pl-2">
-              Al click il file "{emailDoc?.nome}" verra' scaricato automaticamente e si aprira' il tuo client email con i campi precompilati. Allega manualmente il file scaricato.
+              Il file "{emailDoc?.nome}" verra' scaricato automaticamente. Allega manualmente il file scaricato nel client che si apre.
             </p>
-            <Button
-              onClick={sendEmail}
-              disabled={!emailForm.to || !emailForm.subject}
-            >
-              <Send className="h-3.5 w-3.5 mr-1" /> Apri email + scarica allegato
-            </Button>
+            <div className="grid gap-2">
+              <Button
+                onClick={sendEmail}
+                disabled={!emailForm.to || !emailForm.subject}
+              >
+                <Send className="h-3.5 w-3.5 mr-1" /> Apri client email predefinito
+              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={sendViaOutlookWeb}
+                  disabled={!emailForm.to || !emailForm.subject}
+                >
+                  Outlook Web
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={sendViaGmail}
+                  disabled={!emailForm.to || !emailForm.subject}
+                >
+                  Gmail Web
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={copyEmailToClipboard}
+              >
+                Copia testo negli appunti
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Su Windows il client predefinito si apre solo se configurato (Outlook desktop, Mail, etc). Se non funziona usa <b>Outlook Web</b> o <b>Gmail Web</b> per aprire la compose online.
+            </p>
           </div>
         </DialogContent>
       </Dialog>
