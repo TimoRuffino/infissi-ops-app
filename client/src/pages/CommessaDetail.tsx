@@ -38,8 +38,12 @@ import {
   File as FileIcon,
   CheckCircle2,
   Clock,
+  UserPlus,
+  Eye,
+  Send,
+  Package,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
@@ -95,6 +99,41 @@ export default function CommessaDetail() {
     note: "",
   });
 
+  // Nuovo cliente inline
+  const [nuovoClienteDialog, setNuovoClienteDialog] = useState(false);
+  const [clienteForm, setClienteForm] = useState({
+    nome: "",
+    cognome: "",
+    tipo: "privato" as "privato" | "azienda" | "condominio" | "ente_pubblico",
+    telefono: "",
+    email: "",
+    indirizzo: "",
+    citta: "",
+  });
+
+  // Prodotti desiderati
+  const [prodottoDialog, setProdottoDialog] = useState(false);
+  const [editingProdottoId, setEditingProdottoId] = useState<number | null>(null);
+  const [prodottoForm, setProdottoForm] = useState({
+    nome: "",
+    tipologia: "",
+    quantita: 1,
+    dimensioni: "",
+    note: "",
+  });
+
+  // PDF / image preview
+  const [previewDoc, setPreviewDoc] = useState<{
+    id: number;
+    nome: string;
+    mimeType: string;
+    url: string;
+  } | null>(null);
+
+  // Email preventivo (mailto)
+  const [emailDoc, setEmailDoc] = useState<any | null>(null);
+  const [emailForm, setEmailForm] = useState({ to: "", subject: "", body: "" });
+
   const deleteIntervento = trpc.interventi.delete.useMutation({
     onSuccess: () => { utils.interventi.list.invalidate(); setDeleteTarget(null); },
   });
@@ -132,6 +171,56 @@ export default function CommessaDetail() {
     onSuccess: () => { setDeleteTarget(null); setLocation("/commesse"); },
   });
 
+  // Nuovo cliente dalla commessa: creates cliente, then links it on commessa.
+  const createCliente = trpc.clienti.create.useMutation({
+    onSuccess: (cliente) => {
+      updateCommessa.mutate({
+        id: commessaId,
+        clienteId: cliente.id,
+        cliente: `${cliente.nome} ${cliente.cognome}`.trim(),
+        telefono: cliente.telefono || undefined,
+        email: cliente.email || undefined,
+        indirizzo: cliente.indirizzo || undefined,
+        citta: cliente.citta || undefined,
+      });
+      setNuovoClienteDialog(false);
+      setClienteForm({
+        nome: "", cognome: "", tipo: "privato",
+        telefono: "", email: "", indirizzo: "", citta: "",
+      });
+    },
+  });
+
+  const addProdotto = trpc.commesse.addProdotto.useMutation({
+    onSuccess: () => {
+      utils.commesse.byId.invalidate(commessaId);
+      setProdottoDialog(false);
+      setEditingProdottoId(null);
+      setProdottoForm({ nome: "", tipologia: "", quantita: 1, dimensioni: "", note: "" });
+    },
+  });
+  const updateProdotto = trpc.commesse.updateProdotto.useMutation({
+    onSuccess: () => {
+      utils.commesse.byId.invalidate(commessaId);
+      setProdottoDialog(false);
+      setEditingProdottoId(null);
+      setProdottoForm({ nome: "", tipologia: "", quantita: 1, dimensioni: "", note: "" });
+    },
+  });
+  const removeProdotto = trpc.commesse.removeProdotto.useMutation({
+    onSuccess: () => {
+      utils.commesse.byId.invalidate(commessaId);
+      setDeleteTarget(null);
+    },
+  });
+
+  // Revoke object URL when preview dialog closes (avoid memory leaks).
+  useEffect(() => {
+    return () => {
+      if (previewDoc?.url) URL.revokeObjectURL(previewDoc.url);
+    };
+  }, [previewDoc?.url]);
+
   function openEdit() {
     if (!commessa.data) return;
     const c: any = commessa.data;
@@ -167,21 +256,100 @@ export default function CommessaDetail() {
     reader.readAsDataURL(file);
   }
 
+  function docToBlobUrl(doc: any): string {
+    const byteChars = atob(doc.dataBase64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([bytes], { type: doc.mimeType });
+    return URL.createObjectURL(blob);
+  }
+
   function downloadDocumento(docId: number) {
-    // Fetch full record with data and trigger download via blob
     utils.preventiviContratti.byId.fetch(docId).then((doc: any) => {
       if (!doc?.dataBase64) return;
-      const byteChars = atob(doc.dataBase64);
-      const bytes = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([bytes], { type: doc.mimeType });
-      const url = URL.createObjectURL(blob);
+      const url = docToBlobUrl(doc);
       const a = document.createElement("a");
       a.href = url;
       a.download = doc.nome;
       a.click();
       URL.revokeObjectURL(url);
     });
+  }
+
+  function openPreview(docId: number) {
+    utils.preventiviContratti.byId.fetch(docId).then((doc: any) => {
+      if (!doc?.dataBase64) return;
+      const url = docToBlobUrl(doc);
+      setPreviewDoc({ id: doc.id, nome: doc.nome, mimeType: doc.mimeType, url });
+    });
+  }
+
+  function openEmailDialog(doc: any) {
+    // Preset subject + body. User's mail client opens with fields prefilled;
+    // PDF is auto-downloaded so they can attach manually (mailto has no
+    // attachment spec).
+    const codice = c.codice ?? "";
+    const clienteLabel = c.cliente ?? "";
+    const subject = `${doc.tipo === "contratto" ? "Contratto" : "Preventivo"} ${codice} - Ruffino Infissi`;
+    const body = [
+      `Gentile ${clienteLabel},`,
+      ``,
+      `in allegato trovera' il ${doc.tipo} relativo alla commessa ${codice}.`,
+      `Restiamo a disposizione per qualsiasi chiarimento.`,
+      ``,
+      `Cordiali saluti,`,
+      `Ruffino Infissi`,
+    ].join("\n");
+    setEmailForm({ to: c.email ?? "", subject, body });
+    setEmailDoc(doc);
+  }
+
+  function sendEmail() {
+    if (!emailDoc) return;
+    // Auto-download the file so user can attach it in their mail client.
+    downloadDocumento(emailDoc.id);
+    const params = new URLSearchParams({
+      subject: emailForm.subject,
+      body: emailForm.body,
+    });
+    const href = `mailto:${encodeURIComponent(emailForm.to)}?${params.toString().replace(/\+/g, "%20")}`;
+    window.location.href = href;
+    setEmailDoc(null);
+  }
+
+  function openProdottoEdit(p: any) {
+    setEditingProdottoId(p.id);
+    setProdottoForm({
+      nome: p.nome ?? "",
+      tipologia: p.tipologia ?? "",
+      quantita: p.quantita ?? 1,
+      dimensioni: p.dimensioni ?? "",
+      note: p.note ?? "",
+    });
+    setProdottoDialog(true);
+  }
+
+  function saveProdotto() {
+    if (editingProdottoId) {
+      updateProdotto.mutate({
+        commessaId,
+        prodottoId: editingProdottoId,
+        nome: prodottoForm.nome,
+        tipologia: prodottoForm.tipologia || null,
+        quantita: prodottoForm.quantita,
+        dimensioni: prodottoForm.dimensioni || null,
+        note: prodottoForm.note || null,
+      });
+    } else {
+      addProdotto.mutate({
+        commessaId,
+        nome: prodottoForm.nome,
+        tipologia: prodottoForm.tipologia || undefined,
+        quantita: prodottoForm.quantita,
+        dimensioni: prodottoForm.dimensioni || undefined,
+        note: prodottoForm.note || undefined,
+      });
+    }
   }
 
   const c: any = commessa.data;
@@ -224,7 +392,7 @@ export default function CommessaDetail() {
             <h1 className="text-2xl font-bold tracking-tight">{c.cliente}</h1>
           </div>
           <div className="flex gap-1.5 shrink-0">
-            {c.clienteId && (
+            {c.clienteId ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -232,6 +400,15 @@ export default function CommessaDetail() {
               >
                 <Contact className="h-3.5 w-3.5 mr-1" />
                 Scheda cliente
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setNuovoClienteDialog(true)}
+              >
+                <UserPlus className="h-3.5 w-3.5 mr-1" />
+                Nuovo cliente
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={openEdit}>
@@ -334,6 +511,9 @@ export default function CommessaDetail() {
         <TabsList>
           <TabsTrigger value="preventivi">
             Preventivi / Contratti ({documenti.data?.length ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="prodotti">
+            Prodotti ({(c.prodotti?.length ?? 0)})
           </TabsTrigger>
           <TabsTrigger value="interventi">
             Interventi ({interventi.data?.length ?? 0})
@@ -445,10 +625,33 @@ export default function CommessaDetail() {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      {(d.mimeType === "application/pdf" || d.mimeType?.startsWith("image/")) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Anteprima"
+                          onClick={() => openPreview(d.id)}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {(d.tipo === "preventivo" || d.tipo === "contratto") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          title="Invia via email"
+                          onClick={() => openEmailDialog(d)}
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
+                        title="Scarica"
                         onClick={() => downloadDocumento(d.id)}
                       >
                         <Download className="h-3.5 w-3.5" />
@@ -458,6 +661,76 @@ export default function CommessaDetail() {
                         size="icon"
                         className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
                         onClick={() => setDeleteTarget({ type: "documento", id: d.id, label: d.nome })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Prodotti Tab */}
+        <TabsContent value="prodotti" className="space-y-4 mt-4">
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditingProdottoId(null);
+                setProdottoForm({ nome: "", tipologia: "", quantita: 1, dimensioni: "", note: "" });
+                setProdottoDialog(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Aggiungi prodotto
+            </Button>
+          </div>
+          {(c.prodotti?.length ?? 0) === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Nessun prodotto desiderato. Aggiungi i prodotti richiesti dal cliente.
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {c.prodotti?.map((p: any) => (
+                <Card key={p.id}>
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Package className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate">{p.nome}</span>
+                          {p.tipologia && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {p.tipologia}
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="text-[10px]">
+                            x{p.quantita}
+                          </Badge>
+                        </div>
+                        {p.dimensioni && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{p.dimensioni}</p>
+                        )}
+                        {p.note && (
+                          <p className="text-xs text-muted-foreground mt-1">{p.note}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => openProdottoEdit(p)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => setDeleteTarget({ type: "prodotto", id: p.id, label: p.nome })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -806,8 +1079,229 @@ export default function CommessaDetail() {
           if (deleteTarget.type === "documento") deleteDocumento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "intervento") deleteIntervento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "commessa") deleteCommessa.mutate(deleteTarget.id);
+          else if (deleteTarget.type === "prodotto") removeProdotto.mutate({ commessaId, prodottoId: deleteTarget.id });
         }}
       />
+
+      {/* Nuovo cliente inline dialog */}
+      <Dialog open={nuovoClienteDialog} onOpenChange={setNuovoClienteDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nuovo cliente</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Nome *</Label>
+                <Input
+                  value={clienteForm.nome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cognome *</Label>
+                <Input
+                  value={clienteForm.cognome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, cognome: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo</Label>
+              <Select
+                value={clienteForm.tipo}
+                onValueChange={(v: any) => setClienteForm({ ...clienteForm, tipo: v })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="privato">Privato</SelectItem>
+                  <SelectItem value="azienda">Azienda</SelectItem>
+                  <SelectItem value="condominio">Condominio</SelectItem>
+                  <SelectItem value="ente_pubblico">Ente pubblico</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Telefono</Label>
+                <Input
+                  value={clienteForm.telefono}
+                  onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input
+                  value={clienteForm.email}
+                  onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Indirizzo</Label>
+                <Input
+                  value={clienteForm.indirizzo}
+                  onChange={(e) => setClienteForm({ ...clienteForm, indirizzo: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Citta</Label>
+                <Input
+                  value={clienteForm.citta}
+                  onChange={(e) => setClienteForm({ ...clienteForm, citta: e.target.value })}
+                />
+              </div>
+            </div>
+            <Button
+              onClick={() => createCliente.mutate({
+                nome: clienteForm.nome,
+                cognome: clienteForm.cognome,
+                tipo: clienteForm.tipo,
+                telefono: clienteForm.telefono || undefined,
+                email: clienteForm.email || undefined,
+                indirizzo: clienteForm.indirizzo || undefined,
+                citta: clienteForm.citta || undefined,
+              })}
+              disabled={!clienteForm.nome || !clienteForm.cognome || createCliente.isPending}
+            >
+              {createCliente.isPending ? "Creazione..." : "Crea e collega"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Prodotto desiderato dialog */}
+      <Dialog open={prodottoDialog} onOpenChange={setProdottoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingProdottoId ? "Modifica prodotto" : "Aggiungi prodotto"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome prodotto *</Label>
+              <Input
+                placeholder="es. Finestra 2 ante PVC bianco"
+                value={prodottoForm.nome}
+                onChange={(e) => setProdottoForm({ ...prodottoForm, nome: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Tipologia</Label>
+                <Input
+                  placeholder="PVC / Alluminio / Legno"
+                  value={prodottoForm.tipologia}
+                  onChange={(e) => setProdottoForm({ ...prodottoForm, tipologia: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Quantita</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={prodottoForm.quantita}
+                  onChange={(e) => setProdottoForm({ ...prodottoForm, quantita: Math.max(1, parseInt(e.target.value) || 1) })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Dimensioni</Label>
+              <Input
+                placeholder="es. 120x140 cm"
+                value={prodottoForm.dimensioni}
+                onChange={(e) => setProdottoForm({ ...prodottoForm, dimensioni: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note</Label>
+              <Textarea
+                rows={2}
+                value={prodottoForm.note}
+                onChange={(e) => setProdottoForm({ ...prodottoForm, note: e.target.value })}
+              />
+            </div>
+            <Button
+              onClick={saveProdotto}
+              disabled={!prodottoForm.nome || addProdotto.isPending || updateProdotto.isPending}
+            >
+              {editingProdottoId ? "Salva modifiche" : "Aggiungi prodotto"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Document preview dialog (PDF + images) */}
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-4xl w-[90vw] h-[85vh] p-4 gap-3">
+          <DialogHeader>
+            <DialogTitle className="truncate">{previewDoc?.nome}</DialogTitle>
+          </DialogHeader>
+          {previewDoc?.mimeType?.startsWith("image/") ? (
+            <div className="flex-1 overflow-auto flex items-center justify-center bg-muted rounded">
+              <img src={previewDoc.url} alt={previewDoc.nome} className="max-w-full max-h-full" />
+            </div>
+          ) : (
+            <iframe
+              src={previewDoc?.url}
+              title={previewDoc?.nome}
+              className="flex-1 w-full rounded border"
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => previewDoc && downloadDocumento(previewDoc.id)}>
+              <Download className="h-3.5 w-3.5 mr-1" /> Scarica
+            </Button>
+            <Button size="sm" onClick={() => setPreviewDoc(null)}>Chiudi</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email preventivo dialog (mailto + auto-download) */}
+      <Dialog open={!!emailDoc} onOpenChange={(open) => !open && setEmailDoc(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Invia {emailDoc?.tipo} via email</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Destinatario</Label>
+              <Input
+                type="email"
+                value={emailForm.to}
+                onChange={(e) => setEmailForm({ ...emailForm, to: e.target.value })}
+                placeholder="cliente@esempio.it"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Oggetto</Label>
+              <Input
+                value={emailForm.subject}
+                onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Messaggio</Label>
+              <Textarea
+                rows={8}
+                value={emailForm.body}
+                onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground border-l-2 border-amber-400 pl-2">
+              Al click il file "{emailDoc?.nome}" verra' scaricato automaticamente e si aprira' il tuo client email con i campi precompilati. Allega manualmente il file scaricato.
+            </p>
+            <Button
+              onClick={sendEmail}
+              disabled={!emailForm.to || !emailForm.subject}
+            >
+              <Send className="h-3.5 w-3.5 mr-1" /> Apri email + scarica allegato
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

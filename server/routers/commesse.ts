@@ -47,8 +47,19 @@ function validateTransizione(statoAttuale: string, nuovoStato: string): void {
 
 let nextId = 1;
 
+// Per-commessa monotonic prodotto id counter (lives in memory; ids are unique
+// within a single commessa.prodotti array, which is all we need).
+function nextProdottoId(commessa: any): number {
+  const current: any[] = Array.isArray(commessa.prodotti) ? commessa.prodotti : [];
+  return current.length ? Math.max(...current.map((p) => p.id ?? 0)) + 1 : 1;
+}
+
 const _store = persistedStore<any>("commesse", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+  // Backfill prodotti[] on legacy records so the field is always an array.
+  for (const c of items) {
+    if (!Array.isArray((c as any).prodotti)) (c as any).prodotti = [];
+  }
 });
 const commesse = _store.items;
 
@@ -147,6 +158,7 @@ export const commesseRouter = router({
         dataConsegnaConfermata: null, // set when stato=produzione
         dataChiusura: null,
         note: rest.note ?? null,
+        prodotti: [] as any[],
         createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
@@ -196,7 +208,26 @@ export const commesseRouter = router({
         }
       }
       const { id, ...updates } = input;
-      commesse[idx] = { ...commesse[idx], ...updates, updatedAt: new Date() };
+      // If clienteId changes to a real id, resolve display name + link back to
+      // that cliente's commesseIds so the relationship is kept consistent.
+      let resolvedCliente = updates.cliente;
+      if (
+        updates.clienteId !== undefined &&
+        updates.clienteId !== null &&
+        updates.clienteId !== commesse[idx].clienteId
+      ) {
+        const linked = getClienteById(updates.clienteId);
+        if (linked) {
+          resolvedCliente = `${linked.nome} ${linked.cognome}`.trim();
+          addCommessaToCliente(updates.clienteId, commesse[idx].id);
+        }
+      }
+      commesse[idx] = {
+        ...commesse[idx],
+        ...updates,
+        cliente: resolvedCliente ?? commesse[idx].cliente,
+        updatedAt: new Date(),
+      };
       if (input.stato === "archiviata") {
         commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
       }
@@ -226,6 +257,72 @@ export const commesseRouter = router({
     _store.save();
     return { success: true };
   }),
+
+  // ── Prodotti desiderati (embedded list on commessa) ────────────────────────
+  addProdotto: publicProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      nome: z.string().min(1),
+      tipologia: z.string().optional(),
+      quantita: z.number().int().min(1).default(1),
+      dimensioni: z.string().optional(),
+      note: z.string().optional(),
+    }))
+    .mutation(({ input }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      if (!Array.isArray(commesse[idx].prodotti)) commesse[idx].prodotti = [];
+      const prodotto = {
+        id: nextProdottoId(commesse[idx]),
+        nome: input.nome,
+        tipologia: input.tipologia ?? null,
+        quantita: input.quantita ?? 1,
+        dimensioni: input.dimensioni ?? null,
+        note: input.note ?? null,
+        createdAt: new Date(),
+      };
+      commesse[idx].prodotti.push(prodotto);
+      commesse[idx].updatedAt = new Date();
+      _store.save();
+      return prodotto;
+    }),
+
+  updateProdotto: publicProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      prodottoId: z.number(),
+      nome: z.string().optional(),
+      tipologia: z.string().nullable().optional(),
+      quantita: z.number().int().min(1).optional(),
+      dimensioni: z.string().nullable().optional(),
+      note: z.string().nullable().optional(),
+    }))
+    .mutation(({ input }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      const prodotti: any[] = commesse[idx].prodotti ?? [];
+      const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
+      if (pIdx === -1) throw new Error("Prodotto non trovato");
+      const { commessaId, prodottoId, ...updates } = input;
+      prodotti[pIdx] = { ...prodotti[pIdx], ...updates };
+      commesse[idx].updatedAt = new Date();
+      _store.save();
+      return prodotti[pIdx];
+    }),
+
+  removeProdotto: publicProcedure
+    .input(z.object({ commessaId: z.number(), prodottoId: z.number() }))
+    .mutation(({ input }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      const prodotti: any[] = commesse[idx].prodotti ?? [];
+      const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
+      if (pIdx === -1) throw new Error("Prodotto non trovato");
+      prodotti.splice(pIdx, 1);
+      commesse[idx].updatedAt = new Date();
+      _store.save();
+      return { success: true };
+    }),
 
   stats: publicProcedure.query(() => {
     const total = commesse.length;
