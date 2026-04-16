@@ -290,15 +290,14 @@ export default function CommessaDetail() {
     // attachment spec).
     const codice = c.codice ?? "";
     const clienteLabel = c.cliente ?? "";
-    const subject = `${doc.tipo === "contratto" ? "Contratto" : "Preventivo"} ${codice} - Ruffino Infissi`;
+    const subject = `${doc.tipo === "contratto" ? "Contratto" : "Preventivo"} ${codice}`;
     const body = [
       `Gentile ${clienteLabel},`,
       ``,
       `in allegato trovera' il ${doc.tipo} relativo alla commessa ${codice}.`,
       `Restiamo a disposizione per qualsiasi chiarimento.`,
       ``,
-      `Cordiali saluti,`,
-      `Ruffino Infissi`,
+      `Cordiali saluti`,
     ].join("\n");
     setEmailForm({ to: c.email ?? "", subject, body });
     setEmailDoc(doc);
