@@ -1,6 +1,17 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { deleteAllegatiByTicket } from "./ticketAllegati";
+
+// Linear workflow. Used for both forward advance and rollback.
+const TICKET_STATI = [
+  "aperto",
+  "assegnato",
+  "in_lavorazione",
+  "risolto",
+  "chiuso",
+] as const;
+type TicketStato = (typeof TICKET_STATI)[number];
 
 let nextId = 1;
 
@@ -72,6 +83,9 @@ export const ticketRouter = router({
     const idx = tickets.findIndex((t) => t.id === input);
     if (idx === -1) throw new Error("Ticket non trovato");
     tickets.splice(idx, 1);
+    // Cascade: also drop any attachments bound to the ticket, otherwise they
+    // leak in the store with no parent.
+    deleteAllegatiByTicket(input);
     _store.save();
     return { success: true };
   }),
@@ -79,7 +93,7 @@ export const ticketRouter = router({
   updateStato: publicProcedure
     .input(z.object({
       id: z.number(),
-      stato: z.enum(["aperto", "assegnato", "in_lavorazione", "risolto", "chiuso"]),
+      stato: z.enum(TICKET_STATI),
       esitoIntervento: z.string().optional(),
     }))
     .mutation(({ input }) => {
@@ -87,7 +101,31 @@ export const ticketRouter = router({
       if (idx === -1) throw new Error("Ticket non trovato");
       tickets[idx].stato = input.stato;
       if (input.esitoIntervento) tickets[idx].esitoIntervento = input.esitoIntervento;
-      if (input.stato === "risolto" || input.stato === "chiuso") tickets[idx].dataRisoluzione = new Date();
+      if (input.stato === "risolto" || input.stato === "chiuso") {
+        tickets[idx].dataRisoluzione = new Date();
+      }
+      tickets[idx].updatedAt = new Date();
+      _store.save();
+      return tickets[idx];
+    }),
+
+  // Single-step rollback to the previous stato in TICKET_STATI. Clears
+  // dataRisoluzione when leaving risolto/chiuso so the ticket is "open" again
+  // for reporting. If already at "aperto" (first state) throws.
+  rollbackStato: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ input }) => {
+      const idx = tickets.findIndex((t) => t.id === input.id);
+      if (idx === -1) throw new Error("Ticket non trovato");
+      const currentIdx = TICKET_STATI.indexOf(tickets[idx].stato as TicketStato);
+      if (currentIdx <= 0) {
+        throw new Error("Il ticket è già al primo stato");
+      }
+      const prev = TICKET_STATI[currentIdx - 1];
+      tickets[idx].stato = prev;
+      if (prev !== "risolto" && prev !== "chiuso") {
+        tickets[idx].dataRisoluzione = null;
+      }
       tickets[idx].updatedAt = new Date();
       _store.save();
       return tickets[idx];

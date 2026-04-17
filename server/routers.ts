@@ -8,6 +8,7 @@ import { apertureRouter } from "./routers/aperture";
 import { interventiRouter } from "./routers/interventi";
 import { anomalieRouter } from "./routers/anomalie";
 import { ticketRouter } from "./routers/ticket";
+import { ticketAllegatiRouter } from "./routers/ticketAllegati";
 import { squadreRouter } from "./routers/squadre";
 import { garanzieRouter } from "./routers/garanzie";
 import { verbaliRouter } from "./routers/verbali";
@@ -92,6 +93,7 @@ export const appRouter = router({
   interventi: interventiRouter,
   anomalie: anomalieRouter,
   ticket: ticketRouter,
+  ticketAllegati: ticketAllegatiRouter,
   squadre: squadreRouter,
   garanzie: garanzieRouter,
   verbali: verbaliRouter,

@@ -49,6 +49,7 @@ import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
+import FilePreviewDialog from "@/components/FilePreviewDialog";
 
 const tipoDocColors: Record<string, string> = {
   preventivo: "bg-blue-100 text-blue-800",
@@ -1505,31 +1506,12 @@ export default function CommessaDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Document preview dialog (PDF + images) */}
-      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
-        <DialogContent className="max-w-4xl w-[90vw] h-[85vh] p-4 gap-3">
-          <DialogHeader>
-            <DialogTitle className="truncate">{previewDoc?.nome}</DialogTitle>
-          </DialogHeader>
-          {previewDoc?.mimeType?.startsWith("image/") ? (
-            <div className="flex-1 overflow-auto flex items-center justify-center bg-muted rounded">
-              <img src={previewDoc.url} alt={previewDoc.nome} className="max-w-full max-h-full" />
-            </div>
-          ) : (
-            <iframe
-              src={previewDoc?.url}
-              title={previewDoc?.nome}
-              className="flex-1 w-full rounded border"
-            />
-          )}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => previewDoc && downloadDocumento(previewDoc.id)}>
-              <Download className="h-3.5 w-3.5 mr-1" /> Scarica
-            </Button>
-            <Button size="sm" onClick={() => setPreviewDoc(null)}>Chiudi</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Document preview — reusable large dialog */}
+      <FilePreviewDialog
+        preview={previewDoc}
+        onClose={() => setPreviewDoc(null)}
+        onDownload={() => previewDoc && downloadDocumento(previewDoc.id)}
+      />
 
       {/* Email preventivo dialog (mailto + auto-download) */}
       <Dialog open={!!emailDoc} onOpenChange={(open) => !open && setEmailDoc(null)}>
