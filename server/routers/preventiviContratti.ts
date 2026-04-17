@@ -2,6 +2,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
+import { renameForStato } from "@shared/statoLabels";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,25 @@ const documenti = _documentiStore.items;
 
 // Cap per-file size: ~10MB base64 = ~7.5MB raw.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+// If `name` already exists among the commessa's documenti, return it with a
+// numeric suffix before the extension ("foo.pdf" → "foo (2).pdf") that makes
+// it unique. Otherwise returns `name` unchanged.
+function dedupeName(name: string, commessaId: number): string {
+  const taken = new Set(
+    documenti.filter((d) => d.commessaId === commessaId).map((d) => d.nome)
+  );
+  if (!taken.has(name)) return name;
+  const dotIdx = name.lastIndexOf(".");
+  const hasExt = dotIdx > 0 && dotIdx < name.length - 1;
+  const stem = hasExt ? name.slice(0, dotIdx) : name;
+  const ext = hasExt ? name.slice(dotIdx) : ""; // includes the dot
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${stem} (${i})${ext}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return name; // pathological fallback
+}
 
 // ── State-gate config ─────────────────────────────────────────────────────
 // For each stato, lists the doc tipi that count as "mandatory output". The
@@ -145,10 +165,23 @@ export const preventiviContrattiRouter = router({
         throw new Error(`File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`);
       }
       const commessa = getCommessaById(input.commessaId);
+      // Auto-rename: files uploaded inside a commessa board stato are renamed
+      // to "{stato label} {cliente}.{ext}" so downloads land with a name that
+      // tells you at a glance which commessa + phase they belong to. Falls
+      // back to the original filename if we lack context.
+      const baseNome = renameForStato({
+        originalName: input.nome,
+        stato: commessa?.stato,
+        cliente: commessa?.cliente,
+      });
+      // Disambiguate duplicates within the same commessa: if the name is
+      // already taken, append " (2)", " (3)", ... before the extension so the
+      // browser doesn't silently overwrite on download.
+      const nome = dedupeName(baseNome, input.commessaId);
       const doc: Documento = {
         id: nextId++,
         commessaId: input.commessaId,
-        nome: input.nome,
+        nome,
         tipo: input.tipo,
         mimeType: input.mimeType,
         size: input.size,
