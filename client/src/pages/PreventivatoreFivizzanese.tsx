@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowLeft,
   Calculator,
   Download,
   FileCheck2,
+  Info,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import {
   SUPPLEMENTI,
   getCentinatura,
   getModello,
+  getPromoColore,
   getSupplemento,
   type Colorazione,
   type Supplemento,
@@ -117,12 +119,17 @@ export default function PreventivatoreFivizzanese() {
   const [riferimento, setRiferimento] = useState("");
   const [posa, setPosa] = useState<Posa>("cardini");
   const [modelloKey, setModelloKey] = useState<string>(MODELLI[0].key);
-  const [colorazione, setColorazione] = useState<Colorazione>("standard");
+  // In modalità standard vale Colorazione ("standard"|"speciali"|"legno"),
+  // in modalità promo vale una chiave di `modello.promo.colori`.
+  const [colorazioneKey, setColorazioneKey] = useState<string>("standard");
   const [persiane, setPersiane] = useState<PersianaInput[]>([
     { id: uid(), larghezza: "", altezza: "" },
   ]);
   const [supplementiSel, setSupplementiSel] = useState<Set<string>>(new Set());
   const [centinaturaAnte, setCentinaturaAnte] = useState<string>("none");
+  // Smontaggio / dismissione / posa — costo aggiuntivo fisso in € inserito
+  // dall'operatore. Stringa per input controllato.
+  const [smontaggio, setSmontaggio] = useState<string>("");
 
   // ── Commesse dropdown ─────────────────────────────────────────────────────
   const commesseQuery = trpc.commesse.list.useQuery(undefined, {
@@ -142,14 +149,42 @@ export default function PreventivatoreFivizzanese() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const modello = getModello(modelloKey);
-  const prezzoMq = modello?.prezziMq[colorazione] ?? null;
+  const isPromo = !!modello?.promo;
+  const promoColore = isPromo && modello
+    ? getPromoColore(modello, colorazioneKey)
+    : undefined;
+  // Quando è attiva una promo i supplementi/colorazioni standard non si
+  // applicano: trattiamo l'indexing legacy come "standard" per evitare
+  // errori ma i valori vengono ignorati nel calc (supplementiDisponibili = []).
+  const colorazione: Colorazione = isPromo
+    ? "standard"
+    : ((colorazioneKey as Colorazione) ?? "standard");
+  const prezzoMq = isPromo
+    ? promoColore?.prezzoMq ?? null
+    : modello?.prezziMq[colorazione] ?? null;
+
+  // Quando cambio modello: resetto la colorazione al primo valore valido del
+  // nuovo modello (promo → primo colore promo, standard → "standard") e se il
+  // modello promo ha `posaFissa` la forzo.
+  useEffect(() => {
+    if (!modello) return;
+    if (modello.promo) {
+      setColorazioneKey(modello.promo.colori[0]?.key ?? "standard");
+      if (modello.promo.posaFissa) setPosa(modello.promo.posaFissa);
+    } else {
+      setColorazioneKey("standard");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelloKey]);
 
   // Quando la colorazione cambia, alcuni supplementi non sono più disponibili.
-  // Rimuoviamo dalla selezione quelli che perdono prezzo per questa colorazione.
+  // In promo non ci sono supplementi applicabili.
   const supplementiDisponibili = useMemo(
     () =>
-      SUPPLEMENTI.filter((s) => s.prezzi[colorazione] !== null),
-    [colorazione]
+      isPromo
+        ? []
+        : SUPPLEMENTI.filter((s) => s.prezzi[colorazione] !== null),
+    [colorazione, isPromo]
   );
 
   // Purge selezioni non più disponibili ogni volta che il set cambia.
@@ -215,7 +250,10 @@ export default function PreventivatoreFivizzanese() {
     const centinaturaCostoUnitario = centinatura?.prezzo ?? 0;
     const centinaturaTotale = centinaturaCostoUnitario * numPersiane;
 
-    const totale = totalePersiane + centinaturaTotale;
+    const smontaggioEur =
+      parseFloat(smontaggio.replace(",", ".")) || 0;
+
+    const totale = totalePersiane + centinaturaTotale + smontaggioEur;
 
     return {
       perPersiana,
@@ -226,6 +264,7 @@ export default function PreventivatoreFivizzanese() {
       centinaturaAnte: ante,
       centinaturaCostoUnitario,
       centinaturaTotale,
+      smontaggioEur,
       totalePersiane,
       totale,
     };
@@ -236,6 +275,7 @@ export default function PreventivatoreFivizzanese() {
     effettiveSelezioni,
     colorazione,
     centinaturaAnte,
+    smontaggio,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -295,7 +335,12 @@ export default function PreventivatoreFivizzanese() {
       ["Riferimento cliente", riferimento || "—"],
       ["Tipo posa", POSA_LABEL[posa]],
       ["Modello", modello.nome],
-      ["Colorazione", COLORAZIONE_LABEL[colorazione]],
+      [
+        "Colorazione",
+        isPromo
+          ? `${promoColore?.nome ?? "—"} (promo)`
+          : COLORAZIONE_LABEL[colorazione],
+      ],
       ["Prezzo €/m²", prezzoMq ? EUR.format(prezzoMq) : "—"],
     ];
     autoTable(doc, {
@@ -395,6 +440,22 @@ export default function PreventivatoreFivizzanese() {
             EUR.format(calc.centinaturaCostoUnitario),
             EUR.format(calc.centinaturaTotale),
           ],
+        ],
+        theme: "grid",
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [55, 65, 81], textColor: 255 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // Smontaggio, dismissione e posa
+    if (calc.smontaggioEur > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Voce", "Totale"]],
+        body: [
+          ["Smontaggio, dismissione e posa", EUR.format(calc.smontaggioEur)],
         ],
         theme: "grid",
         styles: { fontSize: 9 },
@@ -548,9 +609,42 @@ export default function PreventivatoreFivizzanese() {
                   onValueChange={(v) => setPosa(v as Posa)}
                   className="grid grid-cols-2 gap-2"
                 >
-                  <PosaOption value="cardini" label="Su Cardini" current={posa} />
-                  <PosaOption value="telaio" label="Su Telaio" current={posa} />
+                  <PosaOption
+                    value="cardini"
+                    label="Su Cardini"
+                    current={posa}
+                    disabled={
+                      !!modello?.promo?.posaFissa &&
+                      modello.promo.posaFissa !== "cardini"
+                    }
+                    hint={
+                      modello?.promo?.posaFissa === "cardini"
+                        ? "promo"
+                        : undefined
+                    }
+                  />
+                  <PosaOption
+                    value="telaio"
+                    label="Su Telaio"
+                    current={posa}
+                    disabled={
+                      !!modello?.promo?.posaFissa &&
+                      modello.promo.posaFissa !== "telaio"
+                    }
+                    hint={
+                      modello?.promo?.posaFissa === "telaio"
+                        ? "promo"
+                        : undefined
+                    }
+                  />
                 </RadioGroup>
+                {modello?.promo?.posaFissa && (
+                  <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                    Il modello promo forza la posa su{" "}
+                    {POSA_LABEL[modello.promo.posaFissa]}.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -577,23 +671,51 @@ export default function PreventivatoreFivizzanese() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Colorazione</Label>
-                <RadioGroup
-                  value={colorazione}
-                  onValueChange={(v) => setColorazione(v as Colorazione)}
-                  className="grid grid-cols-3 gap-2"
-                >
-                  {(["standard", "speciali", "legno"] as Colorazione[]).map(
-                    (c) => (
-                      <PosaOption
-                        key={c}
-                        value={c}
-                        label={COLORAZIONE_LABEL[c]}
-                        current={colorazione}
-                      />
-                    )
-                  )}
-                </RadioGroup>
+                <Label>
+                  Colorazione {isPromo && <Badge variant="secondary" className="ml-2">PROMO</Badge>}
+                </Label>
+                {isPromo && modello?.promo ? (
+                  <>
+                    <RadioGroup
+                      value={colorazioneKey}
+                      onValueChange={setColorazioneKey}
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                    >
+                      {modello.promo.colori.map((c) => (
+                        <PosaOption
+                          key={c.key}
+                          value={c.key}
+                          label={c.nome}
+                          current={colorazioneKey}
+                          hint={`${EUR.format(c.prezzoMq)}/m²`}
+                        />
+                      ))}
+                    </RadioGroup>
+                    {modello.promo.note && (
+                      <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                        <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                        {modello.promo.note}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <RadioGroup
+                    value={colorazioneKey}
+                    onValueChange={setColorazioneKey}
+                    className="grid grid-cols-3 gap-2"
+                  >
+                    {(["standard", "speciali", "legno"] as Colorazione[]).map(
+                      (c) => (
+                        <PosaOption
+                          key={c}
+                          value={c}
+                          label={COLORAZIONE_LABEL[c]}
+                          current={colorazioneKey}
+                        />
+                      )
+                    )}
+                  </RadioGroup>
+                )}
                 {prezzoMq && (
                   <p className="text-xs text-muted-foreground">
                     Prezzo modello: {EUR.format(prezzoMq)}/m²
@@ -672,81 +794,128 @@ export default function PreventivatoreFivizzanese() {
             </CardContent>
           </Card>
 
-          {/* Supplementi */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Supplementi opzionali
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {supplementiDisponibili.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Nessun supplemento a listino per questa colorazione.
+          {/* Supplementi + Centinature (non applicabili in promo) */}
+          {isPromo ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Supplementi e centinature
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground flex items-start gap-1">
+                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  Non applicabili al modello in promozione. Il prezzo €/m² del
+                  colore selezionato è già comprensivo.
                 </p>
-              )}
-              {supplementiDisponibili.map((s) => (
-                <SupplementoRow
-                  key={s.key}
-                  supp={s}
-                  colorazione={colorazione}
-                  checked={effettiveSelezioni.has(s.key)}
-                  onToggle={() => toggleSupplemento(s.key)}
-                />
-              ))}
-              {/* Supplementi non disponibili in questa colorazione (info) */}
-              {SUPPLEMENTI.filter((s) => s.prezzi[colorazione] === null)
-                .length > 0 && (
-                <>
-                  <Separator className="my-3" />
-                  <p className="text-xs text-muted-foreground">
-                    Non a listino per colorazione{" "}
-                    <span className="font-medium">
-                      {COLORAZIONE_LABEL[colorazione]}
-                    </span>
-                    :{" "}
-                    {SUPPLEMENTI.filter(
-                      (s) => s.prezzi[colorazione] === null
-                    )
-                      .map((s) => s.nome)
-                      .join(", ")}
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Centinature */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Lavorazioni speciali — Centinature
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Select
-                value={centinaturaAnte}
-                onValueChange={setCentinaturaAnte}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nessuna centinatura</SelectItem>
-                  {CENTINATURE.map((c) => (
-                    <SelectItem key={c.ante} value={String(c.ante)}>
-                      {c.ante} {c.ante === 1 ? "anta" : "ante"} —{" "}
-                      {EUR.format(c.prezzo)}/cad.
-                    </SelectItem>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Supplementi */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Supplementi opzionali
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {supplementiDisponibili.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Nessun supplemento a listino per questa colorazione.
+                    </p>
+                  )}
+                  {supplementiDisponibili.map((s) => (
+                    <SupplementoRow
+                      key={s.key}
+                      supp={s}
+                      colorazione={colorazione}
+                      checked={effettiveSelezioni.has(s.key)}
+                      onToggle={() => toggleSupplemento(s.key)}
+                    />
                   ))}
-                </SelectContent>
-              </Select>
-              {calc.centinaturaAnte && (
-                <p className="text-xs text-muted-foreground">
-                  {EUR.format(calc.centinaturaCostoUnitario)} × {calc.numPersiane}{" "}
-                  persiane = {EUR.format(calc.centinaturaTotale)}
+                  {/* Supplementi non disponibili in questa colorazione (info) */}
+                  {SUPPLEMENTI.filter((s) => s.prezzi[colorazione] === null)
+                    .length > 0 && (
+                    <>
+                      <Separator className="my-3" />
+                      <p className="text-xs text-muted-foreground">
+                        Non a listino per colorazione{" "}
+                        <span className="font-medium">
+                          {COLORAZIONE_LABEL[colorazione]}
+                        </span>
+                        :{" "}
+                        {SUPPLEMENTI.filter(
+                          (s) => s.prezzi[colorazione] === null
+                        )
+                          .map((s) => s.nome)
+                          .join(", ")}
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Centinature */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Lavorazioni speciali — Centinature
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Select
+                    value={centinaturaAnte}
+                    onValueChange={setCentinaturaAnte}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nessuna centinatura</SelectItem>
+                      {CENTINATURE.map((c) => (
+                        <SelectItem key={c.ante} value={String(c.ante)}>
+                          {c.ante} {c.ante === 1 ? "anta" : "ante"} —{" "}
+                          {EUR.format(c.prezzo)}/cad.
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {calc.centinaturaAnte && (
+                    <p className="text-xs text-muted-foreground">
+                      {EUR.format(calc.centinaturaCostoUnitario)} ×{" "}
+                      {calc.numPersiane} persiane ={" "}
+                      {EUR.format(calc.centinaturaTotale)}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* Smontaggio / dismissione / posa */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Smontaggio, dismissione e posa
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="space-y-1.5">
+                <Label>Prezzo (€)</Label>
+                <Input
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={smontaggio}
+                  onChange={(e) =>
+                    setSmontaggio(e.target.value.replace(/[^\d.,]/g, ""))
+                  }
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Lascia vuoto o 0 se non applicabile. Verrà sommato al totale
+                  del preventivo.
                 </p>
-              )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -763,9 +932,16 @@ export default function PreventivatoreFivizzanese() {
               <RowLabel
                 label="Colorazione"
                 value={
-                  <Badge variant="secondary">
-                    {COLORAZIONE_LABEL[colorazione]}
-                  </Badge>
+                  isPromo ? (
+                    <Badge variant="secondary" className="gap-1">
+                      {promoColore?.nome ?? "—"}
+                      <span className="text-[10px] opacity-70">PROMO</span>
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      {COLORAZIONE_LABEL[colorazione]}
+                    </Badge>
+                  )
                 }
               />
               <Separator />
@@ -853,6 +1029,18 @@ export default function PreventivatoreFivizzanese() {
                 </>
               )}
 
+              {/* Smontaggio, dismissione e posa */}
+              {calc.smontaggioEur > 0 && (
+                <>
+                  <Separator />
+                  <RowLabel
+                    label="Smontaggio, dismissione e posa"
+                    value={EUR.format(calc.smontaggioEur)}
+                    mono
+                  />
+                </>
+              )}
+
               <Separator />
               <div className="flex items-center justify-between pt-1">
                 <span className="font-semibold">Totale</span>
@@ -902,22 +1090,31 @@ function PosaOption({
   value,
   label,
   current,
+  disabled,
+  hint,
 }: {
   value: string;
   label: string;
   current: string;
+  disabled?: boolean;
+  hint?: string;
 }) {
   const selected = current === value;
   return (
     <Label
-      className={`flex items-center gap-2 rounded-md border p-2.5 cursor-pointer transition-colors ${
-        selected
-          ? "border-primary bg-primary/5"
-          : "bg-background hover:bg-accent"
+      className={`flex items-center gap-2 rounded-md border p-2.5 transition-colors ${
+        disabled
+          ? "opacity-50 cursor-not-allowed bg-muted"
+          : selected
+          ? "border-primary bg-primary/5 cursor-pointer"
+          : "bg-background hover:bg-accent cursor-pointer"
       }`}
     >
-      <RadioGroupItem value={value} />
-      <span className="text-sm font-medium">{label}</span>
+      <RadioGroupItem value={value} disabled={disabled} />
+      <span className="text-sm font-medium flex-1">{label}</span>
+      {hint && (
+        <span className="text-[10px] text-muted-foreground">{hint}</span>
+      )}
     </Label>
   );
 }

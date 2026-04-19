@@ -16,11 +16,34 @@ export type PrezziColorazione = {
   legno: number | null;
 };
 
+/** Colore a listino promo (es. promo genovese): prezzo €/m² diretto, niente
+ * scala standard/speciali/legno. */
+export type PromoColore = {
+  key: string;
+  nome: string;
+  /** €/m² fisso per questo colore promo */
+  prezzoMq: number;
+};
+
+/** Configurazione di un modello in promo temporanea. Quando presente l'UI
+ * deve usare `promo.colori` al posto di standard/speciali/legno e forzare la
+ * posa a `promo.posaFissa` (se impostata). I supplementi listati per
+ * colorazione standard non si applicano. */
+export type PromoConfig = {
+  colori: PromoColore[];
+  posaFissa?: "cardini" | "telaio";
+  note?: string;
+};
+
 export type Modello = {
   key: string;
   nome: string;
-  /** €/m² per colorazione */
+  /** €/m² per colorazione (ignorato quando il modello è in promo) */
   prezziMq: PrezziColorazione;
+  /** Se presente indica che il modello è in promozione: l'UI usa questo
+   * catalogo di colori dedicato, i supplementi standard/speciali/legno non
+   * si applicano. */
+  promo?: PromoConfig;
 };
 
 export type Supplemento = {
@@ -73,6 +96,28 @@ export const MODELLI: Modello[] = [
     key: "genova_sportello_oval_90_storico_cornice",
     nome: "TIPO GENOVA CON SPORTELLO OVAL 90mm CENTRO STORICO E CORNICE",
     prezziMq: { standard: 410, speciali: 420, legno: 578 },
+  },
+  // ── Promozione temporanea ────────────────────────────────────────────────
+  // Solo persiane alla genovese su cardine senza battuta. Colori dedicati,
+  // posa forzata a cardini, supplementi standard non applicabili.
+  {
+    key: "promo_genovese_cardine_senza_battuta",
+    nome: "PROMO — Persiane alla Genovese su Cardine senza Battuta",
+    // prezziMq non usato: il prezzo €/m² viene dal colore promo selezionato.
+    prezziMq: { standard: null, speciali: null, legno: null },
+    promo: {
+      posaFissa: "cardini",
+      note: "Promozione temporanea: solo persiane alla genovese su cardine senza battuta. Supplementi e maggiorazioni non inclusi.",
+      colori: [
+        { key: "promo_ral_6005_opaco", nome: "RAL 6005 Opaco", prezzoMq: 200 },
+        { key: "promo_ral_8017_opaco", nome: "RAL 8017 Opaco", prezzoMq: 205 },
+        { key: "promo_verde_grinz", nome: "Verde Grinz", prezzoMq: 205 },
+        { key: "promo_giallo_positano", nome: "Giallo Positano", prezzoMq: 205 },
+        { key: "promo_marrone_grinz", nome: "Marrone Grinz", prezzoMq: 205 },
+        { key: "promo_ral_9010", nome: "RAL 9010", prezzoMq: 205 },
+        { key: "promo_ral_7001", nome: "RAL 7001", prezzoMq: 205 },
+      ],
+    },
   },
 ];
 
@@ -201,4 +246,12 @@ export function getSupplemento(key: string): Supplemento | undefined {
 
 export function getCentinatura(ante: number): Centinatura | undefined {
   return CENTINATURE.find((c) => c.ante === ante);
+}
+
+/** Ritorna il colore promo del modello se la chiave combacia. */
+export function getPromoColore(
+  modello: Modello,
+  key: string
+): PromoColore | undefined {
+  return modello.promo?.colori.find((c) => c.key === key);
 }
