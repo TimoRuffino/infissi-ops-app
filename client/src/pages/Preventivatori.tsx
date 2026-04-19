@@ -23,6 +23,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useState } from "react";
+import { useLocation } from "wouter";
 
 // ── Aziende ─────────────────────────────────────────────────────────────────
 //
@@ -102,11 +103,29 @@ type Target = {
   prodottoLabel: string;
 };
 
+// Route map per i preventivatori già implementati. Se un target non è qui
+// dentro mostriamo il dialog placeholder "In sviluppo".
+const PREVENTIVATORE_ROUTES: Record<string, string> = {
+  "fivizzanese:persiane": "/preventivatori/fivizzanese/persiane",
+};
+
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Preventivatori() {
   const [view, setView] = useState<"aziende" | "prodotti">("aziende");
   const [selected, setSelected] = useState<Target | null>(null);
+  const [, setLocation] = useLocation();
+
+  // Se il target ha una route dedicata naviga lì, altrimenti apre il dialog
+  // placeholder così i preventivatori non ancora pronti restano visibili.
+  function pick(target: Target) {
+    const route = PREVENTIVATORE_ROUTES[`${target.aziendaId}:${target.prodotto}`];
+    if (route) {
+      setLocation(route);
+      return;
+    }
+    setSelected(target);
+  }
 
   // Total = somma dei prodotti dichiarati da ciascuna azienda (no prodotto
   // cartesiano — un'azienda che fa solo persiane conta 1, non length(PRODOTTI)).
@@ -206,7 +225,7 @@ export default function Preventivatori() {
               key={a.id}
               azienda={a}
               onPick={(prod) =>
-                setSelected({
+                pick({
                   aziendaId: a.id,
                   aziendaNome: a.nome,
                   prodotto: prod.key,
@@ -240,7 +259,7 @@ export default function Preventivatori() {
                   <button
                     key={a.id}
                     onClick={() =>
-                      setSelected({
+                      pick({
                         aziendaId: a.id,
                         aziendaNome: a.nome,
                         prodotto: p.key,

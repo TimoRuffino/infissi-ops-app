@@ -23,6 +23,7 @@ import KanbanBoard from "./pages/KanbanBoard";
 import ReclamiRifacimenti from "./pages/ReclamiRifacimenti";
 import UtentiList from "./pages/UtentiList";
 import Preventivatori from "./pages/Preventivatori";
+import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -55,6 +56,13 @@ function Router() {
         </Route>
         <Route path="/preventivatori">
           {() => <RequireDirezione><Preventivatori /></RequireDirezione>}
+        </Route>
+        <Route path="/preventivatori/fivizzanese/persiane">
+          {() => (
+            <RequireDirezione>
+              <PreventivatoreFivizzanese />
+            </RequireDirezione>
+          )}
         </Route>
         <Route path="/produzione">
           {() => <RequireDirezione><Produzione /></RequireDirezione>}
