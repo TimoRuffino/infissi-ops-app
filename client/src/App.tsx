@@ -22,6 +22,8 @@ import Produzione from "./pages/Produzione";
 import KanbanBoard from "./pages/KanbanBoard";
 import ReclamiRifacimenti from "./pages/ReclamiRifacimenti";
 import UtentiList from "./pages/UtentiList";
+import Preventivatori from "./pages/Preventivatori";
+import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
   return (
@@ -37,10 +39,26 @@ function Router() {
         <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
         <Route path="/planning" component={Planning} />
         <Route path="/ticket" component={TicketList} />
-        <Route path="/garanzie" component={GaranzieList} />
-        <Route path="/squadre" component={SquadreList} />
-        <Route path="/fornitori" component={FornitoriList} />
-        <Route path="/produzione" component={Produzione} />
+        {/* Direzione-only surfaces. Hidden from the sidebar — reached via
+            the Impostazioni hub. A client-side guard shows a blocked state
+            so non-direzione users get a clear message instead of a silent
+            404; the routes themselves are still registered so deep links
+            work for authorized users. */}
+        <Route path="/garanzie">
+          {() => <RequireDirezione><GaranzieList /></RequireDirezione>}
+        </Route>
+        <Route path="/squadre">
+          {() => <RequireDirezione><SquadreList /></RequireDirezione>}
+        </Route>
+        <Route path="/fornitori">
+          {() => <RequireDirezione><FornitoriList /></RequireDirezione>}
+        </Route>
+        <Route path="/preventivatori">
+          {() => <RequireDirezione><Preventivatori /></RequireDirezione>}
+        </Route>
+        <Route path="/produzione">
+          {() => <RequireDirezione><Produzione /></RequireDirezione>}
+        </Route>
         <Route path="/reclami" component={ReclamiRifacimenti} />
         <Route path="/utenti" component={UtentiList} />
         <Route path="/integrazioni" component={Integrazioni} />

@@ -43,7 +43,7 @@
 }
 
 :root {
-  /* Ruffino Cartelléttà — Vivid, warm, professional */
+  /* Ruffino Flow — Vivid, warm, professional */
   --primary: oklch(0.55 0.2 260);          /* rich indigo */
   --primary-foreground: oklch(1 0 0);
   --sidebar-primary: oklch(0.55 0.2 260);

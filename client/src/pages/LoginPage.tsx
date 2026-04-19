@@ -44,7 +44,7 @@ export default function LoginPage() {
           />
           <div className="space-y-1">
             <h1 className="text-xl font-bold tracking-tight">
-              Ruffino Cartelléttà
+              Ruffino Flow
             </h1>
             <p className="text-sm text-muted-foreground">
               Gestionale infissi — Accedi al tuo account

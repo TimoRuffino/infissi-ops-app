@@ -38,26 +38,38 @@ import {
   Kanban,
   AlertTriangle,
   User,
+  Calculator,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import NotificheDropdown from "./NotificheDropdown";
 import LoginPage from "@/pages/LoginPage";
+import { isDirezione } from "@/lib/roles";
 
-const menuItems = [
+// Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
+// for users without the `direzione` role. Squadre, Garanzie, Produzione and
+// Fornitori are intentionally absent here — they are reached from the
+// Impostazioni hub (also direzione-gated) to keep the main sidebar focused
+// on day-to-day operations.
+type MenuItem = {
+  icon: any;
+  label: string;
+  path: string;
+  badge?: string;
+  direzioneOnly?: boolean;
+};
+
+const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Contact, label: "Clienti", path: "/clienti" },
   { icon: Building2, label: "Commesse", path: "/commesse" },
   { icon: Kanban, label: "Board", path: "/kanban" },
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
-  { icon: Truck, label: "Fornitori", path: "/fornitori" },
+  { icon: Calculator, label: "Preventivatori", path: "/preventivatori", direzioneOnly: true },
   { icon: Users, label: "Utenti", path: "/utenti" },
-  { icon: Shield, label: "Garanzie", path: "/garanzie" },
-  { icon: Users, label: "Squadre", path: "/squadre" },
-  { icon: Factory, label: "Produzione", path: "/produzione" },
-  { icon: Settings, label: "Impostazioni", path: "/integrazioni", badge: "Soon" },
+  { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -193,7 +205,9 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
+              {menuItems
+                .filter((item) => !item.direzioneOnly || isDirezione(user))
+                .map(item => {
                 const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                 return (
                   <SidebarMenuItem key={item.path}>

@@ -13,10 +13,65 @@ import {
   Calendar,
   ListTodo,
   RefreshCw,
+  Truck,
+  Users,
+  Shield,
+  Factory,
+  Calculator,
+  ArrowRight,
+  Lock,
 } from "lucide-react";
 import { useState } from "react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isDirezione } from "@/lib/roles";
+
+// Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
+// guarded routes in App.tsx; adding a new entry here automatically surfaces
+// it to direzione users without touching the sidebar.
+const GESTIONE_LINKS: Array<{
+  icon: any;
+  label: string;
+  path: string;
+  description: string;
+}> = [
+  {
+    icon: Truck,
+    label: "Fornitori",
+    path: "/fornitori",
+    description: "Anagrafica fornitori, ordini, listini",
+  },
+  {
+    icon: Factory,
+    label: "Produzione",
+    path: "/produzione",
+    description: "Distinte base, fasi, non conformità",
+  },
+  {
+    icon: Users,
+    label: "Squadre",
+    path: "/squadre",
+    description: "Squadre di posa e assegnazioni",
+  },
+  {
+    icon: Shield,
+    label: "Garanzie",
+    path: "/garanzie",
+    description: "Registro garanzie e scadenze",
+  },
+  {
+    icon: Calculator,
+    label: "Preventivatori",
+    path: "/preventivatori",
+    description: "Calcolatori prezzo per azienda e prodotto",
+  },
+];
 
 export default function Integrazioni() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const canManage = isDirezione(user);
+
   // Integration states (would be persisted in real app)
   const [todoEnabled, setTodoEnabled] = useState(false);
   const [calendarEnabled, setCalendarEnabled] = useState(false);
@@ -25,7 +80,7 @@ export default function Integrazioni() {
     tenantId: "",
     autoCreateTasks: true,
     syncBidirectional: true,
-    defaultList: "Ruffino Cartelléttà",
+    defaultList: "Ruffino Flow",
   });
   const [calendarConfig, setCalendarConfig] = useState({
     clientId: "",
@@ -41,12 +96,58 @@ export default function Integrazioni() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Settings className="h-6 w-6" />
-          Integrazioni
+          Impostazioni
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Configura le integrazioni con servizi esterni
+          Gestione avanzata e configurazione integrazioni
         </p>
       </div>
+
+      {/* Gestione — direzione only. Hub per le sezioni operative avanzate
+          non esposte nella sidebar principale. */}
+      {canManage && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Gestione
+            </h2>
+            <Badge variant="outline" className="text-[10px] gap-1">
+              <Lock className="h-3 w-3" />
+              Direzione
+            </Badge>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {GESTIONE_LINKS.map((link) => (
+              <button
+                key={link.path}
+                onClick={() => setLocation(link.path)}
+                className="group text-left rounded-lg border bg-background hover:bg-accent hover:border-primary/40 transition-all p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <link.icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{link.label}</p>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {link.description}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Integrazioni */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Integrazioni
+        </h2>
 
       {/* Microsoft To Do */}
       <Card>
@@ -325,6 +426,7 @@ export default function Integrazioni() {
           </div>
         </CardContent>
       </Card>
+      </section>
     </div>
   );
 }
