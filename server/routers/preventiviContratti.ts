@@ -158,6 +158,11 @@ export const preventiviContrattiRouter = router({
         size: z.number().int().min(0),
         dataBase64: z.string().min(1),
         note: z.string().optional(),
+        // When the caller already built a fully-qualified filename (e.g. the
+        // Preventivatore Fivizzanese saves as "Preventivo {cliente} -
+        // Fivizzanese.pdf") skip the {stato label} {cliente}.{ext} auto-
+        // rename so the custom name survives. Dedup-suffix still applies.
+        keepNome: z.boolean().optional(),
       })
     )
     .mutation(({ input, ctx }) => {
@@ -168,12 +173,15 @@ export const preventiviContrattiRouter = router({
       // Auto-rename: files uploaded inside a commessa board stato are renamed
       // to "{stato label} {cliente}.{ext}" so downloads land with a name that
       // tells you at a glance which commessa + phase they belong to. Falls
-      // back to the original filename if we lack context.
-      const baseNome = renameForStato({
-        originalName: input.nome,
-        stato: commessa?.stato,
-        cliente: commessa?.cliente,
-      });
+      // back to the original filename if we lack context. Opt-out via
+      // `keepNome` when the caller already built a meaningful name.
+      const baseNome = input.keepNome
+        ? input.nome
+        : renameForStato({
+            originalName: input.nome,
+            stato: commessa?.stato,
+            cliente: commessa?.cliente,
+          });
       // Disambiguate duplicates within the same commessa: if the name is
       // already taken, append " (2)", " (3)", ... before the extension so the
       // browser doesn't silently overwrite on download.

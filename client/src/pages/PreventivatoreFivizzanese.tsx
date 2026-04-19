@@ -4,11 +4,13 @@ import {
   ArrowLeft,
   Calculator,
   Download,
+  FileCheck2,
   Plus,
   Trash2,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,6 +84,29 @@ function areaMq(larghezzaMm: number, altezzaMm: number): number {
   return (larghezzaMm * altezzaMm) / 1_000_000;
 }
 
+// Convert a Blob to a base64 string (no data: prefix) so we can ship it
+// through tRPC as JSON. FileReader.readAsDataURL yields
+// "data:<mime>;base64,<payload>" — we strip everything up to the comma.
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result ?? "");
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.onerror = () => reject(r.error ?? new Error("FileReader error"));
+    r.readAsDataURL(blob);
+  });
+}
+
+// Strip characters that are unsafe in filenames across OSes / Content-
+// Disposition headers and collapse whitespace. Mirrors the server-side
+// `renameForStato` sanitiser so client + server produce identical names.
+function sanitizeFilename(name: string): string {
+  return name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function PreventivatoreFivizzanese() {
@@ -102,6 +127,17 @@ export default function PreventivatoreFivizzanese() {
   // ── Commesse dropdown ─────────────────────────────────────────────────────
   const commesseQuery = trpc.commesse.list.useQuery(undefined, {
     refetchOnWindowFocus: false,
+  });
+  const selectedCommessa = commesseQuery.data?.find(
+    (c) => String(c.id) === commessaId
+  );
+
+  // ── Upload mutation (save PDF into the selected commessa) ─────────────────
+  const utils = trpc.useUtils();
+  const uploadPreventivo = trpc.preventiviContratti.upload.useMutation({
+    onSuccess: () => {
+      utils.preventiviContratti.invalidate();
+    },
   });
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -226,8 +262,10 @@ export default function PreventivatoreFivizzanese() {
   }
 
   // ── PDF ───────────────────────────────────────────────────────────────────
-  function downloadPdf() {
-    if (!modello) return;
+  // Build the jsPDF instance for the current form state. Caller decides what
+  // to do with it (save locally, upload to commessa, both).
+  function buildPdf(): jsPDF | null {
+    if (!modello) return null;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const marginX = 14;
     let y = 18;
@@ -383,9 +421,50 @@ export default function PreventivatoreFivizzanese() {
       margin: { left: marginX, right: marginX },
     });
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    const safeRif = (riferimento || "cliente").replace(/[^a-z0-9]+/gi, "_");
-    doc.save(`preventivo_fivizzanese_${safeRif}_${stamp}.pdf`);
+    return doc;
+  }
+
+  // Filename used for both the local download and (if a commessa is picked)
+  // the upload. Matches user spec: "Preventivo {cliente} - Fivizzanese.pdf".
+  // Falls back to the free-text `riferimento` when no commessa is linked so
+  // the download still has a meaningful name.
+  function buildFilename(): string {
+    const cliente = selectedCommessa?.cliente || riferimento || "Cliente";
+    return `${sanitizeFilename(`Preventivo ${cliente} - Fivizzanese`)}.pdf`;
+  }
+
+  async function handleExport() {
+    const doc = buildPdf();
+    if (!doc) return;
+    const filename = buildFilename();
+    doc.save(filename);
+
+    // If a commessa is selected also save the PDF as "preventivo" documento
+    // so it lives inside the commessa's documents panel. `keepNome: true`
+    // bypasses the server-side rename (which would replace our name with
+    // "{stato label} {cliente}.pdf") and dedup-suffixing still applies if
+    // the same name is already present.
+    if (!selectedCommessa) return;
+    try {
+      const blob = doc.output("blob") as Blob;
+      const dataBase64 = await blobToBase64(blob);
+      await uploadPreventivo.mutateAsync({
+        commessaId: selectedCommessa.id,
+        nome: filename,
+        tipo: "preventivo",
+        mimeType: "application/pdf",
+        size: blob.size,
+        dataBase64,
+        keepNome: true,
+      });
+      toast.success(
+        `Preventivo salvato nella commessa ${selectedCommessa.codice}`,
+        { description: filename }
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Errore sconosciuto";
+      toast.error("Salvataggio nella commessa fallito", { description: msg });
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -416,12 +495,14 @@ export default function PreventivatoreFivizzanese() {
           </p>
         </div>
         <Button
-          onClick={downloadPdf}
+          onClick={handleExport}
           className="gap-2"
-          disabled={!modello || calc.numPersiane === 0}
+          disabled={
+            !modello || calc.numPersiane === 0 || uploadPreventivo.isPending
+          }
         >
           <Download className="h-4 w-4" />
-          Scarica PDF
+          {uploadPreventivo.isPending ? "Salvataggio…" : "Scarica PDF"}
         </Button>
       </div>
 
@@ -781,13 +862,32 @@ export default function PreventivatoreFivizzanese() {
               </div>
 
               <Button
-                onClick={downloadPdf}
+                onClick={handleExport}
                 className="w-full gap-2"
-                disabled={!modello || calc.numPersiane === 0}
+                disabled={
+                  !modello || calc.numPersiane === 0 || uploadPreventivo.isPending
+                }
               >
                 <Download className="h-4 w-4" />
-                Scarica PDF
+                {uploadPreventivo.isPending
+                  ? "Salvataggio…"
+                  : selectedCommessa
+                  ? "Scarica + salva in commessa"
+                  : "Scarica PDF"}
               </Button>
+              {selectedCommessa && (
+                <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
+                  <FileCheck2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Verrà salvato nella commessa{" "}
+                    <span className="font-medium">
+                      {selectedCommessa.codice}
+                    </span>{" "}
+                    come{" "}
+                    <span className="font-medium">{buildFilename()}</span>.
+                  </span>
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
