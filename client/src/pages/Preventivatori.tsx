@@ -36,45 +36,64 @@ type Azienda = {
   nome: string;
   descrizione?: string;
   accent: string; // tailwind classes for the icon tile
+  prodotti: string[]; // keys into PRODOTTI_CATALOG
 };
 
 const AZIENDE: Azienda[] = [
   {
     id: "fivizzanese",
     nome: "Fivizzanese",
-    descrizione: "Serramenti in PVC e alluminio",
+    descrizione: "Persiane",
     accent: "bg-indigo-100 text-indigo-700",
+    prodotti: ["persiane"],
   },
   {
     id: "punto_del_serramento",
     nome: "Punto del Serramento",
-    descrizione: "Finestre, porte-finestre e persiane",
+    descrizione: "Persiane",
     accent: "bg-teal-100 text-teal-700",
+    prodotti: ["persiane"],
   },
   {
     id: "alias",
     nome: "Alias",
-    descrizione: "Infissi di design",
+    descrizione: "Portoncini blindati",
     accent: "bg-amber-100 text-amber-700",
+    prodotti: ["blindati"],
   },
 ];
 
 // ── Prodotti ────────────────────────────────────────────────────────────────
 //
-// Tipologie di preventivatore disponibili per ogni azienda. Stesse tipologie
-// per tutte le aziende per ora — quando costruiremo i veri calcolatori,
-// ciascuna azienda avrà il proprio insieme di parametri e formule.
+// Catalogo delle tipologie di preventivatore. Ogni azienda elenca in
+// `prodotti` le chiavi che supporta — nuove tipologie si aggiungono qui e
+// poi si abbinano all'azienda di competenza.
 
 type Prodotto = { key: string; label: string };
 
-const PRODOTTI: Prodotto[] = [
-  { key: "finestre", label: "Finestre" },
-  { key: "porte_finestre", label: "Porte-finestre" },
-  { key: "scorrevoli", label: "Scorrevoli" },
-  { key: "persiane", label: "Persiane" },
-  { key: "portoncini", label: "Portoncini" },
-  { key: "zanzariere", label: "Zanzariere" },
-];
+const PRODOTTI_CATALOG: Record<string, Prodotto> = {
+  persiane: { key: "persiane", label: "Persiane" },
+  blindati: { key: "blindati", label: "Blindati" },
+};
+
+function getProdotto(key: string): Prodotto {
+  return PRODOTTI_CATALOG[key] ?? { key, label: key };
+}
+
+// Prodotti effettivamente in uso — derivati dall'unione di quelli dichiarati
+// da ciascuna azienda. Mantiene stabile l'ordine di apparizione.
+const PRODOTTI_ATTIVI: Prodotto[] = (() => {
+  const seen = new Set<string>();
+  const out: Prodotto[] = [];
+  for (const a of AZIENDE) {
+    for (const key of a.prodotti) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(getProdotto(key));
+    }
+  }
+  return out;
+})();
 
 type Target = {
   aziendaId: string;
@@ -89,7 +108,12 @@ export default function Preventivatori() {
   const [view, setView] = useState<"aziende" | "prodotti">("aziende");
   const [selected, setSelected] = useState<Target | null>(null);
 
-  const totalPreventivatori = AZIENDE.length * PRODOTTI.length;
+  // Total = somma dei prodotti dichiarati da ciascuna azienda (no prodotto
+  // cartesiano — un'azienda che fa solo persiane conta 1, non length(PRODOTTI)).
+  const totalPreventivatori = AZIENDE.reduce(
+    (acc, a) => acc + a.prodotti.length,
+    0
+  );
 
   return (
     <div className="space-y-6">
@@ -130,7 +154,7 @@ export default function Preventivatori() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Prodotti</p>
-                <p className="text-2xl font-bold">{PRODOTTI.length}</p>
+                <p className="text-2xl font-bold">{PRODOTTI_ATTIVI.length}</p>
               </div>
               <Package className="h-8 w-8 text-muted-foreground/30" />
             </div>
@@ -195,19 +219,24 @@ export default function Preventivatori() {
 
         {/* ── Per prodotto ────────────────────────────────────────────────── */}
         <TabsContent value="prodotti" className="mt-4 space-y-4">
-          {PRODOTTI.map((p) => (
+          {PRODOTTI_ATTIVI.map((p) => {
+            const aziendeForProdotto = AZIENDE.filter((a) =>
+              a.prodotti.includes(p.key)
+            );
+            return (
             <Card key={p.key}>
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <Package className="h-4 w-4 text-muted-foreground" />
                   <CardTitle className="text-base">{p.label}</CardTitle>
                   <span className="text-xs text-muted-foreground">
-                    · {AZIENDE.length} aziende
+                    · {aziendeForProdotto.length}{" "}
+                    {aziendeForProdotto.length === 1 ? "azienda" : "aziende"}
                   </span>
                 </div>
               </CardHeader>
               <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {AZIENDE.map((a) => (
+                {aziendeForProdotto.map((a) => (
                   <button
                     key={a.id}
                     onClick={() =>
@@ -233,7 +262,8 @@ export default function Preventivatori() {
                 ))}
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </TabsContent>
       </Tabs>
 
@@ -292,23 +322,27 @@ function AziendaCard({
             )}
           </div>
           <Badge variant="secondary" className="text-[10px] shrink-0">
-            {PRODOTTI.length} preventivatori
+            {azienda.prodotti.length}{" "}
+            {azienda.prodotti.length === 1 ? "preventivatore" : "preventivatori"}
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {PRODOTTI.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => onPick(p)}
-            className="rounded-md border bg-background hover:bg-accent hover:border-primary/40 transition-all p-2.5 text-left group"
-          >
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs font-medium truncate">{p.label}</span>
-              <Calculator className="h-3 w-3 text-muted-foreground opacity-40 group-hover:opacity-100 group-hover:text-primary transition shrink-0" />
-            </div>
-          </button>
-        ))}
+        {azienda.prodotti.map((key) => {
+          const p = getProdotto(key);
+          return (
+            <button
+              key={p.key}
+              onClick={() => onPick(p)}
+              className="rounded-md border bg-background hover:bg-accent hover:border-primary/40 transition-all p-2.5 text-left group"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-medium truncate">{p.label}</span>
+                <Calculator className="h-3 w-3 text-muted-foreground opacity-40 group-hover:opacity-100 group-hover:text-primary transition shrink-0" />
+              </div>
+            </button>
+          );
+        })}
       </CardContent>
     </Card>
   );
