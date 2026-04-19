@@ -55,23 +55,15 @@ function Router() {
         <Route path="/fornitori">
           {() => <RequireDirezione><FornitoriList /></RequireDirezione>}
         </Route>
-        <Route path="/preventivatori">
-          {() => <RequireDirezione><Preventivatori /></RequireDirezione>}
-        </Route>
-        <Route path="/preventivatori/fivizzanese/persiane">
-          {() => (
-            <RequireDirezione>
-              <PreventivatoreFivizzanese />
-            </RequireDirezione>
-          )}
-        </Route>
-        <Route path="/preventivatori/punto-del-serramento/persiane">
-          {() => (
-            <RequireDirezione>
-              <PreventivatorePuntoDelSerramento />
-            </RequireDirezione>
-          )}
-        </Route>
+        <Route path="/preventivatori" component={Preventivatori} />
+        <Route
+          path="/preventivatori/fivizzanese/persiane"
+          component={PreventivatoreFivizzanese}
+        />
+        <Route
+          path="/preventivatori/punto-del-serramento/persiane"
+          component={PreventivatorePuntoDelSerramento}
+        />
         <Route path="/produzione">
           {() => <RequireDirezione><Produzione /></RequireDirezione>}
         </Route>

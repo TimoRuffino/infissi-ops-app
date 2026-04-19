@@ -67,7 +67,7 @@ const menuItems: MenuItem[] = [
   { icon: Kanban, label: "Board", path: "/kanban" },
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
-  { icon: Calculator, label: "Preventivatori", path: "/preventivatori", direzioneOnly: true },
+  { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Users, label: "Utenti", path: "/utenti" },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
