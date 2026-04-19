@@ -18,7 +18,11 @@ const MAX_RUOLI = 3;
 
 const ruoliSchema = z.array(z.enum(RUOLI)).min(1).max(MAX_RUOLI);
 
-// Default seed applied only when DB returns no utenti (first boot)
+// Default seed — used ONLY on the very first boot of a brand-new DB (no
+// kv_store row for "utenti" yet). Once seeded, the canonical state lives in
+// the DB and this constant is no longer consulted. Any change made via the
+// UI (edit roles, change password, deactivate a user, delete all users)
+// persists across deploys and is never overwritten by this list.
 const SEED_UTENTI: any[] = [
   { id: 1, nome: "Admin", cognome: "Ruffino", email: "admin@ruffinogroup.it", telefono: "", ruoli: ["direzione"] as Ruolo[], password: "Tars0520@", attivo: true },
   { id: 2, nome: "Lucia", cognome: "Saltarella", email: "l.saltarella@ruffinogroup.com", telefono: "", ruoli: ["amministrazione"] as Ruolo[], password: "Ruffino2026@", attivo: true },
@@ -31,8 +35,13 @@ const SEED_UTENTI: any[] = [
 
 let nextId = 8;
 
-const _store = persistedStore<any>("utenti", (items) => {
-  if (items.length === 0) {
+const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
+  // Seed ONLY when the DB row is genuinely absent. Previously this keyed
+  // off `items.length === 0`, which meant every failed/empty load (including
+  // DNS flakes during Railway cold boot, or a deliberate "delete all users"
+  // by the admin) would re-apply the seed and clobber real data on the
+  // next save.
+  if (firstBoot && items.length === 0) {
     const now = new Date();
     for (const seed of SEED_UTENTI) {
       items.push({ ...seed, createdAt: now, updatedAt: now });

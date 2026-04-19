@@ -97,10 +97,16 @@ function ensureSchema(): Promise<void> {
   return schemaPromise;
 }
 
+// Metadata passed to onLoad so callers can tell "no DB row yet (truly first
+// boot)" apart from "DB row exists with an empty array" (user deleted all).
+// Seeds should only ever run when firstBoot is true, otherwise a user's
+// intentional empty state gets clobbered on every cold start.
+export type LoadMeta = { firstBoot: boolean };
+
 type StoreEntry = {
   key: string;
   items: any[];
-  onLoad?: (items: any[]) => void;
+  onLoad?: (items: any[], meta: LoadMeta) => void;
   // false until bootstrapAll has successfully queried the DB for this key
   // (even a "no row" cold result counts as loaded). While false we refuse to
   // save — otherwise a transient DNS failure at boot would let a seed/empty
@@ -130,7 +136,7 @@ export type PersistedStore<T> = {
 
 export function persistedStore<T>(
   key: string,
-  onLoad?: (items: T[]) => void
+  onLoad?: (items: T[], meta: LoadMeta) => void
 ): PersistedStore<T> {
   if (registry.has(key)) {
     throw new Error(`[persistence] duplicate store key: ${key}`);
@@ -207,9 +213,10 @@ export async function bootstrapAll() {
     console.warn(
       "[persistence] DATABASE_URL missing — data will NOT be persisted (in-memory only)"
     );
-    // Still trigger onLoad with empty arrays so nextId defaults are set.
+    // No DB at all → treat as first boot so seed callbacks can populate
+    // initial data locally.
     registry.forEach((store) => {
-      store.onLoad?.(store.items);
+      store.onLoad?.(store.items, { firstBoot: true });
       store.loaded = true;
     });
     return;
@@ -223,8 +230,12 @@ export async function bootstrapAll() {
     );
     // Don't flip loaded=true here. onLoad runs with empty arrays so nextId
     // defaults don't explode, but saves stay blocked (flushSave re-queues)
-    // until a later ensureSchema succeeds.
-    registry.forEach((store) => store.onLoad?.(store.items));
+    // until a later ensureSchema succeeds. CRITICAL: firstBoot=false —
+    // we don't know the DB state, so seeds must NOT run. Otherwise a
+    // transient DNS failure would re-seed over real data every deploy.
+    registry.forEach((store) =>
+      store.onLoad?.(store.items, { firstBoot: false })
+    );
     // Background: keep trying so the app can recover once DNS warms up.
     void backgroundRecover();
     return;
@@ -238,6 +249,7 @@ export async function bootstrapAll() {
         () => sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`,
         `load(${key})`
       );
+      const firstBoot = rows.length === 0;
       if (rows.length > 0) {
         let raw = rows[0].data;
         // Legacy recovery: early versions double-encoded the payload
@@ -281,7 +293,7 @@ export async function bootstrapAll() {
       } else {
         console.log(`[persistence] load ${key}: no row in DB (cold)`);
       }
-      store.onLoad?.(store.items);
+      store.onLoad?.(store.items, { firstBoot });
       store.loaded = true;
       console.log(`[persistence] loaded ${key}: ${store.items.length} items`);
     } catch (e) {
@@ -289,7 +301,8 @@ export async function bootstrapAll() {
         `[persistence] load FAILED for ${key} after retries — keeping UNLOADED; saves for this key are blocked`,
         e
       );
-      store.onLoad?.(store.items);
+      // firstBoot=false — we can't prove the DB is empty, so don't seed.
+      store.onLoad?.(store.items, { firstBoot: false });
       // NOT setting loaded=true. Saves stay blocked until a background
       // recovery pass succeeds.
     }
@@ -324,6 +337,7 @@ async function backgroundRecover() {
       for (const store of pending) {
         try {
           const rows = await sql`SELECT data FROM kv_store WHERE key = ${store.key} LIMIT 1`;
+          const firstBoot = rows.length === 0;
           if (rows.length > 0) {
             const raw = rows[0].data;
             const restored = JSON.parse(JSON.stringify(raw), reviveDates);
@@ -332,7 +346,7 @@ async function backgroundRecover() {
               store.items.push(...restored);
             }
           }
-          store.onLoad?.(store.items);
+          store.onLoad?.(store.items, { firstBoot });
           store.loaded = true;
           console.log(
             `[persistence] backgroundRecover loaded ${store.key}: ${store.items.length} items`
