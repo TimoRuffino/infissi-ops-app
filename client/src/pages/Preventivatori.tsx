@@ -107,6 +107,8 @@ type Target = {
 // dentro mostriamo il dialog placeholder "In sviluppo".
 const PREVENTIVATORE_ROUTES: Record<string, string> = {
   "fivizzanese:persiane": "/preventivatori/fivizzanese/persiane",
+  "punto_del_serramento:persiane":
+    "/preventivatori/punto-del-serramento/persiane",
 };
 
 // ────────────────────────────────────────────────────────────────────────────

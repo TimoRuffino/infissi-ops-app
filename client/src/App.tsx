@@ -24,6 +24,7 @@ import ReclamiRifacimenti from "./pages/ReclamiRifacimenti";
 import UtentiList from "./pages/UtentiList";
 import Preventivatori from "./pages/Preventivatori";
 import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
+import PreventivatorePuntoDelSerramento from "./pages/PreventivatorePuntoDelSerramento";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -61,6 +62,13 @@ function Router() {
           {() => (
             <RequireDirezione>
               <PreventivatoreFivizzanese />
+            </RequireDirezione>
+          )}
+        </Route>
+        <Route path="/preventivatori/punto-del-serramento/persiane">
+          {() => (
+            <RequireDirezione>
+              <PreventivatorePuntoDelSerramento />
             </RequireDirezione>
           )}
         </Route>
