@@ -179,6 +179,9 @@ export default function PreventivatorePuntoDelSerramento() {
   const [persiane, setPersiane] = useState<PersianaInput[]>([
     { id: uid(), larghezza: "", altezza: "" },
   ]);
+  // Smontaggio / dismissione / posa — costo aggiuntivo fisso in € inserito
+  // dall'operatore. Stringa per input controllato.
+  const [smontaggio, setSmontaggio] = useState<string>("");
 
   // ── Commesse dropdown ─────────────────────────────────────────────────────
   const commesseQuery = trpc.commesse.list.useQuery(undefined, {
@@ -216,12 +219,15 @@ export default function PreventivatorePuntoDelSerramento() {
   };
 
   const calc = useMemo(() => {
+    const smontaggioEur =
+      parseFloat(smontaggio.replace(",", ".")) || 0;
     if (!modello || !colore) {
       return {
         perPersiana: [] as PersianaCalc[],
         totaleBase: 0,
         totaleMaggiorazione: 0,
-        totale: 0,
+        smontaggioEur,
+        totale: smontaggioEur,
         aPreventivo: false,
         anyMisuraFuoriListino: false,
       };
@@ -257,7 +263,11 @@ export default function PreventivatorePuntoDelSerramento() {
       (acc, c) => acc + c.maggiorazione,
       0
     );
-    const totale = perPersiana.reduce((acc, c) => acc + c.prezzoFinale, 0);
+    const totalePersiane = perPersiana.reduce(
+      (acc, c) => acc + c.prezzoFinale,
+      0
+    );
+    const totale = totalePersiane + smontaggioEur;
     const aPreventivo = perPersiana.some((c) => c.aPreventivo);
     const anyMisuraFuoriListino = perPersiana.some(
       (c) => !c.lookup.ok && c.lookup.reason === "fuori_listino"
@@ -267,11 +277,12 @@ export default function PreventivatorePuntoDelSerramento() {
       perPersiana,
       totaleBase,
       totaleMaggiorazione,
+      smontaggioEur,
       totale,
       aPreventivo,
       anyMisuraFuoriListino,
     };
-  }, [persiane, modello, colore]);
+  }, [persiane, modello, colore, smontaggio]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function addPersiana() {
@@ -429,6 +440,22 @@ export default function PreventivatorePuntoDelSerramento() {
       );
       doc.setTextColor(0);
       y += 18;
+    }
+
+    // Smontaggio, dismissione e posa
+    if (calc.smontaggioEur > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Voce", "Totale"]],
+        body: [
+          ["Smontaggio, dismissione e posa", EUR.format(calc.smontaggioEur)],
+        ],
+        theme: "grid",
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [55, 65, 81], textColor: 255 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
     }
 
     // Totale
@@ -761,6 +788,32 @@ export default function PreventivatorePuntoDelSerramento() {
               )}
             </CardContent>
           </Card>
+
+          {/* Smontaggio / dismissione / posa */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Smontaggio, dismissione e posa
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="space-y-1.5">
+                <Label>Prezzo (€)</Label>
+                <Input
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={smontaggio}
+                  onChange={(e) =>
+                    setSmontaggio(e.target.value.replace(/[^\d.,]/g, ""))
+                  }
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Lascia vuoto o 0 se non applicabile. Verrà sommato al totale
+                  del preventivo.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* ── Riepilogo ───────────────────────────────────────────────── */}
@@ -828,6 +881,21 @@ export default function PreventivatorePuntoDelSerramento() {
                   </div>
                 )}
               </div>
+
+              {/* Smontaggio, dismissione e posa */}
+              {calc.smontaggioEur > 0 && (
+                <>
+                  <Separator />
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-muted-foreground text-xs">
+                      Smontaggio, dismissione e posa
+                    </span>
+                    <span className="font-mono text-right">
+                      {EUR.format(calc.smontaggioEur)}
+                    </span>
+                  </div>
+                </>
+              )}
 
               <Separator />
               <div className="flex items-center justify-between pt-1">
