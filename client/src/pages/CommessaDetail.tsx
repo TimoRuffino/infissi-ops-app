@@ -101,6 +101,14 @@ export default function CommessaDetail() {
   const commessaId = parseInt(params.id ?? "0");
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
+  // Full cliente record — loaded when the commessa has a clienteId so we can
+  // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
+  // commesse without a clienteId; in that case we fall back to editing only
+  // the commessa-level display string + contact fields.
+  const clienteIdOfCommessa = (commessa.data as any)?.clienteId ?? null;
+  const cliente = trpc.clienti.byId.useQuery(clienteIdOfCommessa ?? 0, {
+    enabled: clienteIdOfCommessa != null,
+  });
   const documenti = trpc.preventiviContratti.byCommessa.useQuery(commessaId);
   const statoGate = trpc.preventiviContratti.statoGate.useQuery(commessaId);
   const interventi = trpc.interventi.list.useQuery({ commessaId });
@@ -124,10 +132,22 @@ export default function CommessaDetail() {
   });
 
   const [editForm, setEditForm] = useState({
+    // Cliente anagrafica — only pushed back to the cliente record when a
+    // clienteId is linked. Editing nome/cognome triggers a cascade on the
+    // server that refreshes the denormalized display string on every
+    // commessa linked to this cliente.
+    nome: "",
+    cognome: "",
+    codiceFiscale: "",
+    partitaIva: "",
+    cap: "",
+    // Contact + address — currently duplicated across cliente and commessa.
+    // The edit dialog writes both on save so the user doesn't have to care.
     indirizzo: "",
     citta: "",
     telefono: "",
     email: "",
+    // Commessa-only fields
     priorita: "media" as "bassa" | "media" | "alta" | "urgente",
     consegnaIndicativa: "60" as "30" | "60" | "90",
     note: "",
@@ -196,6 +216,15 @@ export default function CommessaDetail() {
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
       setEditDialog(false);
+    },
+  });
+  const updateCliente = trpc.clienti.update.useMutation({
+    onSuccess: () => {
+      utils.clienti.byId.invalidate(clienteIdOfCommessa ?? 0);
+      utils.clienti.list.invalidate();
+      // Commessa view also shows the denormalized name → refresh it so the
+      // server-side cascade shows through immediately.
+      utils.commesse.byId.invalidate(commessaId);
     },
   });
   const confermaDataConsegna = trpc.commesse.confermaDataConsegna.useMutation({
@@ -269,16 +298,66 @@ export default function CommessaDetail() {
   function openEdit() {
     if (!commessa.data) return;
     const c: any = commessa.data;
+    const cl: any = cliente.data;
+    // Prefer cliente record for anagrafica when available; fall back to the
+    // commessa display string split into nome/cognome on the first space so
+    // legacy commesse without a clienteId still get a sensible seed.
+    const fallbackParts = (c.cliente ?? "").trim().split(/\s+/);
+    const fallbackNome = fallbackParts[0] ?? "";
+    const fallbackCognome = fallbackParts.slice(1).join(" ");
     setEditForm({
-      indirizzo: c.indirizzo ?? "",
-      citta: c.citta ?? "",
-      telefono: c.telefono ?? "",
-      email: c.email ?? "",
+      nome: cl?.nome ?? fallbackNome,
+      cognome: cl?.cognome ?? fallbackCognome,
+      codiceFiscale: cl?.codiceFiscale ?? "",
+      partitaIva: cl?.partitaIva ?? "",
+      cap: cl?.cap ?? "",
+      indirizzo: c.indirizzo ?? cl?.indirizzo ?? "",
+      citta: c.citta ?? cl?.citta ?? "",
+      telefono: c.telefono ?? cl?.telefono ?? "",
+      email: c.email ?? cl?.email ?? "",
       priorita: c.priorita ?? "media",
       consegnaIndicativa: c.consegnaIndicativa ?? "60",
       note: c.note ?? "",
     });
     setEditDialog(true);
+  }
+
+  // Single "Save" handler for the edit dialog. Fires cliente.update (when a
+  // clienteId is linked) then commesse.update. Server-side cascade in
+  // clienti.update keeps the denormalized display string on every linked
+  // commessa in sync, so callers never have to patch that by hand.
+  async function handleSaveEdit() {
+    try {
+      if (clienteIdOfCommessa != null) {
+        await updateCliente.mutateAsync({
+          id: clienteIdOfCommessa,
+          nome: editForm.nome,
+          cognome: editForm.cognome,
+          codiceFiscale: editForm.codiceFiscale || undefined,
+          partitaIva: editForm.partitaIva || undefined,
+          cap: editForm.cap || undefined,
+          telefono: editForm.telefono || undefined,
+          email: editForm.email || undefined,
+          indirizzo: editForm.indirizzo || undefined,
+          citta: editForm.citta || undefined,
+        });
+      }
+      await updateCommessa.mutateAsync({
+        id: commessaId,
+        // Refresh the denormalized display string even when no clienteId is
+        // linked, so users can still correct it.
+        cliente: `${editForm.nome} ${editForm.cognome}`.trim(),
+        indirizzo: editForm.indirizzo,
+        citta: editForm.citta,
+        telefono: editForm.telefono,
+        email: editForm.email,
+        priorita: editForm.priorita,
+        consegnaIndicativa: editForm.consegnaIndicativa,
+        note: editForm.note,
+      });
+    } catch (e) {
+      console.error("[commessa] save edit failed", e);
+    }
   }
 
   async function handleUpload() {
@@ -1226,88 +1305,163 @@ export default function CommessaDetail() {
 
       {/* Edit commessa dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifica commessa {c.codice}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Priorita</Label>
-                <Select
-                  value={editForm.priorita}
-                  onValueChange={(v: any) => setEditForm({ ...editForm, priorita: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="bassa">Bassa</SelectItem>
-                    <SelectItem value="media">Media</SelectItem>
-                    <SelectItem value="alta">Alta</SelectItem>
-                    <SelectItem value="urgente">Urgente</SelectItem>
-                  </SelectContent>
-                </Select>
+          <div className="grid gap-4 py-2">
+            {/* Anagrafica cliente */}
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Anagrafica cliente
               </div>
-              <div className="space-y-1.5">
-                <Label>Consegna indicativa</Label>
-                <Select
-                  value={editForm.consegnaIndicativa}
-                  onValueChange={(v: any) => setEditForm({ ...editForm, consegnaIndicativa: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="30">+30 giorni</SelectItem>
-                    <SelectItem value="60">+60 giorni</SelectItem>
-                    <SelectItem value="90">+90 giorni</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Nome</Label>
+                  <Input
+                    value={editForm.nome}
+                    onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cognome</Label>
+                  <Input
+                    value={editForm.cognome}
+                    onChange={(e) => setEditForm({ ...editForm, cognome: e.target.value })}
+                  />
+                </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Codice fiscale</Label>
+                  <Input
+                    value={editForm.codiceFiscale}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, codiceFiscale: e.target.value.toUpperCase() })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Partita IVA</Label>
+                  <Input
+                    value={editForm.partitaIva}
+                    onChange={(e) => setEditForm({ ...editForm, partitaIva: e.target.value })}
+                  />
+                </div>
+              </div>
+              {clienteIdOfCommessa == null && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  Questa commessa non è collegata a un cliente in anagrafica —
+                  le modifiche all'anagrafica vengono salvate solo come nome
+                  visualizzato sulla commessa.
+                </p>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+
+            {/* Contatti e indirizzo */}
+            <div className="space-y-3 border-t pt-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Contatti e indirizzo
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Telefono</Label>
+                  <Input
+                    value={editForm.telefono}
+                    onChange={(e) => setEditForm({ ...editForm, telefono: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  />
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <Label>Indirizzo</Label>
-                <Input value={editForm.indirizzo} onChange={(e) => setEditForm({ ...editForm, indirizzo: e.target.value })} />
+                <Input
+                  value={editForm.indirizzo}
+                  onChange={(e) => setEditForm({ ...editForm, indirizzo: e.target.value })}
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label>Citta</Label>
-                <Input value={editForm.citta} onChange={(e) => setEditForm({ ...editForm, citta: e.target.value })} />
+              <div className="grid grid-cols-[1fr_110px] gap-3">
+                <div className="space-y-1.5">
+                  <Label>Città</Label>
+                  <Input
+                    value={editForm.citta}
+                    onChange={(e) => setEditForm({ ...editForm, citta: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>CAP</Label>
+                  <Input
+                    value={editForm.cap}
+                    onChange={(e) => setEditForm({ ...editForm, cap: e.target.value })}
+                  />
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Telefono</Label>
-                <Input value={editForm.telefono} onChange={(e) => setEditForm({ ...editForm, telefono: e.target.value })} />
+
+            {/* Dati commessa */}
+            <div className="space-y-3 border-t pt-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Dati commessa
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Priorità</Label>
+                  <Select
+                    value={editForm.priorita}
+                    onValueChange={(v: any) => setEditForm({ ...editForm, priorita: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bassa">Bassa</SelectItem>
+                      <SelectItem value="media">Media</SelectItem>
+                      <SelectItem value="alta">Alta</SelectItem>
+                      <SelectItem value="urgente">Urgente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Consegna indicativa</Label>
+                  <Select
+                    value={editForm.consegnaIndicativa}
+                    onValueChange={(v: any) => setEditForm({ ...editForm, consegnaIndicativa: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="30">+30 giorni</SelectItem>
+                      <SelectItem value="60">+60 giorni</SelectItem>
+                      <SelectItem value="90">+90 giorni</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                <Label>Note</Label>
+                <Textarea
+                  rows={3}
+                  value={editForm.note}
+                  onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+                />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Note</Label>
-              <Textarea
-                rows={3}
-                value={editForm.note}
-                onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
-              />
-            </div>
+
             <Button
-              onClick={() => updateCommessa.mutate({
-                id: commessaId,
-                indirizzo: editForm.indirizzo,
-                citta: editForm.citta,
-                telefono: editForm.telefono,
-                email: editForm.email,
-                priorita: editForm.priorita,
-                consegnaIndicativa: editForm.consegnaIndicativa,
-                note: editForm.note,
-              })}
-              disabled={updateCommessa.isPending}
+              onClick={handleSaveEdit}
+              disabled={updateCommessa.isPending || updateCliente.isPending}
             >
-              Salva modifiche
+              {updateCommessa.isPending || updateCliente.isPending
+                ? "Salvataggio..."
+                : "Salva modifiche"}
             </Button>
           </div>
         </DialogContent>

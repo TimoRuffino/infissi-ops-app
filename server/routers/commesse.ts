@@ -91,6 +91,79 @@ export function getCommessaById(id: number) {
   return commesse.find((c) => c.id === id) ?? null;
 }
 
+// Called by clienti.update so the denormalized `cliente` display string on
+// every commessa pointing at this clienteId stays in sync with the canonical
+// nome/cognome on the cliente record. Also refreshes per-commessa copies of
+// telefono/email/indirizzo/citta WHEN they still match the previous cliente
+// value — that way commesse that explicitly overrode those fields (e.g. a
+// cantiere address different from the home address) keep their override.
+export function syncClienteOnCommesse(
+  clienteId: number,
+  updatedCliente: {
+    nome?: string;
+    cognome?: string;
+    telefono?: string | null;
+    email?: string | null;
+    indirizzo?: string | null;
+    citta?: string | null;
+  },
+  previousCliente: {
+    nome?: string;
+    cognome?: string;
+    telefono?: string | null;
+    email?: string | null;
+    indirizzo?: string | null;
+    citta?: string | null;
+  }
+): number {
+  let touched = 0;
+  const prevDisplay = `${previousCliente.nome ?? ""} ${previousCliente.cognome ?? ""}`.trim();
+  const newDisplay = `${updatedCliente.nome ?? previousCliente.nome ?? ""} ${
+    updatedCliente.cognome ?? previousCliente.cognome ?? ""
+  }`.trim();
+
+  for (const c of commesse) {
+    if (c.clienteId !== clienteId) continue;
+    let changed = false;
+
+    // Always refresh the display name — it's derived from cliente and should
+    // never drift.
+    if (c.cliente !== newDisplay) {
+      c.cliente = newDisplay;
+      changed = true;
+    }
+
+    // For per-commessa contact fields, only overwrite if the commessa still
+    // carries the exact previous cliente value (i.e. user never overrode).
+    // This preserves legitimate cantiere-vs-home differences.
+    const maybeSync = (
+      field: "telefono" | "email" | "indirizzo" | "citta"
+    ) => {
+      if (updatedCliente[field] === undefined) return;
+      const prev = previousCliente[field] ?? null;
+      const next = updatedCliente[field] ?? null;
+      if ((c as any)[field] === prev && prev !== next) {
+        (c as any)[field] = next;
+        changed = true;
+      }
+    };
+    maybeSync("telefono");
+    maybeSync("email");
+    maybeSync("indirizzo");
+    maybeSync("citta");
+
+    if (changed) {
+      c.updatedAt = new Date();
+      touched++;
+    }
+
+    // Suppress unused warning when nothing changed but display also unchanged.
+    void prevDisplay;
+  }
+  if (touched > 0) _store.save();
+  return touched;
+}
+
 export const commesseRouter = router({
   list: publicProcedure
     .input(

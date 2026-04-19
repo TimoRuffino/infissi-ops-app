@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+// NOTE: imported lazily inside the update handler to avoid a circular-
+// import cycle (commesse.ts already imports from this file).
 
 // ── Referenti (contacts per client) ─────────────────────────────────────────
 
@@ -153,12 +155,38 @@ export const clientiRouter = router({
         assegnatoA: z.number().nullable().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const idx = clienti.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Cliente non trovato");
+      const prev = { ...clienti[idx] };
       const { id, ...updates } = input;
       clienti[idx] = { ...clienti[idx], ...updates, updatedAt: new Date() };
       _store.save();
+
+      // Cascade: propagate nome/cognome (always) and contact fields (when the
+      // commessa hasn't overridden them) to every linked commessa. Lazy
+      // import to break the commesse ↔ clienti circular dep.
+      const { syncClienteOnCommesse } = await import("./commesse");
+      syncClienteOnCommesse(
+        input.id,
+        {
+          nome: input.nome,
+          cognome: input.cognome,
+          telefono: input.telefono,
+          email: input.email,
+          indirizzo: input.indirizzo,
+          citta: input.citta,
+        },
+        {
+          nome: prev.nome,
+          cognome: prev.cognome,
+          telefono: prev.telefono,
+          email: prev.email,
+          indirizzo: prev.indirizzo,
+          citta: prev.citta,
+        }
+      );
+
       return clienti[idx];
     }),
 
