@@ -3,11 +3,17 @@ import { useLocation } from "wouter";
 import {
   ArrowLeft,
   Calculator,
+  Copy,
   Download,
   FileCheck2,
   Info,
+  Palette,
   Plus,
+  Ruler,
+  RotateCcw,
+  Sparkles,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -300,6 +306,28 @@ export default function PreventivatoreFivizzanese() {
       return next;
     });
   }
+  function duplicatePersiana(id: string) {
+    setPersiane((ps) => {
+      const idx = ps.findIndex((p) => p.id === id);
+      if (idx < 0) return ps;
+      const copy: PersianaInput = { ...ps[idx], id: uid() };
+      const next = [...ps];
+      next.splice(idx + 1, 0, copy);
+      return next;
+    });
+  }
+  function handleReset() {
+    setCommessaId("none");
+    setRiferimento("");
+    setPosa("cardini");
+    setModelloKey(MODELLI[0].key);
+    setColorazioneKey("standard");
+    setPersiane([{ id: uid(), larghezza: "", altezza: "" }]);
+    setSupplementiSel(new Set());
+    setCentinaturaAnte("none");
+    setSmontaggio("");
+    toast.success("Preventivo resettato");
+  }
 
   // ── PDF ───────────────────────────────────────────────────────────────────
   // Build the jsPDF instance for the current form state. Caller decides what
@@ -529,8 +557,14 @@ export default function PreventivatoreFivizzanese() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const exportDisabled =
+    !modello || calc.numPersiane === 0 || uploadPreventivo.isPending;
+  const exportLabel = uploadPreventivo.isPending
+    ? "Salvataggio…"
+    : "Scarica PDF";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24 lg:pb-0">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="space-y-1">
@@ -548,6 +582,12 @@ export default function PreventivatoreFivizzanese() {
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Calculator className="h-6 w-6 text-primary" />
             Fivizzanese — Persiane
+            {isPromo && (
+              <Badge className="ml-1 bg-amber-500 hover:bg-amber-500 gap-1">
+                <Sparkles className="h-3 w-3" />
+                PROMO
+              </Badge>
+            )}
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
             Preventivatore dedicato alle persiane Fivizzanese. Il prezzo è
@@ -555,25 +595,61 @@ export default function PreventivatoreFivizzanese() {
             centinature selezionati.
           </p>
         </div>
-        <Button
-          onClick={handleExport}
-          className="gap-2"
-          disabled={
-            !modello || calc.numPersiane === 0 || uploadPreventivo.isPending
-          }
-        >
-          <Download className="h-4 w-4" />
-          {uploadPreventivo.isPending ? "Salvataggio…" : "Scarica PDF"}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1"
+            onClick={handleReset}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Reset
+          </Button>
+          <Button
+            onClick={handleExport}
+            className="gap-2"
+            disabled={exportDisabled}
+          >
+            <Download className="h-4 w-4" />
+            {exportLabel}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Colonna form ─────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Banner PROMO */}
+          {isPromo && (
+            <Card className="border-amber-400 bg-amber-50/60">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-9 w-9 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
+                    <Sparkles className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="space-y-0.5 min-w-0">
+                    <p className="font-semibold text-amber-900">
+                      Promozione attiva — {promoColore?.nome ?? "—"}{" "}
+                      {promoColore &&
+                        `(${EUR.format(promoColore.prezzoMq)}/m²)`}
+                    </p>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      {modello?.promo?.note ??
+                        "Promozione temporanea sul modello selezionato."}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Dati generali */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Dati generali</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                Dati generali
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -652,7 +728,10 @@ export default function PreventivatoreFivizzanese() {
           {/* Configurazione prodotto */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Configurazione</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Palette className="h-4 w-4 text-muted-foreground" />
+                Configurazione
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
@@ -728,8 +807,12 @@ export default function PreventivatoreFivizzanese() {
           {/* Misure persiane */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">
-                Persiane ({persiane.length})
+              <CardTitle className="text-base flex items-center gap-2">
+                <Ruler className="h-4 w-4 text-muted-foreground" />
+                Persiane
+                <Badge variant="secondary" className="ml-1">
+                  {persiane.length}
+                </Badge>
               </CardTitle>
               <Button
                 variant="outline"
@@ -738,19 +821,26 @@ export default function PreventivatoreFivizzanese() {
                 className="gap-1"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Aggiungi persiana
+                Aggiungi
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {persiane.map((p, idx) => {
                 const area = areaMq(toMm(p.larghezza), toMm(p.altezza));
+                const filled = area > 0;
                 return (
                   <div
                     key={p.id}
-                    className="grid grid-cols-12 gap-2 items-end p-3 rounded-md border bg-muted/20"
+                    className={`grid grid-cols-12 gap-2 items-end p-3 rounded-md border transition-colors ${
+                      filled
+                        ? "bg-background border-primary/20"
+                        : "bg-muted/20"
+                    }`}
                   >
-                    <div className="col-span-1 pb-2 text-sm font-medium text-muted-foreground">
-                      #{idx + 1}
+                    <div className="col-span-1 pb-2 flex items-center gap-1">
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        #{idx + 1}
+                      </span>
                     </div>
                     <div className="col-span-4 space-y-1">
                       <Label className="text-xs">Larghezza (mm)</Label>
@@ -774,18 +864,35 @@ export default function PreventivatoreFivizzanese() {
                         }
                       />
                     </div>
-                    <div className="col-span-2 pb-2 text-xs text-muted-foreground">
-                      {area > 0 ? `${MQ.format(area)} m²` : "—"}
+                    <div className="col-span-1 pb-2 text-xs font-mono text-right">
+                      {filled ? (
+                        <span className="text-foreground">
+                          {MQ.format(area)}
+                          <span className="text-muted-foreground"> m²</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </div>
-                    <div className="col-span-1 pb-1 flex justify-end">
+                    <div className="col-span-2 pb-1 flex justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => duplicatePersiana(p.id)}
+                        title="Duplica persiana"
+                        className="h-8 w-8"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => removePersiana(p.id)}
                         disabled={persiane.length <= 1}
                         title="Rimuovi persiana"
+                        className="h-8 w-8"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -798,7 +905,8 @@ export default function PreventivatoreFivizzanese() {
           {isPromo ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Wrench className="h-4 w-4 text-muted-foreground" />
                   Supplementi e centinature
                 </CardTitle>
               </CardHeader>
@@ -815,7 +923,8 @@ export default function PreventivatoreFivizzanese() {
               {/* Supplementi */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Wrench className="h-4 w-4 text-muted-foreground" />
                     Supplementi opzionali
                   </CardTitle>
                 </CardHeader>
@@ -859,7 +968,8 @@ export default function PreventivatoreFivizzanese() {
               {/* Centinature */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-muted-foreground" />
                     Lavorazioni speciali — Centinature
                   </CardTitle>
                 </CardHeader>
@@ -896,7 +1006,8 @@ export default function PreventivatoreFivizzanese() {
           {/* Smontaggio / dismissione / posa */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
                 Smontaggio, dismissione e posa
               </CardTitle>
             </CardHeader>
@@ -924,7 +1035,10 @@ export default function PreventivatoreFivizzanese() {
         <div className="lg:col-span-1">
           <Card className="sticky top-6">
             <CardHeader>
-              <CardTitle className="text-base">Riepilogo preventivo</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                Riepilogo preventivo
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <RowLabel label="Posa" value={POSA_LABEL[posa]} />
@@ -1044,17 +1158,19 @@ export default function PreventivatoreFivizzanese() {
               <Separator />
               <div className="flex items-center justify-between pt-1">
                 <span className="font-semibold">Totale</span>
-                <span className="text-lg font-bold font-mono">
-                  {EUR.format(calc.totale)}
+                <span
+                  className={`text-lg font-bold font-mono ${
+                    calc.totale === 0 ? "text-muted-foreground" : ""
+                  }`}
+                >
+                  {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
                 </span>
               </div>
 
               <Button
                 onClick={handleExport}
                 className="w-full gap-2"
-                disabled={
-                  !modello || calc.numPersiane === 0 || uploadPreventivo.isPending
-                }
+                disabled={exportDisabled}
               >
                 <Download className="h-4 w-4" />
                 {uploadPreventivo.isPending
@@ -1079,6 +1195,30 @@ export default function PreventivatoreFivizzanese() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Mobile sticky bottom bar — visibile solo sotto lg */}
+      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+        <div className="min-w-0">
+          <p className="text-[10px] text-muted-foreground leading-tight uppercase tracking-wide">
+            Totale
+          </p>
+          <p
+            className={`text-lg font-bold font-mono leading-tight ${
+              calc.totale === 0 ? "text-muted-foreground" : ""
+            }`}
+          >
+            {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
+          </p>
+        </div>
+        <Button
+          onClick={handleExport}
+          className="gap-2 shrink-0"
+          disabled={exportDisabled}
+        >
+          <Download className="h-4 w-4" />
+          {exportLabel}
+        </Button>
       </div>
     </div>
   );

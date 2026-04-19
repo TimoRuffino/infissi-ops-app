@@ -21,6 +21,8 @@ import {
   ArrowRight,
   Sparkles,
   Plus,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -111,6 +113,21 @@ const PREVENTIVATORE_ROUTES: Record<string, string> = {
     "/preventivatori/punto-del-serramento/persiane",
 };
 
+function isReady(aziendaId: string, prodottoKey: string): boolean {
+  return `${aziendaId}:${prodottoKey}` in PREVENTIVATORE_ROUTES;
+}
+
+// Iniziali azienda per il tile colorato (max 2 char).
+function aziendaInitials(nome: string): string {
+  return nome
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Preventivatori() {
@@ -133,6 +150,10 @@ export default function Preventivatori() {
   // cartesiano — un'azienda che fa solo persiane conta 1, non length(PRODOTTI)).
   const totalPreventivatori = AZIENDE.reduce(
     (acc, a) => acc + a.prodotti.length,
+    0
+  );
+  const disponibiliCount = AZIENDE.reduce(
+    (acc, a) => acc + a.prodotti.filter((p) => isReady(a.id, p)).length,
     0
   );
 
@@ -196,12 +217,16 @@ export default function Preventivatori() {
           <CardContent className="pt-6 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground">Stato</p>
-                <Badge variant="secondary" className="mt-1 gap-1">
-                  <Sparkles className="h-3 w-3" />
-                  In sviluppo
-                </Badge>
+                <p className="text-xs text-muted-foreground">Disponibili</p>
+                <p className="text-2xl font-bold">
+                  {disponibiliCount}
+                  <span className="text-sm text-muted-foreground font-normal">
+                    {" "}
+                    / {totalPreventivatori}
+                  </span>
+                </p>
               </div>
+              <CheckCircle2 className="h-8 w-8 text-emerald-500/40" />
             </div>
           </CardContent>
         </Card>
@@ -257,30 +282,58 @@ export default function Preventivatori() {
                 </div>
               </CardHeader>
               <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {aziendeForProdotto.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={() =>
-                      pick({
-                        aziendaId: a.id,
-                        aziendaNome: a.nome,
-                        prodotto: p.key,
-                        prodottoLabel: p.label,
-                      })
-                    }
-                    className="text-left rounded-md border bg-background hover:bg-accent hover:border-primary/40 transition-all p-3 group"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{a.nome}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {a.descrizione ?? "—"}
-                        </p>
+                {aziendeForProdotto.map((a) => {
+                  const ready = isReady(a.id, p.key);
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() =>
+                        pick({
+                          aziendaId: a.id,
+                          aziendaNome: a.nome,
+                          prodotto: p.key,
+                          prodottoLabel: p.label,
+                        })
+                      }
+                      className={`text-left rounded-md border transition-all p-3 group ${
+                        ready
+                          ? "bg-background hover:bg-primary/5 hover:border-primary/50 border-primary/20"
+                          : "bg-muted/40 hover:bg-muted"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 font-bold text-xs tracking-tight ${a.accent}`}
+                        >
+                          {aziendaInitials(a.nome)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium truncate">{a.nome}</p>
+                          <div className="mt-0.5">
+                            {ready ? (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Pronto
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+                                <Clock className="h-3 w-3" />
+                                In sviluppo
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ArrowRight
+                          className={`h-4 w-4 shrink-0 transition mt-0.5 ${
+                            ready
+                              ? "text-primary opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5"
+                              : "text-muted-foreground opacity-30"
+                          }`}
+                        />
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </CardContent>
             </Card>
             );
@@ -325,14 +378,17 @@ function AziendaCard({
   azienda: Azienda;
   onPick: (prod: Prodotto) => void;
 }) {
+  const readyCount = azienda.prodotti.filter((k) =>
+    isReady(azienda.id, k)
+  ).length;
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-start gap-3">
           <div
-            className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${azienda.accent}`}
+            className={`h-11 w-11 rounded-lg flex items-center justify-center shrink-0 font-bold text-sm tracking-tight ${azienda.accent}`}
           >
-            <Building2 className="h-5 w-5" />
+            {aziendaInitials(azienda.nome)}
           </div>
           <div className="min-w-0 flex-1">
             <CardTitle className="text-base truncate">{azienda.nome}</CardTitle>
@@ -342,24 +398,61 @@ function AziendaCard({
               </p>
             )}
           </div>
-          <Badge variant="secondary" className="text-[10px] shrink-0">
-            {azienda.prodotti.length}{" "}
-            {azienda.prodotti.length === 1 ? "preventivatore" : "preventivatori"}
-          </Badge>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <Badge variant="secondary" className="text-[10px]">
+              {azienda.prodotti.length}{" "}
+              {azienda.prodotti.length === 1
+                ? "preventivatore"
+                : "preventivatori"}
+            </Badge>
+            {readyCount > 0 && (
+              <span className="text-[10px] text-emerald-700 flex items-center gap-0.5">
+                <CheckCircle2 className="h-3 w-3" />
+                {readyCount} pronto
+                {readyCount !== 1 && "i"}
+              </span>
+            )}
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         {azienda.prodotti.map((key) => {
           const p = getProdotto(key);
+          const ready = isReady(azienda.id, p.key);
           return (
             <button
               key={p.key}
               onClick={() => onPick(p)}
-              className="rounded-md border bg-background hover:bg-accent hover:border-primary/40 transition-all p-2.5 text-left group"
+              className={`rounded-md border transition-all p-3 text-left group ${
+                ready
+                  ? "bg-background hover:bg-primary/5 hover:border-primary/50 border-primary/20"
+                  : "bg-muted/40 hover:bg-muted"
+              }`}
             >
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-medium truncate">{p.label}</span>
-                <Calculator className="h-3 w-3 text-muted-foreground opacity-40 group-hover:opacity-100 group-hover:text-primary transition shrink-0" />
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{p.label}</p>
+                  <div className="mt-1">
+                    {ready ? (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Pronto
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        In sviluppo
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ArrowRight
+                  className={`h-4 w-4 shrink-0 transition ${
+                    ready
+                      ? "text-primary opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5"
+                      : "text-muted-foreground opacity-30"
+                  }`}
+                />
               </div>
             </button>
           );

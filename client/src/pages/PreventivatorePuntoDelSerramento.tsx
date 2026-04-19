@@ -4,11 +4,16 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calculator,
+  Copy,
   Download,
   FileCheck2,
   Info,
+  Palette,
   Plus,
+  RotateCcw,
+  Ruler,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -297,6 +302,28 @@ export default function PreventivatorePuntoDelSerramento() {
       ps.map((p) => (p.id === id ? { ...p, [field]: cleaned } : p))
     );
   }
+  function duplicatePersiana(id: string) {
+    setPersiane((ps) => {
+      const idx = ps.findIndex((p) => p.id === id);
+      if (idx < 0) return ps;
+      const copy: PersianaInput = { ...ps[idx], id: uid() };
+      const next = [...ps];
+      next.splice(idx + 1, 0, copy);
+      return next;
+    });
+  }
+  function handleReset() {
+    setCommessaId("none");
+    setRiferimento("");
+    setPosa("cardini");
+    setModelloKey(MODELLI[0].key);
+    setColoreKey(
+      COLORI.find((c) => c.tipo === "diSerie")?.key ?? COLORI[0].key
+    );
+    setPersiane([{ id: uid(), larghezza: "", altezza: "" }]);
+    setSmontaggio("");
+    toast.success("Preventivo resettato");
+  }
 
   // ── PDF ───────────────────────────────────────────────────────────────────
   function buildPdf(): jsPDF | null {
@@ -526,8 +553,17 @@ export default function PreventivatorePuntoDelSerramento() {
   const altezzaMin = modello ? modello.altezzeStandard[0] : 0;
   const larghezzaMin = modello ? modello.larghezzeStandard[0] : 0;
 
+  const exportDisabled =
+    !modello ||
+    !colore ||
+    calc.perPersiana.length === 0 ||
+    uploadPreventivo.isPending;
+  const exportLabel = uploadPreventivo.isPending
+    ? "Salvataggio…"
+    : "Scarica PDF";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24 lg:pb-0">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="space-y-1">
@@ -553,19 +589,25 @@ export default function PreventivatorePuntoDelSerramento() {
             maggiorazione percentuale oppure è "di serie" / "a preventivo".
           </p>
         </div>
-        <Button
-          onClick={handleExport}
-          className="gap-2"
-          disabled={
-            !modello ||
-            !colore ||
-            calc.perPersiana.length === 0 ||
-            uploadPreventivo.isPending
-          }
-        >
-          <Download className="h-4 w-4" />
-          {uploadPreventivo.isPending ? "Salvataggio…" : "Scarica PDF"}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1"
+            onClick={handleReset}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Reset
+          </Button>
+          <Button
+            onClick={handleExport}
+            className="gap-2"
+            disabled={exportDisabled}
+          >
+            <Download className="h-4 w-4" />
+            {exportLabel}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -574,7 +616,10 @@ export default function PreventivatorePuntoDelSerramento() {
           {/* Dati generali */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Dati generali</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                Dati generali
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -628,7 +673,10 @@ export default function PreventivatorePuntoDelSerramento() {
           {/* Configurazione */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Configurazione</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Palette className="h-4 w-4 text-muted-foreground" />
+                Configurazione
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
@@ -700,8 +748,12 @@ export default function PreventivatorePuntoDelSerramento() {
           {/* Persiane */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">
-                Persiane ({persiane.length})
+              <CardTitle className="text-base flex items-center gap-2">
+                <Ruler className="h-4 w-4 text-muted-foreground" />
+                Persiane
+                <Badge variant="secondary" className="ml-1">
+                  {persiane.length}
+                </Badge>
               </CardTitle>
               <Button
                 variant="outline"
@@ -710,18 +762,23 @@ export default function PreventivatorePuntoDelSerramento() {
                 className="gap-1"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Aggiungi persiana
+                Aggiungi
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {persiane.map((p, idx) => {
                 const pc = calc.perPersiana.find((c) => c.id === p.id);
+                const filled = pc?.lookup.ok ?? false;
                 return (
                   <div
                     key={p.id}
-                    className="grid grid-cols-12 gap-2 items-end p-3 rounded-md border bg-muted/20"
+                    className={`grid grid-cols-12 gap-2 items-end p-3 rounded-md border transition-colors ${
+                      filled
+                        ? "bg-background border-primary/20"
+                        : "bg-muted/20"
+                    }`}
                   >
-                    <div className="col-span-1 pb-2 text-sm font-medium text-muted-foreground">
+                    <div className="col-span-1 pb-2 text-sm font-semibold text-muted-foreground">
                       #{idx + 1}
                     </div>
                     <div className="col-span-3 space-y-1">
@@ -760,18 +817,28 @@ export default function PreventivatorePuntoDelSerramento() {
                         }
                       />
                     </div>
-                    <div className="col-span-4 pb-1 text-xs">
+                    <div className="col-span-3 pb-1 text-xs">
                       <PersianaInfo calc={pc} />
                     </div>
-                    <div className="col-span-1 pb-1 flex justify-end">
+                    <div className="col-span-2 pb-1 flex justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => duplicatePersiana(p.id)}
+                        title="Duplica persiana"
+                        className="h-8 w-8"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => removePersiana(p.id)}
                         disabled={persiane.length <= 1}
                         title="Rimuovi persiana"
+                        className="h-8 w-8"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -792,7 +859,8 @@ export default function PreventivatorePuntoDelSerramento() {
           {/* Smontaggio / dismissione / posa */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
                 Smontaggio, dismissione e posa
               </CardTitle>
             </CardHeader>
@@ -820,7 +888,10 @@ export default function PreventivatorePuntoDelSerramento() {
         <div className="lg:col-span-1">
           <Card className="sticky top-6">
             <CardHeader>
-              <CardTitle className="text-base">Riepilogo preventivo</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                Riepilogo preventivo
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <RowLabel label="Posa" value={POSA_LABEL[posa]} />
@@ -902,8 +973,12 @@ export default function PreventivatorePuntoDelSerramento() {
                 <span className="font-semibold">
                   Totale {calc.aPreventivo && "(da confermare)"}
                 </span>
-                <span className="text-lg font-bold font-mono">
-                  {EUR.format(calc.totale)}
+                <span
+                  className={`text-lg font-bold font-mono ${
+                    calc.totale === 0 ? "text-muted-foreground" : ""
+                  }`}
+                >
+                  {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
                 </span>
               </div>
 
@@ -918,12 +993,7 @@ export default function PreventivatorePuntoDelSerramento() {
               <Button
                 onClick={handleExport}
                 className="w-full gap-2"
-                disabled={
-                  !modello ||
-                  !colore ||
-                  calc.perPersiana.length === 0 ||
-                  uploadPreventivo.isPending
-                }
+                disabled={exportDisabled}
               >
                 <Download className="h-4 w-4" />
                 {uploadPreventivo.isPending
@@ -948,6 +1018,30 @@ export default function PreventivatorePuntoDelSerramento() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Mobile sticky bottom bar — visibile solo sotto lg */}
+      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+        <div className="min-w-0">
+          <p className="text-[10px] text-muted-foreground leading-tight uppercase tracking-wide">
+            Totale {calc.aPreventivo && "(da confermare)"}
+          </p>
+          <p
+            className={`text-lg font-bold font-mono leading-tight ${
+              calc.totale === 0 ? "text-muted-foreground" : ""
+            }`}
+          >
+            {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
+          </p>
+        </div>
+        <Button
+          onClick={handleExport}
+          className="gap-2 shrink-0"
+          disabled={exportDisabled}
+        >
+          <Download className="h-4 w-4" />
+          {exportLabel}
+        </Button>
       </div>
     </div>
   );
