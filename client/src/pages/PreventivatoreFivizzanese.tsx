@@ -136,6 +136,9 @@ export default function PreventivatoreFivizzanese() {
   // Smontaggio / dismissione / posa — costo aggiuntivo fisso in € inserito
   // dall'operatore. Stringa per input controllato.
   const [smontaggio, setSmontaggio] = useState<string>("");
+  // Aliquota IVA applicata sull'imponibile. 22% = nuova costruzione (default),
+  // 10% = ristrutturazioni agevolate.
+  const [iva, setIva] = useState<10 | 22>(22);
 
   // ── Commesse dropdown ─────────────────────────────────────────────────────
   const commesseQuery = trpc.commesse.list.useQuery(undefined, {
@@ -259,7 +262,21 @@ export default function PreventivatoreFivizzanese() {
     const smontaggioEur =
       parseFloat(smontaggio.replace(",", ".")) || 0;
 
-    const totale = totalePersiane + centinaturaTotale + smontaggioEur;
+    // Ricarico promo: applicato sul prezzo base persiane (che in promo = area ×
+    // prezzoMq colore promo). Non moltiplica supplementi/centinature/smontaggio.
+    const ricaricoPct = isPromo
+      ? modello?.promo?.ricaricoPercento ?? 0
+      : 0;
+    const ricaricoPromo = totaleBase * (ricaricoPct / 100);
+
+    const imponibile =
+      totaleBase +
+      totaleSupplementi +
+      centinaturaTotale +
+      ricaricoPromo +
+      smontaggioEur;
+    const ivaImporto = imponibile * (iva / 100);
+    const totale = imponibile + ivaImporto;
 
     return {
       perPersiana,
@@ -272,6 +289,11 @@ export default function PreventivatoreFivizzanese() {
       centinaturaTotale,
       smontaggioEur,
       totalePersiane,
+      ricaricoPct,
+      ricaricoPromo,
+      imponibile,
+      iva,
+      ivaImporto,
       totale,
     };
   }, [
@@ -282,6 +304,9 @@ export default function PreventivatoreFivizzanese() {
     colorazione,
     centinaturaAnte,
     smontaggio,
+    isPromo,
+    modello,
+    iva,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -326,6 +351,7 @@ export default function PreventivatoreFivizzanese() {
     setSupplementiSel(new Set());
     setCentinaturaAnte("none");
     setSmontaggio("");
+    setIva(22);
     toast.success("Preventivo resettato");
   }
 
@@ -493,12 +519,36 @@ export default function PreventivatoreFivizzanese() {
       y = (doc as any).lastAutoTable.finalY + 6;
     }
 
+    // Ricarico promo (se attivo) + Imponibile + IVA
+    const breakdown: Array<[string, string]> = [];
+    if (isPromo && calc.ricaricoPct > 0) {
+      breakdown.push([
+        `Ricarico promo (+${calc.ricaricoPct}%)`,
+        EUR.format(calc.ricaricoPromo),
+      ]);
+    }
+    breakdown.push(["Imponibile", EUR.format(calc.imponibile)]);
+    breakdown.push([`IVA ${calc.iva}%`, EUR.format(calc.ivaImporto)]);
+    autoTable(doc, {
+      startY: y,
+      head: [["Voce", "Importo"]],
+      body: breakdown,
+      theme: "grid",
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [55, 65, 81], textColor: 255 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
+
     // Totale
     autoTable(doc, {
       startY: y,
       body: [
         [
-          { content: "TOTALE PREVENTIVO", styles: { fontStyle: "bold" } },
+          {
+            content: "TOTALE PREVENTIVO (IVA inclusa)",
+            styles: { fontStyle: "bold" },
+          },
           {
             content: EUR.format(calc.totale),
             styles: { fontStyle: "bold", halign: "right" },
@@ -1029,6 +1079,41 @@ export default function PreventivatoreFivizzanese() {
               </div>
             </CardContent>
           </Card>
+
+          {/* IVA */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                Aliquota IVA
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <RadioGroup
+                value={String(iva)}
+                onValueChange={(v) => setIva(Number(v) as 10 | 22)}
+                className="grid grid-cols-2 gap-2"
+              >
+                <PosaOption
+                  value="10"
+                  label="IVA 10%"
+                  current={String(iva)}
+                  hint="ristrutturazioni"
+                />
+                <PosaOption
+                  value="22"
+                  label="IVA 22%"
+                  current={String(iva)}
+                  hint="ordinaria"
+                />
+              </RadioGroup>
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                Il 10% si applica su ristrutturazioni agevolate. In ogni altro
+                caso applica il 22%.
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* ── Colonna riepilogo ────────────────────────────────────────── */}
@@ -1155,9 +1240,33 @@ export default function PreventivatoreFivizzanese() {
                 </>
               )}
 
+              {/* Ricarico promo */}
+              {isPromo && calc.ricaricoPct > 0 && (
+                <>
+                  <Separator />
+                  <RowLabel
+                    label={`Ricarico promo (+${calc.ricaricoPct}%)`}
+                    value={EUR.format(calc.ricaricoPromo)}
+                    mono
+                  />
+                </>
+              )}
+
+              <Separator />
+              <RowLabel
+                label="Imponibile"
+                value={EUR.format(calc.imponibile)}
+                mono
+              />
+              <RowLabel
+                label={`IVA ${calc.iva}%`}
+                value={EUR.format(calc.ivaImporto)}
+                mono
+              />
+
               <Separator />
               <div className="flex items-center justify-between pt-1">
-                <span className="font-semibold">Totale</span>
+                <span className="font-semibold">Totale (IVA incl.)</span>
                 <span
                   className={`text-lg font-bold font-mono ${
                     calc.totale === 0 ? "text-muted-foreground" : ""

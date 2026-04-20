@@ -32,6 +32,10 @@ export type PromoColore = {
 export type PromoConfig = {
   colori: PromoColore[];
   posaFissa?: "cardini" | "telaio";
+  /** Percentuale di ricarico da applicare sul prezzo €/m² del colore
+   * (es. 50 = +50%). Applicata dal calcolo e mostrata come voce separata
+   * nel riepilogo/PDF. */
+  ricaricoPercento?: number;
   note?: string;
 };
 
@@ -107,9 +111,10 @@ export const MODELLI: Modello[] = [
     prezziMq: { standard: null, speciali: null, legno: null },
     promo: {
       posaFissa: "cardini",
-      note: "Promozione temporanea: solo persiane alla genovese su cardine senza battuta. Supplementi e maggiorazioni non inclusi.",
+      ricaricoPercento: 50,
+      note: "Promozione temporanea: solo persiane alla genovese su cardine senza battuta. Supplementi e maggiorazioni non inclusi. Ricarico del 50% applicato automaticamente sul prezzo colore.",
       colori: [
-        { key: "promo_ral_6005_opaco", nome: "RAL 6005 Opaco", prezzoMq: 200 },
+        { key: "promo_ral_6005_opaco", nome: "RAL 6005 Opaco", prezzoMq: 210 },
         { key: "promo_ral_8017_opaco", nome: "RAL 8017 Opaco", prezzoMq: 205 },
         { key: "promo_verde_grinz", nome: "Verde Grinz", prezzoMq: 205 },
         { key: "promo_giallo_positano", nome: "Giallo Positano", prezzoMq: 205 },
