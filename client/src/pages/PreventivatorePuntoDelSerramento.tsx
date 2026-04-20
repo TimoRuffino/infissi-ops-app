@@ -187,6 +187,13 @@ export default function PreventivatorePuntoDelSerramento() {
   // Smontaggio / dismissione / posa — costo aggiuntivo fisso in € inserito
   // dall'operatore. Stringa per input controllato.
   const [smontaggio, setSmontaggio] = useState<string>("");
+  // Sconto commerciale in percentuale sull'imponibile (persiane + smontaggio),
+  // applicato prima dell'IVA. Limite massimo 30%.
+  const [sconto, setSconto] = useState<string>("");
+  // Aliquota IVA: 22% ordinaria (default), 10% ristrutturazioni.
+  const [iva, setIva] = useState<10 | 22>(22);
+
+  const SCONTO_MAX = 30;
 
   // ── Commesse dropdown ─────────────────────────────────────────────────────
   const commesseQuery = trpc.commesse.list.useQuery(undefined, {
@@ -226,13 +233,24 @@ export default function PreventivatorePuntoDelSerramento() {
   const calc = useMemo(() => {
     const smontaggioEur =
       parseFloat(smontaggio.replace(",", ".")) || 0;
+    const scontoPctRaw = parseFloat(sconto.replace(",", ".")) || 0;
+    const scontoPct = Math.max(0, Math.min(scontoPctRaw, SCONTO_MAX));
     if (!modello || !colore) {
+      const lordoVuoto = smontaggioEur;
+      const scontoEurVuoto = lordoVuoto * (scontoPct / 100);
+      const imponibileVuoto = lordoVuoto - scontoEurVuoto;
+      const ivaImportoVuoto = imponibileVuoto * (iva / 100);
       return {
         perPersiana: [] as PersianaCalc[],
         totaleBase: 0,
         totaleMaggiorazione: 0,
         smontaggioEur,
-        totale: smontaggioEur,
+        scontoPct,
+        scontoEur: scontoEurVuoto,
+        imponibile: imponibileVuoto,
+        iva,
+        ivaImporto: ivaImportoVuoto,
+        totale: imponibileVuoto + ivaImportoVuoto,
         aPreventivo: false,
         anyMisuraFuoriListino: false,
       };
@@ -272,7 +290,13 @@ export default function PreventivatorePuntoDelSerramento() {
       (acc, c) => acc + c.prezzoFinale,
       0
     );
-    const totale = totalePersiane + smontaggioEur;
+    // Imponibile lordo = prodotti + posa. Lo sconto si applica qui. L'IVA
+    // colpisce l'imponibile netto (post-sconto).
+    const lordo = totalePersiane + smontaggioEur;
+    const scontoEur = lordo * (scontoPct / 100);
+    const imponibile = lordo - scontoEur;
+    const ivaImporto = imponibile * (iva / 100);
+    const totale = imponibile + ivaImporto;
     const aPreventivo = perPersiana.some((c) => c.aPreventivo);
     const anyMisuraFuoriListino = perPersiana.some(
       (c) => !c.lookup.ok && c.lookup.reason === "fuori_listino"
@@ -283,11 +307,16 @@ export default function PreventivatorePuntoDelSerramento() {
       totaleBase,
       totaleMaggiorazione,
       smontaggioEur,
+      scontoPct,
+      scontoEur,
+      imponibile,
+      iva,
+      ivaImporto,
       totale,
       aPreventivo,
       anyMisuraFuoriListino,
     };
-  }, [persiane, modello, colore, smontaggio]);
+  }, [persiane, modello, colore, smontaggio, sconto, iva]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function addPersiana() {
@@ -322,6 +351,8 @@ export default function PreventivatorePuntoDelSerramento() {
     );
     setPersiane([{ id: uid(), larghezza: "", altezza: "" }]);
     setSmontaggio("");
+    setSconto("");
+    setIva(22);
     toast.success("Preventivo resettato");
   }
 
@@ -485,12 +516,36 @@ export default function PreventivatorePuntoDelSerramento() {
       y = (doc as any).lastAutoTable.finalY + 6;
     }
 
+    // Sconto + Imponibile + IVA breakdown
+    const breakdown: Array<[string, string]> = [];
+    if (calc.scontoPct > 0) {
+      breakdown.push([
+        `Sconto (-${calc.scontoPct}%)`,
+        `- ${EUR.format(calc.scontoEur)}`,
+      ]);
+    }
+    breakdown.push(["Imponibile", EUR.format(calc.imponibile)]);
+    breakdown.push([`IVA ${calc.iva}%`, EUR.format(calc.ivaImporto)]);
+    autoTable(doc, {
+      startY: y,
+      head: [["Voce", "Importo"]],
+      body: breakdown,
+      theme: "grid",
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [55, 65, 81], textColor: 255 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
+
     // Totale
     autoTable(doc, {
       startY: y,
       body: [
         [
-          { content: "TOTALE PREVENTIVO", styles: { fontStyle: "bold" } },
+          {
+            content: "TOTALE PREVENTIVO (IVA inclusa)",
+            styles: { fontStyle: "bold" },
+          },
           {
             content: calc.aPreventivo
               ? `${EUR.format(calc.totale)}  (da confermare)`
@@ -882,6 +937,66 @@ export default function PreventivatorePuntoDelSerramento() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Sconto commerciale */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                Sconto commerciale
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="space-y-1.5">
+                <Label>Sconto (%)</Label>
+                <Input
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={sconto}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/[^\d.,]/g, "");
+                    setSconto(cleaned);
+                  }}
+                />
+                <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                  <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                  Massimo {SCONTO_MAX}%. Applicato sull'imponibile (persiane +
+                  posa) prima dell'IVA.
+                </p>
+                {parseFloat(sconto.replace(",", ".")) > SCONTO_MAX && (
+                  <p className="text-[11px] text-amber-700 flex items-start gap-1">
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                    Sconto limitato automaticamente a {SCONTO_MAX}%.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* IVA */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-muted-foreground" />
+                Aliquota IVA
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <RadioGroup
+                value={String(iva)}
+                onValueChange={(v) => setIva(Number(v) as 10 | 22)}
+                className="grid grid-cols-2 gap-2"
+              >
+                <TileOption value="10" label="IVA 10%" current={String(iva)} />
+                <TileOption value="22" label="IVA 22%" current={String(iva)} />
+              </RadioGroup>
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                Il 10% si applica su ristrutturazioni agevolate. In ogni altro
+                caso applica il 22%.
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* ── Riepilogo ───────────────────────────────────────────────── */}
@@ -968,10 +1083,43 @@ export default function PreventivatorePuntoDelSerramento() {
                 </>
               )}
 
+              {/* Sconto */}
+              {calc.scontoPct > 0 && (
+                <>
+                  <Separator />
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-muted-foreground text-xs">
+                      Sconto (-{calc.scontoPct}%)
+                    </span>
+                    <span className="font-mono text-right text-emerald-700">
+                      - {EUR.format(calc.scontoEur)}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              <Separator />
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-muted-foreground text-xs">
+                  Imponibile
+                </span>
+                <span className="font-mono text-right">
+                  {EUR.format(calc.imponibile)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-muted-foreground text-xs">
+                  IVA {calc.iva}%
+                </span>
+                <span className="font-mono text-right">
+                  {EUR.format(calc.ivaImporto)}
+                </span>
+              </div>
+
               <Separator />
               <div className="flex items-center justify-between pt-1">
                 <span className="font-semibold">
-                  Totale {calc.aPreventivo && "(da confermare)"}
+                  Totale (IVA incl.) {calc.aPreventivo && "— da confermare"}
                 </span>
                 <span
                   className={`text-lg font-bold font-mono ${
