@@ -25,6 +25,7 @@ import UtentiList from "./pages/UtentiList";
 import Preventivatori from "./pages/Preventivatori";
 import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
 import PreventivatorePuntoDelSerramento from "./pages/PreventivatorePuntoDelSerramento";
+import Archivio from "./pages/Archivio";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -68,6 +69,7 @@ function Router() {
           {() => <RequireDirezione><Produzione /></RequireDirezione>}
         </Route>
         <Route path="/reclami" component={ReclamiRifacimenti} />
+        <Route path="/archivio" component={Archivio} />
         <Route path="/utenti" component={UtentiList} />
         <Route path="/integrazioni" component={Integrazioni} />
         <Route path="/404" component={NotFound} />

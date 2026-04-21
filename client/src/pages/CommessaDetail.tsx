@@ -43,6 +43,8 @@ import {
   Send,
   Package,
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
@@ -243,6 +245,20 @@ export default function CommessaDetail() {
   });
   const deleteCommessa = trpc.commesse.delete.useMutation({
     onSuccess: () => { setDeleteTarget(null); setLocation("/commesse"); },
+  });
+  // Soft-archive / restore. No data loss: stato, prodotti, documenti, aperture
+  // and interventi are preserved. On archive we redirect back to /commesse so
+  // the archived record stops appearing in the default list.
+  const archiveCommessa = trpc.commesse.archive.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      setLocation("/commesse");
+    },
+  });
+  const restoreCommessa = trpc.commesse.restore.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+    },
   });
 
   // Nuovo cliente dalla commessa: creates cliente, then links it on commessa.
@@ -607,6 +623,29 @@ export default function CommessaDetail() {
 
   return (
     <div className="space-y-6">
+      {/* Archived banner — surfaces the archived state front-and-center so
+          users don't mistake an archived job for an active one. No buttons
+          inside: restore is in the header to match the archive entry point. */}
+      {c.archivedAt && (
+        <div className="rounded-md border border-zinc-300 bg-zinc-50 px-4 py-3 flex items-start gap-3">
+          <Archive className="h-5 w-5 text-zinc-600 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="font-semibold text-zinc-900">Commessa archiviata</p>
+            <p className="text-sm text-zinc-700">
+              Archiviata il{" "}
+              {new Date(c.archivedAt).toLocaleDateString("it-IT", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+              . Non compare nelle liste, nel board o nel planning. Dati, file e
+              stato di avanzamento sono preservati — usa <em>Ripristina</em>{" "}
+              per riattivarla.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Back + Header */}
       <div>
         <Button
@@ -630,6 +669,12 @@ export default function CommessaDetail() {
               {c.priorita === "urgente" && (
                 <Badge variant="destructive" className="text-xs">
                   URGENTE
+                </Badge>
+              )}
+              {c.archivedAt && (
+                <Badge className="text-xs uppercase bg-zinc-700 hover:bg-zinc-700 gap-1">
+                  <Archive className="h-3 w-3" />
+                  Archiviata
                 </Badge>
               )}
             </div>
@@ -659,7 +704,7 @@ export default function CommessaDetail() {
               <Pencil className="h-3.5 w-3.5 mr-1" />
               Modifica
             </Button>
-            {c.stato !== "archiviata" && (() => {
+            {!c.archivedAt && c.stato !== "archiviata" && (() => {
               const next: Record<string, string> = {
                 preventivo: "misure_esecutive", misure_esecutive: "aggiornamento_contratto",
                 aggiornamento_contratto: "fatture_pagamento", fatture_pagamento: "da_ordinare",
@@ -688,6 +733,35 @@ export default function CommessaDetail() {
                 </Button>
               ) : null;
             })()}
+            {c.archivedAt ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => restoreCommessa.mutate(commessaId)}
+                disabled={restoreCommessa.isPending}
+                title="Ripristina commessa — torna attiva con stato e dati invariati"
+              >
+                <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                Ripristina
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDeleteTarget({
+                    type: "archive-commessa",
+                    id: commessaId,
+                    label: c.codice,
+                  })
+                }
+                disabled={archiveCommessa.isPending}
+                title="Archivia commessa — nasconde da liste e board, dati preservati"
+              >
+                <Archive className="h-3.5 w-3.5 mr-1" />
+                Archivia
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -1495,17 +1569,30 @@ export default function CommessaDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirmation */}
+      {/* Delete / archive confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={`Eliminare ${deleteTarget?.type ?? ""}?`}
-        description={`Stai per eliminare "${deleteTarget?.label}". Questa azione non puo essere annullata.`}
+        title={
+          deleteTarget?.type === "archive-commessa"
+            ? "Archiviare la commessa?"
+            : `Eliminare ${deleteTarget?.type ?? ""}?`
+        }
+        description={
+          deleteTarget?.type === "archive-commessa"
+            ? `La commessa "${deleteTarget?.label}" verrà spostata in Archivio. Nessun dato, file o stato di avanzamento viene perso — potrai ripristinarla in qualsiasi momento.`
+            : `Stai per eliminare "${deleteTarget?.label}". Questa azione non puo essere annullata.`
+        }
+        destructive={deleteTarget?.type !== "archive-commessa"}
+        confirmLabel={
+          deleteTarget?.type === "archive-commessa" ? "Archivia" : "Elimina"
+        }
         onConfirm={() => {
           if (!deleteTarget) return;
           if (deleteTarget.type === "documento") deleteDocumento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "intervento") deleteIntervento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "commessa") deleteCommessa.mutate(deleteTarget.id);
+          else if (deleteTarget.type === "archive-commessa") archiveCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "prodotto") removeProdotto.mutate({ commessaId, prodottoId: deleteTarget.id });
         }}
       />

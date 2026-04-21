@@ -68,6 +68,12 @@ const _store = persistedStore<any>("commesse", (items) => {
     if ((c as any).assegnatoA === undefined) {
       (c as any).assegnatoA = (c as any).createdBy ?? null;
     }
+    // Soft-archive flag. ISO date string (YYYY-MM-DDTHH:mm:ss.sssZ) when set.
+    // Orthogonal to `stato`: archiving does NOT change stato so board position
+    // and progress are preserved on restore.
+    if ((c as any).archivedAt === undefined) {
+      (c as any).archivedAt = null;
+    }
   }
 });
 const commesse = _store.items;
@@ -172,10 +178,21 @@ export const commesseRouter = router({
         search: z.string().optional(),
         clienteId: z.number().optional(),
         assegnatoA: z.number().optional(),
+        // Archive scope:
+        //   "exclude" (default) — only active commesse (archivedAt IS NULL)
+        //   "only"              — only archived commesse (archivedAt IS NOT NULL)
+        //   "all"               — both (used rarely, e.g. admin exports)
+        archived: z.enum(["exclude", "only", "all"]).optional(),
       }).optional()
     )
     .query(({ input }) => {
       let result = [...commesse];
+      const scope = input?.archived ?? "exclude";
+      if (scope === "exclude") {
+        result = result.filter((c) => !c.archivedAt);
+      } else if (scope === "only") {
+        result = result.filter((c) => !!c.archivedAt);
+      }
       if (input?.stato) {
         result = result.filter((c) => c.stato === input.stato);
       }
@@ -427,13 +444,16 @@ export const commesseRouter = router({
     }),
 
   stats: publicProcedure.query(() => {
-    const total = commesse.length;
-    const preventivi = commesse.filter((c) => c.stato === "preventivo").length;
-    const inCorso = commesse.filter((c) =>
+    // Archived commesse (soft-archive) are excluded from every aggregation so
+    // dashboard counters don't pollute with jobs the client declined.
+    const active = commesse.filter((c) => !c.archivedAt);
+    const total = active.length;
+    const preventivi = active.filter((c) => c.stato === "preventivo").length;
+    const inCorso = active.filter((c) =>
       !["preventivo", "finiture_saldo", "interventi_regolazioni", "archiviata"].includes(c.stato)
     ).length;
-    const chiuse = commesse.filter((c) => ["finiture_saldo", "interventi_regolazioni", "archiviata"].includes(c.stato)).length;
-    const urgenti = commesse.filter(
+    const chiuse = active.filter((c) => ["finiture_saldo", "interventi_regolazioni", "archiviata"].includes(c.stato)).length;
+    const urgenti = active.filter(
       (c) => c.priorita === "urgente" && c.stato !== "archiviata"
     ).length;
     return { total, preventivi, inCorso, chiuse, urgenti };
@@ -443,6 +463,7 @@ export const commesseRouter = router({
   byPriorita: publicProcedure.query(() => {
     const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
     for (const c of commesse) {
+      if (c.archivedAt) continue;
       if (c.stato === "archiviata") continue;
       if (buckets[c.priorita]) buckets[c.priorita].push(c);
     }
@@ -451,5 +472,35 @@ export const commesseRouter = router({
       buckets[k].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
     return buckets;
+  }),
+
+  // ── Soft archive ──────────────────────────────────────────────────────────
+  // Sets `archivedAt` to now. The commessa keeps its stato, prodotti,
+  // documenti, aperture, interventi — nothing is destroyed. Restore just
+  // clears the flag. Safe to re-archive after restore.
+  archive: publicProcedure.input(z.number()).mutation(({ input }) => {
+    const idx = commesse.findIndex((c) => c.id === input);
+    if (idx === -1) throw new Error("Commessa non trovata");
+    if (commesse[idx].archivedAt) return commesse[idx];
+    commesse[idx] = {
+      ...commesse[idx],
+      archivedAt: new Date().toISOString(),
+      updatedAt: new Date(),
+    };
+    _store.save();
+    return commesse[idx];
+  }),
+
+  restore: publicProcedure.input(z.number()).mutation(({ input }) => {
+    const idx = commesse.findIndex((c) => c.id === input);
+    if (idx === -1) throw new Error("Commessa non trovata");
+    if (!commesse[idx].archivedAt) return commesse[idx];
+    commesse[idx] = {
+      ...commesse[idx],
+      archivedAt: null,
+      updatedAt: new Date(),
+    };
+    _store.save();
+    return commesse[idx];
   }),
 });

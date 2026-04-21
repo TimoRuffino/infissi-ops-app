@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   User,
   Calculator,
+  Archive,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -68,6 +69,7 @@ const menuItems: MenuItem[] = [
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
+  { icon: Archive, label: "Archivio", path: "/archivio" },
   { icon: Users, label: "Utenti", path: "/utenti" },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
