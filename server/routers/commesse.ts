@@ -303,6 +303,12 @@ export const commesseRouter = router({
         consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),
         dataConsegnaConfermata: z.string().nullable().optional(),
         assegnatoA: z.number().nullable().optional(),
+        // When true, skip the "required doc uploaded" gate on forward
+        // transitions. Used by the client after the operator has confirmed
+        // an explicit "procedi comunque" dialog. The state-machine
+        // transizione check is NEVER bypassed (shape of the workflow is
+        // still enforced).
+        force: z.boolean().optional(),
       })
     )
     .mutation(({ input }) => {
@@ -316,17 +322,21 @@ export const commesseRouter = router({
         const currentIdx = STATI_COMMESSA.indexOf(commesse[idx].stato as any);
         const nextIdx = STATI_COMMESSA.indexOf(input.stato as any);
         const isForward = nextIdx > currentIdx;
-        if (isForward) {
+        if (isForward && !input.force) {
           const required = REQUIRED_DOC_TIPI_PER_STATO[commesse[idx].stato] ?? [];
           if (required.length > 0 && !statoHasRequiredDoc(commesse[idx].id, commesse[idx].stato)) {
             const labels = required.map((t) => DOC_TIPO_LABEL[t]).join(" o ");
+            // Thrown error is human-readable but ALSO carries a structured
+            // "DOC_GATE_BLOCKED" marker the client can match on to show the
+            // "procedi comunque" confirmation instead of a generic toast.
             throw new Error(
-              `Impossibile avanzare: caricare almeno un file di tipo "${labels}" sulla commessa.`
+              `DOC_GATE_BLOCKED: Non è stato caricato il file "${labels}" per lo stato "${commesse[idx].stato.replace(/_/g, " ")}". Procedere comunque?`
             );
           }
         }
       }
-      const { id, ...updates } = input;
+      const { id, force: _force, ...updates } = input;
+      void _force;
       // If clienteId changes to a real id, resolve display name + link back to
       // that cliente's commesseIds so the relationship is kept consistent.
       let resolvedCliente = updates.cliente;

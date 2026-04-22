@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 type ColonnaConfig = {
   id: string;
@@ -118,13 +119,39 @@ export default function KanbanBoard() {
   const [faseFiltro, setFaseFiltro] = useState<string>("tutte");
   const [fasiCollapsed, setFasiCollapsed] = useState<Record<string, boolean>>({});
   const [moveError, setMoveError] = useState<string | null>(null);
+  // "Procedi comunque" confirmation for file-gate bypass. Fires when the
+  // server rejects a forward transition with a `DOC_GATE_BLOCKED:` prefixed
+  // error — the operator can confirm to retry with `force: true`, or cancel
+  // and upload the file first.
+  const [forceMoveTarget, setForceMoveTarget] = useState<{
+    commessaId: number;
+    newStato: string;
+    message: string;
+  } | null>(null);
+
+  const DOC_GATE_PREFIX = "DOC_GATE_BLOCKED:";
 
   const updateCommessa = trpc.commesse.update.useMutation({
     onSuccess: () => {
       utils.commesse.invalidate();
       setMoveError(null);
+      setForceMoveTarget(null);
     },
-    onError: (err) => setMoveError(err.message ?? "Errore spostamento"),
+    onError: (err, variables) => {
+      const msg = err.message ?? "";
+      if (msg.startsWith(DOC_GATE_PREFIX) && variables?.stato) {
+        // Surface the confirm dialog instead of a generic error — the
+        // operator can decide to proceed without the file.
+        setForceMoveTarget({
+          commessaId: variables.id,
+          newStato: variables.stato as string,
+          message: msg.slice(DOC_GATE_PREFIX.length).trim(),
+        });
+        setMoveError(null);
+      } else {
+        setMoveError(msg || "Errore spostamento");
+      }
+    },
   });
 
   const confermaDataConsegna = trpc.commesse.confermaDataConsegna.useMutation({
@@ -514,6 +541,25 @@ export default function KanbanBoard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* "Procedi comunque" dialog — surfaces the server's DOC_GATE_BLOCKED
+          message and retries the move with `force: true` on confirm. */}
+      <ConfirmDialog
+        open={!!forceMoveTarget}
+        onOpenChange={(open) => !open && setForceMoveTarget(null)}
+        title="File richiesto non caricato"
+        description={forceMoveTarget?.message ?? ""}
+        destructive={false}
+        confirmLabel="Procedi comunque"
+        onConfirm={() => {
+          if (!forceMoveTarget) return;
+          updateCommessa.mutate({
+            id: forceMoveTarget.commessaId,
+            stato: forceMoveTarget.newStato as any,
+            force: true,
+          });
+        }}
+      />
     </div>
   );
 }

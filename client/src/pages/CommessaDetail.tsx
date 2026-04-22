@@ -120,6 +120,14 @@ export default function CommessaDetail() {
 
   const utils = trpc.useUtils();
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; label: string } | null>(null);
+  // Confirm dialog for "procedi senza file" — surfaces when the user tries to
+  // advance to the next stato while the current stato still has required
+  // documents uploaded. The operator can confirm to bypass the gate (server
+  // accepts when `force: true`) or cancel and upload the file first.
+  const [forceAdvanceTarget, setForceAdvanceTarget] = useState<{
+    stato: string;
+    message: string;
+  } | null>(null);
   const [interventoDialog, setInterventoDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
   const [consegnaDialog, setConsegnaDialog] = useState(false);
@@ -217,7 +225,10 @@ export default function CommessaDetail() {
   const updateCommessa = trpc.commesse.update.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
+      utils.commesse.list.invalidate();
+      utils.preventiviContratti.statoGate.invalidate(commessaId);
       setEditDialog(false);
+      setForceAdvanceTarget(null);
     },
   });
   const updateCliente = trpc.clienti.update.useMutation({
@@ -714,17 +725,34 @@ export default function CommessaDetail() {
               };
               const nextStato = next[c.stato];
               const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
+              // Gate is NOT a hard block anymore: clicking "Avanza" when a
+              // required file is missing surfaces a confirmation dialog where
+              // the operator can proceed without uploading. We keep the title
+              // attribute so hovering still explains which file is missing.
               return nextStato ? (
                 <Button
                   size="sm"
-                  onClick={() => updateCommessa.mutate({ id: commessaId, stato: nextStato as any })}
-                  disabled={updateCommessa.isPending || gateBlocked}
+                  onClick={() => {
+                    if (gateBlocked && statoGate.data) {
+                      const missing = statoGate.data.required
+                        .filter((r) => !r.satisfied)
+                        .map((r) => r.label)
+                        .join(" o ");
+                      setForceAdvanceTarget({
+                        stato: nextStato,
+                        message: `Non è stato caricato il file "${missing}" per lo stato "${c.stato.replace(/_/g, " ")}". Procedere comunque?`,
+                      });
+                    } else {
+                      updateCommessa.mutate({ id: commessaId, stato: nextStato as any });
+                    }
+                  }}
+                  disabled={updateCommessa.isPending}
                   title={
                     gateBlocked
-                      ? `Carica prima un file di tipo ${(statoGate.data?.required ?? [])
+                      ? `Manca il file ${(statoGate.data?.required ?? [])
                           .filter((r) => !r.satisfied)
                           .map((r) => r.label)
-                          .join(" o ")}`
+                          .join(" o ")} — chiederà conferma`
                       : undefined
                   }
                 >
@@ -854,12 +882,12 @@ export default function CommessaDetail() {
                     <p className="text-sm font-semibold">
                       {statoGate.data.canAdvance
                         ? "Documenti richiesti caricati"
-                        : "Documenti richiesti per avanzare"}
+                        : "Documenti richiesti mancanti"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {statoGate.data.canAdvance
                         ? "Puoi avanzare la commessa allo stato successivo."
-                        : "Carica almeno uno dei file richiesti per sbloccare l'avanzamento."}
+                        : "Puoi avanzare comunque: ti verrà chiesta conferma."}
                     </p>
                   </div>
                 </div>
@@ -1594,6 +1622,26 @@ export default function CommessaDetail() {
           else if (deleteTarget.type === "commessa") deleteCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "archive-commessa") archiveCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "prodotto") removeProdotto.mutate({ commessaId, prodottoId: deleteTarget.id });
+        }}
+      />
+
+      {/* Force advance confirmation — fires when the operator tries to move
+          to the next stato without uploading the required document. The
+          server accepts the override via the `force: true` flag. */}
+      <ConfirmDialog
+        open={!!forceAdvanceTarget}
+        onOpenChange={(open) => !open && setForceAdvanceTarget(null)}
+        title="File richiesto non caricato"
+        description={forceAdvanceTarget?.message ?? ""}
+        destructive={false}
+        confirmLabel="Procedi comunque"
+        onConfirm={() => {
+          if (!forceAdvanceTarget) return;
+          updateCommessa.mutate({
+            id: commessaId,
+            stato: forceAdvanceTarget.stato as any,
+            force: true,
+          });
         }}
       />
 
