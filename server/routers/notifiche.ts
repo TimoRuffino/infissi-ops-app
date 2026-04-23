@@ -85,7 +85,12 @@ function buildNotifichePerUtente(userId: number, ruoli: string[]): Notifica[] {
   const out: Notifica[] = [];
 
   for (const c of commesse) {
+    // Skip both closed (stato === "archiviata") AND soft-archived
+    // (archivedAt set by the operator when the client declined the job).
+    // Soft-archive preserves stato/progress so the stato check alone is
+    // not enough — we must also filter on archivedAt.
     if (c.stato === "archiviata") continue;
+    if ((c as any).archivedAt) continue;
 
     const isOwner = c.assegnatoA === userId || c.createdBy === userId;
 
