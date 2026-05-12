@@ -30,6 +30,12 @@ import {
   CalendarRange,
   Calendar as CalIcon,
   Link2,
+  User as UserIcon,
+  Phone,
+  Mail,
+  Briefcase,
+  StickyNote,
+  Users as UsersIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -141,10 +147,51 @@ export default function Planning() {
 
   const interventi = trpc.interventi.list.useQuery({ from, to });
   const commesse = trpc.commesse.list.useQuery({});
+  const clienti = trpc.clienti.list.useQuery({});
   const squadre = trpc.squadre.list.useQuery();
   const ticketList = trpc.ticket.list.useQuery({});
   const reclami = trpc.reclamiRifacimenti.reclami.list.useQuery({});
   const rifacimenti = trpc.reclamiRifacimenti.rifacimenti.list.useQuery({});
+
+  // ── Lookup maps — joined info shown on cards + edit dialog ───────────────
+  // Pairing intervento → commessa → cliente gives us nome/cognome/indirizzo
+  // without per-card queries. Indirizzo comes from the commessa (which copies
+  // it from cliente.indirizzoLavoro at create time and tracks per-job
+  // overrides afterwards).
+  const commessaById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const c of commesse.data ?? []) m.set(c.id, c);
+    return m;
+  }, [commesse.data]);
+  const clienteById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const c of clienti.data ?? []) m.set(c.id, c);
+    return m;
+  }, [clienti.data]);
+  const squadraById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const s of squadre.data ?? []) m.set(s.id, s);
+    return m;
+  }, [squadre.data]);
+
+  function getJoinedInfo(i: any) {
+    const commessa = i.commessaId ? commessaById.get(i.commessaId) : null;
+    const cliente = commessa?.clienteId
+      ? clienteById.get(commessa.clienteId)
+      : null;
+    const squadra = i.squadraId ? squadraById.get(i.squadraId) : null;
+    const nomeCognome = cliente
+      ? `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim()
+      : commessa?.cliente ?? "";
+    const indirizzo =
+      i.indirizzo ||
+      commessa?.indirizzo ||
+      cliente?.indirizzoLavoro ||
+      cliente?.indirizzo ||
+      "";
+    const citta = commessa?.citta || cliente?.cittaLavoro || cliente?.citta || "";
+    return { commessa, cliente, squadra, nomeCognome, indirizzo, citta };
+  }
 
   const utils = trpc.useUtils();
   const createIntervento = trpc.interventi.create.useMutation({
@@ -205,6 +252,20 @@ export default function Planning() {
     setEditId(null);
     setForm({ ...emptyForm, dataPianificata: dateStr ?? toDateStr(new Date()) });
     setDialogOpen(true);
+  }
+
+  // When the operator picks a commessa in the dialog, auto-fill the
+  // address from the commessa (which is the lavoro address). Only fills
+  // when the field is empty so manual overrides are preserved.
+  function handleLinkChange(linkKind: LinkKind, linkId: string) {
+    let nextIndirizzo = form.indirizzo;
+    if (linkKind === "commessa" && linkId && !form.indirizzo) {
+      const cm = commessaById.get(parseInt(linkId));
+      if (cm?.indirizzo) {
+        nextIndirizzo = cm.citta ? `${cm.indirizzo}, ${cm.citta}` : cm.indirizzo;
+      }
+    }
+    setForm({ ...form, linkKind, linkId, indirizzo: nextIndirizzo });
   }
 
   function openEdit(i: any) {
@@ -370,6 +431,7 @@ export default function Planning() {
         <DayView
           date={cursor}
           interventi={byDay[toDateStr(cursor)] ?? []}
+          getJoined={getJoinedInfo}
           onNew={() => openCreateFor(toDateStr(cursor))}
           onEdit={openEdit}
           onAnnulla={(i) => setAnnullaTarget({ id: i.id, label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim() })}
@@ -384,6 +446,7 @@ export default function Planning() {
         <WeekView
           cursor={cursor}
           byDay={byDay}
+          getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
           onAnnulla={(i) => setAnnullaTarget({ id: i.id, label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim() })}
@@ -398,6 +461,7 @@ export default function Planning() {
         <MonthView
           cursor={cursor}
           byDay={byDay}
+          getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
           onDragStart={handleDragStart}
@@ -411,15 +475,114 @@ export default function Planning() {
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) { setDialogOpen(false); setEditId(null); } }}>
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editId ? "Modifica appuntamento" : "Nuovo appuntamento"}</DialogTitle>
+            <DialogTitle>{editId ? "Dettagli appuntamento" : "Nuovo appuntamento"}</DialogTitle>
           </DialogHeader>
+          {(() => {
+            // When the dialog is in edit mode AND the linked entity is a
+            // commessa, surface the full joined info (cliente, indirizzo,
+            // telefono, email, squadra, stato) in a read-only summary block
+            // above the form so the operator doesn't have to open another
+            // page to know who/where the appointment is for.
+            if (!editId || form.linkKind !== "commessa" || !form.linkId) return null;
+            const commessa = commessaById.get(parseInt(form.linkId));
+            if (!commessa) return null;
+            const cliente = commessa.clienteId
+              ? clienteById.get(commessa.clienteId)
+              : null;
+            const nomeCognome = cliente
+              ? `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim()
+              : commessa.cliente ?? "";
+            const squadra = form.squadraId
+              ? squadraById.get(parseInt(form.squadraId))
+              : null;
+            return (
+              <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {commessa.codice}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px] uppercase">
+                    {(commessa.stato ?? "").replace(/_/g, " ")}
+                  </Badge>
+                  {commessa.priorita === "urgente" && (
+                    <Badge variant="destructive" className="text-[10px]">
+                      URGENTE
+                    </Badge>
+                  )}
+                </div>
+                {nomeCognome && (
+                  <div className="flex items-center gap-1.5">
+                    <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-semibold">{nomeCognome}</span>
+                  </div>
+                )}
+                {(commessa.indirizzo ||
+                  cliente?.indirizzoLavoro ||
+                  cliente?.indirizzo) && (
+                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      {commessa.indirizzo ||
+                        cliente?.indirizzoLavoro ||
+                        cliente?.indirizzo}
+                      {commessa.citta || cliente?.cittaLavoro || cliente?.citta
+                        ? `, ${commessa.citta || cliente?.cittaLavoro || cliente?.citta}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+                {(commessa.telefono || cliente?.telefono) && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5" />
+                    <a
+                      href={`tel:${commessa.telefono || cliente?.telefono}`}
+                      className="hover:underline"
+                    >
+                      {commessa.telefono || cliente?.telefono}
+                    </a>
+                  </div>
+                )}
+                {(commessa.email || cliente?.email) && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Mail className="h-3.5 w-3.5" />
+                    <a
+                      href={`mailto:${commessa.email || cliente?.email}`}
+                      className="hover:underline"
+                    >
+                      {commessa.email || cliente?.email}
+                    </a>
+                  </div>
+                )}
+                {squadra && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <UsersIcon className="h-3.5 w-3.5" />
+                    <span>
+                      {squadra.nome}
+                      {squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-end pt-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setLocation(`/commesse/${commessa.id}`)}
+                  >
+                    <Briefcase className="h-3 w-3 mr-1" />
+                    Apri commessa
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
           <div className="grid gap-3 py-2">
             {/* Link target */}
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5"><Link2 className="h-3.5 w-3.5" /> Collega a</Label>
               <Select
                 value={form.linkKind}
-                onValueChange={(v: LinkKind) => setForm({ ...form, linkKind: v, linkId: "" })}
+                onValueChange={(v: LinkKind) => handleLinkChange(v, "")}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -467,7 +630,7 @@ export default function Planning() {
                       }))
                 }
                 value={form.linkId}
-                onChange={(v) => setForm({ ...form, linkId: v })}
+                onChange={(v) => handleLinkChange(form.linkKind, v)}
                 placeholder="Seleziona..."
                 searchPlaceholder="Cerca per codice, cliente..."
               />
@@ -575,6 +738,7 @@ export default function Planning() {
 function DayView(props: {
   date: Date;
   interventi: any[];
+  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: () => void;
   onEdit: (i: any) => void;
   onAnnulla: (i: any) => void;
@@ -609,6 +773,7 @@ function DayView(props: {
             <InterventoBlock
               key={i.id}
               intervento={i}
+              joined={props.getJoined(i)}
               onEdit={() => props.onEdit(i)}
               onAnnulla={() => props.onAnnulla(i)}
               onDragStart={(e) => props.onDragStart(e, i)}
@@ -626,6 +791,7 @@ function DayView(props: {
 function WeekView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
+  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
   onAnnulla: (i: any) => void;
@@ -674,6 +840,7 @@ function WeekView(props: {
                 <InterventoBlock
                   key={i.id}
                   intervento={i}
+                  joined={props.getJoined(i)}
                   onEdit={() => props.onEdit(i)}
                   onAnnulla={() => props.onAnnulla(i)}
                   onDragStart={(e) => props.onDragStart(e, i)}
@@ -693,6 +860,7 @@ function WeekView(props: {
 function MonthView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
+  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
   onDragStart: (e: React.DragEvent, i: any) => void;
@@ -746,17 +914,26 @@ function MonthView(props: {
                 )}
               </div>
               <div className="space-y-0.5">
-                {items.slice(0, 3).map((i: any) => (
-                  <div
-                    key={i.id}
-                    draggable
-                    onDragStart={(e) => props.onDragStart(e, i)}
-                    onClick={() => props.onEdit(i)}
-                    className={`text-[9px] px-1 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${tipoColors[i.tipo] ?? "bg-gray-100"} ${props.draggingId === i.id ? "opacity-40" : ""}`}
-                  >
-                    {i.oraInizio ? `${i.oraInizio} ` : ""}{tipoLabels[i.tipo] ?? i.tipo}
-                  </div>
-                ))}
+                {items.slice(0, 3).map((i: any) => {
+                  const j = props.getJoined(i);
+                  // Month view is dense — show name when available, else tipo.
+                  const label = j.nomeCognome
+                    ? j.nomeCognome
+                    : tipoLabels[i.tipo] ?? i.tipo;
+                  return (
+                    <div
+                      key={i.id}
+                      draggable
+                      onDragStart={(e) => props.onDragStart(e, i)}
+                      onClick={() => props.onEdit(i)}
+                      title={`${tipoLabels[i.tipo] ?? i.tipo}${j.nomeCognome ? ` — ${j.nomeCognome}` : ""}${j.indirizzo ? ` (${j.indirizzo})` : ""}`}
+                      className={`text-[9px] px-1 py-0.5 rounded border truncate cursor-pointer hover:opacity-80 ${tipoColors[i.tipo] ?? "bg-gray-100"} ${props.draggingId === i.id ? "opacity-40" : ""}`}
+                    >
+                      {i.oraInizio ? `${i.oraInizio} ` : ""}
+                      {label}
+                    </div>
+                  );
+                })}
                 {items.length > 3 && (
                   <div className="text-[9px] text-muted-foreground px-1">+{items.length - 3} altro</div>
                 )}
@@ -770,8 +947,12 @@ function MonthView(props: {
 }
 
 // ── INTERVENTO CARD BLOCK ────────────────────────────────────────────────────
+// Joined info — nomeCognome and indirizzo are derived from the linked
+// commessa/cliente at render time so the operator sees who/where directly
+// on the calendar without opening the appointment.
 function InterventoBlock(props: {
   intervento: any;
+  joined: { nomeCognome: string; indirizzo: string; citta?: string };
   onEdit: () => void;
   onAnnulla: () => void;
   onDragStart: (e: React.DragEvent) => void;
@@ -780,6 +961,11 @@ function InterventoBlock(props: {
 }) {
   const i = props.intervento;
   const isDragging = props.draggingId === i.id;
+  const indirizzoFull = props.joined.indirizzo
+    ? props.joined.citta
+      ? `${props.joined.indirizzo}, ${props.joined.citta}`
+      : props.joined.indirizzo
+    : "";
   return (
     <div
       draggable
@@ -790,7 +976,7 @@ function InterventoBlock(props: {
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1" onClick={props.onEdit}>
-          <div className={`font-semibold text-${props.size === "large" ? "xs" : "[10px]"} uppercase tracking-wide flex items-center gap-1`}>
+          <div className={`font-semibold text-${props.size === "large" ? "xs" : "[10px]"} uppercase tracking-wide flex items-center gap-1 flex-wrap`}>
             {i.oraInizio && (
               <span className="inline-flex items-center gap-0.5 font-mono">
                 <Clock className="h-2.5 w-2.5" />
@@ -800,10 +986,21 @@ function InterventoBlock(props: {
             )}
             <span>{tipoLabels[i.tipo] ?? i.tipo}</span>
           </div>
-          {i.indirizzo && (
+          {props.joined.nomeCognome && (
+            <p
+              className={`mt-0.5 font-semibold flex items-center gap-0.5 ${
+                props.size === "large" ? "text-sm" : "text-[10px]"
+              }`}
+              title={props.joined.nomeCognome}
+            >
+              <UserIcon className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate">{props.joined.nomeCognome}</span>
+            </p>
+          )}
+          {indirizzoFull && (
             <p className={`mt-0.5 flex items-center gap-0.5 opacity-80 ${props.size === "large" ? "text-xs" : "text-[9px]"}`}>
               <MapPin className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{i.indirizzo}</span>
+              <span className="truncate">{indirizzoFull}</span>
             </p>
           )}
           {i.note && (

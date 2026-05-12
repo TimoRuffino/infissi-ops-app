@@ -159,7 +159,10 @@ export default function CommessaDetail() {
     email: "",
     // Commessa-only fields
     priorita: "media" as "bassa" | "media" | "alta" | "urgente",
+    // Either preset offset days OR free calendar date
+    consegnaMode: "preset" as "preset" | "data",
     consegnaIndicativa: "60" as "30" | "60" | "90",
+    dataConsegnaIndicativa: "",
     note: "",
   });
 
@@ -181,6 +184,13 @@ export default function CommessaDetail() {
     email: "",
     indirizzo: "",
     citta: "",
+    cap: "",
+    indirizzoLavoro: "",
+    cittaLavoro: "",
+    capLavoro: "",
+    lavoroStessoResidenza: true,
+    detrazione: false,
+    tipoDetrazione: "" as "" | "ecobonus" | "ristrutturazione",
   });
 
   // Prodotti desiderati
@@ -274,20 +284,24 @@ export default function CommessaDetail() {
 
   // Nuovo cliente dalla commessa: creates cliente, then links it on commessa.
   const createCliente = trpc.clienti.create.useMutation({
-    onSuccess: (cliente) => {
+    onSuccess: (cliente: any) => {
       updateCommessa.mutate({
         id: commessaId,
         clienteId: cliente.id,
         cliente: `${cliente.nome} ${cliente.cognome}`.trim(),
         telefono: cliente.telefono || undefined,
         email: cliente.email || undefined,
-        indirizzo: cliente.indirizzo || undefined,
-        citta: cliente.citta || undefined,
+        // Commessa indirizzo = indirizzo LAVORO (falls back to residenza).
+        indirizzo: cliente.indirizzoLavoro || cliente.indirizzo || undefined,
+        citta: cliente.cittaLavoro || cliente.citta || undefined,
       });
       setNuovoClienteDialog(false);
       setClienteForm({
         nome: "", cognome: "", tipo: "privato",
-        telefono: "", email: "", indirizzo: "", citta: "",
+        telefono: "", email: "", indirizzo: "", citta: "", cap: "",
+        indirizzoLavoro: "", cittaLavoro: "", capLavoro: "",
+        lavoroStessoResidenza: true,
+        detrazione: false, tipoDetrazione: "",
       });
     },
   });
@@ -343,7 +357,9 @@ export default function CommessaDetail() {
       telefono: c.telefono ?? cl?.telefono ?? "",
       email: c.email ?? cl?.email ?? "",
       priorita: c.priorita ?? "media",
+      consegnaMode: c.dataConsegnaIndicativa ? "data" : "preset",
       consegnaIndicativa: c.consegnaIndicativa ?? "60",
+      dataConsegnaIndicativa: c.dataConsegnaIndicativa ?? "",
       note: c.note ?? "",
     });
     setEditDialog(true);
@@ -379,7 +395,13 @@ export default function CommessaDetail() {
         telefono: editForm.telefono,
         email: editForm.email,
         priorita: editForm.priorita,
-        consegnaIndicativa: editForm.consegnaIndicativa,
+        // Mutually exclusive — only one of the two persists.
+        consegnaIndicativa:
+          editForm.consegnaMode === "preset" ? editForm.consegnaIndicativa : null,
+        dataConsegnaIndicativa:
+          editForm.consegnaMode === "data"
+            ? editForm.dataConsegnaIndicativa || null
+            : null,
         note: editForm.note,
       });
     } catch (e) {
@@ -825,6 +847,11 @@ export default function CommessaDetail() {
             <span className="flex items-center gap-1 font-medium text-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
               Data consegna prevista: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+            </span>
+          ) : c.dataConsegnaIndicativa ? (
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" />
+              Consegna indicativa: {new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")}
             </span>
           ) : c.consegnaIndicativa ? (
             <span className="flex items-center gap-1">
@@ -1533,8 +1560,22 @@ export default function CommessaDetail() {
                 <div className="space-y-1.5">
                   <Label>Consegna indicativa</Label>
                   <Select
-                    value={editForm.consegnaIndicativa}
-                    onValueChange={(v: any) => setEditForm({ ...editForm, consegnaIndicativa: v })}
+                    value={
+                      editForm.consegnaMode === "data"
+                        ? "data"
+                        : editForm.consegnaIndicativa
+                    }
+                    onValueChange={(v: any) => {
+                      if (v === "data") {
+                        setEditForm({ ...editForm, consegnaMode: "data" });
+                      } else {
+                        setEditForm({
+                          ...editForm,
+                          consegnaMode: "preset",
+                          consegnaIndicativa: v,
+                        });
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1543,8 +1584,21 @@ export default function CommessaDetail() {
                       <SelectItem value="30">+30 giorni</SelectItem>
                       <SelectItem value="60">+60 giorni</SelectItem>
                       <SelectItem value="90">+90 giorni</SelectItem>
+                      <SelectItem value="data">Data da calendario…</SelectItem>
                     </SelectContent>
                   </Select>
+                  {editForm.consegnaMode === "data" && (
+                    <Input
+                      type="date"
+                      value={editForm.dataConsegnaIndicativa}
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          dataConsegnaIndicativa: e.target.value,
+                        })
+                      }
+                    />
+                  )}
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -1699,13 +1753,26 @@ export default function CommessaDetail() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Indirizzo</Label>
-                <Input
-                  value={clienteForm.indirizzo}
-                  onChange={(e) => setClienteForm({ ...clienteForm, indirizzo: e.target.value })}
-                />
+            {/* Residenza */}
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Indirizzo di residenza (fatturazione)
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Indirizzo</Label>
+                  <Input
+                    value={clienteForm.indirizzo}
+                    onChange={(e) => setClienteForm({ ...clienteForm, indirizzo: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>CAP</Label>
+                  <Input
+                    value={clienteForm.cap}
+                    onChange={(e) => setClienteForm({ ...clienteForm, cap: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Citta</Label>
@@ -1715,17 +1782,106 @@ export default function CommessaDetail() {
                 />
               </div>
             </div>
+            {/* Lavoro */}
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Indirizzo lavoro
+                </div>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={clienteForm.lavoroStessoResidenza}
+                    onChange={(e) => setClienteForm({ ...clienteForm, lavoroStessoResidenza: e.target.checked })}
+                  />
+                  <span className="text-muted-foreground">Stesso della residenza</span>
+                </label>
+              </div>
+              {!clienteForm.lavoroStessoResidenza && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5 col-span-2">
+                      <Label>Indirizzo lavoro</Label>
+                      <Input
+                        value={clienteForm.indirizzoLavoro}
+                        onChange={(e) => setClienteForm({ ...clienteForm, indirizzoLavoro: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>CAP</Label>
+                      <Input
+                        value={clienteForm.capLavoro}
+                        onChange={(e) => setClienteForm({ ...clienteForm, capLavoro: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Citta lavoro</Label>
+                    <Input
+                      value={clienteForm.cittaLavoro}
+                      onChange={(e) => setClienteForm({ ...clienteForm, cittaLavoro: e.target.value })}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Detrazione */}
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Detrazione fiscale</div>
+                  <div className="text-xs text-muted-foreground">Il cliente vuole usufruirne?</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={clienteForm.detrazione}
+                  onChange={(e) => setClienteForm({ ...clienteForm, detrazione: e.target.checked, tipoDetrazione: e.target.checked ? clienteForm.tipoDetrazione : "" })}
+                />
+              </div>
+              {clienteForm.detrazione && (
+                <div className="space-y-1.5">
+                  <Label>Quale detrazione</Label>
+                  <Select
+                    value={clienteForm.tipoDetrazione}
+                    onValueChange={(v: any) => setClienteForm({ ...clienteForm, tipoDetrazione: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Seleziona detrazione..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ecobonus">Ecobonus</SelectItem>
+                      <SelectItem value="ristrutturazione">Ristrutturazione</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
             <Button
-              onClick={() => createCliente.mutate({
-                nome: clienteForm.nome,
-                cognome: clienteForm.cognome,
-                tipo: clienteForm.tipo,
-                telefono: clienteForm.telefono || undefined,
-                email: clienteForm.email || undefined,
-                indirizzo: clienteForm.indirizzo || undefined,
-                citta: clienteForm.citta || undefined,
-              })}
-              disabled={!clienteForm.nome || !clienteForm.cognome || createCliente.isPending}
+              onClick={() => {
+                const lavoroSame = clienteForm.lavoroStessoResidenza;
+                createCliente.mutate({
+                  nome: clienteForm.nome,
+                  cognome: clienteForm.cognome,
+                  tipo: clienteForm.tipo,
+                  telefono: clienteForm.telefono || undefined,
+                  email: clienteForm.email || undefined,
+                  indirizzo: clienteForm.indirizzo || undefined,
+                  citta: clienteForm.citta || undefined,
+                  cap: clienteForm.cap || undefined,
+                  indirizzoLavoro: (lavoroSame ? clienteForm.indirizzo : clienteForm.indirizzoLavoro) || undefined,
+                  cittaLavoro: (lavoroSame ? clienteForm.citta : clienteForm.cittaLavoro) || undefined,
+                  capLavoro: (lavoroSame ? clienteForm.cap : clienteForm.capLavoro) || undefined,
+                  detrazione: clienteForm.detrazione,
+                  tipoDetrazione:
+                    clienteForm.detrazione && clienteForm.tipoDetrazione
+                      ? (clienteForm.tipoDetrazione as "ecobonus" | "ristrutturazione")
+                      : null,
+                });
+              }}
+              disabled={
+                !clienteForm.nome ||
+                !clienteForm.cognome ||
+                (clienteForm.detrazione && !clienteForm.tipoDetrazione) ||
+                createCliente.isPending
+              }
             >
               {createCliente.isPending ? "Creazione..." : "Crea e collega"}
             </Button>

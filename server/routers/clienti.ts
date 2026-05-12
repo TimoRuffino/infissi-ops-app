@@ -44,6 +44,7 @@ export function getClienteById(id: number) {
 }
 
 const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
+const TIPO_DETRAZIONE = ["ecobonus", "ristrutturazione"] as const;
 
 export const clientiRouter = router({
   list: publicProcedure
@@ -86,12 +87,22 @@ export const clientiRouter = router({
         tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
         codiceFiscale: z.string().optional(),
         partitaIva: z.string().optional(),
+        // Legacy "indirizzo/citta/cap" → kept as RESIDENZA (used by admin
+        // for fatture). New explicit fields below for work-site address.
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         cap: z.string().optional(),
+        // Work-site address — what the commessa cares about. Falls back to
+        // residenza when not provided.
+        indirizzoLavoro: z.string().optional(),
+        cittaLavoro: z.string().optional(),
+        capLavoro: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
         detrazione: z.boolean().optional(),
+        // Which detrazione the client wants — only meaningful when
+        // detrazione === true. Null when no detrazione requested.
+        tipoDetrazione: z.enum(TIPO_DETRAZIONE).nullable().optional(),
         interesseFinanziamento: z.boolean().optional(),
         praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
         referenti: z.array(z.object({
@@ -112,6 +123,7 @@ export const clientiRouter = router({
         ...rest,
         tipo: input.tipo ?? "privato",
         detrazione: input.detrazione ?? false,
+        tipoDetrazione: input.tipoDetrazione ?? null,
         interesseFinanziamento: input.interesseFinanziamento ?? false,
         praticaEdilizia: input.praticaEdilizia ?? "nessuna",
         referenti: input.referenti ?? [],
@@ -140,9 +152,13 @@ export const clientiRouter = router({
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         cap: z.string().optional(),
+        indirizzoLavoro: z.string().optional(),
+        cittaLavoro: z.string().optional(),
+        capLavoro: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
         detrazione: z.boolean().optional(),
+        tipoDetrazione: z.enum(TIPO_DETRAZIONE).nullable().optional(),
         interesseFinanziamento: z.boolean().optional(),
         praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
         referenti: z.array(z.object({

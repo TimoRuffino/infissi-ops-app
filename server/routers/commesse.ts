@@ -229,7 +229,12 @@ export const commesseRouter = router({
         email: z.string().optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         note: z.string().optional(),
+        // Indicative delivery — either a preset offset (30/60/90 days) OR a
+        // free-form date picked from the calendar. The two are mutually
+        // exclusive at display time but the schema accepts both for
+        // backwards compatibility with already-persisted records.
         consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
+        dataConsegnaIndicativa: z.string().optional(),
         assegnatoA: z.number().nullable().optional(),
       })
     )
@@ -268,6 +273,7 @@ export const commesseRouter = router({
         squadraId: null,
         dataApertura: now.toISOString().split("T")[0],
         consegnaIndicativa: input.consegnaIndicativa ?? null, // "30" | "60" | "90"
+        dataConsegnaIndicativa: input.dataConsegnaIndicativa ?? null, // ISO date when operator picks a calendar date instead of an offset
         dataConsegnaConfermata: null, // set when stato=produzione
         dataChiusura: null,
         note: rest.note ?? null,
@@ -301,6 +307,7 @@ export const commesseRouter = router({
         squadraId: z.number().nullable().optional(),
         note: z.string().optional(),
         consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),
+        dataConsegnaIndicativa: z.string().nullable().optional(),
         dataConsegnaConfermata: z.string().nullable().optional(),
         assegnatoA: z.number().nullable().optional(),
         // When true, skip the "required doc uploaded" gate on forward

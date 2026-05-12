@@ -64,12 +64,19 @@ const emptyForm = {
   tipo: "privato" as const,
   codiceFiscale: "",
   partitaIva: "",
+  // Residenza — for fatture / admin
   indirizzo: "",
   citta: "",
   cap: "",
+  // Indirizzo lavoro — what commessa uses
+  indirizzoLavoro: "",
+  cittaLavoro: "",
+  capLavoro: "",
+  lavoroStessoResidenza: true,
   telefono: "",
   email: "",
   detrazione: false,
+  tipoDetrazione: "" as "" | "ecobonus" | "ristrutturazione",
   interesseFinanziamento: false,
   praticaEdilizia: "nessuna" as "nessuna" | "cil" | "cila" | "scia",
   note: "",
@@ -201,25 +208,29 @@ export default function ClientiList() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5 col-span-2">
-                  <Label>Indirizzo</Label>
-                  <Input
-                    value={form.indirizzo}
-                    onChange={(e) =>
-                      setForm({ ...form, indirizzo: e.target.value })
-                    }
-                  />
+              {/* Residenza — for fatture / admin */}
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Indirizzo di residenza (fatturazione)
                 </div>
-                <div className="space-y-1.5">
-                  <Label>CAP</Label>
-                  <Input
-                    value={form.cap}
-                    onChange={(e) => setForm({ ...form, cap: e.target.value })}
-                  />
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5 col-span-2">
+                    <Label>Indirizzo</Label>
+                    <Input
+                      value={form.indirizzo}
+                      onChange={(e) =>
+                        setForm({ ...form, indirizzo: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>CAP</Label>
+                    <Input
+                      value={form.cap}
+                      onChange={(e) => setForm({ ...form, cap: e.target.value })}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label>Citta</Label>
                   <Input
@@ -229,6 +240,58 @@ export default function ClientiList() {
                     }
                   />
                 </div>
+              </div>
+              {/* Lavoro — what commessa uses by default */}
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Indirizzo dove va effettuato il lavoro
+                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <Switch
+                      checked={form.lavoroStessoResidenza}
+                      onCheckedChange={(v) =>
+                        setForm({ ...form, lavoroStessoResidenza: v })
+                      }
+                    />
+                    <span className="text-muted-foreground">Stesso della residenza</span>
+                  </label>
+                </div>
+                {!form.lavoroStessoResidenza && (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1.5 col-span-2">
+                        <Label>Indirizzo lavoro</Label>
+                        <Input
+                          value={form.indirizzoLavoro}
+                          onChange={(e) =>
+                            setForm({ ...form, indirizzoLavoro: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>CAP</Label>
+                        <Input
+                          value={form.capLavoro}
+                          onChange={(e) =>
+                            setForm({ ...form, capLavoro: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Citta lavoro</Label>
+                      <Input
+                        value={form.cittaLavoro}
+                        onChange={(e) =>
+                          setForm({ ...form, cittaLavoro: e.target.value })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Telefono</Label>
                   <Input
@@ -248,31 +311,58 @@ export default function ClientiList() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Detrazione</div>
-                    <div className="text-xs text-muted-foreground">Si / No</div>
+                    <div className="text-sm font-medium">Detrazione fiscale</div>
+                    <div className="text-xs text-muted-foreground">
+                      Il cliente vuole usufruirne?
+                    </div>
                   </div>
                   <Switch
                     checked={form.detrazione}
                     onCheckedChange={(v) =>
-                      setForm({ ...form, detrazione: v })
+                      setForm({
+                        ...form,
+                        detrazione: v,
+                        tipoDetrazione: v ? form.tipoDetrazione : "",
+                      })
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
-                    <div className="text-sm font-medium">Interesse finanziamento</div>
-                    <div className="text-xs text-muted-foreground">Si / No</div>
+                {form.detrazione && (
+                  <div className="space-y-1.5">
+                    <Label>Quale detrazione</Label>
+                    <Select
+                      value={form.tipoDetrazione}
+                      onValueChange={(v: any) =>
+                        setForm({ ...form, tipoDetrazione: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleziona detrazione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ecobonus">Ecobonus</SelectItem>
+                        <SelectItem value="ristrutturazione">
+                          Ristrutturazione
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Switch
-                    checked={form.interesseFinanziamento}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, interesseFinanziamento: v })
-                    }
-                  />
+                )}
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <div className="text-sm font-medium">Interesse finanziamento</div>
+                  <div className="text-xs text-muted-foreground">Si / No</div>
                 </div>
+                <Switch
+                  checked={form.interesseFinanziamento}
+                  onCheckedChange={(v) =>
+                    setForm({ ...form, interesseFinanziamento: v })
+                  }
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Pratica edilizia</Label>
@@ -316,7 +406,10 @@ export default function ClientiList() {
                 />
               </div>
               <Button
-                onClick={() =>
+                onClick={() => {
+                  // If "stesso della residenza" toggled, copy residenza →
+                  // lavoro so commessa fallback always has a value to use.
+                  const lavoroSame = form.lavoroStessoResidenza;
                   createCliente.mutate({
                     nome: form.nome,
                     cognome: form.cognome,
@@ -326,17 +419,31 @@ export default function ClientiList() {
                     indirizzo: form.indirizzo || undefined,
                     citta: form.citta || undefined,
                     cap: form.cap || undefined,
+                    indirizzoLavoro:
+                      (lavoroSame ? form.indirizzo : form.indirizzoLavoro) ||
+                      undefined,
+                    cittaLavoro:
+                      (lavoroSame ? form.citta : form.cittaLavoro) || undefined,
+                    capLavoro:
+                      (lavoroSame ? form.cap : form.capLavoro) || undefined,
                     telefono: form.telefono || undefined,
                     email: form.email || undefined,
                     detrazione: form.detrazione,
+                    tipoDetrazione:
+                      form.detrazione && form.tipoDetrazione
+                        ? (form.tipoDetrazione as "ecobonus" | "ristrutturazione")
+                        : null,
                     interesseFinanziamento: form.interesseFinanziamento,
                     praticaEdilizia: form.praticaEdilizia,
                     note: form.note || undefined,
                     assegnatoA: form.assegnatoA,
-                  })
-                }
+                  });
+                }}
                 disabled={
-                  !form.nome || !form.cognome || createCliente.isPending
+                  !form.nome ||
+                  !form.cognome ||
+                  (form.detrazione && !form.tipoDetrazione) ||
+                  createCliente.isPending
                 }
               >
                 Crea cliente
@@ -414,8 +521,8 @@ export default function ClientiList() {
                           {tipoLabels[c.tipo] ?? c.tipo}
                         </Badge>
                         {c.detrazione && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            Detrazione
+                          <Badge variant="secondary" className="text-[10px] capitalize">
+                            Detrazione{c.tipoDetrazione ? `: ${c.tipoDetrazione}` : ""}
                           </Badge>
                         )}
                         {c.interesseFinanziamento && (

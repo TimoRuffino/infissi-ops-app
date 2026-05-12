@@ -84,7 +84,10 @@ export default function ClienteDetail() {
 
   const [commessaForm, setCommessaForm] = useState({
     priorita: "media" as "bassa" | "media" | "alta" | "urgente",
+    // "preset" → offset days, "data" → calendar date
+    consegnaMode: "preset" as "preset" | "data",
     consegnaIndicativa: "60" as "30" | "60" | "90",
+    dataConsegnaIndicativa: "",
     note: "",
   });
   const [interventoForm, setInterventoForm] = useState({
@@ -197,8 +200,8 @@ export default function ClienteDetail() {
                 {c.tipo?.replace(/_/g, " ")}
               </Badge>
               {c.detrazione && (
-                <Badge variant="secondary" className="text-xs">
-                  Detrazione
+                <Badge variant="secondary" className="text-xs capitalize">
+                  Detrazione{c.tipoDetrazione ? `: ${c.tipoDetrazione}` : ""}
                 </Badge>
               )}
               {c.interesseFinanziamento && (
@@ -215,9 +218,23 @@ export default function ClienteDetail() {
 
             <div className="flex gap-4 flex-wrap mt-2 text-sm text-muted-foreground">
               {c.indirizzo && (
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1" title="Indirizzo di residenza — usato per le fatture">
                   <MapPin className="h-3.5 w-3.5" />
+                  <span className="text-[10px] uppercase tracking-wide mr-1 px-1 py-0.5 bg-muted rounded font-semibold">
+                    Residenza
+                  </span>
                   {c.indirizzo}, {c.cap} {c.citta}
+                </span>
+              )}
+              {(c.indirizzoLavoro || c.cittaLavoro) && (
+                <span className="flex items-center gap-1" title="Indirizzo di esecuzione lavori — usato nelle commesse">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span className="text-[10px] uppercase tracking-wide mr-1 px-1 py-0.5 bg-blue-100 text-blue-800 rounded font-semibold">
+                    Lavoro
+                  </span>
+                  {c.indirizzoLavoro || c.indirizzo}
+                  {c.capLavoro ? `, ${c.capLavoro}` : ""}
+                  {(c.cittaLavoro || c.citta) ? ` ${c.cittaLavoro || c.citta}` : ""}
                 </span>
               )}
               {c.telefono && (
@@ -253,11 +270,17 @@ export default function ClienteDetail() {
                   indirizzo: c.indirizzo ?? "",
                   citta: c.citta ?? "",
                   cap: c.cap ?? "",
+                  indirizzoLavoro: c.indirizzoLavoro ?? "",
+                  cittaLavoro: c.cittaLavoro ?? "",
+                  capLavoro: c.capLavoro ?? "",
+                  // If no lavoro fields persisted yet → assume same as residenza.
+                  lavoroStessoResidenza: !c.indirizzoLavoro && !c.cittaLavoro && !c.capLavoro,
                   telefono: c.telefono ?? "",
                   email: c.email ?? "",
                   codiceFiscale: c.codiceFiscale ?? "",
                   partitaIva: c.partitaIva ?? "",
                   detrazione: !!c.detrazione,
+                  tipoDetrazione: c.tipoDetrazione ?? "",
                   interesseFinanziamento: !!c.interesseFinanziamento,
                   praticaEdilizia: c.praticaEdilizia ?? "nessuna",
                   note: c.note ?? "",
@@ -416,11 +439,13 @@ export default function ClienteDetail() {
                         </p>
                       )}
                     </div>
-                    {(cm.dataConsegnaConfermata || cm.consegnaIndicativa) && (
+                    {(cm.dataConsegnaConfermata || cm.dataConsegnaIndicativa || cm.consegnaIndicativa) && (
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         {cm.dataConsegnaConfermata
                           ? cm.dataConsegnaConfermata
+                          : cm.dataConsegnaIndicativa
+                          ? new Date(cm.dataConsegnaIndicativa).toLocaleDateString("it-IT")
                           : `+${cm.consegnaIndicativa}gg`}
                       </span>
                     )}
@@ -636,27 +661,31 @@ export default function ClienteDetail() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5 col-span-2">
-                  <Label>Indirizzo</Label>
-                  <Input
-                    value={editForm.indirizzo}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, indirizzo: e.target.value })
-                    }
-                  />
+              {/* Residenza */}
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Indirizzo di residenza (fatturazione)
                 </div>
-                <div className="space-y-1.5">
-                  <Label>CAP</Label>
-                  <Input
-                    value={editForm.cap}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, cap: e.target.value })
-                    }
-                  />
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5 col-span-2">
+                    <Label>Indirizzo</Label>
+                    <Input
+                      value={editForm.indirizzo}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, indirizzo: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>CAP</Label>
+                    <Input
+                      value={editForm.cap}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, cap: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label>Citta</Label>
                   <Input
@@ -666,6 +695,58 @@ export default function ClienteDetail() {
                     }
                   />
                 </div>
+              </div>
+              {/* Lavoro */}
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Indirizzo dove va effettuato il lavoro
+                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <Switch
+                      checked={editForm.lavoroStessoResidenza}
+                      onCheckedChange={(v) =>
+                        setEditForm({ ...editForm, lavoroStessoResidenza: v })
+                      }
+                    />
+                    <span className="text-muted-foreground">Stesso della residenza</span>
+                  </label>
+                </div>
+                {!editForm.lavoroStessoResidenza && (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1.5 col-span-2">
+                        <Label>Indirizzo lavoro</Label>
+                        <Input
+                          value={editForm.indirizzoLavoro}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, indirizzoLavoro: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>CAP</Label>
+                        <Input
+                          value={editForm.capLavoro}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, capLavoro: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Citta lavoro</Label>
+                      <Input
+                        value={editForm.cittaLavoro}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, cittaLavoro: e.target.value })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Telefono</Label>
                   <Input
@@ -705,29 +786,57 @@ export default function ClienteDetail() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Detrazione</div>
+                    <div className="text-sm font-medium">Detrazione fiscale</div>
+                    <div className="text-xs text-muted-foreground">
+                      Il cliente vuole usufruirne?
+                    </div>
                   </div>
                   <Switch
                     checked={editForm.detrazione}
                     onCheckedChange={(v) =>
-                      setEditForm({ ...editForm, detrazione: v })
+                      setEditForm({
+                        ...editForm,
+                        detrazione: v,
+                        tipoDetrazione: v ? editForm.tipoDetrazione : "",
+                      })
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
-                    <div className="text-sm font-medium">Finanziamento</div>
+                {editForm.detrazione && (
+                  <div className="space-y-1.5">
+                    <Label>Quale detrazione</Label>
+                    <Select
+                      value={editForm.tipoDetrazione}
+                      onValueChange={(v: any) =>
+                        setEditForm({ ...editForm, tipoDetrazione: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleziona detrazione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ecobonus">Ecobonus</SelectItem>
+                        <SelectItem value="ristrutturazione">
+                          Ristrutturazione
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Switch
-                    checked={editForm.interesseFinanziamento}
-                    onCheckedChange={(v) =>
-                      setEditForm({ ...editForm, interesseFinanziamento: v })
-                    }
-                  />
+                )}
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <div className="text-sm font-medium">Finanziamento</div>
                 </div>
+                <Switch
+                  checked={editForm.interesseFinanziamento}
+                  onCheckedChange={(v) =>
+                    setEditForm({ ...editForm, interesseFinanziamento: v })
+                  }
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Pratica edilizia</Label>
@@ -759,7 +868,8 @@ export default function ClienteDetail() {
                 />
               </div>
               <Button
-                onClick={() =>
+                onClick={() => {
+                  const lavoroSame = editForm.lavoroStessoResidenza;
                   updateCliente.mutate({
                     id: clienteId,
                     nome: editForm.nome,
@@ -768,17 +878,35 @@ export default function ClienteDetail() {
                     indirizzo: editForm.indirizzo || undefined,
                     citta: editForm.citta || undefined,
                     cap: editForm.cap || undefined,
+                    indirizzoLavoro:
+                      (lavoroSame ? editForm.indirizzo : editForm.indirizzoLavoro) ||
+                      undefined,
+                    cittaLavoro:
+                      (lavoroSame ? editForm.citta : editForm.cittaLavoro) ||
+                      undefined,
+                    capLavoro:
+                      (lavoroSame ? editForm.cap : editForm.capLavoro) ||
+                      undefined,
                     telefono: editForm.telefono || undefined,
                     email: editForm.email || undefined,
                     codiceFiscale: editForm.codiceFiscale || undefined,
                     partitaIva: editForm.partitaIva || undefined,
                     detrazione: editForm.detrazione,
+                    tipoDetrazione:
+                      editForm.detrazione && editForm.tipoDetrazione
+                        ? (editForm.tipoDetrazione as
+                            | "ecobonus"
+                            | "ristrutturazione")
+                        : null,
                     interesseFinanziamento: editForm.interesseFinanziamento,
                     praticaEdilizia: editForm.praticaEdilizia,
                     note: editForm.note || undefined,
-                  })
+                  });
+                }}
+                disabled={
+                  updateCliente.isPending ||
+                  (editForm.detrazione && !editForm.tipoDetrazione)
                 }
-                disabled={updateCliente.isPending}
               >
                 Salva modifiche
               </Button>
@@ -820,10 +948,22 @@ export default function ClienteDetail() {
               <div className="space-y-1.5">
                 <Label>Consegna indicativa</Label>
                 <Select
-                  value={commessaForm.consegnaIndicativa}
-                  onValueChange={(v: any) =>
-                    setCommessaForm({ ...commessaForm, consegnaIndicativa: v })
+                  value={
+                    commessaForm.consegnaMode === "data"
+                      ? "data"
+                      : commessaForm.consegnaIndicativa
                   }
+                  onValueChange={(v: any) => {
+                    if (v === "data") {
+                      setCommessaForm({ ...commessaForm, consegnaMode: "data" });
+                    } else {
+                      setCommessaForm({
+                        ...commessaForm,
+                        consegnaMode: "preset",
+                        consegnaIndicativa: v,
+                      });
+                    }
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -832,8 +972,21 @@ export default function ClienteDetail() {
                     <SelectItem value="30">+30 giorni</SelectItem>
                     <SelectItem value="60">+60 giorni</SelectItem>
                     <SelectItem value="90">+90 giorni</SelectItem>
+                    <SelectItem value="data">Data da calendario…</SelectItem>
                   </SelectContent>
                 </Select>
+                {commessaForm.consegnaMode === "data" && (
+                  <Input
+                    type="date"
+                    value={commessaForm.dataConsegnaIndicativa}
+                    onChange={(e) =>
+                      setCommessaForm({
+                        ...commessaForm,
+                        dataConsegnaIndicativa: e.target.value,
+                      })
+                    }
+                  />
+                )}
               </div>
             </div>
             <div className="space-y-1.5">
@@ -851,16 +1004,29 @@ export default function ClienteDetail() {
                 createCommessa.mutate({
                   clienteId,
                   cliente: displayName,
-                  indirizzo: c.indirizzo || undefined,
-                  citta: c.citta || undefined,
+                  // Commessa indirizzo = indirizzo LAVORO (falls back to
+                  // residenza for legacy clients without lavoro set).
+                  indirizzo: c.indirizzoLavoro || c.indirizzo || undefined,
+                  citta: c.cittaLavoro || c.citta || undefined,
                   telefono: c.telefono || undefined,
                   email: c.email || undefined,
                   priorita: commessaForm.priorita,
-                  consegnaIndicativa: commessaForm.consegnaIndicativa,
+                  consegnaIndicativa:
+                    commessaForm.consegnaMode === "preset"
+                      ? commessaForm.consegnaIndicativa
+                      : undefined,
+                  dataConsegnaIndicativa:
+                    commessaForm.consegnaMode === "data"
+                      ? commessaForm.dataConsegnaIndicativa || undefined
+                      : undefined,
                   note: commessaForm.note || undefined,
                 })
               }
-              disabled={createCommessa.isPending}
+              disabled={
+                createCommessa.isPending ||
+                (commessaForm.consegnaMode === "data" &&
+                  !commessaForm.dataConsegnaIndicativa)
+              }
             >
               Crea commessa
             </Button>
