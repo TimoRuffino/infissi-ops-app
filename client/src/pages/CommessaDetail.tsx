@@ -159,6 +159,8 @@ export default function CommessaDetail() {
     email: "",
     // Commessa-only fields
     priorita: "media" as "bassa" | "media" | "alta" | "urgente",
+    // Utente associato alla commessa (assegnatoA). "" = non assegnata.
+    assegnatoA: "" as string,
     // Either preset offset days OR free calendar date
     consegnaMode: "preset" as "preset" | "data",
     consegnaIndicativa: "60" as "30" | "60" | "90",
@@ -357,6 +359,7 @@ export default function CommessaDetail() {
       telefono: c.telefono ?? cl?.telefono ?? "",
       email: c.email ?? cl?.email ?? "",
       priorita: c.priorita ?? "media",
+      assegnatoA: c.assegnatoA != null ? String(c.assegnatoA) : "",
       consegnaMode: c.dataConsegnaIndicativa ? "data" : "preset",
       consegnaIndicativa: c.consegnaIndicativa ?? "60",
       dataConsegnaIndicativa: c.dataConsegnaIndicativa ?? "",
@@ -395,6 +398,8 @@ export default function CommessaDetail() {
         telefono: editForm.telefono,
         email: editForm.email,
         priorita: editForm.priorita,
+        // Utente associato — null quando "Non assegnata".
+        assegnatoA: editForm.assegnatoA ? parseInt(editForm.assegnatoA) : null,
         // Mutually exclusive — only one of the two persists.
         consegnaIndicativa:
           editForm.consegnaMode === "preset" ? editForm.consegnaIndicativa : null,
@@ -843,6 +848,23 @@ export default function CommessaDetail() {
               {c.email}
             </span>
           )}
+          {(() => {
+            const assignee = (utenti.data ?? []).find(
+              (u: any) => u.id === c.assegnatoA
+            ) as any;
+            return (
+              <span className="flex items-center gap-1">
+                <Contact className="h-3.5 w-3.5" />
+                Assegnata a:{" "}
+                <span className="font-medium text-foreground">
+                  {assignee
+                    ? `${assignee.nome ?? ""} ${assignee.cognome ?? ""}`.trim() ||
+                      assignee.email
+                    : "Non assegnata"}
+                </span>
+              </span>
+            );
+          })()}
           {c.dataConsegnaConfermata ? (
             <span className="flex items-center gap-1 font-medium text-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
@@ -1538,6 +1560,28 @@ export default function CommessaDetail() {
             <div className="space-y-3 border-t pt-3">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Dati commessa
+              </div>
+              <div className="space-y-1.5">
+                <Label>Assegnata a</Label>
+                <SearchSelect
+                  options={(utenti.data ?? []).map((u: any) => ({
+                    value: String(u.id),
+                    label:
+                      u.nome && u.cognome
+                        ? `${u.nome} ${u.cognome}`
+                        : u.nome ?? u.email ?? `Utente ${u.id}`,
+                    keywords: [u.nome, u.cognome, u.email, (u.ruoli ?? []).join(" ")]
+                      .filter(Boolean)
+                      .join(" "),
+                    hint: (u.ruoli ?? [])[0],
+                  }))}
+                  value={editForm.assegnatoA}
+                  onChange={(v) => setEditForm({ ...editForm, assegnatoA: v })}
+                  placeholder="Non assegnata"
+                  searchPlaceholder="Cerca utente..."
+                  allowClear
+                  clearLabel="— Non assegnata —"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
