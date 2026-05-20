@@ -8,6 +8,8 @@ import {
   PartyPopper,
   Flame,
   Quote,
+  Mic,
+  Handshake,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,12 +23,40 @@ import { Button } from "@/components/ui/button";
 
 type Row = { userId: number; nome: string; cognome: string; count: number };
 
+// A podium tier: everyone sharing the same commesse count. `rank` is the
+// competition rank (1224 style) of the whole group.
+type Group = { count: number; rank: number; rows: Row[] };
+
 function initials(nome: string, cognome: string): string {
   return `${nome?.[0] ?? ""}${cognome?.[0] ?? ""}`.toUpperCase() || "?";
 }
 
 function pick<T>(arr: T[], seed: number): T {
   return arr[((seed % arr.length) + arr.length) % arr.length];
+}
+
+function fullName(r: Row): string {
+  return `${r.nome ?? ""} ${r.cognome ?? ""}`.trim() || "Venditore";
+}
+
+// Group rows by count (rows arrive sorted desc, alpha tie-break). Each group
+// gets a competition rank: 2 people tied 1st → next group is rank 3.
+function buildGroups(rows: Row[]): Group[] {
+  const byCount = new Map<number, Row[]>();
+  for (const r of rows) {
+    const list = byCount.get(r.count);
+    if (list) list.push(r);
+    else byCount.set(r.count, [r]);
+  }
+  const counts = Array.from(byCount.keys()).sort((a, b) => b - a);
+  const groups: Group[] = [];
+  let placed = 0;
+  for (const c of counts) {
+    const rs = byCount.get(c)!;
+    groups.push({ count: c, rank: placed + 1, rows: rs });
+    placed += rs.length;
+  }
+  return groups;
 }
 
 // Animated count-up — eases a number from 0 to `target` on mount/change.
@@ -56,20 +86,26 @@ const WINNER_QUOTES = [
   "Il segreto? Dire sempre di sì, poi capire come. 🤝",
   "Numero uno. Pure l'autostima è salita sul podio. 📈",
   "Vendere è facile. Difficile è restare umile — ci provo. 😇",
+  "Non conto le commesse: le commesse contano me. 🧮",
+  "Sono nato stanco, ma di vincere mai. 🏆",
+  "Dietro ogni mia firma c'è un cliente felice e un collega invidioso. ✍️",
+  "Modestamente? No, neanche quella. 👑",
 ];
 
-const PLACE_TITLE = [
-  "Re delle Commesse 👑",
-  "A un soffio dalla gloria 🥈",
-  "Sul podio, col fiatone 🥉",
-];
-
-const REST_LABELS = [
-  "In rimonta 🏃",
-  "A tutto gas 🔥",
-  "Sotto con le firme ✍️",
-  "Scalda i motori 🚗",
-  "Carica la rincorsa 🎯",
+// Big, rotating "jury" one-liners — the loud, visible jokes.
+const JURY_COMMENTS = [
+  "La giuria ha deliberato: chi vende di più… vince. Rivoluzionario. 🎤",
+  "Promemoria motivazionale: le commesse non si firmano da sole. Quasi mai.",
+  "Il secondo posto è il primo dei non-primi. Filosofia pura. 🧠",
+  "Breaking news: scoperto legame tra «telefonare ai clienti» e «vincere».",
+  "Chi è ultimo oggi, domani… è comunque in classifica. Coraggio. 🥄",
+  "Regola d'oro della giuria: sorridi, firma, ripeti. 🔁",
+  "Dato curioso: nessuno ha mai vinto restando seduto. Citazione non verificata.",
+  "Il talento conta. La costanza fattura. 💸",
+  "La classifica si aggiorna da sola. Voi no — datevi una mossa. 😏",
+  "Sondaggio interno: 9 venditori su 10 vorrebbero essere il 10°… dall'alto.",
+  "Caffè bevuti dalla giuria: tanti. Fiducia in voi: anche di più. ☕",
+  "Oggi pari merito, domani chissà. Il bello della gara è questo. 🎲",
 ];
 
 const CLICK_LINES = [
@@ -79,16 +115,30 @@ const CLICK_LINES = [
   "{n} ha sganciato i coriandoli! 🎉",
   "Occhio, {n} è in modalità squalo. 🦈",
   "{n} firma anche nel sonno. 😴✍️",
+  "{n} non molla un colpo. 🥊",
+  "La giuria stravede per {n}. E pure i clienti. ❤️",
+  "{n} ha appena fatto tremare la classifica. 🌋",
 ];
 
 const FUN_FACTS = [
   "Lo sapevi? Una commessa firmata rende felici almeno 3 persone e 1 gestionale.",
   "Statistica ufficiosa: il 100% di chi non molla, prima o poi vince.",
-  "Il podio è freddo. La gloria, no.",
+  "Il podio è freddo. La gloria, no. 🔥",
   "Ogni «no» è un «sì» che si è perso per strada.",
+  "I venditori bravi non contano le ore. Contano le firme. ✍️",
+  "Curiosità: il sorriso al telefono si sente. Provare per credere. 📞",
 ];
 
-// Per-place visual config. Index 0 = 1° posto.
+const REST_LABELS = [
+  "In rimonta 🏃",
+  "A tutto gas 🔥",
+  "Sotto con le firme ✍️",
+  "Scalda i motori 🚗",
+  "Carica la rincorsa 🎯",
+  "Pronto al sorpasso 🏎️",
+];
+
+// Per-tier visual config. Index 0 = gradino oro (punteggio più alto).
 const PLACE = [
   {
     medal: "🥇",
@@ -96,8 +146,9 @@ const PLACE = [
     grad: "from-amber-300 via-yellow-400 to-amber-500",
     text: "text-amber-900",
     pedestal: "from-amber-400 to-yellow-500",
-    height: "h-44",
-    avatar: "h-24 w-24 text-2xl",
+    height: "h-40",
+    titleSolo: "Re delle Commesse 👑",
+    titleMulti: "Campioni a pari merito 👑",
   },
   {
     medal: "🥈",
@@ -105,8 +156,9 @@ const PLACE = [
     grad: "from-slate-200 via-slate-300 to-slate-400",
     text: "text-slate-700",
     pedestal: "from-slate-300 to-slate-400",
-    height: "h-32",
-    avatar: "h-20 w-20 text-xl",
+    height: "h-28",
+    titleSolo: "A un soffio dalla gloria 🥈",
+    titleMulti: "Vice-campioni a pari merito 🥈",
   },
   {
     medal: "🥉",
@@ -114,8 +166,9 @@ const PLACE = [
     grad: "from-orange-300 via-amber-500 to-orange-600",
     text: "text-orange-950",
     pedestal: "from-orange-400 to-amber-600",
-    height: "h-24",
-    avatar: "h-20 w-20 text-xl",
+    height: "h-20",
+    titleSolo: "Sul podio, col fiatone 🥉",
+    titleMulti: "Bronzo condiviso 🥉",
   },
 ];
 
@@ -132,7 +185,6 @@ const CONFETTI_COLORS = [
 ];
 
 // ── Confetti ─────────────────────────────────────────────────────────────────
-// Pure-CSS confetti rain. Re-mounted (via `key`) to replay the burst.
 function Confetti({ burstId }: { burstId: number }) {
   const pieces = useMemo(
     () =>
@@ -178,66 +230,79 @@ export default function Classifica() {
   const classifica = trpc.commesse.classificaVenditori.useQuery();
   const rows: Row[] = (classifica.data ?? []) as Row[];
 
-  // Confetti burst counter — bumping it remounts <Confetti/> to replay.
   const [burst, setBurst] = useState(1);
   const fireConfetti = useCallback(() => setBurst((b) => b + 1), []);
 
-  // Winner quote — cycles when the winner is clicked.
   const [quoteIdx, setQuoteIdx] = useState(0);
 
-  // Rotating fun fact in the footer.
-  const [factIdx, setFactIdx] = useState(0);
+  // Rotating jury comment — auto-advances, also clickable.
+  const [juryIdx, setJuryIdx] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setFactIdx((i) => i + 1), 6000);
+    const t = setInterval(() => setJuryIdx((i) => i + 1), 5000);
     return () => clearInterval(t);
   }, []);
 
-  // Auto-confetti once the ranking has loaded with at least one player.
+  const [factIdx, setFactIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFactIdx((i) => i + 1), 6500);
+    return () => clearInterval(t);
+  }, []);
+
+  const groups = useMemo(() => buildGroups(rows), [rows]);
+
   const hasData = rows.length > 0;
   useEffect(() => {
     if (hasData) setBurst((b) => b + 1);
   }, [hasData]);
 
-  const { top3, rest, totalCommesse, maxCount, gap } = useMemo(() => {
-    const t3 = rows.slice(0, 3);
-    const r = rows.slice(3);
-    const total = rows.reduce((s, x) => s + x.count, 0);
-    const max = rows.reduce((m, x) => Math.max(m, x.count), 0);
-    const g = rows.length >= 2 ? rows[0].count - rows[1].count : 0;
-    return { top3: t3, rest: r, totalCommesse: total, maxCount: max, gap: g };
-  }, [rows]);
+  const totalCommesse = useMemo(
+    () => rows.reduce((s, x) => s + x.count, 0),
+    [rows]
+  );
+  const maxCount = groups[0]?.count ?? 0;
+  const leaderCount = groups[0]?.count ?? 0;
 
-  // Visual podium order: 2° — 1° — 3° so the winner stands in the centre.
-  const podiumOrder: Array<{ row: Row; place: number } | null> = [
-    top3[1] ? { row: top3[1], place: 1 } : null,
-    top3[0] ? { row: top3[0], place: 0 } : null,
-    top3[2] ? { row: top3[2], place: 2 } : null,
+  // Podium = first 3 score tiers; the rest chase below.
+  const podiumGroups = groups.slice(0, 3);
+  const restRows: Array<{ row: Row; rank: number }> = groups
+    .slice(3)
+    .flatMap((g) => g.rows.map((row) => ({ row, rank: g.rank })));
+
+  // Everyone shares the same score → one single tier.
+  const allTied = groups.length === 1 && rows.length > 1;
+
+  // Visual order of the podium: silver — gold — bronze (winner centred).
+  const podiumOrder: Array<{ group: Group; tier: number } | null> = [
+    podiumGroups[1] ? { group: podiumGroups[1], tier: 1 } : null,
+    podiumGroups[0] ? { group: podiumGroups[0], tier: 0 } : null,
+    podiumGroups[2] ? { group: podiumGroups[2], tier: 2 } : null,
   ];
 
   function celebrate(row: Row, isWinner: boolean) {
     fireConfetti();
-    const line = pick(CLICK_LINES, row.userId + burst).replace(
-      "{n}",
-      row.nome || "Il venditore"
-    );
-    toast(line, { icon: "🎉" });
+    toast(pick(CLICK_LINES, row.userId + burst).replace("{n}", row.nome || "Il venditore"), {
+      icon: "🎉",
+    });
     if (isWinner) setQuoteIdx((i) => i + 1);
   }
 
-  // Witty subtitle reacting to the standings.
+  // Witty subtitle that reacts to the standings (tie-aware).
   const standingLine = useMemo(() => {
     if (rows.length === 0) return "";
-    if (rows.length === 1)
-      return `${rows[0].nome} corre da solo… per ora. 🏃`;
-    if (gap === 0)
-      return `Testa a testa! ${rows[0].nome} e ${rows[1].nome} appaiati in vetta. 🤝`;
+    if (rows.length === 1) return `${rows[0].nome} corre da solo… per ora. 🏃`;
+    if (allTied)
+      return "Pari merito assoluto: siete TUTTI primi. La giuria è commossa. 👏";
+    const top = groups[0];
+    if (top.rows.length > 1)
+      return `${top.rows.length} campioni a pari merito in vetta — testa a testa! 🤝`;
+    const gap = groups[0].count - groups[1].count;
     return `${rows[0].nome} comanda la corsa — ${gap} commess${
       gap === 1 ? "a" : "e"
     } di margine sul secondo. 🏁`;
-  }, [rows, gap]);
+  }, [rows, groups, allTied]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Local keyframes — dependency-free animations. */}
       <style>{`
         @keyframes classifica-bob {
@@ -265,7 +330,12 @@ export default function Classifica() {
           25%     { transform: rotate(-7deg); }
           75%     { transform: rotate(7deg); }
         }
-        .classifica-spot:hover .classifica-avatar {
+        @keyframes classifica-pop {
+          0%   { transform: scale(0.9); opacity: 0; }
+          60%  { transform: scale(1.04); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .classifica-person:hover .classifica-avatar {
           animation: classifica-wiggle 0.4s ease-in-out;
         }
       `}</style>
@@ -281,7 +351,7 @@ export default function Classifica() {
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
             {standingLine ||
-              "I commerciali in gara, ordinati per commesse attive. Chi ne ha di più sale sul gradino più alto. 🏆"}
+              "I commerciali in gara, ordinati per commesse attive. A pari punti, pari gloria. 🏆"}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -308,6 +378,42 @@ export default function Classifica() {
         </div>
       </div>
 
+      {/* ── Jury banner — big, loud, rotating jokes ───────────────────────── */}
+      {!classifica.isLoading && rows.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setJuryIdx((i) => i + 1);
+            fireConfetti();
+          }}
+          title="Un'altra battuta, giuria!"
+          className="group w-full text-left"
+        >
+          <Card className="overflow-hidden border-amber-300 bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 transition-transform group-hover:-translate-y-0.5">
+            <CardContent className="flex items-center gap-3 py-3 px-4">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-400 text-white shadow">
+                <Mic className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
+                  Commento della giuria
+                </p>
+                <p
+                  key={juryIdx}
+                  className="text-sm font-semibold text-amber-950 sm:text-base"
+                  style={{ animation: "classifica-pop 0.4s ease-out" }}
+                >
+                  {pick(JURY_COMMENTS, juryIdx)}
+                </p>
+              </div>
+              <Badge variant="outline" className="hidden shrink-0 border-amber-400 text-amber-700 sm:inline-flex">
+                tocca per altra 🎤
+              </Badge>
+            </CardContent>
+          </Card>
+        </button>
+      )}
+
       {/* Loading */}
       {classifica.isLoading && (
         <p className="text-sm text-muted-foreground">Caricamento classifica…</p>
@@ -326,36 +432,52 @@ export default function Classifica() {
         </Card>
       )}
 
+      {/* ── "Tutti primi" banner ──────────────────────────────────────────── */}
+      {allTied && (
+        <div
+          className="rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50 px-4 py-3 text-center"
+          style={{ animation: "classifica-pop 0.5s ease-out" }}
+        >
+          <p className="flex items-center justify-center gap-2 text-base font-extrabold text-amber-800">
+            <Handshake className="h-5 w-5" />
+            PARI MERITO TOTALE — SIETE TUTTI PRIMI! 🥇
+          </p>
+          <p className="text-xs text-amber-700">
+            Stesso numero di commesse per tutti. Standing ovation della giuria. 👏
+          </p>
+        </div>
+      )}
+
       {/* Podium */}
       {!classifica.isLoading && rows.length > 0 && (
-        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-amber-50/60 via-background to-background p-6 sm:p-10">
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-amber-50/60 via-background to-background p-4 sm:p-8">
           <Trophy className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 text-amber-200/40" />
 
-          <div className="relative flex items-end justify-center gap-3 sm:gap-6">
+          <div className="relative flex items-end justify-center gap-3 sm:gap-6 flex-wrap">
             {podiumOrder.map((slot, i) =>
               slot ? (
-                <PodiumSpot
-                  key={slot.row.userId}
-                  row={slot.row}
-                  place={slot.place}
+                <PodiumStep
+                  key={`tier-${slot.tier}`}
+                  group={slot.group}
+                  tier={slot.tier}
                   enterDelay={i * 0.12}
-                  onCelebrate={() => celebrate(slot.row, slot.place === 0)}
+                  onCelebrate={celebrate}
                 />
               ) : (
-                <div key={i} className="w-24 sm:w-36" />
+                <div key={i} className="hidden w-28 sm:block sm:w-36" />
               )
             )}
           </div>
 
           {/* Winner quote bubble */}
-          {top3[0] && (
+          {groups[0] && !allTied && groups[0].rows.length === 1 && (
             <div className="relative mt-6 flex justify-center">
               <button
                 onClick={() => {
                   setQuoteIdx((q) => q + 1);
                   fireConfetti();
                 }}
-                className="group max-w-md rounded-2xl border bg-card px-4 py-2.5 text-center shadow-sm transition-transform hover:-translate-y-0.5"
+                className="max-w-md rounded-2xl border bg-card px-4 py-2.5 text-center shadow-sm transition-transform hover:-translate-y-0.5"
                 title="Cambia battuta"
               >
                 <span className="flex items-center gap-2 text-sm italic text-muted-foreground">
@@ -368,27 +490,27 @@ export default function Classifica() {
         </div>
       )}
 
-      {/* Rest of the ranking (4° onwards) */}
-      {rest.length > 0 && (
+      {/* Inseguitori (rank tiers beyond the podium) */}
+      {restRows.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Inseguitori
           </h2>
-          {rest.map((row, idx) => (
+          {restRows.map(({ row, rank }, idx) => (
             <RestRow
               key={row.userId}
               row={row}
-              rank={idx + 4}
-              isLast={idx === rest.length - 1}
+              rank={rank}
+              isLast={idx === restRows.length - 1}
               maxCount={maxCount}
-              leaderCount={rows[0]?.count ?? 0}
+              leaderCount={leaderCount}
               onCelebrate={() => celebrate(row, false)}
             />
           ))}
         </div>
       )}
 
-      {/* Footer — playful, rotating fun fact */}
+      {/* Footer — rotating fun fact */}
       {!classifica.isLoading && rows.length > 0 && (
         <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -401,33 +523,30 @@ export default function Classifica() {
   );
 }
 
-// ── Podium spot ──────────────────────────────────────────────────────────────
+// ── Podium step (a whole score tier) ─────────────────────────────────────────
 
-function PodiumSpot({
-  row,
-  place,
+function PodiumStep({
+  group,
+  tier,
   enterDelay,
   onCelebrate,
 }: {
-  row: Row;
-  place: number;
+  group: Group;
+  tier: number;
   enterDelay: number;
-  onCelebrate: () => void;
+  onCelebrate: (row: Row, isWinner: boolean) => void;
 }) {
-  const cfg = PLACE[place];
-  const isWinner = place === 0;
-  const count = useCountUp(row.count);
+  const cfg = PLACE[tier];
+  const isGold = tier === 0;
+  const multi = group.rows.length > 1;
 
   return (
-    <button
-      type="button"
-      onClick={onCelebrate}
-      title="Cliccami per i coriandoli! 🎉"
-      className="classifica-spot flex w-24 cursor-pointer flex-col items-center sm:w-36"
+    <div
+      className="flex flex-col items-center"
       style={{ animation: `classifica-rise 0.5s ease-out ${enterDelay}s both` }}
     >
-      {/* Crown for the winner */}
-      {isWinner && (
+      {/* Crown over the gold step */}
+      {isGold && (
         <div
           className="mb-1"
           style={{ animation: "classifica-bob 2.2s ease-in-out infinite" }}
@@ -436,23 +555,85 @@ function PodiumSpot({
         </div>
       )}
 
-      {/* Avatar + sparkles */}
+      {/* People sharing this tier */}
+      <div className="flex flex-wrap items-end justify-center gap-3 px-1">
+        {group.rows.map((row) => (
+          <PodiumPerson
+            key={row.userId}
+            row={row}
+            cfg={cfg}
+            isGold={isGold}
+            big={!multi}
+            onCelebrate={() => onCelebrate(row, isGold)}
+          />
+        ))}
+      </div>
+
+      {/* Witty tier title */}
+      <span className="mt-1 max-w-[12rem] text-center text-[11px] font-bold text-amber-600">
+        {multi ? cfg.titleMulti : cfg.titleSolo}
+      </span>
+
+      {/* Pedestal — width follows the people row above */}
+      <div
+        className={`mt-2 flex min-w-[6rem] ${cfg.height} w-full items-start justify-center rounded-t-lg bg-gradient-to-b ${cfg.pedestal} shadow-inner`}
+      >
+        <span
+          className="mt-2 select-none text-3xl font-black text-white/90"
+          style={{ textShadow: "0 2px 4px rgba(0,0,0,0.25)" }}
+        >
+          {group.rank}°
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── A single person on the podium ────────────────────────────────────────────
+
+function PodiumPerson({
+  row,
+  cfg,
+  isGold,
+  big,
+  onCelebrate,
+}: {
+  row: Row;
+  cfg: (typeof PLACE)[number];
+  isGold: boolean;
+  big: boolean;
+  onCelebrate: () => void;
+}) {
+  const count = useCountUp(row.count);
+  const avatarSize = big
+    ? isGold
+      ? "h-24 w-24 text-2xl"
+      : "h-20 w-20 text-xl"
+    : "h-16 w-16 text-base";
+
+  return (
+    <button
+      type="button"
+      onClick={onCelebrate}
+      title="Cliccami per i coriandoli! 🎉"
+      className="classifica-person flex w-24 cursor-pointer flex-col items-center sm:w-28"
+    >
       <div
         className="relative"
         style={
-          isWinner
+          isGold
             ? { animation: "classifica-float 3s ease-in-out infinite" }
             : undefined
         }
       >
-        {isWinner && (
+        {isGold && (
           <>
             <Sparkles
-              className="absolute -left-5 top-1 h-4 w-4 text-amber-400"
+              className="absolute -left-4 top-1 h-4 w-4 text-amber-400"
               style={{ animation: "classifica-sparkle 1.6s ease-in-out infinite" }}
             />
             <Sparkles
-              className="absolute -right-4 -top-2 h-5 w-5 text-yellow-400"
+              className="absolute -right-3 -top-2 h-5 w-5 text-yellow-400"
               style={{
                 animation: "classifica-sparkle 1.9s ease-in-out 0.4s infinite",
               }}
@@ -460,7 +641,7 @@ function PodiumSpot({
           </>
         )}
         <Avatar
-          className={`classifica-avatar ${cfg.avatar} border-4 border-white shadow-lg ring-4 ${cfg.ring}`}
+          className={`classifica-avatar ${avatarSize} border-4 border-white shadow-lg ring-4 ${cfg.ring}`}
         >
           <AvatarFallback
             className={`bg-gradient-to-br ${cfg.grad} ${cfg.text} font-bold`}
@@ -473,7 +654,6 @@ function PodiumSpot({
         </span>
       </div>
 
-      {/* Name + witty title + count */}
       <p className="mt-3 text-center text-sm font-bold leading-tight">
         {row.nome}
         <br />
@@ -481,25 +661,10 @@ function PodiumSpot({
           {row.cognome}
         </span>
       </p>
-      <span className="mt-0.5 text-center text-[10px] font-medium text-amber-600">
-        {PLACE_TITLE[place]}
-      </span>
-      <div className="mt-1 flex items-baseline gap-1">
-        <span className="text-2xl font-extrabold tabular-nums">{count}</span>
+      <div className="mt-0.5 flex items-baseline gap-1">
+        <span className="text-xl font-extrabold tabular-nums">{count}</span>
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
           commesse
-        </span>
-      </div>
-
-      {/* Pedestal */}
-      <div
-        className={`mt-2 flex w-full ${cfg.height} items-start justify-center rounded-t-lg bg-gradient-to-b ${cfg.pedestal} shadow-inner transition-transform`}
-      >
-        <span
-          className="mt-2 select-none text-3xl font-black text-white/90"
-          style={{ textShadow: "0 2px 4px rgba(0,0,0,0.25)" }}
-        >
-          {place + 1}°
         </span>
       </div>
     </button>
@@ -526,10 +691,7 @@ function RestRow({
   const count = useCountUp(row.count);
   const pct = maxCount > 0 ? (row.count / maxCount) * 100 : 0;
   const distacco = leaderCount - row.count;
-  // Last place gets the wooden-spoon honour; others get a rotating tag.
-  const label = isLast
-    ? "Cucchiaio di legno 🥄"
-    : pick(REST_LABELS, rank);
+  const label = isLast ? "Cucchiaio di legno 🥄" : pick(REST_LABELS, rank);
 
   return (
     <Card
@@ -548,9 +710,7 @@ function RestRow({
         </Avatar>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold">
-              {row.nome} {row.cognome}
-            </p>
+            <p className="truncate text-sm font-semibold">{fullName(row)}</p>
             <Badge
               variant="outline"
               className={`hidden shrink-0 text-[9px] sm:inline-flex ${
@@ -560,7 +720,6 @@ function RestRow({
               {label}
             </Badge>
           </div>
-          {/* relative bar */}
           <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary"
