@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { addCommessaToCliente, getClienteById } from "./clienti";
+import { getUtentiStore } from "./utenti";
 import {
   hasPreventivoOrContratto,
   statoHasRequiredDoc,
@@ -493,6 +494,49 @@ export const commesseRouter = router({
       buckets[k].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
     return buckets;
+  }),
+
+  // ── Classifica venditori ──────────────────────────────────────────────────
+  // Leaderboard of "commerciale" users ranked by number of ACTIVE commesse
+  // they own (assegnatoA). "Active" here = stato from "misure_esecutive"
+  // onwards (preventivo excluded — not yet a real job) up to and including
+  // "interventi_regolazioni"; "archiviata" stato and soft-archived commesse
+  // are excluded.
+  classificaVenditori: protectedProcedure.query(() => {
+    const utenti = getUtentiStore();
+    // Stati that count: from misure_esecutive .. interventi_regolazioni.
+    // slice(indexOf misure_esecutive, indexOf archiviata) drops both the
+    // leading "preventivo" and the trailing "archiviata".
+    const counted = new Set(
+      STATI_COMMESSA.slice(
+        STATI_COMMESSA.indexOf("misure_esecutive"),
+        STATI_COMMESSA.indexOf("archiviata")
+      )
+    );
+    const venditori = utenti.filter(
+      (u: any) => Array.isArray(u.ruoli) && u.ruoli.includes("commerciale") && u.attivo
+    );
+    const rows = venditori.map((u: any) => {
+      const count = commesse.filter(
+        (c) =>
+          !c.archivedAt &&
+          c.assegnatoA === u.id &&
+          counted.has(c.stato as any)
+      ).length;
+      return {
+        userId: u.id as number,
+        nome: (u.nome as string) ?? "",
+        cognome: (u.cognome as string) ?? "",
+        count,
+      };
+    });
+    // Highest count first; tie-break alphabetically so ranking is stable.
+    rows.sort(
+      (a, b) =>
+        b.count - a.count ||
+        `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)
+    );
+    return rows;
   }),
 
   // ── Soft archive ──────────────────────────────────────────────────────────
