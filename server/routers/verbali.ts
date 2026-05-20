@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -9,11 +9,11 @@ const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
 const verbali = _verbaliStore.items;
 
 export const verbaliRouter = router({
-  byIntervento: publicProcedure.input(z.number()).query(({ input }) => {
+  byIntervento: protectedProcedure.input(z.number()).query(({ input }) => {
     return verbali.find((v) => v.interventoId === input) ?? null;
   }),
 
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ commessaId: z.number().optional() }).optional())
     .query(({ input }) => {
       let result = [...verbali];
@@ -21,7 +21,7 @@ export const verbaliRouter = router({
       return result.sort((a, b) => b.data.localeCompare(a.data));
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         interventoId: z.number(),
@@ -53,7 +53,7 @@ export const verbaliRouter = router({
       return verbale;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.number(),

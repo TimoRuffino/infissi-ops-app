@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { renameForStato } from "@shared/statoLabels";
@@ -56,6 +56,37 @@ const documenti = _documentiStore.items;
 
 // Cap per-file size: ~10MB base64 = ~7.5MB raw.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+// Allowlist of mimeTypes accepted for upload. Deliberately excludes
+// text/html and image/svg+xml: both can carry executable script, and the
+// client previews uploads inside an <iframe> via a blob: URL that inherits
+// the app origin — an html/svg upload would become stored XSS. Anything not
+// on this list is rejected outright.
+const ALLOWED_MIME_TYPES = new Set<string>([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+// Actual decoded byte length of a base64 payload. Used to validate file
+// size against MAX_SIZE_BYTES — the client-supplied `size` field is NOT
+// trusted (an attacker can send size:0 with a huge payload to bypass the cap).
+function base64ByteLength(b64: string): number {
+  const len = b64.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (b64.endsWith("==")) padding = 2;
+  else if (b64.endsWith("=")) padding = 1;
+  return Math.floor((len * 3) / 4) - padding;
+}
 
 // If `name` already exists among the commessa's documenti, return it with a
 // numeric suffix before the extension ("foo.pdf" → "foo (2).pdf") that makes
@@ -136,7 +167,7 @@ export function statoHasRequiredDoc(commessaId: number, stato: string): boolean 
 }
 
 export const preventiviContrattiRouter = router({
-  byCommessa: publicProcedure.input(z.number()).query(({ input }) => {
+  byCommessa: protectedProcedure.input(z.number()).query(({ input }) => {
     return documenti
       .filter((d) => d.commessaId === input)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -144,11 +175,11 @@ export const preventiviContrattiRouter = router({
       .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
   }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return documenti.find((d) => d.id === input) ?? null;
   }),
 
-  upload: publicProcedure
+  upload: protectedProcedure
     .input(
       z.object({
         commessaId: z.number(),
@@ -166,7 +197,12 @@ export const preventiviContrattiRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
-      if (input.size > MAX_SIZE_BYTES) {
+      if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
+        throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
+      }
+      // Validate the ACTUAL payload size — not the client-supplied `size`.
+      const actualBytes = base64ByteLength(input.dataBase64);
+      if (actualBytes > MAX_SIZE_BYTES) {
         throw new Error(`File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`);
       }
       const commessa = getCommessaById(input.commessaId);
@@ -192,7 +228,7 @@ export const preventiviContrattiRouter = router({
         nome,
         tipo: input.tipo,
         mimeType: input.mimeType,
-        size: input.size,
+        size: actualBytes,
         dataBase64: input.dataBase64,
         note: input.note ?? null,
         statoAtUpload: commessa?.stato ?? null,
@@ -205,7 +241,7 @@ export const preventiviContrattiRouter = router({
       return { ...rest, hasData: true };
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = documenti.findIndex((d) => d.id === input);
     if (idx === -1) throw new Error("Documento non trovato");
     documenti.splice(idx, 1);
@@ -216,7 +252,7 @@ export const preventiviContrattiRouter = router({
   // UI helper: list of doc tipi + whether each is satisfied for the current
   // stato gate. Lets the CommessaDetail page render a neat required/done
   // indicator.
-  statoGate: publicProcedure.input(z.number()).query(({ input }) => {
+  statoGate: protectedProcedure.input(z.number()).query(({ input }) => {
     const commessa = getCommessaById(input);
     if (!commessa) return null;
     const required = REQUIRED_DOC_TIPI_PER_STATO[commessa.stato] ?? [];

@@ -5,8 +5,20 @@ import { COOKIE_NAME } from "@shared/const";
 
 // ── Local auth for development/demo (no external OAuth required) ────────────
 
+// JWT signing secret. In production a real JWT_SECRET is MANDATORY — without
+// it an attacker could forge a token (role:"admin") using the well-known
+// dev fallback string and take over any account. Fail hard at boot instead
+// of silently running with a guessable secret. The fallback exists only so
+// local dev / tests work without extra setup.
+const JWT_SECRET_RAW = process.env.JWT_SECRET;
+if (!JWT_SECRET_RAW && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "JWT_SECRET environment variable is required in production. " +
+      "Refusing to start with the insecure dev fallback secret."
+  );
+}
 const LOCAL_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "ruffino-cartelletta-local-dev-secret-2026"
+  JWT_SECRET_RAW || "ruffino-cartelletta-local-dev-secret-2026"
 );
 
 export type LocalUser = {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -22,7 +22,7 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
 const interventi = _interventiStore.items;
 
 export const interventiRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({
       commessaId: z.number().optional(),
       stato: z.string().optional(),
@@ -40,11 +40,11 @@ export const interventiRouter = router({
       return result.sort((a, b) => (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? ""));
     }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return interventi.find((i) => i.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({
       commessaId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
@@ -81,7 +81,7 @@ export const interventiRouter = router({
       return intervento;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(z.object({
       id: z.number(),
       squadraId: z.number().nullable().optional(),
@@ -104,7 +104,7 @@ export const interventiRouter = router({
       return interventi[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = interventi.findIndex((i) => i.id === input);
     if (idx === -1) throw new Error("Intervento non trovato");
     interventi.splice(idx, 1);
@@ -112,7 +112,7 @@ export const interventiRouter = router({
     return { success: true };
   }),
 
-  updateStato: publicProcedure
+  updateStato: protectedProcedure
     .input(z.object({
       id: z.number(),
       stato: z.enum(["pianificato", "in_corso", "completato", "sospeso", "annullato"]),

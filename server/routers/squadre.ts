@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -9,15 +9,15 @@ const _squadreStore = persistedStore<any>("squadre", (loaded) => {
 const squadre = _squadreStore.items;
 
 export const squadreRouter = router({
-  list: publicProcedure.query(() => {
+  list: protectedProcedure.query(() => {
     return squadre.filter((s) => s.attiva).sort((a, b) => a.nome.localeCompare(b.nome));
   }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return squadre.find((s) => s.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({
       nome: z.string().min(1),
       caposquadra: z.string().optional(),
@@ -32,7 +32,7 @@ export const squadreRouter = router({
       return squadra;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(z.object({
       id: z.number(),
       nome: z.string().optional(),
@@ -50,7 +50,7 @@ export const squadreRouter = router({
       return squadre[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = squadre.findIndex((s) => s.id === input);
     if (idx === -1) throw new Error("Squadra non trovata");
     squadre.splice(idx, 1);

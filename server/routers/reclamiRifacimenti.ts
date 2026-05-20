@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // --- Reclami (complaints) ---
@@ -22,7 +22,7 @@ const rifacimenti = _rifacimentiStore.items;
 
 export const reclamiRifacimentiRouter = router({
   reclami: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({
         commessaId: z.number().optional(),
         stato: z.string().optional(),
@@ -34,7 +34,7 @@ export const reclamiRifacimentiRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(z.object({
         commessaId: z.number(),
         clienteNome: z.string().min(1),
@@ -59,7 +59,7 @@ export const reclamiRifacimentiRouter = router({
         return reclamo;
       }),
 
-    update: publicProcedure
+    update: protectedProcedure
       .input(z.object({
         id: z.number(),
         clienteNome: z.string().optional(),
@@ -80,7 +80,7 @@ export const reclamiRifacimentiRouter = router({
         return reclami[idx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = reclami.findIndex((r) => r.id === input);
       if (idx === -1) throw new Error("Reclamo non trovato");
       reclami.splice(idx, 1);
@@ -88,7 +88,7 @@ export const reclamiRifacimentiRouter = router({
       return { success: true };
     }),
 
-    stats: publicProcedure.query(() => {
+    stats: protectedProcedure.query(() => {
       const aperti = reclami.filter((r) => r.stato === "aperto").length;
       const inGestione = reclami.filter((r) => r.stato === "in_gestione").length;
       const risolti = reclami.filter((r) => r.stato === "risolto").length;
@@ -98,7 +98,7 @@ export const reclamiRifacimentiRouter = router({
   }),
 
   rifacimenti: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({
         commessaId: z.number().optional(),
         stato: z.string().optional(),
@@ -112,7 +112,7 @@ export const reclamiRifacimentiRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(z.object({
         commessaId: z.number(),
         clienteNome: z.string().min(1),
@@ -144,7 +144,7 @@ export const reclamiRifacimentiRouter = router({
         return rifacimento;
       }),
 
-    update: publicProcedure
+    update: protectedProcedure
       .input(z.object({
         id: z.number(),
         clienteNome: z.string().optional(),
@@ -169,7 +169,7 @@ export const reclamiRifacimentiRouter = router({
         return rifacimenti[idx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = rifacimenti.findIndex((r) => r.id === input);
       if (idx === -1) throw new Error("Rifacimento non trovato");
       rifacimenti.splice(idx, 1);
@@ -177,7 +177,7 @@ export const reclamiRifacimentiRouter = router({
       return { success: true };
     }),
 
-    stats: publicProcedure.query(() => {
+    stats: protectedProcedure.query(() => {
       const aperti = rifacimenti.filter((r) => r.stato === "aperto").length;
       const inGestione = rifacimenti.filter((r) => r.stato === "in_gestione").length;
       const inProduzione = rifacimenti.filter((r) => r.stato === "in_produzione").length;

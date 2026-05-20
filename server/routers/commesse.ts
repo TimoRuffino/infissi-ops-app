@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { addCommessaToCliente, getClienteById } from "./clienti";
 import {
   hasPreventivoOrContratto,
@@ -171,7 +171,7 @@ export function syncClienteOnCommesse(
 }
 
 export const commesseRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         stato: z.string().optional(),
@@ -214,11 +214,11 @@ export const commesseRouter = router({
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return commesse.find((c) => c.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         clienteId: z.number().optional(),
@@ -292,7 +292,7 @@ export const commesseRouter = router({
       return commessa;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
@@ -372,7 +372,7 @@ export const commesseRouter = router({
     }),
 
   // Dedicated endpoint for confirming delivery date when stato hits produzione
-  confermaDataConsegna: publicProcedure
+  confermaDataConsegna: protectedProcedure
     .input(z.object({ id: z.number(), dataConsegna: z.string() }))
     .mutation(({ input }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
@@ -386,7 +386,7 @@ export const commesseRouter = router({
       return commesse[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = commesse.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Commessa non trovata");
     commesse.splice(idx, 1);
@@ -395,7 +395,7 @@ export const commesseRouter = router({
   }),
 
   // ── Prodotti desiderati (embedded list on commessa) ────────────────────────
-  addProdotto: publicProcedure
+  addProdotto: protectedProcedure
     .input(z.object({
       commessaId: z.number(),
       nome: z.string().min(1),
@@ -423,7 +423,7 @@ export const commesseRouter = router({
       return prodotto;
     }),
 
-  updateProdotto: publicProcedure
+  updateProdotto: protectedProcedure
     .input(z.object({
       commessaId: z.number(),
       prodottoId: z.number(),
@@ -446,7 +446,7 @@ export const commesseRouter = router({
       return prodotti[pIdx];
     }),
 
-  removeProdotto: publicProcedure
+  removeProdotto: protectedProcedure
     .input(z.object({ commessaId: z.number(), prodottoId: z.number() }))
     .mutation(({ input }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
@@ -460,7 +460,7 @@ export const commesseRouter = router({
       return { success: true };
     }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     // Archived commesse (soft-archive) are excluded from every aggregation so
     // dashboard counters don't pollute with jobs the client declined.
     const active = commesse.filter((c) => !c.archivedAt);
@@ -477,7 +477,7 @@ export const commesseRouter = router({
   }),
 
   // Aggregated by priority for dashboard card
-  byPriorita: publicProcedure.query(() => {
+  byPriorita: protectedProcedure.query(() => {
     const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
     for (const c of commesse) {
       if (c.archivedAt) continue;
@@ -495,7 +495,7 @@ export const commesseRouter = router({
   // Sets `archivedAt` to now. The commessa keeps its stato, prodotti,
   // documenti, aperture, interventi — nothing is destroyed. Restore just
   // clears the flag. Safe to re-archive after restore.
-  archive: publicProcedure.input(z.number()).mutation(({ input }) => {
+  archive: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = commesse.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Commessa non trovata");
     if (commesse[idx].archivedAt) return commesse[idx];
@@ -508,7 +508,7 @@ export const commesseRouter = router({
     return commesse[idx];
   }),
 
-  restore: publicProcedure.input(z.number()).mutation(({ input }) => {
+  restore: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = commesse.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Commessa non trovata");
     if (!commesse[idx].archivedAt) return commesse[idx];

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -9,17 +9,17 @@ const _apertureStore = persistedStore<any>("aperture", (loaded) => {
 const aperture = _apertureStore.items;
 
 export const apertureRouter = router({
-  byCommessa: publicProcedure.input(z.number()).query(({ input }) => {
+  byCommessa: protectedProcedure.input(z.number()).query(({ input }) => {
     return aperture
       .filter((a) => a.commessaId === input)
       .sort((a, b) => a.codice.localeCompare(b.codice));
   }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return aperture.find((a) => a.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         commessaId: z.number(),
@@ -52,7 +52,7 @@ export const apertureRouter = router({
       return apertura;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
@@ -80,7 +80,7 @@ export const apertureRouter = router({
       return aperture[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = aperture.findIndex((a) => a.id === input);
     if (idx === -1) throw new Error("Apertura non trovata");
     aperture.splice(idx, 1);

@@ -23,6 +23,46 @@ import { notificheRouter } from "./routers/notifiche";
 import { createLocalToken, type LocalUser } from "./localAuth";
 import { TRPCError } from "@trpc/server";
 
+// ── Login rate limiting ──────────────────────────────────────────────────
+// In-memory per-email throttle: after MAX_LOGIN_ATTEMPTS failed attempts
+// inside LOGIN_WINDOW_MS the account is locked until the window expires.
+// Blunts brute-force / credential-stuffing. A successful login clears the
+// counter. Keyed by lowercased email so a targeted account stays protected
+// even if the attacker rotates IP addresses.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 5;
+const loginAttempts = new Map<string, { count: number; firstAt: number }>();
+
+function checkLoginRateLimit(email: string): void {
+  const key = email.toLowerCase();
+  const rec = loginAttempts.get(key);
+  if (!rec) return;
+  if (Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return;
+  }
+  if (rec.count >= MAX_LOGIN_ATTEMPTS) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Troppi tentativi di accesso. Riprova tra qualche minuto.",
+    });
+  }
+}
+
+function recordLoginFailure(email: string): void {
+  const key = email.toLowerCase();
+  const rec = loginAttempts.get(key);
+  if (!rec || Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAt: Date.now() });
+  } else {
+    rec.count++;
+  }
+}
+
+function clearLoginAttempts(email: string): void {
+  loginAttempts.delete(email.toLowerCase());
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -35,12 +75,15 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Block before doing any work if the account is rate-limited.
+        checkLoginRateLimit(input.email);
         const utenti = getUtentiStore();
         const utente = utenti.find(
           (u: any) =>
             u.email.toLowerCase() === input.email.toLowerCase() && u.attivo
         );
         if (!utente) {
+          recordLoginFailure(input.email);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Email o password non validi",
@@ -48,11 +91,14 @@ export const appRouter = router({
         }
         // Check stored password (exact match, case-sensitive)
         if (utente.password !== input.password) {
+          recordLoginFailure(input.email);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Email o password non validi",
           });
         }
+        // Success — reset the failure counter for this account.
+        clearLoginAttempts(input.email);
 
         const ruoli: string[] = Array.isArray(utente.ruoli) && utente.ruoli.length > 0
           ? utente.ruoli

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── 19-step order timeline ────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ function createStepsForCommessa(commessaId: number): TimelineStep[] {
 })();
 
 export const timelineRouter = router({
-  byCommessa: publicProcedure
+  byCommessa: protectedProcedure
     .input(z.number())
     .query(({ input: commessaId }) => {
       let result = steps.filter((s) => s.commessaId === commessaId);
@@ -93,7 +93,7 @@ export const timelineRouter = router({
       return result.sort((a, b) => a.stepNumber - b.stepNumber);
     }),
 
-  updateStep: publicProcedure
+  updateStep: protectedProcedure
     .input(
       z.object({
         id: z.number(),
@@ -113,7 +113,7 @@ export const timelineRouter = router({
       return steps[idx];
     }),
 
-  stats: publicProcedure
+  stats: protectedProcedure
     .input(z.number())
     .query(({ input: commessaId }) => {
       let result = steps.filter((s) => s.commessaId === commessaId);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ const listini = _listiniStore.items;
 
 export const fornitoriRouter = router({
   // ── Fornitori CRUD ──────────────────────────────────────────────────────
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         search: z.string().optional(),
@@ -121,11 +121,11 @@ export const fornitoriRouter = router({
       return result.sort((a, b) => a.ragioneSociale.localeCompare(b.ragioneSociale));
     }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return fornitori.find((f) => f.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         ragioneSociale: z.string().min(1),
@@ -154,7 +154,7 @@ export const fornitoriRouter = router({
       return fornitore;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
@@ -180,7 +180,7 @@ export const fornitoriRouter = router({
       return fornitori[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = fornitori.findIndex((f) => f.id === input);
     if (idx === -1) throw new Error("Fornitore non trovato");
     fornitori.splice(idx, 1);
@@ -188,7 +188,7 @@ export const fornitoriRouter = router({
     return { success: true };
   }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     const totale = fornitori.filter((f) => f.attivo).length;
     const perCategoria = fornitori.reduce((acc, f) => {
       if (f.attivo) acc[f.categoria] = (acc[f.categoria] || 0) + 1;
@@ -203,7 +203,7 @@ export const fornitoriRouter = router({
 
   // ── Ordini Fornitori ────────────────────────────────────────────────────
   ordini: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(
         z.object({
           fornitoreId: z.number().optional(),
@@ -225,7 +225,7 @@ export const fornitoriRouter = router({
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    byId: publicProcedure.input(z.number()).query(({ input }) => {
+    byId: protectedProcedure.input(z.number()).query(({ input }) => {
       const o = ordini.find((o) => o.id === input);
       if (!o) return null;
       return {
@@ -234,7 +234,7 @@ export const fornitoriRouter = router({
       };
     }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(
         z.object({
           fornitoreId: z.number(),
@@ -283,7 +283,7 @@ export const fornitoriRouter = router({
         return ordine;
       }),
 
-    updateStato: publicProcedure
+    updateStato: protectedProcedure
       .input(
         z.object({
           id: z.number(),
@@ -322,7 +322,7 @@ export const fornitoriRouter = router({
         return ordini[idx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = ordini.findIndex((o) => o.id === input);
       if (idx === -1) throw new Error("Ordine non trovato");
       ordini.splice(idx, 1);
@@ -333,7 +333,7 @@ export const fornitoriRouter = router({
 
   // ── Listini ──────────────────────────────────────────────────────────────
   listini: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ fornitoreId: z.number().optional() }).optional())
       .query(({ input }) => {
         let result = [...listini];
@@ -341,7 +341,7 @@ export const fornitoriRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(z.object({
         fornitoreId: z.number(),
         nome: z.string().min(1),
@@ -362,7 +362,7 @@ export const fornitoriRouter = router({
         return listino;
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = listini.findIndex((l) => l.id === input);
       if (idx === -1) throw new Error("Listino non trovato");
       listini.splice(idx, 1);

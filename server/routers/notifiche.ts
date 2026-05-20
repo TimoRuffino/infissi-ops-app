@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ function buildNotifichePerUtente(userId: number, ruoli: string[]): Notifica[] {
 }
 
 export const notificheRouter = router({
-  list: publicProcedure.query(({ ctx }) => {
+  list: protectedProcedure.query(({ ctx }) => {
     if (!ctx.user) return [] as Notifica[];
     const ruoli: string[] = Array.isArray((ctx.user as any).ruoli)
       ? (ctx.user as any).ruoli
@@ -176,7 +176,7 @@ export const notificheRouter = router({
     return buildNotifichePerUtente(ctx.user.id as number, ruoli);
   }),
 
-  count: publicProcedure.query(({ ctx }) => {
+  count: protectedProcedure.query(({ ctx }) => {
     if (!ctx.user) return 0;
     const ruoli: string[] = Array.isArray((ctx.user as any).ruoli)
       ? (ctx.user as any).ruoli

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── Roles (PRD Section 14) ────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export function getUtentiStore() {
 }
 
 export const utentiRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         ruolo: z.enum(RUOLI).optional(),
@@ -86,14 +86,14 @@ export const utentiRouter = router({
         .map(({ password, ...rest }) => ({ ...rest, hasPassword: !!password }));
     }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     const u = utenti.find((u) => u.id === input);
     if (!u) return null;
     const { password, ...rest } = u;
     return { ...rest, hasPassword: !!password };
   }),
 
-  create: publicProcedure
+  create: adminProcedure
     .input(
       z.object({
         nome: z.string().min(1),
@@ -126,7 +126,7 @@ export const utentiRouter = router({
       return { ...rest, hasPassword: true };
     }),
 
-  update: publicProcedure
+  update: adminProcedure
     .input(
       z.object({
         id: z.number(),
@@ -151,7 +151,7 @@ export const utentiRouter = router({
       return { ...rest, hasPassword: !!password };
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
     const idx = utenti.findIndex((u) => u.id === input);
     if (idx === -1) throw new Error("Utente non trovato");
     utenti.splice(idx, 1);
@@ -159,7 +159,7 @@ export const utentiRouter = router({
     return { success: true };
   }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     const total = utenti.length;
     const attivi = utenti.filter((u) => u.attivo).length;
     const perRuolo = RUOLI.reduce((acc, ruolo) => {

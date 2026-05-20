@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ const nonConformita = _ncStore.items;
 export const produzioneRouter = router({
   // ── Distinte Base ─────────────────────────────────────────────────────
   bom: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), stato: z.string().optional() }).optional())
       .query(({ input }) => {
         let result = [...distinteBasi];
@@ -123,11 +123,11 @@ export const produzioneRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    byId: publicProcedure.input(z.number()).query(({ input }) => {
+    byId: protectedProcedure.input(z.number()).query(({ input }) => {
       return distinteBasi.find((d) => d.id === input) ?? null;
     }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(
         z.object({
           commessaId: z.number(),
@@ -161,7 +161,7 @@ export const produzioneRouter = router({
         return bom;
       }),
 
-    validate: publicProcedure
+    validate: protectedProcedure
       .input(
         z.object({
           id: z.number(),
@@ -182,7 +182,7 @@ export const produzioneRouter = router({
         return distinteBasi[idx];
       }),
 
-    updateStato: publicProcedure
+    updateStato: protectedProcedure
       .input(z.object({ id: z.number(), stato: z.enum(["bozza", "validata", "in_produzione", "completata"]) }))
       .mutation(({ input }) => {
         const idx = distinteBasi.findIndex((d) => d.id === input.id);
@@ -193,7 +193,7 @@ export const produzioneRouter = router({
         return distinteBasi[idx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = distinteBasi.findIndex((d) => d.id === input);
       if (idx === -1) throw new Error("Distinta base non trovata");
       distinteBasi.splice(idx, 1);
@@ -201,7 +201,7 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: publicProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
+    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
       let boms = [...distinteBasi];
       if (input?.commessaId) boms = boms.filter((d) => d.commessaId === input.commessaId);
       return {
@@ -216,7 +216,7 @@ export const produzioneRouter = router({
 
   // ── Fasi Produzione ───────────────────────────────────────────────────
   fasi: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), distinaBaseId: z.number().optional() }).optional())
       .query(({ input }) => {
         let result = [...fasiProduzione];
@@ -225,7 +225,7 @@ export const produzioneRouter = router({
         return result.sort((a, b) => a.ordine - b.ordine);
       }),
 
-    updateStato: publicProcedure
+    updateStato: protectedProcedure
       .input(
         z.object({
           id: z.number(),
@@ -251,7 +251,7 @@ export const produzioneRouter = router({
         return fasiProduzione[idx];
       }),
 
-    toggleChecklist: publicProcedure
+    toggleChecklist: protectedProcedure
       .input(z.object({ faseId: z.number(), checklistItemId: z.number(), completato: z.boolean(), esito: z.enum(["ok", "non_conforme"]).optional() }))
       .mutation(({ input }) => {
         const faseIdx = fasiProduzione.findIndex((f) => f.id === input.faseId);
@@ -265,7 +265,7 @@ export const produzioneRouter = router({
         return fasiProduzione[faseIdx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = fasiProduzione.findIndex((f) => f.id === input);
       if (idx === -1) throw new Error("Fase non trovata");
       fasiProduzione.splice(idx, 1);
@@ -273,7 +273,7 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: publicProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
+    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
       let fasi = [...fasiProduzione];
       if (input?.commessaId) fasi = fasi.filter((f) => f.commessaId === input.commessaId);
       return {
@@ -288,7 +288,7 @@ export const produzioneRouter = router({
 
   // ── Non Conformita ────────────────────────────────────────────────────
   nc: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), stato: z.string().optional() }).optional())
       .query(({ input }) => {
         let result = [...nonConformita];
@@ -297,7 +297,7 @@ export const produzioneRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: publicProcedure
+    create: protectedProcedure
       .input(
         z.object({
           commessaId: z.number(),
@@ -324,7 +324,7 @@ export const produzioneRouter = router({
         return nc;
       }),
 
-    updateStato: publicProcedure
+    updateStato: protectedProcedure
       .input(
         z.object({
           id: z.number(),
@@ -343,7 +343,7 @@ export const produzioneRouter = router({
         return nonConformita[idx];
       }),
 
-    delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
       const idx = nonConformita.findIndex((n) => n.id === input);
       if (idx === -1) throw new Error("Non conformita non trovata");
       nonConformita.splice(idx, 1);
@@ -351,7 +351,7 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: publicProcedure.query(() => {
+    stats: protectedProcedure.query(() => {
       return {
         totale: nonConformita.length,
         aperte: nonConformita.filter((n) => n.stato === "aperta").length,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
 
@@ -21,7 +21,7 @@ const _store = persistedStore<any>("tickets", (items) => {
 const tickets = _store.items;
 
 export const ticketRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({
       commessaId: z.number().optional(),
       stato: z.string().optional(),
@@ -33,7 +33,7 @@ export const ticketRouter = router({
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({
       commessaId: z.number(),
       aperturaId: z.number().nullable().optional(),
@@ -62,7 +62,7 @@ export const ticketRouter = router({
       return t;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(z.object({
       id: z.number(),
       oggetto: z.string().optional(),
@@ -79,7 +79,7 @@ export const ticketRouter = router({
       return tickets[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = tickets.findIndex((t) => t.id === input);
     if (idx === -1) throw new Error("Ticket non trovato");
     tickets.splice(idx, 1);
@@ -90,7 +90,7 @@ export const ticketRouter = router({
     return { success: true };
   }),
 
-  updateStato: publicProcedure
+  updateStato: protectedProcedure
     .input(z.object({
       id: z.number(),
       stato: z.enum(TICKET_STATI),
@@ -112,7 +112,7 @@ export const ticketRouter = router({
   // Single-step rollback to the previous stato in TICKET_STATI. Clears
   // dataRisoluzione when leaving risolto/chiuso so the ticket is "open" again
   // for reporting. If already at "aperto" (first state) throws.
-  rollbackStato: publicProcedure
+  rollbackStato: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(({ input }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
@@ -131,7 +131,7 @@ export const ticketRouter = router({
       return tickets[idx];
     }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     const aperti = tickets.filter((t) => t.stato === "aperto").length;
     const assegnati = tickets.filter((t) => t.stato === "assegnato").length;
     const inLavorazione = tickets.filter((t) => t.stato === "in_lavorazione").length;

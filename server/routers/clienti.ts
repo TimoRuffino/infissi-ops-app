@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
@@ -47,7 +47,7 @@ const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
 const TIPO_DETRAZIONE = ["ecobonus", "ristrutturazione"] as const;
 
 export const clientiRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         search: z.string().optional(),
@@ -75,11 +75,11 @@ export const clientiRouter = router({
       );
     }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return clienti.find((c) => c.id === input) ?? null;
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         nome: z.string().min(1),
@@ -140,7 +140,7 @@ export const clientiRouter = router({
       return cliente;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
@@ -206,7 +206,7 @@ export const clientiRouter = router({
       return clienti[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = clienti.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Cliente non trovato");
     clienti.splice(idx, 1);
@@ -214,7 +214,7 @@ export const clientiRouter = router({
     return { success: true };
   }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     return {
       totale: clienti.length,
       privati: clienti.filter((c) => c.tipo === "privato").length,

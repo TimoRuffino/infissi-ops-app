@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // Per-ticket file attachments. Same shape as preventiviContratti Documento but
@@ -28,6 +28,34 @@ const allegati = _store.items;
 // Cap per-file size: ~10MB base64 = ~7.5MB raw (same as preventiviContratti).
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
+// Allowlist of mimeTypes accepted for upload. Excludes text/html and
+// image/svg+xml — both can carry script and would become stored XSS when
+// previewed in an iframe via a same-origin blob: URL.
+const ALLOWED_MIME_TYPES = new Set<string>([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+// Actual decoded byte length of a base64 payload — client-supplied `size`
+// is not trusted for the cap check.
+function base64ByteLength(b64: string): number {
+  const len = b64.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (b64.endsWith("==")) padding = 2;
+  else if (b64.endsWith("=")) padding = 1;
+  return Math.floor((len * 3) / 4) - padding;
+}
+
 export function deleteAllegatiByTicket(ticketId: number) {
   for (let i = allegati.length - 1; i >= 0; i--) {
     if (allegati[i].ticketId === ticketId) allegati.splice(i, 1);
@@ -36,7 +64,7 @@ export function deleteAllegatiByTicket(ticketId: number) {
 }
 
 export const ticketAllegatiRouter = router({
-  byTicket: publicProcedure.input(z.number()).query(({ input }) => {
+  byTicket: protectedProcedure.input(z.number()).query(({ input }) => {
     return allegati
       .filter((a) => a.ticketId === input)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -45,11 +73,11 @@ export const ticketAllegatiRouter = router({
       .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
   }),
 
-  byId: publicProcedure.input(z.number()).query(({ input }) => {
+  byId: protectedProcedure.input(z.number()).query(({ input }) => {
     return allegati.find((a) => a.id === input) ?? null;
   }),
 
-  upload: publicProcedure
+  upload: protectedProcedure
     .input(
       z.object({
         ticketId: z.number(),
@@ -61,7 +89,11 @@ export const ticketAllegatiRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
-      if (input.size > MAX_SIZE_BYTES) {
+      if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
+        throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
+      }
+      const actualBytes = base64ByteLength(input.dataBase64);
+      if (actualBytes > MAX_SIZE_BYTES) {
         throw new Error(
           `File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`
         );
@@ -71,7 +103,7 @@ export const ticketAllegatiRouter = router({
         ticketId: input.ticketId,
         nome: input.nome,
         mimeType: input.mimeType,
-        size: input.size,
+        size: actualBytes,
         dataBase64: input.dataBase64,
         note: input.note ?? null,
         createdBy: ctx.user?.id ?? null,
@@ -83,7 +115,7 @@ export const ticketAllegatiRouter = router({
       return { ...rest, hasData: true };
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = allegati.findIndex((a) => a.id === input);
     if (idx === -1) throw new Error("Allegato non trovato");
     allegati.splice(idx, 1);

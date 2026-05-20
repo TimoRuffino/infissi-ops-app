@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -9,7 +9,7 @@ const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
 const anomalie = _anomalieStore.items;
 
 export const anomalieRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({
       commessaId: z.number().optional(),
       stato: z.string().optional(),
@@ -21,7 +21,7 @@ export const anomalieRouter = router({
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({
       commessaId: z.number(),
       aperturaId: z.number().nullable().optional(),
@@ -51,7 +51,7 @@ export const anomalieRouter = router({
       return anomalia;
     }),
 
-  update: publicProcedure
+  update: protectedProcedure
     .input(z.object({
       id: z.number(),
       categoria: z.enum(["materiale_difettoso", "misura_errata", "danno_trasporto", "difetto_posa", "problema_accessorio", "non_conformita", "altro"]).optional(),
@@ -68,7 +68,7 @@ export const anomalieRouter = router({
       return anomalie[idx];
     }),
 
-  delete: publicProcedure.input(z.number()).mutation(({ input }) => {
+  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
     const idx = anomalie.findIndex((a) => a.id === input);
     if (idx === -1) throw new Error("Anomalia non trovata");
     anomalie.splice(idx, 1);
@@ -76,7 +76,7 @@ export const anomalieRouter = router({
     return { success: true };
   }),
 
-  resolve: publicProcedure
+  resolve: protectedProcedure
     .input(z.object({
       id: z.number(),
       risoluzione: z.string().min(1),
@@ -92,7 +92,7 @@ export const anomalieRouter = router({
       return anomalie[idx];
     }),
 
-  stats: publicProcedure.query(() => {
+  stats: protectedProcedure.query(() => {
     const aperte = anomalie.filter((a) => a.stato === "aperta").length;
     const inGestione = anomalie.filter((a) => a.stato === "in_gestione").length;
     const risolte = anomalie.filter((a) => a.stato === "risolta" || a.stato === "chiusa").length;
