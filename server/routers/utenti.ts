@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { hashPassword, isHashed } from "../_core/password";
 
 // ── Roles (PRD Section 14) ────────────────────────────────────────────────────
 const RUOLI = [
@@ -44,11 +45,27 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
   if (firstBoot && items.length === 0) {
     const now = new Date();
     for (const seed of SEED_UTENTI) {
-      items.push({ ...seed, createdAt: now, updatedAt: now });
+      // Seed passwords are hashed before they ever hit the DB.
+      items.push({
+        ...seed,
+        password: hashPassword(seed.password),
+        createdAt: now,
+        updatedAt: now,
+      });
     }
     // Persist seed after bootstrap by scheduling save.
     setTimeout(() => _store.save(), 0);
   }
+  // Defensive migration: if a legacy DB row still holds a plaintext password,
+  // upgrade it to a hash on load so plaintext never lingers at rest.
+  let migrated = false;
+  for (const u of items) {
+    if (u.password && !isHashed(u.password)) {
+      u.password = hashPassword(u.password);
+      migrated = true;
+    }
+  }
+  if (migrated) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
 });
 const utenti = _store.items;
@@ -117,6 +134,8 @@ export const utentiRouter = router({
         ...input,
         telefono: input.telefono ?? null,
         attivo: input.attivo ?? true,
+        // Never store the plaintext password.
+        password: hashPassword(input.password),
         createdAt: now,
         updatedAt: now,
       };
@@ -143,8 +162,9 @@ export const utentiRouter = router({
       const idx = utenti.findIndex((u) => u.id === input.id);
       if (idx === -1) throw new Error("Utente non trovato");
       const { id, ...updates } = input;
-      // Only update password if provided (non-empty)
+      // Only update password if provided (non-empty) — and hash it.
       if (!updates.password) delete updates.password;
+      else updates.password = hashPassword(updates.password);
       utenti[idx] = { ...utenti[idx], ...updates, updatedAt: new Date() };
       _store.save();
       const { password, ...rest } = utenti[idx];

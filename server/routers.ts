@@ -20,7 +20,8 @@ import { reclamiRifacimentiRouter } from "./routers/reclamiRifacimenti";
 import { utentiRouter, getUtentiStore } from "./routers/utenti";
 import { preventiviContrattiRouter } from "./routers/preventiviContratti";
 import { notificheRouter } from "./routers/notifiche";
-import { createLocalToken, type LocalUser } from "./localAuth";
+import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
+import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
 
 // ── Login rate limiting ──────────────────────────────────────────────────
@@ -89,8 +90,10 @@ export const appRouter = router({
             message: "Email o password non validi",
           });
         }
-        // Check stored password (exact match, case-sensitive)
-        if (utente.password !== input.password) {
+        // Verify against the scrypt hash (verifyPassword also tolerates a
+        // legacy plaintext value, though the utenti store upgrades those to
+        // hashes on load).
+        if (!verifyPassword(input.password, utente.password)) {
           recordLoginFailure(input.email);
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -128,6 +131,9 @@ export const appRouter = router({
         return localUser;
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
+      // Invalidate the server-side session cache entry too — not just the
+      // cookie — so a captured token can't be replayed after logout.
+      clearLocalSessionFromRequest(ctx.req);
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;

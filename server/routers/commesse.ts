@@ -211,7 +211,11 @@ export const commesseRouter = router({
             c.citta?.toLowerCase().includes(q)
         );
       }
-      return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      // Strip the heavy `prodotti` array from list responses — list pages
+      // never read it; only commesse.byId needs the full object.
+      return result
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map(({ prodotti, ...rest }) => rest);
     }),
 
   byId: protectedProcedure.input(z.number()).query(({ input }) => {

@@ -70,7 +70,7 @@ const menuItems: MenuItem[] = [
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Archive, label: "Archivio", path: "/archivio" },
-  { icon: Users, label: "Utenti", path: "/utenti" },
+  { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
 

@@ -35,8 +35,21 @@ export type LocalUser = {
   lastSignedIn: Date;
 };
 
-// In-memory sessions: JWT → user
-const sessions = new Map<string, LocalUser>();
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — matches JWT exp
+
+// In-memory session cache: token → { user, expMs }. Entries are evicted
+// lazily on access and by the periodic sweep below, so the Map can't grow
+// unbounded as tokens are issued over the lifetime of the process.
+const sessions = new Map<string, { user: LocalUser; expMs: number }>();
+
+// Periodic sweep of expired cache entries. unref() so it never keeps the
+// process alive on its own.
+setInterval(() => {
+  const now = Date.now();
+  sessions.forEach((entry, token) => {
+    if (entry.expMs <= now) sessions.delete(token);
+  });
+}, 60 * 60 * 1000).unref();
 
 export async function createLocalToken(user: LocalUser): Promise<string> {
   const token = await new SignJWT({
@@ -52,7 +65,7 @@ export async function createLocalToken(user: LocalUser): Promise<string> {
     .setIssuedAt()
     .sign(LOCAL_SECRET);
 
-  sessions.set(token, user);
+  sessions.set(token, { user, expMs: Date.now() + SESSION_TTL_MS });
   return token;
 }
 
@@ -68,7 +81,10 @@ export async function verifyLocalSession(
 
   // Check in-memory cache first
   const cached = sessions.get(token);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.expMs > Date.now()) return cached.user;
+    sessions.delete(token); // expired — fall through to a fresh JWT verify
+  }
 
   // Verify JWT
   try {
@@ -96,7 +112,11 @@ export async function verifyLocalSession(
       lastSignedIn: new Date(),
     };
 
-    sessions.set(token, user);
+    const expMs =
+      typeof payload.exp === "number"
+        ? payload.exp * 1000
+        : Date.now() + SESSION_TTL_MS;
+    sessions.set(token, { user, expMs });
     return user;
   } catch {
     return null;
@@ -105,4 +125,16 @@ export async function verifyLocalSession(
 
 export function clearLocalSession(token: string) {
   sessions.delete(token);
+}
+
+/**
+ * Invalidate the server-side session for the token carried by `req`'s
+ * cookie. Called on logout so a captured token can't be replayed from the
+ * in-memory cache after the user signs out.
+ */
+export function clearLocalSessionFromRequest(req: Request) {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return;
+  const token = parseCookieHeader(cookieHeader)[COOKIE_NAME];
+  if (token) sessions.delete(token);
 }

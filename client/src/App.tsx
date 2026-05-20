@@ -70,7 +70,13 @@ function Router() {
         </Route>
         <Route path="/reclami" component={ReclamiRifacimenti} />
         <Route path="/archivio" component={Archivio} />
-        <Route path="/utenti" component={UtentiList} />
+        {/* User management is direzione-only: the server gates utenti
+            create/update/delete with adminProcedure, so a client-side guard
+            here gives non-direzione users a clear blocked state instead of a
+            FORBIDDEN error on save. */}
+        <Route path="/utenti">
+          {() => <RequireDirezione><UtentiList /></RequireDirezione>}
+        </Route>
         <Route path="/integrazioni" component={Integrazioni} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
