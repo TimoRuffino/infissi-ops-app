@@ -47,7 +47,9 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import NotificheDropdown from "./NotificheDropdown";
 import LoginPage from "@/pages/LoginPage";
+import PageContainer from "./PageContainer";
 import { isDirezione } from "@/lib/roles";
+import { AnimatePresence, motion } from "framer-motion";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
 // for users without the `direzione` role. Squadre, Garanzie, Produzione and
@@ -214,15 +216,24 @@ function DashboardLayoutContent({
                 .map(item => {
                 const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                 return (
-                  <SidebarMenuItem key={item.path}>
+                  <SidebarMenuItem key={item.path} className="relative">
+                    {/* Shared layoutId lets framer animate the highlight
+                        when the active item changes. */}
+                    {isActive && (
+                      <motion.span
+                        layoutId="sidebar-active-bg"
+                        className="absolute inset-0 -z-10 rounded-md bg-gradient-to-r from-primary/15 via-primary/8 to-transparent"
+                        transition={{ type: "spring", stiffness: 320, damping: 32 }}
+                      />
+                    )}
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
+                      className={`h-10 transition-all font-normal data-[active=true]:bg-transparent data-[active=true]:hover:bg-transparent`}
                     >
                       <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                        className={`h-4 w-4 transition-colors ${isActive ? "text-primary" : ""}`}
                       />
                       <span className="flex-1">{item.label}</span>
                       {item.badge && (
@@ -299,7 +310,11 @@ function DashboardLayoutContent({
             <NotificheDropdown />
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 p-4 sm:p-6">
+          <AnimatePresence mode="wait" initial={false}>
+            <PageContainer key={location}>{children}</PageContainer>
+          </AnimatePresence>
+        </main>
       </SidebarInset>
     </>
   );

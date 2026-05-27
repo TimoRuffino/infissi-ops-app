@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
+import { motion } from "framer-motion";
 import {
   BarChart,
   Bar,
@@ -46,23 +47,30 @@ function StatCard({
   onClick?: () => void;
 }) {
   return (
-    <Card
-      className={`cursor-pointer transition-all hover:shadow-md ${accent ? "border-l-4 border-l-destructive" : ""}`}
-      onClick={onClick}
+    <motion.div
+      whileHover={{ y: -3 }}
+      transition={{ type: "spring", stiffness: 320, damping: 22 }}
     >
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          {title}
-        </CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-bold tracking-tight">{value}</div>
-        {subtitle && (
-          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
-        )}
-      </CardContent>
-    </Card>
+      <Card
+        className={`cursor-pointer transition-all hover:shadow-md ${accent ? "border-l-4 border-l-destructive" : ""}`}
+        onClick={onClick}
+      >
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            {title}
+          </CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold tracking-tight tabular-nums">
+            {value}
+          </div>
+          {subtitle && (
+            <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 }
 

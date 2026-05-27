@@ -92,7 +92,16 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
-          <Toaster />
+          <Toaster
+            position="top-right"
+            richColors
+            closeButton
+            expand
+            toastOptions={{
+              className: "rounded-xl border shadow-lg",
+              duration: 4500,
+            }}
+          />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
