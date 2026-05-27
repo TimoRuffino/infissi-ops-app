@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
-import { addCommessaToCliente, getClienteById } from "./clienti";
+import {
+  addCommessaToCliente,
+  getClienteById,
+  removeCommessaFromCliente,
+} from "./clienti";
 import { getUtentiStore } from "./utenti";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 import {
   hasPreventivoOrContratto,
   statoHasRequiredDoc,
@@ -352,15 +357,47 @@ export const commesseRouter = router({
       // If clienteId changes to a real id, resolve display name + link back to
       // that cliente's commesseIds so the relationship is kept consistent.
       let resolvedCliente = updates.cliente;
+      const prevClienteId: number | null = commesse[idx].clienteId ?? null;
       if (
         updates.clienteId !== undefined &&
         updates.clienteId !== null &&
-        updates.clienteId !== commesse[idx].clienteId
+        updates.clienteId !== prevClienteId
       ) {
         const linked = getClienteById(updates.clienteId);
         if (linked) {
           resolvedCliente = `${linked.nome} ${linked.cognome}`.trim();
           addCommessaToCliente(updates.clienteId, commesse[idx].id);
+        }
+        // Detach from the previous cliente so its commesseIds index stays
+        // accurate and doesn't carry stale references.
+        if (prevClienteId != null) {
+          removeCommessaFromCliente(prevClienteId, commesse[idx].id);
+        }
+      }
+      // Normalize the mutually-exclusive consegna fields: writing one
+      // clears the other so the persisted record can never carry both.
+      if (updates.dataConsegnaIndicativa !== undefined) {
+        if (updates.dataConsegnaIndicativa) {
+          updates.consegnaIndicativa = null;
+        }
+      } else if (updates.consegnaIndicativa !== undefined && updates.consegnaIndicativa) {
+        updates.dataConsegnaIndicativa = null;
+      }
+      // State rollback cleanup: leaving "produzione" backward voids the
+      // confirmed delivery date (it was specific to that production run);
+      // leaving "archiviata" backward clears the closure date.
+      const prevStato: string = commesse[idx].stato;
+      if (input.stato && input.stato !== prevStato) {
+        const isForwardChange =
+          STATI_COMMESSA.indexOf(input.stato as any) >
+          STATI_COMMESSA.indexOf(prevStato as any);
+        if (!isForwardChange) {
+          if (prevStato === "produzione") {
+            (updates as any).dataConsegnaConfermata = null;
+          }
+          if (prevStato === "archiviata") {
+            (updates as any).dataChiusura = null;
+          }
         }
       }
       commesse[idx] = {
@@ -391,13 +428,24 @@ export const commesseRouter = router({
       return commesse[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = commesse.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Commessa non trovata");
-    commesse.splice(idx, 1);
-    _store.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      // Only the creator/owner or a direzione user can hard-delete.
+      requireOwnershipOrDirezione(commesse[idx], ctx.user);
+      // Detach the commessa id from the cliente's index so it doesn't
+      // linger as a stale reference.
+      const clienteId: number | null = commesse[idx].clienteId ?? null;
+      const commessaId: number = commesse[idx].id;
+      commesse.splice(idx, 1);
+      if (clienteId != null) {
+        removeCommessaFromCliente(clienteId, commessaId);
+      }
+      _store.save();
+      return { success: true };
+    }),
 
   // ── Prodotti desiderati (embedded list on commessa) ────────────────────────
   addProdotto: protectedProcedure
@@ -505,14 +553,19 @@ export const commesseRouter = router({
   classificaVenditori: protectedProcedure.query(() => {
     const utenti = getUtentiStore();
     // Stati that count: from misure_esecutive .. interventi_regolazioni.
-    // slice(indexOf misure_esecutive, indexOf archiviata) drops both the
-    // leading "preventivo" and the trailing "archiviata".
-    const counted = new Set(
-      STATI_COMMESSA.slice(
-        STATI_COMMESSA.indexOf("misure_esecutive"),
-        STATI_COMMESSA.indexOf("archiviata")
-      )
-    );
+    // Listed explicitly (instead of slicing STATI_COMMESSA by index) so a
+    // rename or reorder of the enum can't silently change the leaderboard.
+    const counted = new Set<string>([
+      "misure_esecutive",
+      "aggiornamento_contratto",
+      "fatture_pagamento",
+      "da_ordinare",
+      "produzione",
+      "ordini_ultimazione",
+      "attesa_posa",
+      "finiture_saldo",
+      "interventi_regolazioni",
+    ]);
     const venditori = utenti.filter(
       (u: any) => Array.isArray(u.ruoli) && u.ruoli.includes("commerciale") && u.attivo
     );
@@ -543,29 +596,35 @@ export const commesseRouter = router({
   // Sets `archivedAt` to now. The commessa keeps its stato, prodotti,
   // documenti, aperture, interventi — nothing is destroyed. Restore just
   // clears the flag. Safe to re-archive after restore.
-  archive: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = commesse.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Commessa non trovata");
-    if (commesse[idx].archivedAt) return commesse[idx];
-    commesse[idx] = {
-      ...commesse[idx],
-      archivedAt: new Date().toISOString(),
-      updatedAt: new Date(),
-    };
-    _store.save();
-    return commesse[idx];
-  }),
+  archive: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      requireOwnershipOrDirezione(commesse[idx], ctx.user);
+      if (commesse[idx].archivedAt) return commesse[idx];
+      commesse[idx] = {
+        ...commesse[idx],
+        archivedAt: new Date().toISOString(),
+        updatedAt: new Date(),
+      };
+      _store.save();
+      return commesse[idx];
+    }),
 
-  restore: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = commesse.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Commessa non trovata");
-    if (!commesse[idx].archivedAt) return commesse[idx];
-    commesse[idx] = {
-      ...commesse[idx],
-      archivedAt: null,
-      updatedAt: new Date(),
-    };
-    _store.save();
-    return commesse[idx];
-  }),
+  restore: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      requireOwnershipOrDirezione(commesse[idx], ctx.user);
+      if (!commesse[idx].archivedAt) return commesse[idx];
+      commesse[idx] = {
+        ...commesse[idx],
+        archivedAt: null,
+        updatedAt: new Date(),
+      };
+      _store.save();
+      return commesse[idx];
+    }),
 });

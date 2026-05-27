@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 
 // --- Reclami (complaints) ---
 
@@ -80,13 +82,19 @@ export const reclamiRifacimentiRouter = router({
         return reclami[idx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-      const idx = reclami.findIndex((r) => r.id === input);
-      if (idx === -1) throw new Error("Reclamo non trovato");
-      reclami.splice(idx, 1);
-      _reclamiStore.save();
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.number())
+      .mutation(({ input, ctx }) => {
+        const idx = reclami.findIndex((r) => r.id === input);
+        if (idx === -1) throw new Error("Reclamo non trovato");
+        requireOwnershipOrDirezione(
+          getCommessaById(reclami[idx].commessaId),
+          ctx.user
+        );
+        reclami.splice(idx, 1);
+        _reclamiStore.save();
+        return { success: true };
+      }),
 
     stats: protectedProcedure.query(() => {
       const aperti = reclami.filter((r) => r.stato === "aperto").length;
@@ -169,13 +177,19 @@ export const reclamiRifacimentiRouter = router({
         return rifacimenti[idx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-      const idx = rifacimenti.findIndex((r) => r.id === input);
-      if (idx === -1) throw new Error("Rifacimento non trovato");
-      rifacimenti.splice(idx, 1);
-      _rifacimentiStore.save();
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.number())
+      .mutation(({ input, ctx }) => {
+        const idx = rifacimenti.findIndex((r) => r.id === input);
+        if (idx === -1) throw new Error("Rifacimento non trovato");
+        requireOwnershipOrDirezione(
+          getCommessaById(rifacimenti[idx].commessaId),
+          ctx.user
+        );
+        rifacimenti.splice(idx, 1);
+        _rifacimentiStore.save();
+        return { success: true };
+      }),
 
     stats: protectedProcedure.query(() => {
       const aperti = rifacimenti.filter((r) => r.stato === "aperto").length;

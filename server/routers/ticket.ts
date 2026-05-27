@@ -2,6 +2,8 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
+import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 
 // Linear workflow. Used for both forward advance and rollback.
 const TICKET_STATI = [
@@ -79,16 +81,22 @@ export const ticketRouter = router({
       return tickets[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = tickets.findIndex((t) => t.id === input);
-    if (idx === -1) throw new Error("Ticket non trovato");
-    tickets.splice(idx, 1);
-    // Cascade: also drop any attachments bound to the ticket, otherwise they
-    // leak in the store with no parent.
-    deleteAllegatiByTicket(input);
-    _store.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = tickets.findIndex((t) => t.id === input);
+      if (idx === -1) throw new Error("Ticket non trovato");
+      requireOwnershipOrDirezione(
+        getCommessaById(tickets[idx].commessaId),
+        ctx.user
+      );
+      tickets.splice(idx, 1);
+      // Cascade: also drop any attachments bound to the ticket, otherwise they
+      // leak in the store with no parent.
+      deleteAllegatiByTicket(input);
+      _store.save();
+      return { success: true };
+    }),
 
   updateStato: protectedProcedure
     .input(z.object({

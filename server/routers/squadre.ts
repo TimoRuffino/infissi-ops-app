@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -17,7 +17,7 @@ export const squadreRouter = router({
     return squadre.find((s) => s.id === input) ?? null;
   }),
 
-  create: protectedProcedure
+  create: adminProcedure
     .input(z.object({
       nome: z.string().min(1),
       caposquadra: z.string().optional(),
@@ -32,7 +32,7 @@ export const squadreRouter = router({
       return squadra;
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(z.object({
       id: z.number(),
       nome: z.string().optional(),
@@ -50,7 +50,7 @@ export const squadreRouter = router({
       return squadre[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
     const idx = squadre.findIndex((s) => s.id === input);
     if (idx === -1) throw new Error("Squadra non trovata");
     squadre.splice(idx, 1);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export const produzioneRouter = router({
       return distinteBasi.find((d) => d.id === input) ?? null;
     }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(
         z.object({
           commessaId: z.number(),
@@ -161,7 +161,7 @@ export const produzioneRouter = router({
         return bom;
       }),
 
-    validate: protectedProcedure
+    validate: adminProcedure
       .input(
         z.object({
           id: z.number(),
@@ -182,7 +182,7 @@ export const produzioneRouter = router({
         return distinteBasi[idx];
       }),
 
-    updateStato: protectedProcedure
+    updateStato: adminProcedure
       .input(z.object({ id: z.number(), stato: z.enum(["bozza", "validata", "in_produzione", "completata"]) }))
       .mutation(({ input }) => {
         const idx = distinteBasi.findIndex((d) => d.id === input.id);
@@ -193,7 +193,7 @@ export const produzioneRouter = router({
         return distinteBasi[idx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
       const idx = distinteBasi.findIndex((d) => d.id === input);
       if (idx === -1) throw new Error("Distinta base non trovata");
       distinteBasi.splice(idx, 1);
@@ -225,7 +225,7 @@ export const produzioneRouter = router({
         return result.sort((a, b) => a.ordine - b.ordine);
       }),
 
-    updateStato: protectedProcedure
+    updateStato: adminProcedure
       .input(
         z.object({
           id: z.number(),
@@ -251,7 +251,7 @@ export const produzioneRouter = router({
         return fasiProduzione[idx];
       }),
 
-    toggleChecklist: protectedProcedure
+    toggleChecklist: adminProcedure
       .input(z.object({ faseId: z.number(), checklistItemId: z.number(), completato: z.boolean(), esito: z.enum(["ok", "non_conforme"]).optional() }))
       .mutation(({ input }) => {
         const faseIdx = fasiProduzione.findIndex((f) => f.id === input.faseId);
@@ -265,7 +265,7 @@ export const produzioneRouter = router({
         return fasiProduzione[faseIdx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
       const idx = fasiProduzione.findIndex((f) => f.id === input);
       if (idx === -1) throw new Error("Fase non trovata");
       fasiProduzione.splice(idx, 1);
@@ -297,7 +297,7 @@ export const produzioneRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(
         z.object({
           commessaId: z.number(),
@@ -324,7 +324,7 @@ export const produzioneRouter = router({
         return nc;
       }),
 
-    updateStato: protectedProcedure
+    updateStato: adminProcedure
       .input(
         z.object({
           id: z.number(),
@@ -343,7 +343,7 @@ export const produzioneRouter = router({
         return nonConformita[idx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
       const idx = nonConformita.findIndex((n) => n.id === input);
       if (idx === -1) throw new Error("Non conformita non trovata");
       nonConformita.splice(idx, 1);

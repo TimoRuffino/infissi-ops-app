@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
@@ -104,18 +106,31 @@ export const interventiRouter = router({
       return interventi[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = interventi.findIndex((i) => i.id === input);
-    if (idx === -1) throw new Error("Intervento non trovato");
-    interventi.splice(idx, 1);
-    _interventiStore.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = interventi.findIndex((i) => i.id === input);
+      if (idx === -1) throw new Error("Intervento non trovato");
+      // Ownership inherited from the parent commessa (when present);
+      // direzione can always delete.
+      if (interventi[idx].commessaId != null) {
+        requireOwnershipOrDirezione(
+          getCommessaById(interventi[idx].commessaId),
+          ctx.user
+        );
+      }
+      interventi.splice(idx, 1);
+      _interventiStore.save();
+      return { success: true };
+    }),
 
   updateStato: protectedProcedure
     .input(z.object({
       id: z.number(),
-      stato: z.enum(["pianificato", "in_corso", "completato", "sospeso", "annullato"]),
+      // "annullato" intentionally NOT in the enum: cancellations go through
+      // the hard `delete` endpoint. Legacy `annullato` rows are purged on
+      // load (see _interventiStore.onLoad above) and the UI hides them.
+      stato: z.enum(["pianificato", "in_corso", "completato", "sospeso"]),
     }))
     .mutation(({ input }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);

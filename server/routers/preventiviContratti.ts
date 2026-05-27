@@ -2,6 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 import { renameForStato } from "@shared/statoLabels";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -241,13 +242,26 @@ export const preventiviContrattiRouter = router({
       return { ...rest, hasData: true };
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = documenti.findIndex((d) => d.id === input);
-    if (idx === -1) throw new Error("Documento non trovato");
-    documenti.splice(idx, 1);
-    _documentiStore.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = documenti.findIndex((d) => d.id === input);
+      if (idx === -1) throw new Error("Documento non trovato");
+      // Allow delete when the user is the doc uploader OR owns the parent
+      // commessa (createdBy/assegnatoA) OR is direzione. Try uploader first
+      // — it's the most common legitimate case.
+      const doc = documenti[idx];
+      const commessa = getCommessaById(doc.commessaId);
+      const uid = ctx.user?.id ?? null;
+      if (uid != null && doc.createdBy === uid) {
+        // owner of the upload
+      } else {
+        requireOwnershipOrDirezione(commessa, ctx.user);
+      }
+      documenti.splice(idx, 1);
+      _documentiStore.save();
+      return { success: true };
+    }),
 
   // UI helper: list of doc tipi + whether each is satisfied for the current
   // stato gate. Lets the CommessaDetail page render a neat required/done

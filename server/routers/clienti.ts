@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
 
@@ -37,6 +38,23 @@ export function addCommessaToCliente(clienteId: number, commessaId: number) {
     clienti[idx].commesseIds = [...clienti[idx].commesseIds, commessaId];
     _store.save();
   }
+}
+
+/**
+ * Detach a commessa id from a cliente's `commesseIds` index. Called when a
+ * commessa is re-linked to a different cliente or hard-deleted, so the old
+ * cliente doesn't carry a stale reference.
+ */
+export function removeCommessaFromCliente(
+  clienteId: number,
+  commessaId: number
+) {
+  const idx = clienti.findIndex((c) => c.id === clienteId);
+  if (idx === -1) return;
+  const list: number[] = clienti[idx].commesseIds ?? [];
+  if (!list.includes(commessaId)) return;
+  clienti[idx].commesseIds = list.filter((id) => id !== commessaId);
+  _store.save();
 }
 
 export function getClienteById(id: number) {
@@ -206,13 +224,17 @@ export const clientiRouter = router({
       return clienti[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = clienti.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Cliente non trovato");
-    clienti.splice(idx, 1);
-    _store.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = clienti.findIndex((c) => c.id === input);
+      if (idx === -1) throw new Error("Cliente non trovato");
+      // Only the creator/owner or a direzione user can hard-delete a cliente.
+      requireOwnershipOrDirezione(clienti[idx], ctx.user);
+      clienti.splice(idx, 1);
+      _store.save();
+      return { success: true };
+    }),
 
   stats: protectedProcedure.query(() => {
     return {

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 
 let nextId = 1;
 const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
@@ -68,13 +70,19 @@ export const anomalieRouter = router({
       return anomalie[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = anomalie.findIndex((a) => a.id === input);
-    if (idx === -1) throw new Error("Anomalia non trovata");
-    anomalie.splice(idx, 1);
-    _anomalieStore.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = anomalie.findIndex((a) => a.id === input);
+      if (idx === -1) throw new Error("Anomalia non trovata");
+      requireOwnershipOrDirezione(
+        getCommessaById(anomalie[idx].commessaId),
+        ctx.user
+      );
+      anomalie.splice(idx, 1);
+      _anomalieStore.save();
+      return { success: true };
+    }),
 
   resolve: protectedProcedure
     .input(z.object({

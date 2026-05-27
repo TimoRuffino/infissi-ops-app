@@ -59,6 +59,27 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // ── CSRF: same-origin check on /api/trpc ────────────────────────────────
+  // Cookie-auth means a cross-origin POST from a malicious page could
+  // attempt CSRF. The browser sets `Origin` on cross-origin POSTs; we
+  // require it to match the request `Host`. Requests without `Origin`
+  // (server-to-server, curl) are allowed.
+  app.use("/api/trpc", (req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      let originHost: string | null = null;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        // malformed Origin — reject.
+      }
+      if (originHost !== req.headers.host) {
+        res.status(403).json({ error: "Cross-origin request blocked" });
+        return;
+      }
+    }
+    next();
+  });
   // tRPC API
   app.use(
     "/api/trpc",

@@ -19,6 +19,15 @@ const MAX_RUOLI = 3;
 
 const ruoliSchema = z.array(z.enum(RUOLI)).min(1).max(MAX_RUOLI);
 
+// Helpers for the "last attivo direzione user" guard. We refuse to delete or
+// downgrade the very last admin so the app can never lock itself out.
+function isDirezioneAttivo(u: any): boolean {
+  return !!u && u.attivo && Array.isArray(u.ruoli) && u.ruoli.includes("direzione");
+}
+function countDirezioneAttivi(): number {
+  return utenti.filter(isDirezioneAttivo).length;
+}
+
 // Default seed — used ONLY on the very first boot of a brand-new DB (no
 // kv_store row for "utenti" yet). Once seeded, the canonical state lives in
 // the DB and this constant is no longer consulted. Any change made via the
@@ -118,7 +127,7 @@ export const utentiRouter = router({
         email: z.string().email(),
         telefono: z.string().optional(),
         ruoli: ruoliSchema,
-        password: z.string().min(4),
+        password: z.string().min(8, "La password deve avere almeno 8 caratteri"),
         attivo: z.boolean().optional(),
       })
     )
@@ -154,7 +163,7 @@ export const utentiRouter = router({
         email: z.string().email().optional(),
         telefono: z.string().optional(),
         ruoli: ruoliSchema.optional(),
-        password: z.string().min(4).optional(),
+        password: z.string().min(8, "La password deve avere almeno 8 caratteri").optional(),
         attivo: z.boolean().optional(),
       })
     )
@@ -165,7 +174,21 @@ export const utentiRouter = router({
       // Only update password if provided (non-empty) — and hash it.
       if (!updates.password) delete updates.password;
       else updates.password = hashPassword(updates.password);
-      utenti[idx] = { ...utenti[idx], ...updates, updatedAt: new Date() };
+      // Last-admin guard: refuse the change if it would leave zero attivo
+      // direzione users in the system (deactivation OR removing direzione
+      // from the only remaining admin).
+      const before = utenti[idx];
+      const after = { ...before, ...updates };
+      if (
+        isDirezioneAttivo(before) &&
+        !isDirezioneAttivo(after) &&
+        countDirezioneAttivi() <= 1
+      ) {
+        throw new Error(
+          "Impossibile: questo è l'ultimo utente direzione attivo. Promuovi un altro utente prima di disattivarlo o togliergli il ruolo."
+        );
+      }
+      utenti[idx] = { ...before, ...updates, updatedAt: new Date() };
       _store.save();
       const { password, ...rest } = utenti[idx];
       return { ...rest, hasPassword: !!password };
@@ -174,6 +197,15 @@ export const utentiRouter = router({
   delete: adminProcedure.input(z.number()).mutation(({ input }) => {
     const idx = utenti.findIndex((u) => u.id === input);
     if (idx === -1) throw new Error("Utente non trovato");
+    // Last-admin guard: refuse to delete the only attivo direzione user.
+    if (
+      isDirezioneAttivo(utenti[idx]) &&
+      countDirezioneAttivi() <= 1
+    ) {
+      throw new Error(
+        "Impossibile: questo è l'ultimo utente direzione attivo. Promuovi un altro utente prima di eliminarlo."
+      );
+    }
     utenti.splice(idx, 1);
     _store.save();
     return { success: true };

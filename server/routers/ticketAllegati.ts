@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { isDirezione } from "../_core/permissions";
+import { TRPCError } from "@trpc/server";
 
 // Per-ticket file attachments. Same shape as preventiviContratti Documento but
 // without the stato gate, since tickets do not participate in the board state
@@ -115,11 +117,25 @@ export const ticketAllegatiRouter = router({
       return { ...rest, hasData: true };
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = allegati.findIndex((a) => a.id === input);
-    if (idx === -1) throw new Error("Allegato non trovato");
-    allegati.splice(idx, 1);
-    _store.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = allegati.findIndex((a) => a.id === input);
+      if (idx === -1) throw new Error("Allegato non trovato");
+      // Uploader or direzione only — non-uploaders shouldn't be able to
+      // remove someone else's evidence.
+      const uid = ctx.user?.id ?? null;
+      if (
+        !isDirezione(ctx.user) &&
+        !(uid != null && allegati[idx].createdBy === uid)
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Solo chi ha caricato l'allegato (o la direzione) può rimuoverlo.",
+        });
+      }
+      allegati.splice(idx, 1);
+      _store.save();
+      return { success: true };
+    }),
 });

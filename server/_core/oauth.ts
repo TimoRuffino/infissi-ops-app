@@ -4,6 +4,11 @@ import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 
+// Cap browser-side session lifetime. ONE_YEAR_MS is kept on the upstream
+// token (for the underlying SDK) but the cookie we set is bound to 30 days
+// so a captured cookie can't be replayed for a full year.
+const OAUTH_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
   return typeof value === "string" ? value : undefined;
@@ -42,7 +47,7 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: OAUTH_COOKIE_MAX_AGE_MS });
 
       res.redirect(302, "/");
     } catch (error) {

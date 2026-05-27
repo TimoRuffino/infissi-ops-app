@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 let nextId = 1;
@@ -25,7 +25,7 @@ export const garanzieRouter = router({
       return result.sort((a, b) => a.dataScadenza.localeCompare(b.dataScadenza));
     }),
 
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         commessaId: z.number(),
@@ -59,7 +59,7 @@ export const garanzieRouter = router({
       return garanzia;
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(z.object({
       id: z.number(),
       tipo: z.enum(["prodotto", "posa", "accessorio", "vetro", "altro"]).optional(),
@@ -78,7 +78,7 @@ export const garanzieRouter = router({
       return garanzie[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
     const idx = garanzie.findIndex((g) => g.id === input);
     if (idx === -1) throw new Error("Garanzia non trovata");
     garanzie.splice(idx, 1);

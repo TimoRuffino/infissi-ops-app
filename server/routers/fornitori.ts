@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ export const fornitoriRouter = router({
     return fornitori.find((f) => f.id === input) ?? null;
   }),
 
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         ragioneSociale: z.string().min(1),
@@ -154,7 +154,7 @@ export const fornitoriRouter = router({
       return fornitore;
     }),
 
-  update: protectedProcedure
+  update: adminProcedure
     .input(
       z.object({
         id: z.number(),
@@ -180,7 +180,7 @@ export const fornitoriRouter = router({
       return fornitori[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
     const idx = fornitori.findIndex((f) => f.id === input);
     if (idx === -1) throw new Error("Fornitore non trovato");
     fornitori.splice(idx, 1);
@@ -234,7 +234,7 @@ export const fornitoriRouter = router({
       };
     }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(
         z.object({
           fornitoreId: z.number(),
@@ -283,7 +283,7 @@ export const fornitoriRouter = router({
         return ordine;
       }),
 
-    updateStato: protectedProcedure
+    updateStato: adminProcedure
       .input(
         z.object({
           id: z.number(),
@@ -322,7 +322,7 @@ export const fornitoriRouter = router({
         return ordini[idx];
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
       const idx = ordini.findIndex((o) => o.id === input);
       if (idx === -1) throw new Error("Ordine non trovato");
       ordini.splice(idx, 1);
@@ -341,7 +341,7 @@ export const fornitoriRouter = router({
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(z.object({
         fornitoreId: z.number(),
         nome: z.string().min(1),
@@ -362,7 +362,7 @@ export const fornitoriRouter = router({
         return listino;
       }),
 
-    delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
       const idx = listini.findIndex((l) => l.id === input);
       if (idx === -1) throw new Error("Listino non trovato");
       listini.splice(idx, 1);

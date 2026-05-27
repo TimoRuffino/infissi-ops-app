@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getCommessaById } from "./commesse";
+import { requireOwnershipOrDirezione } from "../_core/permissions";
 
 let nextId = 1;
 const _apertureStore = persistedStore<any>("aperture", (loaded) => {
@@ -80,11 +82,19 @@ export const apertureRouter = router({
       return aperture[idx];
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input }) => {
-    const idx = aperture.findIndex((a) => a.id === input);
-    if (idx === -1) throw new Error("Apertura non trovata");
-    aperture.splice(idx, 1);
-    _apertureStore.save();
-    return { success: true };
-  }),
+  delete: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      const idx = aperture.findIndex((a) => a.id === input);
+      if (idx === -1) throw new Error("Apertura non trovata");
+      // Ownership inherited from the parent commessa: only its owner or
+      // a direzione user can delete child aperture.
+      requireOwnershipOrDirezione(
+        getCommessaById(aperture[idx].commessaId),
+        ctx.user
+      );
+      aperture.splice(idx, 1);
+      _apertureStore.save();
+      return { success: true };
+    }),
 });
