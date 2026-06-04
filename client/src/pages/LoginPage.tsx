@@ -90,10 +90,10 @@ export default function LoginPage() {
               className="mx-auto h-12 drop-shadow-sm"
             />
             <div className="space-y-1">
-              <h1 className="text-2xl font-bold tracking-tight">Ruffino Ops</h1>
-              <p className="text-sm text-muted-foreground">
-                Gestionale infissi — accedi al tuo account
-              </p>
+              <h1 className="font-display text-3xl font-bold tracking-tight">
+                Ruffino Flow
+              </h1>
+              <p className="eyebrow !text-text-2">Gestionale commesse infissi</p>
             </div>
           </motion.div>
 

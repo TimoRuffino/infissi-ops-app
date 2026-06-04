@@ -198,12 +198,20 @@ function DashboardLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <img
                     src="/logo.svg"
-                    alt="Ruffino Group"
-                    className="h-7 brightness-0 invert"
+                    alt="Ruffino Flow"
+                    className="h-6 brightness-0 invert shrink-0"
                   />
+                  <div className="min-w-0 leading-none">
+                    <div className="font-display text-[15px] font-bold text-white truncate">
+                      Ruffino Flow
+                    </div>
+                    <div className="text-[10px] text-white/45 truncate">
+                      Gestionale commesse infissi
+                    </div>
+                  </div>
                   <div className="ml-auto">
                     <NotificheDropdown />
                   </div>
@@ -224,23 +232,26 @@ function DashboardLayoutContent({
                 const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                 return (
                   <SidebarMenuItem key={item.path} className="relative">
-                    {/* Shared layoutId lets framer animate the highlight
-                        when the active item changes. */}
+                    {/* Active voice (spec §3.1): bg white/8 + 3px primary left
+                        bar + white text. Framer animates the highlight as the
+                        active item changes. */}
                     {isActive && (
                       <motion.span
                         layoutId="sidebar-active-bg"
-                        className="absolute inset-0 -z-10 rounded-md bg-gradient-to-r from-primary/15 via-primary/8 to-transparent"
+                        className="absolute inset-0 -z-10 rounded-md bg-white/[0.08]"
                         transition={{ type: "spring", stiffness: 320, damping: 32 }}
-                      />
+                      >
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                      </motion.span>
                     )}
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal data-[active=true]:bg-transparent data-[active=true]:hover:bg-transparent`}
+                      className={`h-10 transition-all data-[active=true]:bg-transparent data-[active=true]:hover:bg-transparent ${isActive ? "font-semibold text-white" : "font-normal"}`}
                     >
                       <item.icon
-                        className={`h-4 w-4 transition-colors ${isActive ? "text-primary" : ""}`}
+                        className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
                       />
                       <span className="flex-1">{item.label}</span>
                       {item.badge && (

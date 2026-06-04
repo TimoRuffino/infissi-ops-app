@@ -42,41 +42,105 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Redesign tokens that generate Tailwind utilities (bg-*, text-*, border-*,
+   shadow-*, font-*). Literal values from the handoff spec §1. */
+@theme {
+  /* Brand + action */
+  --color-primary-hover: #2E49B8;
+  --color-primary-soft: #EAEEFC;
+  --color-ink: #0F1B2D;
+  --color-gold: #E0A422;            /* evidence accent, sparing use */
+
+  /* Warm neutrals */
+  --color-surface: #FFFFFF;
+  --color-surface-2: #FAFAF8;
+  --color-border-soft: #E6E4DF;
+  --color-border-strong: #D6D3CC;
+  --color-text-1: #16181D;
+  --color-text-2: #5C5F66;
+  --color-text-3: #9A9CA3;
+
+  /* Semantic + soft pairs */
+  --color-success: #15803D;
+  --color-success-soft: #E7F4EC;
+  --color-warning: #D97706;
+  --color-warning-soft: #FEF1E0;
+  --color-danger: #DC2626;
+  --color-danger-soft: #FDECEC;
+  --color-info: #3A5BDC;
+  --color-info-soft: #EAEEFC;
+
+  /* Commessa state palette (§2.1) */
+  --color-st-preventivo: #3A5BDC;
+  --color-st-preventivo-soft: #EAEEFC;
+  --color-st-misure: #7A5AF0;
+  --color-st-misure-soft: #EFEBFE;
+  --color-st-contratto: #C026D3;
+  --color-st-contratto-soft: #FAEAFB;
+  --color-st-ordine: #D97706;
+  --color-st-ordine-soft: #FEF1E0;
+  --color-st-produzione: #0E9384;
+  --color-st-produzione-soft: #E3F6F3;
+  --color-st-pagamento: #15803D;
+  --color-st-pagamento-soft: #E7F4EC;
+  --color-st-chiusura: #475467;
+  --color-st-chiusura-soft: #F1F3F5;
+
+  /* Fonts */
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Hanken Grotesk", "Inter", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Radii (§1.5) */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadows (§1.5) */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 12px 28px rgba(16, 24, 40, 0.12);
+}
+
 :root {
-  /* Ruffino Flow — Vivid, warm, professional */
-  --primary: oklch(0.55 0.2 260);          /* rich indigo */
-  --primary-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(0.55 0.2 260);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --chart-1: oklch(0.6 0.2 260);           /* indigo */
-  --chart-2: oklch(0.65 0.18 150);         /* teal */
-  --chart-3: oklch(0.7 0.16 50);           /* amber */
-  --chart-4: oklch(0.6 0.22 25);           /* coral */
-  --chart-5: oklch(0.6 0.18 310);          /* purple */
-  --radius: 0.5rem;
-  --background: oklch(0.985 0.002 260);    /* very faint blue-white */
-  --foreground: oklch(0.2 0.02 260);       /* deep blue-black */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.02 260);
-  --secondary: oklch(0.94 0.02 260);       /* soft blue-grey */
-  --secondary-foreground: oklch(0.3 0.04 260);
-  --muted: oklch(0.95 0.01 260);           /* whisper blue */
-  --muted-foreground: oklch(0.5 0.02 260);
-  --accent: oklch(0.65 0.18 150);          /* vivid teal */
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.55 0.22 25);      /* warm red */
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.91 0.01 260);          /* subtle blue border */
-  --input: oklch(0.91 0.01 260);
-  --ring: oklch(0.55 0.2 260);
-  --sidebar: oklch(0.25 0.06 260);         /* dark indigo sidebar */
-  --sidebar-foreground: oklch(0.92 0.01 260);
-  --sidebar-accent: oklch(0.32 0.08 260);  /* lighter indigo hover */
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(0.35 0.06 260);
-  --sidebar-ring: oklch(0.65 0.15 260);
+  /* Ruffino Flow — redesign tokens (handoff spec, definitive hex values) */
+  --primary: #3A5BDC;                /* azioni, link, nav attiva */
+  --primary-foreground: #FFFFFF;
+  --sidebar-primary: #3A5BDC;
+  --sidebar-primary-foreground: #FFFFFF;
+  /* Donut "commesse per stato" — mirror of the §2.1 state palette */
+  --chart-1: #3A5BDC;                /* preventivo */
+  --chart-2: #7A5AF0;                /* misure esecutive */
+  --chart-3: #C026D3;                /* aggiornamento contratto */
+  --chart-4: #D97706;                /* da ordinare */
+  --chart-5: #0E9384;                /* produzione */
+  --radius: 0.625rem;                /* 10px = --r-md */
+  --background: #F6F6F4;             /* app-bg (warm neutral) */
+  --foreground: #16181D;             /* text-1 */
+  --card: #FFFFFF;                   /* surface */
+  --card-foreground: #16181D;
+  --popover: #FFFFFF;
+  --popover-foreground: #16181D;
+  --secondary: #FAFAF8;             /* surface-2 */
+  --secondary-foreground: #16181D;
+  --muted: #FAFAF8;
+  --muted-foreground: #5C5F66;       /* text-2 */
+  /* shadcn `accent` = subtle hover surface (NOT the gold evidence accent) */
+  --accent: #F1F0EC;
+  --accent-foreground: #16181D;
+  --destructive: #DC2626;            /* danger */
+  --destructive-foreground: #FFFFFF;
+  --border: #E6E4DF;
+  --input: #E6E4DF;
+  --ring: #3A5BDC;
+  --sidebar: #0F1B2D;                /* ink */
+  --sidebar-foreground: rgba(255, 255, 255, 0.72);
+  --sidebar-accent: rgba(255, 255, 255, 0.08);  /* active/hover voice */
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(255, 255, 255, 0.10);
+  --sidebar-ring: #3A5BDC;
 }
 
 .dark {
@@ -120,12 +184,20 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
     font-optical-sizing: auto;
     text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
     font-size: 14px;
-    line-height: 1.6;
-    letter-spacing: -0.01em;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+  }
+  /* Tabular figures everywhere numbers carry meaning (KPI, tables, importi). */
+  .tabular-nums,
+  th,
+  td,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -141,6 +213,25 @@
 }
 
 @layer components {
+  /* Eyebrow / label — the ONLY place full uppercase is allowed (§1.4). */
+  .eyebrow {
+    font-size: 11px;
+    line-height: 14px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-3);
+  }
+
+  /* Mono codes — Geist Mono, slight tracking (§1.4). */
+  .codice-mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
   /**
    * Custom container utility that centers content and adds responsive padding.
    *
@@ -180,5 +271,17 @@
       padding-right: 2rem;
       max-width: 1280px; /* Standard content width */
     }
+  }
+}
+
+/* Respect reduced-motion (§1.6 / §6): kill transforms + animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
