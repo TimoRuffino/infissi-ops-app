@@ -1114,8 +1114,16 @@ export default function CommessaDetail() {
           </div>
 
           {documenti.data?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              Nessun documento caricato. Carica preventivi, contratti o foto.
+            <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <FileText className="h-9 w-9 text-text-3" />
+              <p className="text-[15px] font-semibold">Nessun documento</p>
+              <p className="text-sm text-text-2 max-w-xs">
+                Trascina qui preventivi, contratti o foto — oppure usa il
+                pulsante per caricare un file.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setUploadDialog(true)}>
+                <Upload className="h-3.5 w-3.5 mr-1" /> Carica file
+              </Button>
             </div>
           ) : (
             <div className="grid gap-2">

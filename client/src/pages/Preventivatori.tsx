@@ -162,17 +162,21 @@ export default function Preventivatori() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
             <Calculator className="h-6 w-6 text-primary" />
             Preventivatori
           </h1>
-          <p className="text-sm text-muted-foreground max-w-2xl">
+          <p className="text-sm text-text-2 max-w-2xl">
             Calcolatori di preventivo divisi per azienda e prodotto. Seleziona
             un'azienda per vedere i preventivatori disponibili, oppure filtra
             per tipo di prodotto.
           </p>
         </div>
-        <Button disabled className="gap-2" title="In arrivo">
+        <Button
+          disabled
+          className="gap-2"
+          title="Aggiunta di nuove aziende non ancora disponibile — in arrivo"
+        >
           <Plus className="h-4 w-4" />
           Nuova azienda
         </Button>
@@ -309,12 +313,12 @@ export default function Preventivatori() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{a.nome}</p>
-                          <div className="mt-0.5">
+                          <div className="mt-1">
                             {ready ? (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
+                              <Badge variant="success" className="gap-1">
                                 <CheckCircle2 className="h-3 w-3" />
                                 Pronto
-                              </span>
+                              </Badge>
                             ) : (
                               <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
                                 <Clock className="h-3 w-3" />
@@ -434,10 +438,10 @@ function AziendaCard({
                   <p className="text-sm font-medium truncate">{p.label}</p>
                   <div className="mt-1">
                     {ready ? (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
+                      <Badge variant="success" className="gap-1">
                         <CheckCircle2 className="h-3 w-3" />
                         Pronto
-                      </span>
+                      </Badge>
                     ) : (
                       <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
                         <Clock className="h-3 w-3" />

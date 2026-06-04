@@ -36,6 +36,7 @@ import {
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
 
 type ColonnaConfig = {
   id: string;
@@ -59,9 +60,9 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Vendita",
     description: "Dal preventivo alla conferma",
     colonne: [
-      { id: "preventivo",              label: "Preventivo",              short: "Preventivo",     dot: "bg-slate-500",  accent: "bg-slate-50",  ring: "border-slate-200" },
-      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",         dot: "bg-blue-500",   accent: "bg-blue-50",   ring: "border-blue-200" },
-      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto", dot: "bg-cyan-500",   accent: "bg-cyan-50",   ring: "border-cyan-200" },
+      { id: "preventivo",              label: "Preventivo",              short: "Preventivo",     dot: "bg-st-preventivo",  accent: "bg-slate-50",  ring: "border-slate-200" },
+      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",         dot: "bg-st-preventivo",  accent: "bg-blue-50",   ring: "border-blue-200" },
+      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto", dot: "bg-st-preventivo",  accent: "bg-cyan-50",   ring: "border-cyan-200" },
     ],
   },
   {
@@ -69,9 +70,9 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Ordine & Produzione",
     description: "Fatturazione, ordine, costruzione",
     colonne: [
-      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",        dot: "bg-amber-500",  accent: "bg-amber-50",  ring: "border-amber-200" },
-      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",    dot: "bg-yellow-500", accent: "bg-yellow-50", ring: "border-yellow-200" },
-      { id: "produzione",              label: "Produzione",              short: "Produzione",     dot: "bg-indigo-500", accent: "bg-indigo-50", ring: "border-indigo-200" },
+      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",        dot: "bg-st-ordine",  accent: "bg-amber-50",  ring: "border-amber-200" },
+      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",    dot: "bg-st-ordine", accent: "bg-yellow-50", ring: "border-yellow-200" },
+      { id: "produzione",              label: "Produzione",              short: "Produzione",     dot: "bg-st-ordine", accent: "bg-indigo-50", ring: "border-indigo-200" },
     ],
   },
   {
@@ -79,8 +80,8 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Consegna & Posa",
     description: "Secondo acconto, attesa, posa",
     colonne: [
-      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",   dot: "bg-purple-500", accent: "bg-purple-50", ring: "border-purple-200" },
-      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",    dot: "bg-orange-500", accent: "bg-orange-50", ring: "border-orange-200" },
+      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",   dot: "bg-st-produzione", accent: "bg-purple-50", ring: "border-purple-200" },
+      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",    dot: "bg-st-produzione", accent: "bg-orange-50", ring: "border-orange-200" },
     ],
   },
   {
@@ -88,21 +89,14 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Chiusura",
     description: "Saldo e interventi finali",
     colonne: [
-      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",       dot: "bg-green-500",  accent: "bg-green-50",  ring: "border-green-200" },
-      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",     dot: "bg-teal-500",   accent: "bg-teal-50",   ring: "border-teal-200" },
+      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",       dot: "bg-st-pagamento",  accent: "bg-green-50",  ring: "border-green-200" },
+      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",     dot: "bg-st-pagamento",   accent: "bg-teal-50",   ring: "border-teal-200" },
     ],
   },
 ];
 
 // Flat list derived from FASI — preserves stato order for prev/next navigation
 const COLONNE_FLAT: ReadonlyArray<ColonnaConfig> = FASI.flatMap((f) => f.colonne);
-
-const prioritaColors: Record<string, string> = {
-  urgente: "bg-red-100 text-red-800 border-red-200",
-  alta:    "bg-orange-100 text-orange-800 border-orange-200",
-  media:   "bg-slate-100 text-slate-700 border-slate-200",
-  bassa:   "bg-slate-50 text-slate-500 border-slate-200",
-};
 
 const prioritaOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, bassa: 3 };
 
@@ -214,8 +208,8 @@ export default function KanbanBoard() {
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <LayoutGrid className="h-6 w-6" />
+          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
+            <LayoutGrid className="h-6 w-6 text-primary" />
             Board Commesse
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -224,21 +218,21 @@ export default function KanbanBoard() {
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <Card className="px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attive</div>
-            <div className="text-xl font-bold leading-none mt-1">{totals.total}</div>
+          <Card className="px-3 py-2 gap-0">
+            <div className="eyebrow">Attive</div>
+            <div className="text-xl font-bold leading-none mt-1 tabular-nums">{totals.total}</div>
           </Card>
-          <Card className="px-3 py-2 border-red-200">
-            <div className="text-[10px] uppercase tracking-wide text-red-600">Urgenti</div>
-            <div className="text-xl font-bold leading-none mt-1 text-red-700">{totals.urgenti}</div>
+          <Card className="px-3 py-2 gap-0 border-danger/30">
+            <div className="eyebrow !text-danger">Urgenti</div>
+            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-danger">{totals.urgenti}</div>
           </Card>
-          <Card className="px-3 py-2 border-orange-200">
-            <div className="text-[10px] uppercase tracking-wide text-orange-600">Alte</div>
-            <div className="text-xl font-bold leading-none mt-1 text-orange-700">{totals.alte}</div>
+          <Card className="px-3 py-2 gap-0 border-warning/30">
+            <div className="eyebrow !text-warning">Alte</div>
+            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-warning">{totals.alte}</div>
           </Card>
-          <Card className="px-3 py-2 border-amber-200">
-            <div className="text-[10px] uppercase tracking-wide text-amber-600">Consegne da confermare</div>
-            <div className="text-xl font-bold leading-none mt-1 text-amber-700">{totals.inProduzione}</div>
+          <Card className="px-3 py-2 gap-0 border-warning/30">
+            <div className="eyebrow !text-warning">Consegne da confermare</div>
+            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-warning">{totals.inProduzione}</div>
           </Card>
         </div>
       </div>
@@ -404,12 +398,12 @@ export default function KanbanBoard() {
                                 >
                                   <CardContent className="p-2.5 space-y-1.5">
                                     <div className="flex items-center justify-between gap-2">
-                                      <span className="font-mono text-[10px] text-muted-foreground truncate">
+                                      <span className="codice-mono text-[10px] text-text-3 truncate">
                                         {c.codice}
                                       </span>
-                                      <Badge className={`text-[9px] px-1.5 py-0 border ${prioritaColors[c.priorita] ?? ""}`}>
-                                        {c.priorita === "urgente" && <AlertTriangle className="h-2 w-2 mr-0.5" />}
-                                        {c.priorita?.toUpperCase() ?? ""}
+                                      <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                                        {c.priorita === "urgente" && <AlertTriangle className="h-2.5 w-2.5" />}
+                                        {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                                       </Badge>
                                     </div>
 
@@ -480,7 +474,7 @@ export default function KanbanBoard() {
                                             handleMove(c.id, nextCol.id);
                                           }}
                                           title={`Avanza a ${nextCol.label}`}
-                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-emerald-600 bg-emerald-600 px-1.5 py-1 leading-tight text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.98]"
+                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-[#1E9E6A] bg-[#1E9E6A] px-1.5 py-1 leading-tight text-white shadow-sm transition-all hover:bg-[#18855a] hover:shadow-md active:scale-[0.98]"
                                         >
                                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
                                             Avanza
@@ -499,8 +493,8 @@ export default function KanbanBoard() {
                               );
                             })}
                             {items.length === 0 && (
-                              <p className="text-[11px] text-muted-foreground text-center py-6 italic">
-                                Nessuna commessa
+                              <p className="text-[11px] text-text-3 text-center py-6">
+                                Nessuna commessa in questa fase
                               </p>
                             )}
                           </div>
