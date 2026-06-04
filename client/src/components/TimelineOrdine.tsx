@@ -12,33 +12,26 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2,
-  Circle,
-  PlayCircle,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
+  Paperclip,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
 
-const statoIcons: Record<string, any> = {
-  da_fare: Circle,
-  in_corso: PlayCircle,
-  completato: CheckCircle2,
-};
+// The 19 PRD steps grouped under the 4 board phases (redesign §4.3).
+// Ranges are by stepNumber (1-based, inclusive).
+const FASI = [
+  { id: "vendita", label: "Vendita", dot: "bg-st-preventivo", from: 1, to: 5 },
+  { id: "ordine", label: "Ordine & Produzione", dot: "bg-st-ordine", from: 6, to: 10 },
+  { id: "consegna", label: "Consegna & Posa", dot: "bg-st-produzione", from: 11, to: 15 },
+  { id: "chiusura", label: "Chiusura", dot: "bg-st-pagamento", from: 16, to: 19 },
+] as const;
 
-const statoColors: Record<string, string> = {
-  da_fare: "text-slate-300",
-  in_corso: "text-blue-500",
-  completato: "text-emerald-600",
-};
-
-const statoDotBg: Record<string, string> = {
-  da_fare: "bg-slate-200 text-slate-500 border-slate-300",
-  in_corso: "bg-blue-500 text-white border-blue-600",
-  completato: "bg-emerald-500 text-white border-emerald-600",
-};
+function faseOf(stepNumber: number) {
+  return FASI.find((f) => stepNumber >= f.from && stepNumber <= f.to) ?? FASI[3];
+}
 
 export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
   const steps = trpc.timeline.byCommessa.useQuery(commessaId);
@@ -55,7 +48,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
   const [editOpen, setEditOpen] = useState(false);
   const [editStep, setEditStep] = useState<any>(null);
   const [editForm, setEditForm] = useState({ utente: "", note: "" });
-  const [expanded, setExpanded] = useState(false);
+  const [openFasi, setOpenFasi] = useState<Record<string, boolean>>({});
 
   // Current step: first non-completed; highlighted in hero row.
   const currentStep = useMemo(() => {
@@ -119,20 +112,24 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
   const done = stats.data?.completati ?? 0;
   const total = stats.data?.totale ?? steps.data?.length ?? 19;
 
+  // Auto-open the phase that contains the current step (others collapsed).
+  const currentFaseId = currentStep ? faseOf(currentStep.stepNumber).id : null;
+  useEffect(() => {
+    if (currentFaseId) setOpenFasi((m) => ({ ...m, [currentFaseId]: true }));
+  }, [currentFaseId]);
+
   return (
     <Card className="overflow-hidden">
-      <CardContent className="p-3 space-y-3">
-        {/* Compact header: title + progress inline */}
+      <CardContent className="p-4 space-y-3">
+        {/* Header: title + progress */}
         <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <Sparkles className="h-3.5 w-3.5" />
+          <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Sparkles className="h-4 w-4" />
           </div>
           <div className="min-w-0 shrink-0">
-            <h3 className="text-sm font-semibold leading-tight">
-              Timeline ordine
-            </h3>
-            <p className="text-[11px] text-muted-foreground leading-tight">
-              {done}/{total} step
+            <h3 className="text-[15px] font-semibold leading-tight">Timeline ordine</h3>
+            <p className="text-xs text-text-2 leading-tight tabular-nums">
+              {done}/{total} step completati
             </p>
           </div>
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -143,157 +140,114 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
           </div>
         </div>
 
-        {/* Current step callout — compact row */}
-        {currentStep && (
-          <div className="flex items-center gap-2.5 rounded-md border border-blue-200 bg-blue-50/70 px-2.5 py-1.5">
-            <div
-              className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                statoDotBg[currentStep.stato]
-              }`}
-            >
-              {currentStep.stepNumber}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold leading-tight">
-                {currentStep.stato === "in_corso" ? "In corso" : "Prossimo"}
-              </p>
-              <p className="text-[13px] font-medium truncate leading-tight">
-                {currentStep.label}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              className="h-7 text-xs shrink-0"
-              onClick={() => handleQuickAdvance(currentStep)}
-              disabled={updateStep.isPending}
-            >
-              {currentStep.stato === "da_fare" ? "Avvia" : "Completa"}
-              <ChevronRight className="h-3 w-3 ml-0.5" />
-            </Button>
-          </div>
-        )}
+        {/* Phase sections — collapsible */}
+        <div className="space-y-1.5">
+          {FASI.map((fase) => {
+            const fSteps = (steps.data ?? []).filter(
+              (s: any) => s.stepNumber >= fase.from && s.stepNumber <= fase.to
+            );
+            if (fSteps.length === 0) return null;
+            const fDone = fSteps.filter((s: any) => s.stato === "completato").length;
+            const open = !!openFasi[fase.id];
+            return (
+              <div key={fase.id} className="rounded-md border border-border">
+                <button
+                  type="button"
+                  onClick={() => setOpenFasi((m) => ({ ...m, [fase.id]: !m[fase.id] }))}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-2 transition-colors rounded-md"
+                >
+                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${fase.dot}`} />
+                  <span className="text-sm font-semibold flex-1 text-left">
+                    {fase.label}
+                  </span>
+                  <span className="text-xs text-text-2 tabular-nums">
+                    {fDone}/{fSteps.length}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 text-text-3 transition-transform ${
+                      open ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
 
-        {/* Horizontal mini-stepper — compact dots */}
-        <div className="overflow-x-auto -mx-3 px-3">
-          <div className="flex items-center gap-0.5 min-w-max pb-0.5">
-            {steps.data?.map((step: any, i: number) => {
-              const isCurrent = currentStep?.id === step.id;
-              return (
-                <div key={step.id} className="flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(step)}
-                    title={`${step.stepNumber}. ${step.label}`}
-                    className={`h-6 w-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold transition-all hover:scale-110 ${
-                      statoDotBg[step.stato]
-                    } ${isCurrent ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}
-                  >
-                    {step.stato === "completato" ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : (
-                      step.stepNumber
-                    )}
-                  </button>
-                  {i < (steps.data?.length ?? 0) - 1 && (
-                    <div
-                      className={`h-0.5 w-3 ${
-                        step.stato === "completato"
-                          ? "bg-emerald-400"
-                          : "bg-slate-200"
-                      }`}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Expandable full list */}
-        <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-center text-muted-foreground h-6 text-xs"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? (
-              <>
-                <ChevronUp className="h-3 w-3 mr-1" />
-                Nascondi dettagli
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-3 w-3 mr-1" />
-                Tutti gli step
-              </>
-            )}
-          </Button>
-
-          {expanded && (
-            <div className="relative pl-5 mt-2">
-              <div className="absolute left-[9px] top-1.5 bottom-1.5 w-0.5 bg-border" />
-
-              {steps.data?.map((step: any) => {
-                const Icon = statoIcons[step.stato] ?? Circle;
-                const color = statoColors[step.stato] ?? "";
-
-                return (
-                  <div
-                    key={step.id}
-                    className="relative flex items-start gap-2 pb-2.5 last:pb-0"
-                  >
-                    <div className="absolute -left-5 mt-0">
-                      <Icon
-                        className={`h-[18px] w-[18px] ${color} bg-background rounded-full`}
-                      />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-mono text-muted-foreground">
-                          {step.stepNumber}.
-                        </span>
-                        <span
-                          className={`text-xs font-medium ${
-                            step.stato === "completato"
-                              ? "line-through text-muted-foreground"
-                              : ""
-                          }`}
+                {open && (
+                  <div className="relative px-3 pb-2.5 pt-1">
+                    {fSteps.map((step: any) => {
+                      const isCurrent = currentStep?.id === step.id;
+                      const completed = step.stato === "completato";
+                      const future = !completed && !isCurrent;
+                      const hasAllegato = /allegato|foto/i.test(step.label ?? "");
+                      return (
+                        <div
+                          key={step.id}
+                          className="flex items-start gap-2.5 py-1.5"
                         >
-                          {step.label}
-                        </span>
-                      </div>
-                      {step.stato === "completato" && (
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                          {step.dataCompletamento && (
-                            <span>{step.dataCompletamento}</span>
-                          )}
-                          {step.utente && <span>— {step.utente}</span>}
-                          {step.note && (
-                            <span className="italic truncate max-w-[200px]">
-                              {step.note}
-                            </span>
+                          {/* Dot: completed=check success, current=primary ring,
+                              future=border-strong. */}
+                          <span
+                            className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${
+                              completed
+                                ? "bg-success border-success text-white"
+                                : isCurrent
+                                ? "border-primary text-primary ring-2 ring-primary/20"
+                                : "border-border-strong text-text-3"
+                            }`}
+                          >
+                            {completed ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            ) : (
+                              step.stepNumber
+                            )}
+                          </span>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-[13px] ${
+                                  completed
+                                    ? "text-text-2"
+                                    : isCurrent
+                                    ? "font-semibold text-text-1"
+                                    : "text-text-2"
+                                }`}
+                              >
+                                {step.label}
+                              </span>
+                              {hasAllegato && (
+                                <Paperclip className="h-3 w-3 text-text-3 shrink-0" />
+                              )}
+                            </div>
+                            {completed && (step.dataCompletamento || step.utente) && (
+                              <div className="text-[11px] text-text-3 mt-0.5">
+                                {step.dataCompletamento}
+                                {step.utente ? ` · ${step.utente}` : ""}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Action: current → Avvia/Completa; future → disabled. */}
+                          {!completed && (
+                            <Button
+                              variant={isCurrent ? "default" : "ghost"}
+                              size="sm"
+                              className="h-7 text-xs shrink-0"
+                              disabled={future || updateStep.isPending}
+                              onClick={() => handleQuickAdvance(step)}
+                            >
+                              {step.stato === "da_fare" && isCurrent
+                                ? "Avvia"
+                                : "Completa"}
+                              {isCurrent && <ChevronRight className="h-3 w-3 ml-0.5" />}
+                            </Button>
                           )}
                         </div>
-                      )}
-                    </div>
-
-                    {step.stato !== "completato" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-[11px] h-6 px-2 shrink-0"
-                        onClick={() => handleQuickAdvance(step)}
-                      >
-                        {step.stato === "da_fare" ? "Avvia" : "Completa"}
-                      </Button>
-                    )}
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                )}
+              </div>
+            );
+          })}
         </div>
       </CardContent>
 

@@ -45,13 +45,24 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
+  MoreHorizontal,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
+import StatoChip from "@/components/StatoChip";
+import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const tipoDocColors: Record<string, string> = {
   preventivo: "bg-blue-100 text-blue-800",
@@ -128,6 +139,8 @@ export default function CommessaDetail() {
     stato: string;
     message: string;
   } | null>(null);
+  // §3.6 hard-delete dialog (separate so it can require typing the code).
+  const [confirmDeleteCommessa, setConfirmDeleteCommessa] = useState(false);
   const [interventoDialog, setInterventoDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
   const [consegnaDialog, setConsegnaDialog] = useState(false);
@@ -697,28 +710,72 @@ export default function CommessaDetail() {
         </Button>
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-mono text-xs text-muted-foreground">
-                {c.codice}
-              </span>
-              <Badge variant="secondary" className="text-xs uppercase">
-                {c.stato.replace(/_/g, " ")}
-              </Badge>
-              {c.priorita === "urgente" && (
-                <Badge variant="destructive" className="text-xs">
-                  URGENTE
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span className="codice-mono text-text-2">{c.codice}</span>
+              <StatoChip stato={c.stato} />
+              {(c.priorita === "urgente" || c.priorita === "alta") && (
+                <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                  {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                 </Badge>
               )}
               {c.archivedAt && (
-                <Badge className="text-xs uppercase bg-zinc-700 hover:bg-zinc-700 gap-1">
+                <Badge variant="secondary" className="gap-1">
                   <Archive className="h-3 w-3" />
                   Archiviata
                 </Badge>
               )}
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">{c.cliente}</h1>
+            <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
+              {c.cliente}
+            </h1>
           </div>
-          <div className="flex gap-1.5 shrink-0">
+          <div className="flex gap-1.5 shrink-0 items-center">
+            {/* Single primary action: Avanza a: <stato successivo> (§4.3) */}
+            {!c.archivedAt && c.stato !== "archiviata" && (() => {
+              const next: Record<string, string> = {
+                preventivo: "misure_esecutive", misure_esecutive: "aggiornamento_contratto",
+                aggiornamento_contratto: "fatture_pagamento", fatture_pagamento: "da_ordinare",
+                da_ordinare: "produzione", produzione: "ordini_ultimazione",
+                ordini_ultimazione: "attesa_posa", attesa_posa: "finiture_saldo",
+                finiture_saldo: "interventi_regolazioni", interventi_regolazioni: "archiviata",
+              };
+              const nextStato = next[c.stato];
+              const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
+              return nextStato ? (
+                <Button
+                  onClick={() => {
+                    if (gateBlocked && statoGate.data) {
+                      const missing = statoGate.data.required
+                        .filter((r) => !r.satisfied)
+                        .map((r) => r.label)
+                        .join(" o ");
+                      setForceAdvanceTarget({
+                        stato: nextStato,
+                        message: `Non è stato caricato il file "${missing}" per lo stato "${statoLabel(c.stato)}". Procedere comunque?`,
+                      });
+                    } else {
+                      updateCommessa.mutate({ id: commessaId, stato: nextStato as any });
+                    }
+                  }}
+                  disabled={updateCommessa.isPending}
+                  title={
+                    gateBlocked
+                      ? `Manca il file ${(statoGate.data?.required ?? [])
+                          .filter((r) => !r.satisfied)
+                          .map((r) => r.label)
+                          .join(" o ")} — chiederà conferma`
+                      : undefined
+                  }
+                >
+                  Avanza a: {statoLabel(nextStato)}
+                  <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                </Button>
+              ) : null;
+            })()}
+            <Button variant="outline" size="sm" onClick={openEdit}>
+              <Pencil className="h-3.5 w-3.5 mr-1" />
+              Modifica
+            </Button>
             {c.clienteId ? (
               <Button
                 variant="outline"
@@ -738,56 +795,6 @@ export default function CommessaDetail() {
                 Nuovo cliente
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={openEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Modifica
-            </Button>
-            {!c.archivedAt && c.stato !== "archiviata" && (() => {
-              const next: Record<string, string> = {
-                preventivo: "misure_esecutive", misure_esecutive: "aggiornamento_contratto",
-                aggiornamento_contratto: "fatture_pagamento", fatture_pagamento: "da_ordinare",
-                da_ordinare: "produzione", produzione: "ordini_ultimazione",
-                ordini_ultimazione: "attesa_posa", attesa_posa: "finiture_saldo",
-                finiture_saldo: "interventi_regolazioni", interventi_regolazioni: "archiviata",
-              };
-              const nextStato = next[c.stato];
-              const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
-              // Gate is NOT a hard block anymore: clicking "Avanza" when a
-              // required file is missing surfaces a confirmation dialog where
-              // the operator can proceed without uploading. We keep the title
-              // attribute so hovering still explains which file is missing.
-              return nextStato ? (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (gateBlocked && statoGate.data) {
-                      const missing = statoGate.data.required
-                        .filter((r) => !r.satisfied)
-                        .map((r) => r.label)
-                        .join(" o ");
-                      setForceAdvanceTarget({
-                        stato: nextStato,
-                        message: `Non è stato caricato il file "${missing}" per lo stato "${c.stato.replace(/_/g, " ")}". Procedere comunque?`,
-                      });
-                    } else {
-                      updateCommessa.mutate({ id: commessaId, stato: nextStato as any });
-                    }
-                  }}
-                  disabled={updateCommessa.isPending}
-                  title={
-                    gateBlocked
-                      ? `Manca il file ${(statoGate.data?.required ?? [])
-                          .filter((r) => !r.satisfied)
-                          .map((r) => r.label)
-                          .join(" o ")} — chiederà conferma`
-                      : undefined
-                  }
-                >
-                  <ChevronRight className="h-3.5 w-3.5 mr-1" />
-                  {nextStato.replace(/_/g, " ")}
-                </Button>
-              ) : null;
-            })()}
             {c.archivedAt ? (
               <Button
                 variant="outline"
@@ -800,31 +807,35 @@ export default function CommessaDetail() {
                 Ripristina
               </Button>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setDeleteTarget({
-                    type: "archive-commessa",
-                    id: commessaId,
-                    label: c.codice,
-                  })
-                }
-                disabled={archiveCommessa.isPending}
-                title="Archivia commessa — nasconde da liste e board, dati preservati"
-              >
-                <Archive className="h-3.5 w-3.5 mr-1" />
-                Archivia
-              </Button>
+              /* Archivia + Elimina live in the ••• menu (§3.6) */
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="text-text-3">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setDeleteTarget({
+                        type: "archive-commessa",
+                        id: commessaId,
+                        label: c.codice,
+                      })
+                    }
+                  >
+                    <Archive className="h-4 w-4" /> Archivia
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-danger focus:text-danger"
+                    onClick={() => setConfirmDeleteCommessa(true)}
+                  >
+                    <Trash2 className="h-4 w-4" /> Elimina
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 hover:bg-red-50"
-              onClick={() => setDeleteTarget({ type: "commessa", id: commessaId, label: c.codice })}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
           </div>
         </div>
 
@@ -867,18 +878,18 @@ export default function CommessaDetail() {
           })()}
           {c.dataConsegnaConfermata ? (
             <span className="flex items-center gap-1 font-medium text-foreground">
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-              Data consegna prevista: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              Consegna prevista · {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
             </span>
           ) : c.dataConsegnaIndicativa ? (
             <span className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              Consegna indicativa: {new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")}
+              Consegna stimata · {new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")}
             </span>
           ) : c.consegnaIndicativa ? (
             <span className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              Consegna indicativa: +{c.consegnaIndicativa} giorni
+              Consegna stimata · ~{c.consegnaIndicativa} giorni
             </span>
           ) : null}
         </div>
@@ -911,32 +922,38 @@ export default function CommessaDetail() {
 
         {/* File gate banner: shows required doc tipi for current stato and
             blocks forward transitions until at least one is uploaded. */}
-        {statoGate.data && statoGate.data.required.length > 0 && (
+        {statoGate.data && statoGate.data.required.length > 0 && (() => {
+          const missingCount = statoGate.data.required.filter((r) => !r.satisfied).length;
+          const missingNames = statoGate.data.required
+            .filter((r) => !r.satisfied)
+            .map((r) => r.label)
+            .join(" e ");
+          return (
           <Card
             className={
               statoGate.data.canAdvance
-                ? "mt-4 border-emerald-300 bg-emerald-50/50"
-                : "mt-4 border-amber-300 bg-amber-50/50"
+                ? "mt-4 border-success/40 bg-success-soft"
+                : "mt-4 border-warning/40 bg-warning-soft"
             }
           >
             <CardContent className="p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   {statoGate.data.canAdvance ? (
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
                   ) : (
-                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
                   )}
                   <div>
                     <p className="text-sm font-semibold">
                       {statoGate.data.canAdvance
                         ? "Documenti richiesti caricati"
-                        : "Documenti richiesti mancanti"}
+                        : `Manca${missingCount === 1 ? "" : "no"} ${missingCount} document${missingCount === 1 ? "o" : "i"}`}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-text-2">
                       {statoGate.data.canAdvance
                         ? "Puoi avanzare la commessa allo stato successivo."
-                        : "Puoi avanzare comunque: ti verrà chiesta conferma."}
+                        : `Serv${missingCount === 1 ? "e" : "ono"} ${missingNames}. Puoi procedere lo stesso — ti chiederemo conferma.`}
                     </p>
                   </div>
                 </div>
@@ -978,7 +995,8 @@ export default function CommessaDetail() {
               </div>
             </CardContent>
           </Card>
-        )}
+          );
+        })()}
       </div>
 
       {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
@@ -1721,6 +1739,16 @@ export default function CommessaDetail() {
           else if (deleteTarget.type === "archive-commessa") archiveCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "prodotto") removeProdotto.mutate({ commessaId, prodottoId: deleteTarget.id });
         }}
+      />
+
+      {/* Hard-delete of the commessa (§3.6) — requires typing the code when
+          the commessa is past produzione. */}
+      <DeleteCommessaDialog
+        open={confirmDeleteCommessa}
+        onOpenChange={setConfirmDeleteCommessa}
+        codice={c.codice}
+        stato={c.stato}
+        onConfirm={() => deleteCommessa.mutate(commessaId)}
       />
 
       {/* Force advance confirmation — fires when the operator tries to move
