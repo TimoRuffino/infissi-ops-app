@@ -19,6 +19,9 @@ let nextId = 1;
 
 const _store = persistedStore<any>("tickets", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+  for (const t of items) {
+    if ((t as any).sedeId === undefined) (t as any).sedeId = 1;
+  }
 });
 const tickets = _store.items;
 
@@ -28,8 +31,8 @@ export const ticketRouter = router({
       commessaId: z.number().optional(),
       stato: z.string().optional(),
     }).optional())
-    .query(({ input }) => {
-      let result = [...tickets];
+    .query(({ input, ctx }) => {
+      let result = tickets.filter((t) => t.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((t) => t.commessaId === input.commessaId);
       if (input?.stato) result = result.filter((t) => t.stato === input.stato);
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -44,11 +47,12 @@ export const ticketRouter = router({
       categoria: z.enum(["difetto_prodotto", "difetto_posa", "regolazione", "sostituzione", "garanzia", "altro"]),
       priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const t = {
         id: nextId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         aperturaId: input.aperturaId ?? null,
         priorita: input.priorita ?? "media",
         stato: "aperto" as const,
@@ -139,11 +143,12 @@ export const ticketRouter = router({
       return tickets[idx];
     }),
 
-  stats: protectedProcedure.query(() => {
-    const aperti = tickets.filter((t) => t.stato === "aperto").length;
-    const assegnati = tickets.filter((t) => t.stato === "assegnato").length;
-    const inLavorazione = tickets.filter((t) => t.stato === "in_lavorazione").length;
-    const risolti = tickets.filter((t) => t.stato === "risolto" || t.stato === "chiuso").length;
-    return { aperti, assegnati, inLavorazione, risolti, totale: tickets.length };
+  stats: protectedProcedure.query(({ ctx }) => {
+    const scoped = tickets.filter((t) => t.sedeId === ctx.sedeId);
+    const aperti = scoped.filter((t) => t.stato === "aperto").length;
+    const assegnati = scoped.filter((t) => t.stato === "assegnato").length;
+    const inLavorazione = scoped.filter((t) => t.stato === "in_lavorazione").length;
+    const risolti = scoped.filter((t) => t.stato === "risolto" || t.stato === "chiuso").length;
+    return { aperti, assegnati, inLavorazione, risolti, totale: scoped.length };
   }),
 });

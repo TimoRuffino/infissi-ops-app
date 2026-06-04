@@ -9,6 +9,9 @@ import { requireOwnershipOrDirezione } from "../_core/permissions";
 let nextReclamoId = 1;
 const _reclamiStore = persistedStore<any>("reclami", (loaded) => {
   nextReclamoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const r of loaded) {
+    if ((r as any).sedeId === undefined) (r as any).sedeId = 1;
+  }
 });
 const reclami = _reclamiStore.items;
 
@@ -17,6 +20,9 @@ const reclami = _reclamiStore.items;
 let nextRifacimentoId = 1;
 const _rifacimentiStore = persistedStore<any>("rifacimenti", (loaded) => {
   nextRifacimentoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const r of loaded) {
+    if ((r as any).sedeId === undefined) (r as any).sedeId = 1;
+  }
 });
 const rifacimenti = _rifacimentiStore.items;
 
@@ -29,8 +35,8 @@ export const reclamiRifacimentiRouter = router({
         commessaId: z.number().optional(),
         stato: z.string().optional(),
       }).optional())
-      .query(({ input }) => {
-        let result = [...reclami];
+      .query(({ input, ctx }) => {
+        let result = reclami.filter((r) => r.sedeId === ctx.sedeId);
         if (input?.commessaId) result = result.filter((r) => r.commessaId === input.commessaId);
         if (input?.stato) result = result.filter((r) => r.stato === input.stato);
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -43,11 +49,12 @@ export const reclamiRifacimentiRouter = router({
         descrizione: z.string().min(1),
         responsabile: z.string().optional(),
       }))
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const now = new Date();
         const reclamo = {
           id: nextReclamoId++,
           ...input,
+          sedeId: ctx.sedeId ?? 1,
           responsabile: input.responsabile ?? null,
           stato: "aperto" as const,
           dataApertura: now.toISOString().split("T")[0],
@@ -96,12 +103,13 @@ export const reclamiRifacimentiRouter = router({
         return { success: true };
       }),
 
-    stats: protectedProcedure.query(() => {
-      const aperti = reclami.filter((r) => r.stato === "aperto").length;
-      const inGestione = reclami.filter((r) => r.stato === "in_gestione").length;
-      const risolti = reclami.filter((r) => r.stato === "risolto").length;
-      const chiusi = reclami.filter((r) => r.stato === "chiuso").length;
-      return { aperti, inGestione, risolti, chiusi, totale: reclami.length };
+    stats: protectedProcedure.query(({ ctx }) => {
+      const scoped = reclami.filter((r) => r.sedeId === ctx.sedeId);
+      const aperti = scoped.filter((r) => r.stato === "aperto").length;
+      const inGestione = scoped.filter((r) => r.stato === "in_gestione").length;
+      const risolti = scoped.filter((r) => r.stato === "risolto").length;
+      const chiusi = scoped.filter((r) => r.stato === "chiuso").length;
+      return { aperti, inGestione, risolti, chiusi, totale: scoped.length };
     }),
   }),
 
@@ -112,8 +120,8 @@ export const reclamiRifacimentiRouter = router({
         stato: z.string().optional(),
         responsabilita: z.enum(["interna", "esterna"]).optional(),
       }).optional())
-      .query(({ input }) => {
-        let result = [...rifacimenti];
+      .query(({ input, ctx }) => {
+        let result = rifacimenti.filter((r) => r.sedeId === ctx.sedeId);
         if (input?.commessaId) result = result.filter((r) => r.commessaId === input.commessaId);
         if (input?.stato) result = result.filter((r) => r.stato === input.stato);
         if (input?.responsabilita) result = result.filter((r) => r.responsabilita === input.responsabilita);
@@ -132,11 +140,12 @@ export const reclamiRifacimentiRouter = router({
         responsabilita: z.enum(["interna", "esterna"]),
         responsabile: z.string().optional(),
       }))
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const now = new Date();
         const rifacimento = {
           id: nextRifacimentoId++,
           ...input,
+          sedeId: ctx.sedeId ?? 1,
           fornitoreCoinvolto: input.fornitoreCoinvolto ?? null,
           ordineRifacimentoId: input.ordineRifacimentoId ?? null,
           costoStimato: input.costoStimato ?? null,
@@ -191,18 +200,19 @@ export const reclamiRifacimentiRouter = router({
         return { success: true };
       }),
 
-    stats: protectedProcedure.query(() => {
-      const aperti = rifacimenti.filter((r) => r.stato === "aperto").length;
-      const inGestione = rifacimenti.filter((r) => r.stato === "in_gestione").length;
-      const inProduzione = rifacimenti.filter((r) => r.stato === "in_produzione").length;
-      const completati = rifacimenti.filter((r) => r.stato === "completato").length;
-      const chiusi = rifacimenti.filter((r) => r.stato === "chiuso").length;
-      const costoTotaleStimato = rifacimenti
+    stats: protectedProcedure.query(({ ctx }) => {
+      const scoped = rifacimenti.filter((r) => r.sedeId === ctx.sedeId);
+      const aperti = scoped.filter((r) => r.stato === "aperto").length;
+      const inGestione = scoped.filter((r) => r.stato === "in_gestione").length;
+      const inProduzione = scoped.filter((r) => r.stato === "in_produzione").length;
+      const completati = scoped.filter((r) => r.stato === "completato").length;
+      const chiusi = scoped.filter((r) => r.stato === "chiuso").length;
+      const costoTotaleStimato = scoped
         .filter((r) => r.costoStimato !== null)
         .reduce((sum: number, r: any) => sum + r.costoStimato, 0);
-      const interni = rifacimenti.filter((r) => r.responsabilita === "interna").length;
-      const esterni = rifacimenti.filter((r) => r.responsabilita === "esterna").length;
-      return { aperti, inGestione, inProduzione, completati, chiusi, costoTotaleStimato, interni, esterni, totale: rifacimenti.length };
+      const interni = scoped.filter((r) => r.responsabilita === "interna").length;
+      const esterni = scoped.filter((r) => r.responsabilita === "esterna").length;
+      return { aperti, inGestione, inProduzione, completati, chiusi, costoTotaleStimato, interni, esterni, totale: scoped.length };
     }),
   }),
 });

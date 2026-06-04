@@ -20,6 +20,7 @@ import { reclamiRifacimentiRouter } from "./routers/reclamiRifacimenti";
 import { utentiRouter, getUtentiStore } from "./routers/utenti";
 import { preventiviContrattiRouter } from "./routers/preventiviContratti";
 import { notificheRouter } from "./routers/notifiche";
+import { sediRouter } from "./routers/sedi";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -157,6 +158,7 @@ export const appRouter = router({
   utenti: utentiRouter,
   preventiviContratti: preventiviContrattiRouter,
   notifiche: notificheRouter,
+  sedi: sediRouter,
 });
 
 export type AppRouter = typeof appRouter;

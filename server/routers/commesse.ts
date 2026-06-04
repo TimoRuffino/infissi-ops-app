@@ -80,6 +80,8 @@ const _store = persistedStore<any>("commesse", (items) => {
     if ((c as any).archivedAt === undefined) {
       (c as any).archivedAt = null;
     }
+    // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
+    if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
   }
 });
 const commesse = _store.items;
@@ -191,8 +193,8 @@ export const commesseRouter = router({
         archived: z.enum(["exclude", "only", "all"]).optional(),
       }).optional()
     )
-    .query(({ input }) => {
-      let result = [...commesse];
+    .query(({ input, ctx }) => {
+      let result = commesse.filter((c) => c.sedeId === ctx.sedeId);
       const scope = input?.archived ?? "exclude";
       if (scope === "exclude") {
         result = result.filter((c) => !c.archivedAt);
@@ -271,6 +273,8 @@ export const commesseRouter = router({
 
       const commessa = {
         id,
+        // Stamp the active sede so the commessa belongs to the current showroom.
+        sedeId: ctx.sedeId ?? 1,
         codice: generaCodiceCommessa(),
         clienteId: inputClienteId ?? null,
         cliente: clienteDisplay,
@@ -513,10 +517,13 @@ export const commesseRouter = router({
       return { success: true };
     }),
 
-  stats: protectedProcedure.query(() => {
+  stats: protectedProcedure.query(({ ctx }) => {
     // Archived commesse (soft-archive) are excluded from every aggregation so
     // dashboard counters don't pollute with jobs the client declined.
-    const active = commesse.filter((c) => !c.archivedAt);
+    // Also scoped to the active sede.
+    const active = commesse.filter(
+      (c) => !c.archivedAt && c.sedeId === ctx.sedeId
+    );
     const total = active.length;
     const preventivi = active.filter((c) => c.stato === "preventivo").length;
     const inCorso = active.filter((c) =>
@@ -530,9 +537,10 @@ export const commesseRouter = router({
   }),
 
   // Aggregated by priority for dashboard card
-  byPriorita: protectedProcedure.query(() => {
+  byPriorita: protectedProcedure.query(({ ctx }) => {
     const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
     for (const c of commesse) {
+      if (c.sedeId !== ctx.sedeId) continue;
       if (c.archivedAt) continue;
       if (c.stato === "archiviata") continue;
       if (buckets[c.priorita]) buckets[c.priorita].push(c);
@@ -550,7 +558,7 @@ export const commesseRouter = router({
   // onwards (preventivo excluded — not yet a real job) up to and including
   // "interventi_regolazioni"; "archiviata" stato and soft-archived commesse
   // are excluded.
-  classificaVenditori: protectedProcedure.query(() => {
+  classificaVenditori: protectedProcedure.query(({ ctx }) => {
     const utenti = getUtentiStore();
     // Stati that count: from misure_esecutive .. interventi_regolazioni.
     // Listed explicitly (instead of slicing STATI_COMMESSA by index) so a
@@ -566,12 +574,18 @@ export const commesseRouter = router({
       "finiture_saldo",
       "interventi_regolazioni",
     ]);
+    // Only commerciali assegnati alla sede corrente entrano in classifica.
     const venditori = utenti.filter(
-      (u: any) => Array.isArray(u.ruoli) && u.ruoli.includes("commerciale") && u.attivo
+      (u: any) =>
+        Array.isArray(u.ruoli) &&
+        u.ruoli.includes("commerciale") &&
+        u.attivo &&
+        (Array.isArray(u.sediIds) ? u.sediIds.includes(ctx.sedeId) : true)
     );
     const rows = venditori.map((u: any) => {
       const count = commesse.filter(
         (c) =>
+          c.sedeId === ctx.sedeId &&
           !c.archivedAt &&
           c.assegnatoA === u.id &&
           counted.has(c.stato as any)

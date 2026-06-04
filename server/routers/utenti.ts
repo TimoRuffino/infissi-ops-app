@@ -58,6 +58,8 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
       items.push({
         ...seed,
         password: hashPassword(seed.password),
+        // Every seeded user starts on the default sede (La Spezia).
+        sediIds: [1],
         createdAt: now,
         updatedAt: now,
       });
@@ -71,6 +73,11 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
   for (const u of items) {
     if (u.password && !isHashed(u.password)) {
       u.password = hashPassword(u.password);
+      migrated = true;
+    }
+    // Backfill sede assignment for legacy users → default sede (id 1).
+    if (!Array.isArray((u as any).sediIds) || (u as any).sediIds.length === 0) {
+      (u as any).sediIds = [1];
       migrated = true;
     }
   }
@@ -127,6 +134,8 @@ export const utentiRouter = router({
         email: z.string().email(),
         telefono: z.string().optional(),
         ruoli: ruoliSchema,
+        // Sedi (showroom) assigned to the user. Defaults to the default sede.
+        sediIds: z.array(z.number()).optional(),
         password: z.string().min(8, "La password deve avere almeno 8 caratteri"),
         attivo: z.boolean().optional(),
       })
@@ -142,6 +151,7 @@ export const utentiRouter = router({
         id,
         ...input,
         telefono: input.telefono ?? null,
+        sediIds: input.sediIds && input.sediIds.length > 0 ? input.sediIds : [1],
         attivo: input.attivo ?? true,
         // Never store the plaintext password.
         password: hashPassword(input.password),
@@ -163,6 +173,7 @@ export const utentiRouter = router({
         email: z.string().email().optional(),
         telefono: z.string().optional(),
         ruoli: ruoliSchema.optional(),
+        sediIds: z.array(z.number()).optional(),
         password: z.string().min(8, "La password deve avere almeno 8 caratteri").optional(),
         attivo: z.boolean().optional(),
       })
@@ -171,6 +182,10 @@ export const utentiRouter = router({
       const idx = utenti.findIndex((u) => u.id === input.id);
       if (idx === -1) throw new Error("Utente non trovato");
       const { id, ...updates } = input;
+      // Never persist an empty sedi list — fall back to default sede.
+      if (updates.sediIds && updates.sediIds.length === 0) {
+        updates.sediIds = [1];
+      }
       // Only update password if provided (non-empty) — and hash it.
       if (!updates.password) delete updates.password;
       else updates.password = hashPassword(updates.password);

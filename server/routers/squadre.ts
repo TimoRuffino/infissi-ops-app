@@ -5,12 +5,17 @@ import { persistedStore } from "../_core/persistence";
 let nextId = 1;
 const _squadreStore = persistedStore<any>("squadre", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const s of loaded) {
+    if ((s as any).sedeId === undefined) (s as any).sedeId = 1;
+  }
 });
 const squadre = _squadreStore.items;
 
 export const squadreRouter = router({
-  list: protectedProcedure.query(() => {
-    return squadre.filter((s) => s.attiva).sort((a, b) => a.nome.localeCompare(b.nome));
+  list: protectedProcedure.query(({ ctx }) => {
+    return squadre
+      .filter((s) => s.attiva && s.sedeId === ctx.sedeId)
+      .sort((a, b) => a.nome.localeCompare(b.nome));
   }),
 
   byId: protectedProcedure.input(z.number()).query(({ input }) => {
@@ -24,9 +29,9 @@ export const squadreRouter = router({
       telefono: z.string().optional(),
       note: z.string().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
-      const squadra = { id: nextId++, ...input, attiva: true, createdAt: now, updatedAt: now };
+      const squadra = { id: nextId++, ...input, sedeId: ctx.sedeId ?? 1, attiva: true, createdAt: now, updatedAt: now };
       squadre.push(squadra);
       _squadreStore.save();
       return squadra;

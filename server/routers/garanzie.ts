@@ -5,6 +5,9 @@ import { persistedStore } from "../_core/persistence";
 let nextId = 1;
 const _garanzieStore = persistedStore<any>("garanzie", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const g of loaded) {
+    if ((g as any).sedeId === undefined) (g as any).sedeId = 1;
+  }
 });
 const garanzie = _garanzieStore.items;
 
@@ -17,8 +20,8 @@ export const garanzieRouter = router({
         tipo: z.string().optional(),
       }).optional()
     )
-    .query(({ input }) => {
-      let result = [...garanzie];
+    .query(({ input, ctx }) => {
+      let result = garanzie.filter((g) => g.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((g) => g.commessaId === input.commessaId);
       if (input?.stato) result = result.filter((g) => g.stato === input.stato);
       if (input?.tipo) result = result.filter((g) => g.tipo === input.tipo);
@@ -39,7 +42,7 @@ export const garanzieRouter = router({
         note: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const start = new Date(input.dataInizio);
       const end = new Date(start);
@@ -48,6 +51,7 @@ export const garanzieRouter = router({
       const garanzia = {
         id: nextId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         aperturaId: input.aperturaId ?? null,
         dataScadenza: end.toISOString().split("T")[0],
         stato: "attiva" as const,
@@ -86,18 +90,19 @@ export const garanzieRouter = router({
     return { success: true };
   }),
 
-  stats: protectedProcedure.query(() => {
+  stats: protectedProcedure.query(({ ctx }) => {
     const today = new Date().toISOString().split("T")[0];
     const in90 = new Date();
     in90.setDate(in90.getDate() + 90);
     const threshold = in90.toISOString().split("T")[0];
 
-    const total = garanzie.length;
-    const attive = garanzie.filter((g) => g.stato === "attiva").length;
-    const inScadenza = garanzie.filter(
+    const scoped = garanzie.filter((g) => g.sedeId === ctx.sedeId);
+    const total = scoped.length;
+    const attive = scoped.filter((g) => g.stato === "attiva").length;
+    const inScadenza = scoped.filter(
       (g) => g.stato === "attiva" && g.dataScadenza >= today && g.dataScadenza <= threshold
     ).length;
-    const scadute = garanzie.filter(
+    const scadute = scoped.filter(
       (g) => g.stato === "attiva" && g.dataScadenza < today
     ).length;
     return { total, attive, inScadenza, scadute };

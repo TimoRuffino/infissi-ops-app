@@ -6,6 +6,7 @@ import { persistedStore } from "../_core/persistence";
 
 type DistintaBase = {
   id: number;
+  sedeId?: number;
   commessaId: number;
   aperturaId: number;
   stato: "bozza" | "validata" | "in_produzione" | "completata";
@@ -31,6 +32,7 @@ type ComponenteBOM = {
 
 type FaseProduzione = {
   id: number;
+  sedeId?: number;
   commessaId: number;
   aperturaId?: number;
   distinaBaseId: number;
@@ -57,6 +59,7 @@ type ChecklistProdItem = {
 
 type NonConformita = {
   id: number;
+  sedeId?: number;
   commessaId: number;
   aperturaId?: number;
   faseProduzioneId?: number;
@@ -84,6 +87,7 @@ const _distinteStore = persistedStore<DistintaBase>("produzione_distinte", (load
   nextBomId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   let maxComp = 0;
   for (const d of loaded) {
+    if ((d as any).sedeId === undefined) (d as any).sedeId = 1;
     for (const c of (d as any).componenti ?? []) {
       if (c.id > maxComp) maxComp = c.id;
     }
@@ -96,6 +100,7 @@ const _fasiStore = persistedStore<FaseProduzione>("produzione_fasi", (loaded) =>
   nextFaseId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   let maxCheck = 0;
   for (const f of loaded) {
+    if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
     for (const c of (f as any).checklistItems ?? []) {
       if (c.id > maxCheck) maxCheck = c.id;
     }
@@ -106,6 +111,9 @@ const fasiProduzione = _fasiStore.items;
 
 const _ncStore = persistedStore<NonConformita>("produzione_nc", (loaded) => {
   nextNcId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const n of loaded) {
+    if ((n as any).sedeId === undefined) (n as any).sedeId = 1;
+  }
 });
 const nonConformita = _ncStore.items;
 
@@ -116,8 +124,8 @@ export const produzioneRouter = router({
   bom: router({
     list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), stato: z.string().optional() }).optional())
-      .query(({ input }) => {
-        let result = [...distinteBasi];
+      .query(({ input, ctx }) => {
+        let result = distinteBasi.filter((d) => (d as any).sedeId === ctx.sedeId);
         if (input?.commessaId) result = result.filter((d) => d.commessaId === input.commessaId);
         if (input?.stato) result = result.filter((d) => d.stato === input.stato);
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -145,10 +153,11 @@ export const produzioneRouter = router({
           ),
         })
       )
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const now = new Date();
         const bom: DistintaBase = {
           id: nextBomId++,
+          sedeId: ctx.sedeId ?? 1,
           commessaId: input.commessaId,
           aperturaId: input.aperturaId,
           stato: "bozza",
@@ -201,8 +210,8 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
-      let boms = [...distinteBasi];
+    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+      let boms = distinteBasi.filter((d) => (d as any).sedeId === ctx.sedeId);
       if (input?.commessaId) boms = boms.filter((d) => d.commessaId === input.commessaId);
       return {
         totale: boms.length,
@@ -218,8 +227,8 @@ export const produzioneRouter = router({
   fasi: router({
     list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), distinaBaseId: z.number().optional() }).optional())
-      .query(({ input }) => {
-        let result = [...fasiProduzione];
+      .query(({ input, ctx }) => {
+        let result = fasiProduzione.filter((f) => (f as any).sedeId === ctx.sedeId);
         if (input?.commessaId) result = result.filter((f) => f.commessaId === input.commessaId);
         if (input?.distinaBaseId) result = result.filter((f) => f.distinaBaseId === input.distinaBaseId);
         return result.sort((a, b) => a.ordine - b.ordine);
@@ -273,8 +282,8 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input }) => {
-      let fasi = [...fasiProduzione];
+    stats: protectedProcedure.input(z.object({ commessaId: z.number().optional() }).optional()).query(({ input, ctx }) => {
+      let fasi = fasiProduzione.filter((f) => (f as any).sedeId === ctx.sedeId);
       if (input?.commessaId) fasi = fasi.filter((f) => f.commessaId === input.commessaId);
       return {
         totale: fasi.length,
@@ -290,8 +299,8 @@ export const produzioneRouter = router({
   nc: router({
     list: protectedProcedure
       .input(z.object({ commessaId: z.number().optional(), stato: z.string().optional() }).optional())
-      .query(({ input }) => {
-        let result = [...nonConformita];
+      .query(({ input, ctx }) => {
+        let result = nonConformita.filter((n) => (n as any).sedeId === ctx.sedeId);
         if (input?.commessaId) result = result.filter((n) => n.commessaId === input.commessaId);
         if (input?.stato) result = result.filter((n) => n.stato === input.stato);
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -309,11 +318,12 @@ export const produzioneRouter = router({
           segnalataDa: z.string().min(1),
         })
       )
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const now = new Date();
         const nc: NonConformita = {
           id: nextNcId++,
           ...input,
+          sedeId: ctx.sedeId ?? 1,
           stato: "aperta",
           dataApertura: now.toISOString().split("T")[0],
           createdAt: now,
@@ -351,13 +361,14 @@ export const produzioneRouter = router({
       return { success: true };
     }),
 
-    stats: protectedProcedure.query(() => {
+    stats: protectedProcedure.query(({ ctx }) => {
+      const scoped = nonConformita.filter((n) => (n as any).sedeId === ctx.sedeId);
       return {
-        totale: nonConformita.length,
-        aperte: nonConformita.filter((n) => n.stato === "aperta").length,
-        inGestione: nonConformita.filter((n) => n.stato === "in_gestione").length,
-        risolte: nonConformita.filter((n) => n.stato === "risolta" || n.stato === "chiusa").length,
-        bloccanti: nonConformita.filter((n) => n.gravita === "bloccante" && n.stato !== "chiusa").length,
+        totale: scoped.length,
+        aperte: scoped.filter((n) => n.stato === "aperta").length,
+        inGestione: scoped.filter((n) => n.stato === "in_gestione").length,
+        risolte: scoped.filter((n) => n.stato === "risolta" || n.stato === "chiusa").length,
+        bloccanti: scoped.filter((n) => n.gravita === "bloccante" && n.stato !== "chiusa").length,
       };
     }),
   }),

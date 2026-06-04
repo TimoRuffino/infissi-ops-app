@@ -5,6 +5,9 @@ import { persistedStore } from "../_core/persistence";
 let nextId = 1;
 const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const v of loaded) {
+    if ((v as any).sedeId === undefined) (v as any).sedeId = 1;
+  }
 });
 const verbali = _verbaliStore.items;
 
@@ -15,8 +18,8 @@ export const verbaliRouter = router({
 
   list: protectedProcedure
     .input(z.object({ commessaId: z.number().optional() }).optional())
-    .query(({ input }) => {
-      let result = [...verbali];
+    .query(({ input, ctx }) => {
+      let result = verbali.filter((v) => v.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((v) => v.commessaId === input.commessaId);
       return result.sort((a, b) => b.data.localeCompare(a.data));
     }),
@@ -36,11 +39,12 @@ export const verbaliRouter = router({
         anomalieRiscontrate: z.number().default(0),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const verbale = {
         id: nextId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         data: now.toISOString().split("T")[0],
         firmaCliente: !!input.firmaClienteData,
         firmaTecnico: !!input.firmaTecnicoData,

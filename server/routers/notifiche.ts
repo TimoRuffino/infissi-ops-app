@@ -79,12 +79,18 @@ type Notifica = {
   createdAt: Date;
 };
 
-function buildNotifichePerUtente(userId: number, ruoli: string[]): Notifica[] {
+function buildNotifichePerUtente(
+  userId: number,
+  ruoli: string[],
+  sedeId: number | null
+): Notifica[] {
   const commesse = getCommesseStore();
   const now = new Date();
   const out: Notifica[] = [];
 
   for (const c of commesse) {
+    // Only the active sede's commesse generate notifications.
+    if (sedeId != null && (c as any).sedeId !== sedeId) continue;
     // Skip both closed (stato === "archiviata") AND soft-archived
     // (archivedAt set by the operator when the client declined the job).
     // Soft-archive preserves stato/progress so the stato check alone is
@@ -173,7 +179,7 @@ export const notificheRouter = router({
       : (ctx.user as any).ruolo
       ? [(ctx.user as any).ruolo]
       : [];
-    return buildNotifichePerUtente(ctx.user.id as number, ruoli);
+    return buildNotifichePerUtente(ctx.user.id as number, ruoli, ctx.sedeId);
   }),
 
   count: protectedProcedure.query(({ ctx }) => {
@@ -183,6 +189,6 @@ export const notificheRouter = router({
       : (ctx.user as any).ruolo
       ? [(ctx.user as any).ruolo]
       : [];
-    return buildNotifichePerUtente(ctx.user.id as number, ruoli).length;
+    return buildNotifichePerUtente(ctx.user.id as number, ruoli, ctx.sedeId).length;
   }),
 });

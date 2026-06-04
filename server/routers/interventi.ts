@@ -19,6 +19,10 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
     // Defer save until after bootstrap so ensureSchema has completed.
     setTimeout(() => _interventiStore.save(), 0);
   }
+  // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
+  for (const i of loaded) {
+    if ((i as any).sedeId === undefined) (i as any).sedeId = 1;
+  }
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const interventi = _interventiStore.items;
@@ -32,8 +36,8 @@ export const interventiRouter = router({
       from: z.string().optional(),
       to: z.string().optional(),
     }).optional())
-    .query(({ input }) => {
-      let result = [...interventi];
+    .query(({ input, ctx }) => {
+      let result = interventi.filter((i) => i.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((i) => i.commessaId === input.commessaId);
       if (input?.stato) result = result.filter((i) => i.stato === input.stato);
       if (input?.tipo) result = result.filter((i) => i.tipo === input.tipo);
@@ -60,11 +64,12 @@ export const interventiRouter = router({
       reclamoId: z.number().nullable().optional(),
       rifacimentoId: z.number().nullable().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const intervento = {
         id: nextId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         commessaId: input.commessaId ?? null,
         squadraId: input.squadraId ?? null,
         ticketId: input.ticketId ?? null,

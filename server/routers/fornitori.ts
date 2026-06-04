@@ -6,6 +6,7 @@ import { persistedStore } from "../_core/persistence";
 
 type Fornitore = {
   id: number;
+  sedeId?: number;
   ragioneSociale: string;
   partitaIva: string;
   indirizzo?: string;
@@ -23,6 +24,7 @@ type Fornitore = {
 
 type OrdineFornitore = {
   id: number;
+  sedeId?: number;
   fornitoreId: number;
   commessaId: number;
   codiceOrdine: string;
@@ -53,6 +55,7 @@ type RigaOrdine = {
 
 type Listino = {
   id: number;
+  sedeId?: number;
   fornitoreId: number;
   nome: string;
   versione: string;
@@ -72,6 +75,9 @@ let nextListinoId = 1;
 
 const _fornitoriStore = persistedStore<Fornitore>("fornitori", (loaded) => {
   nextFornitoreId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const f of loaded) {
+    if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
+  }
 });
 const fornitori = _fornitoriStore.items;
 
@@ -80,6 +86,7 @@ const _ordiniStore = persistedStore<OrdineFornitore>("fornitori_ordini", (loaded
   // Recompute nextRigaId by scanning child righe[] across all ordini
   let maxRigaId = 0;
   for (const o of loaded) {
+    if ((o as any).sedeId === undefined) (o as any).sedeId = 1;
     for (const r of (o as any).righe ?? []) {
       if (r.id > maxRigaId) maxRigaId = r.id;
     }
@@ -90,6 +97,9 @@ const ordini = _ordiniStore.items;
 
 const _listiniStore = persistedStore<Listino>("fornitori_listini", (loaded) => {
   nextListinoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const l of loaded) {
+    if ((l as any).sedeId === undefined) (l as any).sedeId = 1;
+  }
 });
 const listini = _listiniStore.items;
 
@@ -105,8 +115,8 @@ export const fornitoriRouter = router({
         attivo: z.boolean().optional(),
       }).optional()
     )
-    .query(({ input }) => {
-      let result = [...fornitori];
+    .query(({ input, ctx }) => {
+      let result = fornitori.filter((f) => (f as any).sedeId === ctx.sedeId);
       if (input?.categoria) result = result.filter((f) => f.categoria === input.categoria);
       if (input?.attivo !== undefined) result = result.filter((f) => f.attivo === input.attivo);
       if (input?.search) {
@@ -140,15 +150,16 @@ export const fornitoriRouter = router({
         note: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const fornitore: Fornitore = {
         id: nextFornitoreId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         attivo: true,
         createdAt: now,
         updatedAt: now,
-      };
+      } as any;
       fornitori.push(fornitore);
       _fornitoriStore.save();
       return fornitore;
@@ -188,14 +199,16 @@ export const fornitoriRouter = router({
     return { success: true };
   }),
 
-  stats: protectedProcedure.query(() => {
-    const totale = fornitori.filter((f) => f.attivo).length;
-    const perCategoria = fornitori.reduce((acc, f) => {
+  stats: protectedProcedure.query(({ ctx }) => {
+    const scopedF = fornitori.filter((f) => (f as any).sedeId === ctx.sedeId);
+    const scopedO = ordini.filter((o) => (o as any).sedeId === ctx.sedeId);
+    const totale = scopedF.filter((f) => f.attivo).length;
+    const perCategoria = scopedF.reduce((acc, f) => {
       if (f.attivo) acc[f.categoria] = (acc[f.categoria] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
-    const ordiniAttivi = ordini.filter((o) => !["ricevuto", "contestato"].includes(o.stato)).length;
-    const importoPendente = ordini
+    const ordiniAttivi = scopedO.filter((o) => !["ricevuto", "contestato"].includes(o.stato)).length;
+    const importoPendente = scopedO
       .filter((o) => !["ricevuto", "contestato"].includes(o.stato))
       .reduce((sum, o) => sum + (o.importoTotale ?? 0), 0);
     return { totale, perCategoria, ordiniAttivi, importoPendente };
@@ -211,8 +224,8 @@ export const fornitoriRouter = router({
           stato: z.string().optional(),
         }).optional()
       )
-      .query(({ input }) => {
-        let result = [...ordini];
+      .query(({ input, ctx }) => {
+        let result = ordini.filter((o) => (o as any).sedeId === ctx.sedeId);
         if (input?.fornitoreId) result = result.filter((o) => o.fornitoreId === input.fornitoreId);
         if (input?.commessaId) result = result.filter((o) => o.commessaId === input.commessaId);
         if (input?.stato) result = result.filter((o) => o.stato === input.stato);
@@ -253,8 +266,9 @@ export const fornitoriRouter = router({
           noteOrdine: z.string().optional(),
         })
       )
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const now = new Date();
+        const sedeId = ctx.sedeId ?? 1;
         const righe: RigaOrdine[] = input.righe.map((r) => ({
           id: nextRigaId++,
           ...r,
@@ -266,6 +280,7 @@ export const fornitoriRouter = router({
         );
         const ordine: OrdineFornitore = {
           id: nextOrdineId++,
+          sedeId,
           fornitoreId: input.fornitoreId,
           commessaId: input.commessaId,
           codiceOrdine: input.codiceOrdine,
@@ -335,8 +350,8 @@ export const fornitoriRouter = router({
   listini: router({
     list: protectedProcedure
       .input(z.object({ fornitoreId: z.number().optional() }).optional())
-      .query(({ input }) => {
-        let result = [...listini];
+      .query(({ input, ctx }) => {
+        let result = listini.filter((l) => (l as any).sedeId === ctx.sedeId);
         if (input?.fornitoreId) result = result.filter((l) => l.fornitoreId === input.fornitoreId);
         return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
@@ -351,9 +366,10 @@ export const fornitoriRouter = router({
         tipo: z.enum(["pdf", "excel", "altro"]),
         note: z.string().optional(),
       }))
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const listino: Listino = {
           id: nextListinoId++,
+          sedeId: ctx.sedeId ?? 1,
           ...input,
           createdAt: new Date(),
         };

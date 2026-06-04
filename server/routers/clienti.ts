@@ -25,6 +25,8 @@ const _store = persistedStore<any>("clienti", (items) => {
     if ((c as any).assegnatoA === undefined) {
       (c as any).assegnatoA = (c as any).createdBy ?? null;
     }
+    // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
+    if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
   }
 });
 const clienti = _store.items;
@@ -73,8 +75,8 @@ export const clientiRouter = router({
         assegnatoA: z.number().optional(),
       }).optional()
     )
-    .query(({ input }) => {
-      let result = [...clienti];
+    .query(({ input, ctx }) => {
+      let result = clienti.filter((c) => c.sedeId === ctx.sedeId);
       if (input?.tipo) result = result.filter((c) => c.tipo === input.tipo);
       if (input?.assegnatoA !== undefined) {
         result = result.filter((c) => c.assegnatoA === input.assegnatoA);
@@ -139,6 +141,8 @@ export const clientiRouter = router({
       const cliente = {
         id: nextId++,
         ...rest,
+        // Stamp the active sede so the cliente belongs to the current showroom.
+        sedeId: ctx.sedeId ?? 1,
         tipo: input.tipo ?? "privato",
         detrazione: input.detrazione ?? false,
         tipoDetrazione: input.tipoDetrazione ?? null,
@@ -236,13 +240,14 @@ export const clientiRouter = router({
       return { success: true };
     }),
 
-  stats: protectedProcedure.query(() => {
+  stats: protectedProcedure.query(({ ctx }) => {
+    const scoped = clienti.filter((c) => c.sedeId === ctx.sedeId);
     return {
-      totale: clienti.length,
-      privati: clienti.filter((c) => c.tipo === "privato").length,
-      aziende: clienti.filter((c) => c.tipo === "azienda").length,
-      condomini: clienti.filter((c) => c.tipo === "condominio").length,
-      entiPubblici: clienti.filter((c) => c.tipo === "ente_pubblico").length,
+      totale: scoped.length,
+      privati: scoped.filter((c) => c.tipo === "privato").length,
+      aziende: scoped.filter((c) => c.tipo === "azienda").length,
+      condomini: scoped.filter((c) => c.tipo === "condominio").length,
+      entiPubblici: scoped.filter((c) => c.tipo === "ente_pubblico").length,
     };
   }),
 });

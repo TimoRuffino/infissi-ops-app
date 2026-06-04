@@ -7,6 +7,9 @@ import { requireOwnershipOrDirezione } from "../_core/permissions";
 let nextId = 1;
 const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const a of loaded) {
+    if ((a as any).sedeId === undefined) (a as any).sedeId = 1;
+  }
 });
 const anomalie = _anomalieStore.items;
 
@@ -16,8 +19,8 @@ export const anomalieRouter = router({
       commessaId: z.number().optional(),
       stato: z.string().optional(),
     }).optional())
-    .query(({ input }) => {
-      let result = [...anomalie];
+    .query(({ input, ctx }) => {
+      let result = anomalie.filter((a) => a.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((a) => a.commessaId === input.commessaId);
       if (input?.stato) result = result.filter((a) => a.stato === input.stato);
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -32,11 +35,12 @@ export const anomalieRouter = router({
       priorita: z.enum(["bassa", "media", "alta", "critica"]).optional(),
       descrizione: z.string().min(1),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const now = new Date();
       const anomalia = {
         id: nextId++,
         ...input,
+        sedeId: ctx.sedeId ?? 1,
         aperturaId: input.aperturaId ?? null,
         interventoId: input.interventoId ?? null,
         priorita: input.priorita ?? "media",
@@ -100,11 +104,12 @@ export const anomalieRouter = router({
       return anomalie[idx];
     }),
 
-  stats: protectedProcedure.query(() => {
-    const aperte = anomalie.filter((a) => a.stato === "aperta").length;
-    const inGestione = anomalie.filter((a) => a.stato === "in_gestione").length;
-    const risolte = anomalie.filter((a) => a.stato === "risolta" || a.stato === "chiusa").length;
-    const critiche = anomalie.filter((a) => a.priorita === "critica" && a.stato !== "risolta" && a.stato !== "chiusa").length;
-    return { aperte, inGestione, risolte, critiche, totale: anomalie.length };
+  stats: protectedProcedure.query(({ ctx }) => {
+    const scoped = anomalie.filter((a) => a.sedeId === ctx.sedeId);
+    const aperte = scoped.filter((a) => a.stato === "aperta").length;
+    const inGestione = scoped.filter((a) => a.stato === "in_gestione").length;
+    const risolte = scoped.filter((a) => a.stato === "risolta" || a.stato === "chiusa").length;
+    const critiche = scoped.filter((a) => a.priorita === "critica" && a.stato !== "risolta" && a.stato !== "chiusa").length;
+    return { aperte, inGestione, risolte, critiche, totale: scoped.length };
   }),
 });
