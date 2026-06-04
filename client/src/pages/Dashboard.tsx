@@ -18,6 +18,9 @@ import {
 import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import { useAuth } from "@/_core/hooks/useAuth";
+import StatoChip from "@/components/StatoChip";
+import { CheckCircle2, ArrowRight, ClipboardList } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -31,42 +34,63 @@ import {
   Legend,
 } from "recharts";
 
+// KPI tile — redesign §4.1.
+// - Zero value → "spento": number in text-3, no accent, not clickable.
+// - >0 + actionable → left accent bar (3px, semantic colour) + clickable card
+//   that navigates to the already-filtered list.
 function StatCard({
   title,
   value,
   subtitle,
   icon: Icon,
-  accent,
+  accentClass = "bg-primary",
   onClick,
 }: {
   title: string;
   value: string | number;
   subtitle?: string;
   icon: any;
-  accent?: boolean;
+  accentClass?: string; // tailwind bg-* for the left accent bar
   onClick?: () => void;
 }) {
+  const numeric = typeof value === "number" ? value : parseInt(String(value), 10);
+  const isZero = numeric === 0;
+  const dead = isZero || !onClick;
+
   return (
     <motion.div
-      whileHover={{ y: -3 }}
+      whileHover={dead ? undefined : { y: -3 }}
       transition={{ type: "spring", stiffness: 320, damping: 22 }}
     >
       <Card
-        className={`cursor-pointer transition-all hover:shadow-md ${accent ? "border-l-4 border-l-destructive" : ""}`}
-        onClick={onClick}
+        className={`relative overflow-hidden gap-0 py-5 transition-all ${
+          dead ? "" : "cursor-pointer hover:shadow-md"
+        }`}
+        onClick={dead ? undefined : onClick}
       >
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {title}
-          </CardTitle>
-          <Icon className="h-4 w-4 text-muted-foreground" />
+        {!dead && (
+          <span
+            className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentClass}`}
+          />
+        )}
+        <CardHeader className="flex flex-row items-start justify-between pb-2">
+          <span className="eyebrow">{title}</span>
+          <Icon
+            className={`h-[18px] w-[18px] shrink-0 ${
+              dead ? "text-text-3/60" : "text-text-3"
+            }`}
+          />
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-bold tracking-tight tabular-nums">
+          <div
+            className={`text-[30px] leading-[34px] font-bold tabular-nums ${
+              isZero ? "text-text-3" : "text-text-1"
+            }`}
+          >
             {value}
           </div>
           {subtitle && (
-            <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+            <p className="text-[13px] text-text-2 mt-1">{subtitle}</p>
           )}
         </CardContent>
       </Card>
@@ -74,7 +98,8 @@ function StatCard({
   );
 }
 
-const PIE_COLORS = ["#4f46e5", "#0d9488", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+// Donut palette — §2.1 state colours.
+const PIE_COLORS = ["#3A5BDC", "#7A5AF0", "#C026D3", "#D97706", "#0E9384", "#15803D", "#475467"];
 
 // ── Calendar types with colors (PRD Sez.11.2) ──
 const CALENDARI = [
@@ -303,6 +328,32 @@ export default function Dashboard() {
   const ts = ticketStats.data;
   const gs = garanzieStats.data;
 
+  const { user } = useAuth();
+  const firstName = (user?.name ?? "").trim().split(/\s+/)[0] || "";
+  const todayLabel = new Date().toLocaleDateString("it-IT", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  // Action feed for "Da fare oggi": urgent commesse + deliveries to confirm.
+  const consegneDaConfermare = useMemo(
+    () =>
+      (commesseRecenti.data ?? []).filter(
+        (c: any) =>
+          c.stato === "produzione" && !c.dataConsegnaConfermata && !c.archivedAt
+      ),
+    [commesseRecenti.data]
+  );
+  const urgenti = useMemo(
+    () =>
+      (commesseRecenti.data ?? []).filter(
+        (c: any) => c.priorita === "urgente" && !c.archivedAt
+      ),
+    [commesseRecenti.data]
+  );
+  const ticketAperti = (ts?.aperti ?? 0) + (ts?.assegnati ?? 0);
+
   // Compute chart data from interventi
   const interventiByTipo = (() => {
     const map: Record<string, number> = {};
@@ -342,77 +393,159 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Header — greeting + date (§5) */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Panoramica operativa
-        </p>
+        <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
+          {firstName ? `Ciao ${firstName}` : "Ciao"} — ecco la tua giornata
+        </h1>
+        <p className="text-text-2 text-sm mt-1 capitalize">{todayLabel}</p>
       </div>
 
-      {/* KPI Grid */}
+      {/* Da fare oggi — action feed (§4.1) */}
+      {(urgenti.length > 0 || consegneDaConfermare.length > 0) && (
+        <Card className="border-l-[3px] border-l-primary">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-[15px] font-semibold flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              Da fare oggi
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {consegneDaConfermare.map((c: any) => (
+              <div
+                key={`cons-${c.id}`}
+                className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
+                onClick={() => setLocation(`/commesse/${c.id}`)}
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-warning-soft text-warning">
+                  <CalendarClock className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-1 truncate">
+                    Conferma la data di consegna — {c.cliente}
+                  </p>
+                  <p className="codice-mono text-text-3">{c.codice}</p>
+                </div>
+                <Button size="sm" variant="outline" className="shrink-0">
+                  Conferma consegna
+                </Button>
+              </div>
+            ))}
+            {urgenti.map((c: any) => (
+              <div
+                key={`urg-${c.id}`}
+                className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
+                onClick={() => setLocation(`/commesse/${c.id}`)}
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-danger-soft text-danger">
+                  <Flame className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-1 truncate">
+                    Commessa urgente — {c.cliente}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="codice-mono text-text-3">{c.codice}</span>
+                    <StatoChip stato={c.stato} />
+                  </div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Primary KPIs — the 4 actionable metrics (§4.1) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Commesse attive"
-          value={cs?.inCorso ?? "—"}
-          subtitle={`${cs?.total ?? 0} totali`}
+          value={cs?.inCorso ?? 0}
+          subtitle={`${cs?.inCorso ?? 0} attive · ${cs?.total ?? 0} in totale`}
           icon={Building2}
+          accentClass="bg-primary"
           onClick={() => setLocation("/commesse")}
-        />
-        <StatCard
-          title="Anomalie aperte"
-          value={(as_?.aperte ?? 0) + (as_?.inGestione ?? 0)}
-          subtitle={as_?.critiche ? `${as_.critiche} critiche` : undefined}
-          icon={AlertTriangle}
-          accent={(as_?.critiche ?? 0) > 0}
-        />
-        <StatCard
-          title="Ticket aperti"
-          value={(ts?.aperti ?? 0) + (ts?.assegnati ?? 0)}
-          subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
-          icon={TicketCheck}
-          onClick={() => setLocation("/ticket")}
-        />
-        <StatCard
-          title="Interventi oggi"
-          value={interventiOggi.data?.length ?? "—"}
-          icon={CalendarClock}
-          onClick={() => setLocation("/planning")}
-        />
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Squadre attive"
-          value={squadre.data?.length ?? "—"}
-          icon={Users}
-          onClick={() => setLocation("/squadre")}
-        />
-        <StatCard
-          title="Garanzie attive"
-          value={gs?.attive ?? "—"}
-          subtitle={gs?.inScadenza ? `${gs.inScadenza} in scadenza` : undefined}
-          icon={Shield}
-          accent={(gs?.inScadenza ?? 0) > 0}
-          onClick={() => setLocation("/garanzie")}
-        />
-        <StatCard
-          title="Interventi totali"
-          value={interventiSettimana.data?.length ?? "—"}
-          subtitle={`${interventiSettimana.data?.filter((i: any) => i.stato === "completato").length ?? 0} completati`}
-          icon={Hammer}
-          onClick={() => setLocation("/planning")}
         />
         <StatCard
           title="Urgenze"
           value={cs?.urgenti ?? 0}
           subtitle="commesse urgenti"
-          icon={AlertTriangle}
-          accent={(cs?.urgenti ?? 0) > 0}
+          icon={Flame}
+          accentClass="bg-danger"
           onClick={() => setLocation("/commesse")}
         />
+        <StatCard
+          title="Consegne da confermare"
+          value={consegneDaConfermare.length}
+          subtitle="in produzione, senza data"
+          icon={CalendarClock}
+          accentClass="bg-warning"
+          onClick={() => setLocation("/kanban")}
+        />
+        <StatCard
+          title="Ticket aperti"
+          value={ticketAperti}
+          subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
+          icon={TicketCheck}
+          accentClass="bg-info"
+          onClick={() => setLocation("/reclami")}
+        />
       </div>
+
+      {/* Secondary KPIs — small, shown only when > 0 (§4.1) */}
+      {(() => {
+        const interventiTot = interventiSettimana.data?.length ?? 0;
+        const anomalieOpen = (as_?.aperte ?? 0) + (as_?.inGestione ?? 0);
+        const secondary = [
+          (gs?.attive ?? 0) > 0 && (
+            <StatCard
+              key="gar"
+              title="Garanzie attive"
+              value={gs?.attive ?? 0}
+              subtitle={gs?.inScadenza ? `${gs.inScadenza} in scadenza` : undefined}
+              icon={Shield}
+              accentClass="bg-warning"
+              onClick={() => setLocation("/garanzie")}
+            />
+          ),
+          (squadre.data?.length ?? 0) > 0 && (
+            <StatCard
+              key="sq"
+              title="Squadre attive"
+              value={squadre.data?.length ?? 0}
+              icon={Users}
+              accentClass="bg-primary"
+              onClick={() => setLocation("/squadre")}
+            />
+          ),
+          interventiTot > 0 && (
+            <StatCard
+              key="int"
+              title="Interventi settimana"
+              value={interventiTot}
+              subtitle={`${interventiSettimana.data?.filter((i: any) => i.stato === "completato").length ?? 0} completati`}
+              icon={Hammer}
+              accentClass="bg-info"
+              onClick={() => setLocation("/planning")}
+            />
+          ),
+          anomalieOpen > 0 && (
+            <StatCard
+              key="ano"
+              title="Anomalie aperte"
+              value={anomalieOpen}
+              subtitle={as_?.critiche ? `${as_.critiche} critiche` : undefined}
+              icon={AlertTriangle}
+              accentClass="bg-danger"
+              onClick={() => setLocation("/commesse")}
+            />
+          ),
+        ].filter(Boolean);
+        if (secondary.length === 0) return null;
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{secondary}</div>
+        );
+      })()}
 
       {/* Calendar - primary element (PRD Sez.11) */}
       <CalendarioSettimana
@@ -443,7 +576,7 @@ export default function Dashboard() {
                   <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="valore" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="valore" fill="#3A5BDC" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -512,8 +645,8 @@ export default function Dashboard() {
                 <YAxis type="category" dataKey="nome" tick={{ fontSize: 12 }} width={120} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="attivi" name="Attivi" fill="#4f46e5" stackId="a" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="completati" name="Completati" fill="#0d9488" stackId="a" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="attivi" name="Attivi" fill="#3A5BDC" stackId="a" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="completati" name="Completati" fill="#0E9384" stackId="a" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -532,9 +665,13 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {!interventiOggi.data?.length ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                Nessun intervento pianificato per oggi
-              </p>
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <CalendarClock className="h-9 w-9 text-text-3" />
+                <p className="text-[15px] font-semibold">Nessun intervento oggi</p>
+                <Button size="sm" variant="outline" onClick={() => setLocation("/planning")}>
+                  Pianifica un rilievo
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 {interventiOggi.data.map((i: any) => (
