@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { assertSedeScope } from "../_core/permissions";
 
 let nextId = 1;
 const _garanzieStore = persistedStore<any>("garanzie", (loaded) => {
@@ -73,18 +74,20 @@ export const garanzieRouter = router({
       documentoRif: z.string().optional(),
       note: z.string().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = garanzie.findIndex((g) => g.id === input.id);
       if (idx === -1) throw new Error("Garanzia non trovata");
+      assertSedeScope(garanzie[idx], ctx.sedeId);
       const { id, ...updates } = input;
       garanzie[idx] = { ...garanzie[idx], ...updates, updatedAt: new Date() };
       _garanzieStore.save();
       return garanzie[idx];
     }),
 
-  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
     const idx = garanzie.findIndex((g) => g.id === input);
     if (idx === -1) throw new Error("Garanzia non trovata");
+    assertSedeScope(garanzie[idx], ctx.sedeId);
     garanzie.splice(idx, 1);
     _garanzieStore.save();
     return { success: true };

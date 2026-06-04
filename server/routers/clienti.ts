@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
 
@@ -95,8 +95,10 @@ export const clientiRouter = router({
       );
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return clienti.find((c) => c.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const c = clienti.find((c) => c.id === input);
+    if (!c || c.sedeId !== ctx.sedeId) return null;
+    return c;
   }),
 
   create: protectedProcedure
@@ -193,9 +195,10 @@ export const clientiRouter = router({
         assegnatoA: z.number().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Cliente non trovato");
+      assertSedeScope(clienti[idx], ctx.sedeId);
       const prev = { ...clienti[idx] };
       const { id, ...updates } = input;
       clienti[idx] = { ...clienti[idx], ...updates, updatedAt: new Date() };
@@ -233,6 +236,7 @@ export const clientiRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Cliente non trovato");
+      assertSedeScope(clienti[idx], ctx.sedeId);
       // Only the creator/owner or a direzione user can hard-delete a cliente.
       requireOwnershipOrDirezione(clienti[idx], ctx.user);
       clienti.splice(idx, 1);

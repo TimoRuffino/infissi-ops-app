@@ -3,7 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 
 // Linear workflow. Used for both forward advance and rollback.
 const TICKET_STATI = [
@@ -24,6 +24,12 @@ const _store = persistedStore<any>("tickets", (items) => {
   }
 });
 const tickets = _store.items;
+
+// Exposed for child routers (ticketAllegati) that need the parent ticket's
+// sede to enforce cross-sede isolation.
+export function getTicketById(id: number): any | null {
+  return tickets.find((t) => t.id === id) ?? null;
+}
 
 export const ticketRouter = router({
   list: protectedProcedure
@@ -76,9 +82,10 @@ export const ticketRouter = router({
       categoria: z.enum(["difetto_prodotto", "difetto_posa", "regolazione", "sostituzione", "garanzia", "altro"]).optional(),
       priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
+      assertSedeScope(tickets[idx], ctx.sedeId);
       const { id, ...updates } = input;
       tickets[idx] = { ...tickets[idx], ...updates, updatedAt: new Date() };
       _store.save();
@@ -90,6 +97,7 @@ export const ticketRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input);
       if (idx === -1) throw new Error("Ticket non trovato");
+      assertSedeScope(tickets[idx], ctx.sedeId);
       requireOwnershipOrDirezione(
         getCommessaById(tickets[idx].commessaId),
         ctx.user
@@ -108,9 +116,10 @@ export const ticketRouter = router({
       stato: z.enum(TICKET_STATI),
       esitoIntervento: z.string().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
+      assertSedeScope(tickets[idx], ctx.sedeId);
       tickets[idx].stato = input.stato;
       if (input.esitoIntervento) tickets[idx].esitoIntervento = input.esitoIntervento;
       if (input.stato === "risolto" || input.stato === "chiuso") {
@@ -126,9 +135,10 @@ export const ticketRouter = router({
   // for reporting. If already at "aperto" (first state) throws.
   rollbackStato: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
+      assertSedeScope(tickets[idx], ctx.sedeId);
       const currentIdx = TICKET_STATI.indexOf(tickets[idx].stato as TicketStato);
       if (currentIdx <= 0) {
         throw new Error("Il ticket è già al primo stato");

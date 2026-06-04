@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { assertSedeScope } from "../_core/permissions";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -131,8 +132,10 @@ export const fornitoriRouter = router({
       return result.sort((a, b) => a.ragioneSociale.localeCompare(b.ragioneSociale));
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return fornitori.find((f) => f.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const f = fornitori.find((f) => f.id === input);
+    if (!f || (f as any).sedeId !== ctx.sedeId) return null;
+    return f;
   }),
 
   create: adminProcedure
@@ -182,18 +185,20 @@ export const fornitoriRouter = router({
         attivo: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = fornitori.findIndex((f) => f.id === input.id);
       if (idx === -1) throw new Error("Fornitore non trovato");
+      assertSedeScope(fornitori[idx] as any, ctx.sedeId);
       const { id, ...updates } = input;
       fornitori[idx] = { ...fornitori[idx], ...updates, updatedAt: new Date() };
       _fornitoriStore.save();
       return fornitori[idx];
     }),
 
-  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
     const idx = fornitori.findIndex((f) => f.id === input);
     if (idx === -1) throw new Error("Fornitore non trovato");
+    assertSedeScope(fornitori[idx] as any, ctx.sedeId);
     fornitori.splice(idx, 1);
     _fornitoriStore.save();
     return { success: true };
@@ -238,9 +243,9 @@ export const fornitoriRouter = router({
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       }),
 
-    byId: protectedProcedure.input(z.number()).query(({ input }) => {
+    byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
       const o = ordini.find((o) => o.id === input);
-      if (!o) return null;
+      if (!o || (o as any).sedeId !== ctx.sedeId) return null;
       return {
         ...o,
         fornitoreNome: fornitori.find((f) => f.id === o.fornitoreId)?.ragioneSociale ?? "?",
@@ -318,9 +323,10 @@ export const fornitoriRouter = router({
             .optional(),
         })
       )
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
         const idx = ordini.findIndex((o) => o.id === input.id);
         if (idx === -1) throw new Error("Ordine non trovato");
+        assertSedeScope(ordini[idx] as any, ctx.sedeId);
         ordini[idx].stato = input.stato;
         ordini[idx].updatedAt = new Date();
         if (input.noteRicevimento) ordini[idx].noteRicevimento = input.noteRicevimento;
@@ -337,9 +343,10 @@ export const fornitoriRouter = router({
         return ordini[idx];
       }),
 
-    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = ordini.findIndex((o) => o.id === input);
       if (idx === -1) throw new Error("Ordine non trovato");
+      assertSedeScope(ordini[idx] as any, ctx.sedeId);
       ordini.splice(idx, 1);
       _ordiniStore.save();
       return { success: true };
@@ -378,9 +385,10 @@ export const fornitoriRouter = router({
         return listino;
       }),
 
-    delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+    delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = listini.findIndex((l) => l.id === input);
       if (idx === -1) throw new Error("Listino non trovato");
+      assertSedeScope(listini[idx] as any, ctx.sedeId);
       listini.splice(idx, 1);
       _listiniStore.save();
       return { success: true };

@@ -10,15 +10,28 @@ const _apertureStore = persistedStore<any>("aperture", (loaded) => {
 });
 const aperture = _apertureStore.items;
 
+// Cross-sede guard: an apertura is only visible/mutable when its parent
+// commessa belongs to the active sede.
+function commessaInSede(commessaId: number, sedeId: number | null) {
+  const c = getCommessaById(commessaId);
+  if (!c) return null;
+  if (sedeId != null && (c as any).sedeId !== sedeId) return null;
+  return c;
+}
+
 export const apertureRouter = router({
-  byCommessa: protectedProcedure.input(z.number()).query(({ input }) => {
+  byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    if (!commessaInSede(input, ctx.sedeId)) return [];
     return aperture
       .filter((a) => a.commessaId === input)
       .sort((a, b) => a.codice.localeCompare(b.codice));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return aperture.find((a) => a.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const a = aperture.find((x) => x.id === input);
+    if (!a) return null;
+    if (!commessaInSede(a.commessaId, ctx.sedeId)) return null;
+    return a;
   }),
 
   create: protectedProcedure
@@ -40,7 +53,10 @@ export const apertureRouter = router({
         criticitaAccesso: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
+      if (!commessaInSede(input.commessaId, ctx.sedeId)) {
+        throw new Error("Commessa non trovata");
+      }
       const now = new Date();
       const apertura = {
         id: nextId++,
@@ -73,9 +89,12 @@ export const apertureRouter = router({
         criticitaAccesso: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = aperture.findIndex((a) => a.id === input.id);
       if (idx === -1) throw new Error("Apertura non trovata");
+      if (!commessaInSede(aperture[idx].commessaId, ctx.sedeId)) {
+        throw new Error("Apertura non trovata");
+      }
       const { id, ...updates } = input;
       aperture[idx] = { ...aperture[idx], ...updates, updatedAt: new Date() };
       _apertureStore.save();
@@ -87,12 +106,11 @@ export const apertureRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = aperture.findIndex((a) => a.id === input);
       if (idx === -1) throw new Error("Apertura non trovata");
+      const commessa = commessaInSede(aperture[idx].commessaId, ctx.sedeId);
+      if (!commessa) throw new Error("Apertura non trovata");
       // Ownership inherited from the parent commessa: only its owner or
       // a direzione user can delete child aperture.
-      requireOwnershipOrDirezione(
-        getCommessaById(aperture[idx].commessaId),
-        ctx.user
-      );
+      requireOwnershipOrDirezione(commessa, ctx.user);
       aperture.splice(idx, 1);
       _apertureStore.save();
       return { success: true };

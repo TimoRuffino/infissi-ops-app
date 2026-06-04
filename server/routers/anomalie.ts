@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 
 let nextId = 1;
 const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
@@ -65,9 +65,10 @@ export const anomalieRouter = router({
       descrizione: z.string().optional(),
       stato: z.enum(["aperta", "in_gestione", "risolta", "chiusa"]).optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = anomalie.findIndex((a) => a.id === input.id);
       if (idx === -1) throw new Error("Anomalia non trovata");
+      assertSedeScope(anomalie[idx], ctx.sedeId);
       const { id, ...updates } = input;
       anomalie[idx] = { ...anomalie[idx], ...updates, updatedAt: new Date() };
       _anomalieStore.save();
@@ -79,6 +80,7 @@ export const anomalieRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = anomalie.findIndex((a) => a.id === input);
       if (idx === -1) throw new Error("Anomalia non trovata");
+      assertSedeScope(anomalie[idx], ctx.sedeId);
       requireOwnershipOrDirezione(
         getCommessaById(anomalie[idx].commessaId),
         ctx.user
@@ -93,9 +95,10 @@ export const anomalieRouter = router({
       id: z.number(),
       risoluzione: z.string().min(1),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = anomalie.findIndex((a) => a.id === input.id);
       if (idx === -1) throw new Error("Anomalia non trovata");
+      assertSedeScope(anomalie[idx], ctx.sedeId);
       anomalie[idx].stato = "risolta";
       anomalie[idx].risoluzione = input.risoluzione;
       anomalie[idx].risoltaAt = new Date();

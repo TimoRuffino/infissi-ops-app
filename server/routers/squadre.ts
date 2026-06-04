@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { assertSedeScope } from "../_core/permissions";
 
 let nextId = 1;
 const _squadreStore = persistedStore<any>("squadre", (loaded) => {
@@ -18,8 +19,10 @@ export const squadreRouter = router({
       .sort((a, b) => a.nome.localeCompare(b.nome));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return squadre.find((s) => s.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const s = squadre.find((s) => s.id === input);
+    if (!s || s.sedeId !== ctx.sedeId) return null;
+    return s;
   }),
 
   create: adminProcedure
@@ -46,18 +49,20 @@ export const squadreRouter = router({
       note: z.string().optional(),
       attiva: z.boolean().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = squadre.findIndex((s) => s.id === input.id);
       if (idx === -1) throw new Error("Squadra non trovata");
+      assertSedeScope(squadre[idx], ctx.sedeId);
       const { id, ...updates } = input;
       squadre[idx] = { ...squadre[idx], ...updates, updatedAt: new Date() };
       _squadreStore.save();
       return squadre[idx];
     }),
 
-  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
     const idx = squadre.findIndex((s) => s.id === input);
     if (idx === -1) throw new Error("Squadra non trovata");
+    assertSedeScope(squadre[idx], ctx.sedeId);
     squadre.splice(idx, 1);
     _squadreStore.save();
     return { success: true };

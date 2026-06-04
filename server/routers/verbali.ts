@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { assertSedeScope } from "../_core/permissions";
 
 let nextId = 1;
 const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
@@ -12,8 +13,10 @@ const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
 const verbali = _verbaliStore.items;
 
 export const verbaliRouter = router({
-  byIntervento: protectedProcedure.input(z.number()).query(({ input }) => {
-    return verbali.find((v) => v.interventoId === input) ?? null;
+  byIntervento: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const v = verbali.find((v) => v.interventoId === input);
+    if (!v || v.sedeId !== ctx.sedeId) return null;
+    return v;
   }),
 
   list: protectedProcedure
@@ -69,9 +72,10 @@ export const verbaliRouter = router({
         anomalieRiscontrate: z.number().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = verbali.findIndex((v) => v.id === input.id);
       if (idx === -1) throw new Error("Verbale non trovato");
+      assertSedeScope(verbali[idx], ctx.sedeId);
       const { id, ...updates } = input;
       verbali[idx] = { ...verbali[idx], ...updates, updatedAt: new Date() };
       if (updates.firmaClienteData) verbali[idx].firmaCliente = true;

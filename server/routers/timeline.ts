@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getCommessaById } from "./commesse";
+
+// Cross-sede guard: timeline steps belong to a commessa; only visible/mutable
+// when that commessa is in the active sede.
+function commessaInSede(commessaId: number, sedeId: number | null) {
+  const c = getCommessaById(commessaId);
+  if (!c) return null;
+  if (sedeId != null && (c as any).sedeId !== sedeId) return null;
+  return c;
+}
 
 // ── 19-step order timeline ────────────────────────────────────────────────────
 const STEP_LABELS: string[] = [
@@ -85,7 +95,9 @@ function createStepsForCommessa(commessaId: number): TimelineStep[] {
 export const timelineRouter = router({
   byCommessa: protectedProcedure
     .input(z.number())
-    .query(({ input: commessaId }) => {
+    .query(({ input: commessaId, ctx }) => {
+      // Don't instantiate or leak another sede's timeline.
+      if (!commessaInSede(commessaId, ctx.sedeId)) return [];
       let result = steps.filter((s) => s.commessaId === commessaId);
       if (result.length === 0) {
         result = createStepsForCommessa(commessaId);
@@ -104,9 +116,12 @@ export const timelineRouter = router({
         allegato: z.string().nullable().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = steps.findIndex((s) => s.id === input.id);
       if (idx === -1) throw new Error("Step non trovato");
+      if (!commessaInSede(steps[idx].commessaId, ctx.sedeId)) {
+        throw new Error("Step non trovato");
+      }
       const { id, ...updates } = input;
       steps[idx] = { ...steps[idx], ...updates } as TimelineStep;
       _stepsStore.save();
@@ -115,7 +130,10 @@ export const timelineRouter = router({
 
   stats: protectedProcedure
     .input(z.number())
-    .query(({ input: commessaId }) => {
+    .query(({ input: commessaId, ctx }) => {
+      if (!commessaInSede(commessaId, ctx.sedeId)) {
+        return { completati: 0, totale: 0, percentuale: 0 };
+      }
       let result = steps.filter((s) => s.commessaId === commessaId);
       if (result.length === 0) {
         result = createStepsForCommessa(commessaId);

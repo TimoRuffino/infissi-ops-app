@@ -6,7 +6,7 @@ import {
   removeCommessaFromCliente,
 } from "./clienti";
 import { getUtentiStore } from "./utenti";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 import {
   hasPreventivoOrContratto,
   statoHasRequiredDoc,
@@ -226,8 +226,12 @@ export const commesseRouter = router({
         .map(({ prodotti, ...rest }) => rest);
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return commesse.find((c) => c.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const commessa = commesse.find((c) => c.id === input);
+    // Cross-sede isolation: only return the commessa if it belongs to the
+    // active sede. Mismatch → null (treated as "not found" by the client).
+    if (!commessa || commessa.sedeId !== ctx.sedeId) return null;
+    return commessa;
   }),
 
   create: protectedProcedure
@@ -332,9 +336,10 @@ export const commesseRouter = router({
         force: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       // Enforce state machine on stato transitions
       if (input.stato && input.stato !== commesse[idx].stato) {
         validateTransizione(commesse[idx].stato, input.stato);
@@ -420,9 +425,10 @@ export const commesseRouter = router({
   // Dedicated endpoint for confirming delivery date when stato hits produzione
   confermaDataConsegna: protectedProcedure
     .input(z.object({ id: z.number(), dataConsegna: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       commesse[idx] = {
         ...commesse[idx],
         dataConsegnaConfermata: input.dataConsegna,
@@ -437,6 +443,7 @@ export const commesseRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       // Only the creator/owner or a direzione user can hard-delete.
       requireOwnershipOrDirezione(commesse[idx], ctx.user);
       // Detach the commessa id from the cliente's index so it doesn't
@@ -461,9 +468,10 @@ export const commesseRouter = router({
       dimensioni: z.string().optional(),
       note: z.string().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       if (!Array.isArray(commesse[idx].prodotti)) commesse[idx].prodotti = [];
       const prodotto = {
         id: nextProdottoId(commesse[idx]),
@@ -490,9 +498,10 @@ export const commesseRouter = router({
       dimensioni: z.string().nullable().optional(),
       note: z.string().nullable().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       const prodotti: any[] = commesse[idx].prodotti ?? [];
       const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
       if (pIdx === -1) throw new Error("Prodotto non trovato");
@@ -505,9 +514,10 @@ export const commesseRouter = router({
 
   removeProdotto: protectedProcedure
     .input(z.object({ commessaId: z.number(), prodottoId: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       const prodotti: any[] = commesse[idx].prodotti ?? [];
       const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
       if (pIdx === -1) throw new Error("Prodotto non trovato");
@@ -615,6 +625,7 @@ export const commesseRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       requireOwnershipOrDirezione(commesse[idx], ctx.user);
       if (commesse[idx].archivedAt) return commesse[idx];
       commesse[idx] = {
@@ -631,6 +642,7 @@ export const commesseRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
       requireOwnershipOrDirezione(commesse[idx], ctx.user);
       if (!commesse[idx].archivedAt) return commesse[idx];
       commesse[idx] = {

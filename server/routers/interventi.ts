@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
@@ -46,8 +46,10 @@ export const interventiRouter = router({
       return result.sort((a, b) => (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? ""));
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return interventi.find((i) => i.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const i = interventi.find((i) => i.id === input);
+    if (!i || i.sedeId !== ctx.sedeId) return null;
+    return i;
   }),
 
   create: protectedProcedure
@@ -102,9 +104,10 @@ export const interventiRouter = router({
       reclamoId: z.number().nullable().optional(),
       rifacimentoId: z.number().nullable().optional(),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
       if (idx === -1) throw new Error("Intervento non trovato");
+      assertSedeScope(interventi[idx], ctx.sedeId);
       const { id, ...updates } = input;
       interventi[idx] = { ...interventi[idx], ...updates, updatedAt: new Date() };
       _interventiStore.save();
@@ -116,6 +119,7 @@ export const interventiRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input);
       if (idx === -1) throw new Error("Intervento non trovato");
+      assertSedeScope(interventi[idx], ctx.sedeId);
       // Ownership inherited from the parent commessa (when present);
       // direzione can always delete.
       if (interventi[idx].commessaId != null) {
@@ -137,9 +141,10 @@ export const interventiRouter = router({
       // load (see _interventiStore.onLoad above) and the UI hides them.
       stato: z.enum(["pianificato", "in_corso", "completato", "sospeso"]),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
       if (idx === -1) throw new Error("Intervento non trovato");
+      assertSedeScope(interventi[idx], ctx.sedeId);
       interventi[idx].stato = input.stato;
       if (input.stato === "in_corso") interventi[idx].dataInizio = new Date();
       if (input.stato === "completato") interventi[idx].dataFine = new Date();

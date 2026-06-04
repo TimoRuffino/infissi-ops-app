@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getTicketById } from "./ticket";
 import { isDirezione } from "../_core/permissions";
 import { TRPCError } from "@trpc/server";
 
@@ -65,8 +66,18 @@ export function deleteAllegatiByTicket(ticketId: number) {
   _store.save();
 }
 
+// Cross-sede guard: an allegato belongs to a ticket; only visible/mutable
+// when that ticket is in the active sede.
+function ticketInSede(ticketId: number, sedeId: number | null) {
+  const t = getTicketById(ticketId);
+  if (!t) return null;
+  if (sedeId != null && (t as any).sedeId !== sedeId) return null;
+  return t;
+}
+
 export const ticketAllegatiRouter = router({
-  byTicket: protectedProcedure.input(z.number()).query(({ input }) => {
+  byTicket: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    if (!ticketInSede(input, ctx.sedeId)) return [];
     return allegati
       .filter((a) => a.ticketId === input)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -75,8 +86,11 @@ export const ticketAllegatiRouter = router({
       .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return allegati.find((a) => a.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const a = allegati.find((x) => x.id === input);
+    if (!a) return null;
+    if (!ticketInSede(a.ticketId, ctx.sedeId)) return null;
+    return a;
   }),
 
   upload: protectedProcedure
@@ -91,6 +105,9 @@ export const ticketAllegatiRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
+      if (!ticketInSede(input.ticketId, ctx.sedeId)) {
+        throw new Error("Ticket non trovato");
+      }
       if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
         throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
       }
@@ -122,6 +139,9 @@ export const ticketAllegatiRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = allegati.findIndex((a) => a.id === input);
       if (idx === -1) throw new Error("Allegato non trovato");
+      if (!ticketInSede(allegati[idx].ticketId, ctx.sedeId)) {
+        throw new Error("Allegato non trovato");
+      }
       // Uploader or direzione only — non-uploaders shouldn't be able to
       // remove someone else's evidence.
       const uid = ctx.user?.id ?? null;

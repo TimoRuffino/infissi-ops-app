@@ -167,8 +167,20 @@ export function statoHasRequiredDoc(commessaId: number, stato: string): boolean 
   );
 }
 
+// Cross-sede guard for documents: a document is only visible/mutable when its
+// parent commessa belongs to the active sede. Returns the commessa when in
+// scope, else null.
+function commessaInSede(commessaId: number, sedeId: number | null) {
+  const c = getCommessaById(commessaId);
+  if (!c) return null;
+  if (sedeId != null && (c as any).sedeId !== sedeId) return null;
+  return c;
+}
+
 export const preventiviContrattiRouter = router({
-  byCommessa: protectedProcedure.input(z.number()).query(({ input }) => {
+  byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    // Don't leak another sede's documents.
+    if (!commessaInSede(input, ctx.sedeId)) return [];
     return documenti
       .filter((d) => d.commessaId === input)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -176,8 +188,11 @@ export const preventiviContrattiRouter = router({
       .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    return documenti.find((d) => d.id === input) ?? null;
+  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const doc = documenti.find((d) => d.id === input);
+    if (!doc) return null;
+    if (!commessaInSede(doc.commessaId, ctx.sedeId)) return null;
+    return doc;
   }),
 
   upload: protectedProcedure
@@ -206,7 +221,8 @@ export const preventiviContrattiRouter = router({
       if (actualBytes > MAX_SIZE_BYTES) {
         throw new Error(`File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`);
       }
-      const commessa = getCommessaById(input.commessaId);
+      const commessa = commessaInSede(input.commessaId, ctx.sedeId);
+      if (!commessa) throw new Error("Commessa non trovata");
       // Auto-rename: files uploaded inside a commessa board stato are renamed
       // to "{stato label} {cliente}.{ext}" so downloads land with a name that
       // tells you at a glance which commessa + phase they belong to. Falls
@@ -251,7 +267,8 @@ export const preventiviContrattiRouter = router({
       // commessa (createdBy/assegnatoA) OR is direzione. Try uploader first
       // — it's the most common legitimate case.
       const doc = documenti[idx];
-      const commessa = getCommessaById(doc.commessaId);
+      const commessa = commessaInSede(doc.commessaId, ctx.sedeId);
+      if (!commessa) throw new Error("Documento non trovato");
       const uid = ctx.user?.id ?? null;
       if (uid != null && doc.createdBy === uid) {
         // owner of the upload
@@ -266,8 +283,8 @@ export const preventiviContrattiRouter = router({
   // UI helper: list of doc tipi + whether each is satisfied for the current
   // stato gate. Lets the CommessaDetail page render a neat required/done
   // indicator.
-  statoGate: protectedProcedure.input(z.number()).query(({ input }) => {
-    const commessa = getCommessaById(input);
+  statoGate: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const commessa = commessaInSede(input, ctx.sedeId);
     if (!commessa) return null;
     const required = REQUIRED_DOC_TIPI_PER_STATO[commessa.stato] ?? [];
     const uploaded = documenti.filter(

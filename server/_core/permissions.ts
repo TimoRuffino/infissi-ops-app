@@ -27,6 +27,33 @@ type OwnedRecord =
   | null
   | undefined;
 
+type SedeScopedRecord = { sedeId?: number | null } | null | undefined;
+
+/**
+ * Enforce that a record belongs to the request's active sede.
+ *
+ * Multi-sede isolation: every business endpoint resolves data by global id,
+ * so without this check a user in sede A could read or mutate sede B's
+ * records by guessing ids (cross-tenant IDOR). We throw NOT_FOUND — not
+ * FORBIDDEN — on a sede mismatch so the response can't be used as an oracle
+ * to confirm that an id exists in another sede.
+ *
+ * `sedeId` is the resolved ctx.sedeId. When null (should not happen on a
+ * protectedProcedure) the check is skipped to avoid hard-failing.
+ */
+export function assertSedeScope(
+  record: SedeScopedRecord,
+  sedeId: number | null
+): void {
+  if (!record) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+  }
+  if (sedeId == null) return;
+  if ((record as any).sedeId !== sedeId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+  }
+}
+
 /** True when the user holds the `direzione` role (or legacy admin flag). */
 export function isDirezione(user: AnyUser): boolean {
   if (!user) return false;
