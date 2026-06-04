@@ -1,7 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,34 +18,22 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, MapPin, Calendar, User, Trash2, UserPlus } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, Search, User, UserPlus, MoreHorizontal, Trash2, ArrowRight } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import SearchSelect from "@/components/SearchSelect";
+import StatoChip from "@/components/StatoChip";
+import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
+import { PRIORITA_VARIANT, PRIORITA_LABEL, STATI_ORDER, statoLabel } from "@/lib/stato";
 
-type DeleteTarget = { id: number; label: string } | null;
-
-const statoColors: Record<string, string> = {
-  preventivo: "bg-slate-100 text-slate-700",
-  misure_esecutive: "bg-blue-100 text-blue-800",
-  aggiornamento_contratto: "bg-cyan-100 text-cyan-800",
-  fatture_pagamento: "bg-amber-100 text-amber-800",
-  da_ordinare: "bg-yellow-100 text-yellow-800",
-  produzione: "bg-indigo-100 text-indigo-800",
-  ordini_ultimazione: "bg-purple-100 text-purple-800",
-  attesa_posa: "bg-orange-100 text-orange-800",
-  finiture_saldo: "bg-green-100 text-green-800",
-  interventi_regolazioni: "bg-teal-100 text-teal-800",
-  archiviata: "bg-gray-100 text-gray-600",
-};
-
-const prioritaStyle: Record<string, string> = {
-  urgente: "destructive",
-  alta: "outline",
-  media: "secondary",
-  bassa: "secondary",
-};
+type DeleteTarget = { id: number; codice: string; stato: string } | null;
 
 const emptyForm = {
   clienteId: "" as string,
@@ -220,8 +207,10 @@ export default function CommesseList() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Commesse</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
+            Commesse
+          </h1>
+          <p className="text-text-2 text-sm mt-1">
             Archivio commesse e stato avanzamento
           </p>
         </div>
@@ -398,132 +387,136 @@ export default function CommesseList() {
         </Dialog>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Cerca per codice, cliente, citta..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+      {/* Sticky toolbar: search + stato + only-mine + counter */}
+      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background/85 backdrop-blur border-b border-border">
+        <div className="flex gap-2 items-center flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
+            <Input
+              placeholder="Cerca per codice, cliente, città…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+          <Select value={filtroStato} onValueChange={setFiltroStato}>
+            <SelectTrigger className="w-[190px] h-9">
+              <SelectValue placeholder="Stato" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutti">Tutti gli stati</SelectItem>
+              {STATI_ORDER.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {statoLabel(s)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {currentUser.data && (
+            <Button
+              variant={onlyMine ? "default" : "outline"}
+              size="sm"
+              onClick={() => setOnlyMine(!onlyMine)}
+            >
+              <User className="h-3.5 w-3.5 mr-1" />
+              {onlyMine ? "Solo mie" : "Tutte"}
+            </Button>
+          )}
+          <span className="ml-auto text-sm text-text-2 tabular-nums">
+            {commesse.data?.length ?? 0} commesse
+          </span>
         </div>
-        <Select value={filtroStato} onValueChange={setFiltroStato}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Stato" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="tutti">Tutti gli stati</SelectItem>
-            <SelectItem value="preventivo">Preventivo</SelectItem>
-            <SelectItem value="misure_esecutive">Misure esecutive</SelectItem>
-            <SelectItem value="aggiornamento_contratto">Agg. contratto</SelectItem>
-            <SelectItem value="fatture_pagamento">Fatture/Pagamento</SelectItem>
-            <SelectItem value="da_ordinare">Da ordinare</SelectItem>
-            <SelectItem value="produzione">Produzione</SelectItem>
-            <SelectItem value="ordini_ultimazione">Richiesta Secondo Acconto</SelectItem>
-            <SelectItem value="attesa_posa">Attesa posa</SelectItem>
-            <SelectItem value="finiture_saldo">Finiture/Saldo</SelectItem>
-            <SelectItem value="interventi_regolazioni">Interventi/Regolaz.</SelectItem>
-            <SelectItem value="archiviata">Archiviata</SelectItem>
-          </SelectContent>
-        </Select>
-        {currentUser.data && (
-          <Button
-            variant={onlyMine ? "default" : "outline"}
-            size="sm"
-            onClick={() => setOnlyMine(!onlyMine)}
-          >
-            <User className="h-3.5 w-3.5 mr-1" />
-            {onlyMine ? "Solo mie" : "Tutte"}
-          </Button>
-        )}
       </div>
 
-      {/* Commesse grid */}
-      <div className="grid gap-3">
-        {commesse.data?.map((c: any) => (
-          <Card
-            key={c.id}
-            className="cursor-pointer transition-all hover:shadow-md hover:border-foreground/20"
-            onClick={() => setLocation(`/commesse/${c.id}`)}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1.5 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {c.codice}
-                    </span>
-                    <span
-                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${statoColors[c.stato] ?? "bg-gray-100"}`}
-                    >
-                      {c.stato.replace(/_/g, " ")}
-                    </span>
-                    {(c.priorita === "urgente" || c.priorita === "alta") && (
-                      <Badge
-                        variant={prioritaStyle[c.priorita] as any}
-                        className={`text-[10px] px-1.5 py-0 ${c.priorita === "alta" ? "border-destructive text-destructive" : ""}`}
-                      >
-                        {c.priorita.toUpperCase()}
-                      </Badge>
-                    )}
-                  </div>
-                  <h3 className="font-semibold text-sm">{c.cliente}</h3>
-                  {c.assegnatoA && utenteById.get(c.assegnatoA) && (
-                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <User className="h-3 w-3" />
-                      <span>
-                        {utenteById.get(c.assegnatoA).nome} {utenteById.get(c.assegnatoA).cognome}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                    {c.indirizzo && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {c.indirizzo}
-                        {c.citta ? `, ${c.citta}` : ""}
-                      </span>
-                    )}
-                    {c.dataConsegnaConfermata ? (
-                      <span className="flex items-center gap-1 font-medium text-foreground">
-                        <Calendar className="h-3 w-3" />
-                        Consegna prevista: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
-                      </span>
-                    ) : c.consegnaIndicativa ? (
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        Consegna indicativa: +{c.consegnaIndicativa}gg
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-red-600 hover:text-red-700 shrink-0"
-                  onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: c.id, label: `${c.codice} — ${c.cliente}` }); }}
+      {/* Commesse — dense table */}
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-2 text-left">
+              <th className="eyebrow font-semibold px-4 py-2.5">Codice</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Cliente</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Stato</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Assegnata</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Città</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Consegna stimata</th>
+              <th className="eyebrow font-semibold px-4 py-2.5">Priorità</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {commesse.data?.map((c: any) => {
+              const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
+              const consegna = c.dataConsegnaConfermata
+                ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
+                : c.dataConsegnaIndicativa
+                ? new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")
+                : c.consegnaIndicativa
+                ? `~${c.consegnaIndicativa} giorni`
+                : "—";
+              return (
+                <tr
+                  key={c.id}
+                  className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
+                  onClick={() => setLocation(`/commesse/${c.id}`)}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                  <td className="px-4">
+                    <span className="codice-mono text-text-2">{c.codice}</span>
+                  </td>
+                  <td className="px-4 font-medium text-text-1">{c.cliente || "—"}</td>
+                  <td className="px-4">
+                    <StatoChip stato={c.stato} />
+                  </td>
+                  <td className="px-4 text-text-2">
+                    {assignee ? `${assignee.nome} ${assignee.cognome}` : "—"}
+                  </td>
+                  <td className="px-4 text-text-2">{c.citta || "—"}</td>
+                  <td className="px-4 text-text-2 tabular-nums">{consegna}</td>
+                  <td className="px-4">
+                    <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                      {PRIORITA_LABEL[c.priorita] ?? c.priorita}
+                    </Badge>
+                  </td>
+                  <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" className="text-text-3">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem onClick={() => setLocation(`/commesse/${c.id}`)}>
+                          <ArrowRight className="h-4 w-4" /> Apri scheda
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-danger focus:text-danger"
+                          onClick={() =>
+                            setDeleteTarget({ id: c.id, codice: c.codice, stato: c.stato })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" /> Elimina
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
 
         {commesse.data?.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
+          <div className="text-center py-14 text-text-2">
             <p className="text-sm">Nessuna commessa trovata</p>
           </div>
         )}
       </div>
 
-      <ConfirmDialog
+      <DeleteCommessaDialog
         open={!!deleteTarget}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
-        title="Elimina commessa"
-        description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
+        codice={deleteTarget?.codice ?? null}
+        stato={deleteTarget?.stato ?? null}
         onConfirm={() => deleteTarget && deleteCommessa.mutate(deleteTarget.id)}
       />
 

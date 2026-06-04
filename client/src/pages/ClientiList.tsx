@@ -1,7 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -24,18 +23,23 @@ import {
   Contact,
   Plus,
   Search,
-  MapPin,
-  Phone,
-  Mail,
   Building2,
   User,
   Landmark,
   Home,
   UserCircle,
+  MoreHorizontal,
+  ArrowRight,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import SearchSelect from "@/components/SearchSelect";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const tipoIcons: Record<string, any> = {
   privato: User,
@@ -133,11 +137,11 @@ export default function ClientiList() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Contact className="h-6 w-6" />
+          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
+            <Contact className="h-6 w-6 text-primary" />
             Clienti
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p className="text-text-2 text-sm mt-1">
             Anagrafica clienti — {stats.data?.totale ?? 0} totali
           </p>
         </div>
@@ -453,18 +457,18 @@ export default function ClientiList() {
         </Dialog>
       </div>
 
-      {/* Search + filter */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Cerca per nome, citta, email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
+      {/* Sticky toolbar: search + tipo chips + only-mine + counter */}
+      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background/85 backdrop-blur border-b border-border">
+        <div className="flex gap-2 items-center flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
+            <Input
+              placeholder="Cerca per nome, città, email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
           <Button
             variant={!tipoFilter ? "default" : "outline"}
             size="sm"
@@ -482,7 +486,6 @@ export default function ClientiList() {
               {label}
             </Button>
           ))}
-          <div className="w-px bg-border mx-1" />
           <Button
             variant={onlyMine ? "default" : "outline"}
             size="sm"
@@ -492,88 +495,103 @@ export default function ClientiList() {
             <UserCircle className="h-3.5 w-3.5 mr-1" />
             {onlyMine ? "Solo mie" : "Tutte"}
           </Button>
+          <span className="ml-auto text-sm text-text-2 tabular-nums">
+            {clienti.data?.length ?? 0} clienti
+          </span>
         </div>
       </div>
 
-      {/* List */}
+      {/* Clienti — dense table */}
       {clienti.data?.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">
+        <div className="rounded-lg border border-border bg-surface text-center py-14 text-text-2 text-sm">
           Nessun cliente trovato.
         </div>
       ) : (
-        <div className="grid gap-3">
-          {clienti.data?.map((c: any) => {
-            const TipoIcon = tipoIcons[c.tipo] ?? User;
-            const displayName = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
-            return (
-              <Card
-                key={c.id}
-                className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => setLocation(`/clienti/${c.id}`)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <TipoIcon className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold">{displayName}</span>
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-2 text-left">
+                <th className="eyebrow font-semibold px-4 py-2.5">Nome</th>
+                <th className="eyebrow font-semibold px-4 py-2.5">Tag fiscali</th>
+                <th className="eyebrow font-semibold px-4 py-2.5">Città</th>
+                <th className="eyebrow font-semibold px-4 py-2.5">Telefono</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 text-right">Commesse</th>
+                <th className="eyebrow font-semibold px-4 py-2.5">Assegnato</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {clienti.data?.map((c: any) => {
+                const TipoIcon = tipoIcons[c.tipo] ?? User;
+                const displayName = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
+                const assignee =
+                  c.assegnatoA != null ? utenteById.get(c.assegnatoA) : null;
+                return (
+                  <tr
+                    key={c.id}
+                    className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
+                    onClick={() => setLocation(`/clienti/${c.id}`)}
+                  >
+                    <td className="px-4">
+                      <div className="flex items-center gap-2">
+                        <TipoIcon className="h-4 w-4 text-text-3 shrink-0" />
+                        <span className="font-medium text-text-1">
+                          {displayName || "—"}
+                        </span>
                         <Badge variant="outline" className="text-[10px]">
                           {tipoLabels[c.tipo] ?? c.tipo}
                         </Badge>
+                      </div>
+                    </td>
+                    <td className="px-4">
+                      <div className="flex items-center gap-1 flex-wrap">
                         {c.detrazione && (
-                          <Badge variant="secondary" className="text-[10px] capitalize">
+                          <Badge variant="info" className="capitalize">
                             Detrazione{c.tipoDetrazione ? `: ${c.tipoDetrazione}` : ""}
                           </Badge>
                         )}
                         {c.interesseFinanziamento && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            Finanziamento
-                          </Badge>
+                          <Badge variant="secondary">Finanziamento</Badge>
                         )}
                         {c.praticaEdilizia && c.praticaEdilizia !== "nessuna" && (
-                          <Badge variant="secondary" className="text-[10px] uppercase">
+                          <Badge variant="secondary" className="uppercase">
                             {c.praticaEdilizia}
                           </Badge>
                         )}
+                        {!c.detrazione &&
+                          !c.interesseFinanziamento &&
+                          (!c.praticaEdilizia || c.praticaEdilizia === "nessuna") && (
+                            <span className="text-text-3">—</span>
+                          )}
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-                        {c.indirizzo && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {c.indirizzo}
-                            {c.citta ? `, ${c.citta}` : ""}
-                          </span>
-                        )}
-                        {c.telefono && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
-                            {c.telefono}
-                          </span>
-                        )}
-                        {c.email && (
-                          <span className="flex items-center gap-1">
-                            <Mail className="h-3 w-3" />
-                            {c.email}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <Badge variant="secondary" className="text-xs">
-                        {c.commesseIds?.length ?? 0} commesse
-                      </Badge>
-                      {c.assegnatoA != null && utenteById.get(c.assegnatoA) && (
-                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          <UserCircle className="h-3 w-3" />
-                          {utenteById.get(c.assegnatoA)?.nome ?? "—"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </td>
+                    <td className="px-4 text-text-2">{c.citta || "—"}</td>
+                    <td className="px-4 text-text-2 tabular-nums">{c.telefono || "—"}</td>
+                    <td className="px-4 text-right tabular-nums font-medium text-text-1">
+                      {c.commesseIds?.length ?? 0}
+                    </td>
+                    <td className="px-4 text-text-2">
+                      {assignee ? `${assignee.nome} ${assignee.cognome ?? ""}`.trim() : "—"}
+                    </td>
+                    <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon-sm" className="text-text-3">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => setLocation(`/clienti/${c.id}`)}>
+                            <ArrowRight className="h-4 w-4" /> Apri scheda
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
