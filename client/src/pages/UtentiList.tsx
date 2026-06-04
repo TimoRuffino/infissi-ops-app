@@ -53,6 +53,7 @@ const emptyForm = {
   email: "",
   telefono: "",
   ruoli: ["commerciale"] as RuoloValue[],
+  sediIds: [1] as number[],
   password: "",
 };
 
@@ -71,6 +72,7 @@ export default function UtentiList() {
     search: search || undefined,
   });
   const stats = trpc.utenti.stats.useQuery();
+  const sediAll = trpc.sedi.listAll.useQuery();
   const utils = trpc.useUtils();
 
   const createUtente = trpc.utenti.create.useMutation({
@@ -108,10 +110,21 @@ export default function UtentiList() {
       email: u.email,
       telefono: u.telefono ?? "",
       ruoli,
+      sediIds: Array.isArray(u.sediIds) && u.sediIds.length > 0 ? u.sediIds : [1],
       password: "",
     });
     setShowPassword(false);
     setEditOpen(true);
+  }
+
+  function toggleSede(id: number) {
+    const has = form.sediIds.includes(id);
+    if (has) {
+      if (form.sediIds.length === 1) return; // keep at least one sede
+      setForm({ ...form, sediIds: form.sediIds.filter((x) => x !== id) });
+    } else {
+      setForm({ ...form, sediIds: [...form.sediIds, id] });
+    }
   }
 
   function toggleAttivo(u: any) {
@@ -288,13 +301,37 @@ export default function UtentiList() {
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label>Sedi assegnate — {form.sediIds.length} selezionate</Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(sediAll.data ?? []).map((s: any) => {
+                  const checked = form.sediIds.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-center gap-2 rounded-md border p-2 text-xs cursor-pointer transition-colors ${checked ? "bg-primary/5 border-primary" : "hover:bg-muted"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSede(s.id)}
+                      />
+                      {s.nome}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                L'utente potrà lavorare e switchare solo tra le sedi selezionate.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5" /> Password
               </Label>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Min. 4 caratteri"
+                  placeholder="Min. 8 caratteri"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   className="pr-10"
@@ -311,13 +348,14 @@ export default function UtentiList() {
             </div>
             <Button
               onClick={() => {
-                if (!form.nome || !form.cognome || !form.email || !form.password || form.password.length < 4 || form.ruoli.length === 0) return;
+                if (!form.nome || !form.cognome || !form.email || !form.password || form.password.length < 8 || form.ruoli.length === 0) return;
                 createUtente.mutate({
                   nome: form.nome,
                   cognome: form.cognome,
                   email: form.email,
                   telefono: form.telefono || undefined,
                   ruoli: form.ruoli as any,
+                  sediIds: form.sediIds,
                   password: form.password,
                 });
               }}
@@ -378,6 +416,30 @@ export default function UtentiList() {
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label>Sedi assegnate — {form.sediIds.length} selezionate</Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(sediAll.data ?? []).map((s: any) => {
+                  const checked = form.sediIds.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-center gap-2 rounded-md border p-2 text-xs cursor-pointer transition-colors ${checked ? "bg-primary/5 border-primary" : "hover:bg-muted"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSede(s.id)}
+                      />
+                      {s.nome}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                L'utente potrà lavorare e switchare solo tra le sedi selezionate.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5" /> Nuova password
               </Label>
@@ -410,7 +472,8 @@ export default function UtentiList() {
                   email: form.email || undefined,
                   telefono: form.telefono || undefined,
                   ruoli: form.ruoli as any,
-                  ...(form.password.length >= 4 ? { password: form.password } : {}),
+                  sediIds: form.sediIds,
+                  ...(form.password.length >= 8 ? { password: form.password } : {}),
                 });
               }}
               disabled={updateUtente.isPending}

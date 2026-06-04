@@ -27,6 +27,7 @@ import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
 import PreventivatorePuntoDelSerramento from "./pages/PreventivatorePuntoDelSerramento";
 import Archivio from "./pages/Archivio";
 import Classifica from "./pages/Classifica";
+import SediList from "./pages/SediList";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -78,6 +79,9 @@ function Router() {
             FORBIDDEN error on save. */}
         <Route path="/utenti">
           {() => <RequireDirezione><UtentiList /></RequireDirezione>}
+        </Route>
+        <Route path="/sedi">
+          {() => <RequireDirezione><SediList /></RequireDirezione>}
         </Route>
         <Route path="/integrazioni" component={Integrazioni} />
         <Route path="/404" component={NotFound} />

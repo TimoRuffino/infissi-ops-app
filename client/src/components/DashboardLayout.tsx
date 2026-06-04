@@ -41,6 +41,7 @@ import {
   Calculator,
   Archive,
   Trophy,
+  Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -48,6 +49,7 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import NotificheDropdown from "./NotificheDropdown";
 import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
+import SedeSwitcher from "./SedeSwitcher";
 import { isDirezione } from "@/lib/roles";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -75,6 +77,7 @@ const menuItems: MenuItem[] = [
   { icon: Trophy, label: "Classifica", path: "/classifica" },
   { icon: Archive, label: "Archivio", path: "/archivio" },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
+  { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
 
@@ -210,6 +213,10 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0">
+            {/* Active sede + switcher */}
+            <div className="px-2 pt-2 pb-1">
+              <SedeSwitcher collapsed={isCollapsed} />
+            </div>
             <SidebarMenu className="px-2 py-1">
               {menuItems
                 .filter((item) => !item.direzioneOnly || isDirezione(user))
