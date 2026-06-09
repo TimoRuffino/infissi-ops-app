@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
+import { assertSedeScope } from "../_core/permissions";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
 
@@ -244,8 +244,7 @@ export const clientiRouter = router({
       const idx = clienti.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Cliente non trovato");
       assertSedeScope(clienti[idx], ctx.sedeId);
-      // Only the creator/owner or a direzione user can hard-delete a cliente.
-      requireOwnershipOrDirezione(clienti[idx], ctx.user);
+      // Anyone in the sede can delete a cliente (not just the assignee/owner).
       clienti.splice(idx, 1);
       _store.save();
       return { success: true };

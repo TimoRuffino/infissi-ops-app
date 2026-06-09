@@ -397,7 +397,7 @@ export default function CommesseList() {
       </div>
 
       {/* Sticky toolbar: search + stato + only-mine + counter */}
-      <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background/85 backdrop-blur border-b border-border">
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background border-b border-border">
         <div className="flex gap-2 items-center flex-wrap">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
@@ -440,7 +440,7 @@ export default function CommesseList() {
       {/* Commesse — dense table */}
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">
-          <thead className="sticky top-[52px] z-10">
+          <thead className="sticky top-[53px] z-20 bg-surface-2">
             <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
               <th className="eyebrow font-semibold px-4 py-2.5">Codice</th>
               <th className="eyebrow font-semibold px-4 py-2.5">Cliente</th>
