@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2,
-  ChevronRight,
   ChevronDown,
   Paperclip,
   Sparkles,
@@ -88,24 +87,44 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
     setEditOpen(true);
   }
 
-  function handleComplete() {
+  // Save from the dialog. When the step isn't completed yet, saving also marks
+  // it done (stamping today's date). For an already-completed step we keep the
+  // stato + completion date and only update utente/note (edit after complete).
+  // null is sent so cleared fields actually persist as empty.
+  function saveStep() {
     if (!editStep) return;
+    const completing = editStep.stato !== "completato";
     updateStep.mutate({
       id: editStep.id,
-      stato: "completato",
-      dataCompletamento: new Date().toISOString().split("T")[0],
-      utente: editForm.utente || undefined,
-      note: editForm.note || undefined,
+      ...(completing
+        ? {
+            stato: "completato" as const,
+            dataCompletamento: new Date().toISOString().split("T")[0],
+          }
+        : {}),
+      utente: editForm.utente || null,
+      note: editForm.note || null,
     });
     setEditOpen(false);
   }
 
-  function handleQuickAdvance(step: any) {
-    if (step.stato === "da_fare") {
-      updateStep.mutate({ id: step.id, stato: "in_corso" });
-    } else if (step.stato === "in_corso") {
-      openEdit(step);
-    }
+  // One click = task done. No "Avvia" intermediate step.
+  function quickComplete(step: any) {
+    updateStep.mutate({
+      id: step.id,
+      stato: "completato",
+      dataCompletamento: new Date().toISOString().split("T")[0],
+    });
+  }
+
+  // Reopen a completed step → back to da_fare (clears completion metadata).
+  function reopenStep(step: any) {
+    updateStep.mutate({
+      id: step.id,
+      stato: "da_fare",
+      dataCompletamento: null,
+    });
+    setEditOpen(false);
   }
 
   const pct = stats.data?.percentuale ?? 0;
@@ -175,7 +194,6 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                     {fSteps.map((step: any) => {
                       const isCurrent = currentStep?.id === step.id;
                       const completed = step.stato === "completato";
-                      const future = !completed && !isCurrent;
                       const hasAllegato = /allegato|foto/i.test(step.label ?? "");
                       return (
                         <div
@@ -200,7 +218,13 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                             )}
                           </span>
 
-                          <div className="flex-1 min-w-0">
+                          {/* Click anywhere on the text → edit dialog (works
+                              for completed steps too: add/change note + chi). */}
+                          <button
+                            type="button"
+                            onClick={() => openEdit(step)}
+                            className="flex-1 min-w-0 text-left rounded hover:bg-surface-2 -mx-1 px-1 py-0.5 transition-colors"
+                          >
                             <div className="flex items-center gap-1.5">
                               <span
                                 className={`text-[13px] ${
@@ -223,21 +247,25 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                                 {step.utente ? ` · ${step.utente}` : ""}
                               </div>
                             )}
-                          </div>
+                            {/* Note — visible directly under the step. */}
+                            {step.note && (
+                              <div className="text-[11px] text-text-2 mt-0.5 italic">
+                                {step.note}
+                              </div>
+                            )}
+                          </button>
 
-                          {/* Action: current → Avvia/Completa; future → disabled. */}
-                          {!completed && (
+                          {/* One-click complete on the current step. Future
+                              steps have no action. */}
+                          {isCurrent && !completed && (
                             <Button
-                              variant={isCurrent ? "default" : "ghost"}
                               size="sm"
                               className="h-7 text-xs shrink-0"
-                              disabled={future || updateStep.isPending}
-                              onClick={() => handleQuickAdvance(step)}
+                              disabled={updateStep.isPending}
+                              onClick={() => quickComplete(step)}
                             >
-                              {step.stato === "da_fare" && isCurrent
-                                ? "Avvia"
-                                : "Completa"}
-                              {isCurrent && <ChevronRight className="h-3 w-3 ml-0.5" />}
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Completa
                             </Button>
                           )}
                         </div>
@@ -256,8 +284,8 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-sm">
-              {editStep?.stato === "completato" ? "Step: " : "Completa: "}
-              {editStep?.label}
+              {editStep?.stato === "completato" ? "Modifica step" : "Completa step"}
+              {editStep?.label ? ` · ${editStep.label}` : ""}
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
@@ -283,11 +311,25 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                 }
               />
             </div>
-            <Button onClick={handleComplete} disabled={updateStep.isPending}>
-              {editStep?.stato === "completato"
-                ? "Aggiorna"
-                : "Segna come completato"}
-            </Button>
+            <div className="flex gap-2">
+              {editStep?.stato === "completato" && (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => reopenStep(editStep)}
+                  disabled={updateStep.isPending}
+                >
+                  Riapri
+                </Button>
+              )}
+              <Button
+                className="flex-1"
+                onClick={saveStep}
+                disabled={updateStep.isPending}
+              >
+                {editStep?.stato === "completato" ? "Salva note" : "Segna come completato"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

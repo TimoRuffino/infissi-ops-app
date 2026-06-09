@@ -37,6 +37,7 @@ import {
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { toast } from "sonner";
 
 const tipoIcons: Record<string, any> = {
   privato: User,
@@ -121,8 +122,13 @@ export default function ClienteDetail() {
   });
   const deleteCliente = trpc.clienti.delete.useMutation({
     onSuccess: () => {
+      utils.clienti.invalidate();
       setDeleteOpen(false);
       setLocation("/clienti");
+    },
+    onError: (e) => {
+      setDeleteOpen(false);
+      toast.error(e.message ?? "Eliminazione non riuscita");
     },
   });
 

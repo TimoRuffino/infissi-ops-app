@@ -38,8 +38,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { personName } from "@/lib/name";
 
 const tipoIcons: Record<string, any> = {
   privato: User,
@@ -92,15 +97,25 @@ export default function ClientiList() {
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string | undefined>(undefined);
   const [onlyMine, setOnlyMine] = useState(false);
+  // Filter by the user a cliente is assigned to ("" = tutti).
+  const [filtroAssegnato, setFiltroAssegnato] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
 
   const currentUser = trpc.auth.me.useQuery();
   const utentiList = trpc.utenti.list.useQuery(undefined);
 
+  // Assignee filter wins; otherwise "solo mie" applies.
+  const assegnatoAFilter = filtroAssegnato
+    ? parseInt(filtroAssegnato, 10)
+    : onlyMine
+    ? (currentUser.data?.id as number | undefined)
+    : undefined;
+
   const clienti = trpc.clienti.list.useQuery({
     search: search || undefined,
     tipo: tipoFilter,
-    assegnatoA: onlyMine ? (currentUser.data?.id as number | undefined) : undefined,
+    assegnatoA: assegnatoAFilter,
   });
   const stats = trpc.clienti.stats.useQuery();
   const utils = trpc.useUtils();
@@ -111,6 +126,15 @@ export default function ClientiList() {
       setDialogOpen(false);
       setForm(emptyForm);
     },
+  });
+
+  const deleteCliente = trpc.clienti.delete.useMutation({
+    onSuccess: () => {
+      utils.clienti.invalidate();
+      setDeleteTarget(null);
+      toast.success("Cliente eliminato");
+    },
+    onError: (e) => toast.error(e.message ?? "Eliminazione non riuscita"),
   });
 
   const [form, setForm] = useState(emptyForm);
@@ -487,14 +511,37 @@ export default function ClientiList() {
             </Button>
           ))}
           <Button
-            variant={onlyMine ? "default" : "outline"}
+            variant={onlyMine && !filtroAssegnato ? "default" : "outline"}
             size="sm"
-            onClick={() => setOnlyMine((v) => !v)}
+            onClick={() => {
+              setFiltroAssegnato("");
+              setOnlyMine((v) => !v);
+            }}
             title="Filtra solo i clienti assegnati a me"
           >
             <UserCircle className="h-3.5 w-3.5 mr-1" />
-            {onlyMine ? "Solo mie" : "Tutte"}
+            {onlyMine && !filtroAssegnato ? "Solo mie" : "Tutte"}
           </Button>
+          {/* Filter by assignee */}
+          <Select
+            value={filtroAssegnato || "tutti"}
+            onValueChange={(v) => {
+              setFiltroAssegnato(v === "tutti" ? "" : v);
+              setOnlyMine(false);
+            }}
+          >
+            <SelectTrigger className="w-[190px] h-9">
+              <SelectValue placeholder="Assegnato a" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
+              {(utentiList.data ?? []).map((u: any) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {personName(u, u.email ?? `Utente ${u.id}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <span className="ml-auto text-sm text-text-2 tabular-nums">
             {clienti.data?.length ?? 0} clienti
           </span>
@@ -509,8 +556,8 @@ export default function ClientiList() {
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-surface">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-2 text-left">
+            <thead className="sticky top-[52px] z-10">
+              <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
                 <th className="eyebrow font-semibold px-4 py-2.5">Nome</th>
                 <th className="eyebrow font-semibold px-4 py-2.5">Tag fiscali</th>
                 <th className="eyebrow font-semibold px-4 py-2.5">Città</th>
@@ -584,6 +631,15 @@ export default function ClientiList() {
                           <DropdownMenuItem onClick={() => setLocation(`/clienti/${c.id}`)}>
                             <ArrowRight className="h-4 w-4" /> Apri scheda
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-danger focus:text-danger"
+                            onClick={() =>
+                              setDeleteTarget({ id: c.id, label: displayName || c.email || `Cliente ${c.id}` })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" /> Elimina
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -594,6 +650,15 @@ export default function ClientiList() {
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title="Eliminare il cliente?"
+        description={`Stai per eliminare "${deleteTarget?.label ?? ""}". L'operazione è definitiva e non può essere annullata. Le commesse collegate restano, ma perdono il riferimento al cliente.`}
+        confirmLabel="Elimina"
+        onConfirm={() => deleteTarget && deleteCliente.mutate(deleteTarget.id)}
+      />
     </div>
   );
 }

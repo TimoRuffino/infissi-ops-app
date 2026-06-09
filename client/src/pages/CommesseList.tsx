@@ -431,8 +431,8 @@ export default function CommesseList() {
       {/* Commesse — dense table */}
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-surface-2 text-left">
+          <thead className="sticky top-[52px] z-10">
+            <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
               <th className="eyebrow font-semibold px-4 py-2.5">Codice</th>
               <th className="eyebrow font-semibold px-4 py-2.5">Cliente</th>
               <th className="eyebrow font-semibold px-4 py-2.5">Stato</th>

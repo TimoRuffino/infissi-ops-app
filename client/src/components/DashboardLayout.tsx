@@ -51,7 +51,7 @@ import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
 import { isDirezione } from "@/lib/roles";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
 // for users without the `direzione` role. Squadre, Garanzie, Produzione and
@@ -231,25 +231,23 @@ function DashboardLayoutContent({
                 .map(item => {
                 const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                 return (
-                  <SidebarMenuItem key={item.path} className="relative">
-                    {/* Active voice (spec §3.1): bg white/8 + 3px primary left
-                        bar + white text. Framer animates the highlight as the
-                        active item changes. */}
-                    {isActive && (
-                      <motion.span
-                        layoutId="sidebar-active-bg"
-                        className="absolute inset-0 -z-10 rounded-md bg-white/[0.08]"
-                        transition={{ type: "spring", stiffness: 320, damping: 32 }}
-                      >
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
-                      </motion.span>
-                    )}
+                  <SidebarMenuItem key={item.path}>
+                    {/* Active voice (spec §3.1): bg white/10 + 3px primary left
+                        bar + white text. Styled on the button directly so the
+                        highlight always paints above the dark sidebar. */}
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all data-[active=true]:bg-transparent data-[active=true]:hover:bg-transparent ${isActive ? "font-semibold text-white" : "font-normal"}`}
+                      className={`relative h-10 transition-all ${
+                        isActive
+                          ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
+                          : "font-normal"
+                      }`}
                     >
+                      {isActive && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                      )}
                       <item.icon
                         className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
                       />
