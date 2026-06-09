@@ -131,10 +131,11 @@ export function syncClienteOnCommesse(
   }
 ): number {
   let touched = 0;
-  const prevDisplay = `${previousCliente.nome ?? ""} ${previousCliente.cognome ?? ""}`.trim();
-  const newDisplay = `${updatedCliente.nome ?? previousCliente.nome ?? ""} ${
+  // Display name convention is "Cognome Nome" (global, §naming).
+  const prevDisplay = `${previousCliente.cognome ?? ""} ${previousCliente.nome ?? ""}`.trim();
+  const newDisplay = `${
     updatedCliente.cognome ?? previousCliente.cognome ?? ""
-  }`.trim();
+  } ${updatedCliente.nome ?? previousCliente.nome ?? ""}`.trim();
 
   for (const c of commesse) {
     if (c.clienteId !== clienteId) continue;
@@ -265,7 +266,7 @@ export const commesseRouter = router({
       if (inputClienteId) {
         const c = getClienteById(inputClienteId);
         if (c) {
-          clienteDisplay = `${c.nome} ${c.cognome}`.trim();
+          clienteDisplay = `${c.cognome} ${c.nome}`.trim();
           inheritedAssegnatoA = c.assegnatoA ?? null;
         }
       }
@@ -374,7 +375,7 @@ export const commesseRouter = router({
       ) {
         const linked = getClienteById(updates.clienteId);
         if (linked) {
-          resolvedCliente = `${linked.nome} ${linked.cognome}`.trim();
+          resolvedCliente = `${linked.cognome} ${linked.nome}`.trim();
           addCommessaToCliente(updates.clienteId, commesse[idx].id);
         }
         // Detach from the previous cliente so its commesseIds index stays

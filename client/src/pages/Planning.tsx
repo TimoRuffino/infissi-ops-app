@@ -181,7 +181,7 @@ export default function Planning() {
       : null;
     const squadra = i.squadraId ? squadraById.get(i.squadraId) : null;
     const nomeCognome = cliente
-      ? `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim()
+      ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
       : commessa?.cliente ?? "";
     const indirizzo =
       i.indirizzo ||
@@ -490,7 +490,7 @@ export default function Planning() {
               ? clienteById.get(commessa.clienteId)
               : null;
             const nomeCognome = cliente
-              ? `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim()
+              ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
               : commessa.cliente ?? "";
             const squadra = form.squadraId
               ? squadraById.get(parseInt(form.squadraId))

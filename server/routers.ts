@@ -111,7 +111,7 @@ export const appRouter = router({
         const localUser: LocalUser = {
           id: utente.id,
           openId: `local-${utente.id}`,
-          name: `${utente.nome} ${utente.cognome}`,
+          name: `${utente.cognome} ${utente.nome}`.trim(),
           email: utente.email,
           loginMethod: "local",
           role: ruoli.includes("direzione") ? "admin" : "user",

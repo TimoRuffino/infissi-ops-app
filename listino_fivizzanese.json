@@ -1,0 +1,139 @@
+{
+  "persiane": {
+    "Persiana_con_lamelle_fisse": {
+      "unit": "Mq",
+      "prezzi": {
+        "Standard": 294,
+        "Speciali": 305,
+        "Legno": 410
+      }
+    },
+    "Persiana_con_lamelle_orientabili": {
+      "unit": "Mq",
+      "prezzi": {
+        "Standard": 368,
+        "Speciali": 378,
+        "Legno": 515
+      }
+    },
+    "Persiana_con_sportello_genovese": {
+      "unit": "Mq",
+      "prezzi": {
+        "Standard": 324,
+        "Speciali": 331,
+        "Legno": 452
+      }
+    }
+  },
+  "supplementi": {
+    "SUPPLEMENTO_TELAIO_PER_PERSIANA": {
+      "unit": "Mq",
+      "prezzi": {
+        "Standard": 69,
+        "Speciali": 74,
+        "Legno": 95
+      }
+    },
+    "FRANCESINA_SU_OVALINA_50mm_CON_DISTANZIALE_IN_PLASTICA": {
+      "unit": "Mq",
+      "prezzi": {
+        "Standard": 37,
+        "Speciali": 40,
+        "Legno": 51
+      }
+    },
+    "SUPPLEMENTO_TRAVERSO_INTERMEDIO_SU_ORIENTABILE": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 19,
+        "Speciali": 24,
+        "Legno": 26
+      }
+    },
+    "SUPPLEMENTO_TRAVERSO_CENTRO_STORICO": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 32
+      }
+    },
+    "KIT_GUIDA_SUPERIORE_VELETTA_CARRELLI_PER_ANTA": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 170,
+        "Speciali": 174,
+        "Legno": 237
+      }
+    },
+    "SUPPLEMENTO_PERSIANA_A_LIBRO": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 84
+      }
+    },
+    "SERRATURA_CON_DOPPIA_MANIGLIA_DA_FASCIA": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 137
+      }
+    },
+    "SERRATURA_CON_DOPPIA_MANIGLIA_DA_MONTANTE": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 168
+      }
+    },
+    "PALETTO_SU_ANTA_SEMI_FISSA_AD_INCASSO": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 26
+      }
+    },
+    "PALETTO_SU_ANTA_SEMI_FISSA_IN_APPOGGIO": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 15
+      }
+    },
+    "CHIUSURE_SPORTELLI_CON_TAVELLINI_IN_ALLUMINIO_IN_TINTA": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 21
+      }
+    },
+    "SUPPLEMENTO_PERSIANA_A_LIBRO_3_ANTE": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 126
+      }
+    },
+    "SUPPLEMENTO_PERSIANA_A_LIBRO_A_3_ANTE_CON_LAMELLE_ORIENTABILI": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 189
+      }
+    },
+    "SUPPLEMENTO_PERSIANA_A_LIBRO_A_4_ANTE": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 252
+      }
+    },
+    "SUPPLEMENTO_PERSIANA_A_LIBRO_A_4_ANTE_CON_LAMELLE_ORIENTABILI": {
+      "unit": "Cad",
+      "prezzi": {
+        "Standard": 378
+      }
+    }
+  },
+  "lavorazioni_speciali": {
+    "CENTINATURE": {
+      "unit": "Cad",
+      "prezzi": {
+        "1_anta": 788,
+        "2_ante": 966,
+        "3_ante": 1192,
+        "4_ante": 1419
+      }
+    }
+  }
+}

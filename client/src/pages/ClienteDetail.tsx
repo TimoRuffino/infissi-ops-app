@@ -163,7 +163,7 @@ export default function ClienteDetail() {
   }
 
   const TipoIcon = tipoIcons[c.tipo] ?? User;
-  const displayName = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
+  const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
 
   const clienteCommesse =
     commesse.data?.filter((cm: any) => c.commesseIds?.includes(cm.id)) ?? [];

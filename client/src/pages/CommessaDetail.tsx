@@ -303,7 +303,7 @@ export default function CommessaDetail() {
       updateCommessa.mutate({
         id: commessaId,
         clienteId: cliente.id,
-        cliente: `${cliente.nome} ${cliente.cognome}`.trim(),
+        cliente: `${cliente.cognome} ${cliente.nome}`.trim(),
         telefono: cliente.telefono || undefined,
         email: cliente.email || undefined,
         // Commessa indirizzo = indirizzo LAVORO (falls back to residenza).
@@ -358,9 +358,10 @@ export default function CommessaDetail() {
     // Prefer cliente record for anagrafica when available; fall back to the
     // commessa display string split into nome/cognome on the first space so
     // legacy commesse without a clienteId still get a sensible seed.
+    // Display string is "Cognome Nome": first token = cognome, rest = nome.
     const fallbackParts = (c.cliente ?? "").trim().split(/\s+/);
-    const fallbackNome = fallbackParts[0] ?? "";
-    const fallbackCognome = fallbackParts.slice(1).join(" ");
+    const fallbackCognome = fallbackParts[0] ?? "";
+    const fallbackNome = fallbackParts.slice(1).join(" ");
     setEditForm({
       nome: cl?.nome ?? fallbackNome,
       cognome: cl?.cognome ?? fallbackCognome,
@@ -405,7 +406,7 @@ export default function CommessaDetail() {
         id: commessaId,
         // Refresh the denormalized display string even when no clienteId is
         // linked, so users can still correct it.
-        cliente: `${editForm.nome} ${editForm.cognome}`.trim(),
+        cliente: `${editForm.cognome} ${editForm.nome}`.trim(),
         indirizzo: editForm.indirizzo,
         citta: editForm.citta,
         telefono: editForm.telefono,
@@ -869,7 +870,7 @@ export default function CommessaDetail() {
                 Assegnata a:{" "}
                 <span className="font-medium text-foreground">
                   {assignee
-                    ? `${assignee.nome ?? ""} ${assignee.cognome ?? ""}`.trim() ||
+                    ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() ||
                       assignee.email
                     : "Non assegnata"}
                 </span>
@@ -1594,7 +1595,7 @@ export default function CommessaDetail() {
                     value: String(u.id),
                     label:
                       u.nome && u.cognome
-                        ? `${u.nome} ${u.cognome}`
+                        ? `${u.cognome} ${u.nome}`
                         : u.nome ?? u.email ?? `Utente ${u.id}`,
                     keywords: [u.nome, u.cognome, u.email, (u.ruoli ?? []).join(" ")]
                       .filter(Boolean)

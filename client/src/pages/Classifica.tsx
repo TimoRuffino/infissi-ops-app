@@ -36,7 +36,7 @@ function pick<T>(arr: T[], seed: number): T {
 }
 
 function fullName(r: Row): string {
-  return `${r.nome ?? ""} ${r.cognome ?? ""}`.trim() || "Venditore";
+  return `${r.cognome ?? ""} ${r.nome ?? ""}`.trim() || "Venditore";
 }
 
 // Group rows by count (rows arrive sorted desc, alpha tie-break). Each group
@@ -646,7 +646,7 @@ function PodiumPerson({
           <AvatarFallback
             className={`bg-gradient-to-br ${cfg.grad} ${cfg.text} font-bold`}
           >
-            {initials(row.nome, row.cognome)}
+            {initials(row.cognome, row.nome)}
           </AvatarFallback>
         </Avatar>
         <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-2xl drop-shadow">
@@ -655,10 +655,10 @@ function PodiumPerson({
       </div>
 
       <p className="mt-3 text-center text-sm font-bold leading-tight">
-        {row.nome}
+        {row.cognome}
         <br />
         <span className="font-semibold text-muted-foreground">
-          {row.cognome}
+          {row.nome}
         </span>
       </p>
       <div className="mt-0.5 flex items-baseline gap-1">
@@ -705,7 +705,7 @@ function RestRow({
         </span>
         <Avatar className="h-10 w-10 shrink-0 border">
           <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-            {initials(row.nome, row.cognome)}
+            {initials(row.cognome, row.nome)}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">

@@ -99,7 +99,7 @@ export default function CommesseList() {
       utils.clienti.invalidate();
       // Auto-select the freshly created cliente in the commessa form + inherit
       // its fields.
-      const nomeCognome = `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim();
+      const nomeCognome = `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim();
       setForm((prev) => ({
         ...prev,
         clienteId: String(cliente.id),
@@ -135,7 +135,7 @@ export default function CommesseList() {
     const id = parseInt(clienteIdStr, 10);
     const c = clientiList.data?.find((x: any) => x.id === id);
     if (c) {
-      const nomeCognome = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
+      const nomeCognome = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
       setForm({
         ...form,
         clienteId: clienteIdStr,
@@ -186,7 +186,7 @@ export default function CommesseList() {
     () =>
       (clientiList.data ?? []).map((c: any) => ({
         value: String(c.id),
-        label: `${c.nome ?? ""} ${c.cognome ?? ""}`.trim() || "(senza nome)",
+        label: `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || "(senza nome)",
         keywords: [c.email, c.telefono, c.citta].filter(Boolean).join(" "),
         hint: c.citta ?? undefined,
       })),
@@ -196,7 +196,7 @@ export default function CommesseList() {
     () =>
       (utentiList.data ?? []).map((u: any) => ({
         value: String(u.id),
-        label: `${u.nome ?? ""} ${u.cognome ?? ""}`.trim(),
+        label: `${u.cognome ?? ""} ${u.nome ?? ""}`.trim(),
         keywords: u.email,
         hint: Array.isArray(u.ruoli) ? u.ruoli[0] : undefined,
       })),
@@ -467,7 +467,7 @@ export default function CommesseList() {
                     <StatoChip stato={c.stato} />
                   </td>
                   <td className="px-4 text-text-2">
-                    {assignee ? `${assignee.nome} ${assignee.cognome}` : "—"}
+                    {assignee ? `${assignee.cognome} ${assignee.nome}` : "—"}
                   </td>
                   <td className="px-4 text-text-2">{c.citta || "—"}</td>
                   <td className="px-4 text-text-2 tabular-nums">{consegna}</td>

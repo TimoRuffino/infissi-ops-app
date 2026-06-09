@@ -203,10 +203,10 @@ export default function UtentiList() {
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-sm font-semibold">
-                      {u.nome.charAt(0)}{u.cognome.charAt(0)}
+                      {u.cognome.charAt(0)}{u.nome.charAt(0)}
                     </div>
                     <div>
-                      <CardTitle className="text-sm">{u.nome} {u.cognome}</CardTitle>
+                      <CardTitle className="text-sm">{u.cognome} {u.nome}</CardTitle>
                       <p className="text-xs text-muted-foreground">{u.email}</p>
                     </div>
                   </div>
@@ -214,7 +214,7 @@ export default function UtentiList() {
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(u)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteTarget({ id: u.id, label: `${u.nome} ${u.cognome}` })}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteTarget({ id: u.id, label: `${u.cognome} ${u.nome}` })}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>

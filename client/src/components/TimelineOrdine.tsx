@@ -66,7 +66,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
   const utenteOptions = useMemo(
     () =>
       (utenti.data ?? []).map((u: any) => {
-        const fullName = [u.nome, u.cognome].filter(Boolean).join(" ") || u.email;
+        const fullName = [u.cognome, u.nome].filter(Boolean).join(" ") || u.email;
         return {
           value: fullName,
           label: fullName,

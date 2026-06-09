@@ -523,7 +523,7 @@ export default function ClientiList() {
             <tbody>
               {clienti.data?.map((c: any) => {
                 const TipoIcon = tipoIcons[c.tipo] ?? User;
-                const displayName = `${c.nome ?? ""} ${c.cognome ?? ""}`.trim();
+                const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
                 const assignee =
                   c.assegnatoA != null ? utenteById.get(c.assegnatoA) : null;
                 return (
@@ -571,7 +571,7 @@ export default function ClientiList() {
                       {c.commesseIds?.length ?? 0}
                     </td>
                     <td className="px-4 text-text-2">
-                      {assignee ? `${assignee.nome} ${assignee.cognome ?? ""}`.trim() : "—"}
+                      {assignee ? `${assignee.cognome ?? ""} ${assignee.nome}`.trim() : "—"}
                     </td>
                     <td className="px-2" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
