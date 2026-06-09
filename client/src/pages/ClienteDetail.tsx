@@ -37,7 +37,8 @@ import {
   ArchiveRestore,
   MoreHorizontal,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import SearchSelect from "@/components/SearchSelect";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { toast } from "sonner";
@@ -81,6 +82,18 @@ export default function ClienteDetail() {
   const interventi = trpc.interventi.list.useQuery({});
   const ticketList = trpc.ticket.list.useQuery({});
   const garanzieList = trpc.garanzie.list.useQuery({});
+  const utentiList = trpc.utenti.list.useQuery(undefined);
+
+  const utenteOptions = useMemo(
+    () =>
+      (utentiList.data ?? []).map((u: any) => ({
+        value: String(u.id),
+        label: `${u.cognome ?? ""} ${u.nome ?? ""}`.trim() || u.email || `Utente ${u.id}`,
+        keywords: [u.email, (u.ruoli ?? []).join(" ")].filter(Boolean).join(" "),
+        hint: (u.ruoli ?? [])[0],
+      })),
+    [utentiList.data]
+  );
 
   const utils = trpc.useUtils();
   const [editOpen, setEditOpen] = useState(false);
@@ -318,6 +331,7 @@ export default function ClienteDetail() {
                   tipoDetrazione: c.tipoDetrazione ?? "",
                   interesseFinanziamento: !!c.interesseFinanziamento,
                   praticaEdilizia: c.praticaEdilizia ?? "nessuna",
+                  assegnatoA: c.assegnatoA != null ? String(c.assegnatoA) : "",
                   note: c.note ?? "",
                 });
                 setEditOpen(true);
@@ -924,6 +938,18 @@ export default function ClienteDetail() {
                 </Select>
               </div>
               <div className="space-y-1.5">
+                <Label>Assegnato a</Label>
+                <SearchSelect
+                  options={utenteOptions}
+                  value={editForm.assegnatoA ?? ""}
+                  onChange={(v) => setEditForm({ ...editForm, assegnatoA: v })}
+                  placeholder="Nessuno"
+                  searchPlaceholder="Cerca utente…"
+                  allowClear
+                  clearLabel="— Non assegnato —"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Note</Label>
                 <Textarea
                   rows={2}
@@ -941,6 +967,9 @@ export default function ClienteDetail() {
                     nome: editForm.nome,
                     cognome: editForm.cognome,
                     tipo: editForm.tipo as any,
+                    assegnatoA: editForm.assegnatoA
+                      ? parseInt(editForm.assegnatoA, 10)
+                      : null,
                     indirizzo: editForm.indirizzo || undefined,
                     citta: editForm.citta || undefined,
                     cap: editForm.cap || undefined,

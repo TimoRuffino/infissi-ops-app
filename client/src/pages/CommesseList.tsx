@@ -25,9 +25,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Search, User, UserPlus, MoreHorizontal, Trash2, ArrowRight } from "lucide-react";
+import { Plus, Search, User, UserPlus, MoreHorizontal, Trash2, ArrowRight, Archive } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 import SearchSelect from "@/components/SearchSelect";
 import StatoChip from "@/components/StatoChip";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
@@ -120,6 +121,14 @@ export default function CommesseList() {
       utils.commesse.invalidate();
       setDeleteTarget(null);
     },
+  });
+
+  const archiveCommessa = trpc.commesse.archive.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      toast.success("Commessa archiviata");
+    },
+    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
   });
 
   const [form, setForm] = useState(emptyForm);
@@ -486,6 +495,9 @@ export default function CommesseList() {
                       <DropdownMenuContent align="end" className="w-44">
                         <DropdownMenuItem onClick={() => setLocation(`/commesse/${c.id}`)}>
                           <ArrowRight className="h-4 w-4" /> Apri scheda
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => archiveCommessa.mutate(c.id)}>
+                          <Archive className="h-4 w-4" /> Archivia
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem

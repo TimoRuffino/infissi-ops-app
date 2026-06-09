@@ -56,6 +56,7 @@ import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
 import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -290,11 +291,13 @@ export default function CommessaDetail() {
       utils.commesse.invalidate();
       setLocation("/commesse");
     },
+    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
   });
   const restoreCommessa = trpc.commesse.restore.useMutation({
     onSuccess: () => {
       utils.commesse.invalidate();
     },
+    onError: (e) => toast.error(e.message ?? "Ripristino non riuscito"),
   });
 
   // Nuovo cliente dalla commessa: creates cliente, then links it on commessa.
