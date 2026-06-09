@@ -3,7 +3,6 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
-import { renameForStato } from "@shared/statoLabels";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -87,6 +86,23 @@ function base64ByteLength(b64: string): number {
   if (b64.endsWith("==")) padding = 2;
   else if (b64.endsWith("=")) padding = 1;
   return Math.floor((len * 3) / 4) - padding;
+}
+
+// Build the stored filename from the chosen document TYPE (not the board
+// stato): "{Tipo label} {cliente}.{ext}". Preserves the original extension.
+function buildNomeFromTipo(
+  originalName: string,
+  tipo: DocTipo,
+  cliente?: string | null
+): string {
+  const dotIdx = originalName.lastIndexOf(".");
+  const ext = dotIdx > 0 ? originalName.slice(dotIdx) : "";
+  const label = DOC_TIPO_LABEL[tipo] ?? "Documento";
+  const who = (cliente ?? "").trim();
+  const stem = who ? `${label} ${who}` : label;
+  // Strip characters that are awkward in filenames.
+  const safe = stem.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return `${safe}${ext}`;
 }
 
 // If `name` already exists among the commessa's documenti, return it with a
@@ -223,18 +239,13 @@ export const preventiviContrattiRouter = router({
       }
       const commessa = commessaInSede(input.commessaId, ctx.sedeId);
       if (!commessa) throw new Error("Commessa non trovata");
-      // Auto-rename: files uploaded inside a commessa board stato are renamed
-      // to "{stato label} {cliente}.{ext}" so downloads land with a name that
-      // tells you at a glance which commessa + phase they belong to. Falls
-      // back to the original filename if we lack context. Opt-out via
-      // `keepNome` when the caller already built a meaningful name.
+      // Auto-rename: files are renamed to "{tipo scelto} {cliente}.{ext}" so
+      // the download name reflects the DOCUMENT TYPE picked from the dropdown
+      // (not the board stato). Opt-out via `keepNome` when the caller already
+      // built a meaningful name (e.g. the preventivatori PDF export).
       const baseNome = input.keepNome
         ? input.nome
-        : renameForStato({
-            originalName: input.nome,
-            stato: commessa?.stato,
-            cliente: commessa?.cliente,
-          });
+        : buildNomeFromTipo(input.nome, input.tipo, commessa?.cliente);
       // Disambiguate duplicates within the same commessa: if the name is
       // already taken, append " (2)", " (3)", ... before the extension so the
       // browser doesn't silently overwrite on download.

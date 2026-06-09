@@ -563,9 +563,9 @@ export default function ClientiList() {
           Nessun cliente trovato.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <div className="rounded-lg border border-border bg-surface">
           <table className="w-full text-sm">
-            <thead className="sticky top-[53px] z-20 bg-surface-2">
+            <thead className="sticky top-[52px] z-20 bg-surface-2">
               <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
                 <th className="eyebrow font-semibold px-4 py-2.5">Nome</th>
                 <th className="eyebrow font-semibold px-4 py-2.5">Tag fiscali</th>
