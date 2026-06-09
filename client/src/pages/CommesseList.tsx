@@ -529,17 +529,17 @@ export default function CommesseList() {
           <div className="grid gap-3 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Nome *</Label>
-                <Input
-                  value={clienteForm.nome}
-                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
                 <Label>Cognome *</Label>
                 <Input
                   value={clienteForm.cognome}
                   onChange={(e) => setClienteForm({ ...clienteForm, cognome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nome *</Label>
+                <Input
+                  value={clienteForm.nome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
                 />
               </div>
             </div>

@@ -44,6 +44,7 @@ export default function Archivio() {
   >(null);
 
   const list = trpc.commesse.list.useQuery({ archived: "only" });
+  const clientiArch = trpc.clienti.list.useQuery({ archived: "only" });
   const utils = trpc.useUtils();
   const restore = trpc.commesse.restore.useMutation({
     onSuccess: () => {
@@ -51,6 +52,14 @@ export default function Archivio() {
       setRestoreTarget(null);
       toast.success("Commessa ripristinata");
     },
+  });
+  const restoreCliente = trpc.clienti.restore.useMutation({
+    onSuccess: () => {
+      utils.clienti.invalidate();
+      utils.commesse.invalidate();
+      toast.success("Cliente ripristinato (con le sue commesse)");
+    },
+    onError: (e) => toast.error(e.message ?? "Ripristino non riuscito"),
   });
 
   const filtered = useMemo(() => {
@@ -99,7 +108,52 @@ export default function Archivio() {
         />
       </div>
 
-      {/* Lista */}
+      {/* Clienti archiviati */}
+      {(clientiArch.data?.length ?? 0) > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Clienti archiviati ({clientiArch.data?.length ?? 0})
+          </h2>
+          <div className="grid grid-cols-1 gap-2">
+            {(clientiArch.data ?? []).map((cl: any) => (
+              <Card key={cl.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="py-3 px-4 flex items-center justify-between gap-3">
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => setLocation(`/clienti/${cl.id}`)}
+                  >
+                    <p className="font-semibold leading-tight truncate">
+                      {`${cl.cognome ?? ""} ${cl.nome ?? ""}`.trim() || cl.email || "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {cl.commesseIds?.length ?? 0} commesse · archiviato{" "}
+                      {cl.archivedAt
+                        ? new Date(cl.archivedAt).toLocaleDateString("it-IT")
+                        : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => restoreCliente.mutate(cl.id)}
+                    disabled={restoreCliente.isPending}
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                    Ripristina
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Commesse archiviate */}
+      {(clientiArch.data?.length ?? 0) > 0 && (
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Commesse archiviate
+        </h2>
+      )}
       {list.isLoading && (
         <p className="text-sm text-muted-foreground">Caricamento…</p>
       )}

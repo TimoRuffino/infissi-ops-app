@@ -33,11 +33,21 @@ import {
   Pencil,
   Trash2,
   Plus,
+  Archive,
+  ArchiveRestore,
+  MoreHorizontal,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const tipoIcons: Record<string, any> = {
   privato: User,
@@ -117,8 +127,10 @@ export default function ClienteDetail() {
   const updateCliente = trpc.clienti.update.useMutation({
     onSuccess: () => {
       utils.clienti.byId.invalidate(clienteId);
+      utils.clienti.invalidate();
       setEditOpen(false);
     },
+    onError: (e) => toast.error(e.message ?? "Salvataggio non riuscito"),
   });
   const deleteCliente = trpc.clienti.delete.useMutation({
     onSuccess: () => {
@@ -130,6 +142,23 @@ export default function ClienteDetail() {
       setDeleteOpen(false);
       toast.error(e.message ?? "Eliminazione non riuscita");
     },
+  });
+
+  const archiveCliente = trpc.clienti.archive.useMutation({
+    onSuccess: () => {
+      utils.clienti.invalidate();
+      utils.commesse.invalidate();
+      toast.success("Cliente archiviato (con le sue commesse)");
+    },
+    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
+  });
+  const restoreCliente = trpc.clienti.restore.useMutation({
+    onSuccess: () => {
+      utils.clienti.invalidate();
+      utils.commesse.invalidate();
+      toast.success("Cliente ripristinato");
+    },
+    onError: (e) => toast.error(e.message ?? "Ripristino non riuscito"),
   });
 
   const createCommessa = trpc.commesse.create.useMutation({
@@ -296,16 +325,47 @@ export default function ClienteDetail() {
             >
               <Pencil className="h-3.5 w-3.5 mr-1" /> Modifica
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 hover:bg-red-50"
-              onClick={() => setDeleteOpen(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            {c.archivedAt ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => restoreCliente.mutate(clienteId)}
+                disabled={restoreCliente.isPending}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5 mr-1" /> Ripristina
+              </Button>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="text-text-3">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => archiveCliente.mutate(clienteId)}>
+                    <Archive className="h-4 w-4" /> Archivia
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-danger focus:text-danger"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="h-4 w-4" /> Elimina
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
+
+        {c.archivedAt && (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
+            <Archive className="h-4 w-4 shrink-0" />
+            Cliente archiviato il{" "}
+            {new Date(c.archivedAt).toLocaleDateString("it-IT")} — anche le sue
+            commesse sono archiviate. Ripristina per renderlo di nuovo attivo.
+          </div>
+        )}
 
         {c.note && (
           <p className="text-sm text-muted-foreground mt-2 border-l-2 pl-3">
@@ -632,20 +692,20 @@ export default function ClienteDetail() {
             <div className="grid gap-3 py-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Nome</Label>
-                  <Input
-                    value={editForm.nome}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, nome: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label>Cognome</Label>
                   <Input
                     value={editForm.cognome}
                     onChange={(e) =>
                       setEditForm({ ...editForm, cognome: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nome</Label>
+                  <Input
+                    value={editForm.nome}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, nome: e.target.value })
                     }
                   />
                 </div>
@@ -909,10 +969,7 @@ export default function ClienteDetail() {
                     note: editForm.note || undefined,
                   });
                 }}
-                disabled={
-                  updateCliente.isPending ||
-                  (editForm.detrazione && !editForm.tipoDetrazione)
-                }
+                disabled={updateCliente.isPending}
               >
                 Salva modifiche
               </Button>

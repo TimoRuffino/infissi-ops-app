@@ -41,7 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Trash2 } from "lucide-react";
+import { Trash2, Archive } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { personName } from "@/lib/name";
@@ -137,6 +137,15 @@ export default function ClientiList() {
     onError: (e) => toast.error(e.message ?? "Eliminazione non riuscita"),
   });
 
+  const archiveCliente = trpc.clienti.archive.useMutation({
+    onSuccess: () => {
+      utils.clienti.invalidate();
+      utils.commesse.invalidate();
+      toast.success("Cliente archiviato (con le sue commesse)");
+    },
+    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
+  });
+
   const [form, setForm] = useState(emptyForm);
 
   const utenteById = useMemo(() => {
@@ -183,19 +192,19 @@ export default function ClientiList() {
             <div className="grid gap-3 py-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Nome *</Label>
-                  <Input
-                    value={form.nome}
-                    onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label>Cognome *</Label>
                   <Input
                     value={form.cognome}
                     onChange={(e) =>
                       setForm({ ...form, cognome: e.target.value })
                     }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nome *</Label>
+                  <Input
+                    value={form.nome}
+                    onChange={(e) => setForm({ ...form, nome: e.target.value })}
                   />
                 </div>
               </div>
@@ -630,6 +639,9 @@ export default function ClientiList() {
                         <DropdownMenuContent align="end" className="w-44">
                           <DropdownMenuItem onClick={() => setLocation(`/clienti/${c.id}`)}>
                             <ArrowRight className="h-4 w-4" /> Apri scheda
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => archiveCliente.mutate(c.id)}>
+                            <Archive className="h-4 w-4" /> Archivia
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem

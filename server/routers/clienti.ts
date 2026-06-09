@@ -27,6 +27,8 @@ const _store = persistedStore<any>("clienti", (items) => {
     }
     // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
     if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
+    // Soft-archive flag (ISO string when archived, else null).
+    if ((c as any).archivedAt === undefined) (c as any).archivedAt = null;
   }
 });
 const clienti = _store.items;
@@ -73,10 +75,15 @@ export const clientiRouter = router({
         search: z.string().optional(),
         tipo: z.string().optional(),
         assegnatoA: z.number().optional(),
+        // exclude (default) = active only; only = archived; all = both.
+        archived: z.enum(["exclude", "only", "all"]).optional(),
       }).optional()
     )
     .query(({ input, ctx }) => {
       let result = clienti.filter((c) => c.sedeId === ctx.sedeId);
+      const scope = input?.archived ?? "exclude";
+      if (scope === "exclude") result = result.filter((c) => !c.archivedAt);
+      else if (scope === "only") result = result.filter((c) => !!c.archivedAt);
       if (input?.tipo) result = result.filter((c) => c.tipo === input.tipo);
       if (input?.assegnatoA !== undefined) {
         result = result.filter((c) => c.assegnatoA === input.assegnatoA);
@@ -245,7 +252,7 @@ export const clientiRouter = router({
     }),
 
   stats: protectedProcedure.query(({ ctx }) => {
-    const scoped = clienti.filter((c) => c.sedeId === ctx.sedeId);
+    const scoped = clienti.filter((c) => c.sedeId === ctx.sedeId && !c.archivedAt);
     return {
       totale: scoped.length,
       privati: scoped.filter((c) => c.tipo === "privato").length,
@@ -253,5 +260,39 @@ export const clientiRouter = router({
       condomini: scoped.filter((c) => c.tipo === "condominio").length,
       entiPubblici: scoped.filter((c) => c.tipo === "ente_pubblico").length,
     };
+  }),
+
+  // ── Soft archive (cliente + its commesse) ──────────────────────────────────
+  // Open to anyone in the sede (archive is reversible, not destructive).
+  // Archiving a cliente also archives every commessa linked to it; restore
+  // brings both back.
+  archive: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
+    const idx = clienti.findIndex((c) => c.id === input);
+    if (idx === -1) throw new Error("Cliente non trovato");
+    assertSedeScope(clienti[idx], ctx.sedeId);
+    if (!clienti[idx].archivedAt) {
+      clienti[idx] = {
+        ...clienti[idx],
+        archivedAt: new Date().toISOString(),
+        updatedAt: new Date(),
+      };
+      _store.save();
+    }
+    const { setCommesseArchivedByCliente } = await import("./commesse");
+    setCommesseArchivedByCliente(input, true);
+    return clienti[idx];
+  }),
+
+  restore: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
+    const idx = clienti.findIndex((c) => c.id === input);
+    if (idx === -1) throw new Error("Cliente non trovato");
+    assertSedeScope(clienti[idx], ctx.sedeId);
+    if (clienti[idx].archivedAt) {
+      clienti[idx] = { ...clienti[idx], archivedAt: null, updatedAt: new Date() };
+      _store.save();
+    }
+    const { setCommesseArchivedByCliente } = await import("./commesse");
+    setCommesseArchivedByCliente(input, false);
+    return clienti[idx];
   }),
 });

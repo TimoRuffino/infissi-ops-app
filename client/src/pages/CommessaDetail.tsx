@@ -1495,17 +1495,17 @@ export default function CommessaDetail() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Nome</Label>
-                  <Input
-                    value={editForm.nome}
-                    onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label>Cognome</Label>
                   <Input
                     value={editForm.cognome}
                     onChange={(e) => setEditForm({ ...editForm, cognome: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nome</Label>
+                  <Input
+                    value={editForm.nome}
+                    onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })}
                   />
                 </div>
               </div>
@@ -1789,17 +1789,17 @@ export default function CommessaDetail() {
           <div className="grid gap-3 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Nome *</Label>
-                <Input
-                  value={clienteForm.nome}
-                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
                 <Label>Cognome *</Label>
                 <Input
                   value={clienteForm.cognome}
                   onChange={(e) => setClienteForm({ ...clienteForm, cognome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nome *</Label>
+                <Input
+                  value={clienteForm.nome}
+                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
                 />
               </div>
             </div>

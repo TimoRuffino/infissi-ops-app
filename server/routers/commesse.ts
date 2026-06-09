@@ -105,6 +105,28 @@ export function getCommessaById(id: number) {
   return commesse.find((c) => c.id === id) ?? null;
 }
 
+// Cascade archive/restore: when a cliente is (un)archived, its commesse follow.
+// Returns the count of commesse touched. Used by clienti.archive/restore.
+export function setCommesseArchivedByCliente(
+  clienteId: number,
+  archived: boolean
+): number {
+  const now = new Date();
+  let touched = 0;
+  for (const c of commesse) {
+    if (c.clienteId !== clienteId) continue;
+    const target = archived ? now.toISOString() : null;
+    if ((c.archivedAt ?? null) === target) continue;
+    // When restoring, only un-archive commesse that were archived together
+    // with the cliente (heuristic: any archived one) — simplest is to clear.
+    c.archivedAt = target;
+    c.updatedAt = now;
+    touched++;
+  }
+  if (touched > 0) _store.save();
+  return touched;
+}
+
 // Called by clienti.update so the denormalized `cliente` display string on
 // every commessa pointing at this clienteId stays in sync with the canonical
 // nome/cognome on the cliente record. Also refreshes per-commessa copies of
@@ -627,7 +649,7 @@ export const commesseRouter = router({
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
-      requireOwnershipOrDirezione(commesse[idx], ctx.user);
+      // Archive is the safe, reversible path — open to anyone in the sede.
       if (commesse[idx].archivedAt) return commesse[idx];
       commesse[idx] = {
         ...commesse[idx],
@@ -644,7 +666,6 @@ export const commesseRouter = router({
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
-      requireOwnershipOrDirezione(commesse[idx], ctx.user);
       if (!commesse[idx].archivedAt) return commesse[idx];
       commesse[idx] = {
         ...commesse[idx],

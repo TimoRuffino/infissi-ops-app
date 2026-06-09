@@ -31,7 +31,7 @@ const STEP_LABELS: string[] = [
   "DDT Posa (allegato)",
   "Finiture",
   "Pagamento Ultimo Cliente (Saldo)",
-  "Fine Lavori \u2014 DDT Finale (allegato + foto)",
+  // "Fine Lavori \u2014 DDT Finale" rimosso su richiesta.
   "Recensione del Cliente",
 ];
 
@@ -52,6 +52,29 @@ interface TimelineStep {
 // In-memory store (replace with Drizzle queries when DB is available)
 let nextId = 1;
 const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
+  // Migration: drop the retired "Fine Lavori — DDT Finale" step from
+  // already-persisted commesse, then renumber each commessa's steps 1..n so
+  // there's no gap.
+  let changed = false;
+  for (let i = loaded.length - 1; i >= 0; i--) {
+    if (/DDT\s*Finale/i.test(loaded[i].label ?? "")) {
+      loaded.splice(i, 1);
+      changed = true;
+    }
+  }
+  if (changed) {
+    const byCommessa = new Map<number, TimelineStep[]>();
+    for (const s of loaded) {
+      const arr = byCommessa.get(s.commessaId);
+      if (arr) arr.push(s);
+      else byCommessa.set(s.commessaId, [s]);
+    }
+    byCommessa.forEach((arr) => {
+      arr.sort((a, b) => a.stepNumber - b.stepNumber);
+      arr.forEach((s, idx) => (s.stepNumber = idx + 1));
+    });
+    setTimeout(() => _stepsStore.save(), 0);
+  }
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;

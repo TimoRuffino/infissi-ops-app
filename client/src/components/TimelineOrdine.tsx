@@ -25,7 +25,7 @@ const FASI = [
   { id: "vendita", label: "Vendita", dot: "bg-st-preventivo", from: 1, to: 5 },
   { id: "ordine", label: "Ordine & Produzione", dot: "bg-st-ordine", from: 6, to: 10 },
   { id: "consegna", label: "Consegna & Posa", dot: "bg-st-produzione", from: 11, to: 15 },
-  { id: "chiusura", label: "Chiusura", dot: "bg-st-pagamento", from: 16, to: 19 },
+  { id: "chiusura", label: "Chiusura", dot: "bg-st-pagamento", from: 16, to: 18 },
 ] as const;
 
 function faseOf(stepNumber: number) {
