@@ -59,6 +59,27 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  // ── ICS calendar feeds (Google Calendar "Add by URL") ───────────────────
+  // GET /api/ics/:token/:feed.ics → text/calendar for the sede the token
+  // belongs to. Anonymous (the token is the bearer secret); no CSRF/cookies.
+  app.get("/api/ics/:token/:feed", async (req, res) => {
+    const { sedeForToken, buildIcs } = await import("../routers/calendarSync");
+    const sedeId = sedeForToken(req.params.token);
+    if (sedeId == null) {
+      res.status(404).type("text/plain").send("Feed non trovato");
+      return;
+    }
+    const feedKey = (req.params.feed || "tutti.ics").replace(/\.ics$/i, "");
+    const body = buildIcs(sedeId, feedKey);
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="ruffino-${feedKey}.ics"`
+    );
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.send(body);
+  });
   // ── CSRF: same-origin check on /api/trpc ────────────────────────────────
   // Cookie-auth means a cross-origin POST from a malicious page could
   // attempt CSRF. The browser sets `Origin` on cross-origin POSTs; we

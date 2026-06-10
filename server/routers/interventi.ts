@@ -27,6 +27,11 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
 });
 const interventi = _interventiStore.items;
 
+// Exposed for the ICS calendar feed (server/routers/calendarSync.ts).
+export function getInterventiStore() {
+  return interventi;
+}
+
 export const interventiRouter = router({
   list: protectedProcedure
     .input(z.object({

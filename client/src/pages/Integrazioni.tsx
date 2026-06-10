@@ -20,11 +20,15 @@ import {
   Calculator,
   ArrowRight,
   Lock,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 // Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
 // guarded routes in App.tsx; adding a new entry here automatically surfaces
@@ -74,20 +78,12 @@ export default function Integrazioni() {
 
   // Integration states (would be persisted in real app)
   const [todoEnabled, setTodoEnabled] = useState(false);
-  const [calendarEnabled, setCalendarEnabled] = useState(false);
   const [todoConfig, setTodoConfig] = useState({
     clientId: "",
     tenantId: "",
     autoCreateTasks: true,
     syncBidirectional: true,
     defaultList: "Ruffino Flow",
-  });
-  const [calendarConfig, setCalendarConfig] = useState({
-    clientId: "",
-    calendarId: "",
-    colorCoding: true,
-    autoAssignSquadre: true,
-    syncBidirectional: true,
   });
 
   return (
@@ -266,146 +262,8 @@ export default function Integrazioni() {
         )}
       </Card>
 
-      {/* Google Calendar */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-green-700" />
-              </div>
-              <div>
-                <CardTitle className="text-base">Google Calendar</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Pianificazione appuntamenti e sincronizzazione eventi
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {calendarEnabled ? (
-                <Badge className="text-xs bg-green-100 text-green-800 hover:bg-green-100">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Attiva
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="text-xs">
-                  <AlertCircle className="h-3 w-3 mr-1" />
-                  Non configurata
-                </Badge>
-              )}
-              <Switch
-                checked={calendarEnabled}
-                onCheckedChange={setCalendarEnabled}
-              />
-            </div>
-          </div>
-        </CardHeader>
-        {calendarEnabled && (
-          <CardContent className="space-y-4 border-t pt-4">
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Client ID (Google Cloud)</Label>
-                <Input
-                  placeholder="xxxxx.apps.googleusercontent.com"
-                  value={calendarConfig.clientId}
-                  onChange={(e) =>
-                    setCalendarConfig({
-                      ...calendarConfig,
-                      clientId: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Calendar ID</Label>
-                <Input
-                  placeholder="primary o ID specifico"
-                  value={calendarConfig.calendarId}
-                  onChange={(e) =>
-                    setCalendarConfig({
-                      ...calendarConfig,
-                      calendarId: e.target.value,
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <Separator />
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Comportamento
-              </h4>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Codifica a colori</p>
-                  <p className="text-xs text-muted-foreground">
-                    Usa i colori di Calendar per distinguere rilievi, pose e assistenza
-                  </p>
-                </div>
-                <Switch
-                  checked={calendarConfig.colorCoding}
-                  onCheckedChange={(v) =>
-                    setCalendarConfig({ ...calendarConfig, colorCoding: v })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Assegnazione automatica squadre</p>
-                  <p className="text-xs text-muted-foreground">
-                    Aggiunge eventi al calendario dei membri della squadra assegnata
-                  </p>
-                </div>
-                <Switch
-                  checked={calendarConfig.autoAssignSquadre}
-                  onCheckedChange={(v) =>
-                    setCalendarConfig({
-                      ...calendarConfig,
-                      autoAssignSquadre: v,
-                    })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Sincronizzazione bidirezionale</p>
-                  <p className="text-xs text-muted-foreground">
-                    Spostando un evento in Calendar, la data si aggiorna nell'app
-                  </p>
-                </div>
-                <Switch
-                  checked={calendarConfig.syncBidirectional}
-                  onCheckedChange={(v) =>
-                    setCalendarConfig({
-                      ...calendarConfig,
-                      syncBidirectional: v,
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <Separator />
-            <div className="flex items-center gap-3">
-              <Button size="sm" disabled={!calendarConfig.clientId}>
-                <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                Autorizza con Google
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!calendarConfig.clientId}
-              >
-                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                Test connessione
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Richiede un progetto Google Cloud con Calendar API abilitata e credenziali OAuth 2.0.
-              L'evento includera descrizione, contatti cliente e indirizzo navigabile con Maps.
-            </p>
-          </CardContent>
-        )}
-      </Card>
+      {/* Google Calendar — subscribable ICS feeds */}
+      <GoogleCalendarSync />
 
       {/* Info */}
       <Card className="bg-muted/30">
@@ -418,15 +276,146 @@ export default function Integrazioni() {
               mappate come sotto-task. Lo stato si sincronizza in entrambe le direzioni.
             </p>
             <p>
-              <strong>Google Calendar:</strong> Alla pianificazione di un intervento, viene creato
-              un evento con dettagli completi (descrizione, contatti cliente, indirizzo navigabile).
-              Gli eventi sono colorati per tipo (rilievo, posa, assistenza). Le modifiche su Calendar
-              si propagano all'app tramite webhook.
+              <strong>Google Calendar:</strong> ogni sede pubblica feed iCal
+              (uno per tipo di appuntamento + uno con tutti). Aggiungi il link
+              in Google Calendar con «Altri calendari → Da URL» e gli
+              appuntamenti compaiono e si aggiornano da soli (sola lettura su
+              Google). Ruota il token per revocare tutte le iscrizioni.
             </p>
           </div>
         </CardContent>
       </Card>
       </section>
     </div>
+  );
+}
+
+// ── Google Calendar — subscribable ICS feeds ─────────────────────────────────
+// Real, working one-way sync (app → Google) with no Google Cloud setup: each
+// sede exposes tokenized iCal URLs, one per appointment type plus "tutti".
+// The operator subscribes in Google Calendar via "Altri calendari → Da URL";
+// Google then polls the feed and keeps events updated.
+function GoogleCalendarSync() {
+  const feeds = trpc.calendarSync.feeds.useQuery();
+  const utils = trpc.useUtils();
+  const rotate = trpc.calendarSync.rotateToken.useMutation({
+    onSuccess: () => {
+      utils.calendarSync.feeds.invalidate();
+      toast.success("Token ruotato — i vecchi link non funzionano più");
+    },
+    onError: (e) => toast.error(e.message ?? "Rotazione non riuscita"),
+  });
+
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copyUrl(key: string, path: string) {
+    const url = `${window.location.origin}${path}`;
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        setCopied(key);
+        toast.success("Link copiato — incollalo in Google Calendar");
+        setTimeout(() => setCopied(null), 2000);
+      })
+      .catch(() => toast.error("Copia non riuscita"));
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
+              <Calendar className="h-5 w-5 text-green-700" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Google Calendar</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Feed iCal per sede — un calendario per ogni tipo di appuntamento
+              </p>
+            </div>
+          </div>
+          <Badge variant="success" className="gap-1">
+            <CheckCircle2 className="h-3 w-3" />
+            Attiva
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 border-t pt-4">
+        {/* Step-by-step istruzioni */}
+        <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+          <li>Copia il link del calendario che vuoi sincronizzare.</li>
+          <li>
+            Apri Google Calendar →{" "}
+            <span className="font-medium text-text-1">
+              Altri calendari → + → Da URL
+            </span>
+            .
+          </li>
+          <li>Incolla il link e conferma: gli appuntamenti compaiono e si aggiornano da soli.</li>
+          <li>Ripeti per ogni calendario che ti serve (rilievi, pose, …).</li>
+        </ol>
+
+        {/* Feed list */}
+        <div className="space-y-1.5">
+          {(feeds.data?.feeds ?? []).map((f) => (
+            <div
+              key={f.key}
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2"
+            >
+              <Calendar className="h-4 w-4 text-text-3 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{f.label}</p>
+                <p className="codice-mono text-[11px] text-text-3 truncate">
+                  {window.location.origin}
+                  {f.path}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => copyUrl(f.key, f.path)}
+              >
+                {copied === f.key ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 mr-1 text-success" /> Copiato
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 mr-1" /> Copia link
+                  </>
+                )}
+              </Button>
+            </div>
+          ))}
+          {feeds.isLoading && (
+            <p className="text-xs text-text-2">Caricamento feed…</p>
+          )}
+        </div>
+
+        <Separator />
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[11px] text-text-2 max-w-md">
+            I link contengono un token segreto della sede. Se un link finisce
+            nelle mani sbagliate, rigeneralo: tutte le iscrizioni esistenti
+            smettono di funzionare.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => rotate.mutate()}
+            disabled={rotate.isPending}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Rigenera token
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Sincronizzazione in sola lettura (app → Google). Google aggiorna i
+          feed iscritti periodicamente, in genere entro poche ore.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
