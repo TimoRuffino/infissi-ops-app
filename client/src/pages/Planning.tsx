@@ -77,11 +77,13 @@ function endOfMonth(d: Date) {
 const dayNames = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 const dayNamesLong = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"];
 
-const tipoColors: Record<string, string> = {
-  rilievo:    "bg-blue-100 text-blue-800 border-blue-300",
-  posa:       "bg-orange-100 text-orange-800 border-orange-300",
-  assistenza: "bg-purple-100 text-purple-800 border-purple-300",
-  altro:      "bg-gray-100 text-gray-800 border-gray-300",
+// Tinted card background per tipo — paired with a solid 4px left border and a
+// solid type chip (CALENDAR_COLOR_MAP) so the type reads at a glance.
+const tipoCardClass: Record<string, string> = {
+  rilievo:    "bg-blue-100/80",
+  posa:       "bg-orange-100/80",
+  assistenza: "bg-violet-100/80",
+  altro:      "bg-gray-100/80",
 };
 
 // Solid hex per tipo — used for the colored dot on calendar entries.
@@ -135,6 +137,8 @@ export default function Planning() {
   const [editId, setEditId] = useState<number | null>(null);
   const [annullaTarget, setAnnullaTarget] = useState<{ id: number; label: string } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  // External (Google) event tapped → read-only detail dialog.
+  const [extDetail, setExtDetail] = useState<any>(null);
 
   // Query range based on view
   const { from, to } = useMemo(() => {
@@ -486,6 +490,7 @@ export default function Planning() {
           date={cursor}
           interventi={byDay[toDateStr(cursor)] ?? []}
           externalItems={externalByDay[toDateStr(cursor)] ?? []}
+          onOpenExternal={setExtDetail}
           getJoined={getJoinedInfo}
           onNew={() => openCreateFor(toDateStr(cursor))}
           onEdit={openEdit}
@@ -502,6 +507,7 @@ export default function Planning() {
           cursor={cursor}
           byDay={byDay}
           externalByDay={externalByDay}
+          onOpenExternal={setExtDetail}
           getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
@@ -518,6 +524,7 @@ export default function Planning() {
           cursor={cursor}
           byDay={byDay}
           externalByDay={externalByDay}
+          onOpenExternal={setExtDetail}
           getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
@@ -783,6 +790,66 @@ export default function Planning() {
         </DialogContent>
       </Dialog>
 
+      {/* External (Google) event — read-only detail */}
+      <Dialog open={!!extDetail} onOpenChange={(o) => !o && setExtDetail(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-start gap-2 pr-6">
+              <span
+                className="h-3 w-3 rounded-full shrink-0 mt-1.5"
+                style={{ backgroundColor: extDetail?.color }}
+              />
+              <span className="min-w-0 break-words">{extDetail?.titolo}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {extDetail && (
+            <div className="space-y-2.5 text-sm">
+              <div className="flex items-center gap-2">
+                <CalIcon className="h-4 w-4 text-text-3 shrink-0" />
+                <span className="capitalize">
+                  {new Date(
+                    extDetail.dataPianificata + "T12:00:00"
+                  ).toLocaleDateString("it-IT", {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-text-3 shrink-0" />
+                <span className="font-mono">
+                  {extDetail.allDay
+                    ? "Tutto il giorno"
+                    : `${extDetail.oraInizio ?? ""}${
+                        extDetail.oraFine ? ` – ${extDetail.oraFine}` : ""
+                      }`}
+                </span>
+              </div>
+              {extDetail.location && (
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-text-3 shrink-0 mt-0.5" />
+                  <span className="break-words">{extDetail.location}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0 ml-[3px]"
+                  style={{ backgroundColor: extDetail.color }}
+                />
+                <span className="text-text-2">{extDetail.sourceNome}</span>
+              </div>
+              <p className="flex items-center gap-1.5 rounded-md bg-surface-2 border border-border px-2.5 py-2 text-xs text-text-2">
+                <Lock className="h-3.5 w-3.5 shrink-0" />
+                Evento di Google Calendar — si modifica da Google, qui è in sola
+                lettura.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Annulla confirm */}
       <ConfirmDialog
         open={!!annullaTarget}
@@ -800,6 +867,7 @@ function DayView(props: {
   date: Date;
   interventi: any[];
   externalItems: any[];
+  onOpenExternal: (e: any) => void;
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: () => void;
   onEdit: (i: any) => void;
@@ -845,7 +913,12 @@ function DayView(props: {
               />
             ))}
             {props.externalItems.map((e: any) => (
-              <ExternalBlock key={e.id} event={e} size="large" />
+              <ExternalBlock
+                key={e.id}
+                event={e}
+                size="large"
+                onOpen={() => props.onOpenExternal(e)}
+              />
             ))}
           </>
         )}
@@ -859,6 +932,7 @@ function WeekView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
   externalByDay: Record<string, any[]>;
+  onOpenExternal: (e: any) => void;
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
@@ -918,7 +992,12 @@ function WeekView(props: {
                 />
               ))}
               {extItems.map((e: any) => (
-                <ExternalBlock key={e.id} event={e} size="small" />
+                <ExternalBlock
+                  key={e.id}
+                  event={e}
+                  size="small"
+                  onOpen={() => props.onOpenExternal(e)}
+                />
               ))}
             </CardContent>
           </Card>
@@ -933,6 +1012,7 @@ function MonthView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
   externalByDay: Record<string, any[]>;
+  onOpenExternal: (e: any) => void;
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
@@ -994,7 +1074,7 @@ function MonthView(props: {
           return (
             <div
               key={dateStr}
-              className={`group min-h-[116px] p-1.5 border-b border-r border-border last:border-r-0 transition-colors ${
+              className={`group min-h-[132px] p-1.5 border-b border-r border-border last:border-r-0 transition-colors ${
                 isOutsideMonth ? "bg-surface-2/50" : isWeekend ? "bg-surface-2/30" : ""
               } ${isToday ? "bg-primary/[0.06]" : ""}`}
               onDragOver={props.onDragOver}
@@ -1027,29 +1107,24 @@ function MonthView(props: {
                   if (m.kind === "ext") {
                     const e = m.data;
                     return (
-                      <div
+                      <button
                         key={`ext-${e.id}`}
-                        title={`${e.sourceNome} — ${e.titolo}${
-                          e.allDay
-                            ? " (tutto il giorno)"
-                            : e.oraInizio
-                            ? ` (${e.oraInizio}${e.oraFine ? `–${e.oraFine}` : ""})`
-                            : ""
-                        }${e.location ? `\n${e.location}` : ""}`}
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-tight bg-surface-2/50 border border-dashed border-border/70 text-text-2"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          props.onOpenExternal(e);
+                        }}
+                        title={`${e.sourceNome} — ${e.titolo}`}
+                        className="w-full flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight text-left text-white font-medium shadow-sm hover:brightness-110 active:brightness-95 transition"
+                        style={{ backgroundColor: e.color }}
                       >
-                        <span
-                          className="h-1.5 w-1.5 rounded-full shrink-0"
-                          style={{ backgroundColor: e.color }}
-                        />
+                        <Lock className="h-2.5 w-2.5 shrink-0 opacity-80" />
                         {!e.allDay && e.oraInizio && (
-                          <span className="font-medium tabular-nums text-text-3 shrink-0">
+                          <span className="tabular-nums opacity-90 shrink-0">
                             {e.oraInizio}
                           </span>
                         )}
-                        <Lock className="h-2 w-2 shrink-0 text-text-3" />
                         <span className="truncate">{e.titolo}</span>
-                      </div>
+                      </button>
                     );
                   }
                   const i = m.data;
@@ -1068,16 +1143,13 @@ function MonthView(props: {
                       title={`${tipoLabels[i.tipo] ?? i.tipo}${
                         j.nomeCognome ? ` — ${j.nomeCognome}` : ""
                       }${j.indirizzo ? ` (${j.indirizzo})` : ""}`}
-                      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-tight cursor-pointer bg-surface-2 hover:bg-surface border border-border/60 ${
+                      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight cursor-pointer text-white font-medium shadow-sm hover:brightness-110 active:brightness-95 transition ${
                         props.draggingId === i.id ? "opacity-40" : ""
                       }`}
+                      style={{ backgroundColor: color }}
                     >
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: color }}
-                      />
                       {i.oraInizio && (
-                        <span className="font-medium tabular-nums text-text-2 shrink-0">
+                        <span className="tabular-nums opacity-90 shrink-0">
                           {i.oraInizio}
                         </span>
                       )}
@@ -1109,25 +1181,40 @@ function MonthView(props: {
 // Read-only mirror of an imported Google event. No drag, no edit, no delete —
 // it lives in Google. Source color on the left edge + lock icon make the
 // read-only nature obvious; dashed border separates it from CRM appointments.
-function ExternalBlock(props: { event: any; size: "small" | "large" }) {
+function ExternalBlock(props: {
+  event: any;
+  size: "small" | "large";
+  onOpen: () => void;
+}) {
   const e = props.event;
   const large = props.size === "large";
   return (
-    <div
-      className="rounded border border-dashed border-border bg-surface-2/40 p-2"
-      style={{ borderLeftColor: e.color, borderLeftWidth: 3 }}
+    <button
+      onClick={props.onOpen}
+      className="w-full text-left rounded-md border border-border bg-surface p-2 cursor-pointer hover:shadow-md transition-all"
+      style={{
+        borderLeftColor: e.color,
+        borderLeftWidth: 4,
+        backgroundColor: `${e.color}14`,
+      }}
       title={e.location || undefined}
     >
       <div
-        className={`font-semibold ${
+        className={`${
           large ? "text-xs" : "text-[10px]"
-        } uppercase tracking-wide flex items-center gap-1 flex-wrap text-text-2`}
+        } flex items-center gap-1.5 flex-wrap`}
       >
-        <Lock className="h-2.5 w-2.5 shrink-0 text-text-3" />
+        <span
+          className="inline-flex items-center gap-1 text-white rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
+          style={{ backgroundColor: e.color }}
+        >
+          <Lock className="h-2 w-2" />
+          Google
+        </span>
         {e.allDay ? (
-          <span>Tutto il giorno</span>
+          <span className="font-semibold text-text-2">Tutto il giorno</span>
         ) : e.oraInizio ? (
-          <span className="inline-flex items-center gap-0.5 font-mono">
+          <span className="inline-flex items-center gap-0.5 font-mono font-bold text-text-1">
             <Clock className="h-2.5 w-2.5" />
             {e.oraInizio}
             {e.oraFine ? `–${e.oraFine}` : ""}
@@ -1135,8 +1222,8 @@ function ExternalBlock(props: { event: any; size: "small" | "large" }) {
         ) : null}
       </div>
       <p
-        className={`mt-0.5 font-semibold text-text-1 ${
-          large ? "text-sm" : "text-[10px]"
+        className={`mt-1 font-semibold text-text-1 ${
+          large ? "text-sm" : "text-[11px]"
         }`}
         title={e.titolo}
       >
@@ -1144,8 +1231,8 @@ function ExternalBlock(props: { event: any; size: "small" | "large" }) {
       </p>
       {e.location && (
         <p
-          className={`mt-0.5 flex items-center gap-0.5 text-text-3 ${
-            large ? "text-xs" : "text-[9px]"
+          className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${
+            large ? "text-xs" : "text-[10px]"
           }`}
         >
           <MapPin className="h-2.5 w-2.5 shrink-0" />
@@ -1153,11 +1240,11 @@ function ExternalBlock(props: { event: any; size: "small" | "large" }) {
         </p>
       )}
       <p
-        className={`mt-0.5 text-text-3 ${large ? "text-[10px]" : "text-[8px]"}`}
+        className={`mt-0.5 text-text-3 ${large ? "text-[10px]" : "text-[9px]"}`}
       >
         {e.sourceNome}
       </p>
-    </div>
+    </button>
   );
 }
 
@@ -1176,6 +1263,7 @@ function InterventoBlock(props: {
 }) {
   const i = props.intervento;
   const isDragging = props.draggingId === i.id;
+  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "#6b7280";
   const indirizzoFull = props.joined.indirizzo
     ? props.joined.citta
       ? `${props.joined.indirizzo}, ${props.joined.citta}`
@@ -1185,26 +1273,32 @@ function InterventoBlock(props: {
     <div
       draggable
       onDragStart={props.onDragStart}
-      className={`rounded border p-2 cursor-pointer hover:shadow-sm transition-all ${
-        tipoColors[i.tipo] ?? "bg-gray-50"
+      className={`rounded-md border border-border/60 p-2 cursor-pointer hover:shadow-md transition-all ${
+        tipoCardClass[i.tipo] ?? "bg-gray-100/80"
       } ${isDragging ? "opacity-30" : ""}`}
+      style={{ borderLeftColor: color, borderLeftWidth: 4 }}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1" onClick={props.onEdit}>
-          <div className={`font-semibold text-${props.size === "large" ? "xs" : "[10px]"} uppercase tracking-wide flex items-center gap-1 flex-wrap`}>
+          <div className={`${props.size === "large" ? "text-xs" : "text-[10px]"} flex items-center gap-1.5 flex-wrap`}>
+            <span
+              className="text-white rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
+              style={{ backgroundColor: color }}
+            >
+              {tipoLabels[i.tipo] ?? i.tipo}
+            </span>
             {i.oraInizio && (
-              <span className="inline-flex items-center gap-0.5 font-mono">
+              <span className="inline-flex items-center gap-0.5 font-mono font-bold text-text-1">
                 <Clock className="h-2.5 w-2.5" />
                 {i.oraInizio}
                 {i.oraFine ? `–${i.oraFine}` : ""}
               </span>
             )}
-            <span>{tipoLabels[i.tipo] ?? i.tipo}</span>
           </div>
           {props.joined.nomeCognome && (
             <p
               className={`mt-0.5 font-semibold flex items-center gap-0.5 ${
-                props.size === "large" ? "text-sm" : "text-[10px]"
+                props.size === "large" ? "text-sm" : "text-[11px]"
               }`}
               title={props.joined.nomeCognome}
             >
@@ -1213,13 +1307,13 @@ function InterventoBlock(props: {
             </p>
           )}
           {indirizzoFull && (
-            <p className={`mt-0.5 flex items-center gap-0.5 opacity-80 ${props.size === "large" ? "text-xs" : "text-[9px]"}`}>
+            <p className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"}`}>
               <MapPin className="h-2.5 w-2.5 shrink-0" />
               <span className="truncate">{indirizzoFull}</span>
             </p>
           )}
           {i.note && (
-            <p className={`mt-0.5 ${props.size === "large" ? "text-xs" : "text-[9px]"} line-clamp-2`}>{i.note}</p>
+            <p className={`mt-0.5 text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"} line-clamp-2`}>{i.note}</p>
           )}
           <Badge
             variant={i.stato === "in_corso" ? "default" : "secondary"}

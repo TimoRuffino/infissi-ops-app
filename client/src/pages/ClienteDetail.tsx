@@ -36,7 +36,11 @@ import {
   Archive,
   ArchiveRestore,
   MoreHorizontal,
+  Printer,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { statoLabel, PRIORITA_LABEL } from "@/lib/stato";
 import { useState, useMemo } from "react";
 import SearchSelect from "@/components/SearchSelect";
 import { useLocation, useParams } from "wouter";
@@ -225,6 +229,202 @@ export default function ClienteDetail() {
   const clienteGaranzie =
     garanzieList.data?.filter((g: any) => commessaIds.includes(g.commessaId)) ?? [];
 
+  // ── Scheda cliente PDF ─────────────────────────────────────────────────────
+  // One printable A4 with everything the operator needs on site or at the
+  // phone: anagrafica, indirizzi, fisco, commesse, appuntamenti, ticket,
+  // garanzie e note. jsPDF+autotable (same stack as the preventivatori).
+  function exportSchedaPdf() {
+    const fmtDate = (iso?: string | null) =>
+      iso ? new Date(iso + (iso.length === 10 ? "T12:00:00" : "")).toLocaleDateString("it-IT") : "—";
+    const assegnatario = (utentiList.data ?? []).find(
+      (u: any) => u.id === c!.assegnatoA
+    );
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const marginX = 14;
+    const accent: [number, number, number] = [37, 99, 235];
+    let y = 16;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(`Scheda cliente — ${displayName}`, marginX, y);
+    y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(110);
+    doc.text(
+      `Generata il ${new Date().toLocaleDateString("it-IT")} alle ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} — Ruffino Flow`,
+      marginX,
+      y
+    );
+    doc.setTextColor(0);
+    y += 4;
+
+    const section = (title: string) => {
+      if (y > 262) {
+        doc.addPage();
+        y = 16;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(title, marginX, y + 4);
+      doc.setFont("helvetica", "normal");
+      y += 7;
+    };
+
+    const resRow = c!.indirizzo
+      ? `${c!.indirizzo}${c!.cap ? `, ${c!.cap}` : ""}${c!.citta ? ` ${c!.citta}` : ""}`
+      : "—";
+    const lavRow =
+      c!.indirizzoLavoro || c!.cittaLavoro
+        ? `${c!.indirizzoLavoro || c!.indirizzo || ""}${c!.capLavoro ? `, ${c!.capLavoro}` : ""}${
+            c!.cittaLavoro || c!.citta ? ` ${c!.cittaLavoro || c!.citta}` : ""
+          }`.trim()
+        : "Come residenza";
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Anagrafica", ""]],
+      body: [
+        ["Tipo", (c!.tipo ?? "privato").replace(/_/g, " ")],
+        ["Telefono", c!.telefono || "—"],
+        ["Email", c!.email || "—"],
+        ["Codice fiscale", c!.codiceFiscale || "—"],
+        ["Partita IVA", c!.partitaIva || "—"],
+        ["Residenza (fatturazione)", resRow],
+        ["Indirizzo lavori", lavRow],
+        [
+          "Detrazione fiscale",
+          c!.detrazione ? c!.tipoDetrazione || "Sì" : "No",
+        ],
+        [
+          "Pratica edilizia",
+          praticaEdiliziaLabels[c!.praticaEdilizia ?? "nessuna"] ??
+            c!.praticaEdilizia ??
+            "Nessuna",
+        ],
+        ["Finanziamento", c!.interesseFinanziamento ? "Interessato" : "No"],
+        [
+          "Assegnato a",
+          assegnatario
+            ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
+            : "—",
+        ],
+      ],
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 1.8 },
+      headStyles: { fillColor: accent, fontSize: 10 },
+      columnStyles: { 0: { fontStyle: "bold", cellWidth: 52 } },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+
+    if (c!.note) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Note"]],
+        body: [[c!.note]],
+        theme: "grid",
+        styles: { fontSize: 9, cellPadding: 1.8 },
+        headStyles: { fillColor: accent, fontSize: 10 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+    }
+
+    if (clienteCommesse.length > 0) {
+      section(`Commesse (${clienteCommesse.length})`);
+      autoTable(doc, {
+        startY: y,
+        head: [["Codice", "Stato", "Priorità", "Città", "Consegna"]],
+        body: clienteCommesse.map((cm: any) => [
+          cm.codice ?? `#${cm.id}`,
+          statoLabel(cm.stato ?? ""),
+          PRIORITA_LABEL[cm.priorita] ?? cm.priorita ?? "—",
+          cm.citta || "—",
+          cm.dataConsegnaConfermata
+            ? fmtDate(cm.dataConsegnaConfermata)
+            : cm.dataConsegnaIndicativa
+            ? `${fmtDate(cm.dataConsegnaIndicativa)} (indicativa)`
+            : cm.consegnaIndicativa
+            ? `~${cm.consegnaIndicativa} gg`
+            : "—",
+        ]),
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 1.6 },
+        headStyles: { fillColor: accent, fontSize: 9 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+    }
+
+    const appuntamenti = [...clienteInterventi].sort((a: any, b: any) =>
+      (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? "")
+    );
+    if (appuntamenti.length > 0) {
+      section(`Appuntamenti (${appuntamenti.length})`);
+      autoTable(doc, {
+        startY: y,
+        head: [["Data", "Ora", "Tipo", "Stato", "Note"]],
+        body: appuntamenti.map((i: any) => [
+          fmtDate(i.dataPianificata),
+          i.oraInizio ? `${i.oraInizio}${i.oraFine ? `–${i.oraFine}` : ""}` : "—",
+          (i.tipo ?? "").replace(/_/g, " "),
+          (i.stato ?? "pianificato").replace(/_/g, " "),
+          i.note || "",
+        ]),
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 1.6 },
+        headStyles: { fillColor: accent, fontSize: 9 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+    }
+
+    if (clienteTicket.length > 0) {
+      section(`Ticket assistenza (${clienteTicket.length})`);
+      autoTable(doc, {
+        startY: y,
+        head: [["#", "Oggetto", "Categoria", "Priorità", "Stato"]],
+        body: clienteTicket.map((t: any) => [
+          `#${t.id}`,
+          t.oggetto ?? "—",
+          (t.categoria ?? "").replace(/_/g, " "),
+          PRIORITA_LABEL[t.priorita] ?? t.priorita ?? "—",
+          (t.stato ?? "").replace(/_/g, " "),
+        ]),
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 1.6 },
+        headStyles: { fillColor: accent, fontSize: 9 },
+        margin: { left: marginX, right: marginX },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+    }
+
+    if (clienteGaranzie.length > 0) {
+      section(`Garanzie (${clienteGaranzie.length})`);
+      autoTable(doc, {
+        startY: y,
+        head: [["Tipo", "Descrizione", "Fornitore", "Scadenza"]],
+        body: clienteGaranzie.map((g: any) => [
+          g.tipo ?? "—",
+          g.descrizione ?? "—",
+          g.fornitore || "—",
+          fmtDate(g.dataScadenza),
+        ]),
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 1.6 },
+        headStyles: { fillColor: accent, fontSize: 9 },
+        margin: { left: marginX, right: marginX },
+      });
+    }
+
+    const slug = displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || `cliente-${c!.id}`;
+    doc.save(`scheda-cliente-${slug}.pdf`);
+  }
+
   return (
     <div className="space-y-6">
       {/* Back + Header */}
@@ -307,6 +507,9 @@ export default function ClienteDetail() {
             )}
           </div>
           <div className="flex gap-1.5 shrink-0">
+            <Button variant="outline" size="sm" onClick={exportSchedaPdf}>
+              <Printer className="h-3.5 w-3.5 mr-1" /> Scheda PDF
+            </Button>
             <Button
               variant="outline"
               size="sm"
