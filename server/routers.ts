@@ -22,6 +22,7 @@ import { preventiviContrattiRouter } from "./routers/preventiviContratti";
 import { notificheRouter } from "./routers/notifiche";
 import { sediRouter } from "./routers/sedi";
 import { calendarSyncRouter } from "./routers/calendarSync";
+import { externalCalendarsRouter } from "./routers/externalCalendars";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -161,6 +162,7 @@ export const appRouter = router({
   notifiche: notificheRouter,
   sedi: sediRouter,
   calendarSync: calendarSyncRouter,
+  externalCalendars: externalCalendarsRouter,
 });
 
 export type AppRouter = typeof appRouter;

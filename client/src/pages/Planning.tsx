@@ -36,6 +36,7 @@ import {
   Briefcase,
   StickyNote,
   Users as UsersIcon,
+  Lock,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -155,6 +156,9 @@ export default function Planning() {
   }, [view, cursor]);
 
   const interventi = trpc.interventi.list.useQuery({ from, to });
+  // Read-only overlay: events imported from the operator's Google calendars.
+  const externalEvents = trpc.externalCalendars.events.useQuery({ from, to });
+  const externalSources = trpc.externalCalendars.list.useQuery();
   const commesse = trpc.commesse.list.useQuery({});
   const clienti = trpc.clienti.list.useQuery({});
   const squadre = trpc.squadre.list.useQuery();
@@ -246,6 +250,29 @@ export default function Planning() {
     }
     return map;
   }, [interventi.data]);
+
+  // Index external (Google) events by day, all-day first then by start time.
+  const externalByDay = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const e of externalEvents.data ?? []) {
+      const key = e.dataPianificata;
+      if (!key) continue;
+      (map[key] ||= []).push(e);
+    }
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) => {
+        const ta = a.allDay ? "00:00" : a.oraInizio ?? "99:99";
+        const tb = b.allDay ? "00:00" : b.oraInizio ?? "99:99";
+        return ta.localeCompare(tb);
+      });
+    }
+    return map;
+  }, [externalEvents.data]);
+
+  const activeExternalSources = useMemo(
+    () => (externalSources.data ?? []).filter((s: any) => s.attivo),
+    [externalSources.data]
+  );
 
   function navigate(delta: number) {
     if (view === "day") setCursor(addDays(cursor, delta));
@@ -435,11 +462,30 @@ export default function Planning() {
         </div>
       </div>
 
+      {/* Legend — Google calendars overlaid read-only */}
+      {activeExternalSources.length > 0 && (
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-text-2">
+          <span className="inline-flex items-center gap-1 text-text-3">
+            <Lock className="h-3 w-3" /> Google (sola lettura):
+          </span>
+          {activeExternalSources.map((s: any) => (
+            <span key={s.id} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: s.color }}
+              />
+              {s.nome}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* View renderers */}
       {view === "day" && (
         <DayView
           date={cursor}
           interventi={byDay[toDateStr(cursor)] ?? []}
+          externalItems={externalByDay[toDateStr(cursor)] ?? []}
           getJoined={getJoinedInfo}
           onNew={() => openCreateFor(toDateStr(cursor))}
           onEdit={openEdit}
@@ -455,6 +501,7 @@ export default function Planning() {
         <WeekView
           cursor={cursor}
           byDay={byDay}
+          externalByDay={externalByDay}
           getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
@@ -470,6 +517,7 @@ export default function Planning() {
         <MonthView
           cursor={cursor}
           byDay={byDay}
+          externalByDay={externalByDay}
           getJoined={getJoinedInfo}
           onNew={openCreateFor}
           onEdit={openEdit}
@@ -751,6 +799,7 @@ export default function Planning() {
 function DayView(props: {
   date: Date;
   interventi: any[];
+  externalItems: any[];
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: () => void;
   onEdit: (i: any) => void;
@@ -777,23 +826,28 @@ function DayView(props: {
         onDragOver={props.onDragOver}
         onDrop={(e) => props.onDrop(e, dateStr)}
       >
-        {props.interventi.length === 0 ? (
+        {props.interventi.length === 0 && props.externalItems.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-12 italic">
             Nessun appuntamento. Trascina qui o clicca "Aggiungi".
           </p>
         ) : (
-          props.interventi.map((i: any) => (
-            <InterventoBlock
-              key={i.id}
-              intervento={i}
-              joined={props.getJoined(i)}
-              onEdit={() => props.onEdit(i)}
-              onAnnulla={() => props.onAnnulla(i)}
-              onDragStart={(e) => props.onDragStart(e, i)}
-              draggingId={props.draggingId}
-              size="large"
-            />
-          ))
+          <>
+            {props.interventi.map((i: any) => (
+              <InterventoBlock
+                key={i.id}
+                intervento={i}
+                joined={props.getJoined(i)}
+                onEdit={() => props.onEdit(i)}
+                onAnnulla={() => props.onAnnulla(i)}
+                onDragStart={(e) => props.onDragStart(e, i)}
+                draggingId={props.draggingId}
+                size="large"
+              />
+            ))}
+            {props.externalItems.map((e: any) => (
+              <ExternalBlock key={e.id} event={e} size="large" />
+            ))}
+          </>
         )}
       </CardContent>
     </Card>
@@ -804,6 +858,7 @@ function DayView(props: {
 function WeekView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
+  externalByDay: Record<string, any[]>;
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
@@ -823,6 +878,7 @@ function WeekView(props: {
         const isToday = dateStr === todayStr;
         const isWeekend = idx >= 5;
         const items = props.byDay[dateStr] ?? [];
+        const extItems = props.externalByDay[dateStr] ?? [];
         return (
           <Card
             key={dateStr}
@@ -861,6 +917,9 @@ function WeekView(props: {
                   size="small"
                 />
               ))}
+              {extItems.map((e: any) => (
+                <ExternalBlock key={e.id} event={e} size="small" />
+              ))}
             </CardContent>
           </Card>
         );
@@ -873,6 +932,7 @@ function WeekView(props: {
 function MonthView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
+  externalByDay: Record<string, any[]>;
   getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
@@ -916,6 +976,21 @@ function MonthView(props: {
           const isOutsideMonth = day.getMonth() !== monthNum;
           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
           const items = props.byDay[dateStr] ?? [];
+          const extItems = props.externalByDay[dateStr] ?? [];
+          // Merge CRM + Google entries into one time-sorted list so the 3-slot
+          // preview and the "+N" overflow count both kinds together.
+          const merged = [
+            ...items.map((x: any) => ({
+              kind: "crm" as const,
+              data: x,
+              t: x.oraInizio ?? "99:99",
+            })),
+            ...extItems.map((x: any) => ({
+              kind: "ext" as const,
+              data: x,
+              t: x.allDay ? "00:00" : x.oraInizio ?? "99:99",
+            })),
+          ].sort((a, b) => a.t.localeCompare(b.t));
           return (
             <div
               key={dateStr}
@@ -948,7 +1023,36 @@ function MonthView(props: {
                 )}
               </div>
               <div className="space-y-1">
-                {items.slice(0, 3).map((i: any) => {
+                {merged.slice(0, 3).map((m) => {
+                  if (m.kind === "ext") {
+                    const e = m.data;
+                    return (
+                      <div
+                        key={`ext-${e.id}`}
+                        title={`${e.sourceNome} — ${e.titolo}${
+                          e.allDay
+                            ? " (tutto il giorno)"
+                            : e.oraInizio
+                            ? ` (${e.oraInizio}${e.oraFine ? `–${e.oraFine}` : ""})`
+                            : ""
+                        }${e.location ? `\n${e.location}` : ""}`}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-tight bg-surface-2/50 border border-dashed border-border/70 text-text-2"
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: e.color }}
+                        />
+                        {!e.allDay && e.oraInizio && (
+                          <span className="font-medium tabular-nums text-text-3 shrink-0">
+                            {e.oraInizio}
+                          </span>
+                        )}
+                        <Lock className="h-2 w-2 shrink-0 text-text-3" />
+                        <span className="truncate">{e.titolo}</span>
+                      </div>
+                    );
+                  }
+                  const i = m.data;
                   const j = props.getJoined(i);
                   const label = j.nomeCognome || tipoLabels[i.tipo] || i.tipo;
                   const color = CALENDAR_COLOR_MAP[i.tipo] ?? "#6b7280";
@@ -981,7 +1085,7 @@ function MonthView(props: {
                     </div>
                   );
                 })}
-                {items.length > 3 && (
+                {merged.length > 3 && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -989,7 +1093,7 @@ function MonthView(props: {
                     }}
                     className="w-full text-left text-[11px] font-medium text-primary px-1.5 hover:underline"
                   >
-                    +{items.length - 3} altri
+                    +{merged.length - 3} altri
                   </button>
                 )}
               </div>
@@ -997,6 +1101,62 @@ function MonthView(props: {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── EXTERNAL (GOOGLE) EVENT BLOCK ────────────────────────────────────────────
+// Read-only mirror of an imported Google event. No drag, no edit, no delete —
+// it lives in Google. Source color on the left edge + lock icon make the
+// read-only nature obvious; dashed border separates it from CRM appointments.
+function ExternalBlock(props: { event: any; size: "small" | "large" }) {
+  const e = props.event;
+  const large = props.size === "large";
+  return (
+    <div
+      className="rounded border border-dashed border-border bg-surface-2/40 p-2"
+      style={{ borderLeftColor: e.color, borderLeftWidth: 3 }}
+      title={e.location || undefined}
+    >
+      <div
+        className={`font-semibold ${
+          large ? "text-xs" : "text-[10px]"
+        } uppercase tracking-wide flex items-center gap-1 flex-wrap text-text-2`}
+      >
+        <Lock className="h-2.5 w-2.5 shrink-0 text-text-3" />
+        {e.allDay ? (
+          <span>Tutto il giorno</span>
+        ) : e.oraInizio ? (
+          <span className="inline-flex items-center gap-0.5 font-mono">
+            <Clock className="h-2.5 w-2.5" />
+            {e.oraInizio}
+            {e.oraFine ? `–${e.oraFine}` : ""}
+          </span>
+        ) : null}
+      </div>
+      <p
+        className={`mt-0.5 font-semibold text-text-1 ${
+          large ? "text-sm" : "text-[10px]"
+        }`}
+        title={e.titolo}
+      >
+        <span className="line-clamp-2">{e.titolo}</span>
+      </p>
+      {e.location && (
+        <p
+          className={`mt-0.5 flex items-center gap-0.5 text-text-3 ${
+            large ? "text-xs" : "text-[9px]"
+          }`}
+        >
+          <MapPin className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{e.location}</span>
+        </p>
+      )}
+      <p
+        className={`mt-0.5 text-text-3 ${large ? "text-[10px]" : "text-[8px]"}`}
+      >
+        {e.sourceNome}
+      </p>
     </div>
   );
 }

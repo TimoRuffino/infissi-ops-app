@@ -22,6 +22,10 @@ import {
   Lock,
   Copy,
   Check,
+  Plus,
+  Trash2,
+  Power,
+  Download,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -262,7 +266,10 @@ export default function Integrazioni() {
         )}
       </Card>
 
-      {/* Google Calendar — subscribable ICS feeds */}
+      {/* Mostra i calendari Google dentro al CRM (import) */}
+      <GoogleCalendarImport />
+
+      {/* Pubblica il calendario del CRM su Google (export feeds) */}
       <GoogleCalendarSync />
 
       {/* Info */}
@@ -290,11 +297,192 @@ export default function Integrazioni() {
   );
 }
 
-// ── Google Calendar — subscribable ICS feeds ─────────────────────────────────
-// Real, working one-way sync (app → Google) with no Google Cloud setup: each
-// sede exposes tokenized iCal URLs, one per appointment type plus "tutti".
-// The operator subscribes in Google Calendar via "Altri calendari → Da URL";
-// Google then polls the feed and keeps events updated.
+// ── Import Google calendars INTO the CRM (read-only overlay) ─────────────────
+// The operator pastes the "Secret address in iCal format" of each Google
+// calendar. The server fetches + parses them; the Planning view overlays the
+// events. Multiple calendars supported.
+function GoogleCalendarImport() {
+  const list = trpc.externalCalendars.list.useQuery();
+  const utils = trpc.useUtils();
+  const [nome, setNome] = useState("");
+  const [url, setUrl] = useState("");
+
+  const add = trpc.externalCalendars.add.useMutation({
+    onSuccess: () => {
+      utils.externalCalendars.invalidate();
+      setNome("");
+      setUrl("");
+      toast.success("Calendario aggiunto — comparirà nel calendario CRM");
+    },
+    onError: (e) => toast.error(e.message ?? "Aggiunta non riuscita"),
+  });
+  const remove = trpc.externalCalendars.remove.useMutation({
+    onSuccess: () => utils.externalCalendars.invalidate(),
+  });
+  const update = trpc.externalCalendars.update.useMutation({
+    onSuccess: () => utils.externalCalendars.invalidate(),
+  });
+  const refresh = trpc.externalCalendars.refresh.useMutation({
+    onSuccess: () => {
+      utils.externalCalendars.invalidate();
+      toast.success("Aggiornamento richiesto");
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+              <Download className="h-5 w-5 text-blue-700" />
+            </div>
+            <div>
+              <CardTitle className="text-base">
+                Mostra Google nel calendario CRM
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Importa uno o più calendari Google: i loro eventi compaiono nel
+                Calendario del CRM (sola lettura)
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refresh.mutate()}
+            disabled={refresh.isPending}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Aggiorna
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 border-t pt-4">
+        <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+          <li>
+            In Google Calendar apri{" "}
+            <span className="font-medium text-text-1">
+              Impostazioni del calendario → Integra calendario
+            </span>
+            .
+          </li>
+          <li>
+            Copia l'
+            <span className="font-medium text-text-1">
+              «Indirizzo segreto in formato iCal»
+            </span>{" "}
+            (finisce in <span className="codice-mono">.ics</span>).
+          </li>
+          <li>Incollalo qui sotto con un nome. Ripeti per ogni calendario.</li>
+        </ol>
+
+        {/* Add form */}
+        <div className="flex gap-2 flex-wrap items-end">
+          <div className="space-y-1 flex-1 min-w-[140px]">
+            <Label className="text-xs">Nome</Label>
+            <Input
+              placeholder="Es. Squadra posa"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              className="h-9"
+            />
+          </div>
+          <div className="space-y-1 flex-[2] min-w-[220px]">
+            <Label className="text-xs">Indirizzo iCal (segreto)</Label>
+            <Input
+              placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="h-9"
+            />
+          </div>
+          <Button
+            onClick={() => add.mutate({ nome: nome.trim(), icsUrl: url.trim() })}
+            disabled={!nome.trim() || !url.trim() || add.isPending}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Aggiungi
+          </Button>
+        </div>
+
+        {/* Sources */}
+        <div className="space-y-1.5">
+          {(list.data ?? []).map((s: any) => (
+            <div
+              key={s.id}
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2"
+            >
+              <span
+                className="h-3 w-3 rounded-full shrink-0"
+                style={{ backgroundColor: s.color }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium truncate">{s.nome}</p>
+                  {s.status === "error" ? (
+                    <Badge variant="danger" className="text-[10px]">
+                      Errore
+                    </Badge>
+                  ) : s.status === "ok" ? (
+                    <Badge variant="success" className="text-[10px]">
+                      Sincronizzato
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px]">
+                      In attesa
+                    </Badge>
+                  )}
+                  {!s.attivo && (
+                    <Badge variant="outline" className="text-[10px]">
+                      Nascosto
+                    </Badge>
+                  )}
+                </div>
+                <p className="codice-mono text-[10px] text-text-3 truncate">
+                  {s.icsUrl}
+                </p>
+                {s.error && (
+                  <p className="text-[10px] text-danger truncate">{s.error}</p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={s.attivo ? "Nascondi dal calendario" : "Mostra nel calendario"}
+                onClick={() => update.mutate({ id: s.id, attivo: !s.attivo })}
+              >
+                <Power
+                  className={`h-3.5 w-3.5 ${s.attivo ? "text-success" : "text-text-3"}`}
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-danger"
+                title="Rimuovi"
+                onClick={() => remove.mutate(s.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+          {(list.data?.length ?? 0) === 0 && !list.isLoading && (
+            <p className="text-xs text-text-2 text-center py-3">
+              Nessun calendario Google importato. Aggiungine uno qui sopra.
+            </p>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Sola lettura: gli eventi Google appaiono nel calendario CRM ma non si
+          modificano da qui. L'aggiornamento avviene ogni ~10 minuti.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Google Calendar — subscribable ICS feeds (export CRM → Google) ───────────
 function GoogleCalendarSync() {
   const feeds = trpc.calendarSync.feeds.useQuery();
   const utils = trpc.useUtils();
