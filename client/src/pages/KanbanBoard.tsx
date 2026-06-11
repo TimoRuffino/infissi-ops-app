@@ -100,6 +100,25 @@ const COLONNE_FLAT: ReadonlyArray<ColonnaConfig> = FASI.flatMap((f) => f.colonne
 
 const prioritaOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, bassa: 3 };
 
+// Solid left-edge color per priority — makes the card priority readable
+// without parsing the badge.
+const PRIORITA_EDGE: Record<string, string> = {
+  urgente: "#dc2626",
+  alta: "#d97706",
+  media: "#2563eb",
+  bassa: "#94a3b8",
+};
+
+// Columns show at most this many cards; the rest collapse behind
+// "Mostra altre N" so a busy column doesn't force endless scrolling.
+const VISIBLE_LIMIT = 5;
+
+function daysSince(date: string | Date): number {
+  return Math.floor(
+    Math.abs(Date.now() - new Date(date).getTime()) / 86400000
+  );
+}
+
 export default function KanbanBoard() {
   const [, setLocation] = useLocation();
   const commesse = trpc.commesse.list.useQuery({});
@@ -112,6 +131,8 @@ export default function KanbanBoard() {
   const [hideEmpty, setHideEmpty] = useState(false);
   const [faseFiltro, setFaseFiltro] = useState<string>("tutte");
   const [fasiCollapsed, setFasiCollapsed] = useState<Record<string, boolean>>({});
+  // Columns the operator expanded past VISIBLE_LIMIT.
+  const [expandedCols, setExpandedCols] = useState<Record<string, boolean>>({});
   const [moveError, setMoveError] = useState<string | null>(null);
   // "Procedi comunque" confirmation for file-gate bypass. Fires when the
   // server rejects a forward transition with a `DOC_GATE_BLOCKED:` prefixed
@@ -385,15 +406,24 @@ export default function KanbanBoard() {
 
                           {/* Cards container */}
                           <div className={`flex-1 space-y-2 min-h-[120px] bg-muted/10 rounded-b-lg border border-t-0 p-2 ${col.ring}`}>
-                            {items.map((c: any) => {
+                            {(expandedCols[col.id]
+                              ? items
+                              : items.slice(0, VISIBLE_LIMIT)
+                            ).map((c: any) => {
                               const isProduzione = c.stato === "produzione";
                               const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
+                              const fermo = daysSince(c.updatedAt);
                               return (
                                 <Card
                                   key={c.id}
                                   className={`cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all ${
                                     needsConsegna ? "ring-2 ring-amber-400" : ""
                                   }`}
+                                  style={{
+                                    borderLeftColor:
+                                      PRIORITA_EDGE[c.priorita] ?? "#94a3b8",
+                                    borderLeftWidth: 3,
+                                  }}
                                   onClick={() => setLocation(`/commesse/${c.id}`)}
                                 >
                                   <CardContent className="p-2.5 space-y-1.5">
@@ -401,10 +431,25 @@ export default function KanbanBoard() {
                                       <span className="codice-mono text-[10px] text-text-3 truncate">
                                         {c.codice}
                                       </span>
-                                      <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
-                                        {c.priorita === "urgente" && <AlertTriangle className="h-2.5 w-2.5" />}
-                                        {PRIORITA_LABEL[c.priorita] ?? c.priorita}
-                                      </Badge>
+                                      <span className="flex items-center gap-1 shrink-0">
+                                        {fermo >= 5 && (
+                                          <span
+                                            title={`Nessun aggiornamento da ${fermo} giorni`}
+                                            className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-bold ${
+                                              fermo >= 10
+                                                ? "bg-danger-soft text-danger"
+                                                : "bg-warning-soft text-warning"
+                                            }`}
+                                          >
+                                            <Clock className="h-2.5 w-2.5" />
+                                            {fermo}gg
+                                          </span>
+                                        )}
+                                        <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                                          {c.priorita === "urgente" && <AlertTriangle className="h-2.5 w-2.5" />}
+                                          {PRIORITA_LABEL[c.priorita] ?? c.priorita}
+                                        </Badge>
+                                      </span>
                                     </div>
 
                                     <p className="text-sm font-semibold leading-tight truncate" title={c.cliente}>
@@ -492,6 +537,29 @@ export default function KanbanBoard() {
                                 </Card>
                               );
                             })}
+                            {items.length > VISIBLE_LIMIT && (
+                              <button
+                                onClick={() =>
+                                  setExpandedCols((m) => ({
+                                    ...m,
+                                    [col.id]: !m[col.id],
+                                  }))
+                                }
+                                className="w-full flex items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface py-1.5 text-[11px] font-semibold text-primary hover:bg-surface-2 transition-colors"
+                              >
+                                {expandedCols[col.id] ? (
+                                  <>
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                    Mostra meno
+                                  </>
+                                ) : (
+                                  <>
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                    Mostra altre {items.length - VISIBLE_LIMIT}
+                                  </>
+                                )}
+                              </button>
+                            )}
                             {items.length === 0 && (
                               <p className="text-[11px] text-text-3 text-center py-6">
                                 Nessuna commessa in questa fase
