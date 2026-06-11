@@ -31,6 +31,11 @@ export function getTicketById(id: number): any | null {
   return tickets.find((t) => t.id === id) ?? null;
 }
 
+// Read-only view for the notification engine.
+export function getTicketStore() {
+  return tickets;
+}
+
 export const ticketRouter = router({
   list: protectedProcedure
     .input(z.object({

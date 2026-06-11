@@ -19,8 +19,15 @@ import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { isDirezione } from "@/lib/roles";
 import StatoChip from "@/components/StatoChip";
-import { CheckCircle2, ArrowRight, ClipboardList } from "lucide-react";
+import {
+  CheckCircle2,
+  ArrowRight,
+  ClipboardList,
+  Ticket as TicketIcon,
+  ShieldAlert,
+} from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -305,6 +312,9 @@ export default function Dashboard() {
   const commesseRecenti = trpc.commesse.list.useQuery({}, liveOpts);
   const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, liveOpts);
   const squadre = trpc.squadre.list.useQuery(undefined, liveOpts);
+  // Sources for the personalized "Da fare oggi" feed.
+  const ticketListQ = trpc.ticket.list.useQuery({}, liveOpts);
+  const garanzieListQ = trpc.garanzie.list.useQuery({}, liveOpts);
 
   // Filter out any legacy "annullato" records so deleted appointments never
   // show up on the dashboard even before the server-side cleanup kicks in.
@@ -336,7 +346,8 @@ export default function Dashboard() {
     month: "long",
   });
 
-  // Action feed for "Da fare oggi": urgent commesse + deliveries to confirm.
+  // Kept sede-wide for the KPI tile below (the personalized feed has its own
+  // filtering).
   const consegneDaConfermare = useMemo(
     () =>
       (commesseRecenti.data ?? []).filter(
@@ -345,14 +356,140 @@ export default function Dashboard() {
       ),
     [commesseRecenti.data]
   );
-  const urgenti = useMemo(
-    () =>
-      (commesseRecenti.data ?? []).filter(
-        (c: any) => c.priorita === "urgente" && !c.archivedAt
-      ),
-    [commesseRecenti.data]
-  );
   const ticketAperti = (ts?.aperti ?? 0) + (ts?.assegnati ?? 0);
+
+  // ── "Da fare oggi" — personalized action feed ──────────────────────────────
+  // Direzione sees the whole sede; everyone else only what's assigned to them
+  // (commessa.assegnatoA, legacy fallback createdBy). Merged sources, sorted
+  // by urgency, capped at 8.
+  const direzione = isDirezione(user);
+  const uid = user?.id as number | undefined;
+  const ruoliUtente: string[] = ((user as any)?.ruoli ?? []) as string[];
+
+  type TodoItem = {
+    key: string;
+    rank: number;
+    icon: any;
+    iconClass: string;
+    title: string;
+    sub?: string;
+    stato?: string;
+    cta?: string;
+    onClick: () => void;
+  };
+
+  const todoItems = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const isMine = (c: any) =>
+      direzione ||
+      c.assegnatoA === uid ||
+      (c.assegnatoA == null && c.createdBy === uid);
+    const commesse = (commesseRecenti.data ?? []).filter(
+      (c: any) => !c.archivedAt && c.stato !== "archiviata"
+    );
+    const byId = new Map<number, any>(commesse.map((c: any) => [c.id, c]));
+    const items: TodoItem[] = [];
+
+    // 1. Interventi di oggi ancora senza squadra — blocca il lavoro di oggi.
+    for (const i of interventiOggi.data ?? []) {
+      if (i.squadraId || i.stato !== "pianificato") continue;
+      const cm = i.commessaId ? byId.get(i.commessaId) : null;
+      if (cm ? !isMine(cm) : !direzione) continue;
+      items.push({
+        key: `int-${i.id}`,
+        rank: 0,
+        icon: CalendarClock,
+        iconClass: "bg-danger-soft text-danger",
+        title: `Assegna la squadra — ${cm?.cliente ?? i.indirizzo ?? i.tipo}${i.oraInizio ? ` (${i.oraInizio})` : ""}`,
+        sub: cm?.codice,
+        cta: "Apri calendario",
+        onClick: () => setLocation("/planning"),
+      });
+    }
+
+    // 2. Commesse urgenti.
+    for (const c of commesse) {
+      if (c.priorita !== "urgente") continue;
+      if (!isMine(c)) continue;
+      items.push({
+        key: `urg-${c.id}`,
+        rank: 1,
+        icon: Flame,
+        iconClass: "bg-danger-soft text-danger",
+        title: `Commessa urgente — ${c.cliente}`,
+        sub: c.codice,
+        stato: c.stato,
+        onClick: () => setLocation(`/commesse/${c.id}`),
+      });
+    }
+
+    // 3. Consegne da confermare (produzione senza data confermata).
+    for (const c of commesse) {
+      if (c.stato !== "produzione" || c.dataConsegnaConfermata) continue;
+      if (!isMine(c)) continue;
+      items.push({
+        key: `cons-${c.id}`,
+        rank: 2,
+        icon: CalendarClock,
+        iconClass: "bg-warning-soft text-warning",
+        title: `Conferma la data di consegna — ${c.cliente}`,
+        sub: c.codice,
+        cta: "Conferma consegna",
+        onClick: () => setLocation(`/commesse/${c.id}`),
+      });
+    }
+
+    // 4. Ticket aperti/assegnati sulle mie commesse (urgenti salgono di rank).
+    for (const t of ticketListQ.data ?? []) {
+      if (t.stato !== "aperto" && t.stato !== "assegnato") continue;
+      const cm = t.commessaId ? byId.get(t.commessaId) : null;
+      if (!cm || !isMine(cm)) continue;
+      items.push({
+        key: `tick-${t.id}`,
+        rank: t.priorita === "urgente" ? 1 : 3,
+        icon: TicketIcon,
+        iconClass:
+          t.priorita === "urgente"
+            ? "bg-danger-soft text-danger"
+            : "bg-info-soft text-info",
+        title: `Ticket #${t.id} ${t.oggetto} — ${cm.cliente}`,
+        sub: cm.codice,
+        onClick: () => setLocation("/ticket"),
+      });
+    }
+
+    // 5. Garanzie scadute / in scadenza entro 30gg (direzione+amministrazione).
+    if (direzione || ruoliUtente.includes("amministrazione")) {
+      const soon = new Date(Date.now() + 30 * 86400000)
+        .toISOString()
+        .split("T")[0];
+      for (const g of garanzieListQ.data ?? []) {
+        if (g.stato !== "attiva" || g.dataScadenza > soon) continue;
+        const scaduta = g.dataScadenza < today;
+        items.push({
+          key: `gar-${g.id}`,
+          rank: scaduta ? 1 : 4,
+          icon: ShieldAlert,
+          iconClass: scaduta
+            ? "bg-danger-soft text-danger"
+            : "bg-warning-soft text-warning",
+          title: `${scaduta ? "Garanzia scaduta" : "Garanzia in scadenza"} — ${g.descrizione}`,
+          sub: `scadenza ${new Date(g.dataScadenza + "T12:00:00").toLocaleDateString("it-IT")}`,
+          onClick: () => setLocation("/garanzie"),
+        });
+      }
+    }
+
+    return items.sort((a, b) => a.rank - b.rank).slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    commesseRecenti.data,
+    interventiOggi.data,
+    ticketListQ.data,
+    garanzieListQ.data,
+    direzione,
+    uid,
+  ]);
 
   // Compute chart data from interventi
   const interventiByTipo = (() => {
@@ -401,60 +538,65 @@ export default function Dashboard() {
         <p className="text-text-2 text-sm mt-1 capitalize">{todayLabel}</p>
       </div>
 
-      {/* Da fare oggi — action feed (§4.1) */}
-      {(urgenti.length > 0 || consegneDaConfermare.length > 0) && (
-        <Card className="border-l-[3px] border-l-primary">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[15px] font-semibold flex items-center gap-2">
+      {/* Da fare oggi — personalized action feed (§4.1) */}
+      <Card className="border-l-[3px] border-l-primary">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4 text-primary" />
               Da fare oggi
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            {consegneDaConfermare.map((c: any) => (
+            </span>
+            <span className="eyebrow !text-text-3 font-normal">
+              {direzione ? "Tutta la sede" : "Le tue attività"}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {todoItems.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-md px-2 py-3">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+              <p className="text-sm text-text-2">
+                Niente da fare per ora — nessuna urgenza, consegna o ticket
+                {direzione ? " in sede" : " assegnato a te"}.
+              </p>
+            </div>
+          ) : (
+            todoItems.map((item) => (
               <div
-                key={`cons-${c.id}`}
+                key={item.key}
                 className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
-                onClick={() => setLocation(`/commesse/${c.id}`)}
+                onClick={item.onClick}
               >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-warning-soft text-warning">
-                  <CalendarClock className="h-4 w-4" />
+                <span
+                  className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
+                >
+                  <item.icon className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-text-1 truncate">
-                    Conferma la data di consegna — {c.cliente}
-                  </p>
-                  <p className="codice-mono text-text-3">{c.codice}</p>
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0">
-                  Conferma consegna
-                </Button>
-              </div>
-            ))}
-            {urgenti.map((c: any) => (
-              <div
-                key={`urg-${c.id}`}
-                className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
-                onClick={() => setLocation(`/commesse/${c.id}`)}
-              >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-danger-soft text-danger">
-                  <Flame className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-text-1 truncate">
-                    Commessa urgente — {c.cliente}
+                    {item.title}
                   </p>
                   <div className="flex items-center gap-2">
-                    <span className="codice-mono text-text-3">{c.codice}</span>
-                    <StatoChip stato={c.stato} />
+                    {item.sub && (
+                      <span className="codice-mono text-text-3">{item.sub}</span>
+                    )}
+                    {item.stato && <StatoChip stato={item.stato} />}
                   </div>
                 </div>
-                <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+                {item.cta ? (
+                  <Button size="sm" variant="outline" className="shrink-0">
+                    {item.cta}
+                  </Button>
+                ) : (
+                  <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+                )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       {/* Primary KPIs — the 4 actionable metrics (§4.1) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

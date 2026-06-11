@@ -12,6 +12,11 @@ const _garanzieStore = persistedStore<any>("garanzie", (loaded) => {
 });
 const garanzie = _garanzieStore.items;
 
+// Read-only view for the notification engine.
+export function getGaranzieStore() {
+  return garanzie;
+}
+
 export const garanzieRouter = router({
   list: protectedProcedure
     .input(
