@@ -1,0 +1,730 @@
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { jsPDF } from "jspdf";
+import autoTableImport from "jspdf-autotable";
+
+// tsx/esbuild ESM-CJS interop: depending on the bundler the callable lands
+// either on the namespace itself or on .default.
+const autoTable: (doc: any, opts: any) => void =
+  (autoTableImport as any)?.default ?? (autoTableImport as any);
+import { persistedStore, getAllStoreSnapshots } from "./persistence";
+
+// ── Nightly Google Drive backup ──────────────────────────────────────────────
+//
+// Every night at 00:00 Europe/Rome the CRM exports an organized snapshot:
+//
+//   Backup CRM 2026-06-12/
+//     database/<store>.json                ← raw dump of every store
+//     Sede <nome>/
+//       Utenti.json                        ← users of the sede (no passwords)
+//       Clienti/
+//         <Cognome Nome> (CL-7)/
+//           Scheda cliente.pdf             ← same scheda as the app
+//           cliente.json
+//           Commesse/
+//             <CODICE>/
+//               commessa.json
+//               Preventivi e contratti/…   ← uploaded files by type
+//               Misure/…
+//               Fatture e pagamenti/…
+//               Ordini/… , DDT/… , Foto e altro/…
+//               Ticket <id>/…              ← ticket attachments
+//
+// Destination: the shared Drive folder configured below (BACKUP_FOLDER_ID).
+// Auth: Google service account (env GOOGLE_SERVICE_ACCOUNT_JSON or
+// GOOGLE_SERVICE_ACCOUNT_FILE). The Drive folder must be shared with the
+// service account's email as Editor. Zero npm deps: JWT is signed with node
+// crypto and Drive v3 is called over plain REST.
+//
+// When Drive credentials are missing the same tree is written to ./backups
+// on the server disk, so the nightly snapshot still exists.
+
+const DEFAULT_FOLDER_ID = "1t24aYym8QRG4W8VTjPV9gA1BJ9LGphN0";
+
+// ── Config + log stores ──────────────────────────────────────────────────────
+
+type BackupConfig = {
+  id: number;
+  folderId: string;
+  enabled: boolean;
+};
+
+const _configStore = persistedStore<BackupConfig>("backup_config", () => {});
+const configRows = _configStore.items;
+
+function getConfig(): BackupConfig {
+  if (configRows.length === 0) {
+    configRows.push({ id: 1, folderId: DEFAULT_FOLDER_ID, enabled: true });
+    _configStore.save();
+  }
+  return configRows[0];
+}
+
+export function updateConfig(patch: Partial<Pick<BackupConfig, "folderId" | "enabled">>) {
+  const cfg = getConfig();
+  if (patch.folderId !== undefined) cfg.folderId = patch.folderId.trim();
+  if (patch.enabled !== undefined) cfg.enabled = patch.enabled;
+  _configStore.save();
+  return cfg;
+}
+
+type BackupLog = {
+  id: number;
+  startedAt: Date;
+  finishedAt: Date | null;
+  ok: boolean | null;
+  target: "drive" | "locale" | null;
+  trigger: "schedulato" | "manuale";
+  rootName: string;
+  files: number;
+  bytes: number;
+  error: string | null;
+};
+
+let nextLogId = 1;
+const _logStore = persistedStore<BackupLog>("backup_log", (loaded) => {
+  nextLogId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+});
+const logRows = _logStore.items;
+
+// ── Service account / Drive REST ─────────────────────────────────────────────
+
+type ServiceAccount = { client_email: string; private_key: string };
+
+export function loadServiceAccount(): ServiceAccount | null {
+  try {
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+      ? process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+      : process.env.GOOGLE_SERVICE_ACCOUNT_FILE
+      ? fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_FILE, "utf8")
+      : null;
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (!j.client_email || !j.private_key) return null;
+    return { client_email: j.client_email, private_key: j.private_key };
+  } catch {
+    return null;
+  }
+}
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getAccessToken(sa: ServiceAccount): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
+    return cachedToken.token;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const b64url = (s: Buffer | string) =>
+    Buffer.from(s).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = b64url(
+    JSON.stringify({
+      iss: sa.client_email,
+      scope: "https://www.googleapis.com/auth/drive",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: nowSec,
+      exp: nowSec + 3600,
+    })
+  );
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(`${header}.${claims}`);
+  const signature = signer
+    .sign(sa.private_key)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const jwt = `${header}.${claims}.${signature}`;
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}&assertion=${jwt}`,
+  });
+  if (!res.ok) {
+    throw new Error(`Token Google rifiutato (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const j: any = await res.json();
+  cachedToken = { token: j.access_token, expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000 };
+  return cachedToken.token;
+}
+
+const DRIVE = "https://www.googleapis.com/drive/v3";
+
+async function driveFindFolder(token: string, name: string, parentId: string): Promise<string | null> {
+  const q = encodeURIComponent(
+    `name = '${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  );
+  const res = await fetch(
+    `${DRIVE}/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`Drive list fallita (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const j: any = await res.json();
+  return j.files?.[0]?.id ?? null;
+}
+
+async function driveCreateFolder(token: string, name: string, parentId: string): Promise<string> {
+  const res = await fetch(`${DRIVE}/files?supportsAllDrives=true&fields=id`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parentId] }),
+  });
+  if (!res.ok) throw new Error(`Creazione cartella Drive fallita (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+  return ((await res.json()) as any).id;
+}
+
+async function driveUploadFile(
+  token: string,
+  name: string,
+  mimeType: string,
+  data: Buffer,
+  parentId: string
+): Promise<void> {
+  const boundary = `bk${crypto.randomBytes(12).toString("hex")}`;
+  const meta = JSON.stringify({ name, parents: [parentId] });
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`),
+    Buffer.from(`--${boundary}\r\ncontent-type: ${mimeType || "application/octet-stream"}\r\n\r\n`),
+    data,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    }
+  );
+  if (!res.ok) throw new Error(`Upload "${name}" fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+}
+
+// ── Backup tree ──────────────────────────────────────────────────────────────
+
+type BackupFile = {
+  segments: string[]; // folder path inside the backup root
+  name: string;
+  mimeType: string;
+  data: Buffer;
+};
+
+function sanitizeName(s: string): string {
+  return (
+    (s ?? "")
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 90) || "senza-nome"
+  );
+}
+
+function jsonFile(segments: string[], name: string, value: unknown): BackupFile {
+  return {
+    segments,
+    name,
+    mimeType: "application/json",
+    data: Buffer.from(JSON.stringify(value, null, 2), "utf8"),
+  };
+}
+
+function sanitizeUtente(u: any) {
+  const { password, ...rest } = u ?? {};
+  return rest;
+}
+
+// Map upload doc tipo → human folder name.
+function docFolder(tipo: string): string {
+  if (tipo === "preventivo" || tipo === "contratto") return "Preventivi e contratti";
+  if (tipo === "misure") return "Misure";
+  if (tipo === "fattura" || tipo === "saldo") return "Fatture e pagamenti";
+  if (tipo === "ordine" || tipo === "conferma_ordine") return "Ordini";
+  if (tipo?.startsWith("ddt")) return "DDT";
+  return "Foto e altro";
+}
+
+const fmtDate = (v: any) => {
+  if (!v) return "—";
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString("it-IT");
+};
+
+// Scheda cliente PDF — server-side twin of the one in ClienteDetail.
+function buildSchedaPdf(
+  c: any,
+  commesse: any[],
+  interventi: any[],
+  tickets: any[],
+  garanzie: any[],
+  utenti: any[]
+): Buffer {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const marginX = 14;
+  const accent: [number, number, number] = [37, 99, 235];
+  let y = 16;
+  const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(`Scheda cliente — ${displayName}`, marginX, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(110);
+  doc.text(`Backup del ${new Date().toLocaleDateString("it-IT")} — Ruffino Flow`, marginX, y);
+  doc.setTextColor(0);
+  y += 4;
+
+  const section = (title: string) => {
+    if (y > 262) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(title, marginX, y + 4);
+    doc.setFont("helvetica", "normal");
+    y += 7;
+  };
+
+  const assegnatario = utenti.find((u: any) => u.id === c.assegnatoA);
+  const resRow = c.indirizzo
+    ? `${c.indirizzo}${c.cap ? `, ${c.cap}` : ""}${c.citta ? ` ${c.citta}` : ""}`
+    : "—";
+  const lavRow =
+    c.indirizzoLavoro || c.cittaLavoro
+      ? `${c.indirizzoLavoro || c.indirizzo || ""}${c.capLavoro ? `, ${c.capLavoro}` : ""}${
+          c.cittaLavoro || c.citta ? ` ${c.cittaLavoro || c.citta}` : ""
+        }`.trim()
+      : "Come residenza";
+
+  autoTable(doc, {
+    startY: y,
+    head: [["Anagrafica", ""]],
+    body: [
+      ["Tipo", (c.tipo ?? "privato").replace(/_/g, " ")],
+      ["Telefono", c.telefono || "—"],
+      ["Email", c.email || "—"],
+      ["Codice fiscale", c.codiceFiscale || "—"],
+      ["Partita IVA", c.partitaIva || "—"],
+      ["Residenza (fatturazione)", resRow],
+      ["Indirizzo lavori", lavRow],
+      ["Detrazione fiscale", c.detrazione ? c.tipoDetrazione || "Sì" : "No"],
+      ["Pratica edilizia", c.praticaEdilizia ?? "nessuna"],
+      ["Finanziamento", c.interesseFinanziamento ? "Interessato" : "No"],
+      [
+        "Assegnato a",
+        assegnatario ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim() : "—",
+      ],
+    ],
+    theme: "grid",
+    styles: { fontSize: 9, cellPadding: 1.8 },
+    headStyles: { fillColor: accent, fontSize: 10 },
+    columnStyles: { 0: { fontStyle: "bold", cellWidth: 52 } },
+    margin: { left: marginX, right: marginX },
+  });
+  y = (doc as any).lastAutoTable.finalY + 5;
+
+  if (c.note) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Note"]],
+      body: [[c.note]],
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 1.8 },
+      headStyles: { fillColor: accent, fontSize: 10 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+  }
+
+  if (commesse.length > 0) {
+    section(`Commesse (${commesse.length})`);
+    autoTable(doc, {
+      startY: y,
+      head: [["Codice", "Stato", "Priorità", "Città", "Consegna"]],
+      body: commesse.map((cm: any) => [
+        cm.codice ?? `#${cm.id}`,
+        (cm.stato ?? "").replace(/_/g, " "),
+        cm.priorita ?? "—",
+        cm.citta || "—",
+        cm.dataConsegnaConfermata
+          ? fmtDate(cm.dataConsegnaConfermata)
+          : cm.dataConsegnaIndicativa
+          ? `${fmtDate(cm.dataConsegnaIndicativa)} (indicativa)`
+          : cm.consegnaIndicativa
+          ? `~${cm.consegnaIndicativa} gg`
+          : "—",
+      ]),
+      theme: "striped",
+      styles: { fontSize: 8.5, cellPadding: 1.6 },
+      headStyles: { fillColor: accent, fontSize: 9 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+  }
+
+  if (interventi.length > 0) {
+    section(`Appuntamenti (${interventi.length})`);
+    autoTable(doc, {
+      startY: y,
+      head: [["Data", "Ora", "Tipo", "Stato", "Note"]],
+      body: interventi.map((i: any) => [
+        fmtDate(i.dataPianificata),
+        i.oraInizio ? `${i.oraInizio}${i.oraFine ? `–${i.oraFine}` : ""}` : "—",
+        (i.tipo ?? "").replace(/_/g, " "),
+        (i.stato ?? "pianificato").replace(/_/g, " "),
+        i.note || "",
+      ]),
+      theme: "striped",
+      styles: { fontSize: 8.5, cellPadding: 1.6 },
+      headStyles: { fillColor: accent, fontSize: 9 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+  }
+
+  if (tickets.length > 0) {
+    section(`Ticket assistenza (${tickets.length})`);
+    autoTable(doc, {
+      startY: y,
+      head: [["#", "Oggetto", "Categoria", "Priorità", "Stato"]],
+      body: tickets.map((t: any) => [
+        `#${t.id}`,
+        t.oggetto ?? "—",
+        (t.categoria ?? "").replace(/_/g, " "),
+        t.priorita ?? "—",
+        (t.stato ?? "").replace(/_/g, " "),
+      ]),
+      theme: "striped",
+      styles: { fontSize: 8.5, cellPadding: 1.6 },
+      headStyles: { fillColor: accent, fontSize: 9 },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+  }
+
+  if (garanzie.length > 0) {
+    section(`Garanzie (${garanzie.length})`);
+    autoTable(doc, {
+      startY: y,
+      head: [["Tipo", "Descrizione", "Fornitore", "Scadenza"]],
+      body: garanzie.map((g: any) => [
+        g.tipo ?? "—",
+        g.descrizione ?? "—",
+        g.fornitore || "—",
+        fmtDate(g.dataScadenza),
+      ]),
+      theme: "striped",
+      styles: { fontSize: 8.5, cellPadding: 1.6 },
+      headStyles: { fillColor: accent, fontSize: 9 },
+      margin: { left: marginX, right: marginX },
+    });
+  }
+
+  return Buffer.from(doc.output("arraybuffer"));
+}
+
+function snapshotByKey(): Record<string, any[]> {
+  const out: Record<string, any[]> = {};
+  for (const s of getAllStoreSnapshots()) out[s.key] = s.items;
+  return out;
+}
+
+export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
+  const stores = snapshotByKey();
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const d = String(today.getDate()).padStart(2, "0");
+  const rootName = `Backup CRM ${y}-${m}-${d}`;
+
+  const files: BackupFile[] = [];
+
+  // 1. Raw database dump — everything, restorable.
+  for (const [key, items] of Object.entries(stores)) {
+    if (key === "backup_log") continue; // noise
+    const value = key === "utenti" ? items.map(sanitizeUtente) : items;
+    files.push(jsonFile(["database"], `${key}.json`, value));
+  }
+
+  const sedi: any[] = stores["sedi"] ?? [];
+  const utenti: any[] = (stores["utenti"] ?? []).map(sanitizeUtente);
+  const clienti: any[] = stores["clienti"] ?? [];
+  const commesse: any[] = stores["commesse"] ?? [];
+  const documenti: any[] = stores["preventivi_documenti"] ?? [];
+  const tickets: any[] = stores["tickets"] ?? [];
+  const ticketAllegati: any[] = stores["ticket_allegati"] ?? [];
+  const interventi: any[] = stores["interventi"] ?? [];
+  const garanzie: any[] = stores["garanzie"] ?? [];
+
+  const sediList = sedi.length > 0 ? sedi : [{ id: 1, nome: "Principale" }];
+
+  for (const sede of sediList) {
+    const sedeSeg = `Sede ${sanitizeName(sede.nome ?? `#${sede.id}`)}`;
+
+    // Users assigned to the sede (sediIds array, legacy single sedeId).
+    const sedeUtenti = utenti.filter((u: any) => {
+      const ids: number[] = Array.isArray(u.sediIds) ? u.sediIds : u.sedeId ? [u.sedeId] : [];
+      return ids.length === 0 || ids.includes(sede.id);
+    });
+    files.push(jsonFile([sedeSeg], "Utenti.json", sedeUtenti));
+
+    for (const c of clienti.filter((x: any) => (x.sedeId ?? 1) === sede.id)) {
+      const displayName =
+        `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
+      const clienteSeg = [
+        sedeSeg,
+        "Clienti",
+        `${sanitizeName(displayName)} (CL-${c.id})`,
+      ];
+
+      const clienteCommesse = commesse.filter(
+        (cm: any) => cm.clienteId === c.id || (c.commesseIds ?? []).includes(cm.id)
+      );
+      const commessaIds = new Set(clienteCommesse.map((cm: any) => cm.id));
+      const clienteInterventi = interventi.filter((i: any) => commessaIds.has(i.commessaId));
+      const clienteTicket = tickets.filter((t: any) => commessaIds.has(t.commessaId));
+      const clienteGaranzie = garanzie.filter((g: any) => commessaIds.has(g.commessaId));
+
+      files.push(jsonFile(clienteSeg, "cliente.json", c));
+      try {
+        files.push({
+          segments: clienteSeg,
+          name: "Scheda cliente.pdf",
+          mimeType: "application/pdf",
+          data: buildSchedaPdf(
+            c,
+            clienteCommesse,
+            clienteInterventi,
+            clienteTicket,
+            clienteGaranzie,
+            utenti
+          ),
+        });
+      } catch (e: any) {
+        files.push(
+          jsonFile(clienteSeg, "scheda-errore.json", {
+            errore: e?.message ?? "PDF generation failed",
+          })
+        );
+      }
+
+      for (const cm of clienteCommesse) {
+        const cmSeg = [...clienteSeg, "Commesse", sanitizeName(cm.codice ?? `COM-${cm.id}`)];
+        files.push(jsonFile(cmSeg, "commessa.json", cm));
+
+        // Uploaded documents grouped by type.
+        for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
+          if (!doc.dataBase64) continue;
+          files.push({
+            segments: [...cmSeg, docFolder(doc.tipo)],
+            name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
+            mimeType: doc.mimeType || "application/octet-stream",
+            data: Buffer.from(doc.dataBase64, "base64"),
+          });
+        }
+
+        // Ticket attachments under the commessa.
+        for (const t of clienteTicket.filter((x: any) => x.commessaId === cm.id)) {
+          const all = ticketAllegati.filter((a: any) => a.ticketId === t.id);
+          for (const a of all) {
+            if (!a.dataBase64) continue;
+            files.push({
+              segments: [...cmSeg, `Ticket ${t.id}`],
+              name: sanitizeName(a.nome ?? `allegato-${a.id}`),
+              mimeType: a.mimeType || "application/octet-stream",
+              data: Buffer.from(a.dataBase64, "base64"),
+            });
+          }
+        }
+      }
+    }
+
+    // Commesse of the sede without a linked cliente — still backed up.
+    const orphan = commesse.filter(
+      (cm: any) =>
+        (cm.sedeId ?? 1) === sede.id &&
+        !clienti.some(
+          (c: any) => c.id === cm.clienteId || (c.commesseIds ?? []).includes(cm.id)
+        )
+    );
+    for (const cm of orphan) {
+      const cmSeg = [
+        sedeSeg,
+        "Commesse senza cliente",
+        sanitizeName(cm.codice ?? `COM-${cm.id}`),
+      ];
+      files.push(jsonFile(cmSeg, "commessa.json", cm));
+      for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
+        if (!doc.dataBase64) continue;
+        files.push({
+          segments: [...cmSeg, docFolder(doc.tipo)],
+          name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
+          mimeType: doc.mimeType || "application/octet-stream",
+          data: Buffer.from(doc.dataBase64, "base64"),
+        });
+      }
+    }
+  }
+
+  return { rootName, files };
+}
+
+// ── Writers ──────────────────────────────────────────────────────────────────
+
+async function writeLocal(rootName: string, files: BackupFile[]): Promise<void> {
+  const base = path.join(process.cwd(), "backups", rootName);
+  for (const f of files) {
+    const dir = path.join(base, ...f.segments.map(sanitizeName));
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, f.name), f.data);
+  }
+}
+
+async function writeDrive(
+  sa: ServiceAccount,
+  folderId: string,
+  rootName: string,
+  files: BackupFile[]
+): Promise<void> {
+  const token = await getAccessToken(sa);
+  const folderCache = new Map<string, string>();
+
+  async function ensureFolder(segments: string[]): Promise<string> {
+    let parent = folderId;
+    let keyPath = "";
+    for (const seg of [rootName, ...segments]) {
+      keyPath += `/${seg}`;
+      const hit = folderCache.get(keyPath);
+      if (hit) {
+        parent = hit;
+        continue;
+      }
+      const found = await driveFindFolder(token, seg, parent);
+      const id = found ?? (await driveCreateFolder(token, seg, parent));
+      folderCache.set(keyPath, id);
+      parent = id;
+    }
+    return parent;
+  }
+
+  for (const f of files) {
+    const parent = await ensureFolder(f.segments);
+    await driveUploadFile(token, f.name, f.mimeType, f.data, parent);
+  }
+}
+
+// ── Runner + scheduler ───────────────────────────────────────────────────────
+
+let running = false;
+
+export async function runBackup(trigger: "schedulato" | "manuale"): Promise<BackupLog> {
+  if (running) throw new Error("Backup già in corso");
+  running = true;
+  const cfg = getConfig();
+  const log: BackupLog = {
+    id: nextLogId++,
+    startedAt: new Date(),
+    finishedAt: null,
+    ok: null,
+    target: null,
+    trigger,
+    rootName: "",
+    files: 0,
+    bytes: 0,
+    error: null,
+  };
+  logRows.push(log);
+  // Keep the log bounded.
+  while (logRows.length > 60) logRows.shift();
+  _logStore.save();
+
+  try {
+    const { rootName, files } = buildBackupTree();
+    log.rootName = rootName;
+    log.files = files.length;
+    log.bytes = files.reduce((s, f) => s + f.data.length, 0);
+
+    const sa = loadServiceAccount();
+    if (sa) {
+      await writeDrive(sa, cfg.folderId, rootName, files);
+      log.target = "drive";
+    } else {
+      await writeLocal(rootName, files);
+      log.target = "locale";
+    }
+    log.ok = true;
+  } catch (e: any) {
+    log.ok = false;
+    log.error = e?.message ?? "Errore sconosciuto";
+  } finally {
+    log.finishedAt = new Date();
+    _logStore.save();
+    running = false;
+  }
+  return log;
+}
+
+function msUntilRomeMidnight(): number {
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const [h, m, s] = fmt.format(new Date()).split(":").map(Number);
+  const elapsed = h * 3600 + m * 60 + s;
+  // Never below 60s — protects against clock weirdness double-firing.
+  return Math.max((86400 - elapsed) * 1000, 60_000);
+}
+
+let scheduled: NodeJS.Timeout | null = null;
+
+export function startBackupScheduler(): void {
+  if (scheduled) return;
+  const arm = () => {
+    const delay = msUntilRomeMidnight();
+    scheduled = setTimeout(async () => {
+      try {
+        if (getConfig().enabled) {
+          await runBackup("schedulato");
+        }
+      } catch (e) {
+        console.error("[backup] nightly run failed:", e);
+      } finally {
+        arm(); // re-arm for the next midnight regardless of outcome
+      }
+    }, delay);
+    // Don't keep the process alive only for the timer.
+    scheduled.unref?.();
+    console.log(
+      `[backup] prossimo backup automatico tra ${Math.round(delay / 60000)} minuti (00:00 Europe/Rome)`
+    );
+  };
+  arm();
+}
+
+export function backupStatus() {
+  const cfg = getConfig();
+  const sa = loadServiceAccount();
+  const last = [...logRows].sort((a, b) => b.id - a.id)[0] ?? null;
+  return {
+    driveConfigurato: !!sa,
+    serviceAccountEmail: sa?.client_email ?? null,
+    folderId: cfg.folderId,
+    enabled: cfg.enabled,
+    inCorso: running,
+    ultimoBackup: last,
+    prossimoTraMs: cfg.enabled ? msUntilRomeMidnight() : null,
+  };
+}
+
+export function backupLog(limit = 15) {
+  return [...logRows].sort((a, b) => b.id - a.id).slice(0, limit);
+}

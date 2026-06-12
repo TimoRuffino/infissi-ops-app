@@ -32,6 +32,10 @@ async function startServer() {
   // Load persisted stores before wiring routers / listening.
   await bootstrapAll();
 
+  // Nightly backup to Google Drive (00:00 Europe/Rome).
+  const { startBackupScheduler } = await import("./driveBackup");
+  startBackupScheduler();
+
   const app = express();
   const server = createServer(app);
 

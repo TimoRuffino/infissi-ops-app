@@ -26,6 +26,8 @@ import {
   Trash2,
   Power,
   Download,
+  Database,
+  Play,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -266,6 +268,9 @@ export default function Integrazioni() {
         )}
       </Card>
 
+      {/* Backup notturno su Google Drive */}
+      <BackupDrive />
+
       {/* Mostra i calendari Google dentro al CRM (import) */}
       <GoogleCalendarImport />
 
@@ -294,6 +299,176 @@ export default function Integrazioni() {
       </Card>
       </section>
     </div>
+  );
+}
+
+// ── Nightly backup to Google Drive ───────────────────────────────────────────
+// Direzione-only card: status of the scheduled 00:00 backup, manual run,
+// destination folder config and service-account setup instructions.
+function BackupDrive() {
+  const status = trpc.backup.status.useQuery(undefined, {
+    refetchInterval: 30000,
+    retry: false,
+  });
+  const utils = trpc.useUtils();
+  const [folderId, setFolderId] = useState<string | null>(null);
+
+  const runNow = trpc.backup.runNow.useMutation({
+    onSuccess: (log: any) => {
+      utils.backup.invalidate();
+      if (log.ok) {
+        toast.success(
+          log.target === "drive"
+            ? `Backup su Google Drive completato — ${log.files} file`
+            : `Drive non collegato: backup locale completato — ${log.files} file`
+        );
+      } else {
+        toast.error(`Backup fallito: ${log.error}`);
+      }
+    },
+    onError: (e) => toast.error(e.message ?? "Backup fallito"),
+  });
+  const updateCfg = trpc.backup.updateConfig.useMutation({
+    onSuccess: () => {
+      utils.backup.invalidate();
+      setFolderId(null);
+      toast.success("Impostazioni backup salvate");
+    },
+  });
+
+  // Hidden for non-direzione (the procedures are admin-only).
+  if (status.error) return null;
+  const s = status.data;
+  if (!s) return null;
+
+  const last = s.ultimoBackup;
+  const nextMin = s.prossimoTraMs != null ? Math.round(s.prossimoTraMs / 60000) : null;
+  const folderValue = folderId ?? s.folderId;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <Database className="h-5 w-5 text-emerald-700" />
+            </div>
+            <div>
+              <CardTitle className="text-base">
+                Backup notturno su Google Drive
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Ogni notte alle 00:00 salva clienti, commesse, preventivi,
+                misure e tutti i file in cartelle ordinate per sede e cliente
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => runNow.mutate()}
+            disabled={runNow.isPending || s.inCorso}
+          >
+            <Play className="h-3.5 w-3.5 mr-1" />
+            {runNow.isPending || s.inCorso ? "In corso…" : "Esegui ora"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 border-t pt-4">
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          {s.driveConfigurato ? (
+            <>
+              <Badge variant="success">Drive collegato</Badge>
+              <span className="codice-mono text-[11px] text-text-3 truncate">
+                {s.serviceAccountEmail}
+              </span>
+            </>
+          ) : (
+            <Badge variant="warning">
+              Drive non collegato — backup salvato in locale
+            </Badge>
+          )}
+          {nextMin != null && (
+            <span className="text-xs text-text-2">
+              Prossimo backup automatico tra ~
+              {nextMin >= 60 ? `${Math.floor(nextMin / 60)}h ${nextMin % 60}m` : `${nextMin}m`}
+            </span>
+          )}
+        </div>
+
+        {last && (
+          <div className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs space-y-0.5">
+            <p>
+              <span className="font-semibold">Ultimo backup:</span>{" "}
+              {new Date(last.startedAt).toLocaleString("it-IT")} ·{" "}
+              {last.ok == null ? (
+                <Badge variant="secondary" className="text-[10px]">in corso</Badge>
+              ) : last.ok ? (
+                <Badge variant="success" className="text-[10px]">
+                  riuscito ({last.target === "drive" ? "Drive" : "locale"})
+                </Badge>
+              ) : (
+                <Badge variant="danger" className="text-[10px]">fallito</Badge>
+              )}
+            </p>
+            <p className="text-text-2">
+              {last.rootName} — {last.files} file,{" "}
+              {(last.bytes / 1024 / 1024).toFixed(1)} MB
+            </p>
+            {last.error && <p className="text-danger">{last.error}</p>}
+          </div>
+        )}
+
+        <div className="flex gap-2 items-end flex-wrap">
+          <div className="space-y-1 flex-1 min-w-[260px]">
+            <Label className="text-xs">ID cartella Google Drive di destinazione</Label>
+            <Input
+              value={folderValue}
+              onChange={(e) => setFolderId(e.target.value)}
+              className="h-9 font-mono text-xs"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={folderId == null || folderId.trim() === s.folderId || updateCfg.isPending}
+            onClick={() => folderId && updateCfg.mutate({ folderId: folderId.trim() })}
+          >
+            Salva
+          </Button>
+        </div>
+
+        {!s.driveConfigurato && (
+          <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5">
+            <p className="text-xs font-semibold mb-1">
+              Per collegare Google Drive (una sola volta):
+            </p>
+            <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+              <li>
+                Su <span className="font-medium text-text-1">console.cloud.google.com</span>{" "}
+                crea un progetto, abilita l'API «Google Drive» e crea un{" "}
+                <span className="font-medium text-text-1">Service Account</span> con chiave JSON.
+              </li>
+              <li>
+                Condividi la cartella Drive di destinazione con l'email del
+                service account (ruolo <span className="font-medium text-text-1">Editor</span>).
+              </li>
+              <li>
+                Sul server imposta la variabile{" "}
+                <span className="codice-mono">GOOGLE_SERVICE_ACCOUNT_JSON</span>{" "}
+                (contenuto del file JSON) oppure{" "}
+                <span className="codice-mono">GOOGLE_SERVICE_ACCOUNT_FILE</span>{" "}
+                (percorso del file) e riavvia.
+              </li>
+            </ol>
+            <p className="text-[11px] text-text-3 mt-1.5">
+              Finché Drive non è collegato il backup notturno viene comunque
+              eseguito e salvato sul disco del server (cartella{" "}
+              <span className="codice-mono">backups/</span>).
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

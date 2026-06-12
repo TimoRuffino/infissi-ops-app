@@ -134,6 +134,16 @@ export type PersistedStore<T> = {
   save: () => void;
 };
 
+// Read-only snapshot of every registered store — used by the nightly backup
+// so it never needs a per-router getter. Items are the live arrays: callers
+// must NOT mutate them.
+export function getAllStoreSnapshots(): Array<{ key: string; items: any[] }> {
+  return Array.from(registry.values()).map((e) => ({
+    key: e.key,
+    items: e.items,
+  }));
+}
+
 export function persistedStore<T>(
   key: string,
   onLoad?: (items: T[], meta: LoadMeta) => void
