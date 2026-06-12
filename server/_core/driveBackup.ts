@@ -109,6 +109,40 @@ type OAuthRow = {
 const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {});
 const oauthRows = _oauthStore.items;
 
+// ── File fallback for OAuth credentials ─────────────────────────────────────
+// persistedStore is Postgres-backed; without DATABASE_URL (local installs)
+// it's memory-only and the refresh token would die on every restart, forcing
+// a re-authorization. The token is too important for that: mirror it to a
+// mode-600 file under ./data and reload it at boot when the store is empty.
+const OAUTH_FILE = path.join(process.cwd(), "data", "backup-oauth.json");
+
+function saveOAuthFile(): void {
+  try {
+    fs.mkdirSync(path.dirname(OAUTH_FILE), { recursive: true });
+    fs.writeFileSync(OAUTH_FILE, JSON.stringify(oauthRows[0] ?? null), {
+      mode: 0o600,
+    });
+  } catch (e) {
+    console.error("[backup] impossibile salvare il token su file:", e);
+  }
+}
+
+function loadOAuthFile(): void {
+  try {
+    if (oauthRows.length > 0) return; // DB row wins
+    if (!fs.existsSync(OAUTH_FILE)) return;
+    const row = JSON.parse(fs.readFileSync(OAUTH_FILE, "utf8"));
+    if (row?.refreshToken) {
+      oauthRows.push({ ...row, connectedAt: new Date(row.connectedAt) });
+    }
+  } catch (e) {
+    console.error("[backup] impossibile leggere il token da file:", e);
+  }
+}
+// Load eagerly at module init (after bootstrapAll the DB rows, if any, are
+// already in; this only fills the gap when the DB is absent/empty).
+setTimeout(loadOAuthFile, 0);
+
 export function oauthClientFromEnv(): { clientId: string; clientSecret: string } | null {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -193,12 +227,18 @@ export async function handleOAuthCallback(
   });
   oauthCachedToken = null;
   _oauthStore.save();
+  saveOAuthFile();
 }
 
 export function disconnectOAuth(): void {
   oauthRows.length = 0;
   oauthCachedToken = null;
   _oauthStore.save();
+  try {
+    fs.rmSync(OAUTH_FILE, { force: true });
+  } catch {
+    /* ignore */
+  }
 }
 
 let oauthCachedToken: { token: string; expiresAt: number } | null = null;
@@ -250,7 +290,33 @@ async function ensureOAuthRoot(token: string): Promise<string> {
   const id = await driveCreateFolder(token, "Backup CRM Ruffino", "root");
   row.rootFolderId = id;
   _oauthStore.save();
+  saveOAuthFile();
   return id;
+}
+
+// Where does the backup root live right now? Lets the UI/operator verify the
+// folder after moving it (drive.file still sees app-created files anywhere).
+export async function checkBackupRoot(): Promise<{
+  ok: boolean;
+  name?: string;
+  parents?: string[];
+  trashed?: boolean;
+  error?: string;
+}> {
+  try {
+    const row = oauthRows[0];
+    if (!row?.rootFolderId) return { ok: false, error: "Nessuna cartella di backup ancora creata" };
+    const token = await getOAuthAccessToken();
+    const res = await fetch(
+      `${DRIVE}/files/${row.rootFolderId}?fields=id,name,trashed,parents&supportsAllDrives=true`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const j: any = await res.json();
+    return { ok: true, name: j.name, parents: j.parents ?? [], trashed: !!j.trashed };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "errore" };
+  }
 }
 
 type ServiceAccount = { client_email: string; private_key: string };

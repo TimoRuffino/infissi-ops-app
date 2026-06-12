@@ -5,6 +5,7 @@ import {
   backupLog,
   backupStatus,
   buildAuthUrl,
+  checkBackupRoot,
   disconnectOAuth,
   issueOAuthState,
   runBackup,
@@ -51,4 +52,7 @@ export const backupRouter = router({
     disconnectOAuth();
     return { success: true } as const;
   }),
+
+  // Current location of the app-created backup folder (verifies a move).
+  checkRoot: adminProcedure.query(async () => await checkBackupRoot()),
 });
