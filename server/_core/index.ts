@@ -39,6 +39,10 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // Behind Railway/any TLS-terminating proxy: trust the first hop so
+  // req.protocol reflects the original https (OAuth redirect URIs, cookies).
+  app.set("trust proxy", 1);
+
   // Baseline security headers on every response. Kept dependency-free
   // (no helmet) and deliberately without a Content-Security-Policy — a
   // strict CSP needs per-app tuning (Vite, blob: file previews, the Maps
