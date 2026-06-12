@@ -115,3 +115,7 @@ client/public/__manus__/version.json
 
 # nightly local backup fallback
 backups/
+
+# Google service account keys — NEVER commit
+ruffino-crm-backup-*.json
+*service*account*.json

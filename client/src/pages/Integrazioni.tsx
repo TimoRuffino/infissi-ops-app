@@ -335,6 +335,18 @@ function BackupDrive() {
       toast.success("Impostazioni backup salvate");
     },
   });
+  const oauthStart = trpc.backup.oauthStartUrl.useMutation({
+    onSuccess: ({ url }) => {
+      window.location.href = url;
+    },
+    onError: (e) => toast.error(e.message ?? "Avvio collegamento fallito"),
+  });
+  const oauthDisconnect = trpc.backup.disconnectOAuth.useMutation({
+    onSuccess: () => {
+      utils.backup.invalidate();
+      toast.success("Account Google scollegato");
+    },
+  });
 
   // Hidden for non-direzione (the procedures are admin-only).
   if (status.error) return null;
@@ -375,17 +387,45 @@ function BackupDrive() {
       </CardHeader>
       <CardContent className="space-y-3 border-t pt-4">
         <div className="flex items-center gap-2 flex-wrap text-sm">
-          {s.driveConfigurato ? (
+          {s.mode === "oauth" ? (
             <>
               <Badge variant="success">Drive collegato</Badge>
+              <span className="codice-mono text-[11px] text-text-3 truncate">
+                {s.oauthEmail ?? "account Google"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-danger"
+                onClick={() => oauthDisconnect.mutate()}
+                disabled={oauthDisconnect.isPending}
+              >
+                Scollega
+              </Button>
+            </>
+          ) : s.mode === "service_account" ? (
+            <>
+              <Badge variant="success">Drive collegato (service account)</Badge>
               <span className="codice-mono text-[11px] text-text-3 truncate">
                 {s.serviceAccountEmail}
               </span>
             </>
           ) : (
-            <Badge variant="warning">
-              Drive non collegato — backup salvato in locale
-            </Badge>
+            <>
+              <Badge variant="warning">
+                Drive non collegato — backup salvato in locale
+              </Badge>
+              {s.oauthClientReady && (
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => oauthStart.mutate()}
+                  disabled={oauthStart.isPending}
+                >
+                  Collega Google Drive
+                </Button>
+              )}
+            </>
           )}
           {nextMin != null && (
             <span className="text-xs text-text-2">
@@ -394,6 +434,26 @@ function BackupDrive() {
             </span>
           )}
         </div>
+
+        {s.mode === "oauth" && (
+          <p className="text-xs text-text-2">
+            I backup finiscono nella cartella{" "}
+            <a
+              className="font-medium text-primary hover:underline"
+              href={
+                s.rootFolderId
+                  ? `https://drive.google.com/drive/folders/${s.rootFolderId}`
+                  : "https://drive.google.com"
+              }
+              target="_blank"
+              rel="noreferrer"
+            >
+              «Backup CRM Ruffino»
+            </a>{" "}
+            del tuo Drive: puoi spostarla o condividerla liberamente (anche
+            dentro un'altra cartella condivisa) — il CRM continua a trovarla.
+          </p>
+        )}
 
         {last && (
           <div className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs space-y-0.5">
@@ -418,46 +478,55 @@ function BackupDrive() {
           </div>
         )}
 
-        <div className="flex gap-2 items-end flex-wrap">
-          <div className="space-y-1 flex-1 min-w-[260px]">
-            <Label className="text-xs">ID cartella Google Drive di destinazione</Label>
-            <Input
-              value={folderValue}
-              onChange={(e) => setFolderId(e.target.value)}
-              className="h-9 font-mono text-xs"
-            />
+        {s.mode === "service_account" && (
+          <div className="flex gap-2 items-end flex-wrap">
+            <div className="space-y-1 flex-1 min-w-[260px]">
+              <Label className="text-xs">ID cartella Google Drive di destinazione</Label>
+              <Input
+                value={folderValue}
+                onChange={(e) => setFolderId(e.target.value)}
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={folderId == null || folderId.trim() === s.folderId || updateCfg.isPending}
+              onClick={() => folderId && updateCfg.mutate({ folderId: folderId.trim() })}
+            >
+              Salva
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={folderId == null || folderId.trim() === s.folderId || updateCfg.isPending}
-            onClick={() => folderId && updateCfg.mutate({ folderId: folderId.trim() })}
-          >
-            Salva
-          </Button>
-        </div>
+        )}
 
-        {!s.driveConfigurato && (
+        {!s.driveConfigurato && !s.oauthClientReady && (
           <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5">
             <p className="text-xs font-semibold mb-1">
-              Per collegare Google Drive (una sola volta):
+              Per collegare Google Drive (account Google normale, una sola volta):
             </p>
             <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
               <li>
                 Su <span className="font-medium text-text-1">console.cloud.google.com</span>{" "}
-                crea un progetto, abilita l'API «Google Drive» e crea un{" "}
-                <span className="font-medium text-text-1">Service Account</span> con chiave JSON.
+                → «API e servizi» → «Schermata consenso OAuth»: configurala
+                (tipo <span className="font-medium text-text-1">Esterno</span>),
+                aggiungi la tua email e poi{" "}
+                <span className="font-medium text-text-1">pubblica l'app</span>{" "}
+                (stato «In produzione»).
               </li>
               <li>
-                Condividi la cartella Drive di destinazione con l'email del
-                service account (ruolo <span className="font-medium text-text-1">Editor</span>).
+                «Credenziali» → «Crea credenziali» →{" "}
+                <span className="font-medium text-text-1">ID client OAuth</span>{" "}
+                → tipo «Applicazione web» → aggiungi URI di reindirizzamento:{" "}
+                <span className="codice-mono break-all">
+                  {window.location.origin}/api/oauth/gdrive/callback
+                </span>
               </li>
               <li>
-                Sul server imposta la variabile{" "}
-                <span className="codice-mono">GOOGLE_SERVICE_ACCOUNT_JSON</span>{" "}
-                (contenuto del file JSON) oppure{" "}
-                <span className="codice-mono">GOOGLE_SERVICE_ACCOUNT_FILE</span>{" "}
-                (percorso del file) e riavvia.
+                Sul server imposta{" "}
+                <span className="codice-mono">GOOGLE_OAUTH_CLIENT_ID</span> e{" "}
+                <span className="codice-mono">GOOGLE_OAUTH_CLIENT_SECRET</span>{" "}
+                con i valori del client e riavvia: comparirà qui il bottone
+                «Collega Google Drive».
               </li>
             </ol>
             <p className="text-[11px] text-text-3 mt-1.5">
@@ -466,6 +535,15 @@ function BackupDrive() {
               <span className="codice-mono">backups/</span>).
             </p>
           </div>
+        )}
+
+        {!s.driveConfigurato && s.oauthClientReady && (
+          <p className="text-xs text-text-2">
+            Client OAuth configurato: premi{" "}
+            <span className="font-medium text-text-1">«Collega Google Drive»</span>{" "}
+            qui sopra, scegli l'account e autorizza. Da quel momento il backup
+            notturno finisce su Drive.
+          </p>
         )}
       </CardContent>
     </Card>

@@ -90,6 +90,169 @@ const logRows = _logStore.items;
 
 // ── Service account / Drive REST ─────────────────────────────────────────────
 
+// ── OAuth (user account) ─────────────────────────────────────────────────────
+// Personal Google accounts can't receive uploads from service accounts (no
+// storage quota), so the primary mode is OAuth: the operator connects their
+// own Google account once; the CRM then writes with scope drive.file (it can
+// only see files it created) into an app-created "Backup CRM Ruffino" folder
+// that the operator may move/share anywhere — ownership and quota are the
+// user's.
+
+type OAuthRow = {
+  id: number;
+  refreshToken: string;
+  email: string | null;
+  rootFolderId: string | null;
+  connectedAt: Date;
+};
+
+const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {});
+const oauthRows = _oauthStore.items;
+
+export function oauthClientFromEnv(): { clientId: string; clientSecret: string } | null {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+// One-shot anti-CSRF states for the authorize redirect, issued only to
+// direzione via tRPC. 10 minute TTL.
+const pendingStates = new Map<string, number>();
+
+export function issueOAuthState(): string {
+  const state = crypto.randomBytes(16).toString("hex");
+  pendingStates.set(state, Date.now() + 10 * 60_000);
+  return state;
+}
+
+function consumeOAuthState(state: string): boolean {
+  const exp = pendingStates.get(state);
+  pendingStates.delete(state);
+  return exp != null && Date.now() < exp;
+}
+
+export function buildAuthUrl(redirectUri: string, state: string): string | null {
+  const client = oauthClientFromEnv();
+  if (!client) return null;
+  const p = new URLSearchParams({
+    client_id: client.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "https://www.googleapis.com/auth/drive.file",
+    access_type: "offline",
+    prompt: "consent", // force refresh_token issuance even on re-connect
+    state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p.toString()}`;
+}
+
+export async function handleOAuthCallback(
+  code: string,
+  state: string,
+  redirectUri: string
+): Promise<void> {
+  if (!consumeOAuthState(state)) throw new Error("Stato OAuth non valido o scaduto");
+  const client = oauthClientFromEnv();
+  if (!client) throw new Error("Client OAuth non configurato");
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }).toString(),
+  });
+  if (!res.ok) {
+    throw new Error(`Scambio codice OAuth fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const j: any = await res.json();
+  if (!j.refresh_token) {
+    throw new Error("Google non ha restituito un refresh token — riprova il collegamento");
+  }
+  // Identify the connected account for the UI.
+  let email: string | null = null;
+  try {
+    const about = await fetch(`${DRIVE}/about?fields=user(emailAddress)`, {
+      headers: { authorization: `Bearer ${j.access_token}` },
+    });
+    if (about.ok) email = ((await about.json()) as any)?.user?.emailAddress ?? null;
+  } catch {
+    /* non-fatal */
+  }
+  oauthRows.length = 0;
+  oauthRows.push({
+    id: 1,
+    refreshToken: j.refresh_token,
+    email,
+    rootFolderId: null,
+    connectedAt: new Date(),
+  });
+  oauthCachedToken = null;
+  _oauthStore.save();
+}
+
+export function disconnectOAuth(): void {
+  oauthRows.length = 0;
+  oauthCachedToken = null;
+  _oauthStore.save();
+}
+
+let oauthCachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getOAuthAccessToken(): Promise<string> {
+  if (oauthCachedToken && Date.now() < oauthCachedToken.expiresAt - 60_000) {
+    return oauthCachedToken.token;
+  }
+  const client = oauthClientFromEnv();
+  const row = oauthRows[0];
+  if (!client || !row) throw new Error("Account Google non collegato");
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      refresh_token: row.refreshToken,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  if (!res.ok) {
+    throw new Error(`Refresh token Google rifiutato (HTTP ${res.status}) — ricollega l'account da Impostazioni`);
+  }
+  const j: any = await res.json();
+  oauthCachedToken = {
+    token: j.access_token,
+    expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000,
+  };
+  return oauthCachedToken.token;
+}
+
+// Find-or-create the app-owned backup root in the connected account's Drive.
+// drive.file only sees files this app created, so the lookup is cheap and the
+// folder survives being moved or renamed by the operator (we track its id).
+async function ensureOAuthRoot(token: string): Promise<string> {
+  const row = oauthRows[0];
+  if (!row) throw new Error("Account Google non collegato");
+  if (row.rootFolderId) {
+    const res = await fetch(
+      `${DRIVE}/files/${row.rootFolderId}?fields=id,trashed&supportsAllDrives=true`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    if (res.ok) {
+      const j: any = await res.json();
+      if (!j.trashed) return row.rootFolderId;
+    }
+  }
+  const id = await driveCreateFolder(token, "Backup CRM Ruffino", "root");
+  row.rootFolderId = id;
+  _oauthStore.save();
+  return id;
+}
+
 type ServiceAccount = { client_email: string; private_key: string };
 
 export function loadServiceAccount(): ServiceAccount | null {
@@ -587,12 +750,11 @@ async function writeLocal(rootName: string, files: BackupFile[]): Promise<void> 
 }
 
 async function writeDrive(
-  sa: ServiceAccount,
+  token: string,
   folderId: string,
   rootName: string,
   files: BackupFile[]
 ): Promise<void> {
-  const token = await getAccessToken(sa);
   const folderCache = new Map<string, string>();
 
   async function ensureFolder(segments: string[]): Promise<string> {
@@ -650,9 +812,19 @@ export async function runBackup(trigger: "schedulato" | "manuale"): Promise<Back
     log.files = files.length;
     log.bytes = files.reduce((s, f) => s + f.data.length, 0);
 
+    // Mode priority: connected user account (OAuth) → service account →
+    // local disk fallback. OAuth first because personal Google accounts
+    // reject service-account uploads (no storage quota).
+    const oauthReady = oauthClientFromEnv() && oauthRows.length > 0;
     const sa = loadServiceAccount();
-    if (sa) {
-      await writeDrive(sa, cfg.folderId, rootName, files);
+    if (oauthReady) {
+      const token = await getOAuthAccessToken();
+      const base = await ensureOAuthRoot(token);
+      await writeDrive(token, base, rootName, files);
+      log.target = "drive";
+    } else if (sa) {
+      const token = await getAccessToken(sa);
+      await writeDrive(token, cfg.folderId, rootName, files);
       log.target = "drive";
     } else {
       await writeLocal(rootName, files);
@@ -713,9 +885,17 @@ export function startBackupScheduler(): void {
 export function backupStatus() {
   const cfg = getConfig();
   const sa = loadServiceAccount();
+  const oauthRow = oauthRows[0] ?? null;
+  const oauthClientReady = !!oauthClientFromEnv();
+  const mode: "oauth" | "service_account" | null =
+    oauthClientReady && oauthRow ? "oauth" : sa ? "service_account" : null;
   const last = [...logRows].sort((a, b) => b.id - a.id)[0] ?? null;
   return {
-    driveConfigurato: !!sa,
+    driveConfigurato: mode !== null,
+    mode,
+    oauthClientReady,
+    oauthEmail: oauthRow?.email ?? null,
+    rootFolderId: oauthRow?.rootFolderId ?? null,
     serviceAccountEmail: sa?.client_email ?? null,
     folderId: cfg.folderId,
     enabled: cfg.enabled,

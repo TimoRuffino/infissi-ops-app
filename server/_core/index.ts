@@ -84,6 +84,24 @@ async function startServer() {
     res.setHeader("Cache-Control", "public, max-age=300");
     res.send(body);
   });
+  // ── Google Drive backup — OAuth callback ────────────────────────────────────
+  // Anonymous by necessity (Google redirects the browser here), but it only
+  // accepts one-shot states issued to direzione via backup.oauthStartUrl.
+  app.get("/api/oauth/gdrive/callback", async (req, res) => {
+    const { handleOAuthCallback } = await import("./driveBackup");
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/oauth/gdrive/callback`;
+    try {
+      if (!code) throw new Error(String(req.query.error ?? "Codice mancante"));
+      await handleOAuthCallback(code, state, redirectUri);
+      res.redirect("/integrazioni?gdrive=ok");
+    } catch (e: any) {
+      console.error("[backup] OAuth callback failed:", e?.message);
+      res.redirect("/integrazioni?gdrive=errore");
+    }
+  });
+
   // ── CSRF: same-origin check on /api/trpc ────────────────────────────────
   // Cookie-auth means a cross-origin POST from a malicious page could
   // attempt CSRF. The browser sets `Origin` on cross-origin POSTs; we
