@@ -42,6 +42,7 @@ import {
   Archive,
   Trophy,
   Store,
+  Package,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -72,6 +73,7 @@ const menuItems: MenuItem[] = [
   { icon: Building2, label: "Commesse", path: "/commesse" },
   { icon: Kanban, label: "Board", path: "/kanban" },
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
+  { icon: Package, label: "Magazzino", path: "/magazzino" },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Trophy, label: "Classifica", path: "/classifica" },

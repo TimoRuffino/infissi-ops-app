@@ -20,6 +20,7 @@ import Integrazioni from "./pages/Integrazioni";
 import FornitoriList from "./pages/FornitoriList";
 import Produzione from "./pages/Produzione";
 import KanbanBoard from "./pages/KanbanBoard";
+import Magazzino from "./pages/Magazzino";
 import ReclamiRifacimenti from "./pages/ReclamiRifacimenti";
 import UtentiList from "./pages/UtentiList";
 import Preventivatori from "./pages/Preventivatori";
@@ -38,6 +39,7 @@ function Router() {
         <Route path="/clienti" component={ClientiList} />
         <Route path="/clienti/:id" component={ClienteDetail} />
         <Route path="/kanban" component={KanbanBoard} />
+        <Route path="/magazzino" component={Magazzino} />
         <Route path="/commesse" component={CommesseList} />
         <Route path="/commesse/:id" component={CommessaDetail} />
         <Route path="/commesse/:commessaId/aperture/:aperturaId/rilievo" component={RilievoDetail} />

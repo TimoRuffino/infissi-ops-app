@@ -32,6 +32,7 @@ import {
   LayoutGrid,
   ChevronDown,
   ChevronUp,
+  Package,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -122,7 +123,19 @@ function daysSince(date: string | Date): number {
 export default function KanbanBoard() {
   const [, setLocation] = useLocation();
   const commesse = trpc.commesse.list.useQuery({});
+  // Warehouse products per commessa — shown on the card so posa can be
+  // planned around real material arrivals.
+  const magazzino = trpc.magazzino.list.useQuery({});
   const utils = trpc.useUtils();
+
+  const prodottiByCommessa = useMemo(() => {
+    const map = new Map<number, any[]>();
+    for (const p of magazzino.data ?? []) {
+      if (!map.has(p.commessaId)) map.set(p.commessaId, []);
+      map.get(p.commessaId)!.push(p);
+    }
+    return map;
+  }, [magazzino.data]);
 
   const [consegnaTarget, setConsegnaTarget] = useState<{ id: number; codice: string } | null>(null);
   const [consegnaDate, setConsegnaDate] = useState("");
@@ -474,6 +487,47 @@ export default function KanbanBoard() {
                                         Indicativa: +{c.consegnaIndicativa}gg
                                       </div>
                                     ) : null}
+
+                                    {(() => {
+                                      const prods = prodottiByCommessa.get(c.id) ?? [];
+                                      if (prods.length === 0) return null;
+                                      const today = new Date().toISOString().split("T")[0];
+                                      const shortDate = (iso: string | null) =>
+                                        iso
+                                          ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
+                                          : "—";
+                                      return (
+                                        <div className="space-y-0.5 rounded bg-surface-2/70 border border-border/60 px-1.5 py-1">
+                                          {prods.slice(0, 2).map((p: any) => {
+                                            const late = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
+                                            return (
+                                              <div
+                                                key={p.id}
+                                                title={`${p.nome} ×${p.quantita}${p.fornitore ? ` — ${p.fornitore}` : ""}${p.arrivato ? " (arrivato)" : late ? " (in ritardo)" : ""}`}
+                                                className={`flex items-center gap-1 text-[10px] leading-tight ${
+                                                  p.arrivato
+                                                    ? "text-success"
+                                                    : late
+                                                    ? "text-danger font-semibold"
+                                                    : "text-text-2"
+                                                }`}
+                                              >
+                                                <Package className="h-2.5 w-2.5 shrink-0" />
+                                                <span className="truncate flex-1">{p.nome}</span>
+                                                <span className="tabular-nums shrink-0">
+                                                  {p.arrivato ? "✓" : shortDate(p.dataConsegna)}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                          {prods.length > 2 && (
+                                            <div className="text-[9px] text-text-3 pl-3.5">
+                                              +{prods.length - 2} altri prodotti
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
 
                                     {needsConsegna && (
                                       <Button

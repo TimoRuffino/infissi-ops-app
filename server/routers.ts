@@ -24,6 +24,7 @@ import { sediRouter } from "./routers/sedi";
 import { calendarSyncRouter } from "./routers/calendarSync";
 import { externalCalendarsRouter } from "./routers/externalCalendars";
 import { backupRouter } from "./routers/backup";
+import { magazzinoRouter } from "./routers/magazzino";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -165,6 +166,7 @@ export const appRouter = router({
   calendarSync: calendarSyncRouter,
   externalCalendars: externalCalendarsRouter,
   backup: backupRouter,
+  magazzino: magazzinoRouter,
 });
 
 export type AppRouter = typeof appRouter;

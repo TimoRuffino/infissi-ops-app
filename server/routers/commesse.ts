@@ -16,7 +16,7 @@ import {
 import { persistedStore } from "../_core/persistence";
 
 // ── State machine: allowed transitions ──────────────────────────────────────
-const STATI_COMMESSA = [
+export const STATI_COMMESSA = [
   "preventivo",
   "misure_esecutive",
   "aggiornamento_contratto",
@@ -463,7 +463,7 @@ export const commesseRouter = router({
 
   delete: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
@@ -477,6 +477,10 @@ export const commesseRouter = router({
       if (clienteId != null) {
         removeCommessaFromCliente(clienteId, commessaId);
       }
+      // Cascade: warehouse products belong to the commessa. Dynamic import
+      // avoids a static circular dependency (magazzino imports commesse).
+      const { deleteMagazzinoByCommessa } = await import("./magazzino");
+      deleteMagazzinoByCommessa(commessaId);
       _store.save();
       return { success: true };
     }),
