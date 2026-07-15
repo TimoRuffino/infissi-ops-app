@@ -14,6 +14,7 @@ import {
   ChevronUp,
   CalendarClock,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -50,6 +51,8 @@ export default function Magazzino() {
 
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  // Quick status filter: tutte | prodotti (has products) | arrivo | ritardo | arrivati
+  const [filtro, setFiltro] = useState<string>("tutte");
   // Per-commessa add form (only one open at a time keeps the state simple).
   const [formFor, setFormFor] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -83,24 +86,57 @@ export default function Magazzino() {
     return map;
   }, [prodotti.data]);
 
+  const today = new Date().toISOString().split("T")[0];
+
+  // Per-commessa digest: next pending delivery date + late count.
+  const digest = useMemo(() => {
+    const m = new Map<number, { next: string | null; late: number; arrivati: number; tot: number }>();
+    for (const [cid, rows] of Array.from(byCommessa.entries())) {
+      const pending = rows.filter((p: any) => !p.arrivato && p.dataConsegna);
+      m.set(cid, {
+        next: pending.length ? pending.reduce((a: any, b: any) => (a.dataConsegna < b.dataConsegna ? a : b)).dataConsegna : null,
+        late: rows.filter((p: any) => !p.arrivato && p.dataConsegna && p.dataConsegna < today).length,
+        arrivati: rows.filter((p: any) => p.arrivato).length,
+        tot: rows.length,
+      });
+    }
+    return m;
+  }, [byCommessa, today]);
+
   const eligibili = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (commesse.data ?? [])
       .filter(isEligible)
       .filter((c: any) => {
-        if (!q) return true;
-        return `${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`
-          .toLowerCase()
-          .includes(q);
+        if (q && !`${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase().includes(q)) return false;
+        const d = digest.get(c.id);
+        if (filtro === "prodotti") return !!d;
+        if (filtro === "ritardo") return (d?.late ?? 0) > 0;
+        if (filtro === "arrivo") return !!d && d.arrivati < d.tot;
+        if (filtro === "arrivati") return !!d && d.tot > 0 && d.arrivati === d.tot;
+        return true;
       })
       .sort((a: any, b: any) => {
-        // Commesse with products first (they're being worked), then by code.
-        const pa = byCommessa.get(a.id)?.length ?? 0;
-        const pb = byCommessa.get(b.id)?.length ?? 0;
-        if ((pa > 0) !== (pb > 0)) return pa > 0 ? -1 : 1;
+        // Urgency first: late deliveries, then nearest pending date, then
+        // has-products, then code.
+        const da = digest.get(a.id), db = digest.get(b.id);
+        if ((da?.late ?? 0) > 0 !== (db?.late ?? 0) > 0) return (da?.late ?? 0) > 0 ? -1 : 1;
+        const na = da?.next ?? "9999", nb = db?.next ?? "9999";
+        if (na !== nb) return na.localeCompare(nb);
+        if (!!da !== !!db) return da ? -1 : 1;
         return (a.codice ?? "").localeCompare(b.codice ?? "");
       });
-  }, [commesse.data, search, byCommessa]);
+  }, [commesse.data, search, filtro, digest, byCommessa]);
+
+  // Next 5 pending deliveries across every commessa — operational glance.
+  const prossime = useMemo(() => {
+    const cmById = new Map((commesse.data ?? []).map((c: any) => [c.id, c]));
+    return (prodotti.data ?? [])
+      .filter((p: any) => !p.arrivato && p.dataConsegna)
+      .sort((a: any, b: any) => a.dataConsegna.localeCompare(b.dataConsegna))
+      .slice(0, 5)
+      .map((p: any) => ({ ...p, commessa: cmById.get(p.commessaId) }));
+  }, [prodotti.data, commesse.data]);
 
   const totProdotti = prodotti.data?.length ?? 0;
   const totArrivati = (prodotti.data ?? []).filter((p: any) => p.arrivato).length;
@@ -157,15 +193,72 @@ export default function Magazzino() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Cerca codice, cliente, città..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9 h-9"
-        />
+      {/* Prossime consegne — glance strip */}
+      {prossime.length > 0 && (
+        <Card className="border-l-[3px] border-l-primary">
+          <CardContent className="py-3 px-4">
+            <p className="eyebrow !text-text-3 mb-2">Prossime consegne</p>
+            <div className="flex gap-2 flex-wrap">
+              {prossime.map((p: any) => {
+                const late = p.dataConsegna < today;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      if (p.commessa) {
+                        setExpanded((m) => ({ ...m, [p.commessaId]: true }));
+                        setFiltro("tutte");
+                        setSearch(p.commessa.codice ?? "");
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition hover:shadow-sm ${
+                      late
+                        ? "border-danger/40 bg-danger-soft text-danger"
+                        : "border-border bg-surface-2 text-text-1"
+                    }`}
+                  >
+                    <CalendarClock className="h-3 w-3 shrink-0" />
+                    <span className="font-bold tabular-nums">{fmtDate(p.dataConsegna)}</span>
+                    <span className="truncate max-w-[160px]">{p.nome}</span>
+                    <span className="text-text-3">· {p.commessa?.cliente ?? `#${p.commessaId}`}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Search + filtri */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Cerca codice, cliente, città..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+        <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-surface-2">
+          {[
+            ["tutte", "Tutte"],
+            ["prodotti", "Con prodotti"],
+            ["arrivo", "In arrivo"],
+            ["ritardo", "In ritardo"],
+            ["arrivati", "Arrivati"],
+          ].map(([k, label]) => (
+            <Button
+              key={k}
+              variant={filtro === k ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setFiltro(k)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Commesse */}
@@ -173,9 +266,13 @@ export default function Magazzino() {
         {eligibili.map((c: any) => {
           const rows = byCommessa.get(c.id) ?? [];
           const open = isOpen(c);
-          const arrivati = rows.filter((p: any) => p.arrivato).length;
+          const d = digest.get(c.id);
+          const arrivati = d?.arrivati ?? 0;
           return (
-            <Card key={c.id} className="overflow-hidden">
+            <Card
+              key={c.id}
+              className={`overflow-hidden ${(d?.late ?? 0) > 0 ? "border-danger/40" : ""}`}
+            >
               <CardHeader className="py-3 px-4">
                 <button
                   className="w-full flex items-center gap-3 text-left"
@@ -186,15 +283,17 @@ export default function Magazzino() {
                   <span className="codice-mono text-[11px] text-text-3 shrink-0">
                     {c.codice}
                   </span>
+                  <span className="text-sm font-semibold truncate">{c.cliente}</span>
                   <span
-                    className="text-sm font-semibold truncate hover:underline"
+                    role="link"
+                    title="Apri commessa"
+                    className="shrink-0 text-text-3 hover:text-primary cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       setLocation(`/commesse/${c.id}`);
                     }}
-                    title="Apri commessa"
                   >
-                    {c.cliente}
+                    <ExternalLink className="h-3.5 w-3.5" />
                   </span>
                   {c.citta && (
                     <span className="text-xs text-text-3 items-center gap-0.5 hidden sm:flex">
@@ -204,6 +303,17 @@ export default function Magazzino() {
                   )}
                   <StatoChip stato={c.stato} className="shrink-0" />
                   <span className="flex-1" />
+                  {(d?.late ?? 0) > 0 && (
+                    <Badge variant="danger" className="shrink-0">
+                      {d!.late} in ritardo
+                    </Badge>
+                  )}
+                  {d?.next && (
+                    <span className="hidden md:inline-flex items-center gap-1 text-xs text-text-2 shrink-0">
+                      <CalendarClock className="h-3 w-3" />
+                      {fmtDate(d.next)}
+                    </span>
+                  )}
                   {rows.length > 0 && (
                     <Badge
                       variant={arrivati === rows.length ? "success" : "secondary"}
@@ -257,7 +367,7 @@ export default function Magazzino() {
                                 </td>
                                 <td className="py-2 pr-3">
                                   <span
-                                    className={`inline-flex items-center gap-1 ${
+                                    className={`inline-flex items-center gap-1.5 ${
                                       p.arrivato
                                         ? "text-success"
                                         : late
@@ -266,12 +376,25 @@ export default function Magazzino() {
                                     }`}
                                   >
                                     {p.arrivato ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
+                                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                                     ) : (
-                                      <CalendarClock className="h-3.5 w-3.5" />
+                                      <CalendarClock className="h-3.5 w-3.5 shrink-0" />
                                     )}
-                                    {fmtDate(p.dataConsegna)}
-                                    {late && " (in ritardo)"}
+                                    {/* Suppliers slip: the date is editable right here. */}
+                                    <Input
+                                      type="date"
+                                      value={p.dataConsegna ?? ""}
+                                      onChange={(e) =>
+                                        update.mutate({
+                                          id: p.id,
+                                          dataConsegna: e.target.value || null,
+                                        })
+                                      }
+                                      className={`h-7 w-[135px] px-1.5 text-xs ${
+                                        late ? "border-danger/50 text-danger" : ""
+                                      }`}
+                                    />
+                                    {late && <span className="shrink-0">in ritardo</span>}
                                   </span>
                                 </td>
                                 <td className="py-2 pr-3">

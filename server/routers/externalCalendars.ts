@@ -289,6 +289,39 @@ function expandDates(ev: ParsedEvent, fromD: Date, toD: Date): string[] {
 
 // ── Per-source fetch + cache ─────────────────────────────────────────────────
 
+// ── SSRF guard ───────────────────────────────────────────────────────────────
+// The server fetches operator-supplied URLs. Without a guard a malicious URL
+// could probe the internal network (localhost, Railway metadata, RFC1918).
+// Only allow https to public-looking hostnames.
+function assertSafeIcsUrl(raw: string): void {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error("URL iCal non valido");
+  }
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && process.env.NODE_ENV === "development")) {
+    throw new Error("Sono ammessi solo URL https");
+  }
+  const host = u.hostname.toLowerCase();
+  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host === "0.0.0.0" ||
+    (isIp &&
+      (/^(10|127|0)\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        /^169\.254\./.test(host))) ||
+    host.includes(":") // raw IPv6
+  ) {
+    throw new Error("Host non consentito");
+  }
+}
+
 type Cached = { fetchedAt: number; events: ParsedEvent[]; error?: string };
 const cache = new Map<string, Cached>();
 const TTL_MS = 10 * 60 * 1000;
@@ -299,6 +332,7 @@ async function getEvents(source: ExternalSource): Promise<Cached> {
   try {
     // Google publishes ICS over https; webcal:// is just https.
     const url = source.icsUrl.replace(/^webcal:\/\//i, "https://");
+    assertSafeIcsUrl(url);
     const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
@@ -319,6 +353,11 @@ async function getEvents(source: ExternalSource): Promise<Cached> {
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
+function maskIcsUrl(url: string): string {
+  if (url.length <= 42) return url;
+  return url.slice(0, 34) + "…" + url.slice(-8);
+}
+
 export const externalCalendarsRouter = router({
   list: protectedProcedure.query(({ ctx }) => {
     return sources
@@ -326,7 +365,9 @@ export const externalCalendarsRouter = router({
       .map((s) => ({
         id: s.id,
         nome: s.nome,
-        icsUrl: s.icsUrl,
+        // The private Google address is a bearer secret — show only enough
+        // to recognize it.
+        icsUrl: maskIcsUrl(s.icsUrl),
         color: s.color,
         attivo: s.attivo,
         status: cache.get(s.id)?.error ? "error" : cache.get(s.id) ? "ok" : "pending",
@@ -343,6 +384,7 @@ export const externalCalendarsRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
+      assertSafeIcsUrl(input.icsUrl.replace(/^webcal:\/\//i, "https://"));
       const sedeId = ctx.sedeId ?? 1;
       const used = sources.filter((s) => s.sedeId === sedeId).length;
       const src: ExternalSource = {
