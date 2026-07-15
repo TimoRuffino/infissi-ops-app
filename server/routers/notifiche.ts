@@ -274,6 +274,33 @@ function buildNotifichePerUtente(
     }
   }
 
+  // 4b. Saldo residuo nelle fasi finali (owner + direzione + amministrazione):
+  // soldi lasciati indietro sono la perdita più silenziosa.
+  const FASI_SALDO = new Set(["attesa_posa", "finiture_saldo", "interventi_regolazioni"]);
+  for (const c of commesse) {
+    if (!inSede(c)) continue;
+    if ((c as any).archivedAt || c.stato === "archiviata") continue;
+    if (!FASI_SALDO.has(c.stato)) continue;
+    const tot = (c as any).importoTotale;
+    const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
+    if (!tot || residuo <= 0) continue;
+    if (!(isOwnerOf(c) || isDirezione || ruoli.includes("amministrazione"))) continue;
+    out.push({
+      id: `saldo-${c.id}-${residuo}`,
+      commessaId: c.id,
+      commessaCodice: c.codice,
+      cliente: c.cliente,
+      stato: c.stato,
+      statoLabel: STATO_LABEL[c.stato] ?? c.stato,
+      priorita: c.priorita,
+      type: "consegna",
+      message: `Saldo residuo €${residuo.toLocaleString("it-IT")} su €${(tot as number).toLocaleString("it-IT")}`,
+      severity: "warning",
+      link: `/commesse/${c.id}`,
+      createdAt: new Date(c.updatedAt),
+    });
+  }
+
   // 5. Garanzie (amministrazione + direzione): scadute → urgent, in scadenza
   // entro 30 giorni → warning.
   if (isDirezione || ruoli.includes("amministrazione")) {

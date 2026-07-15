@@ -489,6 +489,18 @@ export default function KanbanBoard() {
                                     ) : null}
 
                                     {(() => {
+                                      const FASI_SALDO = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
+                                      const tot = (c as any).importoTotale;
+                                      const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
+                                      if (!tot || residuo <= 0 || !FASI_SALDO.includes(c.stato)) return null;
+                                      return (
+                                        <div className="flex items-center gap-1 text-[11px] font-semibold text-danger bg-danger-soft rounded px-1.5 py-0.5">
+                                          Da saldare € {residuo.toLocaleString("it-IT")}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {(() => {
                                       const prods = prodottiByCommessa.get(c.id) ?? [];
                                       if (prods.length === 0) return null;
                                       const today = new Date().toISOString().split("T")[0];

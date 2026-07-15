@@ -45,6 +45,8 @@ import { useState, useMemo } from "react";
 import SearchSelect from "@/components/SearchSelect";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -486,9 +488,13 @@ export default function ClienteDetail() {
                 </span>
               )}
               {c.telefono && (
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1.5">
                   <Phone className="h-3.5 w-3.5" />
                   {c.telefono}
+                  <WhatsAppButton
+                    phone={c.telefono}
+                    message={`Buongiorno${displayName ? ` ${displayName}` : ""}, la contattiamo da Ruffino Group in merito alla sua pratica.\n${FIRMA_WHATSAPP}`}
+                  />
                 </span>
               )}
               {c.email && (

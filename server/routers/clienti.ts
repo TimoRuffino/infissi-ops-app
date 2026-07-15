@@ -61,6 +61,37 @@ export function removeCommessaFromCliente(
   _store.save();
 }
 
+// Read-only view + minimal creator for the Fatture in Cloud sync (runs
+// outside a request context, so sedeId defaults to the primary sede).
+export function getClientiStore() {
+  return clienti;
+}
+
+export function createClienteFromSync(data: {
+  cognome: string;
+  nome: string;
+  tipo: "privato" | "azienda" | "condominio" | "ente_pubblico";
+  codiceFiscale?: string;
+  partitaIva?: string;
+}) {
+  const now = new Date();
+  const cliente = {
+    id: nextId++,
+    sedeId: 1,
+    nome: data.nome,
+    cognome: data.cognome,
+    tipo: data.tipo,
+    codiceFiscale: data.codiceFiscale ?? null,
+    partitaIva: data.partitaIva ?? null,
+    commesseIds: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  clienti.push(cliente);
+  _store.save();
+  return cliente;
+}
+
 export function getClienteById(id: number) {
   return clienti.find((c) => c.id === id) ?? null;
 }

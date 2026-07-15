@@ -42,6 +42,8 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SearchSelect from "@/components/SearchSelect";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function toDateStr(d: Date) {
@@ -608,6 +610,10 @@ export default function Planning() {
                     >
                       {commessa.telefono || cliente?.telefono}
                     </a>
+                    <WhatsAppButton
+                      phone={commessa.telefono || cliente?.telefono}
+                      message={`Buongiorno${nomeCognome ? ` ${nomeCognome}` : ""}, le confermiamo l'appuntamento di ${tipoLabels[form.tipo]?.toLowerCase() ?? form.tipo}${form.dataPianificata ? ` il ${new Date(form.dataPianificata + "T12:00:00").toLocaleDateString("it-IT")}` : ""}${form.oraInizio ? ` alle ${form.oraInizio}` : ""}.\n${FIRMA_WHATSAPP}`}
+                    />
                   </div>
                 )}
                 {(commessa.email || cliente?.email) && (

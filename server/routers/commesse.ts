@@ -82,6 +82,9 @@ const _store = persistedStore<any>("commesse", (items) => {
     }
     // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
     if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
+    // Payment tracker fields (saldi).
+    if ((c as any).importoTotale === undefined) (c as any).importoTotale = null;
+    if ((c as any).importoIncassato === undefined) (c as any).importoIncassato = 0;
   }
 });
 const commesse = _store.items;
@@ -267,6 +270,8 @@ export const commesseRouter = router({
         telefono: z.string().optional(),
         email: z.string().optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
+        importoTotale: z.number().nonnegative().nullable().optional(),
+        importoIncassato: z.number().nonnegative().nullable().optional(),
         note: z.string().optional(),
         // Indicative delivery — either a preset offset (30/60/90 days) OR a
         // free-form date picked from the calendar. The two are mutually
@@ -310,6 +315,8 @@ export const commesseRouter = router({
         telefono: rest.telefono ?? null,
         email: rest.email ?? null,
         stato: "preventivo" as const,
+        importoTotale: input.importoTotale ?? null,
+        importoIncassato: input.importoIncassato ?? 0,
         priorita: input.priorita ?? "media",
         squadraId: null,
         dataApertura: now.toISOString().split("T")[0],
@@ -345,6 +352,8 @@ export const commesseRouter = router({
         email: z.string().optional(),
         stato: z.enum(STATI_COMMESSA).optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
+        importoTotale: z.number().nonnegative().nullable().optional(),
+        importoIncassato: z.number().nonnegative().nullable().optional(),
         squadraId: z.number().nullable().optional(),
         note: z.string().optional(),
         consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),

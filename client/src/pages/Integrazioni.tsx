@@ -271,6 +271,9 @@ export default function Integrazioni() {
       {/* Backup notturno su Google Drive */}
       <BackupDrive />
 
+      {/* Fatture in Cloud → clienti automatici */}
+      <FattureInCloudCard />
+
       {/* Mostra i calendari Google dentro al CRM (import) */}
       <GoogleCalendarImport />
 
@@ -299,6 +302,153 @@ export default function Integrazioni() {
       </Card>
       </section>
     </div>
+  );
+}
+
+// ── Fatture in Cloud → clienti automatici ────────────────────────────────────
+// Every 6h (or on demand) the CRM reads the year's issued invoices and
+// creates any client that's still missing — keeps the anagrafica aligned
+// with the fatturazione without manual imports.
+function FattureInCloudCard() {
+  const status = trpc.fattureInCloud.status.useQuery(undefined, { retry: false });
+  const utils = trpc.useUtils();
+  const [token, setToken] = useState("");
+  const [companies, setCompanies] = useState<Array<{ id: number; name: string }> | null>(null);
+
+  const save = trpc.fattureInCloud.saveConfig.useMutation({
+    onSuccess: () => {
+      utils.fattureInCloud.invalidate();
+      setToken("");
+      toast.success("Configurazione salvata");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const loadCompanies = trpc.fattureInCloud.companies.useMutation({
+    onSuccess: (list) => {
+      setCompanies(list);
+      if (list.length === 1) save.mutate({ companyId: list[0].id });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const sync = trpc.fattureInCloud.syncNow.useMutation({
+    onSuccess: ({ result }) => {
+      utils.fattureInCloud.invalidate();
+      utils.clienti.invalidate();
+      toast.success(result);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (status.error) return null;
+  const st = status.data;
+  if (!st) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-sky-100 flex items-center justify-center">
+              <RefreshCw className="h-5 w-5 text-sky-700" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Fatture in Cloud → Clienti</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Ogni 6 ore legge le fatture emesse dell'anno e crea da solo i
+                clienti che mancano nel CRM
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {st.configured && (
+              <Switch
+                checked={st.enabled}
+                onCheckedChange={(v) => save.mutate({ enabled: v })}
+              />
+            )}
+            <Button
+              size="sm"
+              onClick={() => sync.mutate()}
+              disabled={!st.configured || sync.isPending}
+            >
+              {sync.isPending ? "Sincronizzo…" : "Sincronizza ora"}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 border-t pt-4">
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          {st.configured ? (
+            <>
+              <Badge variant="success">Collegato</Badge>
+              <span className="codice-mono text-[11px] text-text-3">
+                token {st.tokenMasked} · azienda #{st.companyId}
+              </span>
+            </>
+          ) : (
+            <Badge variant="warning">Non configurato</Badge>
+          )}
+          {st.lastResult && (
+            <span className={`text-xs ${st.lastResult.startsWith("ERRORE") ? "text-danger" : "text-text-2"}`}>
+              Ultimo: {st.lastResult}
+            </span>
+          )}
+        </div>
+
+        <div className="flex gap-2 items-end flex-wrap">
+          <div className="space-y-1 flex-1 min-w-[260px]">
+            <Label className="text-xs">Token API (Fatture in Cloud → Impostazioni → API)</Label>
+            <Input
+              type="password"
+              placeholder={st.tokenMasked ?? "Incolla il token…"}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              className="h-9 font-mono text-xs"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={token.trim().length < 10 || save.isPending}
+            onClick={() => save.mutate({ accessToken: token.trim() })}
+          >
+            Salva token
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!st.tokenMasked || loadCompanies.isPending}
+            onClick={() => loadCompanies.mutate()}
+          >
+            {loadCompanies.isPending ? "Cerco…" : "Trova azienda"}
+          </Button>
+        </div>
+
+        {companies && companies.length > 1 && (
+          <div className="flex gap-1.5 flex-wrap">
+            {companies.map((c) => (
+              <Button
+                key={c.id}
+                variant={st.companyId === c.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => save.mutate({ companyId: c.id })}
+              >
+                {c.name}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {!st.configured && (
+          <p className="text-[11px] text-text-3">
+            1) Su fattureincloud.it → Impostazioni → API crea un token con
+            permessi di lettura su «Fatture emesse» e «Anagrafica». 2) Incollalo
+            qui e premi «Trova azienda». 3) Attiva l'interruttore. I clienti
+            nuovi arrivano da soli, senza toccare le fatture.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

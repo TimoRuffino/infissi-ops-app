@@ -27,6 +27,7 @@ import {
   ClipboardList,
   Ticket as TicketIcon,
   ShieldAlert,
+  Banknote,
 } from "lucide-react";
 import {
   BarChart,
@@ -435,6 +436,25 @@ export default function Dashboard() {
         title: `Conferma la data di consegna — ${c.cliente}`,
         sub: c.codice,
         cta: "Conferma consegna",
+        onClick: () => setLocation(`/commesse/${c.id}`),
+      });
+    }
+
+    // 3b. Saldi residui nelle fasi finali — soldi da incassare.
+    for (const c of commesse) {
+      if (!["attesa_posa", "finiture_saldo", "interventi_regolazioni"].includes(c.stato)) continue;
+      const tot = (c as any).importoTotale;
+      const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
+      if (!tot || residuo <= 0) continue;
+      if (!isMine(c)) continue;
+      items.push({
+        key: `saldo-${c.id}`,
+        rank: 2,
+        icon: Banknote,
+        iconClass: "bg-warning-soft text-warning",
+        title: `Da incassare € ${residuo.toLocaleString("it-IT")} — ${c.cliente}`,
+        sub: c.codice,
+        stato: c.stato,
         onClick: () => setLocation(`/commesse/${c.id}`),
       });
     }

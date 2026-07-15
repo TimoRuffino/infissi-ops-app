@@ -46,10 +46,13 @@ import {
   Archive,
   ArchiveRestore,
   MoreHorizontal,
+  Banknote,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import WhatsAppButton from "@/components/WhatsAppButton";
+import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
@@ -852,9 +855,13 @@ export default function CommessaDetail() {
             </span>
           )}
           {c.telefono && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5">
               <Phone className="h-3.5 w-3.5" />
               {c.telefono}
+              <WhatsAppButton
+                phone={c.telefono}
+                message={`Buongiorno ${c.cliente ?? ""}, la contattiamo da Ruffino Group in merito alla sua commessa ${c.codice ?? ""}.\n${FIRMA_WHATSAPP}`}
+              />
             </span>
           )}
           {c.email && (
@@ -1002,6 +1009,14 @@ export default function CommessaDetail() {
           );
         })()}
       </div>
+
+      {/* Pagamenti — totale, incassato, residuo. Inline editing: blur saves. */}
+      <PagamentiCard
+        commessa={commessa.data}
+        onSave={(patch) =>
+          updateCommessa.mutate({ id: commessaId, ...patch })
+        }
+      />
 
       {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
       <TimelineOrdine commessaId={commessaId} />
@@ -2126,5 +2141,99 @@ export default function CommessaDetail() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ── Pagamenti (tracker saldi) ────────────────────────────────────────────────
+// Totale pattuito + incassato → residuo. I To Do erano pieni di "DA SALDARE
+// 10%": qui il numero vive sulla commessa, alimenta board e notifiche.
+function PagamentiCard({
+  commessa,
+  onSave,
+}: {
+  commessa: any;
+  onSave: (patch: { importoTotale?: number | null; importoIncassato?: number | null }) => void;
+}) {
+  const [tot, setTot] = useState<string | null>(null);
+  const [inc, setInc] = useState<string | null>(null);
+  if (!commessa) return null;
+  const totale = commessa.importoTotale ?? null;
+  const incassato = commessa.importoIncassato ?? 0;
+  const residuo = (totale ?? 0) - incassato;
+  const pct = totale ? Math.min(100, Math.round((incassato / totale) * 100)) : 0;
+
+  const parse = (v: string): number | null => {
+    const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
+    return isNaN(n) || n < 0 ? null : n;
+  };
+  const fmt = (n: number) =>
+    n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+  return (
+    <Card className={residuo > 0 && totale ? "border-l-[3px] border-l-warning" : ""}>
+      <CardContent className="py-4 flex items-center gap-6 flex-wrap">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-success-soft text-success">
+            <Banknote className="h-5 w-5" />
+          </span>
+          <span className="font-semibold text-sm">Pagamenti</span>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-text-3">Totale pattuito €</Label>
+          <Input
+            inputMode="decimal"
+            placeholder="—"
+            value={tot ?? (totale != null ? String(totale) : "")}
+            onChange={(e) => setTot(e.target.value)}
+            onBlur={() => {
+              if (tot == null) return;
+              onSave({ importoTotale: tot.trim() === "" ? null : parse(tot) });
+              setTot(null);
+            }}
+            className="h-9 w-32 tabular-nums"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-text-3">Incassato €</Label>
+          <Input
+            inputMode="decimal"
+            placeholder="0"
+            value={inc ?? String(incassato)}
+            onChange={(e) => setInc(e.target.value)}
+            onBlur={() => {
+              if (inc == null) return;
+              onSave({ importoIncassato: parse(inc) ?? 0 });
+              setInc(null);
+            }}
+            className="h-9 w-32 tabular-nums"
+          />
+        </div>
+        {totale != null && totale > 0 && (
+          <>
+            <div className="flex-1 min-w-[140px] max-w-xs">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-text-3">{pct}% incassato</span>
+              </div>
+              <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                <div
+                  className={`h-full ${residuo > 0 ? "bg-warning" : "bg-success"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="eyebrow !text-text-3">Residuo</p>
+              <p
+                className={`text-xl font-bold tabular-nums ${
+                  residuo > 0 ? "text-warning" : "text-success"
+                }`}
+              >
+                € {fmt(Math.max(0, residuo))}
+              </p>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

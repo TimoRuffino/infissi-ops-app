@@ -36,6 +36,10 @@ async function startServer() {
   const { startBackupScheduler } = await import("./driveBackup");
   startBackupScheduler();
 
+  // Fatture in Cloud → clienti sync (every 6h when enabled).
+  const { startFicScheduler } = await import("../routers/fattureInCloud");
+  startFicScheduler();
+
   const app = express();
   const server = createServer(app);
 
