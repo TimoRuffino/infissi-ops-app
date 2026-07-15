@@ -7,9 +7,9 @@ import { assertSedeScope } from "../_core/permissions";
 
 // ── Magazzino ────────────────────────────────────────────────────────────────
 // Products sitting in the warehouse for a commessa, each with its own
-// expected/actual delivery date. Only commesse PAST "aggiornamento_contratto"
-// can receive products (before that nothing has been ordered yet). The board
-// card surfaces them so posa can be planned around real material arrivals.
+// expected/actual delivery date. Only commesse from "produzione" onwards can
+// receive products (before that nothing physical exists). The board card
+// surfaces them so posa can be planned around real material arrivals.
 
 type Prodotto = {
   id: number;
@@ -31,14 +31,13 @@ const _store = persistedStore<Prodotto>("magazzino_prodotti", (loaded) => {
 });
 const prodotti = _store.items;
 
-// A commessa can hold warehouse products only after the contract has been
-// finalized (stato strictly past "aggiornamento_contratto", archiviata
-// excluded).
-const CONTRATTO_IDX = STATI_COMMESSA.indexOf("aggiornamento_contratto");
+// A commessa can hold warehouse products only from "produzione" onwards —
+// before that nothing physical exists to put in the warehouse.
+const PRODUZIONE_IDX = STATI_COMMESSA.indexOf("produzione");
 
 export function isCommessaEligibleForMagazzino(stato: string): boolean {
   const idx = STATI_COMMESSA.indexOf(stato as any);
-  return idx > CONTRATTO_IDX && stato !== "archiviata";
+  return idx >= PRODUZIONE_IDX && stato !== "archiviata";
 }
 
 function requireEligibleCommessa(commessaId: number, sedeId: number | null) {
@@ -57,7 +56,7 @@ function requireEligibleCommessa(commessaId: number, sedeId: number | null) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message:
-        "I prodotti a magazzino si aggiungono solo dopo l'Aggiornamento Contratto",
+        "I prodotti a magazzino si aggiungono solo dallo stato Produzione in poi",
     });
   }
   return c;

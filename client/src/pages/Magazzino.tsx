@@ -23,11 +23,11 @@ import StatoChip from "@/components/StatoChip";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { STATI_ORDER } from "@/lib/stato";
 
-// Commesse can hold warehouse products only past "aggiornamento_contratto".
-const CONTRATTO_IDX = STATI_ORDER.indexOf("aggiornamento_contratto");
+// Commesse appear in the warehouse from "produzione" onwards.
+const PRODUZIONE_IDX = STATI_ORDER.indexOf("produzione");
 function isEligible(c: any): boolean {
   const idx = STATI_ORDER.indexOf(c.stato);
-  return idx > CONTRATTO_IDX && c.stato !== "archiviata" && !c.archivedAt;
+  return idx >= PRODUZIONE_IDX && c.stato !== "archiviata" && !c.archivedAt;
 }
 
 const emptyForm = {
@@ -167,8 +167,7 @@ export default function Magazzino() {
             Magazzino
           </h1>
           <p className="text-text-2 text-sm mt-1">
-            Prodotti e consegne per commessa — disponibile dopo l'Aggiornamento
-            Contratto
+            Prodotti e consegne per commessa — dallo stato Produzione in poi
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -518,7 +517,7 @@ export default function Magazzino() {
           <Card>
             <CardContent className="py-12 text-center text-sm text-text-2">
               <Package className="h-8 w-8 mx-auto mb-2 text-text-3" />
-              Nessuna commessa oltre l'Aggiornamento Contratto
+              Nessuna commessa dallo stato Produzione in poi
               {search ? " che corrisponde alla ricerca" : ""}.
             </CardContent>
           </Card>
