@@ -58,6 +58,10 @@ const FORNITORI = [
   "Kopern",
   "Citea",
   "Cerrato",
+  "Brianzatende",
+  "Seraplastic",
+  "St Scale",
+  "Sharknet",
 ];
 
 const emptyForm = {
