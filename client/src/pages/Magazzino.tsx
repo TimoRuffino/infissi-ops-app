@@ -18,14 +18,18 @@ import {
   Trash2,
   Search,
   MapPin,
-  ChevronDown,
-  ChevronUp,
   CalendarClock,
   CheckCircle2,
   ExternalLink,
   StickyNote,
   Timer,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -96,7 +100,8 @@ export default function Magazzino() {
   const utils = trpc.useUtils();
 
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  // Tile clicked → full-detail dialog for that commessa.
+  const [detailFor, setDetailFor] = useState<number | null>(null);
   // Quick status filter: tutte | prodotti (has products) | arrivo | ritardo | arrivati
   const [filtro, setFiltro] = useState<string>("tutte");
   // Per-commessa add form (only one open at a time keeps the state simple).
@@ -197,9 +202,6 @@ export default function Magazzino() {
     return Math.round(days.reduce((s: number, d: number) => s + d, 0) / days.length);
   }, [prodotti.data]);
 
-  const isOpen = (c: any) =>
-    expanded[c.id] ?? (byCommessa.get(c.id)?.length ?? 0) > 0;
-
   function submitForm(commessaId: number) {
     if (!form.nome.trim()) return;
     create.mutate({
@@ -268,13 +270,7 @@ export default function Magazzino() {
                 return (
                   <button
                     key={p.id}
-                    onClick={() => {
-                      if (p.commessa) {
-                        setExpanded((m) => ({ ...m, [p.commessaId]: true }));
-                        setFiltro("tutte");
-                        setSearch(p.commessa.codice ?? "");
-                      }
-                    }}
+                    onClick={() => setDetailFor(p.commessaId)}
                     className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition hover:shadow-sm ${
                       late
                         ? "border-danger/40 bg-danger-soft text-danger"
@@ -325,80 +321,129 @@ export default function Magazzino() {
         </div>
       </div>
 
-      {/* Commesse */}
-      <div className="space-y-3">
+      {/* Commesse — square tiles: glance info only, click for the full card */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {eligibili.map((c: any) => {
-          const rows = byCommessa.get(c.id) ?? [];
-          const open = isOpen(c);
           const d = digest.get(c.id);
+          const tot = d?.tot ?? 0;
           const arrivati = d?.arrivati ?? 0;
+          const late = d?.late ?? 0;
+          const complete = tot > 0 && arrivati === tot;
           return (
-            <Card
+            <button
               key={c.id}
-              className={`overflow-hidden ${(d?.late ?? 0) > 0 ? "border-danger/40" : ""}`}
+              onClick={() => setDetailFor(c.id)}
+              className={`relative flex min-h-[150px] flex-col gap-2 rounded-xl border-2 bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                late > 0
+                  ? "border-danger/50"
+                  : complete
+                  ? "border-success/40"
+                  : "border-border"
+              }`}
             >
-              <CardHeader className="py-3 px-4">
-                <button
-                  className="w-full flex items-center gap-3 text-left"
-                  onClick={() =>
-                    setExpanded((m) => ({ ...m, [c.id]: !open }))
-                  }
-                >
-                  <span className="codice-mono text-[11px] text-text-3 shrink-0">
-                    {c.codice}
-                  </span>
-                  <span className="text-sm font-semibold truncate">{c.cliente}</span>
-                  <span
-                    role="link"
-                    title="Apri commessa"
-                    className="shrink-0 text-text-3 hover:text-primary cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLocation(`/commesse/${c.id}`);
-                    }}
+              <div className="flex w-full items-center justify-between gap-2">
+                <span className="codice-mono text-[10px] text-text-3">{c.codice}</span>
+                <StatoChip stato={c.stato} />
+              </div>
+              <p className="flex-1 text-[15px] font-semibold leading-snug line-clamp-2">
+                {c.cliente}
+              </p>
+              <div className="flex w-full items-center justify-between gap-2">
+                {tot > 0 ? (
+                  <Badge
+                    variant={complete ? "success" : "secondary"}
+                    className="shrink-0"
                   >
-                    <ExternalLink className="h-3.5 w-3.5" />
+                    <Package className="h-3 w-3 mr-1" />
+                    {arrivati}/{tot}
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-text-3">Nessun prodotto</span>
+                )}
+                {late > 0 ? (
+                  <Badge variant="danger" className="shrink-0">
+                    {late} in ritardo
+                  </Badge>
+                ) : d?.next ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-text-2 shrink-0">
+                    <CalendarClock className="h-3 w-3" />
+                    {fmtDate(d.next)}
                   </span>
-                  {c.citta && (
-                    <span className="text-xs text-text-3 items-center gap-0.5 hidden sm:flex">
-                      <MapPin className="h-3 w-3" />
-                      {c.citta}
-                    </span>
-                  )}
-                  <StatoChip stato={c.stato} className="shrink-0" />
-                  <span className="flex-1" />
-                  {(d?.late ?? 0) > 0 && (
-                    <Badge variant="danger" className="shrink-0">
-                      {d!.late} in ritardo
-                    </Badge>
-                  )}
-                  {d?.next && (
-                    <span className="hidden md:inline-flex items-center gap-1 text-xs text-text-2 shrink-0">
-                      <CalendarClock className="h-3 w-3" />
-                      {fmtDate(d.next)}
-                    </span>
-                  )}
-                  {rows.length > 0 && (
-                    <Badge
-                      variant={arrivati === rows.length ? "success" : "secondary"}
-                      className="shrink-0"
-                    >
-                      <Package className="h-3 w-3 mr-1" />
-                      {arrivati}/{rows.length} arrivati
-                    </Badge>
-                  )}
-                  {open ? (
-                    <ChevronUp className="h-4 w-4 text-text-3 shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-text-3 shrink-0" />
-                  )}
-                </button>
-              </CardHeader>
+                ) : null}
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
-              {open && (
-                <CardContent className="px-4 pb-4 pt-0 space-y-3 border-t">
-                  {rows.length > 0 && (
-                    <div className="space-y-2 pt-3">
+      {eligibili.length === 0 && !commesse.isLoading && (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-text-2">
+            <Package className="h-8 w-8 mx-auto mb-2 text-text-3" />
+            Nessuna commessa dallo stato Produzione in poi
+            {search ? " che corrisponde alla ricerca" : ""}.
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Detail popup — the full v3 card lives here now */}
+      <Dialog
+        open={detailFor != null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetailFor(null);
+            setFormFor(null);
+            setForm(emptyForm);
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+          {(() => {
+            const c = (commesse.data ?? []).find((x: any) => x.id === detailFor);
+            if (!c) return null;
+            const rows = byCommessa.get(c.id) ?? [];
+            const d = digest.get(c.id);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2.5 flex-wrap pr-6">
+                    <span className="codice-mono text-[11px] text-text-3">{c.codice}</span>
+                    <span className="text-base font-bold">{c.cliente}</span>
+                    <StatoChip stato={c.stato} />
+                    {c.citta && (
+                      <span className="inline-flex items-center gap-0.5 text-xs font-normal text-text-3">
+                        <MapPin className="h-3 w-3" />
+                        {c.citta}
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setLocation(`/commesse/${c.id}`)}
+                    >
+                      <ExternalLink className="h-3 w-3 mr-1" />
+                      Apri commessa
+                    </Button>
+                    {(d?.late ?? 0) > 0 && (
+                      <Badge variant="danger">{d!.late} in ritardo</Badge>
+                    )}
+                    {rows.length > 0 && (
+                      <Badge
+                        variant={
+                          (d?.arrivati ?? 0) === rows.length ? "success" : "secondary"
+                        }
+                      >
+                        <Package className="h-3 w-3 mr-1" />
+                        {d?.arrivati ?? 0}/{rows.length} arrivati
+                      </Badge>
+                    )}
+                  </DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-3">
+                  {rows.length > 0 ? (
+                    <div className="space-y-2">
                       {rows.map((p: any) => (
                         <ProdottoRow
                           key={p.id}
@@ -410,6 +455,10 @@ export default function Magazzino() {
                         />
                       ))}
                     </div>
+                  ) : (
+                    <p className="text-sm text-text-3 text-center py-4">
+                      Nessun prodotto a magazzino per questa commessa.
+                    </p>
                   )}
 
                   {formFor === c.id ? (
@@ -512,7 +561,6 @@ export default function Magazzino() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="mt-1"
                       onClick={() => {
                         setFormFor(c.id);
                         setForm(emptyForm);
@@ -522,22 +570,12 @@ export default function Magazzino() {
                       Aggiungi prodotto
                     </Button>
                   )}
-                </CardContent>
-              )}
-            </Card>
-          );
-        })}
-
-        {eligibili.length === 0 && !commesse.isLoading && (
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-text-2">
-              <Package className="h-8 w-8 mx-auto mb-2 text-text-3" />
-              Nessuna commessa dallo stato Produzione in poi
-              {search ? " che corrisponde alla ricerca" : ""}.
-            </CardContent>
-          </Card>
-        )}
-      </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={!!deleteTarget}
