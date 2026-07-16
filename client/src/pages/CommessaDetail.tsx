@@ -1013,6 +1013,7 @@ export default function CommessaDetail() {
       {/* Pagamenti — totale, incassato, residuo. Inline editing: blur saves. */}
       <PagamentiCard
         commessa={commessa.data}
+        commessaId={commessaId}
         onSave={(patch) =>
           updateCommessa.mutate({ id: commessaId, ...patch })
         }
@@ -2144,21 +2145,57 @@ export default function CommessaDetail() {
   );
 }
 
-// ── Pagamenti (tracker saldi) ────────────────────────────────────────────────
-// Totale pattuito + incassato → residuo. I To Do erano pieni di "DA SALDARE
-// 10%": qui il numero vive sulla commessa, alimenta board e notifiche.
+// ── Pagamenti (registro acconti) ─────────────────────────────────────────────
+// Totale pattuito + registro acconti datati (importo, data, metodo, nota).
+// importoIncassato è la somma del registro, ricalcolata dal server: board,
+// dashboard e notifiche restano coerenti. Chips 50/40/10% riflettono il
+// piano di pagamento tipico (acconto — secondo acconto — saldo).
+const METODO_LABEL: Record<string, string> = {
+  bonifico: "Bonifico",
+  contanti: "Contanti",
+  assegno: "Assegno",
+  pos: "POS",
+  finanziamento: "Finanziamento",
+  altro: "Altro",
+};
+
 function PagamentiCard({
   commessa,
+  commessaId,
   onSave,
 }: {
   commessa: any;
-  onSave: (patch: { importoTotale?: number | null; importoIncassato?: number | null }) => void;
+  commessaId: number;
+  onSave: (patch: { importoTotale?: number | null }) => void;
 }) {
+  const utils = trpc.useUtils();
   const [tot, setTot] = useState<string | null>(null);
-  const [inc, setInc] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [pForm, setPForm] = useState({
+    importo: "",
+    data: new Date().toISOString().split("T")[0],
+    metodo: "bonifico",
+    note: "",
+  });
+
+  const addPagamento = trpc.commesse.addPagamento.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      setPForm((f) => ({ ...f, importo: "", note: "" }));
+      setAddOpen(false);
+      toast.success("Acconto registrato");
+    },
+    onError: (e) => toast.error(e.message ?? "Registrazione non riuscita"),
+  });
+  const removePagamento = trpc.commesse.removePagamento.useMutation({
+    onSuccess: () => utils.commesse.invalidate(),
+    onError: (e) => toast.error(e.message ?? "Rimozione non riuscita"),
+  });
+
   if (!commessa) return null;
-  const totale = commessa.importoTotale ?? null;
-  const incassato = commessa.importoIncassato ?? 0;
+  const totale: number | null = commessa.importoTotale ?? null;
+  const pagamenti: any[] = Array.isArray(commessa.pagamenti) ? commessa.pagamenti : [];
+  const incassato = pagamenti.reduce((s, p) => s + (p.importo ?? 0), 0);
   const residuo = (totale ?? 0) - incassato;
   const pct = totale ? Math.min(100, Math.round((incassato / totale) * 100)) : 0;
 
@@ -2168,70 +2205,203 @@ function PagamentiCard({
   };
   const fmt = (n: number) =>
     n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const fmtData = (iso: string | null) =>
+    iso ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT") : "—";
+
+  // Quick chips: percentage of the agreed total, capped at what's left.
+  const chip = (p: number) => {
+    if (!totale) return;
+    const val = Math.min(Math.round(totale * p) / 1, Math.max(0, residuo));
+    setPForm((f) => ({ ...f, importo: String(val) }));
+    setAddOpen(true);
+  };
+
+  const ordered = [...pagamenti].sort((a, b) =>
+    (a.data ?? "0000").localeCompare(b.data ?? "0000")
+  );
 
   return (
     <Card className={residuo > 0 && totale ? "border-l-[3px] border-l-warning" : ""}>
-      <CardContent className="py-4 flex items-center gap-6 flex-wrap">
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-success-soft text-success">
-            <Banknote className="h-5 w-5" />
-          </span>
-          <span className="font-semibold text-sm">Pagamenti</span>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-text-3">Totale pattuito €</Label>
-          <Input
-            inputMode="decimal"
-            placeholder="—"
-            value={tot ?? (totale != null ? String(totale) : "")}
-            onChange={(e) => setTot(e.target.value)}
-            onBlur={() => {
-              if (tot == null) return;
-              onSave({ importoTotale: tot.trim() === "" ? null : parse(tot) });
-              setTot(null);
-            }}
-            className="h-9 w-32 tabular-nums"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-text-3">Incassato €</Label>
-          <Input
-            inputMode="decimal"
-            placeholder="0"
-            value={inc ?? String(incassato)}
-            onChange={(e) => setInc(e.target.value)}
-            onBlur={() => {
-              if (inc == null) return;
-              onSave({ importoIncassato: parse(inc) ?? 0 });
-              setInc(null);
-            }}
-            className="h-9 w-32 tabular-nums"
-          />
-        </div>
-        {totale != null && totale > 0 && (
-          <>
-            <div className="flex-1 min-w-[140px] max-w-xs">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-text-3">{pct}% incassato</span>
+      <CardContent className="py-4 space-y-3">
+        {/* Header row: totale + progress + residuo */}
+        <div className="flex items-center gap-5 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="grid h-9 w-9 place-items-center rounded-lg bg-success-soft text-success">
+              <Banknote className="h-5 w-5" />
+            </span>
+            <span className="font-semibold text-sm">Pagamenti</span>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-text-3">Totale pattuito €</Label>
+            <Input
+              inputMode="decimal"
+              placeholder="—"
+              value={tot ?? (totale != null ? String(totale) : "")}
+              onChange={(e) => setTot(e.target.value)}
+              onBlur={() => {
+                if (tot == null) return;
+                onSave({ importoTotale: tot.trim() === "" ? null : parse(tot) });
+                setTot(null);
+              }}
+              className="h-9 w-32 tabular-nums"
+            />
+          </div>
+          {totale != null && totale > 0 && (
+            <>
+              <div className="flex-1 min-w-[140px] max-w-xs">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-text-3">
+                    {pct}% incassato · € {fmt(incassato)}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                  <div
+                    className={`h-full ${residuo > 0 ? "bg-warning" : "bg-success"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
               </div>
-              <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
-                <div
-                  className={`h-full ${residuo > 0 ? "bg-warning" : "bg-success"}`}
-                  style={{ width: `${pct}%` }}
-                />
+              <div className="text-right shrink-0">
+                <p className="eyebrow !text-text-3">Residuo</p>
+                <p
+                  className={`text-xl font-bold tabular-nums ${
+                    residuo > 0 ? "text-warning" : "text-success"
+                  }`}
+                >
+                  € {fmt(Math.max(0, residuo))}
+                </p>
               </div>
+            </>
+          )}
+        </div>
+
+        {/* Acconti registrati */}
+        {ordered.length > 0 && (
+          <div className="rounded-md border border-border divide-y divide-border/60">
+            {ordered.map((p) => (
+              <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="tabular-nums text-text-2 w-20 shrink-0">
+                  {fmtData(p.data)}
+                </span>
+                <span className="font-bold tabular-nums shrink-0">
+                  € {fmt(p.importo)}
+                </span>
+                {p.metodo && (
+                  <Badge variant="secondary" className="text-[10px] shrink-0">
+                    {METODO_LABEL[p.metodo] ?? p.metodo}
+                  </Badge>
+                )}
+                {p.note && (
+                  <span className="text-xs text-text-3 truncate" title={p.note}>
+                    {p.note}
+                  </span>
+                )}
+                <span className="flex-1" />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-danger shrink-0"
+                  title="Rimuovi acconto"
+                  disabled={removePagamento.isPending}
+                  onClick={() =>
+                    removePagamento.mutate({ commessaId, pagamentoId: p.id })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Quick add */}
+        {addOpen ? (
+          <div className="flex gap-2 items-end flex-wrap rounded-md border border-border bg-surface-2 p-3">
+            <div className="space-y-1 w-28">
+              <Label className="text-xs">Importo € *</Label>
+              <Input
+                autoFocus
+                inputMode="decimal"
+                value={pForm.importo}
+                onChange={(e) => setPForm({ ...pForm, importo: e.target.value })}
+                className="h-9 tabular-nums"
+              />
             </div>
-            <div className="text-right shrink-0">
-              <p className="eyebrow !text-text-3">Residuo</p>
-              <p
-                className={`text-xl font-bold tabular-nums ${
-                  residuo > 0 ? "text-warning" : "text-success"
-                }`}
+            <div className="space-y-1">
+              <Label className="text-xs">Data</Label>
+              <Input
+                type="date"
+                value={pForm.data}
+                onChange={(e) => setPForm({ ...pForm, data: e.target.value })}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1 w-36">
+              <Label className="text-xs">Metodo</Label>
+              <Select
+                value={pForm.metodo}
+                onValueChange={(v) => setPForm({ ...pForm, metodo: v })}
               >
-                € {fmt(Math.max(0, residuo))}
-              </p>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(METODO_LABEL).map(([k, l]) => (
+                    <SelectItem key={k} value={k}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </>
+            <div className="space-y-1 flex-1 min-w-[140px]">
+              <Label className="text-xs">Nota</Label>
+              <Input
+                placeholder="Es. 2° acconto"
+                value={pForm.note}
+                onChange={(e) => setPForm({ ...pForm, note: e.target.value })}
+                className="h-9"
+              />
+            </div>
+            <div className="flex gap-1.5">
+              <Button
+                disabled={!parse(pForm.importo) || addPagamento.isPending}
+                onClick={() =>
+                  addPagamento.mutate({
+                    commessaId,
+                    importo: parse(pForm.importo)!,
+                    data: pForm.data || null,
+                    metodo: pForm.metodo as any,
+                    note: pForm.note.trim() || undefined,
+                  })
+                }
+              >
+                Registra
+              </Button>
+              <Button variant="ghost" onClick={() => setAddOpen(false)}>
+                Annulla
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Registra acconto
+            </Button>
+            {totale != null && totale > 0 && residuo > 0 && (
+              <>
+                <span className="text-xs text-text-3">rapido:</span>
+                {[0.5, 0.4, 0.1].map((p) => (
+                  <Button
+                    key={p}
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-primary"
+                    onClick={() => chip(p)}
+                  >
+                    {Math.round(p * 100)}% (€ {fmt(Math.min(Math.round(totale * p), Math.max(0, residuo)))})
+                  </Button>
+                ))}
+              </>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

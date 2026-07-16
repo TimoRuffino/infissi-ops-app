@@ -85,6 +85,21 @@ const _store = persistedStore<any>("commesse", (items) => {
     // Payment tracker fields (saldi).
     if ((c as any).importoTotale === undefined) (c as any).importoTotale = null;
     if ((c as any).importoIncassato === undefined) (c as any).importoIncassato = 0;
+    // Acconti register — importoIncassato is derived from it. Legacy records
+    // with a bare incassato figure get a single imported entry.
+    if (!Array.isArray((c as any).pagamenti)) (c as any).pagamenti = [];
+    if (((c as any).importoIncassato ?? 0) > 0 && (c as any).pagamenti.length === 0) {
+      (c as any).pagamenti = [
+        {
+          id: 1,
+          importo: (c as any).importoIncassato,
+          data: null,
+          metodo: null,
+          note: "Importo importato",
+          createdAt: (c as any).updatedAt ?? new Date(),
+        },
+      ];
+    }
   }
 });
 const commesse = _store.items;
@@ -249,7 +264,7 @@ export const commesseRouter = router({
       // never read it; only commesse.byId needs the full object.
       return result
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .map(({ prodotti, ...rest }) => rest);
+        .map(({ prodotti, pagamenti, ...rest }) => rest);
     }),
 
   byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
@@ -317,6 +332,7 @@ export const commesseRouter = router({
         stato: "preventivo" as const,
         importoTotale: input.importoTotale ?? null,
         importoIncassato: input.importoIncassato ?? 0,
+        pagamenti: [],
         priorita: input.priorita ?? "media",
         squadraId: null,
         dataApertura: now.toISOString().split("T")[0],
@@ -492,6 +508,57 @@ export const commesseRouter = router({
       deleteMagazzinoByCommessa(commessaId);
       _store.save();
       return { success: true };
+    }),
+
+  // ── Acconti / pagamenti (embedded register on commessa) ────────────────────
+  // importoIncassato is always recomputed as the sum of the register so the
+  // board chips, dashboard items and notifications stay consistent.
+  addPagamento: protectedProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      importo: z.number().positive(),
+      data: z.string().nullable().optional(), // "YYYY-MM-DD"
+      metodo: z.enum(["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"]).nullable().optional(),
+      note: z.string().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
+      const c = commesse[idx];
+      if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
+      const nextPid = c.pagamenti.length
+        ? Math.max(...c.pagamenti.map((p: any) => p.id ?? 0)) + 1
+        : 1;
+      c.pagamenti.push({
+        id: nextPid,
+        importo: input.importo,
+        data: input.data ?? null,
+        metodo: input.metodo ?? null,
+        note: input.note?.trim() || null,
+        createdAt: new Date(),
+      });
+      c.importoIncassato = c.pagamenti.reduce((s: number, p: any) => s + (p.importo ?? 0), 0);
+      c.updatedAt = new Date();
+      _store.save();
+      return c;
+    }),
+
+  removePagamento: protectedProcedure
+    .input(z.object({ commessaId: z.number(), pagamentoId: z.number() }))
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
+      const c = commesse[idx];
+      if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
+      const pi = c.pagamenti.findIndex((p: any) => p.id === input.pagamentoId);
+      if (pi === -1) throw new Error("Acconto non trovato");
+      c.pagamenti.splice(pi, 1);
+      c.importoIncassato = c.pagamenti.reduce((s: number, p: any) => s + (p.importo ?? 0), 0);
+      c.updatedAt = new Date();
+      _store.save();
+      return c;
     }),
 
   // ── Prodotti desiderati (embedded list on commessa) ────────────────────────
