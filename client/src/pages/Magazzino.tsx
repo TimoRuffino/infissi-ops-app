@@ -333,7 +333,7 @@ export default function Magazzino() {
             <button
               key={c.id}
               onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[150px] flex-col gap-2 rounded-xl border-2 bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              className={`relative flex min-h-[190px] flex-col gap-2 rounded-xl border-2 bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
                 late > 0
                   ? "border-danger/50"
                   : complete
@@ -345,9 +345,56 @@ export default function Magazzino() {
                 <span className="codice-mono text-[10px] text-text-3">{c.codice}</span>
                 <StatoChip stato={c.stato} />
               </div>
-              <p className="flex-1 text-[15px] font-semibold leading-snug line-clamp-2">
-                {c.cliente}
-              </p>
+              <div className="w-full">
+                <p className="text-[15px] font-semibold leading-snug line-clamp-1">
+                  {c.cliente}
+                </p>
+                {c.citta && (
+                  <p className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] text-text-3">
+                    <MapPin className="h-3 w-3" />
+                    {c.citta}
+                  </p>
+                )}
+              </div>
+
+              {/* Mini product list — first 2, colored by state */}
+              <div className="w-full flex-1 space-y-1">
+                {(byCommessa.get(c.id) ?? []).slice(0, 2).map((p: any) => {
+                  const pl = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
+                  const short = p.dataConsegna
+                    ? new Date(p.dataConsegna + "T12:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
+                    : "—";
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight ${
+                        p.arrivato
+                          ? "bg-success-soft/60 text-success"
+                          : pl
+                          ? "bg-danger-soft/60 text-danger font-semibold"
+                          : "bg-surface-2 text-text-2"
+                      }`}
+                    >
+                      {p.arrivato ? (
+                        <CheckCircle2 className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <Package className="h-3 w-3 shrink-0" />
+                      )}
+                      <span className="truncate flex-1">{p.nome}</span>
+                      <span className="tabular-nums shrink-0">
+                        {p.arrivato ? "✓" : short}
+                      </span>
+                    </div>
+                  );
+                })}
+                {tot > 2 && (
+                  <p className="pl-1 text-[10px] text-text-3">+{tot - 2} altri prodotti</p>
+                )}
+                {tot === 0 && (
+                  <p className="text-xs text-text-3">Nessun prodotto</p>
+                )}
+              </div>
+
               <div className="flex w-full items-center justify-between gap-2">
                 {tot > 0 ? (
                   <Badge
@@ -355,10 +402,10 @@ export default function Magazzino() {
                     className="shrink-0"
                   >
                     <Package className="h-3 w-3 mr-1" />
-                    {arrivati}/{tot}
+                    {arrivati}/{tot} arrivati
                   </Badge>
                 ) : (
-                  <span className="text-xs text-text-3">Nessun prodotto</span>
+                  <span />
                 )}
                 {late > 0 ? (
                   <Badge variant="danger" className="shrink-0">
