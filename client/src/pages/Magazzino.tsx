@@ -322,7 +322,7 @@ export default function Magazzino() {
       </div>
 
       {/* Commesse — square tiles: glance info only, click for the full card */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {eligibili.map((c: any) => {
           const d = digest.get(c.id);
           const tot = d?.tot ?? 0;
@@ -333,7 +333,7 @@ export default function Magazzino() {
             <button
               key={c.id}
               onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[190px] flex-col gap-2 rounded-xl border-2 bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              className={`relative flex min-h-[210px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
                 late > 0
                   ? "border-danger/50"
                   : complete
@@ -342,15 +342,15 @@ export default function Magazzino() {
               }`}
             >
               <div className="flex w-full items-center justify-between gap-2">
-                <span className="codice-mono text-[10px] text-text-3">{c.codice}</span>
+                <span className="codice-mono text-[11px] text-text-3">{c.codice}</span>
                 <StatoChip stato={c.stato} />
               </div>
               <div className="w-full">
-                <p className="text-[15px] font-semibold leading-snug line-clamp-1">
+                <p className="text-[17px] font-bold leading-snug line-clamp-1">
                   {c.cliente}
                 </p>
                 {c.citta && (
-                  <p className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] text-text-3">
+                  <p className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-text-3">
                     <MapPin className="h-3 w-3" />
                     {c.citta}
                   </p>
@@ -367,7 +367,7 @@ export default function Magazzino() {
                   return (
                     <div
                       key={p.id}
-                      className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight ${
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] leading-tight ${
                         p.arrivato
                           ? "bg-success-soft/60 text-success"
                           : pl
@@ -388,7 +388,7 @@ export default function Magazzino() {
                   );
                 })}
                 {tot > 2 && (
-                  <p className="pl-1 text-[10px] text-text-3">+{tot - 2} altri prodotti</p>
+                  <p className="pl-1 text-[11px] text-text-3">+{tot - 2} altri prodotti</p>
                 )}
                 {tot === 0 && (
                   <p className="text-xs text-text-3">Nessun prodotto</p>
