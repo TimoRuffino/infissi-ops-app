@@ -16,7 +16,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MD="$ROOT/documento_requisiti_infissi_ops.md"
-OUT="$ROOT/PRD_infissi_ops_v3.pdf"
+OUT="$ROOT/PRD_infissi_ops_v4.pdf"
 TMP="$ROOT/tmp/prd-build"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
