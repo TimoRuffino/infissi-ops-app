@@ -18,6 +18,8 @@ type Prodotto = {
   nome: string;
   quantita: number;
   fornitore: string | null;
+  numeroOrdine: string | null; // supplier order reference
+  dataOrdine: string | null;   // ISO date the order was placed
   dataConsegna: string | null; // ISO date the goods arrive/arrived
   arrivato: boolean;
   note: string | null;
@@ -28,6 +30,10 @@ type Prodotto = {
 let nextId = 1;
 const _store = persistedStore<Prodotto>("magazzino_prodotti", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  for (const p of loaded) {
+    if ((p as any).numeroOrdine === undefined) (p as any).numeroOrdine = null;
+    if ((p as any).dataOrdine === undefined) (p as any).dataOrdine = null;
+  }
 });
 const prodotti = _store.items;
 
@@ -94,6 +100,8 @@ export const magazzinoRouter = router({
         nome: z.string().min(1),
         quantita: z.number().int().min(1).default(1),
         fornitore: z.string().optional(),
+        numeroOrdine: z.string().optional(),
+        dataOrdine: z.string().optional(), // "YYYY-MM-DD"
         dataConsegna: z.string().optional(), // "YYYY-MM-DD"
         note: z.string().optional(),
       })
@@ -108,6 +116,8 @@ export const magazzinoRouter = router({
         nome: input.nome.trim(),
         quantita: input.quantita ?? 1,
         fornitore: input.fornitore?.trim() || null,
+        numeroOrdine: input.numeroOrdine?.trim() || null,
+        dataOrdine: input.dataOrdine || null,
         dataConsegna: input.dataConsegna || null,
         arrivato: false,
         note: input.note?.trim() || null,
@@ -126,6 +136,8 @@ export const magazzinoRouter = router({
         nome: z.string().min(1).optional(),
         quantita: z.number().int().min(1).optional(),
         fornitore: z.string().nullable().optional(),
+        numeroOrdine: z.string().nullable().optional(),
+        dataOrdine: z.string().nullable().optional(),
         dataConsegna: z.string().nullable().optional(),
         arrivato: z.boolean().optional(),
         note: z.string().nullable().optional(),
@@ -141,6 +153,10 @@ export const magazzinoRouter = router({
       if (input.quantita !== undefined) row.quantita = input.quantita;
       if (input.fornitore !== undefined)
         row.fornitore = input.fornitore?.trim() || null;
+      if (input.numeroOrdine !== undefined)
+        row.numeroOrdine = input.numeroOrdine?.trim() || null;
+      if (input.dataOrdine !== undefined)
+        row.dataOrdine = input.dataOrdine || null;
       if (input.dataConsegna !== undefined)
         row.dataConsegna = input.dataConsegna || null;
       if (input.arrivato !== undefined) row.arrivato = input.arrivato;

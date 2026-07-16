@@ -3,7 +3,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Package,
   Plus,
@@ -15,6 +23,8 @@ import {
   CalendarClock,
   CheckCircle2,
   ExternalLink,
+  StickyNote,
+  Timer,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -30,10 +40,32 @@ function isEligible(c: any): boolean {
   return idx >= PRODUZIONE_IDX && c.stato !== "archiviata" && !c.archivedAt;
 }
 
+// Company supplier list — fixed dropdown so names stay consistent (and the
+// per-supplier lead-time stats mean something).
+const FORNITORI = [
+  "Wnd",
+  "Oknoplast",
+  "Alias",
+  "Pail",
+  "Primed",
+  "HenryGlass",
+  "Palmieri",
+  "Errecci",
+  "Fivizzanese",
+  "Oskura",
+  "Korus",
+  "Punto del Serramento",
+  "Kopern",
+  "Citea",
+  "Cerrato",
+];
+
 const emptyForm = {
   nome: "",
   quantita: "1",
   fornitore: "",
+  numeroOrdine: "",
+  dataOrdine: new Date().toISOString().split("T")[0],
   dataConsegna: "",
   note: "",
 };
@@ -41,6 +73,16 @@ const emptyForm = {
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso + "T12:00:00").toLocaleDateString("it-IT");
+}
+
+// Days between order and delivery date (lead time).
+function leadDays(p: any): number | null {
+  if (!p.dataOrdine || !p.dataConsegna) return null;
+  const ms =
+    new Date(p.dataConsegna + "T12:00:00").getTime() -
+    new Date(p.dataOrdine + "T12:00:00").getTime();
+  const d = Math.round(ms / 86400000);
+  return d >= 0 ? d : null;
 }
 
 export default function Magazzino() {
@@ -141,6 +183,15 @@ export default function Magazzino() {
   const totProdotti = prodotti.data?.length ?? 0;
   const totArrivati = (prodotti.data ?? []).filter((p: any) => p.arrivato).length;
   const inArrivo = totProdotti - totArrivati;
+  // Average lead time over arrived products that carry both dates.
+  const leadMedio = useMemo(() => {
+    const days = (prodotti.data ?? [])
+      .filter((p: any) => p.arrivato)
+      .map(leadDays)
+      .filter((d: number | null): d is number => d != null);
+    if (days.length === 0) return null;
+    return Math.round(days.reduce((s: number, d: number) => s + d, 0) / days.length);
+  }, [prodotti.data]);
 
   const isOpen = (c: any) =>
     expanded[c.id] ?? (byCommessa.get(c.id)?.length ?? 0) > 0;
@@ -151,7 +202,9 @@ export default function Magazzino() {
       commessaId,
       nome: form.nome.trim(),
       quantita: Math.max(1, parseInt(form.quantita) || 1),
-      fornitore: form.fornitore.trim() || undefined,
+      fornitore: form.fornitore || undefined,
+      numeroOrdine: form.numeroOrdine.trim() || undefined,
+      dataOrdine: form.dataOrdine || undefined,
       dataConsegna: form.dataConsegna || undefined,
       note: form.note.trim() || undefined,
     });
@@ -167,7 +220,7 @@ export default function Magazzino() {
             Magazzino
           </h1>
           <p className="text-text-2 text-sm mt-1">
-            Prodotti e consegne per commessa — dallo stato Produzione in poi
+            Prodotti, ordini e consegne per commessa — dallo stato Produzione in poi
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -189,6 +242,14 @@ export default function Magazzino() {
               {totArrivati}
             </div>
           </Card>
+          {leadMedio != null && (
+            <Card className="px-3 py-2 gap-0 border-info/30">
+              <div className="eyebrow !text-info">Lead time medio</div>
+              <div className="text-xl font-bold leading-none mt-1 tabular-nums text-info">
+                {leadMedio} gg
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -333,171 +394,121 @@ export default function Magazzino() {
               {open && (
                 <CardContent className="px-4 pb-4 pt-0 space-y-3 border-t">
                   {rows.length > 0 && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left">
-                            <th className="eyebrow !text-text-3 py-2 pr-3">Prodotto</th>
-                            <th className="eyebrow !text-text-3 py-2 pr-3 w-14">Q.tà</th>
-                            <th className="eyebrow !text-text-3 py-2 pr-3">Fornitore</th>
-                            <th className="eyebrow !text-text-3 py-2 pr-3">Consegna</th>
-                            <th className="eyebrow !text-text-3 py-2 pr-3">Arrivato</th>
-                            <th className="eyebrow !text-text-3 py-2 pr-3">Note</th>
-                            <th className="w-9"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((p: any) => {
-                            const late =
-                              !p.arrivato &&
-                              p.dataConsegna &&
-                              p.dataConsegna <
-                                new Date().toISOString().split("T")[0];
-                            return (
-                              <tr key={p.id} className="border-t border-border/60">
-                                <td className="py-2 pr-3 font-medium">
-                                  {p.nome}
-                                </td>
-                                <td className="py-2 pr-3 tabular-nums">
-                                  {p.quantita}
-                                </td>
-                                <td className="py-2 pr-3 text-text-2">
-                                  {p.fornitore || "—"}
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <span
-                                    className={`inline-flex items-center gap-1.5 ${
-                                      p.arrivato
-                                        ? "text-success"
-                                        : late
-                                        ? "text-danger font-semibold"
-                                        : "text-text-1"
-                                    }`}
-                                  >
-                                    {p.arrivato ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                                    ) : (
-                                      <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                                    )}
-                                    {/* Suppliers slip: the date is editable right here. */}
-                                    <Input
-                                      type="date"
-                                      value={p.dataConsegna ?? ""}
-                                      onChange={(e) =>
-                                        update.mutate({
-                                          id: p.id,
-                                          dataConsegna: e.target.value || null,
-                                        })
-                                      }
-                                      className={`h-7 w-[135px] px-1.5 text-xs ${
-                                        late ? "border-danger/50 text-danger" : ""
-                                      }`}
-                                    />
-                                    {late && <span className="shrink-0">in ritardo</span>}
-                                  </span>
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <Switch
-                                    checked={p.arrivato}
-                                    onCheckedChange={(v) =>
-                                      update.mutate({ id: p.id, arrivato: v })
-                                    }
-                                  />
-                                </td>
-                                <td className="py-2 pr-3 text-xs text-text-2 max-w-[220px] truncate" title={p.note ?? ""}>
-                                  {p.note || "—"}
-                                </td>
-                                <td className="py-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="text-danger"
-                                    title="Elimina prodotto"
-                                    onClick={() =>
-                                      setDeleteTarget({ id: p.id, nome: p.nome })
-                                    }
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <div className="space-y-2 pt-3">
+                      {rows.map((p: any) => (
+                        <ProdottoRow
+                          key={p.id}
+                          p={p}
+                          today={today}
+                          onUpdate={(patch) => update.mutate({ id: p.id, ...patch })}
+                          onDelete={() => setDeleteTarget({ id: p.id, nome: p.nome })}
+                          pending={update.isPending}
+                        />
+                      ))}
                     </div>
                   )}
 
                   {formFor === c.id ? (
-                    <div className="flex gap-2 flex-wrap items-end rounded-md border border-border bg-surface-2 p-3">
-                      <div className="space-y-1 flex-[2] min-w-[160px]">
-                        <label className="text-xs font-medium">Prodotto *</label>
-                        <Input
-                          autoFocus
-                          placeholder="Es. Finestra PVC 120×140"
-                          value={form.nome}
-                          onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                          className="h-9"
-                        />
+                    <div className="rounded-lg border border-border bg-surface-2 p-3 space-y-3">
+                      <div className="flex gap-3 flex-wrap items-end">
+                        <div className="space-y-1 flex-[2] min-w-[180px]">
+                          <Label className="text-xs">Prodotto *</Label>
+                          <Input
+                            autoFocus
+                            placeholder="Es. Finestra PVC 120×140"
+                            value={form.nome}
+                            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1 w-20">
+                          <Label className="text-xs">Q.tà</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={form.quantita}
+                            onChange={(e) => setForm({ ...form, quantita: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1 w-44">
+                          <Label className="text-xs">Fornitore</Label>
+                          <Select
+                            value={form.fornitore}
+                            onValueChange={(v) => setForm({ ...form, fornitore: v })}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue placeholder="—" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {FORNITORI.map((f) => (
+                                <SelectItem key={f} value={f}>{f}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <div className="space-y-1 w-20">
-                        <label className="text-xs font-medium">Q.tà</label>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={form.quantita}
-                          onChange={(e) => setForm({ ...form, quantita: e.target.value })}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1 flex-1 min-w-[130px]">
-                        <label className="text-xs font-medium">Fornitore</label>
-                        <Input
-                          value={form.fornitore}
-                          onChange={(e) => setForm({ ...form, fornitore: e.target.value })}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium">Data consegna</label>
-                        <Input
-                          type="date"
-                          value={form.dataConsegna}
-                          onChange={(e) => setForm({ ...form, dataConsegna: e.target.value })}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="space-y-1 flex-1 min-w-[130px]">
-                        <label className="text-xs font-medium">Note</label>
-                        <Input
-                          value={form.note}
-                          onChange={(e) => setForm({ ...form, note: e.target.value })}
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="flex gap-1.5">
-                        <Button
-                          onClick={() => submitForm(c.id)}
-                          disabled={!form.nome.trim() || create.isPending}
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1" />
-                          Aggiungi
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setFormFor(null);
-                            setForm(emptyForm);
-                          }}
-                        >
-                          Annulla
-                        </Button>
+                      <div className="flex gap-3 flex-wrap items-end">
+                        <div className="space-y-1 w-32">
+                          <Label className="text-xs">N° ordine</Label>
+                          <Input
+                            placeholder="Es. 0045"
+                            value={form.numeroOrdine}
+                            onChange={(e) => setForm({ ...form, numeroOrdine: e.target.value })}
+                            className="h-9 font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Ordinato il</Label>
+                          <Input
+                            type="date"
+                            value={form.dataOrdine}
+                            onChange={(e) => setForm({ ...form, dataOrdine: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Consegna prevista</Label>
+                          <Input
+                            type="date"
+                            value={form.dataConsegna}
+                            onChange={(e) => setForm({ ...form, dataConsegna: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1 flex-1 min-w-[160px]">
+                          <Label className="text-xs">Note</Label>
+                          <Input
+                            value={form.note}
+                            onChange={(e) => setForm({ ...form, note: e.target.value })}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="flex gap-1.5">
+                          <Button
+                            onClick={() => submitForm(c.id)}
+                            disabled={!form.nome.trim() || create.isPending}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            Aggiungi
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setFormFor(null);
+                              setForm(emptyForm);
+                            }}
+                          >
+                            Annulla
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <Button
                       variant="outline"
                       size="sm"
+                      className="mt-1"
                       onClick={() => {
                         setFormFor(c.id);
                         setForm(emptyForm);
@@ -531,6 +542,193 @@ export default function Magazzino() {
         description={`Rimuovere "${deleteTarget?.nome}" dal magazzino della commessa?`}
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
+    </div>
+  );
+}
+
+// ── Product row ──────────────────────────────────────────────────────────────
+// Two-level card: labelled fields (all inline-editable) + click-to-edit note.
+function ProdottoRow({
+  p,
+  today,
+  onUpdate,
+  onDelete,
+  pending,
+}: {
+  p: any;
+  today: string;
+  onUpdate: (patch: any) => void;
+  onDelete: () => void;
+  pending: boolean;
+}) {
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [qtaDraft, setQtaDraft] = useState<string | null>(null);
+  const [ordineDraft, setOrdineDraft] = useState<string | null>(null);
+
+  const late = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
+  const lead = leadDays(p);
+
+  const field = (label: string, node: React.ReactNode, cls = "") => (
+    <div className={`space-y-0.5 ${cls}`}>
+      <p className="text-[10px] uppercase tracking-wide font-semibold text-text-3">
+        {label}
+      </p>
+      {node}
+    </div>
+  );
+
+  return (
+    <div
+      className={`rounded-lg border p-3 space-y-2.5 transition-colors ${
+        p.arrivato
+          ? "border-success/30 bg-success-soft/30"
+          : late
+          ? "border-danger/40 bg-danger-soft/20"
+          : "border-border bg-surface"
+      }`}
+    >
+      {/* Level 1: name + fields grid */}
+      <div className="flex items-start gap-4 flex-wrap">
+        <div className="min-w-[160px] flex-1">
+          <p className="text-sm font-semibold leading-tight">{p.nome}</p>
+          <div className="flex items-center gap-2 mt-1">
+            {p.arrivato ? (
+              <Badge variant="success" className="text-[10px]">
+                <CheckCircle2 className="h-3 w-3 mr-0.5" />
+                Arrivato
+              </Badge>
+            ) : late ? (
+              <Badge variant="danger" className="text-[10px]">In ritardo</Badge>
+            ) : (
+              <Badge variant="secondary" className="text-[10px]">In arrivo</Badge>
+            )}
+            {lead != null && (
+              <span
+                className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${
+                  p.arrivato ? "text-success" : "text-text-2"
+                }`}
+                title="Giorni dall'ordine alla consegna"
+              >
+                <Timer className="h-3 w-3" />
+                {lead} gg
+              </span>
+            )}
+          </div>
+        </div>
+
+        {field(
+          "Q.tà",
+          <Input
+            inputMode="numeric"
+            value={qtaDraft ?? String(p.quantita)}
+            onChange={(e) => setQtaDraft(e.target.value)}
+            onBlur={() => {
+              if (qtaDraft == null) return;
+              const n = parseInt(qtaDraft);
+              if (!isNaN(n) && n >= 1 && n !== p.quantita) onUpdate({ quantita: n });
+              setQtaDraft(null);
+            }}
+            className="h-8 w-16 text-center tabular-nums"
+          />
+        )}
+
+        {field(
+          "Fornitore",
+          <Select
+            value={p.fornitore ?? ""}
+            onValueChange={(v) => onUpdate({ fornitore: v || null })}
+          >
+            <SelectTrigger className="h-8 w-40">
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent>
+              {/* keep legacy free-text values selectable */}
+              {p.fornitore && !FORNITORI.includes(p.fornitore) && (
+                <SelectItem value={p.fornitore}>{p.fornitore}</SelectItem>
+              )}
+              {FORNITORI.map((f) => (
+                <SelectItem key={f} value={f}>{f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {field(
+          "N° ordine",
+          <Input
+            placeholder="—"
+            value={ordineDraft ?? (p.numeroOrdine ?? "")}
+            onChange={(e) => setOrdineDraft(e.target.value)}
+            onBlur={() => {
+              if (ordineDraft == null) return;
+              if (ordineDraft.trim() !== (p.numeroOrdine ?? ""))
+                onUpdate({ numeroOrdine: ordineDraft.trim() || null });
+              setOrdineDraft(null);
+            }}
+            className="h-8 w-24 font-mono text-xs"
+          />
+        )}
+
+        {field(
+          "Ordinato il",
+          <Input
+            type="date"
+            value={p.dataOrdine ?? ""}
+            onChange={(e) => onUpdate({ dataOrdine: e.target.value || null })}
+            className="h-8 w-[135px] text-xs"
+          />
+        )}
+
+        {field(
+          "Consegna",
+          <Input
+            type="date"
+            value={p.dataConsegna ?? ""}
+            onChange={(e) => onUpdate({ dataConsegna: e.target.value || null })}
+            className={`h-8 w-[135px] text-xs ${late ? "border-danger/50 text-danger" : ""}`}
+          />
+        )}
+
+        {field(
+          "Arrivato",
+          <div className="h-8 flex items-center">
+            <Switch
+              checked={p.arrivato}
+              onCheckedChange={(v) => onUpdate({ arrivato: v })}
+              disabled={pending}
+            />
+          </div>
+        )}
+
+        <div className="ml-auto self-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-danger"
+            title="Elimina prodotto"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Level 2: editable note */}
+      <div className="flex items-start gap-1.5">
+        <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-500 mt-[7px]" />
+        <Input
+          placeholder="Aggiungi nota…"
+          value={noteDraft ?? (p.note ?? "")}
+          onChange={(e) => setNoteDraft(e.target.value)}
+          onBlur={() => {
+            if (noteDraft == null) return;
+            if (noteDraft.trim() !== (p.note ?? ""))
+              onUpdate({ note: noteDraft.trim() || null });
+            setNoteDraft(null);
+          }}
+          className="h-8 border-transparent bg-transparent px-1.5 text-xs shadow-none hover:border-border focus-visible:border-border"
+        />
+      </div>
     </div>
   );
 }
