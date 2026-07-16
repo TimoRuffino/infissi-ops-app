@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Paperclip,
   Sparkles,
+  StickyNote,
 } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
@@ -137,6 +138,28 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
     if (currentFaseId) setOpenFasi((m) => ({ ...m, [currentFaseId]: true }));
   }, [currentFaseId]);
 
+  // Phases holding notes start open — the notes ARE the operational memory
+  // (migrated To Do items live there), hiding them behind a fold buries them.
+  const notedFasi = useMemo(
+    () =>
+      FASI.filter((f) =>
+        (steps.data ?? []).some(
+          (s: any) => s.note && s.stepNumber >= f.from && s.stepNumber <= f.to
+        )
+      )
+        .map((f) => f.id)
+        .join(","),
+    [steps.data]
+  );
+  useEffect(() => {
+    if (!notedFasi) return;
+    setOpenFasi((m) => {
+      const next = { ...m };
+      for (const id of notedFasi.split(",")) next[id] = next[id] ?? true;
+      return next;
+    });
+  }, [notedFasi]);
+
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-4 space-y-3">
@@ -179,6 +202,15 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                   <span className="text-sm font-semibold flex-1 text-left">
                     {fase.label}
                   </span>
+                  {(() => {
+                    const fNotes = fSteps.filter((x: any) => x.note).length;
+                    return fNotes > 0 ? (
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-700 bg-amber-100 rounded px-1.5 py-px shrink-0">
+                        <StickyNote className="h-3 w-3" />
+                        {fNotes}
+                      </span>
+                    ) : null;
+                  })()}
                   <span className="text-xs text-text-2 tabular-nums">
                     {fDone}/{fSteps.length}
                   </span>
@@ -198,7 +230,9 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                       return (
                         <div
                           key={step.id}
-                          className="flex items-start gap-2.5 py-1.5"
+                          className={`flex items-start gap-2.5 py-1.5 ${
+                            isCurrent ? "bg-primary/5 rounded-md -mx-1.5 px-1.5" : ""
+                          }`}
                         >
                           {/* Dot: completed=check success, current=primary ring,
                               future=border-strong. */}
@@ -243,14 +277,20 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                             </div>
                             {completed && (step.dataCompletamento || step.utente) && (
                               <div className="text-[11px] text-text-3 mt-0.5">
-                                {step.dataCompletamento}
-                                {step.utente ? ` · ${step.utente}` : ""}
+                                {step.dataCompletamento
+                                  ? new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")
+                                  : ""}
+                                {step.utente ? `${step.dataCompletamento ? " · " : ""}${step.utente}` : ""}
                               </div>
                             )}
-                            {/* Note — visible directly under the step. */}
+                            {/* Note — post-it block, multiline preserved
+                                (migrated To Do notes carry line breaks). */}
                             {step.note && (
-                              <div className="text-[11px] text-text-2 mt-0.5 italic">
-                                {step.note}
+                              <div className="mt-1 flex gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-px" />
+                                <span className="min-w-0 text-xs leading-snug text-amber-950 whitespace-pre-line break-words">
+                                  {step.note}
+                                </span>
                               </div>
                             )}
                           </button>
@@ -304,7 +344,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
             <div className="space-y-1.5">
               <Label>Note</Label>
               <Textarea
-                rows={2}
+                rows={5}
                 value={editForm.note}
                 onChange={(e) =>
                   setEditForm({ ...editForm, note: e.target.value })
