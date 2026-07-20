@@ -671,53 +671,6 @@ export const commesseRouter = router({
   // onwards (preventivo excluded — not yet a real job) up to and including
   // "interventi_regolazioni"; "archiviata" stato and soft-archived commesse
   // are excluded.
-  classificaVenditori: protectedProcedure.query(({ ctx }) => {
-    const utenti = getUtentiStore();
-    // Stati that count: from misure_esecutive .. interventi_regolazioni.
-    // Listed explicitly (instead of slicing STATI_COMMESSA by index) so a
-    // rename or reorder of the enum can't silently change the leaderboard.
-    const counted = new Set<string>([
-      "misure_esecutive",
-      "aggiornamento_contratto",
-      "fatture_pagamento",
-      "da_ordinare",
-      "produzione",
-      "ordini_ultimazione",
-      "attesa_posa",
-      "finiture_saldo",
-      "interventi_regolazioni",
-    ]);
-    // Only commerciali assegnati alla sede corrente entrano in classifica.
-    const venditori = utenti.filter(
-      (u: any) =>
-        Array.isArray(u.ruoli) &&
-        u.ruoli.includes("commerciale") &&
-        u.attivo &&
-        (Array.isArray(u.sediIds) ? u.sediIds.includes(ctx.sedeId) : true)
-    );
-    const rows = venditori.map((u: any) => {
-      const count = commesse.filter(
-        (c) =>
-          c.sedeId === ctx.sedeId &&
-          !c.archivedAt &&
-          c.assegnatoA === u.id &&
-          counted.has(c.stato as any)
-      ).length;
-      return {
-        userId: u.id as number,
-        nome: (u.nome as string) ?? "",
-        cognome: (u.cognome as string) ?? "",
-        count,
-      };
-    });
-    // Highest count first; tie-break alphabetically so ranking is stable.
-    rows.sort(
-      (a, b) =>
-        b.count - a.count ||
-        `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)
-    );
-    return rows;
-  }),
 
   // ── Soft archive ──────────────────────────────────────────────────────────
   // Sets `archivedAt` to now. The commessa keeps its stato, prodotti,

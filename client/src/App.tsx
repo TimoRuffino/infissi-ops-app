@@ -27,7 +27,6 @@ import Preventivatori from "./pages/Preventivatori";
 import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
 import PreventivatorePuntoDelSerramento from "./pages/PreventivatorePuntoDelSerramento";
 import Archivio from "./pages/Archivio";
-import Classifica from "./pages/Classifica";
 import SediList from "./pages/SediList";
 import RequireDirezione from "./components/RequireDirezione";
 
@@ -73,7 +72,6 @@ function Router() {
           {() => <RequireDirezione><Produzione /></RequireDirezione>}
         </Route>
         <Route path="/reclami" component={ReclamiRifacimenti} />
-        <Route path="/classifica" component={Classifica} />
         <Route path="/archivio" component={Archivio} />
         {/* User management is direzione-only: the server gates utenti
             create/update/delete with adminProcedure, so a client-side guard

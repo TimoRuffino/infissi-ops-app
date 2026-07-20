@@ -586,36 +586,8 @@ Stesso schema più:
 
 ---
 
-## 23. Classifica venditori (`/classifica`)
-
-### 23.1 Regola di conteggio
-Per ogni utente con ruolo `commerciale` e `attivo === true`, conta le commesse che soddisfano TUTTE queste condizioni:
-1. `assegnatoA === utente.id`.
-2. `archivedAt === null` (no soft‑archive).
-3. `stato` ∈ `{misure_esecutive, aggiornamento_contratto, fatture_pagamento, da_ordinare, produzione, ordini_ultimazione, attesa_posa, finiture_saldo, interventi_regolazioni}` — esclusi `preventivo` (non ancora "vera" commessa) e `archiviata` (chiusura).
-
-### 23.2 Ordinamento e ranking
-- Ordine: count desc, tie‑break alfabetico (`cognome nome`).
-- Rank **competition (1224)**: due pari‑merito al primo posto → il successivo è 3°.
-
-### 23.3 Podio "intelligente"
-- Il podio mostra fino a **3 score‑tier** (gradini), non 3 persone:
-  - Tutti i pari‑merito condividono lo stesso gradino.
-  - Se due venditori sono primi a pari merito, il gradino di argento può essere vuoto e il successivo è terzo con rank 3.
-- Se **tutti** hanno lo stesso punteggio → un solo gradino oro con banner *"PARI MERITO TOTALE — SIETE TUTTI PRIMI"*.
-- Layout visuale: 2 — 1 — 3 (vincitore al centro), gradino tallone più alto in oro.
-
-### 23.4 Interattività e "battute"
-- **Coriandoli CSS** all'apertura della classifica, replay su click.
-- **Banner Commento della giuria** (amber, prominente, rotazione automatica ogni 5 s + click).
-- **Bolla citazione vincitore** (rotazione click).
-- **Click su qualunque atleta** → coriandoli + toast spiritoso ("X scalda i motori!", "Occhio, X è in modalità squalo", …).
-- **Count‑up** animato da 0 al valore finale per ogni numero commesse.
-- **Tag "Cucchiaio di legno"** all'ultimo, badge "‑N dal 1°" per gli inseguitori, fun‑fact rotante nel footer.
-- Zero dipendenze esterne per gli effetti (CSS keyframes + sonner già presente).
-
-### 23.5 Empty state
-- Nessun utente `commerciale` attivo → "Podio vuoto, eco assordante. Aggiungi utenti con ruolo «commerciale» dalla pagina Utenti".
+## 23. Classifica venditori — RIMOSSA (16/07/2026)
+La pagina `/classifica`, l'endpoint `commesse.classificaVenditori` e la voce di sidebar sono stati rimossi su richiesta della direzione. La sezione resta come riferimento storico (v3); il ranking commerciali non fa più parte del prodotto.
 
 ---
 
@@ -824,7 +796,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 
 ## 33. Cronologia significativa
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
-- **v4.0 (16/07/2026)** — Multi‑sede con isolamento completo; redesign UI (board v2, calendario mese‑default con chip pieni, timeline note post‑it, dashboard personalizzata); Magazzino (tile+popup, ordini, lead time, dropdown fornitori); registro acconti; notifiche v2 con stato lettura; sincronizzazione Google Calendar export+import; backup notturno Google Drive (OAuth drive.file); Fatture in Cloud sync clienti; WhatsApp deep link; scheda cliente PDF; hardening (scrypt versionato, CSRF, SSRF guard, trust proxy, mascheramento segreti); migrazione dati 2026 (§43).
+- **v4.0 (16/07/2026)** — Rimossa la Classifica venditori (§23). Multi‑sede con isolamento completo; redesign UI (board v2, calendario mese‑default con chip pieni, timeline note post‑it, dashboard personalizzata); Magazzino (tile+popup, ordini, lead time, dropdown fornitori); registro acconti; notifiche v2 con stato lettura; sincronizzazione Google Calendar export+import; backup notturno Google Drive (OAuth drive.file); Fatture in Cloud sync clienti; WhatsApp deep link; scheda cliente PDF; hardening (scrypt versionato, CSRF, SSRF guard, trust proxy, mascheramento segreti); migrazione dati 2026 (§43).
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
 - v2.x — Versione precedente (PDF allegato in repo come riferimento storico).
 - v1 — Documento originale.

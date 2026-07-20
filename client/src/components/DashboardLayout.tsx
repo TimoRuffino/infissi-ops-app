@@ -40,7 +40,6 @@ import {
   User,
   Calculator,
   Archive,
-  Trophy,
   Store,
   Package,
 } from "lucide-react";
@@ -76,7 +75,6 @@ const menuItems: MenuItem[] = [
   { icon: Package, label: "Magazzino", path: "/magazzino" },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
-  { icon: Trophy, label: "Classifica", path: "/classifica" },
   { icon: Archive, label: "Archivio", path: "/archivio" },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
   { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
