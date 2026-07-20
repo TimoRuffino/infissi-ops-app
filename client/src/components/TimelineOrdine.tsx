@@ -47,7 +47,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
 
   const [editOpen, setEditOpen] = useState(false);
   const [editStep, setEditStep] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ utente: "", note: "" });
+  const [editForm, setEditForm] = useState({ utente: "", note: "", data: "" });
   const [openFasi, setOpenFasi] = useState<Record<string, boolean>>({});
 
   // Current step: first non-completed; highlighted in hero row.
@@ -84,6 +84,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
     setEditForm({
       utente: step.utente ?? "",
       note: step.note ?? "",
+      data: step.dataCompletamento ?? "",
     });
     setEditOpen(true);
   }
@@ -97,12 +98,22 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
     const completing = editStep.stato !== "completato";
     updateStep.mutate({
       id: editStep.id,
-      ...(completing
-        ? {
-            stato: "completato" as const,
-            dataCompletamento: new Date().toISOString().split("T")[0],
-          }
-        : {}),
+      ...(completing ? { stato: "completato" as const } : {}),
+      dataCompletamento:
+        editForm.data || new Date().toISOString().split("T")[0],
+      utente: editForm.utente || null,
+      note: editForm.note || null,
+    });
+    setEditOpen(false);
+  }
+
+  // Save date/utente/note WITHOUT completing — used to schedule future
+  // steps (e.g. the posa appointment date) before the work happens.
+  function saveWithoutComplete() {
+    if (!editStep) return;
+    updateStep.mutate({
+      id: editStep.id,
+      dataCompletamento: editForm.data || null,
       utente: editForm.utente || null,
       note: editForm.note || null,
     });
@@ -275,6 +286,12 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                                 <Paperclip className="h-3 w-3 text-text-3 shrink-0" />
                               )}
                             </div>
+                            {!completed && step.dataCompletamento && (
+                              <div className="text-[11px] font-semibold text-primary mt-0.5">
+                                📅 {new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")}
+                                {step.utente ? ` · ${step.utente}` : ""}
+                              </div>
+                            )}
                             {completed && (step.dataCompletamento || step.utente) && (
                               <div className="text-[11px] text-text-3 mt-0.5">
                                 {step.dataCompletamento
@@ -330,6 +347,17 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="space-y-1.5">
+              <Label>Data (appuntamento o completamento)</Label>
+              <input
+                type="date"
+                value={editForm.data}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, data: e.target.value })
+                }
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label>Eseguito da</Label>
               <SearchSelect
                 options={utenteOptions}
@@ -352,6 +380,16 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
               />
             </div>
             <div className="flex gap-2">
+              {editStep?.stato !== "completato" && (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={saveWithoutComplete}
+                  disabled={updateStep.isPending}
+                >
+                  Salva data
+                </Button>
+              )}
               {editStep?.stato === "completato" && (
                 <Button
                   variant="outline"

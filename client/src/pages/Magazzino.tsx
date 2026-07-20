@@ -102,8 +102,10 @@ export default function Magazzino() {
   const [search, setSearch] = useState("");
   // Tile clicked → full-detail dialog for that commessa.
   const [detailFor, setDetailFor] = useState<number | null>(null);
-  // Quick status filter: tutte | prodotti (has products) | arrivo | ritardo | arrivati
+  // Quick status filter: tutte | arrivo | ritardo | arrivati
   const [filtro, setFiltro] = useState<string>("tutte");
+  // Supplier dropdown filter — shows commesse holding ≥1 product of that supplier.
+  const [fornFiltro, setFornFiltro] = useState<string>("tutti");
   // Per-commessa add form (only one open at a time keeps the state simple).
   const [formFor, setFormFor] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -161,7 +163,10 @@ export default function Magazzino() {
       .filter((c: any) => {
         if (q && !`${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase().includes(q)) return false;
         const d = digest.get(c.id);
-        if (filtro === "prodotti") return !!d;
+        if (fornFiltro !== "tutti") {
+          const rows = byCommessa.get(c.id) ?? [];
+          if (!rows.some((p: any) => p.fornitore === fornFiltro)) return false;
+        }
         if (filtro === "ritardo") return (d?.late ?? 0) > 0;
         if (filtro === "arrivo") return !!d && d.arrivati < d.tot;
         if (filtro === "arrivati") return !!d && d.tot > 0 && d.arrivati === d.tot;
@@ -177,7 +182,7 @@ export default function Magazzino() {
         if (!!da !== !!db) return da ? -1 : 1;
         return (a.codice ?? "").localeCompare(b.codice ?? "");
       });
-  }, [commesse.data, search, filtro, digest, byCommessa]);
+  }, [commesse.data, search, filtro, fornFiltro, digest, byCommessa]);
 
   // Next 5 pending deliveries across every commessa — operational glance.
   const prossime = useMemo(() => {
@@ -300,10 +305,20 @@ export default function Magazzino() {
             className="pl-9 h-9"
           />
         </div>
+        <Select value={fornFiltro} onValueChange={setFornFiltro}>
+          <SelectTrigger className="h-9 w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tutti">Tutti i fornitori</SelectItem>
+            {FORNITORI.map((f) => (
+              <SelectItem key={f} value={f}>{f}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-surface-2">
           {[
             ["tutte", "Tutte"],
-            ["prodotti", "Con prodotti"],
             ["arrivo", "In arrivo"],
             ["ritardo", "In ritardo"],
             ["arrivati", "Arrivati"],
@@ -322,7 +337,7 @@ export default function Magazzino() {
       </div>
 
       {/* Commesse — square tiles: glance info only, click for the full card */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {eligibili.map((c: any) => {
           const d = digest.get(c.id);
           const tot = d?.tot ?? 0;
@@ -333,7 +348,7 @@ export default function Magazzino() {
             <button
               key={c.id}
               onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[210px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
                 late > 0
                   ? "border-danger/50"
                   : complete
@@ -359,7 +374,7 @@ export default function Magazzino() {
 
               {/* Mini product list — first 2, colored by state */}
               <div className="w-full flex-1 space-y-1">
-                {(byCommessa.get(c.id) ?? []).slice(0, 2).map((p: any) => {
+                {(byCommessa.get(c.id) ?? []).slice(0, 4).map((p: any) => {
                   const pl = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
                   const short = p.dataConsegna
                     ? new Date(p.dataConsegna + "T12:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
@@ -381,14 +396,19 @@ export default function Magazzino() {
                         <Package className="h-3 w-3 shrink-0" />
                       )}
                       <span className="truncate flex-1">{p.nome}</span>
+                      {p.fornitore && (
+                        <span className="shrink-0 rounded bg-surface px-1 text-[10px] text-text-3 border border-border/60">
+                          {p.fornitore}
+                        </span>
+                      )}
                       <span className="tabular-nums shrink-0">
                         {p.arrivato ? "✓" : short}
                       </span>
                     </div>
                   );
                 })}
-                {tot > 2 && (
-                  <p className="pl-1 text-[11px] text-text-3">+{tot - 2} altri prodotti</p>
+                {tot > 4 && (
+                  <p className="pl-1 text-[11px] text-text-3">+{tot - 4} altri prodotti</p>
                 )}
                 {tot === 0 && (
                   <p className="text-xs text-text-3">Nessun prodotto</p>
@@ -444,7 +464,7 @@ export default function Magazzino() {
           }
         }}
       >
-        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           {(() => {
             const c = (commesse.data ?? []).find((x: any) => x.id === detailFor);
             if (!c) return null;
