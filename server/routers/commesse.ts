@@ -510,6 +510,29 @@ export const commesseRouter = router({
       return { success: true };
     }),
 
+  // Latest acconti across the sede — feeds the Pagamenti page "ultimi
+  // incassi" strip without shipping every register in commesse.list.
+  pagamentiRecenti: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(15) }).optional())
+    .query(({ input, ctx }) => {
+      const out: any[] = [];
+      for (const c of commesse) {
+        if (c.sedeId !== ctx.sedeId) continue;
+        if (!Array.isArray(c.pagamenti)) continue;
+        for (const p of c.pagamenti) {
+          out.push({
+            ...p,
+            commessaId: c.id,
+            codice: c.codice,
+            cliente: c.cliente,
+            stato: c.stato,
+          });
+        }
+      }
+      out.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+      return out.slice(0, input?.limit ?? 15);
+    }),
+
   // ── Acconti / pagamenti (embedded register on commessa) ────────────────────
   // importoIncassato is always recomputed as the sum of the register so the
   // board chips, dashboard items and notifications stay consistent.
