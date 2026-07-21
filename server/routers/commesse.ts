@@ -567,6 +567,32 @@ export const commesseRouter = router({
       return c;
     }),
 
+  updatePagamento: protectedProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      pagamentoId: z.number(),
+      importo: z.number().positive().optional(),
+      data: z.string().nullable().optional(),
+      metodo: z.enum(["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"]).nullable().optional(),
+      note: z.string().nullable().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) throw new Error("Commessa non trovata");
+      assertSedeScope(commesse[idx], ctx.sedeId);
+      const c = commesse[idx];
+      const p = (c.pagamenti ?? []).find((x: any) => x.id === input.pagamentoId);
+      if (!p) throw new Error("Acconto non trovato");
+      if (input.importo !== undefined) p.importo = input.importo;
+      if (input.data !== undefined) p.data = input.data || null;
+      if (input.metodo !== undefined) p.metodo = input.metodo ?? null;
+      if (input.note !== undefined) p.note = input.note?.trim() || null;
+      c.importoIncassato = c.pagamenti.reduce((s: number, x: any) => s + (x.importo ?? 0), 0);
+      c.updatedAt = new Date();
+      _store.save();
+      return c;
+    }),
+
   removePagamento: protectedProcedure
     .input(z.object({ commessaId: z.number(), pagamentoId: z.number() }))
     .mutation(({ input, ctx }) => {

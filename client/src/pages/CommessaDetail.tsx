@@ -2191,6 +2191,17 @@ function PagamentiCard({
     onSuccess: () => utils.commesse.invalidate(),
     onError: (e) => toast.error(e.message ?? "Rimozione non riuscita"),
   });
+  const updatePagamento = trpc.commesse.updatePagamento.useMutation({
+    onSuccess: () => {
+      utils.commesse.invalidate();
+      setEditPag(null);
+      toast.success("Acconto aggiornato");
+    },
+    onError: (e) => toast.error(e.message ?? "Salvataggio non riuscito"),
+  });
+  // Row being edited + its draft.
+  const [editPag, setEditPag] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState({ importo: "", data: "", metodo: "bonifico", note: "" });
 
   if (!commessa) return null;
   const totale: number | null = commessa.importoTotale ?? null;
@@ -2278,39 +2289,121 @@ function PagamentiCard({
         {/* Acconti registrati */}
         {ordered.length > 0 && (
           <div className="rounded-md border border-border divide-y divide-border/60">
-            {ordered.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="tabular-nums text-text-2 w-20 shrink-0">
-                  {fmtData(p.data)}
-                </span>
-                <span className="font-bold tabular-nums shrink-0">
-                  € {fmt(p.importo)}
-                </span>
-                {p.metodo && (
-                  <Badge variant="secondary" className="text-[10px] shrink-0">
-                    {METODO_LABEL[p.metodo] ?? p.metodo}
-                  </Badge>
-                )}
-                {p.note && (
-                  <span className="text-xs text-text-3 truncate" title={p.note}>
-                    {p.note}
+            {ordered.map((p) =>
+              editPag === p.id ? (
+                <div key={p.id} className="flex items-end gap-2 px-3 py-2 flex-wrap bg-surface-2/60">
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px]">Data</Label>
+                    <Input
+                      type="date"
+                      value={editDraft.data}
+                      onChange={(e) => setEditDraft({ ...editDraft, data: e.target.value })}
+                      className="h-8 w-[135px] text-xs"
+                    />
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px]">Importo €</Label>
+                    <Input
+                      inputMode="decimal"
+                      value={editDraft.importo}
+                      onChange={(e) => setEditDraft({ ...editDraft, importo: e.target.value })}
+                      className="h-8 w-24 tabular-nums"
+                    />
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px]">Metodo</Label>
+                    <Select
+                      value={editDraft.metodo}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, metodo: v })}
+                    >
+                      <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(METODO_LABEL).map(([k, l]) => (
+                          <SelectItem key={k} value={k}>{l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-0.5 flex-1 min-w-[120px]">
+                    <Label className="text-[10px]">Nota</Label>
+                    <Input
+                      value={editDraft.note}
+                      onChange={(e) => setEditDraft({ ...editDraft, note: e.target.value })}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    disabled={!parse(editDraft.importo) || updatePagamento.isPending}
+                    onClick={() =>
+                      updatePagamento.mutate({
+                        commessaId,
+                        pagamentoId: p.id,
+                        importo: parse(editDraft.importo)!,
+                        data: editDraft.data || null,
+                        metodo: editDraft.metodo as any,
+                        note: editDraft.note.trim() || null,
+                      })
+                    }
+                  >
+                    Salva
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8" onClick={() => setEditPag(null)}>
+                    Annulla
+                  </Button>
+                </div>
+              ) : (
+                <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <span className="tabular-nums text-text-2 w-20 shrink-0">
+                    {fmtData(p.data)}
                   </span>
-                )}
-                <span className="flex-1" />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-danger shrink-0"
-                  title="Rimuovi acconto"
-                  disabled={removePagamento.isPending}
-                  onClick={() =>
-                    removePagamento.mutate({ commessaId, pagamentoId: p.id })
-                  }
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
+                  <span className="font-bold tabular-nums shrink-0">
+                    € {fmt(p.importo)}
+                  </span>
+                  {p.metodo && (
+                    <Badge variant="secondary" className="text-[10px] shrink-0">
+                      {METODO_LABEL[p.metodo] ?? p.metodo}
+                    </Badge>
+                  )}
+                  {p.note && (
+                    <span className="text-xs text-text-3 truncate" title={p.note}>
+                      {p.note}
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0"
+                    title="Modifica acconto"
+                    onClick={() => {
+                      setEditPag(p.id);
+                      setEditDraft({
+                        importo: String(p.importo ?? ""),
+                        data: p.data ?? "",
+                        metodo: p.metodo ?? "bonifico",
+                        note: p.note ?? "",
+                      });
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-danger shrink-0"
+                    title="Rimuovi acconto"
+                    disabled={removePagamento.isPending}
+                    onClick={() =>
+                      removePagamento.mutate({ commessaId, pagamentoId: p.id })
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )
+            )}
           </div>
         )}
 
