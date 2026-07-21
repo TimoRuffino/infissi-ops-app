@@ -292,7 +292,7 @@ export default function ClienteDetail() {
         ["Email", c!.email || "—"],
         ["Codice fiscale", c!.codiceFiscale || "—"],
         ["Partita IVA", c!.partitaIva || "—"],
-        ["Residenza (fatturazione)", resRow],
+        [c!.tipo === "privato" ? "Residenza (fatturazione)" : "Sede legale (fatturazione)", resRow],
         ["Indirizzo lavori", lavRow],
         [
           "Detrazione fiscale",
@@ -468,10 +468,10 @@ export default function ClienteDetail() {
 
             <div className="flex gap-4 flex-wrap mt-2 text-sm text-muted-foreground">
               {c.indirizzo && (
-                <span className="flex items-center gap-1" title="Indirizzo di residenza — usato per le fatture">
+                <span className="flex items-center gap-1" title={c.tipo === "privato" ? "Indirizzo di residenza — usato per le fatture" : "Sede legale — usata per le fatture"}>
                   <MapPin className="h-3.5 w-3.5" />
                   <span className="text-[10px] uppercase tracking-wide mr-1 px-1 py-0.5 bg-muted rounded font-semibold">
-                    Residenza
+                    {c.tipo === "privato" ? "Residenza" : "Sede legale"}
                   </span>
                   {c.indirizzo}, {c.cap} {c.citta}
                 </span>
@@ -913,26 +913,38 @@ export default function ClienteDetail() {
           </DialogHeader>
           {editForm && (
             <div className="grid gap-3 py-2">
-              <div className="grid grid-cols-2 gap-3">
+              {editForm.tipo === "privato" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Cognome</Label>
+                    <Input
+                      value={editForm.cognome}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, cognome: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Nome</Label>
+                    <Input
+                      value={editForm.nome}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, nome: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              ) : (
                 <div className="space-y-1.5">
-                  <Label>Cognome</Label>
+                  <Label>Ragione sociale</Label>
                   <Input
                     value={editForm.cognome}
                     onChange={(e) =>
-                      setEditForm({ ...editForm, cognome: e.target.value })
+                      setEditForm({ ...editForm, cognome: e.target.value, nome: " " })
                     }
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Nome</Label>
-                  <Input
-                    value={editForm.nome}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, nome: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
                 <Select
@@ -953,7 +965,9 @@ export default function ClienteDetail() {
               {/* Residenza */}
               <div className="rounded-md border p-3 space-y-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Indirizzo di residenza (fatturazione)
+                  {editForm.tipo === "privato"
+                    ? "Indirizzo di residenza (fatturazione)"
+                    : "Sede legale (fatturazione)"}
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5 col-span-2">
@@ -998,7 +1012,9 @@ export default function ClienteDetail() {
                         setEditForm({ ...editForm, lavoroStessoResidenza: v })
                       }
                     />
-                    <span className="text-muted-foreground">Stesso della residenza</span>
+                    <span className="text-muted-foreground">
+                      {editForm.tipo === "privato" ? "Stesso della residenza" : "Stessa della sede legale"}
+                    </span>
                   </label>
                 </div>
                 {!editForm.lavoroStessoResidenza && (

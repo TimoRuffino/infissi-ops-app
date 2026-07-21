@@ -190,24 +190,6 @@ export default function ClientiList() {
               <DialogTitle>Nuovo cliente</DialogTitle>
             </DialogHeader>
             <div className="grid gap-3 py-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Cognome *</Label>
-                  <Input
-                    value={form.cognome}
-                    onChange={(e) =>
-                      setForm({ ...form, cognome: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Nome *</Label>
-                  <Input
-                    value={form.nome}
-                    onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                  />
-                </div>
-              </div>
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
                 <Select
@@ -225,6 +207,41 @@ export default function ClientiList() {
                   </SelectContent>
                 </Select>
               </div>
+              {form.tipo === "privato" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Cognome *</Label>
+                    <Input
+                      value={form.cognome}
+                      onChange={(e) =>
+                        setForm({ ...form, cognome: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Nome *</Label>
+                    <Input
+                      value={form.nome}
+                      onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Ragione sociale *</Label>
+                  <Input
+                    placeholder={
+                      form.tipo === "condominio"
+                        ? "Es. Condominio Colline del Sole"
+                        : "Es. Rossi Costruzioni S.r.l."
+                    }
+                    value={form.cognome}
+                    onChange={(e) =>
+                      setForm({ ...form, cognome: e.target.value })
+                    }
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Codice fiscale</Label>
@@ -248,7 +265,9 @@ export default function ClientiList() {
               {/* Residenza — for fatture / admin */}
               <div className="rounded-md border p-3 space-y-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Indirizzo di residenza (fatturazione)
+                  {form.tipo === "privato"
+                    ? "Indirizzo di residenza (fatturazione)"
+                    : "Sede legale (fatturazione)"}
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5 col-span-2">
@@ -291,7 +310,9 @@ export default function ClientiList() {
                         setForm({ ...form, lavoroStessoResidenza: v })
                       }
                     />
-                    <span className="text-muted-foreground">Stesso della residenza</span>
+                    <span className="text-muted-foreground">
+                      {form.tipo === "privato" ? "Stesso della residenza" : "Stessa della sede legale"}
+                    </span>
                   </label>
                 </div>
                 {!form.lavoroStessoResidenza && (
@@ -448,7 +469,7 @@ export default function ClientiList() {
                   // lavoro so commessa fallback always has a value to use.
                   const lavoroSame = form.lavoroStessoResidenza;
                   createCliente.mutate({
-                    nome: form.nome,
+                    nome: form.tipo === "privato" ? form.nome : " ",
                     cognome: form.cognome,
                     tipo: form.tipo as any,
                     codiceFiscale: form.codiceFiscale || undefined,
@@ -477,7 +498,7 @@ export default function ClientiList() {
                   });
                 }}
                 disabled={
-                  !form.nome ||
+                  (form.tipo === "privato" && !form.nome) ||
                   !form.cognome ||
                   (form.detrazione && !form.tipoDetrazione) ||
                   createCliente.isPending
