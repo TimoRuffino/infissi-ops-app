@@ -442,13 +442,13 @@ export default function CommesseList() {
         <table className="w-full text-sm">
           <thead className="sticky top-[52px] z-20 bg-surface-2">
             <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
-              <th className="eyebrow font-semibold px-4 py-2.5">Codice</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Cliente</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Stato</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Assegnata</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Città</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Consegna stimata</th>
-              <th className="eyebrow font-semibold px-4 py-2.5">Priorità</th>
+              <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Codice</th>
+              <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Cliente</th>
+              <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Stato</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Assegnata</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden md:table-cell">Città</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Consegna stimata</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Priorità</th>
               <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
             </tr>
           </thead>
@@ -468,19 +468,19 @@ export default function CommesseList() {
                   className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
                   onClick={() => setLocation(`/commesse/${c.id}`)}
                 >
-                  <td className="px-4">
+                  <td className="px-3 sm:px-4">
                     <span className="codice-mono text-text-2">{c.codice}</span>
                   </td>
-                  <td className="px-4 font-medium text-text-1">{c.cliente || "—"}</td>
-                  <td className="px-4">
+                  <td className="px-3 sm:px-4 font-medium text-text-1">{c.cliente || "—"}</td>
+                  <td className="px-3 sm:px-4">
                     <StatoChip stato={c.stato} />
                   </td>
-                  <td className="px-4 text-text-2">
+                  <td className="px-4 text-text-2 hidden lg:table-cell">
                     {assignee ? `${assignee.cognome} ${assignee.nome}` : "—"}
                   </td>
-                  <td className="px-4 text-text-2">{c.citta || "—"}</td>
-                  <td className="px-4 text-text-2 tabular-nums">{consegna}</td>
-                  <td className="px-4">
+                  <td className="px-4 text-text-2 hidden md:table-cell">{c.citta || "—"}</td>
+                  <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{consegna}</td>
+                  <td className="px-4 hidden sm:table-cell">
                     <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
                       {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                     </Badge>

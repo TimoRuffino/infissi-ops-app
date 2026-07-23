@@ -441,7 +441,7 @@ export default function ClienteDetail() {
           Clienti
         </Button>
 
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <TipoIcon className="h-5 w-5 text-muted-foreground" />
@@ -512,7 +512,7 @@ export default function ClienteDetail() {
               </p>
             )}
           </div>
-          <div className="flex gap-1.5 shrink-0">
+          <div className="flex gap-1.5 flex-wrap">
             <Button variant="outline" size="sm" onClick={exportSchedaPdf}>
               <Printer className="h-3.5 w-3.5 mr-1" /> Scheda PDF
             </Button>

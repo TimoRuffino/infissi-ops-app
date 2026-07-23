@@ -715,7 +715,7 @@ export default function CommessaDetail() {
           <ArrowLeft className="h-4 w-4 mr-1" />
           Commesse
         </Button>
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="codice-mono text-text-2">{c.codice}</span>
@@ -736,7 +736,7 @@ export default function CommessaDetail() {
               {c.cliente}
             </h1>
           </div>
-          <div className="flex gap-1.5 shrink-0 items-center">
+          <div className="flex gap-1.5 items-center flex-wrap">
             {/* Single primary action: Avanza a: <stato successivo> (§4.3) */}
             {!c.archivedAt && c.stato !== "archiviata" && (() => {
               const next: Record<string, string> = {

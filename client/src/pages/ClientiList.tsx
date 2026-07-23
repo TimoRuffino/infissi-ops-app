@@ -588,12 +588,12 @@ export default function ClientiList() {
           <table className="w-full text-sm">
             <thead className="sticky top-[52px] z-20 bg-surface-2">
               <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
-                <th className="eyebrow font-semibold px-4 py-2.5">Nome</th>
-                <th className="eyebrow font-semibold px-4 py-2.5">Tag fiscali</th>
-                <th className="eyebrow font-semibold px-4 py-2.5">Città</th>
-                <th className="eyebrow font-semibold px-4 py-2.5">Telefono</th>
-                <th className="eyebrow font-semibold px-4 py-2.5 text-right">Commesse</th>
-                <th className="eyebrow font-semibold px-4 py-2.5">Assegnato</th>
+                <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Nome</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Tag fiscali</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Città</th>
+                <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Telefono</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 text-right hidden sm:table-cell">Commesse</th>
+                <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Assegnato</th>
                 <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
               </tr>
             </thead>
@@ -609,18 +609,18 @@ export default function ClientiList() {
                     className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
                     onClick={() => setLocation(`/clienti/${c.id}`)}
                   >
-                    <td className="px-4">
+                    <td className="px-3 sm:px-4">
                       <div className="flex items-center gap-2">
                         <TipoIcon className="h-4 w-4 text-text-3 shrink-0" />
                         <span className="font-medium text-text-1">
                           {displayName || "—"}
                         </span>
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
                           {tipoLabels[c.tipo] ?? c.tipo}
                         </Badge>
                       </div>
                     </td>
-                    <td className="px-4">
+                    <td className="px-4 hidden xl:table-cell">
                       <div className="flex items-center gap-1 flex-wrap">
                         {c.detrazione && (
                           <Badge variant="info" className="capitalize">
@@ -642,12 +642,12 @@ export default function ClientiList() {
                           )}
                       </div>
                     </td>
-                    <td className="px-4 text-text-2">{c.citta || "—"}</td>
-                    <td className="px-4 text-text-2 tabular-nums">{c.telefono || "—"}</td>
-                    <td className="px-4 text-right tabular-nums font-medium text-text-1">
+                    <td className="px-4 text-text-2 hidden lg:table-cell">{c.citta || "—"}</td>
+                    <td className="px-3 sm:px-4 text-text-2 tabular-nums">{c.telefono || "—"}</td>
+                    <td className="px-4 text-right tabular-nums font-medium text-text-1 hidden sm:table-cell">
                       {c.commesseIds?.length ?? 0}
                     </td>
-                    <td className="px-4 text-text-2">
+                    <td className="px-4 text-text-2 hidden lg:table-cell">
                       {assignee ? `${assignee.cognome ?? ""} ${assignee.nome}`.trim() : "—"}
                     </td>
                     <td className="px-2" onClick={(e) => e.stopPropagation()}>
