@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Ops (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (16/07/2026).
-**Versione:** 4.0 — Multi‑sede, Magazzino, Pagamenti/acconti, sincronizzazione Google Calendar (export+import), backup notturno su Google Drive, Fatture in Cloud, WhatsApp, notifiche personalizzate v2, timeline ordine con note, migrazione dati 2026.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/07/2026).
+**Versione:** 4.1 — Pagina Pagamenti, acconti modificabili, date programmate in timeline, Magazzino con filtro fornitore, form azienda (ragione sociale + sede legale), responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Pagamenti/acconti, sincronizzazione Google Calendar (export+import), backup notturno su Google Drive, Fatture in Cloud, WhatsApp, notifiche personalizzate v2, timeline ordine con note, migrazione dati 2026.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -120,13 +120,13 @@ Ogni utente ha `ruoli: string[]` (1–3 valori). Il campo legacy `ruolo` continu
 
 ### 5.2 Campi del Cliente
 Anagrafica:
-- **Nome** (obbligatorio).
-- **Cognome** (obbligatorio).
-- **Tipo** (vedi 5.1; default `privato`).
+- **Tipo** (vedi 5.1; default `privato`) — è il **primo campo del form**: la sua scelta cambia i campi successivi.
+- Se `tipo === "privato"`: **Cognome** e **Nome** (entrambi obbligatori).
+- Se `tipo ∈ {azienda, condominio, ente_pubblico}`: un solo campo **Ragione sociale** (obbligatorio), archiviato nel campo `cognome`; `nome` viene valorizzato a spazio singolo. Stessa convenzione usata dalla sincronizzazione Fatture in Cloud (§40) e dalla migrazione 2026 (§43), così le denominazioni restano indivise.
 - **Codice fiscale**, **partita IVA**.
 
 Doppio indirizzo:
-- **Indirizzo di residenza** (`indirizzo`, `citta`, `cap`) — usato dall'amministrazione per la fatturazione.
+- **Indirizzo di residenza** (`indirizzo`, `citta`, `cap`) — usato dall'amministrazione per la fatturazione. Per i clienti non privati l'etichetta diventa **«Sede legale (fatturazione)»** ovunque: form di creazione/modifica, badge nella scheda cliente e scheda PDF (§42).
 - **Indirizzo dei lavori** (`indirizzoLavoro`, `cittaLavoro`, `capLavoro`) — usato dalle commesse per cantiere, calendario, mappe.
 - In fase di creazione/modifica il form propone uno **switch "stesso della residenza"** che copia automaticamente i campi residenza → lavoro al salvataggio.
 - La scheda cliente espone entrambi gli indirizzi con badge distintivo "Residenza" / "Lavoro".
@@ -737,6 +737,10 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 
 ### 29.3 Mobile
 - Layout responsivo. Sidebar collassata in modalità mobile; nasconde scritte tenendo solo icone.
+- **Header delle schede** (commessa, cliente): su viewport < `sm` il titolo e la riga di azioni si impilano (`flex-col` → `sm:flex-row`) e i bottoni vanno a capo (`flex-wrap`) invece di uscire dallo schermo.
+- **Tabelle di lista** (Commesse, Clienti): le colonne secondarie sono nascoste progressivamente con `hidden {sm|md|lg|xl}:table-cell`, così su telefono restano solo le essenziali — Codice/Cliente/Stato per le commesse, Nome/Telefono per i clienti — con padding ridotto (`px-3`) sulle colonne mantenute. **Non** viene usato un wrapper `overflow-x-auto`: creerebbe un contenitore di scroll che romperebbe gli header `sticky` (regressione già occorsa e corretta in passato).
+- Board, Calendario, Dashboard, Pagamenti e Magazzino riflowano nativamente (griglie responsive + `flex-wrap`); nessuno scroll orizzontale di pagina.
+- Le tabelle delle sezioni direzione‑only a bassa frequenza (Fornitori, Produzione) restano larghe: sono pensate per l'uso da desktop.
 
 ### 29.4 Empty states
 - Tutte le pagine principali hanno empty state esplicito con istruzioni sul prossimo passo.
@@ -796,6 +800,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 
 ## 33. Cronologia significativa
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
+- **v4.1 (23/07/2026)** — Pagina Pagamenti (§37.4) con registrazione rapida degli acconti; acconti modificabili in place (§37.1‑37.2); date programmabili sugli step della timeline, pensate per l'Appuntamento Posa (§35.2‑bis); Magazzino a 2 tile per riga con 4 prodotti visibili, badge fornitore e filtro fornitore a tendina (§36.3); form cliente con Ragione sociale e Sede legale per i non privati (§5.2); responsive mobile su header schede e tabelle di lista (§29.3).
 - **v4.0 (16/07/2026)** — Rimossa la Classifica venditori (§23). Multi‑sede con isolamento completo; redesign UI (board v2, calendario mese‑default con chip pieni, timeline note post‑it, dashboard personalizzata); Magazzino (tile+popup, ordini, lead time, dropdown fornitori); registro acconti; notifiche v2 con stato lettura; sincronizzazione Google Calendar export+import; backup notturno Google Drive (OAuth drive.file); Fatture in Cloud sync clienti; WhatsApp deep link; scheda cliente PDF; hardening (scrypt versionato, CSRF, SSRF guard, trust proxy, mascheramento segreti); migrazione dati 2026 (§43).
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
 - v2.x — Versione precedente (PDF allegato in repo come riferimento storico).
@@ -829,8 +834,15 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 
 ### 35.2 Interazione
 - Barra avanzamento (N/18 + %). Fasi collassabili; **la fase con lo step corrente e quelle contenenti note si aprono da sole**.
-- Step corrente evidenziato (sfondo primary tenue) con bottone **Completa** one‑click (data odierna). Dialog di modifica per utente esecutore (SearchSelect) + note; step completato riapribile.
+- Step corrente evidenziato (sfondo primary tenue) con bottone **Completa** one‑click. Dialog di modifica per data, utente esecutore (SearchSelect) e note; step completato riapribile.
 - Campi step: `stato (da_fare|in_corso|completato), dataCompletamento, utente, note, allegato?`.
+
+### 35.2‑bis Date programmate (appuntamenti futuri)
+Il dialog dello step espone un campo **«Data (appuntamento o completamento)»** e due azioni distinte:
+- **«Salva data»** — memorizza data/utente/note **senza** completare lo step. Serve a programmare in anticipo, tipicamente l'**Appuntamento Posa**, ma vale per qualsiasi step futuro.
+- **«Segna come completato»** — completa lo step usando la data scelta (non più forzata a oggi).
+
+Uno step non completato con data valorizzata mostra in riga una scritta blu **«📅 gg/mm/aaaa · utente»**, visivamente distinta dai metadati grigi degli step già completati.
 
 ### 35.3 Note come cittadino di prima classe
 - Le note renderizzano come **post‑it ambra** (icona + 12 px, `whitespace-pre-line`: le note multiriga migrate dai To Do conservano a‑capo e separatori "— — —").
@@ -851,9 +863,9 @@ Prodotti fisici in arrivo/da magazzino **per commessa**. Eleggibili solo commess
 ### 36.3 UI
 - **KPI**: Prodotti, In arrivo, Arrivati, Lead time medio.
 - **Strip "Prossime consegne"**: le 5 consegne pendenti più vicine cross‑commessa (rosse se scadute); il click apre il popup della commessa.
-- **Ricerca + filtri**: Tutte / Con prodotti / In arrivo / In ritardo / Arrivati.
-- **Griglia di tile** (3 per riga desktop): codice, StatoChip, cliente (17 px bold), città, primi 2 prodotti colorati per stato (✓ verde arrivato, rosso in ritardo con data corta, grigio in arrivo), "+N altri prodotti", badge "N/M arrivati". Bordo rosso (ritardi) / verde (tutto arrivato). Ordinamento per urgenza (ritardi → consegna più vicina).
-- **Popup dettaglio** (click sul tile): header con codice/cliente/stato/città + "Apri commessa" + badge; righe prodotto **tutte editabili inline** (quantità, fornitore, n° ordine, date, switch arrivato, nota ghost click‑to‑edit con blur‑save); form "Aggiungi prodotto" su due righe.
+- **Ricerca + filtri**: chip di stato (Tutte / In arrivo / In ritardo / Arrivati) affiancati da un **menu a tendina dei fornitori** («Tutti i fornitori» + i 19 dell'elenco) che filtra le commesse contenenti almeno un prodotto di quel fornitore. Il vecchio chip «Con prodotti» è stato sostituito da questo dropdown.
+- **Griglia di tile** (**2 per riga** su desktop, 1 su mobile): codice, StatoChip, cliente (17 px bold), città, **primi 4 prodotti** colorati per stato (✓ verde arrivato, rosso in ritardo con data corta, grigio in arrivo) ciascuno con **mini‑badge fornitore** accanto alla data, "+N altri prodotti", badge "N/M arrivati". Bordo rosso (ritardi) / verde (tutto arrivato). Ordinamento per urgenza (ritardi → consegna più vicina).
+- **Popup dettaglio** (click sul tile, `max-w-6xl`): header con codice/cliente/stato/città + "Apri commessa" + badge; righe prodotto **tutte editabili inline** (quantità, fornitore, n° ordine, date, switch arrivato, nota ghost click‑to‑edit con blur‑save); form "Aggiungi prodotto" su due righe.
 
 ### 36.4 Board
 Le card del Kanban mostrano il blocco prodotti (vedi §11.2).
@@ -862,12 +874,13 @@ Le card del Kanban mostrano il blocco prodotti (vedi §11.2).
 
 ### 37.1 Modello
 Su ogni commessa: `importoTotale` (pattuito) + `pagamenti[]` embedded: `{ id, importo, data?, metodo?, note?, createdAt }` con metodo ∈ `bonifico | contanti | assegno | pos | finanziamento | altro`.
-- `importoIncassato` è **sempre ricalcolato dal server** come somma del registro (add/removePagamento) → board, dashboard e notifiche coerenti senza duplicare logica.
+- `importoIncassato` è **sempre ricalcolato dal server** come somma del registro (`addPagamento`, `updatePagamento`, `removePagamento`) → board, dashboard e notifiche coerenti senza duplicare logica.
+- Gli acconti registrati sono **modificabili**: `updatePagamento` accetta importo, data, metodo e nota di una singola riga.
 - Backfill: record legacy con incassato secco → unico acconto "Importo importato".
 
 ### 37.2 Card "Pagamenti" (scheda commessa)
 - Totale pattuito editabile inline (blur‑save), barra "% incassato · € N", **Residuo** grande (ambra finché > 0, verde a saldo).
-- Registro acconti ordinato per data: data, importo bold, badge metodo, nota, cestino.
+- Registro acconti ordinato per data: data, importo bold, badge metodo, nota, **matita** e cestino. La matita trasforma la riga in un form inline (data, importo, metodo, nota + Salva/Annulla); al salvataggio residuo, barra, chip del board, dashboard e notifiche si aggiornano da soli.
 - **Chips rapide 50% / 40% / 10%** del totale (il piano di pagamento tipico), cappate al residuo: un click precompila l'importo nel form di registrazione (data default oggi).
 - Accent warning sulla card finché c'è residuo.
 
@@ -875,6 +888,14 @@ Su ogni commessa: `importoTotale` (pattuito) + `pagamenti[]` embedded: `{ id, im
 - Board: chip "Da saldare € N" nelle fasi finali (§11.2).
 - Dashboard: voce "Da incassare € N" nel feed personalizzato (§26.2).
 - Notifiche: fonte 4b (§25.2) — l'id embedde il residuo, un incasso parziale ri‑notifica il nuovo valore.
+
+### 37.4 Pagina Pagamenti (`/pagamenti`)
+Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no archiviate).
+- **KPI**: Pattuito · Incassato · **Da incassare** · numero commesse senza importo pattuito.
+- **Strip «Ultimi incassi»**: gli acconti più recenti della sede (endpoint `commesse.pagamentiRecenti`, che appiattisce i registri ordinandoli per data di registrazione e resta sede‑scoped); il click apre la commessa.
+- **Righe ordinate per residuo decrescente** (i soldi più grossi in cima): codice, cliente, StatoChip, pattuito, barra percentuale con incassato (nascosta sotto `md`), **Residuo** in ambra oppure «Saldata» in verde.
+- **Bottone «Acconto»** su ogni riga con residuo: apre un dialog rapido con chips **50/40/10%** + **«Salda tutto»**, data (default oggi), metodo e nota — registra senza dover aprire la commessa (riusa `addPagamento`).
+- **Filtri**: Con residuo *(default)* / Saldate / Senza importo / Tutte, più ricerca per codice o cliente.
 
 ## 38. Sincronizzazione Google Calendar
 
