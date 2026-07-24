@@ -1026,12 +1026,7 @@ export default function CommessaDetail() {
       {/* Economia — margine lordo (P0.2). Direzione/amministrazione only:
           the query itself is role-gated server-side, the client just hides
           the card for everyone else. */}
-      <EconomiaCard
-        commessaId={commessaId}
-        onSaveCostoPosa={(v) =>
-          updateCommessa.mutate({ id: commessaId, costoPosaStimato: v })
-        }
-      />
+      <EconomiaCard commessaId={commessaId} />
 
       {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
       <TimelineOrdine commessaId={commessaId} />
@@ -2528,13 +2523,7 @@ const FORNITORI_COSTO = [
   "Sharknet",
 ];
 
-function EconomiaCard({
-  commessaId,
-  onSaveCostoPosa,
-}: {
-  commessaId: number;
-  onSaveCostoPosa: (v: number | null) => void;
-}) {
+function EconomiaCard({ commessaId }: { commessaId: number }) {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const canSee = isDirezione(user) || hasRuolo(user, "amministrazione");
@@ -2555,10 +2544,22 @@ function EconomiaCard({
   };
   const [form, setForm] = useState(emptyCosto);
 
+  // Ogni scrittura economica deve invalidare ANCHE commesse.margine: è una
+  // query a sé, e senza questo la card rileggeva il valore vecchio dalla
+  // cache facendo sembrare che il salvataggio non fosse andato a buon fine.
   const refresh = () => {
     utils.commesse.margine.invalidate(commessaId);
     utils.commesse.marginalita.invalidate();
+    utils.commesse.byId.invalidate(commessaId);
+    utils.commesse.list.invalidate();
   };
+  const saveCostoPosa = trpc.commesse.update.useMutation({
+    onSuccess: () => {
+      refresh();
+      toast.success("Costo posa aggiornato");
+    },
+    onError: (e) => toast.error(e.message ?? "Salvataggio non riuscito"),
+  });
   const addCosto = trpc.commesse.addCosto.useMutation({
     onSuccess: () => {
       refresh();
@@ -2736,10 +2737,25 @@ function EconomiaCard({
               className="h-8 w-32"
               value={posa ?? (m.costoPosa != null ? String(m.costoPosa) : "")}
               onChange={(e) => setPosa(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
               onBlur={() => {
                 if (posa == null) return;
-                const v = posa.trim() === "" ? null : parse(posa);
-                onSaveCostoPosa(v);
+                const raw = posa.trim();
+                // Vuoto = "non impostato". Zero è un valore legittimo (posa
+                // fatta in casa), quindi qui accetto anche 0 — a differenza
+                // degli importi dei costi, dove 0 non ha senso.
+                const n = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+                if (raw !== "" && (isNaN(n) || n < 0)) {
+                  toast.error("Costo posa non valido");
+                  setPosa(null);
+                  return;
+                }
+                const v = raw === "" ? null : n;
+                if (v !== (m.costoPosa ?? null)) {
+                  saveCostoPosa.mutate({ id: commessaId, costoPosaStimato: v });
+                }
                 setPosa(null);
               }}
             />
