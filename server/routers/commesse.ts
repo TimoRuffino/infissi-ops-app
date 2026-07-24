@@ -93,6 +93,8 @@ const _store = persistedStore<any>("commesse", (items) => {
     if ((c as any).importoTotale === undefined) (c as any).importoTotale = null;
     // Margine (P0.2): manual estimate of the posa cost, € — direzione-only.
     if ((c as any).costoPosaStimato === undefined) (c as any).costoPosaStimato = null;
+    // Registro costi fornitore — inserito direttamente in scheda commessa.
+    if (!Array.isArray((c as any).costi)) (c as any).costi = [];
     if ((c as any).importoIncassato === undefined) (c as any).importoIncassato = 0;
     // Acconti register — importoIncassato is derived from it. Legacy records
     // with a bare incassato figure get a single imported entry.
@@ -342,6 +344,7 @@ export const commesseRouter = router({
         importoTotale: input.importoTotale ?? null,
         importoIncassato: input.importoIncassato ?? 0,
         costoPosaStimato: null,
+        costi: [],
         pagamenti: [],
         priorita: input.priorita ?? "media",
         squadraId: null,
@@ -558,8 +561,131 @@ export const commesseRouter = router({
     requireDirezioneOAmministrazione(ctx.user);
     const c = commesse.find((x) => x.id === input);
     assertSedeScope(c, ctx.sedeId);
-    return calcolaMargine(c!, getOrdiniPerMargine(input, ctx.sedeId));
+    // Ordini fornitore già registrati nel modulo Fornitori: proposti come
+    // import una tantum finché il registro costi della commessa è vuoto.
+    const ordiniImportabili =
+      (c!.costi ?? []).length === 0
+        ? getOrdiniPerMargine(input, ctx.sedeId).filter(
+            (o) => o.importoTotale > 0 && o.stato !== "bozza" && o.stato !== "contestato"
+          )
+        : [];
+    return { ...calcolaMargine(c!), ordiniImportabili };
   }),
+
+  // ── Registro costi fornitore (embedded sulla commessa) ─────────────────────
+  // Stesso schema del registro acconti: si scrive dalla scheda commessa, e il
+  // margine è sempre ricalcolato dalla somma — nessun totale denormalizzato.
+  addCosto: protectedProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      importo: z.number().positive(),
+      fornitore: z.string().nullable().optional(),
+      descrizione: z.string().nullable().optional(),
+      data: z.string().nullable().optional(), // "YYYY-MM-DD"
+      numeroOrdine: z.string().nullable().optional(),
+      note: z.string().nullable().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const c = commesse.find((x) => x.id === input.commessaId);
+      assertSedeScope(c, ctx.sedeId);
+      if (!Array.isArray(c!.costi)) c!.costi = [];
+      const nextCid = c!.costi.length
+        ? Math.max(...c!.costi.map((x: any) => x.id ?? 0)) + 1
+        : 1;
+      c!.costi.push({
+        id: nextCid,
+        importo: input.importo,
+        fornitore: input.fornitore?.trim() || null,
+        descrizione: input.descrizione?.trim() || null,
+        data: input.data || null,
+        numeroOrdine: input.numeroOrdine?.trim() || null,
+        note: input.note?.trim() || null,
+        createdAt: new Date(),
+      });
+      c!.updatedAt = new Date();
+      _store.save();
+      return c;
+    }),
+
+  updateCosto: protectedProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      costoId: z.number(),
+      importo: z.number().positive().optional(),
+      fornitore: z.string().nullable().optional(),
+      descrizione: z.string().nullable().optional(),
+      data: z.string().nullable().optional(),
+      numeroOrdine: z.string().nullable().optional(),
+      note: z.string().nullable().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const c = commesse.find((x) => x.id === input.commessaId);
+      assertSedeScope(c, ctx.sedeId);
+      const co = (c!.costi ?? []).find((x: any) => x.id === input.costoId);
+      if (!co) throw new Error("Costo non trovato");
+      if (input.importo !== undefined) co.importo = input.importo;
+      if (input.fornitore !== undefined) co.fornitore = input.fornitore?.trim() || null;
+      if (input.descrizione !== undefined) co.descrizione = input.descrizione?.trim() || null;
+      if (input.data !== undefined) co.data = input.data || null;
+      if (input.numeroOrdine !== undefined) co.numeroOrdine = input.numeroOrdine?.trim() || null;
+      if (input.note !== undefined) co.note = input.note?.trim() || null;
+      c!.updatedAt = new Date();
+      _store.save();
+      return c;
+    }),
+
+  removeCosto: protectedProcedure
+    .input(z.object({ commessaId: z.number(), costoId: z.number() }))
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const c = commesse.find((x) => x.id === input.commessaId);
+      assertSedeScope(c, ctx.sedeId);
+      if (!Array.isArray(c!.costi)) c!.costi = [];
+      const ci = c!.costi.findIndex((x: any) => x.id === input.costoId);
+      if (ci === -1) throw new Error("Costo non trovato");
+      c!.costi.splice(ci, 1);
+      c!.updatedAt = new Date();
+      _store.save();
+      return c;
+    }),
+
+  // Import una tantum degli ordini fornitore già registrati nel modulo
+  // Fornitori, per non riscrivere a mano quanto è già a sistema.
+  importaCostiDaOrdini: protectedProcedure
+    .input(z.number())
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const c = commesse.find((x) => x.id === input);
+      assertSedeScope(c, ctx.sedeId);
+      if (!Array.isArray(c!.costi)) c!.costi = [];
+      const ordini = getOrdiniPerMargine(input, ctx.sedeId).filter(
+        (o) => o.importoTotale > 0 && o.stato !== "bozza" && o.stato !== "contestato"
+      );
+      let nextCid = c!.costi.length
+        ? Math.max(...c!.costi.map((x: any) => x.id ?? 0)) + 1
+        : 1;
+      let importati = 0;
+      for (const o of ordini) {
+        // Idempotente: salta gli ordini già importati (stesso numero).
+        if (c!.costi.some((x: any) => x.numeroOrdine === o.codiceOrdine)) continue;
+        c!.costi.push({
+          id: nextCid++,
+          importo: o.importoTotale,
+          fornitore: o.fornitoreNome,
+          descrizione: "Ordine fornitore",
+          data: null,
+          numeroOrdine: o.codiceOrdine,
+          note: null,
+          createdAt: new Date(),
+        });
+        importati++;
+      }
+      c!.updatedAt = new Date();
+      _store.save();
+      return { importati };
+    }),
 
   // Vista aggregata per la pagina /marginalita: solo direzione. Esclude le
   // commesse archiviate (stato o soft-archive) — sono storia, non gestione.
@@ -585,7 +711,7 @@ export const commesseRouter = router({
           assegnatoNome: assegnatario
             ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
             : null,
-          ...calcolaMargine(c, getOrdiniPerMargine(c.id, ctx.sedeId)),
+          ...calcolaMargine(c),
         };
       });
   }),

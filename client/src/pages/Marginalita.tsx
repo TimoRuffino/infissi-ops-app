@@ -77,11 +77,12 @@ export default function Marginalita() {
     const perVenditore = new Map<string, { margine: number; ricavi: number; n: number }>();
     const perMese = new Map<string, { margine: number; ricavi: number; n: number }>();
     for (const r of completi as any[]) {
-      for (const o of r.dettaglioOrdini ?? []) {
-        const f = perFornitore.get(o.fornitoreNome) ?? { costi: 0, commesse: new Set() };
-        f.costi += o.importoTotale ?? 0;
+      for (const co of r.costi ?? []) {
+        const nome = co.fornitore || "Senza fornitore";
+        const f = perFornitore.get(nome) ?? { costi: 0, commesse: new Set() };
+        f.costi += co.importo ?? 0;
         f.commesse.add(r.id);
-        perFornitore.set(o.fornitoreNome, f);
+        perFornitore.set(nome, f);
       }
       const vKey = r.assegnatoNome ?? "Non assegnata";
       const v = perVenditore.get(vKey) ?? { margine: 0, ricavi: 0, n: 0 };

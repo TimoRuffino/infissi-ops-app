@@ -2515,10 +2515,19 @@ function PagamentiCard({
   );
 }
 
+
 // ── Economia commessa (P0.2) ────────────────────────────────────────────────
-// Margine lordo = pattuito − costi fornitore − costo posa stimato. Visibile
-// solo a direzione/amministrazione; il costo posa si modifica inline con
-// blur-save, come il totale pattuito della card Pagamenti.
+// Margine lordo = pattuito − costi fornitore − costo posa stimato.
+// I costi si registrano QUI, riga per riga, come gli acconti della card
+// Pagamenti: un solo posto dove scrivere un costo. Visibile solo a
+// direzione/amministrazione (la query stessa è gated lato server).
+const FORNITORI_COSTO = [
+  "Wnd", "Oknoplast", "Alias", "Pail", "Primed", "HenryGlass", "Palmieri",
+  "Errecci", "Fivizzanese", "Oskura", "Korus", "Punto del Serramento",
+  "Kopern", "Citea", "Cerrato", "Brianzatende", "Seraplastic", "St Scale",
+  "Sharknet",
+];
+
 function EconomiaCard({
   commessaId,
   onSaveCostoPosa,
@@ -2527,26 +2536,73 @@ function EconomiaCard({
   onSaveCostoPosa: (v: number | null) => void;
 }) {
   const { user } = useAuth();
+  const utils = trpc.useUtils();
   const canSee = isDirezione(user) || hasRuolo(user, "amministrazione");
   const margine = trpc.commesse.margine.useQuery(commessaId, {
     enabled: canSee,
     retry: false,
   });
+
   const [posa, setPosa] = useState<string | null>(null);
-  const [openOrdini, setOpenOrdini] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const emptyCosto = {
+    importo: "",
+    fornitore: "",
+    descrizione: "",
+    data: "",
+    numeroOrdine: "",
+  };
+  const [form, setForm] = useState(emptyCosto);
+
+  const refresh = () => {
+    utils.commesse.margine.invalidate(commessaId);
+    utils.commesse.marginalita.invalidate();
+  };
+  const addCosto = trpc.commesse.addCosto.useMutation({
+    onSuccess: () => {
+      refresh();
+      setForm(emptyCosto);
+      setAddOpen(false);
+      toast.success("Costo registrato");
+    },
+    onError: (e) => toast.error(e.message ?? "Registrazione non riuscita"),
+  });
+  const updateCosto = trpc.commesse.updateCosto.useMutation({
+    onSuccess: () => {
+      refresh();
+      setEditId(null);
+      toast.success("Costo aggiornato");
+    },
+    onError: (e) => toast.error(e.message ?? "Salvataggio non riuscito"),
+  });
+  const removeCosto = trpc.commesse.removeCosto.useMutation({
+    onSuccess: () => refresh(),
+    onError: (e) => toast.error(e.message ?? "Rimozione non riuscita"),
+  });
+  const importaCosti = trpc.commesse.importaCostiDaOrdini.useMutation({
+    onSuccess: (r: any) => {
+      refresh();
+      toast.success(`${r.importati} costi importati dagli ordini fornitore`);
+    },
+    onError: (e) => toast.error(e.message ?? "Import non riuscito"),
+  });
 
   if (!canSee || !margine.data) return null;
-  const m = margine.data;
+  const m: any = margine.data;
+  const costi: any[] = m.costi ?? [];
 
   const fmt = (n: number) =>
     n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const parse = (v: string): number | null => {
     const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
-    return isNaN(n) || n < 0 ? null : n;
+    return isNaN(n) || n <= 0 ? null : n;
   };
+  const fmtData = (iso: string | null) =>
+    iso ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT") : null;
 
-  // Colore per fascia di margine: ≥30% verde, 15–30% ambra, <15% rosso,
-  // grigio quando i dati non bastano per un numero onesto.
+  // Fascia di margine: ≥30% verde, 15–30% ambra, <15% rosso, grigio se i
+  // dati non bastano per un numero onesto.
   const perc = m.marginePerc;
   const tone = m.datiIncompleti
     ? { text: "text-text-3", border: "" }
@@ -2556,9 +2612,99 @@ function EconomiaCard({
         ? { text: "text-warning", border: "border-l-[3px] border-l-warning" }
         : { text: "text-danger", border: "border-l-[3px] border-l-danger" };
 
+  const submitAdd = () => {
+    const imp = parse(form.importo);
+    if (!imp) return toast.error("Importo non valido");
+    addCosto.mutate({
+      commessaId,
+      importo: imp,
+      fornitore: form.fornitore || null,
+      descrizione: form.descrizione || null,
+      data: form.data || null,
+      numeroOrdine: form.numeroOrdine || null,
+    });
+  };
+  const submitEdit = () => {
+    const imp = parse(form.importo);
+    if (!imp) return toast.error("Importo non valido");
+    updateCosto.mutate({
+      commessaId,
+      costoId: editId!,
+      importo: imp,
+      fornitore: form.fornitore || null,
+      descrizione: form.descrizione || null,
+      data: form.data || null,
+      numeroOrdine: form.numeroOrdine || null,
+    });
+  };
+
+  const campiCosto = (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1">
+        <Label>Importo € *</Label>
+        <Input
+          inputMode="decimal"
+          autoFocus
+          placeholder="0"
+          value={form.importo}
+          onChange={(e) => setForm((f) => ({ ...f, importo: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>Fornitore</Label>
+        <Select
+          value={form.fornitore || "__none"}
+          onValueChange={(v) =>
+            setForm((f) => ({ ...f, fornitore: v === "__none" ? "" : v }))
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Seleziona..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none">—</SelectItem>
+            {form.fornitore && !FORNITORI_COSTO.includes(form.fornitore) && (
+              <SelectItem value={form.fornitore}>{form.fornitore}</SelectItem>
+            )}
+            {FORNITORI_COSTO.map((f) => (
+              <SelectItem key={f} value={f}>
+                {f}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label>Descrizione</Label>
+        <Input
+          placeholder="es. Finestre PVC, persiane..."
+          value={form.descrizione}
+          onChange={(e) => setForm((f) => ({ ...f, descrizione: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>N° ordine</Label>
+        <Input
+          placeholder="es. 2026/4471"
+          value={form.numeroOrdine}
+          onChange={(e) => setForm((f) => ({ ...f, numeroOrdine: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>Data</Label>
+        <Input
+          type="date"
+          value={form.data}
+          onChange={(e) => setForm((f) => ({ ...f, data: e.target.value }))}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <Card className={tone.border}>
       <CardContent className="py-4 space-y-3">
+        {/* Riga sintesi: pattuito · costi · posa · margine */}
         <div className="flex items-center gap-5 flex-wrap">
           <div className="flex items-center gap-2 shrink-0">
             <span className="grid h-9 w-9 place-items-center rounded-lg bg-info-soft text-info">
@@ -2575,22 +2721,10 @@ function EconomiaCard({
           </div>
 
           <div className="space-y-0.5">
-            <button
-              type="button"
-              className="eyebrow flex items-center gap-0.5 hover:text-text-1"
-              onClick={() => setOpenOrdini((v) => !v)}
-              title="Mostra il dettaglio degli ordini fornitore"
-            >
-              Costi fornitore
-              <ChevronDown
-                className={`h-3 w-3 transition-transform ${openOrdini ? "rotate-180" : ""}`}
-              />
-            </button>
+            <div className="eyebrow">Costi fornitore</div>
             <div className="tabular-nums font-medium">
               € {fmt(m.costiFornitore)}
-              <span className="text-text-3 text-xs ml-1">
-                ({m.dettaglioOrdini.length} ordini)
-              </span>
+              <span className="text-text-3 text-xs ml-1">({costi.length})</span>
             </div>
           </div>
 
@@ -2604,7 +2738,8 @@ function EconomiaCard({
               onChange={(e) => setPosa(e.target.value)}
               onBlur={() => {
                 if (posa == null) return;
-                onSaveCostoPosa(posa.trim() === "" ? null : parse(posa));
+                const v = posa.trim() === "" ? null : parse(posa);
+                onSaveCostoPosa(v);
                 setPosa(null);
               }}
             />
@@ -2618,7 +2753,7 @@ function EconomiaCard({
                 <div className="text-[11px]">
                   {m.ricavi == null
                     ? "manca il totale pattuito"
-                    : "nessun ordine fornitore registrato"}
+                    : "nessun costo registrato"}
                 </div>
               </div>
             ) : (
@@ -2634,32 +2769,122 @@ function EconomiaCard({
           </div>
         </div>
 
-        {openOrdini && (
-          <div className="border-t border-border pt-2 space-y-1">
-            {m.dettaglioOrdini.length === 0 ? (
-              <div className="text-xs text-text-3">
-                Nessun ordine fornitore (esclusi bozza e contestato).
-              </div>
-            ) : (
-              m.dettaglioOrdini.map((o: any) => (
+        {/* Registro costi */}
+        {costi.length > 0 && (
+          <div className="space-y-1.5">
+            {costi.map((c: any) =>
+              editId === c.id ? (
                 <div
-                  key={o.id}
-                  className="flex items-center justify-between text-xs"
+                  key={c.id}
+                  className="rounded-lg border border-primary/40 bg-surface-2 px-3 py-3 space-y-3"
                 >
-                  <span className="text-text-2">
-                    {o.fornitoreNome}
-                    <span className="codice-mono text-text-3 ml-1.5">
-                      {o.codiceOrdine}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] ml-1.5 capitalize">
-                      {o.stato.replace(/_/g, " ")}
-                    </Badge>
-                  </span>
-                  <span className="tabular-nums font-medium">
-                    € {fmt(o.importoTotale)}
-                  </span>
+                  {campiCosto}
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" size="sm" onClick={() => setEditId(null)}>
+                      Annulla
+                    </Button>
+                    <Button size="sm" onClick={submitEdit} disabled={updateCosto.isPending}>
+                      Salva
+                    </Button>
+                  </div>
                 </div>
-              ))
+              ) : (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 flex-wrap"
+                >
+                  <span className="tabular-nums font-bold">€ {fmt(c.importo)}</span>
+                  {c.fornitore && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {c.fornitore}
+                    </Badge>
+                  )}
+                  {c.descrizione && (
+                    <span className="text-sm text-text-2">{c.descrizione}</span>
+                  )}
+                  {c.numeroOrdine && (
+                    <span className="codice-mono text-xs text-text-3">
+                      {c.numeroOrdine}
+                    </span>
+                  )}
+                  {fmtData(c.data) && (
+                    <span className="text-xs text-text-3 tabular-nums">
+                      {fmtData(c.data)}
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        setEditId(c.id);
+                        setAddOpen(false);
+                        setForm({
+                          importo: String(c.importo ?? ""),
+                          fornitore: c.fornitore ?? "",
+                          descrizione: c.descrizione ?? "",
+                          data: c.data ?? "",
+                          numeroOrdine: c.numeroOrdine ?? "",
+                        });
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-danger"
+                      onClick={() =>
+                        removeCosto.mutate({ commessaId, costoId: c.id })
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {/* Nuovo costo + import una tantum dagli ordini fornitore */}
+        {addOpen ? (
+          <div className="rounded-lg border border-primary/40 bg-surface-2 px-3 py-3 space-y-3">
+            {campiCosto}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>
+                Annulla
+              </Button>
+              <Button size="sm" onClick={submitAdd} disabled={addCosto.isPending}>
+                Registra costo
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setForm(emptyCosto);
+                setEditId(null);
+                setAddOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Aggiungi costo fornitore
+            </Button>
+            {(m.ordiniImportabili?.length ?? 0) > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-primary"
+                onClick={() => importaCosti.mutate(commessaId)}
+                disabled={importaCosti.isPending}
+              >
+                Importa {m.ordiniImportabili.length} ordini già a sistema
+              </Button>
             )}
           </div>
         )}
