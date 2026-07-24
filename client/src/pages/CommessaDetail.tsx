@@ -47,7 +47,11 @@ import {
   ArchiveRestore,
   MoreHorizontal,
   Banknote,
+  TrendingUp,
+  ChevronDown,
 } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -1016,6 +1020,16 @@ export default function CommessaDetail() {
         commessaId={commessaId}
         onSave={(patch) =>
           updateCommessa.mutate({ id: commessaId, ...patch })
+        }
+      />
+
+      {/* Economia — margine lordo (P0.2). Direzione/amministrazione only:
+          the query itself is role-gated server-side, the client just hides
+          the card for everyone else. */}
+      <EconomiaCard
+        commessaId={commessaId}
+        onSaveCostoPosa={(v) =>
+          updateCommessa.mutate({ id: commessaId, costoPosaStimato: v })
         }
       />
 
@@ -2493,6 +2507,159 @@ function PagamentiCard({
                   </Button>
                 ))}
               </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Economia commessa (P0.2) ────────────────────────────────────────────────
+// Margine lordo = pattuito − costi fornitore − costo posa stimato. Visibile
+// solo a direzione/amministrazione; il costo posa si modifica inline con
+// blur-save, come il totale pattuito della card Pagamenti.
+function EconomiaCard({
+  commessaId,
+  onSaveCostoPosa,
+}: {
+  commessaId: number;
+  onSaveCostoPosa: (v: number | null) => void;
+}) {
+  const { user } = useAuth();
+  const canSee = isDirezione(user) || hasRuolo(user, "amministrazione");
+  const margine = trpc.commesse.margine.useQuery(commessaId, {
+    enabled: canSee,
+    retry: false,
+  });
+  const [posa, setPosa] = useState<string | null>(null);
+  const [openOrdini, setOpenOrdini] = useState(false);
+
+  if (!canSee || !margine.data) return null;
+  const m = margine.data;
+
+  const fmt = (n: number) =>
+    n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const parse = (v: string): number | null => {
+    const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
+    return isNaN(n) || n < 0 ? null : n;
+  };
+
+  // Colore per fascia di margine: ≥30% verde, 15–30% ambra, <15% rosso,
+  // grigio quando i dati non bastano per un numero onesto.
+  const perc = m.marginePerc;
+  const tone = m.datiIncompleti
+    ? { text: "text-text-3", border: "" }
+    : perc != null && perc >= 0.3
+      ? { text: "text-success", border: "border-l-[3px] border-l-success" }
+      : perc != null && perc >= 0.15
+        ? { text: "text-warning", border: "border-l-[3px] border-l-warning" }
+        : { text: "text-danger", border: "border-l-[3px] border-l-danger" };
+
+  return (
+    <Card className={tone.border}>
+      <CardContent className="py-4 space-y-3">
+        <div className="flex items-center gap-5 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="grid h-9 w-9 place-items-center rounded-lg bg-info-soft text-info">
+              <TrendingUp className="h-5 w-5" />
+            </span>
+            <span className="font-semibold text-sm">Economia</span>
+          </div>
+
+          <div className="space-y-0.5">
+            <div className="eyebrow">Pattuito</div>
+            <div className="tabular-nums font-medium">
+              {m.ricavi != null ? `€ ${fmt(m.ricavi)}` : "—"}
+            </div>
+          </div>
+
+          <div className="space-y-0.5">
+            <button
+              type="button"
+              className="eyebrow flex items-center gap-0.5 hover:text-text-1"
+              onClick={() => setOpenOrdini((v) => !v)}
+              title="Mostra il dettaglio degli ordini fornitore"
+            >
+              Costi fornitore
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${openOrdini ? "rotate-180" : ""}`}
+              />
+            </button>
+            <div className="tabular-nums font-medium">
+              € {fmt(m.costiFornitore)}
+              <span className="text-text-3 text-xs ml-1">
+                ({m.dettaglioOrdini.length} ordini)
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs text-text-3">Costo posa stimato €</Label>
+            <Input
+              inputMode="decimal"
+              placeholder="—"
+              className="h-8 w-32"
+              value={posa ?? (m.costoPosa != null ? String(m.costoPosa) : "")}
+              onChange={(e) => setPosa(e.target.value)}
+              onBlur={() => {
+                if (posa == null) return;
+                onSaveCostoPosa(posa.trim() === "" ? null : parse(posa));
+                setPosa(null);
+              }}
+            />
+          </div>
+
+          <div className="ml-auto text-right space-y-0.5">
+            <div className="eyebrow">Margine lordo</div>
+            {m.datiIncompleti ? (
+              <div className="text-sm text-text-3">
+                Dati incompleti
+                <div className="text-[11px]">
+                  {m.ricavi == null
+                    ? "manca il totale pattuito"
+                    : "nessun ordine fornitore registrato"}
+                </div>
+              </div>
+            ) : (
+              <div className={`tabular-nums font-bold text-lg ${tone.text}`}>
+                € {fmt(m.margineLordo ?? 0)}
+                {perc != null && (
+                  <span className="text-sm font-semibold ml-1.5">
+                    ({Math.round(perc * 100)}%)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {openOrdini && (
+          <div className="border-t border-border pt-2 space-y-1">
+            {m.dettaglioOrdini.length === 0 ? (
+              <div className="text-xs text-text-3">
+                Nessun ordine fornitore (esclusi bozza e contestato).
+              </div>
+            ) : (
+              m.dettaglioOrdini.map((o: any) => (
+                <div
+                  key={o.id}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <span className="text-text-2">
+                    {o.fornitoreNome}
+                    <span className="codice-mono text-text-3 ml-1.5">
+                      {o.codiceOrdine}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] ml-1.5 capitalize">
+                      {o.stato.replace(/_/g, " ")}
+                    </Badge>
+                  </span>
+                  <span className="tabular-nums font-medium">
+                    € {fmt(o.importoTotale)}
+                  </span>
+                </div>
+              ))
             )}
           </div>
         )}

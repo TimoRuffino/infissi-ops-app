@@ -6,7 +6,14 @@ import {
   removeCommessaFromCliente,
 } from "./clienti";
 import { getUtentiStore } from "./utenti";
-import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
+import {
+  requireOwnershipOrDirezione,
+  assertSedeScope,
+  requireDirezione,
+  requireDirezioneOAmministrazione,
+} from "../_core/permissions";
+import { calcolaMargine } from "../_core/margine";
+import { getOrdiniPerMargine } from "./fornitori";
 import {
   hasPreventivoOrContratto,
   statoHasRequiredDoc,
@@ -84,6 +91,8 @@ const _store = persistedStore<any>("commesse", (items) => {
     if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
     // Payment tracker fields (saldi).
     if ((c as any).importoTotale === undefined) (c as any).importoTotale = null;
+    // Margine (P0.2): manual estimate of the posa cost, € — direzione-only.
+    if ((c as any).costoPosaStimato === undefined) (c as any).costoPosaStimato = null;
     if ((c as any).importoIncassato === undefined) (c as any).importoIncassato = 0;
     // Acconti register — importoIncassato is derived from it. Legacy records
     // with a bare incassato figure get a single imported entry.
@@ -332,6 +341,7 @@ export const commesseRouter = router({
         stato: "preventivo" as const,
         importoTotale: input.importoTotale ?? null,
         importoIncassato: input.importoIncassato ?? 0,
+        costoPosaStimato: null,
         pagamenti: [],
         priorita: input.priorita ?? "media",
         squadraId: null,
@@ -370,6 +380,7 @@ export const commesseRouter = router({
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         importoTotale: z.number().nonnegative().nullable().optional(),
         importoIncassato: z.number().nonnegative().nullable().optional(),
+        costoPosaStimato: z.number().nonnegative().nullable().optional(),
         squadraId: z.number().nullable().optional(),
         note: z.string().optional(),
         consegnaIndicativa: z.enum(["30", "60", "90"]).nullable().optional(),
@@ -388,6 +399,10 @@ export const commesseRouter = router({
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      // Il costo posa alimenta il margine: scrivibile solo da chi lo vede.
+      if (input.costoPosaStimato !== undefined) {
+        requireDirezioneOAmministrazione(ctx.user);
+      }
       // Enforce state machine on stato transitions
       if (input.stato && input.stato !== commesse[idx].stato) {
         validateTransizione(commesse[idx].stato, input.stato);
@@ -506,6 +521,10 @@ export const commesseRouter = router({
       // avoids a static circular dependency (magazzino imports commesse).
       const { deleteMagazzinoByCommessa } = await import("./magazzino");
       deleteMagazzinoByCommessa(commessaId);
+      // Cascade: documents (JSONB metadata + storage bytes) die with the
+      // commessa — otherwise they linger orphaned in the collection.
+      const { deleteDocumentiByCommessa } = await import("./preventiviContratti");
+      deleteDocumentiByCommessa(commessaId);
       _store.save();
       return { success: true };
     }),
@@ -532,6 +551,44 @@ export const commesseRouter = router({
       out.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
       return out.slice(0, input?.limit ?? 15);
     }),
+
+  // ── Margine (P0.2) ─────────────────────────────────────────────────────────
+  // Economia della singola commessa: direzione o amministrazione.
+  margine: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    requireDirezioneOAmministrazione(ctx.user);
+    const c = commesse.find((x) => x.id === input);
+    assertSedeScope(c, ctx.sedeId);
+    return calcolaMargine(c!, getOrdiniPerMargine(input, ctx.sedeId));
+  }),
+
+  // Vista aggregata per la pagina /marginalita: solo direzione. Esclude le
+  // commesse archiviate (stato o soft-archive) — sono storia, non gestione.
+  marginalita: protectedProcedure.query(({ ctx }) => {
+    requireDirezione(ctx.user);
+    const utenti = getUtentiStore() as any[];
+    return commesse
+      .filter(
+        (c) =>
+          c.sedeId === ctx.sedeId &&
+          c.stato !== "archiviata" &&
+          !c.archivedAt
+      )
+      .map((c) => {
+        const assegnatario = utenti.find((u) => u.id === c.assegnatoA);
+        return {
+          id: c.id,
+          codice: c.codice,
+          cliente: c.cliente,
+          stato: c.stato,
+          dataApertura: c.dataApertura ?? null,
+          assegnatoA: c.assegnatoA ?? null,
+          assegnatoNome: assegnatario
+            ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
+            : null,
+          ...calcolaMargine(c, getOrdiniPerMargine(c.id, ctx.sedeId)),
+        };
+      });
+  }),
 
   // ── Acconti / pagamenti (embedded register on commessa) ────────────────────
   // importoIncassato is always recomputed as the sum of the register so the

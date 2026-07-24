@@ -4,6 +4,8 @@ import { persistedStore } from "../_core/persistence";
 import { getTicketById } from "./ticket";
 import { isDirezione } from "../_core/permissions";
 import { TRPCError } from "@trpc/server";
+import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
+import { registerMigratableCollection } from "../_core/fileStorageMigrate";
 
 // Per-ticket file attachments. Same shape as preventiviContratti Documento but
 // without the stato gate, since tickets do not participate in the board state
@@ -16,7 +18,11 @@ type TicketAllegato = {
   nome: string;
   mimeType: string;
   size: number;
-  dataBase64: string;
+  // Legacy inline bytes OR storageKey into the fileStorage driver — see
+  // preventiviContratti.Documento for the same dual-mode scheme.
+  dataBase64?: string;
+  storageKey?: string | null;
+  checksum?: string | null;
   note: string | null;
   createdBy: number | null;
   createdAt: Date;
@@ -27,6 +33,13 @@ const _store = persistedStore<TicketAllegato>("ticket_allegati", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const allegati = _store.items;
+
+registerMigratableCollection({
+  key: "ticket_allegati",
+  parentIdOf: (a: TicketAllegato) => a.ticketId,
+  store: _store,
+  items: allegati,
+});
 
 // Cap per-file size: ~10MB base64 = ~7.5MB raw (same as preventiviContratti).
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
@@ -61,7 +74,10 @@ function base64ByteLength(b64: string): number {
 
 export function deleteAllegatiByTicket(ticketId: number) {
   for (let i = allegati.length - 1; i >= 0; i--) {
-    if (allegati[i].ticketId === ticketId) allegati.splice(i, 1);
+    if (allegati[i].ticketId === ticketId) {
+      deleteFileQuiet(allegati[i].storageKey);
+      allegati.splice(i, 1);
+    }
   }
   _store.save();
 }
@@ -83,13 +99,22 @@ export const ticketAllegatiRouter = router({
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       // Strip heavy payload from list — client fetches full bytes via byId only
       // when it really needs them (preview/download).
-      .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
+      .map(({ dataBase64, ...rest }) => ({
+        ...rest,
+        hasData: !!dataBase64 || !!rest.storageKey,
+      }));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+  byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
     const a = allegati.find((x) => x.id === input);
     if (!a) return null;
     if (!ticketInSede(a.ticketId, ctx.sedeId)) return null;
+    if (a.dataBase64) return a;
+    if (a.storageKey) {
+      const buf = await getFile(a.storageKey);
+      if (!buf) throw new Error("File non disponibile nello storage.");
+      return { ...a, dataBase64: buf.toString("base64") };
+    }
     return a;
   }),
 
@@ -104,7 +129,7 @@ export const ticketAllegatiRouter = router({
         note: z.string().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (!ticketInSede(input.ticketId, ctx.sedeId)) {
         throw new Error("Ticket non trovato");
       }
@@ -123,11 +148,30 @@ export const ticketAllegatiRouter = router({
         nome: input.nome,
         mimeType: input.mimeType,
         size: actualBytes,
-        dataBase64: input.dataBase64,
         note: input.note ?? null,
         createdBy: ctx.user?.id ?? null,
         createdAt: new Date(),
       };
+      // Bytes to storage; inline base64 only as infrastructure fallback.
+      try {
+        const buffer = Buffer.from(input.dataBase64, "base64");
+        const stored = await putFile(
+          "ticket_allegati",
+          input.ticketId,
+          a.id,
+          input.nome,
+          buffer,
+          input.mimeType
+        );
+        a.storageKey = stored.storageKey;
+        a.checksum = stored.checksum;
+      } catch (e) {
+        console.warn(
+          "[ticketAllegati] storage put fallito, fallback base64 inline:",
+          e
+        );
+        a.dataBase64 = input.dataBase64;
+      }
       allegati.push(a);
       _store.save();
       const { dataBase64, ...rest } = a;
@@ -154,8 +198,9 @@ export const ticketAllegatiRouter = router({
           message: "Solo chi ha caricato l'allegato (o la direzione) può rimuoverlo.",
         });
       }
-      allegati.splice(idx, 1);
+      const [removed] = allegati.splice(idx, 1);
       _store.save();
+      deleteFileQuiet(removed?.storageKey);
       return { success: true };
     }),
 });

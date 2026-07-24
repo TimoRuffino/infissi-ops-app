@@ -104,6 +104,25 @@ const _listiniStore = persistedStore<Listino>("fornitori_listini", (loaded) => {
 });
 const listini = _listiniStore.items;
 
+// Margine (P0.2): supplier orders of a commessa with the fornitore name
+// resolved — consumed by commesse.margine / commesse.marginalita.
+export function getOrdiniPerMargine(commessaId: number, sedeId: number | null) {
+  return ordini
+    .filter(
+      (o) =>
+        o.commessaId === commessaId &&
+        (sedeId == null || (o as any).sedeId === sedeId)
+    )
+    .map((o) => ({
+      id: o.id,
+      codiceOrdine: o.codiceOrdine,
+      fornitoreNome:
+        fornitori.find((f) => f.id === o.fornitoreId)?.ragioneSociale ?? "?",
+      stato: o.stato,
+      importoTotale: o.importoTotale ?? 0,
+    }));
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const fornitoriRouter = router({

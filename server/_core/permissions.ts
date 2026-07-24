@@ -62,6 +62,25 @@ export function isDirezione(user: AnyUser): boolean {
   return ruoli.includes("direzione");
 }
 
+/** True when the user holds the `amministrazione` role. */
+export function isAmministrazione(user: AnyUser): boolean {
+  const ruoli = Array.isArray(user?.ruoli) ? user!.ruoli! : [];
+  return ruoli.includes("amministrazione");
+}
+
+/**
+ * Economic surfaces (margini, costi fornitore): direzione or amministrazione
+ * only — a commerciale or posatore must not see the company's margins.
+ */
+export function requireDirezioneOAmministrazione(user: AnyUser): void {
+  if (!isDirezione(user) && !isAmministrazione(user)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Solo direzione o amministrazione possono vedere i dati economici.",
+    });
+  }
+}
+
 /** Throws FORBIDDEN unless the user is direzione. */
 export function requireDirezione(user: AnyUser): void {
   if (!isDirezione(user)) {

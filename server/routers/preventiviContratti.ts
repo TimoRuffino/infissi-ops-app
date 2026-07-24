@@ -3,6 +3,8 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
+import { registerMigratableCollection } from "../_core/fileStorageMigrate";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +34,12 @@ type Documento = {
   tipo: DocTipo;
   mimeType: string;
   size: number;
-  dataBase64: string; // base64-encoded file content
+  // Legacy: base64 bytes inline in the JSONB blob. New uploads go to the
+  // fileStorage driver instead (storageKey) so collection saves stay small.
+  // A record has exactly one of the two; reads fall back to dataBase64.
+  dataBase64?: string;
+  storageKey?: string | null;
+  checksum?: string | null; // sha256 hex of the raw bytes
   note: string | null;
   statoAtUpload: string | null; // commessa.stato at time of upload (for gates)
   createdBy: number | null;
@@ -53,6 +60,13 @@ const _documentiStore = persistedStore<Documento>("preventivi_documenti", (loade
   }
 });
 const documenti = _documentiStore.items;
+
+registerMigratableCollection({
+  key: "preventivi_documenti",
+  parentIdOf: (d: Documento) => d.commessaId,
+  store: _documentiStore,
+  items: documenti,
+});
 
 // Cap per-file size: ~10MB base64 = ~7.5MB raw.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
@@ -158,6 +172,18 @@ export const DOC_TIPO_LABEL: Record<DocTipo, string> = {
   altro: "Altro",
 };
 
+// Cascade for commesse.delete — removes the documents AND their storage
+// bytes when the parent commessa is hard-deleted.
+export function deleteDocumentiByCommessa(commessaId: number) {
+  for (let i = documenti.length - 1; i >= 0; i--) {
+    if (documenti[i].commessaId === commessaId) {
+      deleteFileQuiet(documenti[i].storageKey);
+      documenti.splice(i, 1);
+    }
+  }
+  _documentiStore.save();
+}
+
 // Legacy helper kept for backward compat.
 export function hasPreventivoOrContratto(commessaId: number): boolean {
   return documenti.some(
@@ -201,13 +227,24 @@ export const preventiviContrattiRouter = router({
       .filter((d) => d.commessaId === input)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       // Strip heavy payload from list
-      .map(({ dataBase64, ...rest }) => ({ ...rest, hasData: !!dataBase64 }));
+      .map(({ dataBase64, ...rest }) => ({
+        ...rest,
+        hasData: !!dataBase64 || !!rest.storageKey,
+      }));
   }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+  byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
     const doc = documenti.find((d) => d.id === input);
     if (!doc) return null;
     if (!commessaInSede(doc.commessaId, ctx.sedeId)) return null;
+    // Legacy records: bytes still inline. New records: hydrate from storage
+    // so the client keeps receiving dataBase64 exactly as before.
+    if (doc.dataBase64) return doc;
+    if (doc.storageKey) {
+      const buf = await getFile(doc.storageKey);
+      if (!buf) throw new Error("File non disponibile nello storage.");
+      return { ...doc, dataBase64: buf.toString("base64") };
+    }
     return doc;
   }),
 
@@ -228,7 +265,7 @@ export const preventiviContrattiRouter = router({
         keepNome: z.boolean().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
         throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
       }
@@ -257,12 +294,33 @@ export const preventiviContrattiRouter = router({
         tipo: input.tipo,
         mimeType: input.mimeType,
         size: actualBytes,
-        dataBase64: input.dataBase64,
         note: input.note ?? null,
         statoAtUpload: commessa?.stato ?? null,
         createdBy: ctx.user?.id ?? null,
         createdAt: new Date(),
       };
+      // Bytes go to the storage driver; the JSONB record keeps metadata only.
+      // If storage is down, fall back to the legacy inline base64 so an
+      // upload never fails for infrastructure reasons.
+      try {
+        const buffer = Buffer.from(input.dataBase64, "base64");
+        const stored = await putFile(
+          "preventivi_documenti",
+          input.commessaId,
+          doc.id,
+          nome,
+          buffer,
+          input.mimeType
+        );
+        doc.storageKey = stored.storageKey;
+        doc.checksum = stored.checksum;
+      } catch (e) {
+        console.warn(
+          "[preventiviContratti] storage put fallito, fallback base64 inline:",
+          e
+        );
+        doc.dataBase64 = input.dataBase64;
+      }
       documenti.push(doc);
       _documentiStore.save();
       const { dataBase64, ...rest } = doc;
@@ -288,6 +346,7 @@ export const preventiviContrattiRouter = router({
       }
       documenti.splice(idx, 1);
       _documentiStore.save();
+      deleteFileQuiet(doc.storageKey);
       return { success: true };
     }),
 

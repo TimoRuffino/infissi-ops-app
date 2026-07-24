@@ -43,6 +43,7 @@ import {
   Store,
   Package,
   Banknote,
+  TrendingUp,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -75,6 +76,7 @@ const menuItems: MenuItem[] = [
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
   { icon: Package, label: "Magazzino", path: "/magazzino" },
   { icon: Banknote, label: "Pagamenti", path: "/pagamenti" },
+  { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Archive, label: "Archivio", path: "/archivio" },
