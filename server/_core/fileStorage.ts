@@ -254,6 +254,23 @@ export function getStorageDriver(): StorageDriver {
   return _driver;
 }
 
+// On Railway WITHOUT a volume the container filesystem is ephemeral: a
+// local-driver write would succeed today and silently vanish at the next
+// deploy. Until s3 is configured (or a volume is attached and the opt-in
+// env is set), refuse the put — callers fall back to legacy inline base64,
+// which is exactly the pre-P0.1 behavior and loses nothing.
+function assertDurableDriver(driver: StorageDriver): void {
+  if (
+    driver.name === "local" &&
+    process.env.RAILWAY_ENVIRONMENT &&
+    process.env.STORAGE_ALLOW_EPHEMERAL !== "1"
+  ) {
+    throw new Error(
+      "STORAGE: driver local su Railway senza volume (filesystem effimero). Configura STORAGE_DRIVER=s3 oppure monta un volume e imposta STORAGE_ALLOW_EPHEMERAL=1."
+    );
+  }
+}
+
 /** Store a buffer; returns { storageKey, checksum }. */
 export async function putFile(
   collection: string,
@@ -263,8 +280,10 @@ export async function putFile(
   buffer: Buffer,
   mimeType: string
 ): Promise<{ storageKey: string; checksum: string }> {
+  const driver = getStorageDriver();
+  assertDurableDriver(driver);
   const storageKey = buildStorageKey(collection, parentId, recordId, originalName);
-  await getStorageDriver().put(storageKey, buffer, mimeType);
+  await driver.put(storageKey, buffer, mimeType);
   return { storageKey, checksum: sha256Hex(buffer) };
 }
 
