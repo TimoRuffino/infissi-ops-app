@@ -35,9 +35,19 @@ import {
   BellRing,
   CalendarPlus,
   Hammer,
+  CheckCircle2,
+  MoreHorizontal,
+  Building2,
 } from "lucide-react";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog, {
@@ -46,20 +56,46 @@ import FilePreviewDialog, {
 
 type DeleteTarget = { id: number; label: string } | null;
 
+// risolto ritirato: piegato su chiuso (il backfill server converte i vecchi)
 const statoTicketColors: Record<string, string> = {
-  aperto: "bg-red-100 text-red-800",
-  assegnato: "bg-amber-100 text-amber-800",
-  in_lavorazione: "bg-blue-100 text-blue-800",
-  // risolto ritirato: piegato su chiuso (il backfill server converte i vecchi)
-  chiuso: "bg-green-100 text-green-700",
+  aperto: "bg-danger-soft text-danger",
+  assegnato: "bg-warning-soft text-warning",
+  in_lavorazione: "bg-info-soft text-info",
+  chiuso: "bg-success-soft text-success",
+};
+
+const statoTicketLabel: Record<string, string> = {
+  aperto: "Aperto",
+  assegnato: "Assegnato",
+  in_lavorazione: "In lavorazione",
+  chiuso: "Chiuso",
 };
 
 const statoInterventoColors: Record<string, string> = {
-  pianificato: "bg-indigo-100 text-indigo-800",
-  in_corso: "bg-blue-100 text-blue-800",
-  completato: "bg-green-100 text-green-700",
-  sospeso: "bg-amber-100 text-amber-800",
+  pianificato: "bg-info-soft text-info",
+  in_corso: "bg-info-soft text-info",
+  completato: "bg-success-soft text-success",
+  sospeso: "bg-warning-soft text-warning",
 };
+
+const CATEGORIA_LABEL: Record<string, string> = {
+  difetto_prodotto: "Difetto prodotto",
+  difetto_posa: "Difetto posa",
+  regolazione: "Regolazione",
+  sostituzione: "Sostituzione",
+  garanzia: "Garanzia",
+  altro: "Altro",
+};
+
+// Barra colorata a sinistra: rende leggibile la coda a colpo d'occhio —
+// rosso = urgente/alta ancora aperto, verde = chiuso, grigio = ordinario.
+function bordoCard(t: any): string {
+  if (t.stato === "chiuso") return "border-l-[3px] border-l-success";
+  if (t.priorita === "urgente" || t.priorita === "alta") {
+    return "border-l-[3px] border-l-danger";
+  }
+  return "border-l-[3px] border-l-border";
+}
 
 // Staged files added before ticket is created — uploaded right after the ticket
 // row lands so that ticketId exists.
@@ -78,6 +114,7 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 export default function TicketList({ embedded = false }: { embedded?: boolean }) {
+  const [, setLocation] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filtroStato, setFiltroStato] = useState("tutti");
   const [editOpen, setEditOpen] = useState(false);
@@ -499,125 +536,151 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
           );
           const isExpanded = expandedTicket === t.id;
           return (
-            <Card key={t.id} className="hover:shadow-sm transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5 min-w-0 flex-1">
-                    {/* L'oggetto è la prima cosa che si legge — titolo in testa */}
-                    <h3 className="text-[15px] font-semibold leading-tight">
-                      {t.oggetto}
+            <Card
+              key={t.id}
+              className={`transition-shadow hover:shadow-sm ${bordoCard(t)} ${
+                t.stato === "chiuso" ? "opacity-70 hover:opacity-100" : ""
+              }`}
+            >
+              <CardContent className="p-4 space-y-2.5">
+                {/* Riga 1 — CHI: cliente in grassetto, poi codice commessa.
+                    Il ticket riguarda una commessa: il cliente è l'ancora
+                    mentale, non l'oggetto. */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold leading-tight truncate">
+                      {commessa?.cliente ?? "Cliente non collegato"}
                     </h3>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {commessa && (
+                        <button
+                          type="button"
+                          onClick={() => setLocation(`/commesse/${commessa.id}`)}
+                          className="codice-mono text-xs text-text-3 hover:text-primary hover:underline"
+                          title="Apri la commessa"
+                        >
+                          {commessa.codice}
+                        </button>
+                      )}
+                      <span className="codice-mono text-xs text-text-3">
                         TK-{String(t.id).padStart(4, "0")}
                       </span>
-                      <span
-                        className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${statoTicketColors[t.stato] ?? "bg-gray-100"}`}
-                      >
-                        {t.stato.replace(/_/g, " ")}
-                      </span>
-                      {(t.priorita === "urgente" || t.priorita === "alta") && (
-                        <Badge
-                          variant="destructive"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          {t.priorita.toUpperCase()}
-                        </Badge>
-                      )}
-                      <Badge variant="outline" className="text-[10px]">
-                        {t.categoria.replace(/_/g, " ")}
-                      </Badge>
-                      {(t.solleciti?.length ?? 0) > 0 && (
-                        <Badge className="text-[10px] bg-amber-100 text-amber-800 border-transparent">
-                          <BellRing className="h-3 w-3 mr-0.5" />
-                          {t.solleciti.length}{" "}
-                          {t.solleciti.length === 1 ? "sollecito" : "solleciti"} · ultimo{" "}
-                          {new Date(
-                            t.solleciti[t.solleciti.length - 1].data
-                          ).toLocaleDateString("it-IT")}
-                        </Badge>
-                      )}
                     </div>
-                    {t.descrizione && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 whitespace-pre-line">
-                        {t.descrizione}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      {commessa && (
-                        <span>
-                          {commessa.codice} — {commessa.cliente}
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {new Date(t.createdAt).toLocaleDateString("it-IT")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedTicket(isExpanded ? null : t.id)
-                        }
-                        className="flex items-center gap-1 hover:text-foreground"
-                      >
-                        <Paperclip className="h-3 w-3" />
-                        <AllegatiCount ticketId={t.id} />
-                      </button>
-                    </div>
-                    {/* Interventi di assistenza collegati */}
-                    {(interventi.data ?? [])
-                      .filter((i: any) => i.ticketId === t.id)
-                      .map((i: any) => (
-                        <p
-                          key={i.id}
-                          className="text-xs flex items-center gap-1.5 border-l-2 border-indigo-400 pl-2 text-muted-foreground"
-                        >
-                          <Hammer className="h-3 w-3" />
-                          Intervento {new Date(i.dataPianificata + "T12:00:00").toLocaleDateString("it-IT")}
-                          {i.oraInizio ? ` · ${i.oraInizio}` : ""}
-                          {i.squadraId
-                            ? ` · ${squadre.data?.find((s: any) => s.id === i.squadraId)?.nome ?? "squadra"}`
-                            : " · senza squadra"}
-                          <span
-                            className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-sm ${statoInterventoColors[i.stato] ?? ""}`}
-                          >
-                            {i.stato.replace(/_/g, " ")}
-                          </span>
-                        </p>
-                      ))}
-                    {t.esitoIntervento && (
-                      <p className="text-xs border-l-2 border-green-500 pl-2 text-muted-foreground">
-                        Esito: {t.esitoIntervento}
-                      </p>
-                    )}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                    {/* Rollback one step — hidden on first state */}
-                    {t.stato !== "aperto" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs h-7"
-                        disabled={rollbackStato.isPending}
-                        onClick={() => rollbackStato.mutate({ id: t.id })}
-                        title="Torna allo stato precedente"
+                  <span
+                    className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-md ${statoTicketColors[t.stato] ?? "bg-surface-2 text-text-2"}`}
+                  >
+                    {statoTicketLabel[t.stato] ?? t.stato.replace(/_/g, " ")}
+                  </span>
+                </div>
+
+                {/* Riga 2 — COSA: oggetto del ticket */}
+                <p className="text-sm leading-snug">{t.oggetto}</p>
+
+                {/* Riga 3 — etichette */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Badge variant="outline" className="text-[10px] font-normal">
+                    {CATEGORIA_LABEL[t.categoria] ?? t.categoria.replace(/_/g, " ")}
+                  </Badge>
+                  {(t.priorita === "urgente" || t.priorita === "alta") && (
+                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                      {t.priorita.toUpperCase()}
+                    </Badge>
+                  )}
+                  {(t.solleciti?.length ?? 0) > 0 && (
+                    <Badge className="text-[10px] font-normal bg-warning-soft text-warning border-transparent">
+                      <BellRing className="h-3 w-3 mr-0.5" />
+                      {t.solleciti.length}{" "}
+                      {t.solleciti.length === 1 ? "sollecito" : "solleciti"} · ultimo{" "}
+                      {new Date(
+                        t.solleciti[t.solleciti.length - 1].data
+                      ).toLocaleDateString("it-IT")}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Descrizione — spesso è la nota To Do importata: espandibile
+                    invece che troncata per sempre. */}
+                {t.descrizione && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedTicket(isExpanded ? null : t.id)}
+                    className="block w-full text-left rounded-md bg-surface-2 px-2.5 py-2 hover:bg-surface-2/70"
+                  >
+                    <p
+                      className={`text-xs text-text-2 whitespace-pre-line ${isExpanded ? "" : "line-clamp-2"}`}
+                    >
+                      {t.descrizione}
+                    </p>
+                  </button>
+                )}
+
+                {/* Interventi collegati */}
+                {(interventi.data ?? [])
+                  .filter((i: any) => i.ticketId === t.id)
+                  .map((i: any) => (
+                    <div
+                      key={i.id}
+                      className="flex items-center gap-2 flex-wrap rounded-md border border-info/30 bg-info-soft/40 px-2.5 py-1.5 text-xs"
+                    >
+                      <Hammer className="h-3.5 w-3.5 text-info shrink-0" />
+                      <span className="font-medium">
+                        {new Date(i.dataPianificata + "T12:00:00").toLocaleDateString("it-IT")}
+                        {i.oraInizio ? ` · ${i.oraInizio}` : ""}
+                      </span>
+                      <span className={i.squadraId ? "text-text-2" : "text-warning font-medium"}>
+                        {i.squadraId
+                          ? squadre.data?.find((sq: any) => sq.id === i.squadraId)?.nome ?? "Squadra"
+                          : "Senza squadra"}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm ${statoInterventoColors[i.stato] ?? ""}`}
                       >
-                        <Undo2 className="h-3 w-3 mr-1" />
-                        Indietro
-                      </Button>
-                    )}
+                        {i.stato.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                  ))}
+
+                {t.esitoIntervento && (
+                  <p className="text-xs border-l-2 border-success pl-2 text-text-2">
+                    Esito: {t.esitoIntervento}
+                  </p>
+                )}
+
+                {/* Footer — meta a sinistra, azioni a destra. Le azioni hanno
+                    una riga propria: prima competevano con il testo e andavano
+                    a capo in modo disordinato. */}
+                <div className="flex items-end justify-between gap-3 pt-1 border-t border-border flex-wrap">
+                  <div className="flex items-center gap-3 text-xs text-text-3 pt-1.5">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(t.createdAt).toLocaleDateString("it-IT")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedTicket(isExpanded ? null : t.id)}
+                      className="flex items-center gap-1 hover:text-text-1"
+                    >
+                      <Paperclip className="h-3 w-3" />
+                      <AllegatiCount ticketId={t.id} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1 flex-wrap justify-end pt-1.5">
+                    {/* Avanzamento: un solo bottone primario per stato */}
                     {t.stato === "aperto" && (
-                      <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "assegnato" })}>
+                      <Button size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "assegnato" })}>
                         Assegna
                       </Button>
                     )}
                     {t.stato === "assegnato" && (
-                      <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "in_lavorazione" })}>
+                      <Button size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "in_lavorazione" })}>
                         Lavora
                       </Button>
                     )}
                     {t.stato === "in_lavorazione" && (
-                      <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "chiuso" })}>
+                      <Button size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "chiuso" })}>
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
                         Chiudi
                       </Button>
                     )}
@@ -626,7 +689,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-xs h-7 text-amber-700"
+                          className="text-xs h-7 text-warning"
                           title="Registra un sollecito"
                           onClick={() => setSollecitaFor(t)}
                         >
@@ -636,7 +699,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-xs h-7 text-indigo-700"
+                          className="text-xs h-7 text-info"
                           title="Pianifica un intervento di assistenza"
                           onClick={() => {
                             setPianificaFor(t);
@@ -654,12 +717,42 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                         </Button>
                       </>
                     )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => setDeleteTarget({ id: t.id, label: t.oggetto })}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {/* Azioni secondarie raccolte nel menu ••• */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openEdit(t)}>
+                          <Pencil className="h-3.5 w-3.5 mr-2" />
+                          Modifica
+                        </DropdownMenuItem>
+                        {commessa && (
+                          <DropdownMenuItem onClick={() => setLocation(`/commesse/${commessa.id}`)}>
+                            <Building2 className="h-3.5 w-3.5 mr-2" />
+                            Apri commessa
+                          </DropdownMenuItem>
+                        )}
+                        {t.stato !== "aperto" && (
+                          <DropdownMenuItem
+                            disabled={rollbackStato.isPending}
+                            onClick={() => rollbackStato.mutate({ id: t.id })}
+                          >
+                            <Undo2 className="h-3.5 w-3.5 mr-2" />
+                            Torna indietro di uno stato
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem
+                          className="text-danger focus:text-danger"
+                          onClick={() => setDeleteTarget({ id: t.id, label: t.oggetto })}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-2" />
+                          Elimina ticket
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 
