@@ -199,6 +199,13 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
       utils.ticket.invalidate();
       utils.ticketAllegati.invalidate();
       setDeleteTarget(null);
+      toast.success("Ticket eliminato");
+    },
+    // Senza questo un rifiuto del server (permessi, ticket già rimosso)
+    // spariva in silenzio: si cliccava Elimina e non succedeva nulla.
+    onError: (e) => {
+      setDeleteTarget(null);
+      toast.error(e.message ?? "Eliminazione non riuscita");
     },
   });
 
@@ -717,7 +724,18 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                         </Button>
                       </>
                     )}
-                    {/* Azioni secondarie raccolte nel menu ••• */}
+                    {/* Elimina resta un bottone a vista: nasconderlo nel menu
+                        lo rendeva introvabile. */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-danger hover:text-danger"
+                      title="Elimina ticket"
+                      onClick={() => setDeleteTarget({ id: t.id, label: t.oggetto })}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    {/* Azioni secondarie nel menu ••• */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-7 w-7">
@@ -744,13 +762,6 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                             Torna indietro di uno stato
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem
-                          className="text-danger focus:text-danger"
-                          onClick={() => setDeleteTarget({ id: t.id, label: t.oggetto })}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" />
-                          Elimina ticket
-                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

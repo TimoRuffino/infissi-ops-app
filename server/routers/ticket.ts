@@ -3,7 +3,11 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
+import {
+  requireOwnershipOrDirezione,
+  requireDirezione,
+  assertSedeScope,
+} from "../_core/permissions";
 
 // Linear workflow. Used for both forward advance and rollback.
 // "risolto" was retired: between risolto and chiuso nothing actually
@@ -81,7 +85,7 @@ export const ticketRouter = router({
         dataRisoluzione: null,
         esitoIntervento: null,
         solleciti: [],
-        apertoBy: null,
+        apertoBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -114,10 +118,21 @@ export const ticketRouter = router({
       const idx = tickets.findIndex((t) => t.id === input);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
-      requireOwnershipOrDirezione(
-        getCommessaById(tickets[idx].commessaId),
-        ctx.user
-      );
+      // Chi può eliminare: direzione, chi ha aperto il ticket, o chi possiede
+      // la commessa collegata. Se la commessa non esiste più (cancellata), il
+      // ticket resta comunque eliminabile da direzione o dall'autore —
+      // altrimenti requireOwnershipOrDirezione(null) lanciava NOT_FOUND e il
+      // ticket diventava indistruttibile.
+      const uid = ctx.user?.id ?? null;
+      const commessa = getCommessaById(tickets[idx].commessaId);
+      const isAutore = uid != null && tickets[idx].apertoBy === uid;
+      if (!isAutore) {
+        if (commessa) {
+          requireOwnershipOrDirezione(commessa, ctx.user);
+        } else {
+          requireDirezione(ctx.user);
+        }
+      }
       tickets.splice(idx, 1);
       // Cascade: also drop any attachments bound to the ticket, otherwise they
       // leak in the store with no parent.
