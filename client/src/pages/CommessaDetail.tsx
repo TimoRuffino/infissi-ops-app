@@ -2168,6 +2168,22 @@ const METODO_LABEL: Record<string, string> = {
   altro: "Altro",
 };
 
+// Che rata è: 1°–5° acconto o saldo finale.
+export const TIPO_PAGAMENTO_LABEL: Record<string, string> = {
+  acconto_1: "1° acconto",
+  acconto_2: "2° acconto",
+  acconto_3: "3° acconto",
+  acconto_4: "4° acconto",
+  acconto_5: "5° acconto",
+  saldo: "Saldo",
+};
+
+// Suggerisce la rata successiva in base a quante sono già registrate.
+export function tipoPagamentoSuggerito(pagamenti: any[]): string {
+  const n = (pagamenti ?? []).length;
+  return n >= 5 ? "saldo" : `acconto_${n + 1}`;
+}
+
 function PagamentiCard({
   commessa,
   commessaId,
@@ -2184,13 +2200,14 @@ function PagamentiCard({
     importo: "",
     data: new Date().toISOString().split("T")[0],
     metodo: "bonifico",
+    tipo: "",
     note: "",
   });
 
   const addPagamento = trpc.commesse.addPagamento.useMutation({
     onSuccess: () => {
       utils.commesse.invalidate();
-      setPForm((f) => ({ ...f, importo: "", note: "" }));
+      setPForm((f) => ({ ...f, importo: "", tipo: "", note: "" }));
       setAddOpen(false);
       toast.success("Acconto registrato");
     },
@@ -2210,7 +2227,7 @@ function PagamentiCard({
   });
   // Row being edited + its draft.
   const [editPag, setEditPag] = useState<number | null>(null);
-  const [editDraft, setEditDraft] = useState({ importo: "", data: "", metodo: "bonifico", note: "" });
+  const [editDraft, setEditDraft] = useState({ importo: "", data: "", metodo: "bonifico", tipo: "", note: "" });
 
   if (!commessa) return null;
   const totale: number | null = commessa.importoTotale ?? null;
@@ -2232,7 +2249,7 @@ function PagamentiCard({
   const chip = (p: number) => {
     if (!totale) return;
     const val = Math.min(Math.round(totale * p) / 1, Math.max(0, residuo));
-    setPForm((f) => ({ ...f, importo: String(val) }));
+    setPForm((f) => ({ ...f, importo: String(val), tipo: tipoPagamentoSuggerito(pagamenti) }));
     setAddOpen(true);
   };
 
@@ -2333,6 +2350,21 @@ function PagamentiCard({
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px]">Tipo</Label>
+                    <Select
+                      value={editDraft.tipo || "__none"}
+                      onValueChange={(v) => setEditDraft({ ...editDraft, tipo: v === "__none" ? "" : v })}
+                    >
+                      <SelectTrigger className="h-8 w-32 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">—</SelectItem>
+                        {Object.entries(TIPO_PAGAMENTO_LABEL).map(([k, l]) => (
+                          <SelectItem key={k} value={k}>{l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-0.5 flex-1 min-w-[120px]">
                     <Label className="text-[10px]">Nota</Label>
                     <Input
@@ -2352,6 +2384,7 @@ function PagamentiCard({
                         importo: parse(editDraft.importo)!,
                         data: editDraft.data || null,
                         metodo: editDraft.metodo as any,
+                        tipo: (editDraft.tipo || null) as any,
                         note: editDraft.note.trim() || null,
                       })
                     }
@@ -2370,6 +2403,11 @@ function PagamentiCard({
                   <span className="font-bold tabular-nums shrink-0">
                     € {fmt(p.importo)}
                   </span>
+                  {p.tipo && (
+                    <Badge className="text-[10px] shrink-0 bg-info-soft text-info border-transparent">
+                      {TIPO_PAGAMENTO_LABEL[p.tipo] ?? p.tipo}
+                    </Badge>
+                  )}
                   {p.metodo && (
                     <Badge variant="secondary" className="text-[10px] shrink-0">
                       {METODO_LABEL[p.metodo] ?? p.metodo}
@@ -2392,6 +2430,7 @@ function PagamentiCard({
                         importo: String(p.importo ?? ""),
                         data: p.data ?? "",
                         metodo: p.metodo ?? "bonifico",
+                        tipo: p.tipo ?? "",
                         note: p.note ?? "",
                       });
                     }}
@@ -2452,10 +2491,25 @@ function PagamentiCard({
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1 w-36">
+              <Label className="text-xs">Tipo</Label>
+              <Select
+                value={pForm.tipo || "__none"}
+                onValueChange={(v) => setPForm({ ...pForm, tipo: v === "__none" ? "" : v })}
+              >
+                <SelectTrigger className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">—</SelectItem>
+                  {Object.entries(TIPO_PAGAMENTO_LABEL).map(([k, l]) => (
+                    <SelectItem key={k} value={k}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1 flex-1 min-w-[140px]">
               <Label className="text-xs">Nota</Label>
               <Input
-                placeholder="Es. 2° acconto"
+                placeholder="Facoltativa"
                 value={pForm.note}
                 onChange={(e) => setPForm({ ...pForm, note: e.target.value })}
                 className="h-9"
@@ -2470,6 +2524,7 @@ function PagamentiCard({
                     importo: parse(pForm.importo)!,
                     data: pForm.data || null,
                     metodo: pForm.metodo as any,
+                    tipo: (pForm.tipo || null) as any,
                     note: pForm.note.trim() || undefined,
                   })
                 }
@@ -2483,7 +2538,14 @@ function PagamentiCard({
           </div>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPForm((f) => ({ ...f, tipo: tipoPagamentoSuggerito(pagamenti) }));
+                setAddOpen(true);
+              }}
+            >
               <Plus className="h-3.5 w-3.5 mr-1" />
               Registra acconto
             </Button>

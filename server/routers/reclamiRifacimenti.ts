@@ -9,9 +9,16 @@ import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissio
 let nextReclamoId = 1;
 const _reclamiStore = persistedStore<any>("reclami", (loaded) => {
   nextReclamoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+  let changed = false;
   for (const r of loaded) {
     if ((r as any).sedeId === undefined) (r as any).sedeId = 1;
+    // Migration: "risolto" retired (indistinguishable from chiuso in practice).
+    if ((r as any).stato === "risolto") {
+      (r as any).stato = "chiuso";
+      changed = true;
+    }
   }
+  if (changed) setTimeout(() => _reclamiStore.save(), 0);
 });
 const reclami = _reclamiStore.items;
 
@@ -82,7 +89,9 @@ export const reclamiRifacimentiRouter = router({
         if (idx === -1) throw new Error("Reclamo non trovato");
         assertSedeScope(reclami[idx], ctx.sedeId);
         const { id, ...updates } = input;
-        if (updates.stato === "risolto" || updates.stato === "chiuso") {
+        // "risolto" retired → folded into chiuso (legacy clients still send it).
+        if (updates.stato === "risolto") updates.stato = "chiuso";
+        if (updates.stato === "chiuso") {
           (updates as any).dataRisoluzione = new Date().toISOString().split("T")[0];
         }
         reclami[idx] = { ...reclami[idx], ...updates, updatedAt: new Date() };
@@ -109,9 +118,8 @@ export const reclamiRifacimentiRouter = router({
       const scoped = reclami.filter((r) => r.sedeId === ctx.sedeId);
       const aperti = scoped.filter((r) => r.stato === "aperto").length;
       const inGestione = scoped.filter((r) => r.stato === "in_gestione").length;
-      const risolti = scoped.filter((r) => r.stato === "risolto").length;
       const chiusi = scoped.filter((r) => r.stato === "chiuso").length;
-      return { aperti, inGestione, risolti, chiusi, totale: scoped.length };
+      return { aperti, inGestione, risolti: chiusi, chiusi, totale: scoped.length };
     }),
   }),
 

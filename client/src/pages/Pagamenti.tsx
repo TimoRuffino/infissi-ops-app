@@ -22,6 +22,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import StatoChip from "@/components/StatoChip";
+import { TIPO_PAGAMENTO_LABEL, tipoPagamentoSuggerito } from "./CommessaDetail";
 
 const METODO_LABEL: Record<string, string> = {
   bonifico: "Bonifico",
@@ -51,6 +52,7 @@ export default function Pagamenti() {
     importo: "",
     data: new Date().toISOString().split("T")[0],
     metodo: "bonifico",
+    tipo: "",
     note: "",
   });
 
@@ -270,6 +272,7 @@ export default function Pagamenti() {
                           importo: "",
                           data: new Date().toISOString().split("T")[0],
                           metodo: "bonifico",
+                          tipo: tipoPagamentoSuggerito(c.pagamenti ?? []),
                           note: "",
                         });
                       }}
@@ -330,7 +333,7 @@ export default function Pagamenti() {
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() =>
-                    setPForm((f) => ({ ...f, importo: String(regFor.residuo) }))
+                    setPForm((f) => ({ ...f, importo: String(regFor.residuo), tipo: "saldo" }))
                   }
                 >
                   Salda tutto
@@ -373,14 +376,29 @@ export default function Pagamenti() {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Nota</Label>
-                  <Input
-                    placeholder="Es. 2° acconto"
-                    value={pForm.note}
-                    onChange={(e) => setPForm({ ...pForm, note: e.target.value })}
-                    className="h-9"
-                  />
+                  <Label className="text-xs">Tipo</Label>
+                  <Select
+                    value={pForm.tipo || "__none"}
+                    onValueChange={(v) => setPForm({ ...pForm, tipo: v === "__none" ? "" : v })}
+                  >
+                    <SelectTrigger className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">—</SelectItem>
+                      {Object.entries(TIPO_PAGAMENTO_LABEL).map(([k, l]) => (
+                        <SelectItem key={k} value={k}>{l}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Nota</Label>
+                <Input
+                  placeholder="Facoltativa"
+                  value={pForm.note}
+                  onChange={(e) => setPForm({ ...pForm, note: e.target.value })}
+                  className="h-9"
+                />
               </div>
               <Button
                 disabled={!parse(pForm.importo) || addPagamento.isPending}
@@ -390,6 +408,7 @@ export default function Pagamenti() {
                     importo: parse(pForm.importo)!,
                     data: pForm.data || null,
                     metodo: pForm.metodo as any,
+                    tipo: (pForm.tipo || null) as any,
                     note: pForm.note.trim() || undefined,
                   })
                 }

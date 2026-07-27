@@ -36,8 +36,8 @@ type DeleteTarget = { type: "reclamo" | "rifacimento"; id: number; label: string
 const statoReclamoColors: Record<string, string> = {
   aperto: "bg-red-100 text-red-800",
   in_gestione: "bg-amber-100 text-amber-800",
-  risolto: "bg-green-100 text-green-800",
-  chiuso: "bg-gray-100 text-gray-600",
+  // risolto ritirato: il server piega i vecchi record su chiuso
+  chiuso: "bg-green-100 text-green-700",
 };
 
 const statoRifacimentoColors: Record<string, string> = {
@@ -141,7 +141,7 @@ export default function ReclamiRifacimenti() {
         </TabsList>
 
         <TabsContent value="ticket" className="mt-4">
-          <TicketList />
+          <TicketList embedded />
         </TabsContent>
 
         {/* ── Reclami ────────────────────────────────────────────── */}
@@ -179,11 +179,6 @@ export default function ReclamiRifacimenti() {
                       </Button>
                     )}
                     {r.stato === "in_gestione" && (
-                      <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateReclamo.isPending} onClick={() => updateReclamo.mutate({ id: r.id, stato: "risolto" })}>
-                        Risolvi
-                      </Button>
-                    )}
-                    {r.stato === "risolto" && (
                       <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateReclamo.isPending} onClick={() => updateReclamo.mutate({ id: r.id, stato: "chiuso" })}>
                         Chiudi
                       </Button>

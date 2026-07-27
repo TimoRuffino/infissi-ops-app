@@ -725,6 +725,8 @@ export const commesseRouter = router({
       importo: z.number().positive(),
       data: z.string().nullable().optional(), // "YYYY-MM-DD"
       metodo: z.enum(["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"]).nullable().optional(),
+      // Che rata è: 1°–5° acconto oppure saldo finale.
+      tipo: z.enum(["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"]).nullable().optional(),
       note: z.string().optional(),
     }))
     .mutation(({ input, ctx }) => {
@@ -741,6 +743,7 @@ export const commesseRouter = router({
         importo: input.importo,
         data: input.data ?? null,
         metodo: input.metodo ?? null,
+        tipo: input.tipo ?? null,
         note: input.note?.trim() || null,
         createdAt: new Date(),
       });
@@ -757,6 +760,7 @@ export const commesseRouter = router({
       importo: z.number().positive().optional(),
       data: z.string().nullable().optional(),
       metodo: z.enum(["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"]).nullable().optional(),
+      tipo: z.enum(["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"]).nullable().optional(),
       note: z.string().nullable().optional(),
     }))
     .mutation(({ input, ctx }) => {
@@ -769,6 +773,7 @@ export const commesseRouter = router({
       if (input.importo !== undefined) p.importo = input.importo;
       if (input.data !== undefined) p.data = input.data || null;
       if (input.metodo !== undefined) p.metodo = input.metodo ?? null;
+      if (input.tipo !== undefined) p.tipo = input.tipo ?? null;
       if (input.note !== undefined) p.note = input.note?.trim() || null;
       c.importoIncassato = c.pagamenti.reduce((s: number, x: any) => s + (x.importo ?? 0), 0);
       c.updatedAt = new Date();

@@ -6,11 +6,12 @@ import { getCommessaById } from "./commesse";
 import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 
 // Linear workflow. Used for both forward advance and rollback.
+// "risolto" was retired: between risolto and chiuso nothing actually
+// changed in practice, so the flow ends at chiuso directly.
 const TICKET_STATI = [
   "aperto",
   "assegnato",
   "in_lavorazione",
-  "risolto",
   "chiuso",
 ] as const;
 type TicketStato = (typeof TICKET_STATI)[number];
@@ -19,9 +20,18 @@ let nextId = 1;
 
 const _store = persistedStore<any>("tickets", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
+  let changed = false;
   for (const t of items) {
     if ((t as any).sedeId === undefined) (t as any).sedeId = 1;
+    // Migration: collapse the retired "risolto" state into "chiuso".
+    if ((t as any).stato === "risolto") {
+      (t as any).stato = "chiuso";
+      changed = true;
+    }
+    // Solleciti register — one entry per reminder sent to fornitore/squadra.
+    if (!Array.isArray((t as any).solleciti)) (t as any).solleciti = [];
   }
+  if (changed) setTimeout(() => _store.save(), 0);
 });
 const tickets = _store.items;
 
@@ -70,6 +80,7 @@ export const ticketRouter = router({
         assegnatoA: null,
         dataRisoluzione: null,
         esitoIntervento: null,
+        solleciti: [],
         apertoBy: null,
         createdAt: now,
         updatedAt: now,
@@ -118,16 +129,18 @@ export const ticketRouter = router({
   updateStato: protectedProcedure
     .input(z.object({
       id: z.number(),
-      stato: z.enum(TICKET_STATI),
+      // Legacy "risolto" still accepted from older clients → folded to chiuso.
+      stato: z.enum([...TICKET_STATI, "risolto"] as const),
       esitoIntervento: z.string().optional(),
     }))
     .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
-      tickets[idx].stato = input.stato;
+      const stato = input.stato === "risolto" ? "chiuso" : input.stato;
+      tickets[idx].stato = stato;
       if (input.esitoIntervento) tickets[idx].esitoIntervento = input.esitoIntervento;
-      if (input.stato === "risolto" || input.stato === "chiuso") {
+      if (stato === "chiuso") {
         tickets[idx].dataRisoluzione = new Date();
       }
       tickets[idx].updatedAt = new Date();
@@ -136,7 +149,7 @@ export const ticketRouter = router({
     }),
 
   // Single-step rollback to the previous stato in TICKET_STATI. Clears
-  // dataRisoluzione when leaving risolto/chiuso so the ticket is "open" again
+  // dataRisoluzione when leaving chiuso so the ticket is "open" again
   // for reporting. If already at "aperto" (first state) throws.
   rollbackStato: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -150,9 +163,36 @@ export const ticketRouter = router({
       }
       const prev = TICKET_STATI[currentIdx - 1];
       tickets[idx].stato = prev;
-      if (prev !== "risolto" && prev !== "chiuso") {
+      if (prev !== "chiuso") {
         tickets[idx].dataRisoluzione = null;
       }
+      tickets[idx].updatedAt = new Date();
+      _store.save();
+      return tickets[idx];
+    }),
+
+  // Sollecito: registra un promemoria inviato (a fornitore, squadra, o
+  // interno) sul ticket. Il registro alimenta il badge "N solleciti · ultimo
+  // il gg/mm" in lista — così si vede subito da quanto un ticket è fermo
+  // nonostante i solleciti.
+  sollecita: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      nota: z.string().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      const idx = tickets.findIndex((t) => t.id === input.id);
+      if (idx === -1) throw new Error("Ticket non trovato");
+      assertSedeScope(tickets[idx], ctx.sedeId);
+      if (tickets[idx].stato === "chiuso") {
+        throw new Error("Il ticket è chiuso: riaprilo prima di sollecitare.");
+      }
+      if (!Array.isArray(tickets[idx].solleciti)) tickets[idx].solleciti = [];
+      tickets[idx].solleciti.push({
+        data: new Date(),
+        nota: input.nota?.trim() || null,
+        utenteId: ctx.user?.id ?? null,
+      });
       tickets[idx].updatedAt = new Date();
       _store.save();
       return tickets[idx];
@@ -163,7 +203,7 @@ export const ticketRouter = router({
     const aperti = scoped.filter((t) => t.stato === "aperto").length;
     const assegnati = scoped.filter((t) => t.stato === "assegnato").length;
     const inLavorazione = scoped.filter((t) => t.stato === "in_lavorazione").length;
-    const risolti = scoped.filter((t) => t.stato === "risolto" || t.stato === "chiuso").length;
-    return { aperti, assegnati, inLavorazione, risolti, totale: scoped.length };
+    const chiusi = scoped.filter((t) => t.stato === "chiuso").length;
+    return { aperti, assegnati, inLavorazione, risolti: chiusi, chiusi, totale: scoped.length };
   }),
 });

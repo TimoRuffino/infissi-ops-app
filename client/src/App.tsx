@@ -50,7 +50,7 @@ function Router() {
         <Route path="/commesse/:commessaId/aperture/:aperturaId/rilievo" component={RilievoDetail} />
         <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
         <Route path="/planning" component={Planning} />
-        <Route path="/ticket" component={TicketList} />
+        <Route path="/ticket">{() => <TicketList />}</Route>
         {/* Direzione-only surfaces. Hidden from the sidebar — reached via
             the Impostazioni hub. A client-side guard shows a blocked state
             so non-direzione users get a clear message instead of a silent

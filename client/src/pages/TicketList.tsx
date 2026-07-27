@@ -32,8 +32,12 @@ import {
   Paperclip,
   X,
   File as FileIcon,
+  BellRing,
+  CalendarPlus,
+  Hammer,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog, {
@@ -46,8 +50,15 @@ const statoTicketColors: Record<string, string> = {
   aperto: "bg-red-100 text-red-800",
   assegnato: "bg-amber-100 text-amber-800",
   in_lavorazione: "bg-blue-100 text-blue-800",
-  risolto: "bg-green-100 text-green-800",
-  chiuso: "bg-gray-100 text-gray-600",
+  // risolto ritirato: piegato su chiuso (il backfill server converte i vecchi)
+  chiuso: "bg-green-100 text-green-700",
+};
+
+const statoInterventoColors: Record<string, string> = {
+  pianificato: "bg-indigo-100 text-indigo-800",
+  in_corso: "bg-blue-100 text-blue-800",
+  completato: "bg-green-100 text-green-700",
+  sospeso: "bg-amber-100 text-amber-800",
 };
 
 // Staged files added before ticket is created — uploaded right after the ticket
@@ -66,7 +77,7 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export default function TicketList() {
+export default function TicketList({ embedded = false }: { embedded?: boolean }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filtroStato, setFiltroStato] = useState("tutti");
   const [editOpen, setEditOpen] = useState(false);
@@ -85,7 +96,24 @@ export default function TicketList() {
     filtroStato !== "tutti" ? { stato: filtroStato } : {}
   );
   const commesse = trpc.commesse.list.useQuery({});
+  // Interventi di assistenza collegati ai ticket: una sola query, raggruppata
+  // per ticketId — così ogni card mostra il suo intervento programmato.
+  const interventi = trpc.interventi.list.useQuery({});
+  const squadre = trpc.squadre.list.useQuery();
   const utils = trpc.useUtils();
+
+  // Dialog "Pianifica intervento" per un ticket.
+  const [pianificaFor, setPianificaFor] = useState<any>(null);
+  const [pianificaForm, setPianificaForm] = useState({
+    data: new Date().toISOString().split("T")[0],
+    oraInizio: "",
+    oraFine: "",
+    squadraId: "",
+    note: "",
+  });
+  // Dialog sollecito.
+  const [sollecitaFor, setSollecitaFor] = useState<any>(null);
+  const [sollecitoNota, setSollecitoNota] = useState("");
 
   const createTicket = trpc.ticket.create.useMutation({
     onSuccess: async (created) => {
@@ -143,6 +171,25 @@ export default function TicketList() {
 
   const deleteAllegato = trpc.ticketAllegati.delete.useMutation({
     onSuccess: () => utils.ticketAllegati.invalidate(),
+  });
+
+  const sollecita = trpc.ticket.sollecita.useMutation({
+    onSuccess: () => {
+      utils.ticket.invalidate();
+      setSollecitaFor(null);
+      setSollecitoNota("");
+      toast.success("Sollecito registrato");
+    },
+    onError: (e) => toast.error(e.message ?? "Sollecito non riuscito"),
+  });
+
+  const creaIntervento = trpc.interventi.create.useMutation({
+    onSuccess: () => {
+      utils.interventi.invalidate();
+      setPianificaFor(null);
+      toast.success("Intervento pianificato — lo trovi anche in Calendario");
+    },
+    onError: (e) => toast.error(e.message ?? "Pianificazione non riuscita"),
   });
 
   const [form, setForm] = useState({
@@ -266,13 +313,15 @@ export default function TicketList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Post-Vendita</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Gestione ticket e assistenza
-          </p>
-        </div>
+      <div className={embedded ? "flex items-center justify-end" : "flex items-center justify-between"}>
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Post-Vendita</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Gestione ticket e assistenza
+            </p>
+          </div>
+        )}
         <Dialog
           open={dialogOpen}
           onOpenChange={(o) => {
@@ -292,6 +341,17 @@ export default function TicketList() {
             </DialogHeader>
             <div className="grid gap-3 py-2">
               <div className="space-y-1.5">
+                <Label>Oggetto *</Label>
+                <Input
+                  autoFocus
+                  placeholder="Es. Persiana non chiude, vetro graffiato..."
+                  value={form.oggetto}
+                  onChange={(e) =>
+                    setForm({ ...form, oggetto: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Commessa *</Label>
                 <SearchSelect
                   options={commessaOptions}
@@ -299,15 +359,6 @@ export default function TicketList() {
                   onChange={(v) => setForm({ ...form, commessaId: v })}
                   placeholder="Seleziona commessa"
                   searchPlaceholder="Cerca per codice, cliente..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Oggetto *</Label>
-                <Input
-                  value={form.oggetto}
-                  onChange={(e) =>
-                    setForm({ ...form, oggetto: e.target.value })
-                  }
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -425,7 +476,7 @@ export default function TicketList() {
 
       {/* Filtro stato */}
       <div className="flex gap-2 flex-wrap">
-        {["tutti", "aperto", "assegnato", "in_lavorazione", "risolto", "chiuso"].map(
+        {["tutti", "aperto", "assegnato", "in_lavorazione", "chiuso"].map(
           (s) => (
             <Button
               key={s}
@@ -452,6 +503,10 @@ export default function TicketList() {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1.5 min-w-0 flex-1">
+                    {/* L'oggetto è la prima cosa che si legge — titolo in testa */}
+                    <h3 className="text-[15px] font-semibold leading-tight">
+                      {t.oggetto}
+                    </h3>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs text-muted-foreground">
                         TK-{String(t.id).padStart(4, "0")}
@@ -472,10 +527,19 @@ export default function TicketList() {
                       <Badge variant="outline" className="text-[10px]">
                         {t.categoria.replace(/_/g, " ")}
                       </Badge>
+                      {(t.solleciti?.length ?? 0) > 0 && (
+                        <Badge className="text-[10px] bg-amber-100 text-amber-800 border-transparent">
+                          <BellRing className="h-3 w-3 mr-0.5" />
+                          {t.solleciti.length}{" "}
+                          {t.solleciti.length === 1 ? "sollecito" : "solleciti"} · ultimo{" "}
+                          {new Date(
+                            t.solleciti[t.solleciti.length - 1].data
+                          ).toLocaleDateString("it-IT")}
+                        </Badge>
+                      )}
                     </div>
-                    <h3 className="text-sm font-semibold">{t.oggetto}</h3>
                     {t.descrizione && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">
+                      <p className="text-xs text-muted-foreground line-clamp-2 whitespace-pre-line">
                         {t.descrizione}
                       </p>
                     )}
@@ -500,13 +564,34 @@ export default function TicketList() {
                         <AllegatiCount ticketId={t.id} />
                       </button>
                     </div>
+                    {/* Interventi di assistenza collegati */}
+                    {(interventi.data ?? [])
+                      .filter((i: any) => i.ticketId === t.id)
+                      .map((i: any) => (
+                        <p
+                          key={i.id}
+                          className="text-xs flex items-center gap-1.5 border-l-2 border-indigo-400 pl-2 text-muted-foreground"
+                        >
+                          <Hammer className="h-3 w-3" />
+                          Intervento {new Date(i.dataPianificata + "T12:00:00").toLocaleDateString("it-IT")}
+                          {i.oraInizio ? ` · ${i.oraInizio}` : ""}
+                          {i.squadraId
+                            ? ` · ${squadre.data?.find((s: any) => s.id === i.squadraId)?.nome ?? "squadra"}`
+                            : " · senza squadra"}
+                          <span
+                            className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-sm ${statoInterventoColors[i.stato] ?? ""}`}
+                          >
+                            {i.stato.replace(/_/g, " ")}
+                          </span>
+                        </p>
+                      ))}
                     {t.esitoIntervento && (
                       <p className="text-xs border-l-2 border-green-500 pl-2 text-muted-foreground">
                         Esito: {t.esitoIntervento}
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
                     {/* Rollback one step — hidden on first state */}
                     {t.stato !== "aperto" && (
                       <Button
@@ -532,14 +617,42 @@ export default function TicketList() {
                       </Button>
                     )}
                     {t.stato === "in_lavorazione" && (
-                      <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "risolto" })}>
-                        Risolvi
-                      </Button>
-                    )}
-                    {t.stato === "risolto" && (
                       <Button variant="outline" size="sm" className="text-xs h-7" disabled={updateStato.isPending} onClick={() => updateStato.mutate({ id: t.id, stato: "chiuso" })}>
                         Chiudi
                       </Button>
+                    )}
+                    {t.stato !== "chiuso" && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 text-amber-700"
+                          title="Registra un sollecito"
+                          onClick={() => setSollecitaFor(t)}
+                        >
+                          <BellRing className="h-3 w-3 mr-1" />
+                          Sollecita
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 text-indigo-700"
+                          title="Pianifica un intervento di assistenza"
+                          onClick={() => {
+                            setPianificaFor(t);
+                            setPianificaForm({
+                              data: new Date().toISOString().split("T")[0],
+                              oraInizio: "",
+                              oraFine: "",
+                              squadraId: "",
+                              note: "",
+                            });
+                          }}
+                        >
+                          <CalendarPlus className="h-3 w-3 mr-1" />
+                          Pianifica
+                        </Button>
+                      </>
                     )}
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}>
                       <Pencil className="h-3.5 w-3.5" />
@@ -645,6 +758,130 @@ export default function TicketList() {
         onClose={closePreview}
         onDownload={() => preview && downloadAllegato(preview.allegatoId)}
       />
+
+      {/* Sollecito dialog */}
+      <Dialog open={!!sollecitaFor} onOpenChange={(o) => { if (!o) { setSollecitaFor(null); setSollecitoNota(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-1.5">
+              <BellRing className="h-4 w-4 text-amber-600" />
+              Sollecito · {sollecitaFor?.oggetto}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-1">
+            {(sollecitaFor?.solleciti?.length ?? 0) > 0 && (
+              <div className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+                {sollecitaFor.solleciti.map((so: any, i: number) => (
+                  <p key={i} className="border-l-2 border-amber-300 pl-2">
+                    {new Date(so.data).toLocaleDateString("it-IT")}
+                    {so.nota ? ` — ${so.nota}` : ""}
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Nota (a chi / per cosa)</Label>
+              <Input
+                autoFocus
+                placeholder="Es. sollecitato fornitore Wnd per pezzo di ricambio"
+                value={sollecitoNota}
+                onChange={(e) => setSollecitoNota(e.target.value)}
+              />
+            </div>
+            <Button
+              disabled={sollecita.isPending}
+              onClick={() => sollecita.mutate({ id: sollecitaFor.id, nota: sollecitoNota || undefined })}
+            >
+              Registra sollecito
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pianifica intervento dialog */}
+      <Dialog open={!!pianificaFor} onOpenChange={(o) => !o && setPianificaFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-1.5">
+              <CalendarPlus className="h-4 w-4 text-indigo-600" />
+              Pianifica intervento · {pianificaFor?.oggetto}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-1">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Data *</Label>
+                <Input
+                  type="date"
+                  value={pianificaForm.data}
+                  onChange={(e) => setPianificaForm({ ...pianificaForm, data: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Dalle</Label>
+                <Input
+                  type="time"
+                  value={pianificaForm.oraInizio}
+                  onChange={(e) => setPianificaForm({ ...pianificaForm, oraInizio: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Alle</Label>
+                <Input
+                  type="time"
+                  value={pianificaForm.oraFine}
+                  onChange={(e) => setPianificaForm({ ...pianificaForm, oraFine: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Squadra</Label>
+              <Select
+                value={pianificaForm.squadraId || "__none"}
+                onValueChange={(v) => setPianificaForm({ ...pianificaForm, squadraId: v === "__none" ? "" : v })}
+              >
+                <SelectTrigger><SelectValue placeholder="Da assegnare" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Da assegnare</SelectItem>
+                  {(squadre.data ?? []).map((sq: any) => (
+                    <SelectItem key={sq.id} value={String(sq.id)}>{sq.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note</Label>
+              <Textarea
+                rows={2}
+                placeholder="Materiale da portare, dettagli..."
+                value={pianificaForm.note}
+                onChange={(e) => setPianificaForm({ ...pianificaForm, note: e.target.value })}
+              />
+            </div>
+            <Button
+              disabled={!pianificaForm.data || creaIntervento.isPending}
+              onClick={() => {
+                const commessa = commesse.data?.find((c: any) => c.id === pianificaFor.commessaId);
+                creaIntervento.mutate({
+                  commessaId: pianificaFor.commessaId,
+                  ticketId: pianificaFor.id,
+                  tipo: "assistenza",
+                  dataPianificata: pianificaForm.data,
+                  oraInizio: pianificaForm.oraInizio || null,
+                  oraFine: pianificaForm.oraFine || null,
+                  squadraId: pianificaForm.squadraId ? parseInt(pianificaForm.squadraId) : null,
+                  indirizzo: commessa?.indirizzo ?? undefined,
+                  note: pianificaForm.note
+                    ? `[${pianificaFor.oggetto}] ${pianificaForm.note}`
+                    : pianificaFor.oggetto,
+                });
+              }}
+            >
+              Pianifica intervento
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete confirm */}
       <ConfirmDialog
