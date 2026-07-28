@@ -49,6 +49,7 @@ import {
   Banknote,
   TrendingUp,
   ChevronDown,
+  HardHat,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
@@ -252,7 +253,14 @@ export default function CommessaDetail() {
     onSuccess: () => {
       utils.interventi.list.invalidate();
       setInterventoDialog(false);
-      setInterventoForm({ tipo: "posa", dataPianificata: "", squadraId: "", indirizzo: "", note: "" });
+      setInterventoForm({
+        tipo: "posa",
+        dataPianificata: "",
+        // Riparti dalla squadra della commessa: è quella che va in cantiere.
+        squadraId: commessa.data?.squadraId ? String(commessa.data.squadraId) : "",
+        indirizzo: "",
+        note: "",
+      });
     },
   });
   const updateCommessa = trpc.commesse.update.useMutation({
@@ -1028,6 +1036,16 @@ export default function CommessaDetail() {
           the card for everyone else. */}
       <EconomiaCard commessaId={commessaId} />
 
+      {/* Squadra di posa — chi va in cantiere su questa commessa. */}
+      <SquadraPosaCard
+        commessa={c}
+        squadre={squadre.data ?? []}
+        onAssegna={(squadraId) =>
+          updateCommessa.mutate({ id: commessaId, squadraId })
+        }
+        salvataggioInCorso={updateCommessa.isPending}
+      />
+
       {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
       <TimelineOrdine commessaId={commessaId} />
 
@@ -1301,7 +1319,21 @@ export default function CommessaDetail() {
         {/* Interventi Tab */}
         <TabsContent value="interventi" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Dialog open={interventoDialog} onOpenChange={setInterventoDialog}>
+            <Dialog
+              open={interventoDialog}
+              onOpenChange={(o) => {
+                // All'apertura parti dalla squadra assegnata alla commessa:
+                // è quella che va in cantiere, riscriverla ogni volta era
+                // solo lavoro doppio.
+                if (o) {
+                  setInterventoForm((f) => ({
+                    ...f,
+                    squadraId: c.squadraId ? String(c.squadraId) : f.squadraId,
+                  }));
+                }
+                setInterventoDialog(o);
+              }}
+            >
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="h-4 w-4 mr-1" /> Nuovo intervento
@@ -2966,6 +2998,108 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
             )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Squadra di posa ─────────────────────────────────────────────────────────
+// Chi va in cantiere su questa commessa. Il campo squadraId esisteva già sul
+// modello ma non era esposto da nessuna parte: le squadre si assegnavano solo
+// al singolo intervento, quindi guardando una commessa non si sapeva chi la
+// stesse posando.
+//
+// La card diventa richiesta esplicita (bordo ambra, "da assegnare") quando la
+// commessa entra nelle fasi di posa e nessuno è stato assegnato.
+const FASI_POSA = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
+
+function SquadraPosaCard({
+  commessa,
+  squadre,
+  onAssegna,
+  salvataggioInCorso,
+}: {
+  commessa: any;
+  squadre: any[];
+  onAssegna: (squadraId: number | null) => void;
+  salvataggioInCorso: boolean;
+}) {
+  if (!commessa) return null;
+
+  const inPosa = FASI_POSA.includes(commessa.stato);
+  const squadra = squadre.find((s) => s.id === commessa.squadraId) ?? null;
+  const daAssegnare = inPosa && !squadra;
+
+  return (
+    <Card
+      className={
+        daAssegnare
+          ? "border-l-[3px] border-l-warning"
+          : squadra
+            ? "border-l-[3px] border-l-info"
+            : ""
+      }
+    >
+      <CardContent className="py-3 px-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              className={`grid h-9 w-9 place-items-center rounded-lg ${
+                daAssegnare ? "bg-warning-soft text-warning" : "bg-info-soft text-info"
+              }`}
+            >
+              <HardHat className="h-5 w-5" />
+            </span>
+            <div className="leading-tight">
+              <div className="font-semibold text-sm">Squadra di posa</div>
+              {daAssegnare ? (
+                <div className="text-xs text-warning">
+                  Da assegnare — la commessa è in fase di posa
+                </div>
+              ) : squadra ? (
+                <div className="text-xs text-text-2">
+                  {squadra.caposquadra
+                    ? `Caposquadra ${squadra.caposquadra}`
+                    : "Assegnata"}
+                  {squadra.telefono ? ` · ${squadra.telefono}` : ""}
+                </div>
+              ) : (
+                <div className="text-xs text-text-3">Nessuna squadra assegnata</div>
+              )}
+            </div>
+          </div>
+
+          <div className="min-w-[220px] flex-1 max-w-sm">
+            <SearchSelect
+              options={squadre.map((s: any) => ({
+                value: String(s.id),
+                label: s.nome,
+                keywords: [s.nome, s.caposquadra, s.telefono]
+                  .filter(Boolean)
+                  .join(" "),
+                hint: s.caposquadra ?? undefined,
+              }))}
+              value={commessa.squadraId ? String(commessa.squadraId) : ""}
+              onChange={(v) =>
+                onAssegna(v && v !== "__none__" ? parseInt(v) : null)
+              }
+              placeholder={daAssegnare ? "Assegna una squadra" : "Nessuna squadra"}
+              searchPlaceholder="Cerca squadra..."
+              allowClear
+              clearLabel="— Nessuna —"
+            />
+          </div>
+
+          {salvataggioInCorso && (
+            <span className="text-xs text-text-3">Salvataggio…</span>
+          )}
+
+          {squadre.length === 0 && (
+            <span className="text-xs text-text-3">
+              Nessuna squadra registrata — creale in «Squadre di posa».
+            </span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

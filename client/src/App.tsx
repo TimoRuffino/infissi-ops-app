@@ -59,9 +59,10 @@ function Router() {
         <Route path="/garanzie">
           {() => <RequireDirezione><GaranzieList /></RequireDirezione>}
         </Route>
-        <Route path="/squadre">
-          {() => <RequireDirezione><SquadreList /></RequireDirezione>}
-        </Route>
+        {/* Leggibile da tutti (serve a posatori e ufficio per sapere chi
+            è in cantiere); creare/modificare resta direzione, sia lato
+            server (adminProcedure) sia nei comandi della pagina. */}
+        <Route path="/squadre" component={SquadreList} />
         <Route path="/fornitori">
           {() => <RequireDirezione><FornitoriList /></RequireDirezione>}
         </Route>

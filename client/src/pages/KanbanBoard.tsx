@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronUp,
   Package,
+  HardHat,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -126,6 +127,12 @@ export default function KanbanBoard() {
   // Warehouse products per commessa — shown on the card so posa can be
   // planned around real material arrivals.
   const magazzino = trpc.magazzino.list.useQuery({});
+  const squadre = trpc.squadre.list.useQuery();
+  const squadreById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const s of squadre.data ?? []) m.set(s.id, s);
+    return m;
+  }, [squadre.data]);
   const utils = trpc.useUtils();
 
   const prodottiByCommessa = useMemo(() => {
@@ -487,6 +494,26 @@ export default function KanbanBoard() {
                                         Indicativa: +{c.consegnaIndicativa}gg
                                       </div>
                                     ) : null}
+
+                                    {/* Squadra di posa: chi va in cantiere.
+                                        Solo dalle fasi di posa in poi, dove
+                                        la domanda è viva; se manca lo dice. */}
+                                    {(() => {
+                                      const FASI_POSA = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
+                                      if (!FASI_POSA.includes(c.stato)) return null;
+                                      const sq = squadreById.get((c as any).squadraId);
+                                      return sq ? (
+                                        <div className="flex items-center gap-1 text-[11px] text-info bg-info-soft rounded px-1.5 py-0.5">
+                                          <HardHat className="h-3 w-3 shrink-0" />
+                                          <span className="truncate">{sq.nome}</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1 text-[11px] text-warning bg-warning-soft rounded px-1.5 py-0.5">
+                                          <HardHat className="h-3 w-3 shrink-0" />
+                                          Squadra da assegnare
+                                        </div>
+                                      );
+                                    })()}
 
                                     {(() => {
                                       const FASI_SALDO = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];

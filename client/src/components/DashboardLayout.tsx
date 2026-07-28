@@ -44,6 +44,7 @@ import {
   Package,
   Banknote,
   TrendingUp,
+  HardHat,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -56,10 +57,11 @@ import { isDirezione } from "@/lib/roles";
 import { AnimatePresence } from "framer-motion";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
-// for users without the `direzione` role. Squadre, Garanzie, Produzione and
-// Fornitori are intentionally absent here — they are reached from the
-// Impostazioni hub (also direzione-gated) to keep the main sidebar focused
-// on day-to-day operations.
+// for users without the `direzione` role. Garanzie, Produzione e Fornitori
+// restano fuori — si raggiungono dall'hub Impostazioni (anch'esso riservato
+// alla direzione) per tenere la sidebar sul lavoro di tutti i giorni.
+// Squadre di posa invece è qui: serve a chiunque debba sapere chi è in
+// cantiere, e la sola lettura è aperta a tutti i ruoli.
 type MenuItem = {
   icon: any;
   label: string;
@@ -78,6 +80,7 @@ const menuItems: MenuItem[] = [
   { icon: Banknote, label: "Pagamenti", path: "/pagamenti" },
   { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
+  { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Archive, label: "Archivio", path: "/archivio" },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
