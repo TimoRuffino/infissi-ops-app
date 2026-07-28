@@ -5,6 +5,7 @@ import { getCommesseStore } from "./commesse";
 import { getInterventiStore } from "./interventi";
 import { getTicketStore } from "./ticket";
 import { getGaranzieStore } from "./garanzie";
+import { getClienteById } from "./clienti";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 //
@@ -90,7 +91,7 @@ function toDateStr(d: Date): string {
 type Notifica = {
   id: string;
   commessaId: number | null;
-  commessaCodice: string;
+  commessaCodice: string | null;
   cliente: string;
   stato: string;
   statoLabel: string;
@@ -170,6 +171,11 @@ function buildNotifichePerUtente(
   for (const c of commesse) commessaById.set(c.id, c);
   const isOwnerOf = (c: any) =>
     c.assegnatoA === userId || (c.assegnatoA == null && c.createdBy === userId);
+  // Nome cliente per i ticket agganciati a un cliente ma senza commessa.
+  const clienteLabel = (id: number): string | null => {
+    const cl = getClienteById(id);
+    return cl ? `${cl.cognome ?? ""} ${cl.nome ?? ""}`.trim() || null : null;
+  };
 
   for (const c of commesse) {
     if (!inSede(c)) continue;
@@ -338,8 +344,16 @@ function buildNotifichePerUtente(
     if (!inSede(t)) continue;
     if (t.stato !== "aperto" && t.stato !== "assegnato") continue;
     const cm = t.commessaId ? commessaById.get(t.commessaId) : null;
-    if (!cm || cm.archivedAt) continue;
-    if (!isOwnerOf(cm) && !isDirezione) continue;
+    if (cm?.archivedAt) continue;
+    if (cm) {
+      if (!isOwnerOf(cm) && !isDirezione) continue;
+    } else {
+      // Ticket senza commessa (chiamata arrivata prima che la commessa
+      // esista): niente owner da cui dedurre i destinatari, quindi lo vedono
+      // la direzione e chi lo ha aperto. Prima venivano scartati e nessuno
+      // riceveva la notifica.
+      if (!isDirezione && t.apertoBy !== userId) continue;
+    }
     const severity: Notifica["severity"] =
       t.priorita === "urgente"
         ? "urgent"
@@ -348,9 +362,13 @@ function buildNotifichePerUtente(
         : "info";
     out.push({
       id: `ticket-${t.id}-${t.stato}`,
-      commessaId: cm.id,
-      commessaCodice: cm.codice,
-      cliente: cm.cliente,
+      commessaId: cm?.id ?? null,
+      commessaCodice: cm?.codice ?? null,
+      cliente:
+        cm?.cliente ??
+        (t.clienteId ? clienteLabel(t.clienteId) : null) ??
+        t.contatto ??
+        "Senza commessa",
       stato: t.stato,
       statoLabel: `Ticket ${t.stato}`,
       priorita: t.priorita ?? "media",

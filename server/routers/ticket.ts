@@ -34,6 +34,10 @@ const _store = persistedStore<any>("tickets", (items) => {
     }
     // Solleciti register — one entry per reminder sent to fornitore/squadra.
     if (!Array.isArray((t as any).solleciti)) (t as any).solleciti = [];
+    // Ticket senza commessa: si può agganciare un cliente esistente oppure
+    // lasciare solo un contatto libero (chi chiama non è ancora a sistema).
+    if ((t as any).clienteId === undefined) (t as any).clienteId = null;
+    if ((t as any).contatto === undefined) (t as any).contatto = null;
   }
   if (changed) setTimeout(() => _store.save(), 0);
 });
@@ -54,18 +58,24 @@ export const ticketRouter = router({
   list: protectedProcedure
     .input(z.object({
       commessaId: z.number().optional(),
+      clienteId: z.number().optional(),
       stato: z.string().optional(),
     }).optional())
     .query(({ input, ctx }) => {
       let result = tickets.filter((t) => t.sedeId === ctx.sedeId);
       if (input?.commessaId) result = result.filter((t) => t.commessaId === input.commessaId);
+      if (input?.clienteId) result = result.filter((t) => t.clienteId === input.clienteId);
       if (input?.stato) result = result.filter((t) => t.stato === input.stato);
       return result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }),
 
   create: protectedProcedure
     .input(z.object({
-      commessaId: z.number(),
+      // Nessuno dei tre è obbligatorio: una chiamata di assistenza arriva
+      // spesso prima che esista una commessa (o perfino il cliente).
+      commessaId: z.number().nullable().optional(),
+      clienteId: z.number().nullable().optional(),
+      contatto: z.string().nullable().optional(),
       aperturaId: z.number().nullable().optional(),
       oggetto: z.string().min(1),
       descrizione: z.string().optional(),
@@ -78,6 +88,9 @@ export const ticketRouter = router({
         id: nextId++,
         ...input,
         sedeId: ctx.sedeId ?? 1,
+        commessaId: input.commessaId ?? null,
+        clienteId: input.clienteId ?? null,
+        contatto: input.contatto?.trim() || null,
         aperturaId: input.aperturaId ?? null,
         priorita: input.priorita ?? "media",
         stato: "aperto" as const,
@@ -101,6 +114,11 @@ export const ticketRouter = router({
       descrizione: z.string().optional(),
       categoria: z.enum(["difetto_prodotto", "difetto_posa", "regolazione", "sostituzione", "garanzia", "altro"]).optional(),
       priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
+      // Un ticket aperto al volo si aggancia dopo, quando si scopre a quale
+      // commessa/cliente appartiene.
+      commessaId: z.number().nullable().optional(),
+      clienteId: z.number().nullable().optional(),
+      contatto: z.string().nullable().optional(),
     }))
     .mutation(({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
@@ -124,7 +142,9 @@ export const ticketRouter = router({
       // altrimenti requireOwnershipOrDirezione(null) lanciava NOT_FOUND e il
       // ticket diventava indistruttibile.
       const uid = ctx.user?.id ?? null;
-      const commessa = getCommessaById(tickets[idx].commessaId);
+      const commessa = tickets[idx].commessaId
+        ? getCommessaById(tickets[idx].commessaId)
+        : null;
       const isAutore = uid != null && tickets[idx].apertoBy === uid;
       if (!isAutore) {
         if (commessa) {

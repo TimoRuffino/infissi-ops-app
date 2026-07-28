@@ -138,6 +138,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
   // solo confusione).
   const tickets = trpc.ticket.list.useQuery({});
   const commesse = trpc.commesse.list.useQuery({});
+  const clienti = trpc.clienti.list.useQuery({});
   // Interventi di assistenza collegati ai ticket: una sola query, raggruppata
   // per ticketId — così ogni card mostra il suo intervento programmato.
   const interventi = trpc.interventi.list.useQuery({});
@@ -243,6 +244,8 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
 
   const [form, setForm] = useState({
     commessaId: "",
+    clienteId: "",
+    contatto: "",
     oggetto: "",
     descrizione: "",
     categoria: "regolazione" as const,
@@ -254,6 +257,9 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
     descrizione: "",
     categoria: "regolazione" as string,
     priorita: "media" as string,
+    commessaId: "",
+    clienteId: "",
+    contatto: "",
   });
 
   function openEdit(t: any) {
@@ -263,14 +269,24 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
       descrizione: t.descrizione ?? "",
       categoria: t.categoria,
       priorita: t.priorita,
+      commessaId: t.commessaId ? String(t.commessaId) : "",
+      clienteId: t.clienteId ? String(t.clienteId) : "",
+      contatto: t.contatto ?? "",
     });
     setEditOpen(true);
   }
 
   function handleCreate() {
-    if (!form.commessaId || !form.oggetto) return;
+    // Solo l'oggetto è obbligatorio: la commessa spesso non esiste ancora
+    // quando il cliente chiama.
+    if (!form.oggetto.trim()) {
+      toast.error("Scrivi almeno l'oggetto del ticket");
+      return;
+    }
     createTicket.mutate({
-      commessaId: parseInt(form.commessaId),
+      commessaId: form.commessaId ? parseInt(form.commessaId) : null,
+      clienteId: form.clienteId ? parseInt(form.clienteId) : null,
+      contatto: form.contatto.trim() || null,
       oggetto: form.oggetto,
       descrizione: form.descrizione || undefined,
       categoria: form.categoria,
@@ -279,6 +295,8 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
     // Reset form fields but keep dialog open until async upload completes.
     setForm({
       commessaId: "",
+      clienteId: "",
+      contatto: "",
       oggetto: "",
       descrizione: "",
       categoria: "regolazione",
@@ -360,6 +378,26 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
     return m;
   }, [commesse.data]);
 
+  const clienteById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const c of clienti.data ?? []) m.set(c.id, c);
+    return m;
+  }, [clienti.data]);
+
+  // Chi è il ticket, in ordine di precisione: commessa → cliente collegato →
+  // contatto scritto a mano → niente.
+  const intestatario = (t: any): { nome: string; debole: boolean } => {
+    const cm = t.commessaId ? commessaById.get(t.commessaId) : null;
+    if (cm?.cliente) return { nome: cm.cliente, debole: false };
+    const cl = t.clienteId ? clienteById.get(t.clienteId) : null;
+    if (cl) {
+      const n = `${cl.cognome ?? ""} ${cl.nome ?? ""}`.trim();
+      if (n) return { nome: n, debole: false };
+    }
+    if (t.contatto) return { nome: t.contatto, debole: false };
+    return { nome: "Senza cliente", debole: true };
+  };
+
   // Conteggi per chip: calcolati sull'elenco completo, indipendenti dalla
   // ricerca in corso — così si vede sempre quanti ticket ci sono per stato.
   const contaPerStato = useMemo(() => {
@@ -373,7 +411,8 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
     return (tickets.data ?? []).filter((t: any) => {
       if (filtroStato !== "tutti" && t.stato !== filtroStato) return false;
       if (!q) return true;
-      const commessa = commessaById.get(t.commessaId);
+      const commessa = t.commessaId ? commessaById.get(t.commessaId) : null;
+      const cliente = t.clienteId ? clienteById.get(t.clienteId) : null;
       const campi = [
         t.oggetto,
         t.descrizione,
@@ -381,6 +420,9 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
         commessa?.codice,
         commessa?.citta,
         commessa?.indirizzo,
+        cliente ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim() : null,
+        cliente?.telefono,
+        t.contatto,
         `TK-${String(t.id).padStart(4, "0")}`,
         CATEGORIA_LABEL[t.categoria] ?? t.categoria,
         t.esitoIntervento,
@@ -389,7 +431,16 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
       ];
       return campi.some((v) => typeof v === "string" && v.toLowerCase().includes(q));
     });
-  }, [tickets.data, filtroStato, search, commessaById]);
+  }, [tickets.data, filtroStato, search, commessaById, clienteById]);
+
+  const clienteOptions = (clienti.data ?? []).map((c: any) => ({
+    value: String(c.id),
+    label: `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`,
+    keywords: [c.cognome, c.nome, c.telefono, c.email, c.citta]
+      .filter(Boolean)
+      .join(" "),
+    hint: c.citta ?? undefined,
+  }));
 
   const commessaOptions = (commesse.data ?? []).map((c: any) => ({
     value: String(c.id),
@@ -439,16 +490,52 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                   }
                 />
               </div>
+              {/* Commessa/cliente sono facoltativi: si aggancia dopo, quando
+                  si scopre a chi appartiene il problema. */}
               <div className="space-y-1.5">
-                <Label>Commessa *</Label>
+                <Label>Commessa</Label>
                 <SearchSelect
                   options={commessaOptions}
                   value={form.commessaId}
-                  onChange={(v) => setForm({ ...form, commessaId: v })}
-                  placeholder="Seleziona commessa"
+                  onChange={(v) =>
+                    setForm({ ...form, commessaId: v === "__none__" ? "" : v })
+                  }
+                  placeholder="Nessuna — ticket senza commessa"
                   searchPlaceholder="Cerca per codice, cliente..."
+                  allowClear
+                  clearLabel="— Nessuna —"
                 />
               </div>
+              {!form.commessaId && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Cliente</Label>
+                    <SearchSelect
+                      options={clienteOptions}
+                      value={form.clienteId}
+                      onChange={(v) =>
+                        setForm({ ...form, clienteId: v === "__none__" ? "" : v })
+                      }
+                      placeholder="Cliente già a sistema (facoltativo)"
+                      searchPlaceholder="Cerca cliente..."
+                      allowClear
+                      clearLabel="— Nessuno —"
+                    />
+                  </div>
+                  {!form.clienteId && (
+                    <div className="space-y-1.5">
+                      <Label>Contatto</Label>
+                      <Input
+                        placeholder="Nome e telefono di chi ha chiamato"
+                        value={form.contatto}
+                        onChange={(e) =>
+                          setForm({ ...form, contatto: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+                </>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Categoria</Label>
@@ -614,9 +701,8 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
       {/* Ticket list */}
       <div className="grid gap-3">
         {ticketFiltrati.map((t: any) => {
-          const commessa = commesse.data?.find(
-            (c: any) => c.id === t.commessaId
-          );
+          const commessa = t.commessaId ? commessaById.get(t.commessaId) : null;
+          const chi = intestatario(t);
           const isExpanded = expandedTicket === t.id;
           return (
             <Card
@@ -631,11 +717,13 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                     mentale, non l'oggetto. */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-base font-bold leading-tight truncate">
-                      {commessa?.cliente ?? "Cliente non collegato"}
+                    <h3
+                      className={`text-base font-bold leading-tight truncate ${chi.debole ? "text-text-3" : ""}`}
+                    >
+                      {chi.nome}
                     </h3>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {commessa && (
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {commessa ? (
                         <button
                           type="button"
                           onClick={() => setLocation(`/commesse/${commessa.id}`)}
@@ -644,6 +732,13 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                         >
                           {commessa.codice}
                         </button>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-normal text-text-3"
+                        >
+                          Senza commessa
+                        </Badge>
                       )}
                       <span className="codice-mono text-xs text-text-3">
                         TK-{String(t.id).padStart(4, "0")}
@@ -940,6 +1035,52 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
               <Label>Descrizione</Label>
               <Textarea rows={3} value={editForm.descrizione} onChange={(e) => setEditForm({ ...editForm, descrizione: e.target.value })} />
             </div>
+            {/* Aggancio posticipato: un ticket aperto al volo si collega qui
+                alla commessa (o al cliente) una volta scoperta. */}
+            <div className="space-y-1.5">
+              <Label>Commessa</Label>
+              <SearchSelect
+                options={commessaOptions}
+                value={editForm.commessaId}
+                onChange={(v) =>
+                  setEditForm({ ...editForm, commessaId: v === "__none__" ? "" : v })
+                }
+                placeholder="Nessuna — ticket senza commessa"
+                searchPlaceholder="Cerca per codice, cliente..."
+                allowClear
+                clearLabel="— Nessuna —"
+              />
+            </div>
+            {!editForm.commessaId && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Cliente</Label>
+                  <SearchSelect
+                    options={clienteOptions}
+                    value={editForm.clienteId}
+                    onChange={(v) =>
+                      setEditForm({ ...editForm, clienteId: v === "__none__" ? "" : v })
+                    }
+                    placeholder="Cliente già a sistema (facoltativo)"
+                    searchPlaceholder="Cerca cliente..."
+                    allowClear
+                    clearLabel="— Nessuno —"
+                  />
+                </div>
+                {!editForm.clienteId && (
+                  <div className="space-y-1.5">
+                    <Label>Contatto</Label>
+                    <Input
+                      placeholder="Nome e telefono di chi ha chiamato"
+                      value={editForm.contatto}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, contatto: e.target.value })
+                      }
+                    />
+                  </div>
+                )}
+              </>
+            )}
             <Button
               onClick={() => editId && updateTicket.mutate({
                 id: editId,
@@ -947,6 +1088,16 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                 descrizione: editForm.descrizione || undefined,
                 categoria: editForm.categoria as any,
                 priorita: editForm.priorita as any,
+                commessaId: editForm.commessaId ? parseInt(editForm.commessaId) : null,
+                // Agganciando una commessa il cliente sciolto non serve più.
+                clienteId: editForm.commessaId
+                  ? null
+                  : editForm.clienteId
+                    ? parseInt(editForm.clienteId)
+                    : null,
+                contatto: editForm.commessaId || editForm.clienteId
+                  ? null
+                  : editForm.contatto.trim() || null,
               })}
               disabled={updateTicket.isPending}
             >
@@ -1065,9 +1216,11 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
             <Button
               disabled={!pianificaForm.data || creaIntervento.isPending}
               onClick={() => {
-                const commessa = commesse.data?.find((c: any) => c.id === pianificaFor.commessaId);
+                const commessa = pianificaFor.commessaId
+                  ? commessaById.get(pianificaFor.commessaId)
+                  : null;
                 creaIntervento.mutate({
-                  commessaId: pianificaFor.commessaId,
+                  commessaId: pianificaFor.commessaId ?? null,
                   ticketId: pianificaFor.id,
                   tipo: "assistenza",
                   dataPianificata: pianificaForm.data,
