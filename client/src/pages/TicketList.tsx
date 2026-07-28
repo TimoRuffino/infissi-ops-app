@@ -38,8 +38,10 @@ import {
   CheckCircle2,
   MoreHorizontal,
   Building2,
+  Search,
+  X as XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
@@ -117,6 +119,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
   const [, setLocation] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filtroStato, setFiltroStato] = useState("tutti");
+  const [search, setSearch] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
@@ -129,9 +132,11 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
   // Per-ticket upload input (when attaching files to an existing ticket).
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
 
-  const tickets = trpc.ticket.list.useQuery(
-    filtroStato !== "tutti" ? { stato: filtroStato } : {}
-  );
+  // Prendiamo tutti i ticket della sede e filtriamo qui: così i contatori
+  // sui chip di stato sono reali e la ricerca attraversa anche gli stati non
+  // selezionati (cercare un cliente e non trovarlo perché è "chiuso" sarebbe
+  // solo confusione).
+  const tickets = trpc.ticket.list.useQuery({});
   const commesse = trpc.commesse.list.useQuery({});
   // Interventi di assistenza collegati ai ticket: una sola query, raggruppata
   // per ticketId — così ogni card mostra il suo intervento programmato.
@@ -347,6 +352,45 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
     setPreview(null);
   }
 
+  // Indice commessa per id: serve sia alle card sia alla ricerca (che deve
+  // trovare per nome cliente e codice commessa, non solo per oggetto).
+  const commessaById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const c of commesse.data ?? []) m.set(c.id, c);
+    return m;
+  }, [commesse.data]);
+
+  // Conteggi per chip: calcolati sull'elenco completo, indipendenti dalla
+  // ricerca in corso — così si vede sempre quanti ticket ci sono per stato.
+  const contaPerStato = useMemo(() => {
+    const c: Record<string, number> = { tutti: tickets.data?.length ?? 0 };
+    for (const t of tickets.data ?? []) c[t.stato] = (c[t.stato] ?? 0) + 1;
+    return c;
+  }, [tickets.data]);
+
+  const ticketFiltrati = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (tickets.data ?? []).filter((t: any) => {
+      if (filtroStato !== "tutti" && t.stato !== filtroStato) return false;
+      if (!q) return true;
+      const commessa = commessaById.get(t.commessaId);
+      const campi = [
+        t.oggetto,
+        t.descrizione,
+        commessa?.cliente,
+        commessa?.codice,
+        commessa?.citta,
+        commessa?.indirizzo,
+        `TK-${String(t.id).padStart(4, "0")}`,
+        CATEGORIA_LABEL[t.categoria] ?? t.categoria,
+        t.esitoIntervento,
+        // anche le note dei solleciti: "chi ho già sollecitato per X?"
+        ...(t.solleciti ?? []).map((so: any) => so.nota),
+      ];
+      return campi.some((v) => typeof v === "string" && v.toLowerCase().includes(q));
+    });
+  }, [tickets.data, filtroStato, search, commessaById]);
+
   const commessaOptions = (commesse.data ?? []).map((c: any) => ({
     value: String(c.id),
     label: `${c.codice} — ${c.cliente}`,
@@ -518,26 +562,58 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
         </Dialog>
       </div>
 
-      {/* Filtro stato */}
-      <div className="flex gap-2 flex-wrap">
-        {["tutti", "aperto", "assegnato", "in_lavorazione", "chiuso"].map(
-          (s) => (
-            <Button
-              key={s}
-              variant={filtroStato === s ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFiltroStato(s)}
-              className="text-xs capitalize"
+      {/* Ricerca + filtro stato */}
+      <div className="space-y-2">
+        <div className="relative max-w-md">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3 pointer-events-none" />
+          <Input
+            className="pl-8 pr-8"
+            placeholder="Cerca cliente, commessa, oggetto, TK-0001..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-1"
+              title="Pulisci ricerca"
             >
-              {s === "tutti" ? "Tutti" : s.replace(/_/g, " ")}
-            </Button>
-          )
-        )}
+              <XIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap items-center">
+          {["tutti", "aperto", "assegnato", "in_lavorazione", "chiuso"].map(
+            (st) => (
+              <Button
+                key={st}
+                variant={filtroStato === st ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFiltroStato(st)}
+                className="text-xs"
+              >
+                {st === "tutti" ? "Tutti" : statoTicketLabel[st] ?? st}
+                <span
+                  className={`ml-1.5 tabular-nums ${filtroStato === st ? "opacity-80" : "text-text-3"}`}
+                >
+                  {contaPerStato[st] ?? 0}
+                </span>
+              </Button>
+            )
+          )}
+          {search && (
+            <span className="text-xs text-text-3 ml-auto">
+              {ticketFiltrati.length}{" "}
+              {ticketFiltrati.length === 1 ? "risultato" : "risultati"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Ticket list */}
       <div className="grid gap-3">
-        {tickets.data?.map((t: any) => {
+        {ticketFiltrati.map((t: any) => {
           const commessa = commesse.data?.find(
             (c: any) => c.id === t.commessaId
           );
@@ -789,10 +865,34 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
           );
         })}
 
-        {tickets.data?.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
+        {ticketFiltrati.length === 0 && !tickets.isLoading && (
+          <div className="text-center py-12 text-text-3">
             <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">Nessun ticket trovato</p>
+            {search ? (
+              <>
+                <p className="text-sm">
+                  Nessun ticket per «{search}»
+                  {filtroStato !== "tutti" && " in questo stato"}.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 text-primary"
+                  onClick={() => {
+                    setSearch("");
+                    setFiltroStato("tutti");
+                  }}
+                >
+                  Azzera i filtri
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm">
+                {(tickets.data?.length ?? 0) === 0
+                  ? "Nessun ticket aperto — usa «Nuovo ticket» per registrare un problema."
+                  : "Nessun ticket in questo stato."}
+              </p>
+            )}
           </div>
         )}
       </div>
