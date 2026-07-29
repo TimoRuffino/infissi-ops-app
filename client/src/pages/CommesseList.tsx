@@ -31,30 +31,13 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import SearchSelect from "@/components/SearchSelect";
 import StatoChip from "@/components/StatoChip";
+import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import { PRIORITA_VARIANT, PRIORITA_LABEL, STATI_ORDER, statoLabel } from "@/lib/stato";
 
 type DeleteTarget = { id: number; codice: string; stato: string } | null;
 
-// Deve restare allineato a TIPOLOGIE_PRODOTTO lato server.
-const TIPOLOGIE_PRODOTTO = [
-  "Infissi",
-  "Porte interne",
-  "Portoncino / Blindato",
-  "Zanzariere",
-  "Persiane",
-  "Avvolgibili / Tapparelle",
-  "Cassonetti",
-  "Controtelai",
-  "Tende da sole",
-  "Veneziane",
-  "Grate",
-  "Vetri",
-  "Scale",
-  "Altro",
-];
-
-type RigaLavorazione = { nome: string; quantita: string };
+type RigaProdotto = { nome: string; quantita: string };
 
 // "Ruffino Timothy" → "#TR": iniziali nome+cognome nell'ordine di lettura
 // naturale (nome prima), così l'assegnatario sta in una colonna stretta.
@@ -67,7 +50,7 @@ function iniziali(u: { nome?: string | null; cognome?: string | null }): string 
 
 const emptyForm = {
   clienteId: "" as string,
-  prodotti: [] as RigaLavorazione[],
+  prodotti: [] as RigaProdotto[],
   cliente: "",
   indirizzo: "",
   citta: "",
@@ -338,9 +321,10 @@ export default function CommesseList() {
                 />
               </div>
               {/* Di cosa si tratta: righe tipologia + quantità. Finisce in
-                  prodotti[] della commessa e in colonna nella lista. */}
+                  prodotti[] della commessa, modificabile poi dal tab Prodotti
+                  della scheda, e mostrato in colonna nella lista. */}
               <div className="space-y-2">
-                <Label>Lavorazioni</Label>
+                <Label>Prodotti</Label>
                 {form.prodotti.length > 0 && (
                   <div className="space-y-2">
                     {form.prodotti.map((riga, i) => (
@@ -411,7 +395,7 @@ export default function CommesseList() {
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Aggiungi lavorazione
+                  Aggiungi prodotto
                 </Button>
               </div>
 
@@ -559,7 +543,7 @@ export default function CommesseList() {
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Codice</th>
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Cliente</th>
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Stato</th>
-              <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Lavorazione</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Prodotti</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden md:table-cell">Città</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Consegna stimata</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Priorità</th>
@@ -570,7 +554,7 @@ export default function CommesseList() {
           <tbody>
             {commesse.data?.map((c: any) => {
               const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
-              const lavorazioni: any[] = c.prodottiSintesi ?? [];
+              const prodotti: any[] = c.prodottiSintesi ?? [];
               const consegna = c.dataConsegnaConfermata
                 ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
                 : c.dataConsegnaIndicativa
@@ -592,11 +576,11 @@ export default function CommesseList() {
                     <StatoChip stato={c.stato} />
                   </td>
                   <td className="px-4 hidden lg:table-cell">
-                    {lavorazioni.length === 0 ? (
+                    {prodotti.length === 0 ? (
                       <span className="text-text-3">—</span>
                     ) : (
                       <span className="flex items-center gap-1 flex-wrap">
-                        {lavorazioni.slice(0, 2).map((p: any, i: number) => (
+                        {prodotti.slice(0, 2).map((p: any, i: number) => (
                           <Badge key={i} variant="secondary" className="text-[10px] font-normal">
                             {p.quantita > 1 && (
                               <span className="tabular-nums font-semibold mr-1">
@@ -606,15 +590,15 @@ export default function CommesseList() {
                             {p.nome}
                           </Badge>
                         ))}
-                        {lavorazioni.length > 2 && (
+                        {prodotti.length > 2 && (
                           <span
                             className="text-[10px] text-text-3"
-                            title={lavorazioni
+                            title={prodotti
                               .slice(2)
                               .map((p: any) => `${p.quantita}× ${p.nome}`)
                               .join(", ")}
                           >
-                            +{lavorazioni.length - 2}
+                            +{prodotti.length - 2}
                           </span>
                         )}
                       </span>

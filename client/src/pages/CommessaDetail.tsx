@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
@@ -340,9 +341,12 @@ export default function CommessaDetail() {
     },
   });
 
+  // Nota: invalidare anche commesse.list — da quando la lista mostra la
+  // colonna Prodotti, senza questo restava indietro dopo una modifica.
   const addProdotto = trpc.commesse.addProdotto.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
+      utils.commesse.list.invalidate();
       setProdottoDialog(false);
       setEditingProdottoId(null);
       setProdottoForm({ nome: "", tipologia: "", quantita: 1, dimensioni: "", note: "" });
@@ -351,6 +355,7 @@ export default function CommessaDetail() {
   const updateProdotto = trpc.commesse.updateProdotto.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
+      utils.commesse.list.invalidate();
       setProdottoDialog(false);
       setEditingProdottoId(null);
       setProdottoForm({ nome: "", tipologia: "", quantita: 1, dimensioni: "", note: "" });
@@ -359,6 +364,7 @@ export default function CommessaDetail() {
   const removeProdotto = trpc.commesse.removeProdotto.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
+      utils.commesse.list.invalidate();
       setDeleteTarget(null);
     },
   });
@@ -2040,17 +2046,36 @@ export default function CommessaDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
+            {/* Stesso elenco proposto alla creazione della commessa, così la
+                colonna Prodotti in lista resta omogenea. I nomi liberi dei
+                prodotti già inseriti restano selezionabili e non si perdono. */}
             <div className="space-y-1.5">
-              <Label>Nome prodotto *</Label>
-              <Input
-                placeholder="es. Finestra 2 ante PVC bianco"
+              <Label>Prodotto *</Label>
+              <Select
                 value={prodottoForm.nome}
-                onChange={(e) => setProdottoForm({ ...prodottoForm, nome: e.target.value })}
-              />
+                onValueChange={(v) => setProdottoForm({ ...prodottoForm, nome: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleziona il prodotto" />
+                </SelectTrigger>
+                <SelectContent>
+                  {prodottoForm.nome &&
+                    !TIPOLOGIE_PRODOTTO.includes(prodottoForm.nome) && (
+                      <SelectItem value={prodottoForm.nome}>
+                        {prodottoForm.nome}
+                      </SelectItem>
+                    )}
+                  {TIPOLOGIE_PRODOTTO.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Tipologia</Label>
+                <Label>Materiale</Label>
                 <Input
                   placeholder="PVC / Alluminio / Legno"
                   value={prodottoForm.tipologia}
