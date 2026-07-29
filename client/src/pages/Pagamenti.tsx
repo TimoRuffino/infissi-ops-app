@@ -23,6 +23,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import StatoChip from "@/components/StatoChip";
 import { TIPO_PAGAMENTO_LABEL, tipoPagamentoSuggerito } from "./CommessaDetail";
+import { parseEuroPositivo } from "@/lib/euro";
 
 const METODO_LABEL: Record<string, string> = {
   bonifico: "Bonifico",
@@ -86,7 +87,8 @@ export default function Pagamenti() {
       .filter(({ c, tot, residuo }) => {
         if (q && !`${c.codice ?? ""} ${c.cliente ?? ""}`.toLowerCase().includes(q)) return false;
         if (filtro === "residuo") return !!tot && residuo > 0;
-        if (filtro === "saldate") return !!tot && residuo <= 0;
+        if (filtro === "saldate") return !!tot && residuo === 0;
+        if (filtro === "sovrapagate") return !!tot && residuo < 0;
         if (filtro === "senza") return !tot;
         return true;
       })
@@ -97,10 +99,27 @@ export default function Pagamenti() {
     const conImporto = attive.filter((c: any) => c.importoTotale);
     const tot = conImporto.reduce((s: number, c: any) => s + (c.importoTotale ?? 0), 0);
     const inc = conImporto.reduce((s: number, c: any) => s + (c.importoIncassato ?? 0), 0);
+    // Da incassare = somma dei residui POSITIVI commessa per commessa.
+    // Prima era max(0, tot − inc) sugli aggregati: una commessa incassata in
+    // eccesso cancellava il debito di un'altra, e il totale da incassare
+    // usciva più basso del vero.
+    let residuo = 0;
+    let eccedenza = 0;
+    let sovrapagate = 0;
+    for (const c of conImporto as any[]) {
+      const d = (c.importoTotale ?? 0) - (c.importoIncassato ?? 0);
+      if (d > 0) residuo += d;
+      else if (d < 0) {
+        eccedenza += -d;
+        sovrapagate++;
+      }
+    }
     return {
       tot,
       inc,
-      residuo: Math.max(0, tot - inc),
+      residuo,
+      eccedenza,
+      sovrapagate,
       senza: attive.length - conImporto.length,
     };
   }, [attive]);
@@ -111,10 +130,7 @@ export default function Pagamenti() {
     setPForm((f) => ({ ...f, importo: String(val) }));
   };
 
-  const parse = (v: string): number | null => {
-    const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
-    return isNaN(n) || n <= 0 ? null : n;
-  };
+  const parse = parseEuroPositivo;
 
   return (
     <div className="space-y-4">
@@ -154,6 +170,18 @@ export default function Pagamenti() {
               {kpi.senza}
             </div>
           </Card>
+          {kpi.sovrapagate > 0 && (
+            <Card
+              className="px-3 py-2 gap-0 border-danger/30 cursor-pointer"
+              onClick={() => setFiltro("sovrapagate")}
+              title="Mostra le commesse incassate oltre il pattuito"
+            >
+              <div className="eyebrow !text-danger">Incassato in più</div>
+              <div className="text-xl font-bold leading-none mt-1 tabular-nums text-danger">
+                € {fmt(kpi.eccedenza)}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -196,6 +224,7 @@ export default function Pagamenti() {
           {[
             ["residuo", "Con residuo"],
             ["saldate", "Saldate"],
+            ...(kpi.sovrapagate > 0 ? [["sovrapagate", "Incassato in più"]] : []),
             ["senza", "Senza importo"],
             ["tutte", "Tutte"],
           ].map(([k, label]) => (
@@ -218,7 +247,13 @@ export default function Pagamenti() {
           <Card
             key={c.id}
             className={`transition-all hover:shadow-sm ${
-              tot && residuo > 0 ? "border-l-[3px] border-l-warning" : tot ? "border-l-[3px] border-l-success" : ""
+              tot && residuo > 0
+                ? "border-l-[3px] border-l-warning"
+                : tot && residuo < 0
+                  ? "border-l-[3px] border-l-danger"
+                  : tot
+                    ? "border-l-[3px] border-l-success"
+                    : ""
             }`}
           >
             <CardContent className="py-3 px-4 flex items-center gap-4 flex-wrap">
@@ -255,6 +290,13 @@ export default function Pagamenti() {
                       <p className="text-base font-bold tabular-nums text-warning">
                         € {fmt(residuo)}
                       </p>
+                    ) : residuo < 0 ? (
+                      /* Incassato oltre il pattuito: prima veniva mostrato
+                         come "Saldata" e l'eccedenza spariva dalla vista. */
+                      <p className="text-sm font-bold tabular-nums text-danger">
+                        +€ {fmt(-residuo)}
+                        <span className="block text-[10px] font-normal">in più</span>
+                      </p>
                     ) : (
                       <p className="inline-flex items-center gap-1 text-sm font-bold text-success">
                         <CheckCircle2 className="h-4 w-4" /> Saldata
@@ -272,7 +314,7 @@ export default function Pagamenti() {
                           importo: "",
                           data: new Date().toISOString().split("T")[0],
                           metodo: "bonifico",
-                          tipo: tipoPagamentoSuggerito(c.pagamenti ?? []),
+                          tipo: tipoPagamentoSuggerito(c.nPagamenti ?? 0),
                           note: "",
                         });
                       }}

@@ -275,7 +275,13 @@ export const commesseRouter = router({
       // never read it; only commesse.byId needs the full object.
       return result
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .map(({ prodotti, pagamenti, ...rest }) => rest);
+        // prodotti/pagamenti restano fuori per non appesantire la lista, ma
+        // il CONTEGGIO degli acconti serve alla pagina Pagamenti per proporre
+        // la rata successiva: senza, suggeriva sempre "1° acconto".
+        .map(({ prodotti, pagamenti, ...rest }) => ({
+          ...rest,
+          nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
+        }));
     }),
 
   byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
@@ -297,7 +303,6 @@ export const commesseRouter = router({
         email: z.string().optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         importoTotale: z.number().nonnegative().nullable().optional(),
-        importoIncassato: z.number().nonnegative().nullable().optional(),
         note: z.string().optional(),
         // Indicative delivery — either a preset offset (30/60/90 days) OR a
         // free-form date picked from the calendar. The two are mutually
@@ -342,7 +347,7 @@ export const commesseRouter = router({
         email: rest.email ?? null,
         stato: "preventivo" as const,
         importoTotale: input.importoTotale ?? null,
-        importoIncassato: input.importoIncassato ?? 0,
+        importoIncassato: 0,
         costoPosaStimato: null,
         costi: [],
         pagamenti: [],
@@ -382,7 +387,10 @@ export const commesseRouter = router({
         stato: z.enum(STATI_COMMESSA).optional(),
         priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
         importoTotale: z.number().nonnegative().nullable().optional(),
-        importoIncassato: z.number().nonnegative().nullable().optional(),
+        // importoIncassato NON è accettato qui: è la somma del registro
+        // pagamenti[], ricalcolata da add/update/removePagamento. Accettarlo
+        // permetteva di scrivere un incassato slegato dal registro (es. 99999
+        // con zero acconti), rompendo residui, KPI e notifiche.
         costoPosaStimato: z.number().nonnegative().nullable().optional(),
         squadraId: z.number().nullable().optional(),
         note: z.string().optional(),

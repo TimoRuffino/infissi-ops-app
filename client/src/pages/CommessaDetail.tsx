@@ -52,6 +52,7 @@ import {
   HardHat,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
@@ -2211,8 +2212,10 @@ export const TIPO_PAGAMENTO_LABEL: Record<string, string> = {
 };
 
 // Suggerisce la rata successiva in base a quante sono già registrate.
-export function tipoPagamentoSuggerito(pagamenti: any[]): string {
-  const n = (pagamenti ?? []).length;
+// Prende il CONTEGGIO, non l'array: commesse.list non restituisce i pagamenti
+// e passandole un array vuoto proponeva sempre "1° acconto".
+export function tipoPagamentoSuggerito(nGiaRegistrati: number): string {
+  const n = nGiaRegistrati ?? 0;
   return n >= 5 ? "saldo" : `acconto_${n + 1}`;
 }
 
@@ -2268,10 +2271,7 @@ function PagamentiCard({
   const residuo = (totale ?? 0) - incassato;
   const pct = totale ? Math.min(100, Math.round((incassato / totale) * 100)) : 0;
 
-  const parse = (v: string): number | null => {
-    const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
-    return isNaN(n) || n < 0 ? null : n;
-  };
+  const parse = parseEuroNonNegativo;
   const fmt = (n: number) =>
     n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const fmtData = (iso: string | null) =>
@@ -2281,7 +2281,7 @@ function PagamentiCard({
   const chip = (p: number) => {
     if (!totale) return;
     const val = Math.min(Math.round(totale * p) / 1, Math.max(0, residuo));
-    setPForm((f) => ({ ...f, importo: String(val), tipo: tipoPagamentoSuggerito(pagamenti) }));
+    setPForm((f) => ({ ...f, importo: String(val), tipo: tipoPagamentoSuggerito(pagamenti.length) }));
     setAddOpen(true);
   };
 
@@ -2574,7 +2574,7 @@ function PagamentiCard({
               variant="outline"
               size="sm"
               onClick={() => {
-                setPForm((f) => ({ ...f, tipo: tipoPagamentoSuggerito(pagamenti) }));
+                setPForm((f) => ({ ...f, tipo: tipoPagamentoSuggerito(pagamenti.length) }));
                 setAddOpen(true);
               }}
             >
@@ -2689,10 +2689,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
 
   const fmt = (n: number) =>
     n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  const parse = (v: string): number | null => {
-    const n = parseFloat(v.replace(/\./g, "").replace(",", "."));
-    return isNaN(n) || n <= 0 ? null : n;
-  };
+  const parse = parseEuroPositivo;
   const fmtData = (iso: string | null) =>
     iso ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT") : null;
 
@@ -2840,8 +2837,8 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                 // Vuoto = "non impostato". Zero è un valore legittimo (posa
                 // fatta in casa), quindi qui accetto anche 0 — a differenza
                 // degli importi dei costi, dove 0 non ha senso.
-                const n = parseFloat(raw.replace(/\./g, "").replace(",", "."));
-                if (raw !== "" && (isNaN(n) || n < 0)) {
+                const n = parseEuroNonNegativo(raw);
+                if (raw !== "" && n == null) {
                   toast.error("Costo posa non valido");
                   setPosa(null);
                   return;
