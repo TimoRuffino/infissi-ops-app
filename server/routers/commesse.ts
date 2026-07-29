@@ -22,6 +22,25 @@ import {
 } from "./preventiviContratti";
 import { persistedStore } from "../_core/persistence";
 
+// Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
+// per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
+export const TIPOLOGIE_PRODOTTO = [
+  "Infissi",
+  "Porte interne",
+  "Portoncino / Blindato",
+  "Zanzariere",
+  "Persiane",
+  "Avvolgibili / Tapparelle",
+  "Cassonetti",
+  "Controtelai",
+  "Tende da sole",
+  "Veneziane",
+  "Grate",
+  "Vetri",
+  "Scale",
+  "Altro",
+] as const;
+
 // ── State machine: allowed transitions ──────────────────────────────────────
 export const STATI_COMMESSA = [
   "preventivo",
@@ -281,6 +300,11 @@ export const commesseRouter = router({
         .map(({ prodotti, pagamenti, ...rest }) => ({
           ...rest,
           nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
+          // Sintesi delle lavorazioni per la colonna in lista: solo nome e
+          // quantità, non l'intero prodotto con dimensioni e note.
+          prodottiSintesi: (Array.isArray(prodotti) ? prodotti : []).map(
+            (p: any) => ({ nome: p.nome, quantita: p.quantita ?? 1 })
+          ),
         }));
     }),
 
@@ -311,12 +335,26 @@ export const commesseRouter = router({
         consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
         dataConsegnaIndicativa: z.string().optional(),
         assegnatoA: z.number().nullable().optional(),
+        // Di cosa si tratta: tipologia + quantità, indicate già in creazione.
+        prodotti: z
+          .array(
+            z.object({
+              nome: z.string().min(1),
+              quantita: z.number().int().min(1).default(1),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(({ input, ctx }) => {
       const now = new Date();
       const id = nextId++;
-      const { clienteId: inputClienteId, cliente: clienteName, ...rest } = input;
+      const {
+        clienteId: inputClienteId,
+        cliente: clienteName,
+        prodotti: inputProdotti,
+        ...rest
+      } = input;
 
       // Derive cliente display name + inherit owner from cliente if linked.
       let clienteDisplay = clienteName ?? "";
@@ -359,7 +397,15 @@ export const commesseRouter = router({
         dataConsegnaConfermata: null, // set when stato=produzione
         dataChiusura: null,
         note: rest.note ?? null,
-        prodotti: [] as any[],
+        prodotti: (inputProdotti ?? []).map((p, i) => ({
+          id: i + 1,
+          nome: p.nome,
+          tipologia: null,
+          quantita: p.quantita ?? 1,
+          dimensioni: null,
+          note: null,
+          createdAt: now,
+        })) as any[],
         assegnatoA,
         createdBy: ctx.user?.id ?? null,
         createdAt: now,

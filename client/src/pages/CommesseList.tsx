@@ -36,8 +36,38 @@ import { PRIORITA_VARIANT, PRIORITA_LABEL, STATI_ORDER, statoLabel } from "@/lib
 
 type DeleteTarget = { id: number; codice: string; stato: string } | null;
 
+// Deve restare allineato a TIPOLOGIE_PRODOTTO lato server.
+const TIPOLOGIE_PRODOTTO = [
+  "Infissi",
+  "Porte interne",
+  "Portoncino / Blindato",
+  "Zanzariere",
+  "Persiane",
+  "Avvolgibili / Tapparelle",
+  "Cassonetti",
+  "Controtelai",
+  "Tende da sole",
+  "Veneziane",
+  "Grate",
+  "Vetri",
+  "Scale",
+  "Altro",
+];
+
+type RigaLavorazione = { nome: string; quantita: string };
+
+// "Ruffino Timothy" → "#TR": iniziali nome+cognome nell'ordine di lettura
+// naturale (nome prima), così l'assegnatario sta in una colonna stretta.
+function iniziali(u: { nome?: string | null; cognome?: string | null }): string {
+  const n = (u.nome ?? "").trim();
+  const c = (u.cognome ?? "").trim();
+  const sigla = `${n.charAt(0)}${c.charAt(0)}`.toUpperCase();
+  return sigla ? `#${sigla}` : "—";
+}
+
 const emptyForm = {
   clienteId: "" as string,
+  prodotti: [] as RigaLavorazione[],
   cliente: "",
   indirizzo: "",
   citta: "",
@@ -173,6 +203,12 @@ export default function CommesseList() {
       note: form.note || undefined,
       consegnaIndicativa: form.consegnaIndicativa,
       assegnatoA: form.assegnatoA ? parseInt(form.assegnatoA, 10) : undefined,
+      prodotti: form.prodotti
+        .filter((p) => p.nome.trim())
+        .map((p) => ({
+          nome: p.nome.trim(),
+          quantita: Math.max(1, parseInt(p.quantita, 10) || 1),
+        })),
     });
   }
 
@@ -301,6 +337,84 @@ export default function CommesseList() {
                   allowClear
                 />
               </div>
+              {/* Di cosa si tratta: righe tipologia + quantità. Finisce in
+                  prodotti[] della commessa e in colonna nella lista. */}
+              <div className="space-y-2">
+                <Label>Lavorazioni</Label>
+                {form.prodotti.length > 0 && (
+                  <div className="space-y-2">
+                    {form.prodotti.map((riga, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <Select
+                          value={riga.nome}
+                          onValueChange={(v) =>
+                            setForm({
+                              ...form,
+                              prodotti: form.prodotti.map((r, j) =>
+                                j === i ? { ...r, nome: v } : r
+                              ),
+                            })
+                          }
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Tipologia" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TIPOLOGIE_PRODOTTO.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="number"
+                          min={1}
+                          className="w-20 tabular-nums"
+                          value={riga.quantita}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              prodotti: form.prodotti.map((r, j) =>
+                                j === i ? { ...r, quantita: e.target.value } : r
+                              ),
+                            })
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-danger shrink-0"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              prodotti: form.prodotti.filter((_, j) => j !== i),
+                            })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      prodotti: [...form.prodotti, { nome: "", quantita: "1" }],
+                    })
+                  }
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Aggiungi lavorazione
+                </Button>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Priorita</Label>
@@ -445,16 +559,18 @@ export default function CommesseList() {
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Codice</th>
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Cliente</th>
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Stato</th>
-              <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Assegnata</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Lavorazione</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden md:table-cell">Città</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Consegna stimata</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Priorità</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Assegnata</th>
               <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
             </tr>
           </thead>
           <tbody>
             {commesse.data?.map((c: any) => {
               const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
+              const lavorazioni: any[] = c.prodottiSintesi ?? [];
               const consegna = c.dataConsegnaConfermata
                 ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
                 : c.dataConsegnaIndicativa
@@ -475,8 +591,34 @@ export default function CommesseList() {
                   <td className="px-3 sm:px-4">
                     <StatoChip stato={c.stato} />
                   </td>
-                  <td className="px-4 text-text-2 hidden lg:table-cell">
-                    {assignee ? `${assignee.cognome} ${assignee.nome}` : "—"}
+                  <td className="px-4 hidden lg:table-cell">
+                    {lavorazioni.length === 0 ? (
+                      <span className="text-text-3">—</span>
+                    ) : (
+                      <span className="flex items-center gap-1 flex-wrap">
+                        {lavorazioni.slice(0, 2).map((p: any, i: number) => (
+                          <Badge key={i} variant="secondary" className="text-[10px] font-normal">
+                            {p.quantita > 1 && (
+                              <span className="tabular-nums font-semibold mr-1">
+                                {p.quantita}×
+                              </span>
+                            )}
+                            {p.nome}
+                          </Badge>
+                        ))}
+                        {lavorazioni.length > 2 && (
+                          <span
+                            className="text-[10px] text-text-3"
+                            title={lavorazioni
+                              .slice(2)
+                              .map((p: any) => `${p.quantita}× ${p.nome}`)
+                              .join(", ")}
+                          >
+                            +{lavorazioni.length - 2}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 text-text-2 hidden md:table-cell">{c.citta || "—"}</td>
                   <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{consegna}</td>
@@ -484,6 +626,18 @@ export default function CommesseList() {
                     <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
                       {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                     </Badge>
+                  </td>
+                  <td className="px-4 hidden sm:table-cell">
+                    {assignee ? (
+                      <span
+                        className="codice-mono text-xs font-semibold text-text-2"
+                        title={`${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()}
+                      >
+                        {iniziali(assignee)}
+                      </span>
+                    ) : (
+                      <span className="text-text-3">—</span>
+                    )}
                   </td>
                   <td className="px-2" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
