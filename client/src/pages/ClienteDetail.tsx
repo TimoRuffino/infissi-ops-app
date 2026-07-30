@@ -41,6 +41,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { statoLabel, PRIORITA_LABEL } from "@/lib/stato";
+import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { useState, useMemo } from "react";
 import SearchSelect from "@/components/SearchSelect";
 import { useLocation, useParams } from "wouter";
@@ -119,6 +120,8 @@ export default function ClienteDetail() {
     consegnaIndicativa: "60" as "30" | "60" | "90",
     dataConsegnaIndicativa: "",
     note: "",
+    // Di cosa si tratta, dichiarato già qui come nella pagina Commesse.
+    prodotti: [] as Array<{ nome: string; quantita: string }>,
   });
   const [interventoForm, setInterventoForm] = useState({
     commessaId: 0,
@@ -185,7 +188,10 @@ export default function ClienteDetail() {
       utils.commesse.invalidate();
       utils.clienti.byId.invalidate(clienteId);
       setAddCommessaOpen(false);
+      // Azzera i prodotti: restavano nel form e finivano sulla commessa dopo.
+      setCommessaForm((f) => ({ ...f, prodotti: [], note: "" }));
     },
+    onError: (e) => toast.error(e.message ?? "Creazione non riuscita"),
   });
   const createIntervento = trpc.interventi.create.useMutation({
     onSuccess: () => {
@@ -720,6 +726,26 @@ export default function ClienteDetail() {
                         )}
                       </div>
                       <p className="text-sm font-medium">{cm.cliente}</p>
+                      {/* Prodotti della commessa: la stessa sintesi mostrata
+                          nella colonna Prodotti della pagina Commesse. */}
+                      {(cm.prodottiSintesi?.length ?? 0) > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {cm.prodottiSintesi.map((pr: any, i: number) => (
+                            <Badge
+                              key={i}
+                              variant="outline"
+                              className="text-[10px] font-normal"
+                            >
+                              {pr.quantita > 1 && (
+                                <span className="tabular-nums font-semibold mr-1">
+                                  {pr.quantita}×
+                                </span>
+                              )}
+                              {pr.nome}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       {cm.indirizzo && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <MapPin className="h-3 w-3" />
@@ -1306,6 +1332,88 @@ export default function ClienteDetail() {
                 )}
               </div>
             </div>
+            {/* Prodotti: stesso elenco del dialog in pagina Commesse, così la
+                commessa nasce già sapendo di cosa si tratta. */}
+            <div className="space-y-2">
+              <Label>Prodotti</Label>
+              {commessaForm.prodotti.length > 0 && (
+                <div className="space-y-2">
+                  {commessaForm.prodotti.map((riga, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Select
+                        value={riga.nome}
+                        onValueChange={(v) =>
+                          setCommessaForm({
+                            ...commessaForm,
+                            prodotti: commessaForm.prodotti.map((r, j) =>
+                              j === i ? { ...r, nome: v } : r
+                            ),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Tipologia" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIPOLOGIE_PRODOTTO.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        min={1}
+                        className="w-20 tabular-nums"
+                        value={riga.quantita}
+                        onChange={(e) =>
+                          setCommessaForm({
+                            ...commessaForm,
+                            prodotti: commessaForm.prodotti.map((r, j) =>
+                              j === i ? { ...r, quantita: e.target.value } : r
+                            ),
+                          })
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-danger shrink-0"
+                        onClick={() =>
+                          setCommessaForm({
+                            ...commessaForm,
+                            prodotti: commessaForm.prodotti.filter(
+                              (_, j) => j !== i
+                            ),
+                          })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCommessaForm({
+                    ...commessaForm,
+                    prodotti: [
+                      ...commessaForm.prodotti,
+                      { nome: "", quantita: "1" },
+                    ],
+                  })
+                }
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Aggiungi prodotto
+              </Button>
+            </div>
             <div className="space-y-1.5">
               <Label>Note</Label>
               <Textarea
@@ -1337,6 +1445,12 @@ export default function ClienteDetail() {
                       ? commessaForm.dataConsegnaIndicativa || undefined
                       : undefined,
                   note: commessaForm.note || undefined,
+                  prodotti: commessaForm.prodotti
+                    .filter((pr) => pr.nome.trim())
+                    .map((pr) => ({
+                      nome: pr.nome.trim(),
+                      quantita: Math.max(1, parseInt(pr.quantita, 10) || 1),
+                    })),
                 })
               }
               disabled={
