@@ -545,6 +545,7 @@ export default function CommesseList() {
               <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Stato</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Prodotti</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden md:table-cell">Città</th>
+              <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Creata il</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Consegna stimata</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Priorità</th>
               <th className="eyebrow font-semibold px-4 py-2.5 hidden sm:table-cell">Assegnata</th>
@@ -555,6 +556,13 @@ export default function CommesseList() {
             {commesse.data?.map((c: any) => {
               const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
               const prodotti: any[] = c.prodottiSintesi ?? [];
+              // dataApertura è "YYYY-MM-DD": ancorata a mezzogiorno per non
+              // slittare di un giorno col fuso.
+              const creata = c.dataApertura
+                ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString("it-IT")
+                : c.createdAt
+                  ? new Date(c.createdAt).toLocaleDateString("it-IT")
+                  : "—";
               const consegna = c.dataConsegnaConfermata
                 ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
                 : c.dataConsegnaIndicativa
@@ -605,6 +613,7 @@ export default function CommesseList() {
                     )}
                   </td>
                   <td className="px-4 text-text-2 hidden md:table-cell">{c.citta || "—"}</td>
+                  <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{creata}</td>
                   <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{consegna}</td>
                   <td className="px-4 hidden sm:table-cell">
                     <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>

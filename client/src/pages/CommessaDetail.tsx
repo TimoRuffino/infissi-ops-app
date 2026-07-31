@@ -889,6 +889,21 @@ export default function CommessaDetail() {
               {c.email}
             </span>
           )}
+          {/* Data di apertura: quando la commessa è entrata in casa. Utile
+              a colpo d'occhio quanto è vecchia una pratica. */}
+          {(c.dataApertura || c.createdAt) && (
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" />
+              Creata il{" "}
+              <span className="font-medium text-foreground">
+                {new Date(
+                  c.dataApertura
+                    ? `${c.dataApertura}T12:00:00`
+                    : c.createdAt
+                ).toLocaleDateString("it-IT")}
+              </span>
+            </span>
+          )}
           {(() => {
             const assignee = (utenti.data ?? []).find(
               (u: any) => u.id === c.assegnatoA
