@@ -52,7 +52,7 @@ import {
   HardHat,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
@@ -2312,8 +2312,7 @@ function PagamentiCard({
   const pct = totale ? Math.min(100, Math.round((incassato / totale) * 100)) : 0;
 
   const parse = parseEuroNonNegativo;
-  const fmt = (n: number) =>
-    n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const fmt = formatEuro;
   const fmtData = (iso: string | null) =>
     iso ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT") : "—";
 
@@ -2727,8 +2726,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
   const m: any = margine.data;
   const costi: any[] = m.costi ?? [];
 
-  const fmt = (n: number) =>
-    n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmt = formatEuro;
   const parse = parseEuroPositivo;
   const fmtData = (iso: string | null) =>
     iso ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT") : null;

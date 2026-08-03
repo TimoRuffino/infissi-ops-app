@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { formatEuroSimbolo } from "@/lib/euro";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -127,7 +128,7 @@ export default function ReclamiRifacimenti() {
               Costo stimato rifacimenti
             </div>
             <p className="text-2xl font-bold">
-              {(rifacimentiStats.data?.costoTotaleStimato ?? 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+              {formatEuroSimbolo(rifacimentiStats.data?.costoTotaleStimato ?? 0)}
             </p>
           </CardContent>
         </Card>
@@ -222,7 +223,7 @@ export default function ReclamiRifacimenti() {
                       {r.elemento && <span>Elemento: {r.elemento}</span>}
                       {r.fornitoreCoinvolto && <span>Fornitore: {r.fornitoreCoinvolto}</span>}
                       {r.costoStimato != null && (
-                        <span className="font-semibold">{r.costoStimato.toLocaleString("it-IT", { style: "currency", currency: "EUR" })}</span>
+                        <span className="font-semibold">{formatEuroSimbolo(r.costoStimato)}</span>
                       )}
                       <span>Apertura: {r.dataApertura}</span>
                       {r.responsabile && <span>Resp: {r.responsabile}</span>}

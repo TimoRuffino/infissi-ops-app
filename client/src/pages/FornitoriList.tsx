@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { formatEuroSimbolo } from "@/lib/euro";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -372,7 +373,7 @@ export default function FornitoriList() {
               <Euro className="h-3.5 w-3.5" /> Importo pendente
             </div>
             <p className="text-2xl font-bold">
-              {(stats.data?.importoPendente ?? 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+              {formatEuroSimbolo(stats.data?.importoPendente ?? 0)}
             </p>
           </CardContent>
         </Card>
@@ -568,7 +569,7 @@ export default function FornitoriList() {
                       <div className="flex flex-col items-end gap-2 shrink-0">
                         {o.importoTotale != null && (
                           <p className="font-semibold text-sm">
-                            {o.importoTotale.toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                            {formatEuroSimbolo(o.importoTotale)}
                           </p>
                         )}
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => setDeleteTarget({ type: "ordine", id: o.id, label: o.codiceOrdine })}>

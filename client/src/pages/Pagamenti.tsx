@@ -23,7 +23,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import StatoChip from "@/components/StatoChip";
 import { TIPO_PAGAMENTO_LABEL, tipoPagamentoSuggerito } from "./CommessaDetail";
-import { parseEuroPositivo } from "@/lib/euro";
+import { formatEuro, parseEuroPositivo } from "@/lib/euro";
 
 const METODO_LABEL: Record<string, string> = {
   bonifico: "Bonifico",
@@ -34,8 +34,7 @@ const METODO_LABEL: Record<string, string> = {
   altro: "Altro",
 };
 
-const fmt = (n: number) =>
-  n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const fmt = formatEuro;
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso + (String(iso).length === 10 ? "T12:00:00" : "")).toLocaleDateString("it-IT") : "—";
 

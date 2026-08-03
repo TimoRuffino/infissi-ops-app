@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { formatEuroSimbolo } from "@/lib/euro";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -522,7 +523,7 @@ export default function KanbanBoard() {
                                       if (!tot || residuo <= 0 || !FASI_SALDO.includes(c.stato)) return null;
                                       return (
                                         <div className="flex items-center gap-1 text-[11px] font-semibold text-danger bg-danger-soft rounded px-1.5 py-0.5">
-                                          Da saldare € {residuo.toLocaleString("it-IT")}
+                                          Da saldare {formatEuroSimbolo(residuo)}
                                         </div>
                                       );
                                     })()}

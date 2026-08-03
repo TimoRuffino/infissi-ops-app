@@ -72,6 +72,9 @@ const EUR = new Intl.NumberFormat("it-IT", {
   currency: "EUR",
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
+  // Senza questo it-IT non separa le migliaia sotto le 5 cifre: 5000 usciva
+  // "5000,00 €" accanto a "10.000,00 €".
+  useGrouping: true,
 });
 
 const MQ = new Intl.NumberFormat("it-IT", {

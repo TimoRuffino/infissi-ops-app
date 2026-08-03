@@ -55,3 +55,23 @@ export function parseEuroNonNegativo(raw: string): number | null {
   const n = parseEuro(raw);
   return n != null && n >= 0 ? n : null;
 }
+
+// Formattazione degli importi, unica per tutto il CRM: punto per le migliaia,
+// virgola per i decimali, sempre due cifre decimali anche quando sono ",00".
+//
+// `useGrouping: true` è necessario: la regola italiana di Intl raggruppa solo
+// da 5 cifre (minimumGroupingDigits 2), quindi 5000 usciva "5000" mentre
+// 10000 usciva "10.000" — due importi vicini scritti in modi diversi.
+export function formatEuro(n: number | null | undefined): string {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  return v.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  });
+}
+
+/** Come formatEuro ma con il simbolo davanti: "€ 1.234,56". */
+export function formatEuroSimbolo(n: number | null | undefined): string {
+  return `€ ${formatEuro(n)}`;
+}

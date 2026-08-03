@@ -14,12 +14,12 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import StatoChip from "@/components/StatoChip";
 import { statoLabel } from "@/lib/stato";
+import { formatEuro } from "@/lib/euro";
 
 // P0.2 — vista direzione sulla marginalità delle commesse attive.
 // margine = pattuito − costi fornitore (no bozza/contestato) − costo posa.
 
-const fmt = (n: number) =>
-  n.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmt = formatEuro;
 
 // Fascia colore condivisa con la card Economia: ≥30% ok, 15–30% attenzione,
 // <15% problema, grigio = dati insufficienti.

@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { formatEuroSimbolo } from "@/lib/euro";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -452,7 +453,7 @@ export default function Dashboard() {
         rank: 2,
         icon: Banknote,
         iconClass: "bg-warning-soft text-warning",
-        title: `Da incassare € ${residuo.toLocaleString("it-IT")} — ${c.cliente}`,
+        title: `Da incassare ${formatEuroSimbolo(residuo)} — ${c.cliente}`,
         sub: c.codice,
         stato: c.stato,
         onClick: () => setLocation(`/commesse/${c.id}`),
