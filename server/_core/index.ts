@@ -40,6 +40,10 @@ async function startServer() {
   const { startFicScheduler } = await import("../routers/fattureInCloud");
   startFicScheduler();
 
+  // Ingestione posta IMAP (ogni 5 minuti, solo per le caselle attive).
+  const { avviaPollerMail } = await import("../tars/imap");
+  avviaPollerMail();
+
   const app = express();
   const server = createServer(app);
 

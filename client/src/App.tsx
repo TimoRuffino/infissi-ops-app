@@ -32,6 +32,7 @@ import Archivio from "./pages/Archivio";
 import SediList from "./pages/SediList";
 import TarsInbox from "./pages/TarsInbox";
 import Conoscenza from "./pages/Conoscenza";
+import Comunicazioni from "./pages/Comunicazioni";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -93,6 +94,7 @@ function Router() {
           {() => <RequireDirezione><SediList /></RequireDirezione>}
         </Route>
         <Route path="/inbox" component={TarsInbox} />
+        <Route path="/comunicazioni" component={Comunicazioni} />
         <Route path="/conoscenza">
           {() => <RequireDirezione><Conoscenza /></RequireDirezione>}
         </Route>

@@ -28,6 +28,7 @@ import { magazzinoRouter } from "./routers/magazzino";
 import { fattureInCloudRouter } from "./routers/fattureInCloud";
 import { fileStorageAdminRouter } from "./routers/fileStorageAdmin";
 import { tarsRouter } from "./routers/tars";
+import { mailRouter } from "./routers/mail";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -173,6 +174,7 @@ export const appRouter = router({
   fattureInCloud: fattureInCloudRouter,
   fileStorage: fileStorageAdminRouter,
   tars: tarsRouter,
+  mail: mailRouter,
 });
 
 export type AppRouter = typeof appRouter;

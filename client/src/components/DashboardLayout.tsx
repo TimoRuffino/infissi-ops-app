@@ -46,6 +46,7 @@ import {
   TrendingUp,
   HardHat,
   Bot,
+  Mail,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -82,6 +83,7 @@ const menuItems: MenuItem[] = [
   { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Bot, label: "Tars", path: "/inbox" },
+  { icon: Mail, label: "Comunicazioni", path: "/comunicazioni" },
   { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
   { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
   { icon: Archive, label: "Archivio", path: "/archivio" },

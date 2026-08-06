@@ -35,6 +35,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import CaselleEmailCard from "@/components/CaselleEmailCard";
 
 // Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
 // guarded routes in App.tsx; adding a new entry here automatically surfaces
@@ -270,6 +271,9 @@ export default function Integrazioni() {
 
       {/* Tars — l'agente operativo */}
       <TarsCard />
+
+      {/* Caselle email lette dal CRM (sola lettura) */}
+      <CaselleEmailCard />
 
       {/* Backup notturno su Google Drive */}
       <BackupDrive />
