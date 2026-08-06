@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Ops (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/07/2026).
-**Versione:** 4.1 — Pagina Pagamenti, acconti modificabili, date programmate in timeline, Magazzino con filtro fornitore, form azienda (ragione sociale + sede legale), responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Pagamenti/acconti, sincronizzazione Google Calendar (export+import), backup notturno su Google Drive, Fatture in Cloud, WhatsApp, notifiche personalizzate v2, timeline ordine con note, migrazione dati 2026.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (06/08/2026).
+**Versione:** 4.2 — Storage documenti su object storage, marginalità e registro costi fornitore, post‑vendita v2 (solleciti, ticket senza commessa, ricerca, stati snelliti), squadre di posa assegnabili alla commessa, prodotti dichiarati in creazione, data di apertura visibile, formato unico degli importi. Base v4.1 — Pagina Pagamenti, acconti modificabili, date programmate in timeline, Magazzino con filtro fornitore, form azienda (ragione sociale + sede legale), responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Pagamenti/acconti, sincronizzazione Google Calendar (export+import), backup notturno su Google Drive, Fatture in Cloud, WhatsApp, notifiche personalizzate v2, timeline ordine con note, migrazione dati 2026.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -177,7 +177,11 @@ Operativi:
 - **importoTotale**: totale pattuito (€, opzionale). **importoIncassato**: derivato — somma del registro `pagamenti` (vedi §37); non modificabile direttamente dalla UI.
 - **pagamenti**: registro acconti embedded (vedi §37). Escluso da `commesse.list` come `prodotti`.
 - **sedeId**: sede proprietaria (vedi §34).
-- **prodotti**: array di prodotti desiderati (nome, tipologia, quantità, dimensioni, note). NON viene incluso nella risposta di `commesse.list` per alleggerire i payload; viene ritornato da `commesse.byId`.
+- **prodotti**: array di prodotti della commessa (nome, tipologia/materiale, quantità, dimensioni, note) — *di cosa si tratta*, vedi §44. NON viene incluso nella risposta di `commesse.list` per alleggerire i payload; viene ritornato da `commesse.byId`. La lista riceve invece la sintesi `prodottiSintesi: [{nome, quantita}]`.
+- **costi**: registro dei costi fornitore embedded, base del calcolo del margine (vedi §45).
+- **costoPosaStimato**: stima manuale del costo di posa (€, opzionale). Scrivibile solo da direzione o amministrazione.
+- **squadraId**: squadra di posa assegnata alla commessa (vedi §46).
+- **dataApertura**: data di creazione in formato `YYYY-MM-DD`, mostrata come "Creata il" nella scheda e in colonna nella lista.
 - **assegnatoA** (FK utente). Modificabile dalla scheda commessa.
 - **createdBy** (FK utente).
 - **createdAt**, **updatedAt**.
@@ -218,7 +222,7 @@ Quando una commessa entra nello stato `produzione`:
 ### 6.7 Lista commesse
 - Filtri: search testuale (codice, cliente, città), stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
 - Ordinata per `createdAt` desc.
-- Risposta **non include** `prodotti` (ottimizzazione bandwidth/render).
+- Risposta **non include** `prodotti` né `pagamenti` (ottimizzazione bandwidth/render). Include però `prodottiSintesi` (nome + quantità per riga) e `nPagamenti` (conteggio degli acconti), che alimentano rispettivamente la colonna Prodotti e la proposta della rata successiva nella pagina Pagamenti.
 
 ---
 
@@ -434,14 +438,40 @@ Chip tipo pieno (POSA/RILIEVO/ASSISTENZA/ALTRO) su sfondo tinta + bordo sinistro
 ## 13. Ticket post‑vendita (`/ticket` e contenuti di `/reclami`)
 
 ### 13.1 Modello
-- Campi: `commessaId, aperturaId?, oggetto, descrizione, categoria, priorita, stato, assegnatoA?, dataRisoluzione?, esitoIntervento?, apertoBy?`.
+- Campi: `commessaId?, clienteId?, contatto?, aperturaId?, oggetto, descrizione, categoria, priorita, stato, solleciti[], assegnatoA?, dataRisoluzione?, esitoIntervento?, apertoBy?`.
 - Categorie: `difetto_prodotto, difetto_posa, regolazione, sostituzione, garanzia, altro`.
 - Priorità: come per le commesse.
+- `apertoBy` registra l'utente che apre il ticket (usato dai permessi di eliminazione, §13.6).
 
-### 13.2 State machine ticket
-`aperto → assegnato → in_lavorazione → risolto → chiuso`. Disponibile **rollback** di una posizione (clear `dataRisoluzione` se si esce da `risolto/chiuso`). Da `aperto` il rollback è rifiutato.
+### 13.2 Ticket senza commessa
+Una chiamata di assistenza arriva spesso **prima** che esista una commessa, e a volte prima ancora che il cliente sia a sistema. Perciò **solo l'oggetto è obbligatorio**; l'intestazione del ticket può essere data, in ordine di precisione, da:
+1. **commessa** collegata (`commessaId`) — caso classico;
+2. **cliente** già in anagrafica (`clienteId`), senza commessa;
+3. **contatto** in testo libero (`contatto`), es. "Sig. Verdi 3401234567".
 
-### 13.3 Allegati ticket
+La UI mostra il primo disponibile, con badge "Senza commessa" quando manca, e un grigio "Senza cliente" se non c'è nulla. Il collegamento **può essere fatto in seguito**: il dialog di modifica espone commessa/cliente/contatto, e agganciando una commessa i campi più deboli vengono azzerati per non lasciare tre risposte in conflitto.
+
+### 13.3 State machine ticket
+`aperto → assegnato → in_lavorazione → chiuso`. Disponibile **rollback** di una posizione (clear `dataRisoluzione` se si esce da `chiuso`). Da `aperto` il rollback è rifiutato.
+
+Lo stato **`risolto` è stato ritirato** (§13.7): fra risolto e chiuso non cambiava nulla nella pratica. Il backfill al boot converte i record esistenti; `updateStato` accetta ancora il valore legacy dai client vecchi e lo piega su `chiuso`. Stesso collasso applicato ai **reclami** (§14.1).
+
+### 13.4 Solleciti
+Registro `solleciti[]` sul ticket: `{ data, nota?, utenteId }`. La procedure `ticket.sollecita` aggiunge una voce; è rifiutata sui ticket chiusi ("riaprilo prima di sollecitare"). In lista compare un badge ambra **"N solleciti · ultimo gg/mm"**, così si vede a colpo d'occhio da quanto un ticket è fermo nonostante i solleciti. Il dialog mostra lo storico completo.
+
+### 13.5 Interventi pianificati dal ticket
+Bottone **Pianifica** sul ticket: data, ora inizio/fine, squadra, note. Crea un intervento di tipo `assistenza` già collegato (`ticketId`, `commessaId`, indirizzo ereditato dalla commessa) che appare nel Calendario e sotto il ticket con data, ora, squadra e stato — con **"Senza squadra"** evidenziato in colore warning quando manca.
+
+### 13.6 Eliminazione
+Possono eliminare: la **direzione**, **chi ha aperto** il ticket (`apertoBy`), o il **proprietario della commessa** collegata. Se la commessa è stata cancellata si ricade sul solo controllo direzione — diversamente il ticket sarebbe indistruttibile. Cancellando un ticket si cancellano in cascata i suoi allegati.
+
+### 13.7 Ricerca e presentazione
+- **Ricerca** su: nome cliente (da commessa o da `clienteId`), codice e città della commessa, oggetto, descrizione, id `TK-000N`, categoria, esito intervento e **note dei solleciti**.
+- Il filtro per stato è **lato client** su tutta la lista di sede: i chip riportano i conteggi reali e la ricerca attraversa anche gli stati non selezionati (cercare un cliente non deve fallire perché il suo ticket è chiuso).
+- **Card**: nome cliente in grassetto in testa, poi codice commessa (cliccabile) e `TK-000N`, quindi l'oggetto, le etichette, la descrizione in blocco espandibile (spesso è la nota importata da To Do), gli interventi collegati e infine il footer con meta e azioni. Barra colorata a sinistra: rossa se aperto ad alta priorità, verde se chiuso, neutra altrimenti.
+- Empty state distinti fra "nessun ticket" e "nessun risultato per «…»", il secondo con azione **Azzera i filtri**.
+
+### 13.8 Allegati ticket
 Vedi §8.7.
 
 ---
@@ -451,7 +481,7 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 
 ### 14.1 Reclamo
 - Campi: `commessaId, clienteNome, descrizione, responsabile?, stato, dataApertura, dataRisoluzione?, soluzione?`.
-- Stati: `aperto, in_gestione, risolto, chiuso`.
+- Stati: `aperto, in_gestione, chiuso` (lo stato `risolto` è ritirato come per i ticket, §13.3; i record esistenti sono convertiti al boot).
 
 ### 14.2 Rifacimento
 - Campi: `commessaId, clienteNome, descrizione, elemento, fornitoreCoinvolto?, ordineRifacimentoId?, costoStimato?, responsabilita (interna|esterna), responsabile?, stato, dataApertura, dataChiusura?`.
@@ -800,6 +830,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 
 ## 33. Cronologia significativa
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
+- **v4.2 (06/08/2026)** — Storage documenti su object storage con migrazione verificata (§47); marginalità e registro costi fornitore dentro la commessa (§45); post‑vendita v2: solleciti, interventi pianificabili dal ticket, ticket senza commessa, ricerca, stato `risolto` ritirato (§13); squadre di posa visibili e assegnabili alla commessa (§46); prodotti dichiarati in creazione e modificabili dopo (§44); data di apertura in scheda e in lista (§9); formato e parsing unici degli importi (§48); correzioni notevoli (§49).
 - **v4.1 (23/07/2026)** — Pagina Pagamenti (§37.4) con registrazione rapida degli acconti; acconti modificabili in place (§37.1‑37.2); date programmabili sugli step della timeline, pensate per l'Appuntamento Posa (§35.2‑bis); Magazzino a 2 tile per riga con 4 prodotti visibili, badge fornitore e filtro fornitore a tendina (§36.3); form cliente con Ragione sociale e Sede legale per i non privati (§5.2); responsive mobile su header schede e tabelle di lista (§29.3).
 - **v4.0 (16/07/2026)** — Rimossa la Classifica venditori (§23). Multi‑sede con isolamento completo; redesign UI (board v2, calendario mese‑default con chip pieni, timeline note post‑it, dashboard personalizzata); Magazzino (tile+popup, ordini, lead time, dropdown fornitori); registro acconti; notifiche v2 con stato lettura; sincronizzazione Google Calendar export+import; backup notturno Google Drive (OAuth drive.file); Fatture in Cloud sync clienti; WhatsApp deep link; scheda cliente PDF; hardening (scrypt versionato, CSRF, SSRF guard, trust proxy, mascheramento segreti); migrazione dati 2026 (§43).
 - v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
@@ -977,3 +1008,151 @@ Operazione una‑tantum documentata per riferimento storico:
 4. **Dedup**: merge di 5 doppioni (typo, nomi invertiti, coniugi cointestatari) con fusione di note timeline e stati; 3 coppie legittime (persona + propria azienda, conviventi) lasciate distinte.
 5. Le righe To Do di clienti non‑2026 (fatture 2023‑25) sono state escluse deliberatamente.
 
+
+---
+
+## 44. Prodotti della commessa
+
+### 44.1 Scopo
+Una commessa deve dire **di cosa si tratta**. Il campo `prodotti[]` esisteva già sul modello ma era riempibile solo dopo, un elemento alla volta, dall'interno della scheda: in lista non compariva nulla.
+
+### 44.2 Tipologie
+Elenco chiuso, per poter raggruppare e filtrare, con "Altro" come valvola di sfogo:
+
+> Infissi · Porte interne · Portoncino / Blindato · Zanzariere · Persiane · Avvolgibili / Tapparelle · Cassonetti · Controtelai · Tende da sole · Veneziane · Grate · Vetri · Scale · Altro
+
+`TIPOLOGIE_PRODOTTO` è definito in `server/routers/commesse.ts` e replicato in `client/src/lib/prodotti.ts`: i due elenchi **DEVONO** restare allineati.
+
+### 44.3 Dichiarazione in creazione
+Il dialog **Nuova commessa** — sia nella pagina Commesse sia nella **scheda cliente** — espone un blocco **Prodotti**: righe di tipologia + quantità, aggiungibili e rimuovibili in linea. Le righe finiscono in `prodotti[]` alla creazione. Le righe senza tipologia vengono scartate; la quantità minima è 1.
+
+### 44.4 Modifica su commesse esistenti
+Il tab **Prodotti** della scheda commessa consente aggiunta, modifica ed eliminazione. Il nome del prodotto è la stessa tendina di tipologie; i prodotti già registrati con **nome libero** (precedenti a questa versione) conservano il proprio valore, che viene proposto in cima alla tendina come opzione a sé — correggere una quantità non deve riscrivere in silenzio cos'è il prodotto. Il campo `tipologia` è etichettato **"Materiale"** (PVC / Alluminio / Legno).
+
+Le mutation `addProdotto` / `updateProdotto` / `removeProdotto` **DEVONO** invalidare sia `commesse.byId` sia `commesse.list`, altrimenti la colonna in lista resta indietro.
+
+### 44.5 Presentazione
+- **Pagina Commesse**: colonna **Prodotti** con badge `7× Infissi`, `3× Zanzariere`; oltre due voci compare `+N` con il dettaglio in tooltip.
+- **Scheda cliente**: le card delle commesse mostrano gli stessi badge.
+
+---
+
+## 45. Marginalità
+
+### 45.1 Formula
+```
+margine lordo = importoTotale − Σ costi[] − costoPosaStimato
+margine %     = margine lordo / importoTotale
+```
+Il calcolo vive in `server/_core/margine.ts` come **funzione pura** (`calcolaMargine`), senza dipendenze dagli store.
+
+Il flag `datiIncompleti` è vero quando manca il pattuito **oppure** non è registrato alcun costo: senza costi il margine risulterebbe un finto 100 %.
+
+### 45.2 Registro costi (`costi[]`)
+I costi si registrano **dentro la commessa**, non dagli ordini fornitore: `{ id, importo, fornitore, descrizione, data, numeroOrdine, note }`. Le mutation `addCosto` / `updateCosto` / `removeCosto` sono riservate a **direzione o amministrazione**.
+
+Scelta deliberata: un solo posto dove scrivere un costo, nessun doppio conteggio. Il modulo Fornitori conserva i propri ordini per la parte logistica (righe, ricevimento merce) ma **non alimenta più il margine** — evitando anche la trappola dell'ordine lasciato in "bozza" che silenziosamente non contava.
+
+`importaCostiDaOrdini` esegue un import **una tantum** degli ordini già a sistema (esclusi `bozza` e `contestato`); è idempotente su `numeroOrdine` e il bottone compare solo finché il registro è vuoto.
+
+### 45.3 Card "Economia" (scheda commessa)
+Visibile **solo** a direzione e amministrazione (la query stessa è gated lato server). Mostra pattuito, costi fornitore con conteggio, costo posa modificabile in linea con blur‑save, e margine in € e %.
+
+Colori per fascia: **≥ 30 %** verde, **15–30 %** ambra, **< 15 %** rosso, grigio quando i dati sono incompleti. Sotto, il registro dei costi con modifica in riga ed eliminazione.
+
+### 45.4 Pagina `/marginalita`
+Riservata alla **direzione** (voce di sidebar con flag `direzioneOnly`). Esclude le commesse archiviate.
+- **KPI**: margine totale, margine medio %, commesse con dati, dati incompleti.
+- **Tabella** ordinabile per % (peggiori prima), margine € o pattuito; ricerca e filtro per stato; le righe con dati incompleti sempre in fondo.
+- **Aggregati**: costi per fornitore, margine per venditore, margine per mese di apertura — calcolati solo sulle righe complete.
+
+---
+
+## 46. Squadre di posa
+
+### 46.1 Visibilità
+La pagina **Squadre di posa** è in sidebar ed è **leggibile da tutti i ruoli** (`squadre.list` è `protectedProcedure`): serve a chiunque debba sapere chi è in cantiere. Creazione, modifica ed eliminazione restano `adminProcedure`, e la pagina nasconde i comandi a chi non è direzione invece di lasciarlo sbattere contro un FORBIDDEN.
+
+Ogni card squadra elenca le **commesse attive assegnate**, quelle già in fase di posa per prime, ciascuna con link alla commessa.
+
+### 46.2 Assegnazione alla commessa
+Il campo `squadraId` esisteva sul modello ma non era né mostrato né impostabile: le squadre si assegnavano solo al singolo intervento, quindi guardando una commessa non si sapeva chi la stesse posando.
+
+La card **Squadra di posa** nella scheda commessa assegna la squadra con una tendina cercabile. Diventa **ambra con "Da assegnare"** quando la commessa raggiunge `attesa_posa` senza squadra; altrimenti mostra caposquadra e telefono.
+
+Creando un intervento dalla commessa, la squadra della commessa è **pre‑selezionata**.
+
+### 46.3 Board
+Le card nelle fasi di posa (`attesa_posa`, `finiture_saldo`, `interventi_regolazioni`) portano un chip con il nome della squadra, oppure **"Squadra da assegnare"** in colore warning quando manca.
+
+---
+
+## 47. Storage dei documenti
+
+### 47.1 Problema
+Prima di questa versione ogni documento viveva in base64 dentro la JSONB della propria raccolta (`preventivi_documenti`, `ticket_allegati`). Poiché `persistedStore` riscrive l'intero blob a ogni `save()`, **ogni upload riscriveva tutti i byte di tutti i file**.
+
+### 47.2 Layer
+`server/_core/fileStorage.ts` espone `putFile` / `getFile` / `deleteFileQuiet` con due driver, selezionati da `STORAGE_DRIVER`:
+- **`local`** — file sotto `./data/files/<key>`; adatto allo sviluppo o a un deploy con volume montato;
+- **`s3`** — qualunque endpoint S3‑compatibile (Cloudflare R2, AWS S3, MinIO) via REST + **SigV4 firmato con `node:crypto`**, senza dipendenze npm aggiuntive.
+
+Variabili: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`.
+
+### 47.3 Modello del documento
+Il record conserva i soli metadati più `storageKey` e `checksum` (sha256). La lettura è **retro‑compatibile**: i record che portano ancora `dataBase64` funzionano immutati, e `byId` ricostruisce il base64 dallo storage così che il client resti identico.
+
+Se il driver fallisce in scrittura, l'upload **ricade sul base64 inline**: un caricamento non deve mai fallire per ragioni infrastrutturali.
+
+### 47.4 Guardia sul filesystem effimero
+Su Railway senza volume il filesystem è effimero: un record otterrebbe `storageKey` e i byte morirebbero al deploy successivo. `putFile` **rifiuta** quando il driver è `local`, l'ambiente è Railway e `STORAGE_ALLOW_EPHEMERAL` non è `1` — e l'upload ricade sull'inline, cioè sul comportamento precedente.
+
+### 47.5 Migrazione
+`scripts/migrate-documents-to-storage.ts` (e le procedure direzione `fileStorage.status` / `fileStorage.migrate`):
+- **dry‑run di default**, `--apply` per eseguire;
+- per ogni documento: scrive → **rilegge** → confronta lo sha256 → **solo allora** rimuove il `dataBase64`;
+- **idempotente e riprendibile**: salta chi ha già `storageKey`;
+- **rifiuta di partire** senza un backup Drive riuscito nelle ultime 24 h (controlla `backup_log`);
+- **rifiuta** il driver `local` su Railway senza opt‑in esplicito.
+
+### 47.6 Cascate
+L'eliminazione di un documento, di un allegato, di un ticket e — nuova — di una **commessa** rimuove anche i byte dallo storage. Prima l'eliminazione di una commessa lasciava i documenti orfani nella raccolta.
+
+---
+
+## 48. Formato e parsing degli importi
+
+### 48.1 Formato
+`formatEuro` in `client/src/lib/euro.ts` è l'**unico** formatter: separatore di migliaia col punto, decimali con la virgola, **sempre due cifre decimali** anche quando sono `,00` → `1.234,56`.
+
+`useGrouping: true` è obbligatorio: la regola italiana di `Intl` raggruppa solo da cinque cifre (`minimumGroupingDigits: 2`), per cui `5000` usciva "5000" accanto a "10.000" nella stessa colonna.
+
+Ogni superficie che mostra denaro **DEVE** usare `formatEuro` / `formatEuroSimbolo`: Pagamenti, card acconti, card Economia, Marginalità, feed Dashboard, chip del board, Fornitori, rifacimenti. I preventivatori mantengono il proprio `Intl.NumberFormat` (stampano nei PDF col simbolo in coda) ma con lo stesso flag di raggruppamento.
+
+### 48.2 Parsing
+`parseEuro` interpreta il separatore dal contesto:
+- punto **e** virgola → l'ultimo dei due è il decimale (`1.500,50` = 1500.5);
+- solo virgola → decimale (`1500,50`);
+- solo punto → **decimale** se seguito da 1–2 cifre (`1500.50`), **migliaia** se seguito da esattamente 3 cifre o se ce n'è più d'uno (`1.500`, `1.234.567`).
+
+Varianti: `parseEuroPositivo` (incassi, > 0) e `parseEuroNonNegativo` (costi, ≥ 0).
+
+Il parser precedente faceva `replace(/\./g, "").replace(",", ".")`: corretto per la notazione italiana, **catastrofico** per chi digita il punto decimale — `1500.50` veniva registrato come **150050**, cento volte tanto, senza alcun avviso. Il punto è ciò che quasi tutti digitano sul tastierino numerico. **Nessun `parseFloat` a mano sugli importi.**
+
+---
+
+## 49. Correzioni notevoli (v4.2)
+
+Registrate perché ognuna nasconde una regola da non violare di nuovo.
+
+| Difetto | Regola che ne deriva |
+|---|---|
+| `1500.50` salvato come `150050` | il parsing degli importi passa **solo** da `parseEuro*` (§48.2) |
+| "Da incassare" calcolato come `max(0, Σpattuito − Σincassato)`: una commessa incassata in eccesso cancellava il debito di un'altra (4.000 invece di 5.000) | i residui si sommano **per commessa**, non sugli aggregati; l'eccedenza ha un proprio KPI, un filtro e la dicitura "+€ X in più" sulla riga (prima leggevano "Saldata") |
+| `importoIncassato` scrivibile via `commesse.update` | i campi **derivati** non stanno negli schemi di input |
+| Ticket con commessa cancellata impossibile da eliminare | `requireOwnershipOrDirezione(null)` lancia NOT_FOUND **prima** di valutare il ruolo: prevedere sempre il ramo "genitore mancante" |
+| `apertoBy` sempre `null` alla creazione | un campo di autorizzazione che non viene mai popolato non autorizza nessuno |
+| Notifiche mute sui ticket senza commessa | ogni sorgente di notifica deve prevedere il caso in cui l'entità collegata manchi |
+| Costo posa che tornava indietro al blur | una scrittura deve invalidare **tutte** le query che mostrano quel dato, non solo la più ovvia |
+| Colonna Prodotti ferma dopo una modifica dal tab | idem: `byId` **e** `list` |
+| Rata suggerita sempre "1° acconto" | se una `list` filtra dei campi, ciò che serve alla UI va esposto in forma sintetica (`nPagamenti`) |
