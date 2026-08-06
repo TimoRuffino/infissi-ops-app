@@ -51,6 +51,19 @@ function trovaProposta(id: number, sedeId: number | null) {
   return p!;
 }
 
+// Una proposta con la commessa leggibile al seguito: codice E cliente.
+// "COM-2026-125" da solo non dice a nessuno di chi si sta parlando —
+// l'arricchimento è a lettura, così resta aggiornato senza denormalizzare.
+function idrataProposta(p: any) {
+  if (!p) return p;
+  const commessa = p.commessaId != null ? getCommessaById(p.commessaId) : null;
+  return {
+    ...p,
+    commessaCodice: (commessa as any)?.codice ?? null,
+    commessaCliente: (commessa as any)?.cliente ?? null,
+  };
+}
+
 // Un messaggio della chat con le sue proposte al seguito, nello stato
 // corrente (approvata/rifiutata compare aggiornato, non congelato).
 function idrataMessaggio(m: MessaggioChat) {
@@ -58,7 +71,8 @@ function idrataMessaggio(m: MessaggioChat) {
     ...m,
     proposte: m.proposteIds
       .map((id) => proposte.find((p) => p.id === id))
-      .filter(Boolean),
+      .filter(Boolean)
+      .map(idrataProposta),
   };
 }
 
@@ -122,7 +136,9 @@ fare, usa nessuna_azione.`;
         errore: esecuzione.errore,
         riepilogo: esecuzione.riepilogo,
         durataMs: esecuzione.durataMs,
-        proposte: proposte.filter((p) => esecuzione.proposteIds.includes(p.id)),
+        proposte: proposte
+          .filter((p) => esecuzione.proposteIds.includes(p.id))
+          .map(idrataProposta),
       };
     }),
 
@@ -234,9 +250,9 @@ ${input.testo.trim()}`;
         if (input?.commessaId) {
           rows = rows.filter((p) => p.commessaId === input.commessaId);
         }
-        return [...rows].sort(
-          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
-        );
+        return [...rows]
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .map(idrataProposta);
       }),
 
     approva: protectedProcedure

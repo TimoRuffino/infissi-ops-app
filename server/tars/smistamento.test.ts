@@ -11,7 +11,7 @@ import { smistaComunicazioni } from "./smistamento";
 import {
   getComunicazione,
   insertComunicazione,
-  listDaSmistare,
+  listDaAnalizzare,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
 
@@ -137,7 +137,7 @@ describe("smistamento", () => {
     const proposta = pendenti.find((p: any) => p.tipo === "collega_comunicazione");
     expect(proposta).toBeDefined();
     expect(proposta!.payload.comunicazioneId).toBe(mail!.id);
-    expect(await listDaSmistare(1, 10)).toHaveLength(0);
+    expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
 
     // Prima dell'approvazione la mail NON è collegata.
     let com = await getComunicazione(mail!.id, 1);
@@ -189,7 +189,7 @@ describe("smistamento", () => {
     ]);
 
     await smistaComunicazioni(1);
-    expect(await listDaSmistare(1, 10)).toHaveLength(0);
+    expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
     const com = await getComunicazione(spam!.id, 1);
     expect(com!.tarsAnalizzata).toBe(true);
     expect(com!.commessaId).toBeNull();
@@ -222,6 +222,6 @@ describe("smistamento", () => {
     global.fetch = fetchSpy as any;
     await smistaComunicazioni(1);
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(await listDaSmistare(1, 10)).toHaveLength(1);
+    expect(await listDaAnalizzare(1, 10)).toHaveLength(1);
   });
 });

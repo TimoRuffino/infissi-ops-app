@@ -278,6 +278,7 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
           sedeId,
           casellaId: casella.id,
           messageId,
+          uid,
           canale: "email",
           direzione: "in",
           mittente,

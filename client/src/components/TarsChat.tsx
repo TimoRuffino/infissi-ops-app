@@ -53,14 +53,28 @@ export function TarsChatPanel({ className }: { className?: string }) {
     <div className={cn("flex flex-col min-h-0", className)}>
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
         {rows.length === 0 && !invia.isPending && (
-          <div className="text-center text-sm text-muted-foreground pt-8 space-y-2">
+          <div className="text-center text-sm text-muted-foreground pt-8 space-y-3">
             <TarsAvatar size="lg" className="mx-auto" />
             <p className="font-medium text-foreground">Ciao, sono Tars.</p>
             <p className="max-w-[260px] mx-auto">
-              Chiedimi dello stato di una commessa, o dammi un ordine:
-              «registra l'acconto di 2.500€ su COM-2026-041», «apri un ticket
-              per il sig. Bruni». Preparo tutto, tu approvi.
+              Chiedimi dello stato di una commessa, o dammi un ordine.
+              Preparo tutto, tu approvi.
             </p>
+            <div className="flex flex-col gap-1.5 items-center pt-1">
+              {[
+                "Quali commesse sono ferme da più di 10 giorni?",
+                "Ci sono mail da smistare?",
+                "Chi non ha ancora pagato il saldo?",
+              ].map((s) => (
+                <button
+                  key={s}
+                  className="text-xs border rounded-full px-3 py-1.5 hover:bg-muted transition-colors"
+                  onClick={() => invia.mutate({ testo: s })}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

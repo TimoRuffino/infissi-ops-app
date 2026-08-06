@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { statoLabel } from "@/lib/stato";
-import { Check, X, Loader2, MessageCircleQuestion } from "lucide-react";
+import { Check, X, Loader2, MessageCircleQuestion, Link2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import TarsAvatar from "@/components/TarsAvatar";
 
@@ -177,6 +178,16 @@ export default function TarsPropostaCard({
             </div>
           </div>
           <span className="font-medium text-sm block">{proposta.titolo}</span>
+          {proposta.commessaId != null && proposta.commessaCodice && (
+            <Link
+              href={`/commesse/${proposta.commessaId}`}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5"
+            >
+              <Link2 className="h-3 w-3" />
+              {proposta.commessaCodice}
+              {proposta.commessaCliente ? ` — ${proposta.commessaCliente}` : ""}
+            </Link>
+          )}
         </div>
       </div>
 

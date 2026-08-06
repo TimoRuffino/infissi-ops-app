@@ -30,6 +30,10 @@ export type Comunicazione = {
   sedeId: number;
   casellaId: number;
   messageId: string;
+  // UID IMAP nella cartella d'origine: serve a ripescare il messaggio (per
+  // gli allegati) senza ricerca. Null sui record precedenti a questa
+  // colonna — lì si ricade sulla ricerca per Message-ID.
+  uid: number | null;
   canale: "email";
   direzione: "in" | "out";
   mittente: string;
@@ -57,8 +61,8 @@ export type Comunicazione = {
 
 export type NuovaComunicazione = Omit<
   Comunicazione,
-  "id" | "createdAt" | "deletedAt" | "tarsAnalizzata"
->;
+  "id" | "createdAt" | "deletedAt" | "tarsAnalizzata" | "uid"
+> & { uid?: number | null };
 
 // Il corpo viene troncato: serve a classificare e a dare contesto, non ad
 // archiviare la posta. La casella resta la fonte di verità.
@@ -117,6 +121,9 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         ALTER TABLE comunicazioni
           ADD COLUMN IF NOT EXISTS tars_analizzata BOOLEAN NOT NULL DEFAULT FALSE`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS uid INTEGER`;
     })().catch((e) => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
@@ -147,6 +154,7 @@ function fromRow(r: any): Comunicazione {
     matchConfidenza: r.match_confidenza,
     matchMotivo: r.match_motivo,
     stato: r.stato,
+    uid: r.uid ?? null,
     deletedAt: r.deleted_at ? new Date(r.deleted_at) : null,
     tarsAnalizzata: !!r.tars_analizzata,
     receivedAt: new Date(r.received_at),
@@ -173,6 +181,7 @@ export async function insertComunicazione(
     if (dup) return null;
     const row: Comunicazione = {
       ...c,
+      uid: c.uid ?? null,
       testo,
       id: memNextId++,
       deletedAt: null,
@@ -186,12 +195,12 @@ export async function insertComunicazione(
   await ensureComunicazioniSchema();
   const rows = await kvSql`
     INSERT INTO comunicazioni (
-      sede_id, casella_id, message_id, canale, direzione,
+      sede_id, casella_id, message_id, uid, canale, direzione,
       mittente, mittente_nome, destinatari, oggetto, testo, allegati,
       cliente_id, commessa_id, match_confidenza, match_motivo, stato,
       received_at
     ) VALUES (
-      ${c.sedeId}, ${c.casellaId}, ${c.messageId}, ${c.canale}, ${c.direzione},
+      ${c.sedeId}, ${c.casellaId}, ${c.messageId}, ${c.uid ?? null}, ${c.canale}, ${c.direzione},
       ${c.mittente}, ${c.mittenteNome}, ${kvSql.json(c.destinatari as any)},
       ${c.oggetto}, ${testo}, ${kvSql.json(c.allegati as any)},
       ${c.clienteId}, ${c.commessaId}, ${c.matchConfidenza}, ${c.matchMotivo},
@@ -276,20 +285,19 @@ export async function deleteComunicazione(
   return rows.length > 0;
 }
 
-/** Mail non eliminate, senza commessa e mai viste da Tars: la coda di smistamento. */
-export async function listDaSmistare(
+/**
+ * Mail non eliminate e mai esaminate da Tars: la coda di analisi.
+ * Anche quelle GIÀ collegate: su una mail agganciata Tars non deve più
+ * proporre il collegamento, ma può proporre la gestione (un ticket, una
+ * data di consegna aggiornata, una rata da registrare).
+ */
+export async function listDaAnalizzare(
   sedeId: number,
   limit: number
 ): Promise<Comunicazione[]> {
   if (!kvSql) {
     return memRows
-      .filter(
-        (r) =>
-          r.sedeId === sedeId &&
-          !r.deletedAt &&
-          r.commessaId == null &&
-          !r.tarsAnalizzata
-      )
+      .filter((r) => r.sedeId === sedeId && !r.deletedAt && !r.tarsAnalizzata)
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
       .slice(0, limit);
   }
@@ -298,11 +306,30 @@ export async function listDaSmistare(
     SELECT * FROM comunicazioni
     WHERE sede_id = ${sedeId}
       AND deleted_at IS NULL
-      AND commessa_id IS NULL
       AND tars_analizzata = FALSE
     ORDER BY received_at ASC
     LIMIT ${limit}`;
   return rows.map(fromRow);
+}
+
+/** Tutte le "nuova" di una sede → "vista". Il bottone del lunedì mattina. */
+export async function segnaTutteViste(sedeId: number): Promise<number> {
+  if (!kvSql) {
+    let n = 0;
+    for (const r of memRows) {
+      if (r.sedeId === sedeId && !r.deletedAt && r.stato === "nuova") {
+        r.stato = "vista";
+        n++;
+      }
+    }
+    return n;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET stato = 'vista'
+    WHERE sede_id = ${sedeId} AND deleted_at IS NULL AND stato = 'nuova'
+    RETURNING id`;
+  return rows.length;
 }
 
 /** Marca un lotto come esaminato da Tars (non verrà rianalizzato). */
@@ -341,6 +368,7 @@ export type FiltroComunicazioni = {
   sedeId: number;
   commessaId?: number | null;
   clienteId?: number | null;
+  casellaId?: number | null;
   stato?: Comunicazione["stato"];
   search?: string;
   // Solo quelle senza commessa collegata — la coda "da smistare".
@@ -359,6 +387,7 @@ export async function listComunicazioni(
     let rows = memRows.filter((r) => r.sedeId === f.sedeId && !r.deletedAt);
     if (f.commessaId != null) rows = rows.filter((r) => r.commessaId === f.commessaId);
     if (f.clienteId != null) rows = rows.filter((r) => r.clienteId === f.clienteId);
+    if (f.casellaId != null) rows = rows.filter((r) => r.casellaId === f.casellaId);
     if (f.stato) rows = rows.filter((r) => r.stato === f.stato);
     if (f.soloNonCollegate) rows = rows.filter((r) => r.commessaId == null);
     if (f.search) {
@@ -384,6 +413,7 @@ export async function listComunicazioni(
   const conds: any[] = [sql`sede_id = ${f.sedeId}`, sql`deleted_at IS NULL`];
   if (f.commessaId != null) conds.push(sql`commessa_id = ${f.commessaId}`);
   if (f.clienteId != null) conds.push(sql`cliente_id = ${f.clienteId}`);
+  if (f.casellaId != null) conds.push(sql`casella_id = ${f.casellaId}`);
   if (f.stato) conds.push(sql`stato = ${f.stato}`);
   if (f.soloNonCollegate) conds.push(sql`commessa_id IS NULL`);
   if (f.search) {

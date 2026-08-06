@@ -29,6 +29,7 @@ import {
   deleteComunicazioniByCasella,
   getComunicazione,
   listComunicazioni,
+  segnaTutteViste,
   setMatchComunicazione,
   setStatoComunicazione,
   statsComunicazioni,
@@ -59,6 +60,16 @@ export const mailRouter = router({
       return caselle
         .filter((c) => c.sedeId === ctx.sedeId)
         .map(casellaPubblica)
+        .sort((a, b) => a.nome.localeCompare(b.nome));
+    }),
+
+    // Nome e indirizzo delle caselle, per il filtro in /comunicazioni.
+    // Aperto a tutti gli autenticati (list completa resta direzione-only):
+    // niente host, niente stato, niente diagnostica.
+    opzioni: protectedProcedure.query(({ ctx }) => {
+      return caselle
+        .filter((c) => c.sedeId === ctx.sedeId)
+        .map((c) => ({ id: c.id, nome: c.nome, indirizzo: c.indirizzo }))
         .sort((a, b) => a.nome.localeCompare(b.nome));
     }),
 
@@ -217,6 +228,7 @@ export const mailRouter = router({
           .object({
             commessaId: z.number().optional(),
             clienteId: z.number().optional(),
+            casellaId: z.number().optional(),
             stato: z.enum(["nuova", "vista", "gestita"]).optional(),
             search: z.string().max(200).optional(),
             soloNonCollegate: z.boolean().optional(),
@@ -230,6 +242,7 @@ export const mailRouter = router({
           sedeId: ctx.sedeId ?? 1,
           commessaId: input?.commessaId ?? null,
           clienteId: input?.clienteId ?? null,
+          casellaId: input?.casellaId ?? null,
           stato: input?.stato,
           search: input?.search,
           soloNonCollegate: input?.soloNonCollegate,
@@ -237,6 +250,11 @@ export const mailRouter = router({
           offset: input?.offset,
         });
       }),
+
+    segnaTutteViste: protectedProcedure.mutation(async ({ ctx }) => {
+      const n = await segnaTutteViste(ctx.sedeId ?? 1);
+      return { aggiornate: n };
+    }),
 
     byId: protectedProcedure
       .input(z.number())

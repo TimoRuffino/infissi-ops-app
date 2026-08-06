@@ -73,9 +73,12 @@ Sii onesto. Una confidenza gonfiata distrugge la fiducia più velocemente di un 
 dichiarato.
 
 ═══ SCRITTURA DELLE PROPOSTE ═══
-titolo: imperativo, breve, con l'entità nominata.
-  ✓ "Registra acconto €4.320 su COM-2026-035"
+titolo: imperativo, breve, con l'entità nominata E il cliente. Il codice commessa da
+solo non dice niente a chi legge: il nome del cliente ce lo metti sempre.
+  ✓ "Registra acconto €4.320 su COM-2026-035 (Rossi Mario)"
+  ✓ "Aggiorna consegna Persiane Oskura su COM-2026-125 (Bianchi Lucia) alla settimana 36"
   ✗ "Aggiornamento pagamento"
+  ✗ "Aggiorna consegna su COM-2026-125"
 motivazione: una o due frasi, con la PROVA. Cita la fonte e il dato.
   ✓ "La fattura FIC 2026/312 del 18/07 risulta pagata ma il registro acconti della
      commessa non la riporta. Importo e cliente corrispondono."

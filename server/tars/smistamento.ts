@@ -18,7 +18,8 @@ import type { TrpcContext } from "../_core/context";
 import { anthropicConfigured } from "./anthropic";
 import { getTarsConfig } from "./stores";
 import { runTars } from "./loop";
-import { listDaSmistare, markAnalizzate } from "./comunicazioni";
+import { listDaAnalizzare, markAnalizzate } from "./comunicazioni";
+import { getCommessaById } from "../routers/commesse";
 
 const MAX_MAIL_PER_RUN = 10;
 const PAUSA_DOPO_ERRORE_MS = 15 * 60 * 1000;
@@ -59,24 +60,30 @@ export async function smistaComunicazioni(sedeId: number): Promise<void> {
   const pausa = pausaFinoA.get(sedeId);
   if (pausa && Date.now() < pausa) return;
 
-  const mails = await listDaSmistare(sedeId, MAX_MAIL_PER_RUN);
+  const mails = await listDaAnalizzare(sedeId, MAX_MAIL_PER_RUN);
   if (mails.length === 0) return;
 
   inCorso.add(sedeId);
   try {
     const blocchi = mails
-      .map(
-        (m) => `<comunicazione id="${m.id}">
+      .map((m) => {
+        const commessa =
+          m.commessaId != null ? getCommessaById(m.commessaId) : null;
+        const rigaCommessa = commessa
+          ? `Commessa collegata: ${(commessa as any).codice} (${(commessa as any).cliente})`
+          : "Commessa collegata: nessuna";
+        return `<comunicazione id="${m.id}">
 Da: ${m.mittenteNome ? `${m.mittenteNome} <${m.mittente}>` : m.mittente}
 Ricevuta: ${m.receivedAt.toISOString()}
 Oggetto: ${m.oggetto || "(senza oggetto)"}
+${rigaCommessa}
 Allegati: ${m.allegati.length ? m.allegati.map((a) => a.nome).join(", ") : "nessuno"}
 ${m.matchMotivo ? `Nota del match automatico: ${m.matchMotivo}` : ""}
 <contenuto_esterno>
 ${m.testo.slice(0, 2500)}
 </contenuto_esterno>
-</comunicazione>`
-      )
+</comunicazione>`;
+      })
       .join("\n\n");
 
     const richiesta = `<trigger>
@@ -84,12 +91,25 @@ Tipo: smistamento_comunicazioni
 Data e ora: ${new Date().toISOString()}
 </trigger>
 
-Le comunicazioni qui sotto sono arrivate nelle caselle aziendali e il collegamento
-automatico non ha trovato la commessa. Per ciascuna: se dagli indizi (mittente, nomi,
-indirizzi, prodotti citati) riesci a individuare la commessa giusta, verificala con gli
-strumenti e usa proponi_collegamento con l'id della comunicazione. Se una mail è
-chiaramente irrilevante (newsletter, spam, fornitura d'ufficio), semplicemente non
-proporre nulla per lei. Se non c'è nulla da proporre per nessuna, usa nessuna_azione.
+Le comunicazioni qui sotto sono appena arrivate nelle caselle aziendali. Per ciascuna,
+in quest'ordine:
+
+1. SE NON HA UNA COMMESSA COLLEGATA e dagli indizi (mittente, nomi, indirizzi, prodotti)
+   riesci a individuarla: verificala con gli strumenti e usa proponi_collegamento.
+2. SE IL CONTENUTO RICHIEDE UN'AZIONE sul gestionale, proponila — qualche esempio:
+   - il fornitore comunica o sposta una data di consegna → proponi_aggiornamento_magazzino
+   - il cliente segnala un difetto o chiede assistenza → proponi_ticket
+   - un bonifico o un pagamento viene dichiarato con importo e data verificabili →
+     proponi_pagamento (mai da soli sospetti)
+   - un'informazione operativa merita traccia sul fascicolo → proponi_nota_timeline
+   - la mail merita una risposta che puoi già impostare → proponi_bozza_risposta
+   Quando gli allegati possono contenere il dato (conferme d'ordine, fatture, DDT),
+   leggili con leggi_allegato prima di proporre.
+3. Se una mail è irrilevante (newsletter, spam, forniture d'ufficio), non proporre nulla
+   per lei.
+
+Verifica sempre lo stato reale con gli strumenti prima di proporre. Se non c'è nulla da
+proporre per nessuna mail, usa nessuna_azione.
 
 ${blocchi}`;
 

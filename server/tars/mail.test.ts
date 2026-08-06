@@ -18,7 +18,7 @@ import {
   getComunicazione,
   insertComunicazione,
   listComunicazioni,
-  listDaSmistare,
+  listDaAnalizzare,
   markAnalizzate,
   statsComunicazioni,
   _resetComunicazioniInMemoria,
@@ -273,18 +273,70 @@ describe("ingestione comunicazioni", () => {
     expect(await deleteComunicazione(daEliminare!.id, 1)).toBe(false);
   });
 
-  it("coda di smistamento: solo non collegate, non eliminate, mai analizzate", async () => {
-    const inCoda = await listDaSmistare(1, 10);
-    // "Senza commessa" c'è; le collegate e le eliminate no.
+  it("coda di analisi: anche le collegate (per la gestione), mai eliminate né già viste", async () => {
+    const inCoda = await listDaAnalizzare(1, 10);
+    // Le collegate ci sono (Tars può proporre azioni di gestione), le
+    // eliminate no. "Senza commessa" resta in coda per il collegamento.
     expect(inCoda.some((c) => c.oggetto === "Senza commessa")).toBe(true);
-    expect(inCoda.every((c) => c.commessaId == null && !c.deletedAt)).toBe(true);
+    expect(inCoda.some((c) => c.commessaId != null)).toBe(true);
+    expect(inCoda.every((c) => !c.deletedAt && !c.tarsAnalizzata)).toBe(true);
 
     await markAnalizzate(inCoda.map((c) => c.id));
-    const dopo = await listDaSmistare(1, 10);
+    const dopo = await listDaAnalizzare(1, 10);
     expect(dopo).toHaveLength(0);
 
     // Analizzata ma ancora visibile in lista: lo smistamento non nasconde.
     const c = await getComunicazione(inCoda[0].id, 1);
     expect(c?.tarsAnalizzata).toBe(true);
+  });
+});
+
+describe("estrazione testo allegati", () => {
+  it("legge i file di testo così come sono", async () => {
+    const { estraiTestoAllegato } = await import("./allegati");
+    const testo = await estraiTestoAllegato(
+      Buffer.from("riga1\nriga2", "utf8"),
+      "text/plain",
+      "note.txt"
+    );
+    expect(testo).toBe("riga1\nriga2");
+  });
+
+  it("dichiara i formati non leggibili invece di tacere", async () => {
+    const { estraiTestoAllegato } = await import("./allegati");
+    const testo = await estraiTestoAllegato(
+      Buffer.alloc(2048),
+      "application/vnd.ms-excel",
+      "listino.xls"
+    );
+    expect(testo).toMatch(/Formato non leggibile/);
+    expect(testo).toMatch(/2 KB/);
+  });
+
+  it("estrae il testo da un PDF vero", async () => {
+    // PDF minimo generato al volo: una pagina, testo "Conferma ordine 4471".
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF();
+    doc.text("Conferma ordine 4471", 10, 10);
+    const buffer = Buffer.from(doc.output("arraybuffer"));
+
+    const { estraiTestoAllegato } = await import("./allegati");
+    const testo = await estraiTestoAllegato(buffer, "application/pdf", "co.pdf");
+    expect(testo).toContain("Conferma ordine 4471");
+  });
+});
+
+describe("segnaTutteViste", () => {
+  it("porta le nuove a vista, senza toccare gestite ed eliminate", async () => {
+    const prima = await listComunicazioni({ sedeId: 1, stato: "nuova" });
+    expect(prima.length).toBeGreaterThan(0);
+
+    const { segnaTutteViste } = await import("./comunicazioni");
+    const n = await segnaTutteViste(1);
+    expect(n).toBe(prima.length);
+
+    expect(await listComunicazioni({ sedeId: 1, stato: "nuova" })).toHaveLength(0);
+    // Idempotente.
+    expect(await segnaTutteViste(1)).toBe(0);
   });
 });

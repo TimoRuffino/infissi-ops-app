@@ -36,6 +36,13 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -154,6 +161,10 @@ function Lettura({
   const commessa = trpc.commesse.byId.useQuery(c.commessaId ?? 0, {
     enabled: c.commessaId != null,
   });
+  const opzioniCaselle = trpc.mail.caselle.opzioni.useQuery();
+  const casella = (opzioniCaselle.data ?? []).find(
+    (k: any) => k.id === c.casellaId
+  );
 
   const invalidate = () => utils.mail.comunicazioni.invalidate();
   const collega = trpc.mail.comunicazioni.collega.useMutation({
@@ -197,6 +208,7 @@ function Lettura({
             </div>
             <div className="text-xs text-muted-foreground">
               {new Date(c.receivedAt).toLocaleString("it-IT")}
+              {casella ? ` · ricevuta su ${casella.nome} (${casella.indirizzo})` : ""}
             </div>
           </div>
           <div className="flex gap-1 shrink-0">
@@ -328,14 +340,20 @@ export default function Comunicazioni() {
   const mobile = useIsMobile();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
-  const [filtro, setFiltro] = useState<"tutte" | "nuove" | "da_smistare">("tutte");
+  const [filtro, setFiltro] = useState<
+    "tutte" | "nuove" | "da_smistare" | "gestite"
+  >("tutte");
+  const [casellaId, setCasellaId] = useState<number | null>(null);
   const [selezionataId, setSelezionataId] = useState<number | null>(null);
   const [caselleAperte, setCaselleAperte] = useState(false);
 
   const stats = trpc.mail.comunicazioni.stats.useQuery();
+  const opzioniCaselle = trpc.mail.caselle.opzioni.useQuery();
   const rows = trpc.mail.comunicazioni.list.useQuery({
     search: search.trim() || undefined,
-    stato: filtro === "nuove" ? "nuova" : undefined,
+    casellaId: casellaId ?? undefined,
+    stato:
+      filtro === "nuove" ? "nuova" : filtro === "gestite" ? "gestita" : undefined,
     soloNonCollegate: filtro === "da_smistare" ? true : undefined,
     limit: 100,
   });
@@ -368,6 +386,12 @@ export default function Comunicazioni() {
   const setStato = trpc.mail.comunicazioni.setStato.useMutation({
     onSuccess: () => utils.mail.comunicazioni.invalidate(),
   });
+  const tutteViste = trpc.mail.comunicazioni.segnaTutteViste.useMutation({
+    onSuccess: (r) => {
+      if (r.aggiornate > 0) toast.success(`${r.aggiornate} segnate come viste`);
+      utils.mail.comunicazioni.invalidate();
+    },
+  });
 
   const lista = rows.data ?? [];
   const selezionata = lista.find((c: any) => c.id === selezionataId) ?? null;
@@ -387,7 +411,19 @@ export default function Comunicazioni() {
         <Mail className="h-5 w-5" />
         <h1 className="text-xl font-semibold">Comunicazioni</h1>
         {(stats.data?.nuove ?? 0) > 0 && (
-          <Badge>{stats.data!.nuove} nuove</Badge>
+          <>
+            <Badge>{stats.data!.nuove} nuove</Badge>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={tutteViste.isPending}
+              onClick={() => tutteViste.mutate()}
+            >
+              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+              Tutte viste
+            </Button>
+          </>
         )}
         <div className="ml-auto flex gap-2">
           <Button
@@ -424,8 +460,29 @@ export default function Comunicazioni() {
               <TabsTrigger value="tutte">Tutte</TabsTrigger>
               <TabsTrigger value="nuove">Nuove</TabsTrigger>
               <TabsTrigger value="da_smistare">Da smistare</TabsTrigger>
+              <TabsTrigger value="gestite">Gestite</TabsTrigger>
             </TabsList>
           </Tabs>
+          {(opzioniCaselle.data?.length ?? 0) > 1 && (
+            <Select
+              value={casellaId != null ? String(casellaId) : "tutte"}
+              onValueChange={(v) =>
+                setCasellaId(v === "tutte" ? null : Number(v))
+              }
+            >
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutte">Tutte le caselle</SelectItem>
+                {(opzioniCaselle.data ?? []).map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input

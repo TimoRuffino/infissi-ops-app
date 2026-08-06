@@ -55,10 +55,7 @@ function ElencoProposte({ stato }: { stato?: "pendente" }) {
   return (
     <div className="space-y-3">
       {rows.map((p: any) => (
-        <div key={p.id} className="space-y-1">
-          <LinkCommessa commessaId={p.commessaId} />
-          <TarsPropostaCard proposta={p} />
-        </div>
+        <TarsPropostaCard key={p.id} proposta={p} />
       ))}
     </div>
   );
