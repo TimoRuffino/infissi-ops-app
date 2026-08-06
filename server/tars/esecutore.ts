@@ -30,6 +30,21 @@ export async function eseguiProposta(
   const p = proposta.payload ?? {};
 
   switch (proposta.tipo) {
+    case "collega_comunicazione": {
+      const { setMatchComunicazione } = await import("./comunicazioni");
+      const ok = await setMatchComunicazione(
+        p.comunicazioneId,
+        ctx.sedeId ?? 1,
+        {
+          clienteId: p.clienteId ?? null,
+          commessaId: p.commessaId,
+          confidenza: "alta",
+          motivo: "Collegamento proposto da Tars, approvato da un operatore.",
+        }
+      );
+      if (!ok) throw new Error("Comunicazione non trovata.");
+      return `Comunicazione collegata a ${p.commessaCodice ?? `commessa #${p.commessaId}`}`;
+    }
     case "rinomina_documento": {
       const updates: any = { id: p.documentoId };
       if (p.nome) updates.nome = p.nome;

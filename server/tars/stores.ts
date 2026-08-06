@@ -16,6 +16,7 @@ import { persistedStore } from "../_core/persistence";
 // ── Proposte ────────────────────────────────────────────────────────────────
 
 export const TIPI_PROPOSTA = [
+  "collega_comunicazione",
   "rinomina_documento",
   "nota_timeline",
   "aggiornamento_magazzino",

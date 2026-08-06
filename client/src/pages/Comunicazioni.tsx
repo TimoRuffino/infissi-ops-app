@@ -10,7 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import SearchSelect from "@/components/SearchSelect";
-import { Mail, Paperclip, Link2, Search, Loader2 } from "lucide-react";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { Mail, Paperclip, Link2, Search, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -25,11 +26,20 @@ const CONFIDENZA_LABEL: Record<string, string> = {
 function RigaComunicazione({ c }: { c: any }) {
   const utils = trpc.useUtils();
   const [apri, setApri] = useState(false);
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const commesse = trpc.commesse.list.useQuery(undefined, { enabled: apri });
 
   const collega = trpc.mail.comunicazioni.collega.useMutation({
     onSuccess: () => {
       toast.success("Comunicazione collegata");
+      utils.mail.comunicazioni.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const elimina = trpc.mail.comunicazioni.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Eliminata dal CRM — resta nella casella di posta");
+      setConfermaElimina(false);
       utils.mail.comunicazioni.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -75,8 +85,24 @@ function RigaComunicazione({ c }: { c: any }) {
             <Button size="sm" variant="ghost" onClick={() => setApri((v) => !v)}>
               <Link2 className="h-3.5 w-3.5" />
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfermaElimina(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
+
+        <ConfirmDialog
+          open={confermaElimina}
+          onOpenChange={setConfermaElimina}
+          title="Eliminare dal CRM?"
+          description="La mail sparisce da qui ma resta nella casella di posta, che non viene mai toccata. Non verrà re-importata."
+          confirmLabel="Elimina dal CRM"
+          onConfirm={() => elimina.mutate({ id: c.id })}
+        />
 
         {c.matchMotivo && (
           <p className="text-xs text-muted-foreground italic">{c.matchMotivo}</p>

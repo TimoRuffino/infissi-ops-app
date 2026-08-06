@@ -13,6 +13,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 const TIPO_LABEL: Record<string, string> = {
+  collega_comunicazione: "Email",
   rinomina_documento: "Documento",
   nota_timeline: "Timeline",
   aggiornamento_magazzino: "Magazzino",
@@ -52,6 +53,11 @@ function describePayload(p: any): string[] {
   const out: string[] = [];
   const pay = p.payload ?? {};
   switch (p.tipo) {
+    case "collega_comunicazione":
+      out.push(
+        `Collega la mail a ${pay.commessaCodice ?? `commessa #${pay.commessaId}`}`
+      );
+      break;
     case "rinomina_documento":
       if (pay.nome) out.push(`Nuovo nome: ${pay.nome}`);
       if (pay.tipo) out.push(`Nuovo tipo: ${pay.tipo}`);

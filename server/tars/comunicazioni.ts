@@ -43,11 +43,22 @@ export type Comunicazione = {
   matchConfidenza: "alta" | "media" | "bassa" | "nessuna";
   matchMotivo: string | null;
   stato: "nuova" | "vista" | "gestita";
+  // Tombstone: eliminata dal CRM, mai dalla casella (IMAP è sola lettura).
+  // La riga resta perché l'insert idempotente la veda e NON la re-importi
+  // alla prossima sincronizzazione — un DELETE secco la farebbe risorgere
+  // al primo cambio di uidValidity.
+  deletedAt: Date | null;
+  // True quando Tars l'ha già esaminata per lo smistamento: evita di
+  // pagare due volte l'analisi della stessa mail.
+  tarsAnalizzata: boolean;
   receivedAt: Date;
   createdAt: Date;
 };
 
-export type NuovaComunicazione = Omit<Comunicazione, "id" | "createdAt">;
+export type NuovaComunicazione = Omit<
+  Comunicazione,
+  "id" | "createdAt" | "deletedAt" | "tarsAnalizzata"
+>;
 
 // Il corpo viene troncato: serve a classificare e a dare contesto, non ad
 // archiviare la posta. La casella resta la fonte di verità.
@@ -99,6 +110,13 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         CREATE INDEX IF NOT EXISTS comunicazioni_commessa
           ON comunicazioni (commessa_id)`;
+      // Migrazioni additive per le installazioni che hanno già la tabella.
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS tars_analizzata BOOLEAN NOT NULL DEFAULT FALSE`;
     })().catch((e) => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
@@ -129,6 +147,8 @@ function fromRow(r: any): Comunicazione {
     matchConfidenza: r.match_confidenza,
     matchMotivo: r.match_motivo,
     stato: r.stato,
+    deletedAt: r.deleted_at ? new Date(r.deleted_at) : null,
+    tarsAnalizzata: !!r.tars_analizzata,
     receivedAt: new Date(r.received_at),
     createdAt: new Date(r.created_at),
   };
@@ -155,6 +175,8 @@ export async function insertComunicazione(
       ...c,
       testo,
       id: memNextId++,
+      deletedAt: null,
+      tarsAnalizzata: false,
       createdAt: new Date(),
     };
     memRows.push(row);
@@ -231,6 +253,73 @@ export async function setMatchComunicazione(
   return rows.length > 0;
 }
 
+/**
+ * Elimina una comunicazione DAL CRM. La casella non viene toccata (IMAP è
+ * sola lettura): il messaggio resta visibile nel client di posta. La riga
+ * diventa un tombstone così la risincronizzazione non la re-importa.
+ */
+export async function deleteComunicazione(
+  id: number,
+  sedeId: number
+): Promise<boolean> {
+  if (!kvSql) {
+    const r = memRows.find((x) => x.id === id && x.sedeId === sedeId);
+    if (!r || r.deletedAt) return false;
+    r.deletedAt = new Date();
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET deleted_at = NOW()
+    WHERE id = ${id} AND sede_id = ${sedeId} AND deleted_at IS NULL
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+/** Mail non eliminate, senza commessa e mai viste da Tars: la coda di smistamento. */
+export async function listDaSmistare(
+  sedeId: number,
+  limit: number
+): Promise<Comunicazione[]> {
+  if (!kvSql) {
+    return memRows
+      .filter(
+        (r) =>
+          r.sedeId === sedeId &&
+          !r.deletedAt &&
+          r.commessaId == null &&
+          !r.tarsAnalizzata
+      )
+      .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+      .slice(0, limit);
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT * FROM comunicazioni
+    WHERE sede_id = ${sedeId}
+      AND deleted_at IS NULL
+      AND commessa_id IS NULL
+      AND tars_analizzata = FALSE
+    ORDER BY received_at ASC
+    LIMIT ${limit}`;
+  return rows.map(fromRow);
+}
+
+/** Marca un lotto come esaminato da Tars (non verrà rianalizzato). */
+export async function markAnalizzate(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  if (!kvSql) {
+    for (const r of memRows) {
+      if (ids.includes(r.id)) r.tarsAnalizzata = true;
+    }
+    return;
+  }
+  await ensureComunicazioniSchema();
+  await kvSql`
+    UPDATE comunicazioni SET tars_analizzata = TRUE
+    WHERE id = ANY(${ids as any})`;
+}
+
 /** Cancella tutte le comunicazioni di una casella (alla sua rimozione). */
 export async function deleteComunicazioniByCasella(
   casellaId: number
@@ -267,7 +356,7 @@ export async function listComunicazioni(
   const offset = f.offset ?? 0;
 
   if (!kvSql) {
-    let rows = memRows.filter((r) => r.sedeId === f.sedeId);
+    let rows = memRows.filter((r) => r.sedeId === f.sedeId && !r.deletedAt);
     if (f.commessaId != null) rows = rows.filter((r) => r.commessaId === f.commessaId);
     if (f.clienteId != null) rows = rows.filter((r) => r.clienteId === f.clienteId);
     if (f.stato) rows = rows.filter((r) => r.stato === f.stato);
@@ -292,7 +381,7 @@ export async function listComunicazioni(
   const sql = kvSql;
   // Filtri composti come frammenti: niente SQL costruito per concatenazione
   // di stringhe, ogni valore resta parametrizzato.
-  const conds: any[] = [sql`sede_id = ${f.sedeId}`];
+  const conds: any[] = [sql`sede_id = ${f.sedeId}`, sql`deleted_at IS NULL`];
   if (f.commessaId != null) conds.push(sql`commessa_id = ${f.commessaId}`);
   if (f.clienteId != null) conds.push(sql`cliente_id = ${f.clienteId}`);
   if (f.stato) conds.push(sql`stato = ${f.stato}`);
@@ -330,7 +419,7 @@ export async function statsComunicazioni(
   sedeId: number
 ): Promise<{ nuove: number; totali: number; nonCollegate: number }> {
   if (!kvSql) {
-    const mie = memRows.filter((r) => r.sedeId === sedeId);
+    const mie = memRows.filter((r) => r.sedeId === sedeId && !r.deletedAt);
     return {
       nuove: mie.filter((r) => r.stato === "nuova").length,
       totali: mie.length,
@@ -343,7 +432,7 @@ export async function statsComunicazioni(
       COUNT(*) FILTER (WHERE stato = 'nuova') AS nuove,
       COUNT(*) AS totali,
       COUNT(*) FILTER (WHERE commessa_id IS NULL) AS non_collegate
-    FROM comunicazioni WHERE sede_id = ${sedeId}`;
+    FROM comunicazioni WHERE sede_id = ${sedeId} AND deleted_at IS NULL`;
   const r = rows[0] ?? {};
   return {
     nuove: Number(r.nuove ?? 0),

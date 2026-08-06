@@ -19,11 +19,13 @@ import {
   type Casella,
 } from "../tars/caselle";
 import {
+  riavviaWatchers,
   sincronizzaCasella,
   sincronizzaTutte,
   testaCasella,
 } from "../tars/imap";
 import {
+  deleteComunicazione,
   deleteComunicazioniByCasella,
   getComunicazione,
   listComunicazioni,
@@ -119,6 +121,7 @@ export const mailRouter = router({
         };
         caselle.push(casella);
         saveCaselle();
+        riavviaWatchers();
         return casellaPubblica(casella);
       }),
 
@@ -157,6 +160,7 @@ export const mailRouter = router({
         if (input.attiva !== undefined) c.attiva = input.attiva;
         c.updatedAt = new Date();
         saveCaselle();
+        riavviaWatchers();
         return casellaPubblica(c);
       }),
 
@@ -168,6 +172,7 @@ export const mailRouter = router({
         const idx = caselle.findIndex((x) => x.id === c.id);
         caselle.splice(idx, 1);
         saveCaselle();
+        riavviaWatchers();
         let cancellate = 0;
         if (input.cancellaComunicazioni) {
           cancellate = await deleteComunicazioniByCasella(c.id);
@@ -256,6 +261,22 @@ export const mailRouter = router({
           ctx.sedeId ?? 1,
           input.stato
         );
+        if (!ok) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Comunicazione non trovata.",
+          });
+        }
+        return { success: true as const };
+      }),
+
+    // Elimina dal CRM. La casella non viene toccata: il messaggio resta
+    // visibile nel client di posta. Tombstone, quindi non riappare alla
+    // prossima sincronizzazione.
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const ok = await deleteComunicazione(input.id, ctx.sedeId ?? 1);
         if (!ok) {
           throw new TRPCError({
             code: "NOT_FOUND",

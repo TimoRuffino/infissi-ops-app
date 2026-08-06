@@ -14,8 +14,13 @@ import {
 } from "../_core/secretBox";
 import { estraiCodiceCommessa, matchComunicazione } from "./match";
 import {
+  deleteComunicazione,
+  getComunicazione,
   insertComunicazione,
   listComunicazioni,
+  listDaSmistare,
+  markAnalizzate,
+  statsComunicazioni,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
 
@@ -241,5 +246,45 @@ describe("ingestione comunicazioni", () => {
     });
     const sede1 = await listComunicazioni({ sedeId: 1 });
     expect(sede1.some((c) => c.oggetto === "Altra sede")).toBe(false);
+  });
+
+  it("l'eliminazione è un tombstone: sparisce dalle liste ma NON risorge alla risincronizzazione", async () => {
+    const daEliminare = await insertComunicazione(
+      nuova("<da-eliminare@example.com>", "Newsletter inutile")
+    );
+    expect(daEliminare).not.toBeNull();
+
+    const ok = await deleteComunicazione(daEliminare!.id, 1);
+    expect(ok).toBe(true);
+
+    // Sparita da liste e stats…
+    const rows = await listComunicazioni({ sedeId: 1 });
+    expect(rows.some((c) => c.id === daEliminare!.id)).toBe(false);
+    const stats = await statsComunicazioni(1);
+    expect(stats.totali).toBe(rows.length);
+
+    // …ma il re-import dello stesso message_id viene assorbito dal tombstone.
+    const reimport = await insertComunicazione(
+      nuova("<da-eliminare@example.com>", "Newsletter inutile")
+    );
+    expect(reimport).toBeNull();
+
+    // Non eliminabile due volte; sede sbagliata → false.
+    expect(await deleteComunicazione(daEliminare!.id, 1)).toBe(false);
+  });
+
+  it("coda di smistamento: solo non collegate, non eliminate, mai analizzate", async () => {
+    const inCoda = await listDaSmistare(1, 10);
+    // "Senza commessa" c'è; le collegate e le eliminate no.
+    expect(inCoda.some((c) => c.oggetto === "Senza commessa")).toBe(true);
+    expect(inCoda.every((c) => c.commessaId == null && !c.deletedAt)).toBe(true);
+
+    await markAnalizzate(inCoda.map((c) => c.id));
+    const dopo = await listDaSmistare(1, 10);
+    expect(dopo).toHaveLength(0);
+
+    // Analizzata ma ancora visibile in lista: lo smistamento non nasconde.
+    const c = await getComunicazione(inCoda[0].id, 1);
+    expect(c?.tarsAnalizzata).toBe(true);
   });
 });

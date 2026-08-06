@@ -21,6 +21,7 @@ import {
   type TipoProposta,
 } from "./stores";
 import { listComunicazioni } from "./comunicazioni";
+import { getCommessaById } from "../routers/commesse";
 
 // Import dinamico per rompere il ciclo routers.ts → tars router → tools.
 let _appRouterPromise: Promise<any> | null = null;
@@ -256,6 +257,20 @@ export const TOOL_DEFS: AnthropicTool[] = [
   },
 
   // Proposte
+  {
+    name: "proponi_collegamento",
+    description:
+      "Propone di collegare una comunicazione (email) a una commessa. Usalo quando dagli indizi nel messaggio (nomi, indirizzi, prodotti, riferimenti) riesci a individuare la commessa giusta con ragionevole certezza — dopo averla verificata con gli strumenti di lettura.",
+    input_schema: {
+      type: "object",
+      properties: {
+        comunicazioneId: { type: "number" },
+        commessaId: { type: "number" },
+        ...PROPOSTA_PROPS,
+      },
+      required: ["comunicazioneId", "commessaId", "titolo", "motivazione", "confidenza"],
+    },
+  },
   {
     name: "proponi_rinomina_documento",
     description:
@@ -685,6 +700,28 @@ export async function eseguiStrumento(
       }
 
       // ── Proposte ─────────────────────────────────────────────────────
+      case "proponi_collegamento": {
+        const commessa = getCommessaById(Number(input.commessaId));
+        if (!commessa || (commessa as any).sedeId !== (rt.ctx.sedeId ?? 1)) {
+          return err("Commessa inesistente.");
+        }
+        if ((commessa as any).archivedAt) {
+          return err("La commessa è archiviata: le mail non si collegano ai fascicoli chiusi.");
+        }
+        return creaProposta(rt, {
+          tipo: "collega_comunicazione",
+          titolo: input.titolo,
+          motivazione: input.motivazione,
+          confidenza: input.confidenza,
+          commessaId: Number(input.commessaId),
+          payload: {
+            comunicazioneId: Number(input.comunicazioneId),
+            commessaId: Number(input.commessaId),
+            commessaCodice: (commessa as any).codice ?? null,
+            clienteId: (commessa as any).clienteId ?? null,
+          },
+        });
+      }
       case "proponi_rinomina_documento": {
         if (!input.nuovoNome && !input.nuovoTipo) {
           return err("Indica almeno nuovoNome o nuovoTipo.");

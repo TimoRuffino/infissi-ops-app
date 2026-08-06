@@ -27,6 +27,7 @@ import { matchComunicazione } from "./match";
 import { caselle, saveCaselle, type Casella } from "./caselle";
 import { getCommesseStore } from "../routers/commesse";
 import { getClientiStore } from "../routers/clienti";
+import { programmaSmistamento } from "./smistamento";
 
 const PRIMA_SYNC_MAX = 50;
 const MAX_PER_SYNC = 200;
@@ -84,7 +85,7 @@ function indirizzi(campo: any): string[] {
 }
 
 /** Costruisce le opzioni di connessione da una casella configurata. */
-function opzioniConnessione(casella: Casella) {
+function opzioniConnessione(casella: Casella, perWatcher = false) {
   return {
     host: casella.host,
     port: casella.porta,
@@ -95,13 +96,14 @@ function opzioniConnessione(casella: Casella) {
     },
     // Su hosting condiviso i log verbosi di imapflow non servono a nessuno.
     logger: false as const,
-    // Niente IDLE qui: la sincronizzazione è a comando/schedulata e la
-    // connessione si chiude subito. Tenere aperte connessioni IDLE su
-    // hosting condiviso è il modo più veloce per farsi limitare.
-    disableAutoIdle: true,
+    // Le connessioni di sincronizzazione entrano, leggono ed escono: niente
+    // IDLE. Il watcher invece VIVE in IDLE: il server segnala l'arrivo di
+    // posta e noi sincronizziamo subito, senza aspettare il poller.
+    disableAutoIdle: !perWatcher,
     connectionTimeout: 20_000,
     greetingTimeout: 15_000,
-    socketTimeout: 60_000,
+    // Il watcher resta connesso a lungo; le sync no.
+    socketTimeout: perWatcher ? 10 * 60_000 : 60_000,
   };
 }
 
@@ -315,6 +317,9 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
       (casella.messaggiImportati ?? 0) + esito.importate;
     casella.updatedAt = new Date();
     saveCaselle();
+
+    // Nuova posta non collegata → Tars la esamina e propone i collegamenti.
+    if (esito.importate > 0) programmaSmistamento(sedeId);
   } catch (e: any) {
     esito.errore = messaggioErrore(e);
     casella.ultimoErrore = esito.errore;
@@ -348,7 +353,83 @@ export async function sincronizzaTutte(sedeId?: number): Promise<EsitoSync[]> {
   return esiti;
 }
 
-// ── Poller ──────────────────────────────────────────────────────────────────
+// ── Watcher IDLE ────────────────────────────────────────────────────────────
+// Una connessione persistente per casella attiva: il server IMAP segnala
+// l'arrivo di posta (evento `exists`) e la sincronizzazione parte subito.
+// Se la connessione cade si riprova con backoff (30s → 5min); il poller
+// qui sotto resta come rete di sicurezza per quando l'IDLE non funziona.
+
+type Watcher = { stop: () => void };
+const watchers = new Map<number, Watcher>();
+
+function avviaWatcher(casella: Casella): Watcher {
+  let fermo = false;
+  let client: ImapFlow | null = null;
+  let backoffMs = 30_000;
+  let syncTimer: NodeJS.Timeout | null = null;
+
+  // L'evento può arrivare a raffica (una mail per volta): si sincronizza
+  // qualche secondo dopo l'ultimo avviso, una volta sola.
+  const syncPresto = () => {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => {
+      syncTimer = null;
+      void sincronizzaCasella(casella).catch(() => {});
+    }, 3_000);
+  };
+
+  const vita = async () => {
+    while (!fermo) {
+      try {
+        client = new ImapFlow(opzioniConnessione(casella, true));
+        // L'handler d'errore va attaccato PRIMA di connect: un errore senza
+        // listener butta giù il processo.
+        client.on("error", () => {});
+        client.on("exists", () => syncPresto());
+        await client.connect();
+        await client.mailboxOpen(casella.cartella || "INBOX", { readOnly: true });
+        backoffMs = 30_000; // connessione riuscita: reset del backoff
+        // Resta qui finché la connessione vive; imapflow tiene l'IDLE da solo.
+        await new Promise<void>((resolve) => {
+          client!.on("close", () => resolve());
+          client!.on("error", () => resolve());
+        });
+      } catch {
+        // Connessione fallita: si ritenta sotto con backoff.
+      }
+      if (fermo) break;
+      await new Promise((r) => setTimeout(r, backoffMs));
+      backoffMs = Math.min(backoffMs * 2, 5 * 60_000);
+    }
+  };
+  void vita();
+
+  return {
+    stop: () => {
+      fermo = true;
+      if (syncTimer) clearTimeout(syncTimer);
+      try {
+        client?.close();
+      } catch {
+        /* già chiusa */
+      }
+    },
+  };
+}
+
+/** Allinea i watcher alle caselle attive. Da chiamare a ogni modifica. */
+export function riavviaWatchers() {
+  for (const w of Array.from(watchers.values())) w.stop();
+  watchers.clear();
+  for (const c of caselle.filter((c) => c.attiva)) {
+    watchers.set(c.id, avviaWatcher(c));
+  }
+  if (watchers.size > 0) {
+    console.log(`[imap] watcher IDLE su ${watchers.size} caselle`);
+  }
+}
+
+// ── Poller (rete di sicurezza) ──────────────────────────────────────────────
 
 let timer: NodeJS.Timeout | null = null;
 const INTERVALLO_MS = 5 * 60 * 1000;
@@ -367,7 +448,11 @@ export function avviaPollerMail() {
     }
   };
   timer = setInterval(() => void giro(), INTERVALLO_MS);
-  // Primo giro dopo un minuto: lascia finire il bootstrap degli store.
-  setTimeout(() => void giro(), 60_000);
-  console.log("[imap] poller avviato (ogni 5 minuti)");
+  // Primo giro (e primi watcher) dopo un minuto: lascia finire il
+  // bootstrap degli store, che a freddo può metterci qualche secondo.
+  setTimeout(() => {
+    void giro();
+    riavviaWatchers();
+  }, 60_000);
+  console.log("[imap] poller avviato (ogni 5 minuti) + watcher IDLE");
 }
