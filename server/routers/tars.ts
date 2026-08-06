@@ -28,8 +28,12 @@ import {
   esecuzioni,
   getTarsConfig,
   saveConfig,
+  getChat,
+  saveChat,
   CATEGORIE_CONOSCENZA,
+  MAX_MESSAGGI_CHAT,
   TIPI_ALTO_RISCHIO,
+  type MessaggioChat,
 } from "../tars/stores";
 import { getCommessaById } from "./commesse";
 
@@ -45,6 +49,17 @@ function trovaProposta(id: number, sedeId: number | null) {
   const p = proposte.find((x) => x.id === id);
   assertSedeScope(p ?? null, sedeId);
   return p!;
+}
+
+// Un messaggio della chat con le sue proposte al seguito, nello stato
+// corrente (approvata/rifiutata compare aggiornato, non congelato).
+function idrataMessaggio(m: MessaggioChat) {
+  return {
+    ...m,
+    proposte: m.proposteIds
+      .map((id) => proposte.find((p) => p.id === id))
+      .filter(Boolean),
+  };
 }
 
 export const tarsRouter = router({
@@ -110,6 +125,99 @@ fare, usa nessuna_azione.`;
         proposte: proposte.filter((p) => esecuzione.proposteIds.includes(p.id)),
       };
     }),
+
+  // ── Chat ──────────────────────────────────────────────────────────────
+  chat: router({
+    get: protectedProcedure.query(({ ctx }) => {
+      const user: any = ctx.user;
+      const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
+      return rec.messaggi.map(idrataMessaggio);
+    }),
+
+    invia: protectedProcedure
+      .input(z.object({ testo: z.string().min(1).max(4000) }))
+      .mutation(async ({ input, ctx }) => {
+        const config = getTarsConfig();
+        if (!config.attivo) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Tars è spento. La direzione può attivarlo da Impostazioni.",
+          });
+        }
+        if (!anthropicConfigured()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "ANTHROPIC_API_KEY non configurata sul server.",
+          });
+        }
+        const user: any = ctx.user;
+        const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
+
+        // Il filo del discorso: gli ultimi turni, solo testo. I tool-use
+        // delle esecuzioni passate non servono a mantenere il contesto.
+        const storia = rec.messaggi.slice(-20).map((m) => ({
+          role: m.ruolo === "utente" ? ("user" as const) : ("assistant" as const),
+          content: m.testo || "…",
+        }));
+
+        const richiesta = `<trigger>
+Tipo: chat_operatore
+Operatore: ${user?.name ?? "?"}
+Data e ora: ${new Date().toISOString()}
+</trigger>
+
+${input.testo.trim()}`;
+
+        const esecuzione = await runTars({
+          ctx,
+          trigger: "chat",
+          commessaId: null,
+          richiesta,
+          storia,
+        });
+
+        if (esecuzione.esito === "errore") {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: esecuzione.errore ?? "Tars non ha risposto.",
+          });
+        }
+
+        const mioMsg: MessaggioChat = {
+          ruolo: "utente",
+          testo: input.testo.trim(),
+          proposteIds: [],
+          createdAt: new Date(),
+        };
+        const suoMsg: MessaggioChat = {
+          ruolo: "tars",
+          testo:
+            esecuzione.riepilogo ??
+            (esecuzione.proposteIds.length > 0
+              ? "Ho preparato le proposte qui sotto."
+              : "Non ho trovato nulla da aggiungere."),
+          proposteIds: esecuzione.proposteIds,
+          createdAt: new Date(),
+        };
+        rec.messaggi.push(mioMsg, suoMsg);
+        if (rec.messaggi.length > MAX_MESSAGGI_CHAT) {
+          rec.messaggi.splice(0, rec.messaggi.length - MAX_MESSAGGI_CHAT);
+        }
+        rec.updatedAt = new Date();
+        saveChat();
+
+        return idrataMessaggio(suoMsg);
+      }),
+
+    pulisci: protectedProcedure.mutation(({ ctx }) => {
+      const user: any = ctx.user;
+      const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
+      rec.messaggi = [];
+      rec.updatedAt = new Date();
+      saveChat();
+      return { success: true } as const;
+    }),
+  }),
 
   // ── Coda proposte ─────────────────────────────────────────────────────
   proposte: router({

@@ -158,6 +158,53 @@ export const esecuzioni = _esecuzioniStore.items;
 export const saveEsecuzioni = () => _esecuzioniStore.save();
 export const newEsecuzioneId = () => nextEsecuzioneId++;
 
+// ── Chat ────────────────────────────────────────────────────────────────────
+// Una conversazione per utente per sede. La chat è un altro modo di
+// azionare lo stesso agente: stessi strumenti, stessi budget, stesse
+// proposte. Si salva il filo del discorso, non un log infinito.
+
+export type MessaggioChat = {
+  ruolo: "utente" | "tars";
+  testo: string;
+  proposteIds: number[];
+  createdAt: Date;
+};
+
+export type ChatRecord = {
+  id: number;
+  sedeId: number;
+  utenteId: number;
+  messaggi: MessaggioChat[];
+  updatedAt: Date;
+};
+
+// Oltre questo, i messaggi più vecchi scivolano fuori (restano le proposte
+// nella coda, che ha vita propria).
+export const MAX_MESSAGGI_CHAT = 60;
+
+let nextChatId = 1;
+const _chatStore = persistedStore<ChatRecord>("tars_chat", (items) => {
+  nextChatId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
+});
+
+export function getChat(sedeId: number, utenteId: number): ChatRecord {
+  let rec = _chatStore.items.find(
+    (c) => c.sedeId === sedeId && c.utenteId === utenteId
+  );
+  if (!rec) {
+    rec = {
+      id: nextChatId++,
+      sedeId,
+      utenteId,
+      messaggi: [],
+      updatedAt: new Date(),
+    };
+    _chatStore.items.push(rec);
+  }
+  return rec;
+}
+export const saveChat = () => _chatStore.save();
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 export type TarsConfig = {

@@ -239,3 +239,88 @@ describe("tars", () => {
     expect(proposte.every((p) => p.sedeId === 1)).toBe(true);
   });
 });
+
+describe("tars.chat", () => {
+  const realFetch = global.fetch;
+  beforeAll(() => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  it("un ordine in chat diventa proposta nel messaggio di risposta", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const commessa = await caller.commesse.create({
+      cliente: "Chat Test",
+      importoTotale: 3000,
+    });
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          { type: "text", text: "Controllo la commessa." },
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "leggi_commessa",
+            input: { commessaId: commessa.id },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "proponi_pagamento",
+            input: {
+              commessaId: commessa.id,
+              importo: 1500,
+              data: "2026-08-06",
+              tipo: "acconto_1",
+              titolo: `Registra acconto €1.500 su ${commessa.codice}`,
+              motivazione: "Richiesto dall'operatore in chat; pattuito coerente.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [
+          { type: "text", text: "Pronto: approva qui sotto e registro la rata." },
+        ],
+      },
+    ]) as any;
+
+    const risposta = await caller.tars.chat.invia({
+      testo: `registra un acconto di 1500 euro su ${commessa.codice}`,
+    });
+    expect(risposta.ruolo).toBe("tars");
+    expect(risposta.proposte).toHaveLength(1);
+    expect((risposta.proposte[0] as any).tipo).toBe("pagamento");
+
+    // La conversazione è persistita e idratata.
+    const storia = await caller.tars.chat.get();
+    expect(storia.length).toBe(2);
+    expect(storia[0].ruolo).toBe("utente");
+    expect(storia[1].proposte).toHaveLength(1);
+
+    // Approvazione dalla chat → mutation reale.
+    await caller.tars.proposte.approva({ id: (risposta.proposte[0] as any).id });
+    const c = await caller.commesse.byId(commessa.id);
+    expect(c!.importoIncassato).toBe(1500);
+
+    // Pulizia della conversazione.
+    await caller.tars.chat.pulisci();
+    expect(await caller.tars.chat.get()).toHaveLength(0);
+  });
+});

@@ -11,6 +11,7 @@ import { statoLabel } from "@/lib/stato";
 import { Check, X, Loader2, MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import TarsAvatar from "@/components/TarsAvatar";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
@@ -160,15 +161,23 @@ export default function TarsPropostaCard({
   const busy = approva.isPending || rifiuta.isPending || rispondi.isPending;
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Badge variant="outline" className="shrink-0">
-            {TIPO_LABEL[proposta.tipo] ?? proposta.tipo}
-          </Badge>
-          <span className="font-medium text-sm truncate">{proposta.titolo}</span>
+    <div className="rounded-lg border border-amber-300/70 dark:border-amber-700/50 border-l-4 border-l-amber-500 bg-card p-3 space-y-2">
+      <div className="flex items-start gap-2.5">
+        <TarsAvatar size="md" className="mt-0.5" />
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-500">
+              {proposta.tipo === "domanda" ? "Tars chiede" : "Tars propone"}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge variant="outline" className="text-xs">
+                {TIPO_LABEL[proposta.tipo] ?? proposta.tipo}
+              </Badge>
+              <ConfidenzaDots livello={proposta.confidenza} />
+            </div>
+          </div>
+          <span className="font-medium text-sm block">{proposta.titolo}</span>
         </div>
-        <ConfidenzaDots livello={proposta.confidenza} />
       </div>
 
       <p className="text-sm text-muted-foreground">{proposta.motivazione}</p>

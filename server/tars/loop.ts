@@ -32,6 +32,9 @@ export async function runTars(params: {
   trigger: string;
   commessaId: number | null;
   richiesta: string; // messaggio utente per il modello
+  // Turni precedenti (chat): vengono anteposti alla richiesta così il
+  // modello mantiene il filo. Solo testo — i tool-use passati non servono.
+  storia?: AnthropicMessage[];
 }): Promise<Esecuzione> {
   const config = getTarsConfig();
   const start = Date.now();
@@ -66,6 +69,7 @@ export async function runTars(params: {
 
   const system = buildSystemPrompt(params.ctx.sedeId);
   const messages: AnthropicMessage[] = [
+    ...(params.storia ?? []),
     { role: "user", content: params.richiesta },
   ];
 

@@ -8,8 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
-import { Bot, History, Inbox } from "lucide-react";
+import { History, Inbox, MessageCircle } from "lucide-react";
 import { Link } from "wouter";
+import TarsAvatar from "@/components/TarsAvatar";
+import { TarsChatPanel } from "@/components/TarsChat";
 
 function LinkCommessa({ commessaId }: { commessaId: number | null }) {
   const commessa = trpc.commesse.byId.useQuery(commessaId ?? 0, {
@@ -128,9 +130,14 @@ export default function TarsInbox() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Bot className="h-5 w-5" />
-        <h1 className="text-xl font-semibold">Tars — Proposte</h1>
+      <div className="flex items-center gap-2.5">
+        <TarsAvatar size="lg" />
+        <div>
+          <h1 className="text-xl font-semibold leading-tight">Tars</h1>
+          <p className="text-xs text-muted-foreground leading-tight">
+            propone, tu approvi
+          </p>
+        </div>
         {(stats.data?.pendenti ?? 0) > 0 && (
           <Badge>{stats.data!.pendenti} in attesa</Badge>
         )}
@@ -138,6 +145,10 @@ export default function TarsInbox() {
 
       <Tabs defaultValue="pendenti">
         <TabsList>
+          <TabsTrigger value="chat">
+            <MessageCircle className="h-3.5 w-3.5 mr-1" />
+            Chat
+          </TabsTrigger>
           <TabsTrigger value="pendenti">In attesa</TabsTrigger>
           <TabsTrigger value="decise">Decise</TabsTrigger>
           {direzione && (
@@ -147,6 +158,11 @@ export default function TarsInbox() {
             </TabsTrigger>
           )}
         </TabsList>
+        <TabsContent value="chat" className="mt-4">
+          <div className="border rounded-lg bg-card h-[calc(100dvh-16rem)] min-h-[360px] flex flex-col overflow-hidden">
+            <TarsChatPanel className="flex-1" />
+          </div>
+        </TabsContent>
         <TabsContent value="pendenti" className="mt-4">
           <ElencoProposte stato="pendente" />
         </TabsContent>
