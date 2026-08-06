@@ -268,6 +268,9 @@ export default function Integrazioni() {
         )}
       </Card>
 
+      {/* Tars — l'agente operativo */}
+      <TarsCard />
+
       {/* Backup notturno su Google Drive */}
       <BackupDrive />
 
@@ -302,6 +305,83 @@ export default function Integrazioni() {
       </Card>
       </section>
     </div>
+  );
+}
+
+// ── Tars — l'agente operativo ────────────────────────────────────────────────
+// L'interruttore che spegne tutto in tre secondi. Off = il CRM funziona
+// esattamente come prima; Tars legge dati e crea proposte solo quando è on.
+function TarsCard() {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const config = trpc.tars.config.get.useQuery(undefined, { retry: false });
+  const setAttivo = trpc.tars.config.setAttivo.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.attivo ? "Tars attivato" : "Tars spento");
+      utils.tars.config.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const [, setLocation] = useLocation();
+
+  const attivo = config.data?.attivo ?? false;
+  const chiaveOk = config.data?.chiaveConfigurata ?? false;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Tars — agente operativo
+            {attivo ? (
+              <Badge className="bg-green-600 hover:bg-green-600">Attivo</Badge>
+            ) : (
+              <Badge variant="secondary">Spento</Badge>
+            )}
+          </CardTitle>
+          {isDirezione(user) && (
+            <Switch
+              checked={attivo}
+              disabled={setAttivo.isPending || (!attivo && !chiaveOk)}
+              onCheckedChange={(v) => setAttivo.mutate({ attivo: v })}
+            />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Analizza le commesse su richiesta e propone azioni — registrazioni,
+          note, avanzamenti. <strong>Non esegue mai nulla da solo:</strong>{" "}
+          ogni proposta va approvata con un click, e passa dagli stessi
+          controlli (doc gate, permessi) di un'operazione manuale.
+        </p>
+        {!chiaveOk && (
+          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 text-xs">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>
+              <code>ANTHROPIC_API_KEY</code> non configurata nelle variabili
+              d'ambiente del server. Senza chiave Tars non può accendersi.
+            </span>
+          </div>
+        )}
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" variant="outline" onClick={() => setLocation("/inbox")}>
+            Coda proposte
+            <ArrowRight className="h-3.5 w-3.5 ml-1" />
+          </Button>
+          {isDirezione(user) && (
+            <Button size="sm" variant="outline" onClick={() => setLocation("/conoscenza")}>
+              Conoscenza aziendale
+              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Modello: {config.data?.modello ?? "—"} · Budget per esecuzione: 15
+          strumenti, 60s, 5 proposte
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

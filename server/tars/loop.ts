@@ -1,0 +1,154 @@
+// Loop agentico di Tars.
+//
+// Budget rigidi (config): max tool call, max proposte, timeout. Al limite
+// il loop termina con quanto raccolto — mai run infinite. Ogni esecuzione
+// finisce nel registro agente_esecuzioni, completa di strumenti chiamati,
+// token e riepilogo: la direzione deve poter ricostruire PERCHÉ una
+// proposta esiste.
+
+import type { TrpcContext } from "../_core/context";
+import {
+  callAnthropic,
+  type AnthropicMessage,
+  type ContentBlock,
+} from "./anthropic";
+import { buildSystemPrompt } from "./prompt";
+import {
+  eseguiStrumento,
+  sintesiEsito,
+  TOOL_DEFS,
+  type ToolRuntime,
+} from "./tools";
+import {
+  esecuzioni,
+  saveEsecuzioni,
+  newEsecuzioneId,
+  getTarsConfig,
+  type Esecuzione,
+} from "./stores";
+
+export async function runTars(params: {
+  ctx: TrpcContext;
+  trigger: string;
+  commessaId: number | null;
+  richiesta: string; // messaggio utente per il modello
+}): Promise<Esecuzione> {
+  const config = getTarsConfig();
+  const start = Date.now();
+
+  const esecuzione: Esecuzione = {
+    id: newEsecuzioneId(),
+    sedeId: params.ctx.sedeId ?? 1,
+    trigger: params.trigger,
+    commessaId: params.commessaId,
+    richiesta: params.richiesta,
+    strumenti: [],
+    proposteIds: [],
+    riepilogo: null,
+    tokensIn: 0,
+    tokensOut: 0,
+    durataMs: 0,
+    esito: "ok",
+    errore: null,
+    utenteId: (params.ctx.user as any)?.id ?? null,
+    utenteNome: (params.ctx.user as any)?.name ?? null,
+    createdAt: new Date(),
+  };
+
+  const rt: ToolRuntime = {
+    ctx: params.ctx,
+    esecuzioneId: esecuzione.id,
+    trigger: params.trigger,
+    maxProposte: config.maxProposte,
+    proposteIds: [],
+    terminato: null,
+  };
+
+  const system = buildSystemPrompt(params.ctx.sedeId);
+  const messages: AnthropicMessage[] = [
+    { role: "user", content: params.richiesta },
+  ];
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), config.timeoutMs);
+
+  try {
+    let toolCalls = 0;
+
+    while (true) {
+      const res = await callAnthropic({
+        model: config.modello,
+        system,
+        messages,
+        tools: TOOL_DEFS,
+        signal: abort.signal,
+      });
+      esecuzione.tokensIn += res.usage.input_tokens;
+      esecuzione.tokensOut += res.usage.output_tokens;
+
+      const testo = res.content
+        .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      if (testo) esecuzione.riepilogo = testo;
+
+      const toolUses = res.content.filter(
+        (b): b is Extract<ContentBlock, { type: "tool_use" }> =>
+          b.type === "tool_use"
+      );
+
+      if (res.stop_reason !== "tool_use" || toolUses.length === 0) break;
+
+      messages.push({ role: "assistant", content: res.content });
+
+      const results: ContentBlock[] = [];
+      for (const tu of toolUses) {
+        toolCalls++;
+        const overBudget = toolCalls > config.maxToolCalls;
+        const out = overBudget
+          ? {
+              content:
+                "Budget di chiamate a strumenti esaurito. Chiudi ora con il riepilogo di quanto raccolto.",
+              isError: true,
+            }
+          : await eseguiStrumento(rt, tu.name, tu.input ?? {});
+        esecuzione.strumenti.push({
+          nome: tu.name,
+          input: tu.input ?? {},
+          esito: sintesiEsito(out),
+        });
+        results.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: out.content,
+          ...(out.isError ? { is_error: true } : {}),
+        });
+        if (overBudget) esecuzione.esito = "budget_esaurito";
+      }
+      messages.push({ role: "user", content: results });
+
+      // nessuna_azione: chiediamo comunque un ultimo turno di testo? No —
+      // il motivo È il riepilogo. Terminazione immediata, zero sprechi.
+      if (rt.terminato) {
+        if (!esecuzione.riepilogo) esecuzione.riepilogo = rt.terminato.motivo;
+        break;
+      }
+      // Oltre il budget lasciamo al modello UN turno finale (il prossimo
+      // giro: i tool result dicono di chiudere, stop_reason sarà end_turn).
+    }
+  } catch (e: any) {
+    esecuzione.esito = "errore";
+    esecuzione.errore = abort.signal.aborted
+      ? `Timeout esecuzione (${config.timeoutMs / 1000}s)`
+      : e?.message ?? String(e);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  esecuzione.proposteIds = rt.proposteIds;
+  esecuzione.durataMs = Date.now() - start;
+  esecuzioni.push(esecuzione);
+  saveEsecuzioni();
+  return esecuzione;
+}

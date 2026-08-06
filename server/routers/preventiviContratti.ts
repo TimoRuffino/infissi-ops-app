@@ -327,6 +327,33 @@ export const preventiviContrattiRouter = router({
       return { ...rest, hasData: true };
     }),
 
+  // Rinomina e/o riclassifica un documento esistente. Il tipo conta per il
+  // doc gate: un documento caricato come "altro" che è in realtà una
+  // conferma d'ordine blocca un avanzamento legittimo. Non tocca i byte né
+  // statoAtUpload (la finestra temporale del gate resta quella originale).
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        nome: z.string().min(1).optional(),
+        tipo: z.enum(DOC_TIPI).optional(),
+        note: z.string().nullable().optional(),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      const doc = documenti.find((d) => d.id === input.id);
+      if (!doc) throw new Error("Documento non trovato");
+      if (!commessaInSede(doc.commessaId, ctx.sedeId)) {
+        throw new Error("Documento non trovato");
+      }
+      if (input.nome !== undefined) doc.nome = input.nome.trim();
+      if (input.tipo !== undefined) doc.tipo = input.tipo;
+      if (input.note !== undefined) doc.note = input.note?.trim() || null;
+      _documentiStore.save();
+      const { dataBase64, ...rest } = doc;
+      return { ...rest, hasData: !!dataBase64 || !!doc.storageKey };
+    }),
+
   delete: protectedProcedure
     .input(z.number())
     .mutation(({ input, ctx }) => {

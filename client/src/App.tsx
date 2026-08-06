@@ -30,6 +30,8 @@ import PreventivatoreFivizzanese from "./pages/PreventivatoreFivizzanese";
 import PreventivatorePuntoDelSerramento from "./pages/PreventivatorePuntoDelSerramento";
 import Archivio from "./pages/Archivio";
 import SediList from "./pages/SediList";
+import TarsInbox from "./pages/TarsInbox";
+import Conoscenza from "./pages/Conoscenza";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -89,6 +91,10 @@ function Router() {
         </Route>
         <Route path="/sedi">
           {() => <RequireDirezione><SediList /></RequireDirezione>}
+        </Route>
+        <Route path="/inbox" component={TarsInbox} />
+        <Route path="/conoscenza">
+          {() => <RequireDirezione><Conoscenza /></RequireDirezione>}
         </Route>
         <Route path="/integrazioni" component={Integrazioni} />
         <Route path="/404" component={NotFound} />

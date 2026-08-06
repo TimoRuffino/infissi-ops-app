@@ -62,6 +62,7 @@ import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TimelineOrdine from "@/components/TimelineOrdine";
+import TarsBanner from "@/components/TarsBanner";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
@@ -1067,6 +1068,9 @@ export default function CommessaDetail() {
         }
         salvataggioInCorso={updateCommessa.isPending}
       />
+
+      {/* Tars: analisi on-demand + proposte pendenti su questa commessa. */}
+      <TarsBanner commessaId={commessaId} />
 
       {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
       <TimelineOrdine commessaId={commessaId} />

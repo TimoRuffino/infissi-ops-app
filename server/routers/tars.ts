@@ -1,0 +1,342 @@
+// Router di Tars — l'agente operativo.
+//
+// analizza      trigger on-demand dalla scheda commessa
+// proposte      coda: list, approva (→ esecutore → mutation reale),
+//               rifiuta (con motivo: è dato di addestramento), rispondi
+// conoscenza    memoria aziendale (direzione)
+// esecuzioni    registro run (direzione)
+// config        interruttore + stato configurazione
+
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { protectedProcedure, router } from "../_core/trpc";
+import {
+  assertSedeScope,
+  isDirezione,
+  requireDirezione,
+  requireDirezioneOAmministrazione,
+} from "../_core/permissions";
+import { anthropicConfigured } from "../tars/anthropic";
+import { runTars } from "../tars/loop";
+import { eseguiProposta } from "../tars/esecutore";
+import {
+  proposte,
+  saveProposte,
+  conoscenza,
+  saveConoscenza,
+  newVoceId,
+  esecuzioni,
+  getTarsConfig,
+  saveConfig,
+  CATEGORIE_CONOSCENZA,
+  TIPI_ALTO_RISCHIO,
+} from "../tars/stores";
+import { getCommessaById } from "./commesse";
+
+const MOTIVI_RIFIUTO = [
+  "dato_sbagliato",
+  "commessa_sbagliata",
+  "azione_non_necessaria",
+  "lo_faccio_io",
+  "altro",
+] as const;
+
+function trovaProposta(id: number, sedeId: number | null) {
+  const p = proposte.find((x) => x.id === id);
+  assertSedeScope(p ?? null, sedeId);
+  return p!;
+}
+
+export const tarsRouter = router({
+  // ── Trigger on-demand ─────────────────────────────────────────────────
+  analizza: protectedProcedure
+    .input(
+      z.object({
+        commessaId: z.number(),
+        domanda: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const config = getTarsConfig();
+      if (!config.attivo) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Tars è spento. La direzione può attivarlo da Impostazioni → Integrazioni.",
+        });
+      }
+      if (!anthropicConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ANTHROPIC_API_KEY non configurata sul server.",
+        });
+      }
+      const commessa = getCommessaById(input.commessaId);
+      assertSedeScope(commessa ?? null, ctx.sedeId);
+      if ((commessa as any).archivedAt) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Le commesse archiviate non si analizzano.",
+        });
+      }
+
+      const richiesta = `<trigger>
+Tipo: richiesta_operatore
+Commessa: ${(commessa as any).codice} (id ${commessa!.id})
+Data e ora: ${new Date().toISOString()}
+</trigger>
+
+${
+  input.domanda?.trim()
+    ? `Domanda dell'operatore: ${input.domanda.trim()}`
+    : "Analizza la situazione di questa commessa: stato, pagamenti, documenti, timeline, ordini e magazzino. Cerca incoerenze e passi mancanti."
+}
+
+Usa gli strumenti per verificare lo stato reale prima di proporre. Se non c'è nulla da
+fare, usa nessuna_azione.`;
+
+      const esecuzione = await runTars({
+        ctx,
+        trigger: "on_demand",
+        commessaId: input.commessaId,
+        richiesta,
+      });
+
+      return {
+        esecuzioneId: esecuzione.id,
+        esito: esecuzione.esito,
+        errore: esecuzione.errore,
+        riepilogo: esecuzione.riepilogo,
+        durataMs: esecuzione.durataMs,
+        proposte: proposte.filter((p) => esecuzione.proposteIds.includes(p.id)),
+      };
+    }),
+
+  // ── Coda proposte ─────────────────────────────────────────────────────
+  proposte: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          stato: z.enum(["pendente", "approvata", "rifiutata", "errore", "risposta"]).optional(),
+          commessaId: z.number().optional(),
+        }).optional()
+      )
+      .query(({ input, ctx }) => {
+        let rows = proposte.filter((p) => p.sedeId === ctx.sedeId);
+        if (input?.stato) rows = rows.filter((p) => p.stato === input.stato);
+        if (input?.commessaId) {
+          rows = rows.filter((p) => p.commessaId === input.commessaId);
+        }
+        return [...rows].sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+        );
+      }),
+
+    approva: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const p = trovaProposta(input.id, ctx.sedeId);
+        if (p.stato !== "pendente") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Proposta già decisa (${p.stato}).`,
+          });
+        }
+        // Pagamenti, cambi di stato e bozze: solo direzione/amministrazione.
+        if (TIPI_ALTO_RISCHIO.includes(p.tipo)) {
+          requireDirezioneOAmministrazione(ctx.user);
+        }
+        const user: any = ctx.user;
+        try {
+          const esito = await eseguiProposta(p, ctx);
+          p.stato = "approvata";
+          p.esito = esito;
+        } catch (e: any) {
+          p.stato = "errore";
+          p.esito = e?.message ?? String(e);
+        }
+        p.decisaAt = new Date();
+        p.decisaDa = user?.id ?? null;
+        p.decisaDaNome = user?.name ?? null;
+        saveProposte();
+        if (p.stato === "errore") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Esecuzione fallita: ${p.esito}`,
+          });
+        }
+        return p;
+      }),
+
+    rifiuta: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          motivo: z.enum(MOTIVI_RIFIUTO).optional(),
+          nota: z.string().max(500).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        const p = trovaProposta(input.id, ctx.sedeId);
+        if (p.stato !== "pendente") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Proposta già decisa (${p.stato}).`,
+          });
+        }
+        const user: any = ctx.user;
+        p.stato = "rifiutata";
+        p.motivoRifiuto = [input.motivo, input.nota?.trim()]
+          .filter(Boolean)
+          .join(": ") || null;
+        p.decisaAt = new Date();
+        p.decisaDa = user?.id ?? null;
+        p.decisaDaNome = user?.name ?? null;
+        saveProposte();
+        return p;
+      }),
+
+    // Risposta a una domanda (tipo "domanda" / chiedi_chiarimento).
+    rispondi: protectedProcedure
+      .input(z.object({ id: z.number(), risposta: z.string().min(1).max(1000) }))
+      .mutation(({ input, ctx }) => {
+        const p = trovaProposta(input.id, ctx.sedeId);
+        if (p.tipo !== "domanda") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Questa proposta non è una domanda.",
+          });
+        }
+        if (p.stato !== "pendente") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Domanda già decisa (${p.stato}).`,
+          });
+        }
+        const user: any = ctx.user;
+        p.stato = "risposta";
+        p.risposta = input.risposta.trim();
+        p.decisaAt = new Date();
+        p.decisaDa = user?.id ?? null;
+        p.decisaDaNome = user?.name ?? null;
+        saveProposte();
+        return p;
+      }),
+
+    stats: protectedProcedure.query(({ ctx }) => {
+      const mie = proposte.filter((p) => p.sedeId === ctx.sedeId);
+      return {
+        pendenti: mie.filter((p) => p.stato === "pendente").length,
+        totali: mie.length,
+      };
+    }),
+  }),
+
+  // ── Conoscenza aziendale ──────────────────────────────────────────────
+  conoscenza: router({
+    list: protectedProcedure.query(({ ctx }) => {
+      requireDirezione(ctx.user);
+      return conoscenza
+        .filter((v) => v.sedeId === ctx.sedeId)
+        .sort((a, b) => a.categoria.localeCompare(b.categoria) || a.id - b.id);
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          categoria: z.enum(CATEGORIE_CONOSCENZA),
+          titolo: z.string().min(1).max(200),
+          contenuto: z.string().min(1).max(2000),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const user: any = ctx.user;
+        const voce = {
+          id: newVoceId(),
+          sedeId: ctx.sedeId ?? 1,
+          categoria: input.categoria,
+          titolo: input.titolo.trim(),
+          contenuto: input.contenuto.trim(),
+          attiva: true,
+          aggiornatoDa: user?.name ?? null,
+          aggiornatoAt: new Date(),
+          createdAt: new Date(),
+        };
+        conoscenza.push(voce);
+        saveConoscenza();
+        return voce;
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          categoria: z.enum(CATEGORIE_CONOSCENZA).optional(),
+          titolo: z.string().min(1).max(200).optional(),
+          contenuto: z.string().min(1).max(2000).optional(),
+          attiva: z.boolean().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const voce = conoscenza.find((v) => v.id === input.id);
+        assertSedeScope(voce ?? null, ctx.sedeId);
+        const user: any = ctx.user;
+        if (input.categoria !== undefined) voce!.categoria = input.categoria;
+        if (input.titolo !== undefined) voce!.titolo = input.titolo.trim();
+        if (input.contenuto !== undefined) voce!.contenuto = input.contenuto.trim();
+        if (input.attiva !== undefined) voce!.attiva = input.attiva;
+        voce!.aggiornatoDa = user?.name ?? null;
+        voce!.aggiornatoAt = new Date();
+        saveConoscenza();
+        return voce;
+      }),
+    delete: protectedProcedure
+      .input(z.number())
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const idx = conoscenza.findIndex((v) => v.id === input);
+        if (idx === -1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Voce non trovata." });
+        }
+        assertSedeScope(conoscenza[idx], ctx.sedeId);
+        conoscenza.splice(idx, 1);
+        saveConoscenza();
+        return { success: true } as const;
+      }),
+  }),
+
+  // ── Registro esecuzioni ───────────────────────────────────────────────
+  esecuzioni: router({
+    list: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional())
+      .query(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        return esecuzioni
+          .filter((e) => e.sedeId === ctx.sedeId)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, input?.limit ?? 30);
+      }),
+  }),
+
+  // ── Config ────────────────────────────────────────────────────────────
+  config: router({
+    get: protectedProcedure.query(({ ctx }) => {
+      const c = getTarsConfig();
+      return {
+        attivo: c.attivo,
+        modello: c.modello,
+        chiaveConfigurata: anthropicConfigured(),
+        puoModificare: isDirezione(ctx.user),
+      };
+    }),
+    setAttivo: protectedProcedure
+      .input(z.object({ attivo: z.boolean() }))
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = getTarsConfig();
+        c.attivo = input.attivo;
+        c.updatedAt = new Date();
+        saveConfig();
+        return { attivo: c.attivo };
+      }),
+  }),
+});

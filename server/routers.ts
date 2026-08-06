@@ -27,6 +27,7 @@ import { backupRouter } from "./routers/backup";
 import { magazzinoRouter } from "./routers/magazzino";
 import { fattureInCloudRouter } from "./routers/fattureInCloud";
 import { fileStorageAdminRouter } from "./routers/fileStorageAdmin";
+import { tarsRouter } from "./routers/tars";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -171,6 +172,7 @@ export const appRouter = router({
   magazzino: magazzinoRouter,
   fattureInCloud: fattureInCloudRouter,
   fileStorage: fileStorageAdminRouter,
+  tars: tarsRouter,
 });
 
 export type AppRouter = typeof appRouter;
