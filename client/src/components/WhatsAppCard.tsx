@@ -190,7 +190,13 @@ export default function WhatsAppCard() {
         config_id: app.data.configId,
         response_type: "code",
         override_default_response_type: true,
-        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding" },
+        // Solo ciò che Meta documenta. Un `featureType` fra gli extras — che
+        // in giro viene suggerito per forzare la coexistence — non compare
+        // nello snippet ufficiale, e passarlo fa fallire il dialog con un
+        // "Sorry, something went wrong" privo di dettagli.
+        // La variante di accesso (coexistence o meno) la decide comunque la
+        // Configurazione del Login for Business, non questa chiamata.
+        extras: { setup: {} },
       }
     );
   };
