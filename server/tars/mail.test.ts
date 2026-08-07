@@ -340,3 +340,35 @@ describe("segnaTutteViste", () => {
     expect(await segnaTutteViste(1)).toBe(0);
   });
 });
+
+describe("backfill storico", () => {
+  it("una mail pre-marcata analizzata entra col match ma resta fuori dalla coda Tars", async () => {
+    const vecchia = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "<storico-1@example.com>",
+      canale: "email",
+      direzione: "in",
+      mittente: "mario.rossi@example.com",
+      mittenteNome: "Mario Rossi",
+      destinatari: [],
+      oggetto: "Vecchia conferma",
+      testo: "riferimento COM-2026-035",
+      allegati: [],
+      clienteId: 1,
+      commessaId: 10,
+      matchConfidenza: "alta",
+      matchMotivo: "storico",
+      stato: "nuova",
+      tarsAnalizzata: true,
+      receivedAt: new Date("2026-02-01T10:00:00Z"),
+    });
+    expect(vecchia).not.toBeNull();
+    expect(vecchia!.tarsAnalizzata).toBe(true);
+    // Visibile in lista, agganciata, ma NON in coda di analisi.
+    const lista = await listComunicazioni({ sedeId: 1, commessaId: 10 });
+    expect(lista.some((c) => c.id === vecchia!.id)).toBe(true);
+    const coda = await listDaAnalizzare(1, 50);
+    expect(coda.some((c) => c.id === vecchia!.id)).toBe(false);
+  });
+});

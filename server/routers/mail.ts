@@ -19,6 +19,7 @@ import {
   type Casella,
 } from "../tars/caselle";
 import {
+  importaStorico,
   riavviaWatchers,
   sincronizzaCasella,
   sincronizzaTutte,
@@ -217,6 +218,17 @@ export const mailRouter = router({
           return [await sincronizzaCasella(c)];
         }
         return sincronizzaTutte(ctx.sedeId ?? undefined);
+      }),
+
+    // Rilegge gli ultimi 6 mesi di una casella già sincronizzata: le mail
+    // già presenti vengono scartate dall'insert idempotente, le vecchie
+    // entrano col match ma senza finire in coda di analisi Tars.
+    importaStorico: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = trovaCasella(input.id, ctx.sedeId);
+        return importaStorico(c);
       }),
   }),
 

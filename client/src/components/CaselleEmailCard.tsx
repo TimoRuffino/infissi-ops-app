@@ -83,6 +83,18 @@ export default function CaselleEmailCard() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const storico = trpc.mail.caselle.importaStorico.useMutation({
+    onSuccess: (r: any) => {
+      if (r.errore) toast.error(r.errore);
+      else
+        toast.success(
+          `Storico importato: ${r.importate} nuove, ${r.saltate} già presenti`
+        );
+      invalidate();
+      utils.mail.comunicazioni.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const sync = trpc.mail.caselle.sync.useMutation({
     onSuccess: (esiti: any[]) => {
       const tot = esiti.reduce((s, e) => s + e.importate, 0);
@@ -208,6 +220,25 @@ export default function CaselleEmailCard() {
                 {new Date(c.ultimaSync).toLocaleString("it-IT")} ·{" "}
                 {c.messaggiImportati} messaggi importati in totale
               </p>
+            )}
+            {c.ultimaSync && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs px-2"
+                disabled={storico.isPending}
+                onClick={() => storico.mutate({ id: c.id })}
+                title="Rilegge gli ultimi 6 mesi (max 1000 messaggi). Le mail già importate non si duplicano; quelle vecchie non passano dall'analisi automatica."
+              >
+                {storico.isPending ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                )}
+                {storico.isPending
+                  ? "Sto importando lo storico…"
+                  : "Importa storico (6 mesi)"}
+              </Button>
             )}
           </div>
         ))}

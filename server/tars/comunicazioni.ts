@@ -62,7 +62,14 @@ export type Comunicazione = {
 export type NuovaComunicazione = Omit<
   Comunicazione,
   "id" | "createdAt" | "deletedAt" | "tarsAnalizzata" | "uid"
-> & { uid?: number | null };
+> & {
+  uid?: number | null;
+  // true per la posta storica importata a posteriori: il match la aggancia,
+  // ma Tars non la mette in coda di analisi — la triage è per il flusso in
+  // arrivo, non per l'archivio (che a 10 mail per esecuzione costerebbe
+  // decine di run inutili).
+  tarsAnalizzata?: boolean;
+};
 
 // Il corpo viene troncato: serve a classificare e a dare contesto, non ad
 // archiviare la posta. La casella resta la fonte di verità.
@@ -185,7 +192,7 @@ export async function insertComunicazione(
       testo,
       id: memNextId++,
       deletedAt: null,
-      tarsAnalizzata: false,
+      tarsAnalizzata: c.tarsAnalizzata ?? false,
       createdAt: new Date(),
     };
     memRows.push(row);
@@ -198,13 +205,13 @@ export async function insertComunicazione(
       sede_id, casella_id, message_id, uid, canale, direzione,
       mittente, mittente_nome, destinatari, oggetto, testo, allegati,
       cliente_id, commessa_id, match_confidenza, match_motivo, stato,
-      received_at
+      tars_analizzata, received_at
     ) VALUES (
       ${c.sedeId}, ${c.casellaId}, ${c.messageId}, ${c.uid ?? null}, ${c.canale}, ${c.direzione},
       ${c.mittente}, ${c.mittenteNome}, ${kvSql.json(c.destinatari as any)},
       ${c.oggetto}, ${testo}, ${kvSql.json(c.allegati as any)},
       ${c.clienteId}, ${c.commessaId}, ${c.matchConfidenza}, ${c.matchMotivo},
-      ${c.stato}, ${c.receivedAt}
+      ${c.stato}, ${c.tarsAnalizzata ?? false}, ${c.receivedAt}
     )
     ON CONFLICT (casella_id, message_id) DO NOTHING
     RETURNING *`;

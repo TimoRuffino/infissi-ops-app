@@ -29,9 +29,22 @@ import { getCommesseStore } from "../routers/commesse";
 import { getClientiStore } from "../routers/clienti";
 import { programmaSmistamento } from "./smistamento";
 
-const PRIMA_SYNC_MAX = 50;
+// Prima sincronizzazione e importazione storico: per DATA, non per numero.
+// Sei mesi di posta, con un tetto duro a protezione del server (e nostra).
+const PRIMA_SYNC_GIORNI = 180;
+const MAX_BACKFILL = 1000;
 const MAX_PER_SYNC = 200;
 const MAX_ALLEGATO_BYTE = 15 * 1024 * 1024;
+// La posta più vecchia di così entra col match ma NON in coda di analisi
+// Tars: la triage è per il flusso in arrivo, non per l'archivio.
+const PRE_ANALIZZATA_GIORNI = 3;
+
+function èStorica(receivedAt: Date): boolean {
+  return (
+    Date.now() - receivedAt.getTime() >
+    PRE_ANALIZZATA_GIORNI * 24 * 60 * 60 * 1000
+  );
+}
 
 export type EsitoSync = {
   casellaId: number;
@@ -154,6 +167,84 @@ function messaggioErrore(e: any): string {
   return raw.slice(0, 300);
 }
 
+// Un messaggio grezzo → una riga in comunicazioni. Condiviso tra la
+// sincronizzazione incrementale e l'importazione dello storico. Ritorna
+// true se inserita, false se già presente.
+async function elaboraMessaggio(params: {
+  casella: Casella;
+  uid: number;
+  source: Buffer;
+  internalDate: Date | null;
+  clienti: any[];
+  commesse: any[];
+  durevole: boolean;
+}): Promise<boolean> {
+  const { casella, uid, clienti, commesse, durevole } = params;
+  const parsed: any = await simpleParser(params.source);
+  const mittente = parsed.from?.value?.[0]?.address?.toLowerCase() ?? "";
+  const oggetto = (parsed.subject ?? "").toString();
+  const testo = testoDaMail(parsed);
+  const messageId = parsed.messageId ?? `uid-${casella.id}-${uid}`;
+
+  const allegati: Allegato[] = [];
+  for (const a of parsed.attachments ?? []) {
+    // Gli inline (firme, loghi) non sono allegati per l'utente.
+    if (a.contentDisposition === "inline" && !a.filename) continue;
+    const nome = a.filename ?? "allegato";
+    const record: Allegato = {
+      nome,
+      mimeType: a.contentType ?? "application/octet-stream",
+      size: a.size ?? a.content?.length ?? 0,
+      storageKey: null,
+    };
+    if (durevole && record.size > 0 && record.size <= MAX_ALLEGATO_BYTE) {
+      try {
+        const { storageKey } = await putFile(
+          "comunicazioni",
+          casella.id,
+          uid,
+          nome,
+          a.content,
+          record.mimeType
+        );
+        record.storageKey = storageKey;
+      } catch (e: any) {
+        // Allegato non salvato ≠ mail persa: si registra comunque, con
+        // l'elenco. Lo storage si sistema a parte.
+        console.warn(`[imap] allegato non salvato (${nome}):`, e?.message ?? e);
+      }
+    }
+    allegati.push(record);
+  }
+
+  const match = matchComunicazione({ mittente, oggetto, testo, clienti, commesse });
+  const receivedAt =
+    parsed.date ?? params.internalDate ?? new Date();
+
+  const inserita = await insertComunicazione({
+    sedeId: casella.sedeId,
+    casellaId: casella.id,
+    messageId,
+    uid,
+    canale: "email",
+    direzione: "in",
+    mittente,
+    mittenteNome: parsed.from?.value?.[0]?.name ?? null,
+    destinatari: [...indirizzi(parsed.to), ...indirizzi(parsed.cc)],
+    oggetto,
+    testo,
+    allegati,
+    clienteId: match.clienteId,
+    commessaId: match.commessaId,
+    matchConfidenza: match.confidenza,
+    matchMotivo: match.motivo,
+    stato: "nuova",
+    tarsAnalizzata: èStorica(receivedAt),
+    receivedAt,
+  });
+  return inserita != null;
+}
+
 /** Sincronizza una casella. Non lancia: l'esito porta l'errore con sé. */
 export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
   const esito: EsitoSync = {
@@ -184,14 +275,23 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
     const dopo =
       ripartiDaCapo || casella.ultimoUid == null ? null : casella.ultimoUid;
 
-    let range: string;
+    let range: string | number[];
+    let limite: number;
     if (dopo != null) {
       range = `${dopo + 1}:*`;
+      limite = MAX_PER_SYNC;
     } else {
-      // Prima sincronizzazione: solo la coda recente, non tutto l'archivio.
-      const uidNext = box.uidNext ?? 1;
-      const da = Math.max(1, uidNext - PRIMA_SYNC_MAX);
-      range = `${da}:*`;
+      // Prima sincronizzazione: per DATA — gli ultimi PRIMA_SYNC_GIORNI di
+      // posta, col tetto MAX_BACKFILL. Non tutto l'archivio.
+      const since = new Date(Date.now() - PRIMA_SYNC_GIORNI * 86_400_000);
+      const uids = await client.search({ since }, { uid: true });
+      range = (Array.isArray(uids) ? uids : [])
+        .sort((a, b) => a - b)
+        .slice(-MAX_BACKFILL);
+      limite = MAX_BACKFILL;
+      console.log(
+        `[imap] ${casella.indirizzo}: prima sincronizzazione, ${range.length} messaggi negli ultimi ${PRIMA_SYNC_GIORNI} giorni`
+      );
     }
 
     // Anagrafiche in memoria una volta sola: il match gira per ogni mail.
@@ -203,12 +303,17 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
     let maxUid = dopo ?? 0;
     let visti = 0;
 
+    // Con zero UID trovati non si chiama fetch (un set vuoto non è un
+    // range valido): il giro sotto semplicemente non parte.
+    const daLeggere: Array<string | number[]> =
+      Array.isArray(range) && range.length === 0 ? [] : [range];
+    for (const r of daLeggere)
     for await (const msg of client.fetch(
-      range,
+      r as any,
       { uid: true, source: true, envelope: true, internalDate: true },
       { uid: true }
     )) {
-      if (visti >= MAX_PER_SYNC) break;
+      if (visti >= limite) break;
       visti++;
       const uid = msg.uid ?? 0;
       if (uid > maxUid) maxUid = uid;
@@ -224,79 +329,15 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
       }
 
       try {
-        const parsed: any = await simpleParser(msg.source);
-        const mittente =
-          parsed.from?.value?.[0]?.address?.toLowerCase() ?? "";
-        const oggetto = (parsed.subject ?? "").toString();
-        const testo = testoDaMail(parsed);
-        const messageId =
-          parsed.messageId ?? `uid-${casella.id}-${uid}`;
-
-        const allegati: Allegato[] = [];
-        for (const a of parsed.attachments ?? []) {
-          // Gli inline (firme, loghi) non sono allegati per l'utente.
-          if (a.contentDisposition === "inline" && !a.filename) continue;
-          const nome = a.filename ?? "allegato";
-          const record: Allegato = {
-            nome,
-            mimeType: a.contentType ?? "application/octet-stream",
-            size: a.size ?? a.content?.length ?? 0,
-            storageKey: null,
-          };
-          if (durevole && record.size > 0 && record.size <= MAX_ALLEGATO_BYTE) {
-            try {
-              const { storageKey } = await putFile(
-                "comunicazioni",
-                casella.id,
-                uid,
-                nome,
-                a.content,
-                record.mimeType
-              );
-              record.storageKey = storageKey;
-            } catch (e: any) {
-              // Allegato non salvato ≠ mail persa: si registra comunque,
-              // con l'elenco. Lo storage si sistema a parte.
-              console.warn(
-                `[imap] allegato non salvato (${nome}):`,
-                e?.message ?? e
-              );
-            }
-          }
-          allegati.push(record);
-        }
-
-        const match = matchComunicazione({
-          mittente,
-          oggetto,
-          testo,
+        const inserita = await elaboraMessaggio({
+          casella,
+          uid,
+          source: msg.source,
+          internalDate: msg.internalDate ? new Date(msg.internalDate as any) : null,
           clienti,
           commesse,
+          durevole,
         });
-
-        const inserita = await insertComunicazione({
-          sedeId,
-          casellaId: casella.id,
-          messageId,
-          uid,
-          canale: "email",
-          direzione: "in",
-          mittente,
-          mittenteNome: parsed.from?.value?.[0]?.name ?? null,
-          destinatari: [...indirizzi(parsed.to), ...indirizzi(parsed.cc)],
-          oggetto,
-          testo,
-          allegati,
-          clienteId: match.clienteId,
-          commessaId: match.commessaId,
-          matchConfidenza: match.confidenza,
-          matchMotivo: match.motivo,
-          stato: "nuova",
-          receivedAt:
-            parsed.date ??
-            (msg.internalDate ? new Date(msg.internalDate) : new Date()),
-        });
-
         if (inserita) esito.importate++;
         else esito.saltate++;
       } catch (e: any) {
@@ -337,6 +378,88 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
     });
   }
 
+  return esito;
+}
+
+/**
+ * Importa lo storico di una casella GIÀ sincronizzata: il segnalibro UID è
+ * avanti e da solo non torna indietro, quindi qui si cerca per data
+ * (ultimi PRIMA_SYNC_GIORNI, tetto MAX_BACKFILL) e si lascia che l'insert
+ * idempotente scarti ciò che c'è già. Le mail vecchie entrano col match ma
+ * fuori dalla coda di analisi Tars. Il segnalibro non viene toccato.
+ */
+export async function importaStorico(casella: Casella): Promise<EsitoSync> {
+  const esito: EsitoSync = {
+    casellaId: casella.id,
+    nome: casella.nome,
+    importate: 0,
+    saltate: 0,
+    errore: null,
+  };
+  const client = new ImapFlow(opzioniConnessione(casella));
+  try {
+    await client.connect();
+    await client.mailboxOpen(casella.cartella || "INBOX", { readOnly: true });
+
+    const since = new Date(Date.now() - PRIMA_SYNC_GIORNI * 86_400_000);
+    const uids = await client.search({ since }, { uid: true });
+    const lista = (Array.isArray(uids) ? uids : [])
+      .sort((a, b) => a - b)
+      .slice(-MAX_BACKFILL);
+    console.log(
+      `[imap] ${casella.indirizzo}: importazione storico, ${lista.length} messaggi candidati`
+    );
+
+    const sedeId = casella.sedeId;
+    const clienti = getClientiStore().filter((c: any) => c.sedeId === sedeId);
+    const commesse = getCommesseStore().filter((c: any) => c.sedeId === sedeId);
+    const durevole = storageDurevole();
+
+    if (lista.length > 0) {
+      for await (const msg of client.fetch(
+        lista,
+        { uid: true, source: true, internalDate: true },
+        { uid: true }
+      )) {
+        const uid = msg.uid ?? 0;
+        if (!msg.source) {
+          esito.saltate++;
+          continue;
+        }
+        try {
+          const inserita = await elaboraMessaggio({
+            casella,
+            uid,
+            source: msg.source,
+            internalDate: msg.internalDate
+              ? new Date(msg.internalDate as any)
+              : null,
+            clienti,
+            commesse,
+            durevole,
+          });
+          if (inserita) esito.importate++;
+          else esito.saltate++;
+        } catch (e: any) {
+          console.warn(
+            `[imap] storico: messaggio uid ${uid} non elaborato:`,
+            e?.message ?? e
+          );
+          esito.saltate++;
+        }
+      }
+    }
+  } catch (e: any) {
+    esito.errore = messaggioErrore(e);
+  } finally {
+    await client.logout().catch(() => {
+      try {
+        client.close();
+      } catch {
+        /* la connessione era già andata */
+      }
+    });
+  }
   return esito;
 }
 
