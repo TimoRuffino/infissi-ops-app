@@ -22,12 +22,39 @@ import {
   AlertCircle,
   Check,
   Copy,
+  Loader2,
   MessageCircle,
   Plus,
+  QrCode,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+// Carica l'SDK Facebook una volta sola. Serve solo quando la direzione
+// apre questa card: non lo si impone a ogni pagina del gestionale.
+function useFacebookSdk(appId: string | undefined) {
+  const [pronto, setPronto] = useState(false);
+  useEffect(() => {
+    if (!appId) return;
+    const w = window as any;
+    if (w.FB) {
+      setPronto(true);
+      return;
+    }
+    w.fbAsyncInit = function () {
+      w.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: "v21.0" });
+      setPronto(true);
+    };
+    const s = document.createElement("script");
+    s.src = "https://connect.facebook.net/en_US/sdk.js";
+    s.async = true;
+    s.defer = true;
+    s.crossOrigin = "anonymous";
+    document.body.appendChild(s);
+  }, [appId]);
+  return pronto;
+}
 
 export default function WhatsAppCard() {
   const utils = trpc.useUtils();
@@ -35,6 +62,7 @@ export default function WhatsAppCard() {
   const webhook = trpc.mail.whatsapp.webhookUrl.useQuery(undefined, {
     retry: false,
   });
+  const app = trpc.mail.whatsapp.app.useQuery(undefined, { retry: false });
 
   const [aperto, setAperto] = useState(false);
   const [daEliminare, setDaEliminare] = useState<any>(null);
@@ -71,6 +99,21 @@ export default function WhatsAppCard() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const setApp = trpc.mail.whatsapp.setApp.useMutation({
+    onSuccess: () => {
+      toast.success("Configurazione dell'app aggiornata");
+      utils.mail.whatsapp.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const syncStorico = trpc.mail.whatsapp.syncStorico.useMutation({
+    onSuccess: (r: any) => {
+      if (r.ok) toast.success("Storico richiesto a Meta: arriverà via webhook");
+      else toast.error(r.errore);
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const remove = trpc.mail.whatsapp.delete.useMutation({
     onSuccess: () => {
       toast.success("Numero rimosso");
@@ -79,6 +122,78 @@ export default function WhatsAppCard() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  // ── Embedded Signup (coexistence) ────────────────────────────────────
+  const sdkPronto = useFacebookSdk(app.data?.appId || undefined);
+  // La WABA arriva dal postMessage del popup, il code dalla callback:
+  // due canali distinti, si aspettano a vicenda.
+  const wabaRef = useRef<string | null>(null);
+  const [onboardingInCorso, setOnboardingInCorso] = useState(false);
+
+  const onboarding = trpc.mail.whatsapp.onboarding.useMutation({
+    onSuccess: () => {
+      toast.success(
+        "Numero collegato. Sto sincronizzando contatti e storico (fino a 6 mesi)."
+      );
+      setOnboardingInCorso(false);
+      invalidate();
+    },
+    onError: (e) => {
+      toast.error(e.message);
+      setOnboardingInCorso(false);
+    },
+  });
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!String(event.origin).endsWith("facebook.com")) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type !== "WA_EMBEDDED_SIGNUP") return;
+        if (data?.data?.waba_id) wabaRef.current = String(data.data.waba_id);
+        if (data?.event === "CANCEL" || data?.event === "ERROR") {
+          setOnboardingInCorso(false);
+        }
+      } catch {
+        /* messaggi non JSON dal popup: non ci riguardano */
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  const avviaSignup = () => {
+    const w = window as any;
+    if (!w.FB || !app.data?.configId) return;
+    setOnboardingInCorso(true);
+    wabaRef.current = null;
+    w.FB.login(
+      (response: any) => {
+        const code = response?.authResponse?.code;
+        if (!code) {
+          setOnboardingInCorso(false);
+          return;
+        }
+        // Il postMessage con la WABA può arrivare un istante dopo.
+        setTimeout(() => {
+          if (!wabaRef.current) {
+            toast.error(
+              "Onboarding non completato: Meta non ha restituito l'account WhatsApp Business."
+            );
+            setOnboardingInCorso(false);
+            return;
+          }
+          onboarding.mutate({ code, wabaId: wabaRef.current });
+        }, 500);
+      },
+      {
+        config_id: app.data.configId,
+        response_type: "code",
+        override_default_response_type: true,
+        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding" },
+      }
+    );
+  };
 
   // Query direzione-only: se fallisce, la card non riguarda l'utente.
   if (lista.isError) return null;
@@ -118,10 +233,31 @@ export default function WhatsAppCard() {
               </Badge>
             )}
           </CardTitle>
-          <Button size="sm" disabled={!chiaveOk} onClick={() => setAperto(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Collega un numero
-          </Button>
+          <div className="flex gap-2">
+            {app.data?.pronta && (
+              <Button
+                size="sm"
+                disabled={!sdkPronto || onboardingInCorso || onboarding.isPending}
+                onClick={avviaSignup}
+              >
+                {onboardingInCorso || onboarding.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <QrCode className="h-3.5 w-3.5 mr-1" />
+                )}
+                Collega col QR
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={app.data?.pronta ? "outline" : "default"}
+              disabled={!chiaveOk}
+              onClick={() => setAperto(true)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              A mano
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -156,7 +292,76 @@ export default function WhatsAppCard() {
               )}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Sottoscrivi i campi <code>messages</code>, <code>history</code>,{" "}
+            <code>smb_app_state_sync</code> e <code>smb_message_echoes</code>:
+            gli ultimi tre servono per lo storico e per vedere anche i
+            messaggi scritti dal telefono.
+          </p>
         </div>
+
+        {/* App Meta — serve per il collegamento col QR (coexistence) */}
+        <details className="rounded-lg border p-3" open={!app.data?.pronta}>
+          <summary className="text-sm font-medium cursor-pointer select-none">
+            App Meta {app.data?.pronta ? "✓" : "— da configurare"}
+          </summary>
+          <div className="space-y-3 mt-3">
+            <p className="text-xs text-muted-foreground">
+              Serve solo per il collegamento col QR, che mantiene il numero
+              attivo sul telefono con le sue chat. Meta lo concede a chi è
+              registrato come <strong>Tech Provider</strong>: senza quello
+              status il popup non si apre, e resta la configurazione a mano
+              (che però sposta il numero e non conserva le conversazioni).
+            </p>
+            <div className="flex gap-2">
+              <div className="space-y-1.5 flex-1">
+                <Label className="text-xs">App ID</Label>
+                <Input
+                  defaultValue={app.data?.appId ?? ""}
+                  onBlur={(e) =>
+                    setApp.mutate({ appId: e.target.value.trim() })
+                  }
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <Label className="text-xs">Configuration ID</Label>
+                <Input
+                  defaultValue={app.data?.configId ?? ""}
+                  onBlur={(e) =>
+                    setApp.mutate({ configId: e.target.value.trim() })
+                  }
+                  className="font-mono text-xs"
+                  placeholder="Login for Business → Configurazioni"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                App secret {app.data?.appSecretConfigurato ? "(già impostato)" : ""}
+              </Label>
+              <Input
+                type="password"
+                placeholder={
+                  app.data?.appSecretConfigurato
+                    ? "Lascia vuoto per non cambiarlo"
+                    : "Impostazioni app → Di base"
+                }
+                autoComplete="new-password"
+                onBlur={(e) => {
+                  if (e.target.value) {
+                    setApp.mutate({ appSecret: e.target.value });
+                    e.target.value = "";
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vale per tutti i numeri: verifica la firma dei webhook e
+                completa il collegamento col QR.
+              </p>
+            </div>
+          </div>
+        </details>
 
         {rows.map((c: any) => {
           const mancanti = [
@@ -252,11 +457,36 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
+              {/* Coexistence: lo storico va chiesto entro 24 ore. */}
+              {c.onboardingAt && !c.storicoSincronizzato && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-amber-600 dark:text-amber-500">
+                    Storico non ancora sincronizzato — Meta lo consente solo
+                    entro 24 ore dal collegamento.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={syncStorico.isPending}
+                    onClick={() => syncStorico.mutate({ id: c.id })}
+                  >
+                    Riprova
+                  </Button>
+                </div>
+              )}
+              {c.storicoSincronizzato && (
+                <p className="text-xs text-muted-foreground">
+                  Storico richiesto il{" "}
+                  {new Date(c.storicoSincronizzato).toLocaleString("it-IT")}
+                </p>
+              )}
+
               {c.ultimoMessaggio && (
                 <p className="text-xs text-muted-foreground">
                   Ultimo messaggio:{" "}
                   {new Date(c.ultimoMessaggio).toLocaleString("it-IT")} ·{" "}
-                  {c.messaggiRicevuti} ricevuti in totale
+                  {c.messaggiRicevuti} in totale
                 </p>
               )}
               {c.ultimoErrore && (

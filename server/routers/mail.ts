@@ -26,11 +26,16 @@ import {
   testaCasella,
 } from "../tars/imap";
 import {
+  appPubblica,
+  completaOnboarding,
   configPubblica,
   configWhatsApp,
+  getAppWhatsApp,
   newConfigWhatsAppId,
   proteggiSegreto,
+  saveAppWhatsApp,
   saveConfigWhatsApp,
+  sincronizzaStorico,
   type ConfigWhatsApp,
 } from "../tars/whatsapp";
 import {
@@ -249,6 +254,74 @@ export const mailRouter = router({
         .map(configPubblica);
     }),
 
+    // Configurazione dell'app Meta: una sola, vale per tutti i numeri.
+    app: protectedProcedure.query(({ ctx }) => {
+      requireDirezione(ctx.user);
+      return appPubblica();
+    }),
+
+    setApp: protectedProcedure
+      .input(
+        z.object({
+          appId: z.string().max(60).optional(),
+          configId: z.string().max(60).optional(),
+          appSecret: z.string().max(200).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const a = getAppWhatsApp();
+        if (input.appSecret) {
+          assertChiaveCifratura();
+          a.appSecretCifrato = proteggiSegreto(input.appSecret);
+        }
+        if (input.appId !== undefined) a.appId = input.appId.trim();
+        if (input.configId !== undefined) a.configId = input.configId.trim();
+        a.updatedAt = new Date();
+        saveAppWhatsApp();
+        return appPubblica();
+      }),
+
+    // Chiusura dell'Embedded Signup: dal code si ricava il token, si
+    // sottoscrive la WABA e la configurazione si compila da sola.
+    onboarding: protectedProcedure
+      .input(
+        z.object({
+          code: z.string().min(10).max(2000),
+          wabaId: z.string().min(3).max(60),
+          nome: z.string().max(80).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        assertChiaveCifratura();
+        try {
+          const config = await completaOnboarding({
+            code: input.code,
+            wabaId: input.wabaId,
+            sedeId: ctx.sedeId ?? 1,
+            nome: input.nome,
+          });
+          return configPubblica(config);
+        } catch (e: any) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: e?.message ?? "Onboarding non riuscito.",
+          });
+        }
+      }),
+
+    // Ritenta il sync dello storico: utile solo entro 24 ore dal
+    // collegamento, dopo Meta impone di rifare l'onboarding.
+    syncStorico: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = configWhatsApp.find((x) => x.id === input.id);
+        assertSedeScope(c ?? null, ctx.sedeId);
+        return sincronizzaStorico(c!);
+      }),
+
     // L'URL da incollare in Meta: si costruisce dall'host della richiesta,
     // così è giusto sia in locale sia su Railway senza configurazione.
     webhookUrl: protectedProcedure.query(({ ctx }) => {
@@ -308,6 +381,8 @@ export const mailRouter = router({
           ultimoMessaggio: null,
           messaggiRicevuti: 0,
           ultimoErrore: null,
+          onboardingAt: null,
+          storicoSincronizzato: null,
           createdAt: now,
           updatedAt: now,
         };
@@ -360,7 +435,11 @@ export const mailRouter = router({
             if (!c!.phoneNumberId) mancanti.push("Phone number ID");
             if (!c!.wabaId) mancanti.push("WhatsApp Business Account ID");
             if (!c!.tokenCifrato) mancanti.push("token di accesso");
-            if (!c!.appSecretCifrato) mancanti.push("app secret");
+            // L'app secret può essere quello del numero o quello dell'app
+            // (Embedded Signup): basta che ce ne sia uno.
+            if (!c!.appSecretCifrato && !getAppWhatsApp().appSecretCifrato) {
+              mancanti.push("app secret");
+            }
             if (mancanti.length > 0) {
               throw new TRPCError({
                 code: "PRECONDITION_FAILED",

@@ -55,6 +55,10 @@ export type ConfigWhatsApp = {
   ultimoMessaggio: Date | null;
   messaggiRicevuti: number;
   ultimoErrore: string | null;
+  // Coexistence: quando l'onboarding è avvenuto e se lo storico è stato
+  // richiesto. Meta dà 24 ore per chiederlo, poi il numero va rifatto.
+  onboardingAt: Date | null;
+  storicoSincronizzato: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -64,8 +68,62 @@ const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
   nextId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
   for (const c of items) {
     if (c.messaggiRicevuti === undefined) c.messaggiRicevuti = 0;
+    if (c.storicoSincronizzato === undefined) c.storicoSincronizzato = null;
+    if (c.onboardingAt === undefined) c.onboardingAt = null;
   }
 });
+
+// ── Configurazione a livello di app (una sola, non per sede) ────────────────
+// L'app Meta è una: id, configuration id del Login for Business e app secret
+// valgono per tutti i numeri. L'app secret sta qui perché serve a due cose —
+// scambiare il code dell'Embedded Signup e verificare la firma dei webhook.
+
+export type AppWhatsApp = {
+  id: 1;
+  appId: string;
+  // Configuration ID del Facebook Login for Business, quello che porta al
+  // flusso di coexistence (scansione del QR dall'app del telefono).
+  configId: string;
+  appSecretCifrato: string;
+  updatedAt: Date;
+};
+
+const _appStore = persistedStore<AppWhatsApp>("whatsapp_app", (items, meta) => {
+  if (items.length === 0 && meta.firstBoot) {
+    items.push({
+      id: 1,
+      appId: "",
+      configId: "",
+      appSecretCifrato: "",
+      updatedAt: new Date(),
+    });
+  }
+});
+
+export function getAppWhatsApp(): AppWhatsApp {
+  if (_appStore.items.length === 0) {
+    _appStore.items.push({
+      id: 1,
+      appId: "",
+      configId: "",
+      appSecretCifrato: "",
+      updatedAt: new Date(),
+    });
+  }
+  return _appStore.items[0];
+}
+export const saveAppWhatsApp = () => _appStore.save();
+
+/** Vista sicura: l'app secret non esce mai. */
+export function appPubblica() {
+  const a = getAppWhatsApp();
+  return {
+    appId: a.appId,
+    configId: a.configId,
+    appSecretConfigurato: !!a.appSecretCifrato,
+    pronta: !!a.appId && !!a.configId && !!a.appSecretCifrato,
+  };
+}
 
 export const configWhatsApp = _store.items;
 export const saveConfigWhatsApp = () => _store.save();
@@ -81,8 +139,24 @@ export function configPubblica(c: ConfigWhatsApp) {
   return {
     ...rest,
     tokenConfigurato: !!tokenCifrato,
-    appSecretConfigurato: !!appSecretCifrato,
+    // L'app secret può stare sul numero (configurazione a mano) o a livello
+    // di app (Embedded Signup): per la UI conta che ce ne sia uno.
+    appSecretConfigurato: !!appSecretCifrato || !!getAppWhatsApp().appSecretCifrato,
   };
+}
+
+/**
+ * L'app secret da usare per un numero: quello specifico se c'è, altrimenti
+ * quello dell'app. Con l'Embedded Signup i numeri non ne hanno uno proprio.
+ */
+export function appSecretPer(c: ConfigWhatsApp): string | null {
+  const cifrato = c.appSecretCifrato || getAppWhatsApp().appSecretCifrato;
+  if (!cifrato) return null;
+  try {
+    return decryptSecret(cifrato);
+  } catch {
+    return null;
+  }
 }
 
 // ── Verifica della firma ────────────────────────────────────────────────────
@@ -116,6 +190,172 @@ export function configPerPhoneNumberId(id: string): ConfigWhatsApp | undefined {
 /** La configurazione che risponde a un verify token (handshake GET). */
 export function configPerVerifyToken(token: string): ConfigWhatsApp | undefined {
   return configWhatsApp.find((c) => c.verifyToken === token);
+}
+
+// ── Embedded Signup (coexistence) ───────────────────────────────────────────
+// Il flusso: il titolare preme «Collega», Meta apre il popup, lui scansiona
+// il QR dall'app WhatsApp Business del telefono, e alla fine il browser ci
+// restituisce un `code`. Qui lo scambiamo per un token, sottoscriviamo l'app
+// alla WABA e ci facciamo dare i numeri: la configurazione si compila da
+// sola, senza copiare id a mano.
+
+/** code → business access token (di sistema, non scade). */
+async function scambiaCode(code: string): Promise<string> {
+  const app = getAppWhatsApp();
+  if (!app.appId || !app.appSecretCifrato) {
+    throw new Error(
+      "Configurazione dell'app Meta incompleta: servono App ID e App secret."
+    );
+  }
+  const params = new URLSearchParams({
+    client_id: app.appId,
+    client_secret: decryptSecret(app.appSecretCifrato),
+    code,
+  });
+  const res = await fetch(`${GRAPH}/oauth/access_token?${params}`);
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.access_token) {
+    throw new Error(
+      `Scambio del codice fallito: ${body?.error?.message ?? res.status}`
+    );
+  }
+  return body.access_token as string;
+}
+
+/** Senza questa sottoscrizione i webhook della WABA non arrivano. */
+async function sottoscriviApp(wabaId: string, token: string): Promise<void> {
+  const res = await fetch(`${GRAPH}/${wabaId}/subscribed_apps`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok || body?.success === false) {
+    throw new Error(
+      `Sottoscrizione della WABA fallita: ${body?.error?.message ?? res.status}`
+    );
+  }
+}
+
+async function numeriDellaWaba(
+  wabaId: string,
+  token: string
+): Promise<Array<{ id: string; display_phone_number?: string; verified_name?: string }>> {
+  const res = await fetch(`${GRAPH}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Lettura dei numeri fallita: ${body?.error?.message ?? res.status}`
+    );
+  }
+  return body?.data ?? [];
+}
+
+/**
+ * Sincronizza contatti e storico dopo l'onboarding.
+ *
+ * Meta concede 24 ore: oltre quella finestra il numero va offboardato e
+ * rifatto. Per questo parte da sola subito dopo il collegamento, e non da
+ * un bottone che qualcuno potrebbe dimenticare di premere.
+ *
+ * L'ordine conta: prima i contatti, poi i messaggi.
+ */
+export async function sincronizzaStorico(
+  config: ConfigWhatsApp
+): Promise<{ ok: boolean; errore: string | null }> {
+  if (!config.tokenCifrato || !config.phoneNumberId) {
+    return { ok: false, errore: "Numero non ancora configurato." };
+  }
+  const token = decryptSecret(config.tokenCifrato);
+  const chiedi = async (sync_type: string) => {
+    const res = await fetch(`${GRAPH}/${config.phoneNumberId}/smb_app_data`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ messaging_product: "whatsapp", sync_type }),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+    }
+  };
+  try {
+    await chiedi("smb_app_state_sync");
+    await chiedi("history");
+    config.storicoSincronizzato = new Date();
+    config.ultimoErrore = null;
+    config.updatedAt = new Date();
+    saveConfigWhatsApp();
+    return { ok: true, errore: null };
+  } catch (e: any) {
+    const errore = `Sincronizzazione storico fallita: ${e?.message ?? e}`;
+    config.ultimoErrore = errore;
+    config.updatedAt = new Date();
+    saveConfigWhatsApp();
+    return { ok: false, errore };
+  }
+}
+
+/**
+ * Completa l'onboarding a partire dal code restituito dal popup.
+ * Crea (o aggiorna) la configurazione del numero e avvia il sync storico.
+ */
+export async function completaOnboarding(params: {
+  code: string;
+  wabaId: string;
+  sedeId: number;
+  nome?: string;
+}): Promise<ConfigWhatsApp> {
+  const token = await scambiaCode(params.code);
+  await sottoscriviApp(params.wabaId, token);
+  const numeri = await numeriDellaWaba(params.wabaId, token);
+  if (numeri.length === 0) {
+    throw new Error("Nessun numero trovato su questo account WhatsApp Business.");
+  }
+  // Con la coexistence il numero è uno: il primo è quello.
+  const numero = numeri[0];
+
+  let config = configWhatsApp.find((c) => c.phoneNumberId === numero.id);
+  const now = new Date();
+  if (!config) {
+    config = {
+      id: newConfigWhatsAppId(),
+      sedeId: params.sedeId,
+      nome: params.nome?.trim() || numero.verified_name || "Numero aziendale",
+      numero: numero.display_phone_number ?? "",
+      phoneNumberId: numero.id,
+      wabaId: params.wabaId,
+      tokenCifrato: encryptSecret(token),
+      // La firma dei webhook si verifica con l'app secret a livello di app.
+      appSecretCifrato: "",
+      verifyToken: "",
+      attiva: true,
+      ultimoMessaggio: null,
+      messaggiRicevuti: 0,
+      ultimoErrore: null,
+      onboardingAt: now,
+      storicoSincronizzato: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    configWhatsApp.push(config);
+  } else {
+    config.wabaId = params.wabaId;
+    config.tokenCifrato = encryptSecret(token);
+    config.numero = numero.display_phone_number ?? config.numero;
+    config.attiva = true;
+    config.onboardingAt = now;
+    config.ultimoErrore = null;
+    config.updatedAt = now;
+  }
+  saveConfigWhatsApp();
+
+  // Le 24 ore partono adesso: non si aspetta un'azione umana.
+  void sincronizzaStorico(config).catch(() => {});
+  return config;
 }
 
 // ── Media (download on-demand) ──────────────────────────────────────────────
@@ -156,6 +396,10 @@ export async function scaricaMedia(
 type MessaggioWa = {
   id: string;
   from: string;
+  // Presenti sugli echo (messaggi in uscita): lì `from` è il nostro numero
+  // e la controparte va cercata qui.
+  to?: string;
+  recipient_id?: string;
   timestamp?: string;
   type: string;
   text?: { body?: string };
@@ -216,15 +460,91 @@ function allegatiDaMessaggio(m: MessaggioWa): Allegato[] {
   ];
 }
 
+// Un messaggio dal webhook, qualunque sia il campo che l'ha portato.
+type Origine = {
+  // "in"  — scritto dal cliente
+  // "out" — scritto dall'ufficio dal telefono (echo della coexistence)
+  direzione: "in" | "out";
+  // Lo storico non è novità: entra archiviato e fuori dalla coda di Tars.
+  storico: boolean;
+};
+
+async function registraMessaggio(
+  m: MessaggioWa,
+  config: ConfigWhatsApp,
+  profili: Record<string, string>,
+  origine: Origine,
+  ctx: { clienti: any[]; commesse: any[] }
+): Promise<boolean> {
+  // Su un echo `from` è il nostro numero e il cliente sta in `to`: per
+  // agganciare la conversazione serve sempre il numero del CLIENTE.
+  const controparte =
+    origine.direzione === "out" ? (m.to ?? m.recipient_id ?? "") : m.from;
+  const numero = normalizzaTelefono(controparte) ?? String(controparte ?? "");
+  const testo = testoDaMessaggio(m);
+  const allegati = allegatiDaMessaggio(m);
+  const match = matchComunicazione({
+    mittente: numero,
+    oggetto: "",
+    testo,
+    clienti: ctx.clienti,
+    commesse: ctx.commesse,
+    canale: "whatsapp",
+  });
+
+  // Fuori dalla coda dell'agente: lo storico importato, gli echo (li ha
+  // scritti l'ufficio, non c'è nulla da proporre) e le cortesie brevi su
+  // conversazioni già agganciate.
+  const triviale =
+    match.commessaId != null &&
+    allegati.length === 0 &&
+    testo.trim().length < SOGLIA_TRIVIALE;
+  const fuoriCoda = origine.storico || origine.direzione === "out" || triviale;
+
+  const nuova: NuovaComunicazione = {
+    sedeId: config.sedeId,
+    casellaId: config.id,
+    messageId: String(m.id),
+    uid: null,
+    canale: "whatsapp",
+    direzione: origine.direzione,
+    mittente: numero,
+    mittenteNome: profili[String(controparte)] || null,
+    destinatari: [config.numero],
+    oggetto: "",
+    testo,
+    allegati,
+    clienteId: match.clienteId,
+    commessaId: match.commessaId,
+    matchConfidenza: match.confidenza,
+    matchMotivo: match.motivo,
+    // Lo storico nasce già letto: non deve gonfiare il contatore delle
+    // novità con conversazioni di sei mesi fa.
+    stato: origine.storico ? "vista" : "nuova",
+    tarsAnalizzata: fuoriCoda,
+    receivedAt: m.timestamp ? new Date(Number(m.timestamp) * 1000) : new Date(),
+  };
+
+  const inserita = await insertComunicazione(nuova);
+  return inserita != null;
+}
+
 /**
  * Elabora il payload di un webhook già verificato. Ritorna quanti messaggi
  * sono stati registrati. Non lancia sui singoli messaggi malformati: un
  * messaggio strano non deve far fallire l'intera consegna, altrimenti Meta
  * riprova all'infinito.
+ *
+ * Con la coexistence arrivano quattro tipi di contenuto:
+ *   messages           — messaggi in arrivo dal cliente
+ *   smb_message_echoes — messaggi scritti dall'ufficio dal telefono
+ *   history            — lo storico sincronizzato dopo l'onboarding
+ *   smb_app_state_sync — i contatti della rubrica (non sono messaggi)
  */
 export async function ingestisciWebhook(payload: any): Promise<number> {
   let registrati = 0;
   const sediDaSmistare = new Set<number>();
+  let daSalvare = false;
 
   for (const entry of payload?.entry ?? []) {
     for (const change of entry?.changes ?? []) {
@@ -238,86 +558,99 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
       // errore — Meta può consegnare eventi di numeri che non seguiamo.
       if (!config) continue;
 
-      // `statuses` sono le ricevute di consegna dei NOSTRI invii: in sola
-      // lettura non ci riguardano.
-      const messaggi: MessaggioWa[] = value?.messages ?? [];
-      if (messaggi.length === 0) continue;
-
       const sedeId = config.sedeId;
-      const clienti = getClientiStore().filter((c: any) => c.sedeId === sedeId);
-      const commesse = getCommesseStore().filter((c: any) => c.sedeId === sedeId);
-      // Il profilo mittente arriva a parte, indicizzato per wa_id.
+      const ctx = {
+        clienti: getClientiStore().filter((c: any) => c.sedeId === sedeId),
+        commesse: getCommesseStore().filter((c: any) => c.sedeId === sedeId),
+      };
+      // Il profilo del contatto arriva a parte, indicizzato per wa_id.
       const profili: Record<string, string> = {};
       for (const c of value?.contacts ?? []) {
         if (c?.wa_id) profili[String(c.wa_id)] = c?.profile?.name ?? "";
       }
 
-      for (const m of messaggi) {
-        try {
-          const numero = normalizzaTelefono(m.from) ?? String(m.from ?? "");
-          const testo = testoDaMessaggio(m);
-          const allegati = allegatiDaMessaggio(m);
-          const match = matchComunicazione({
-            mittente: numero,
-            oggetto: "",
-            testo,
-            clienti,
-            commesse,
-            canale: "whatsapp",
-          });
+      // Ogni lotto: i messaggi e da dove vengono.
+      const lotti: Array<{ messaggi: MessaggioWa[]; origine: Origine }> = [];
 
-          // Un "ok" su una conversazione già agganciata non merita
-          // un'esecuzione dell'agente: entra nello storico e basta.
-          const triviale =
-            match.commessaId != null &&
-            allegati.length === 0 &&
-            testo.trim().length < SOGLIA_TRIVIALE;
-
-          const nuova: NuovaComunicazione = {
-            sedeId,
-            casellaId: config.id,
-            messageId: String(m.id),
-            uid: null,
-            canale: "whatsapp",
-            direzione: "in",
-            mittente: numero,
-            mittenteNome: profili[String(m.from)] || null,
-            destinatari: [config.numero],
-            oggetto: "",
-            testo,
-            allegati,
-            clienteId: match.clienteId,
-            commessaId: match.commessaId,
-            matchConfidenza: match.confidenza,
-            matchMotivo: match.motivo,
-            stato: "nuova",
-            tarsAnalizzata: triviale,
-            receivedAt: m.timestamp
-              ? new Date(Number(m.timestamp) * 1000)
-              : new Date(),
-          };
-
-          const inserita = await insertComunicazione(nuova);
-          if (inserita) {
-            registrati++;
-            if (!triviale) sediDaSmistare.add(sedeId);
-          }
-        } catch (e: any) {
-          console.warn(
-            `[whatsapp] messaggio ${m?.id} non elaborato:`,
-            e?.message ?? e
+      if (Array.isArray(value.messages) && value.messages.length > 0) {
+        lotti.push({
+          messaggi: value.messages,
+          origine: { direzione: "in", storico: false },
+        });
+      }
+      if (
+        Array.isArray(value.message_echoes) &&
+        value.message_echoes.length > 0
+      ) {
+        lotti.push({
+          messaggi: value.message_echoes,
+          origine: { direzione: "out", storico: false },
+        });
+      }
+      // Lo storico arriva a blocchi, ciascuno con i propri messaggi e la
+      // direzione dichiarata per messaggio.
+      for (const blocco of value.history ?? []) {
+        for (const thread of blocco?.threads ?? []) {
+          const messaggi: MessaggioWa[] = thread?.messages ?? [];
+          if (messaggi.length === 0) continue;
+          // In uno stesso thread ci sono entrambe le direzioni: si separa
+          // guardando chi è il mittente rispetto al nostro numero.
+          const nostro = normalizzaTelefono(config.numero);
+          const inArrivo = messaggi.filter(
+            (m) => normalizzaTelefono(m.from) !== nostro
           );
+          const inUscita = messaggi.filter(
+            (m) => normalizzaTelefono(m.from) === nostro
+          );
+          if (inArrivo.length > 0) {
+            lotti.push({
+              messaggi: inArrivo,
+              origine: { direzione: "in", storico: true },
+            });
+          }
+          if (inUscita.length > 0) {
+            lotti.push({
+              messaggi: inUscita,
+              origine: { direzione: "out", storico: true },
+            });
+          }
         }
       }
 
-      config.ultimoMessaggio = new Date();
-      config.messaggiRicevuti = (config.messaggiRicevuti ?? 0) + messaggi.length;
-      config.ultimoErrore = null;
-      config.updatedAt = new Date();
+      let nelLotto = 0;
+      for (const { messaggi, origine } of lotti) {
+        for (const m of messaggi) {
+          try {
+            const ok = await registraMessaggio(m, config, profili, origine, ctx);
+            if (ok) {
+              registrati++;
+              nelLotto++;
+              if (!origine.storico && origine.direzione === "in") {
+                sediDaSmistare.add(sedeId);
+              }
+            }
+          } catch (e: any) {
+            console.warn(
+              `[whatsapp] messaggio ${m?.id} non elaborato:`,
+              e?.message ?? e
+            );
+          }
+        }
+      }
+
+      if (nelLotto > 0) {
+        config.ultimoMessaggio = new Date();
+        config.messaggiRicevuti = (config.messaggiRicevuti ?? 0) + nelLotto;
+        config.ultimoErrore = null;
+        config.updatedAt = new Date();
+        daSalvare = true;
+      }
     }
   }
 
-  if (registrati > 0) saveConfigWhatsApp();
+  if (daSalvare) saveConfigWhatsApp();
+  // Lo smistamento parte solo per i messaggi veri in arrivo: lo storico e
+  // gli echo non generano proposte.
   for (const sedeId of Array.from(sediDaSmistare)) {
     programmaSmistamento(sedeId);
   }

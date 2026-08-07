@@ -92,9 +92,13 @@ async function startServer() {
     "/api/webhook/whatsapp",
     express.raw({ type: "*/*", limit: "10mb" }),
     async (req, res) => {
-      const { verificaFirma, ingestisciWebhook, configWhatsApp } = await import(
-        "../tars/whatsapp"
-      );
+      const {
+        verificaFirma,
+        ingestisciWebhook,
+        configWhatsApp,
+        appSecretPer,
+        getAppWhatsApp,
+      } = await import("../tars/whatsapp");
       const { decryptSecret } = await import("./secretBox");
       const raw: Buffer = Buffer.isBuffer(req.body)
         ? req.body
@@ -103,15 +107,25 @@ async function startServer() {
 
       // Il payload dice a quale numero appartiene, ma leggerlo prima di
       // verificare significherebbe fidarsi: si prova invece la firma con
-      // ogni app secret configurato.
-      const valida = configWhatsApp.some((c) => {
-        if (!c.attiva || !c.appSecretCifrato) return false;
+      // ogni app secret disponibile — quello del numero o, con l'Embedded
+      // Signup, quello a livello di app.
+      const segreti = new Set<string>();
+      for (const c of configWhatsApp) {
+        if (!c.attiva) continue;
+        const s = appSecretPer(c);
+        if (s) segreti.add(s);
+      }
+      const appSecret = getAppWhatsApp().appSecretCifrato;
+      if (appSecret) {
         try {
-          return verificaFirma(raw, firma, decryptSecret(c.appSecretCifrato));
+          segreti.add(decryptSecret(appSecret));
         } catch {
-          return false;
+          /* chiave di cifratura assente o cambiata */
         }
-      });
+      }
+      const valida = Array.from(segreti).some((s) =>
+        verificaFirma(raw, firma, s)
+      );
       if (!valida) {
         console.warn("[whatsapp] webhook con firma non valida, ignorato");
         res.sendStatus(403);

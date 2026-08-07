@@ -329,3 +329,154 @@ describe("configurazione parziale", () => {
     expect(JSON.stringify(accesa)).not.toContain("token-lungo-abbastanza");
   });
 });
+
+// Coexistence: oltre ai messaggi in arrivo, il webhook porta gli echo di
+// ciò che l'ufficio scrive dal telefono e lo storico sincronizzato. Nessuno
+// dei due deve finire in coda a Tars: sugli echo non c'è nulla da proporre,
+// e lo storico è archivio, non novità.
+describe("coexistence: echo e storico", () => {
+  beforeAll(() => {
+    _resetComunicazioniInMemoria();
+    configWhatsApp.length = 0;
+    configWhatsApp.push({
+      id: 7,
+      sedeId: 1,
+      nome: "Aziendale",
+      numero: "+390187872687",
+      phoneNumberId: "PHONE_C",
+      wabaId: "WABA_C",
+      tokenCifrato: "",
+      appSecretCifrato: "",
+      verifyToken: "vt-coex",
+      attiva: true,
+      ultimoMessaggio: null,
+      messaggiRicevuti: 0,
+      ultimoErrore: null,
+      onboardingAt: new Date(),
+      storicoSincronizzato: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  });
+
+  it("un echo è in uscita e si aggancia alla controparte, non a noi", async () => {
+    const n = await ingestisciWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                message_echoes: [
+                  {
+                    id: "wamid.ECHO1",
+                    from: "390187872687",
+                    to: "393401234567",
+                    timestamp: "1786000100",
+                    type: "text",
+                    text: { body: "Le confermo giovedì mattina" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(n).toBe(1);
+
+    const rows = await listComunicazioni({ sedeId: 1, canale: "whatsapp" });
+    const echo = rows.find((r) => r.messageId === "wamid.ECHO1");
+    expect(echo?.direzione).toBe("out");
+    // Il mittente registrato è il CLIENTE: è la conversazione che conta.
+    expect(echo?.mittente).toBe("393401234567");
+    // Mai in coda: l'ha scritto l'ufficio.
+    expect(echo?.tarsAnalizzata).toBe(true);
+  });
+
+  it("lo storico entra già letto, separando le due direzioni", async () => {
+    const n = await ingestisciWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                history: [
+                  {
+                    threads: [
+                      {
+                        messages: [
+                          {
+                            id: "wamid.H1",
+                            from: "393401234567",
+                            timestamp: "1770000000",
+                            type: "text",
+                            text: { body: "Avete ricevuto il bonifico?" },
+                          },
+                          {
+                            id: "wamid.H2",
+                            from: "390187872687",
+                            to: "393401234567",
+                            timestamp: "1770000100",
+                            type: "text",
+                            text: { body: "Sì, tutto a posto" },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(n).toBe(2);
+
+    const rows = await listComunicazioni({ sedeId: 1, canale: "whatsapp" });
+    const inArrivo = rows.find((r) => r.messageId === "wamid.H1");
+    const inUscita = rows.find((r) => r.messageId === "wamid.H2");
+    expect(inArrivo?.direzione).toBe("in");
+    expect(inUscita?.direzione).toBe("out");
+    // Archivio: già visto, e mai in coda di analisi.
+    expect(inArrivo?.stato).toBe("vista");
+    expect(inArrivo?.tarsAnalizzata).toBe(true);
+    expect(inUscita?.stato).toBe("vista");
+  });
+
+  it("lo storico riconsegnato non duplica nulla", async () => {
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                history: [
+                  {
+                    threads: [
+                      {
+                        messages: [
+                          {
+                            id: "wamid.H1",
+                            from: "393401234567",
+                            timestamp: "1770000000",
+                            type: "text",
+                            text: { body: "Avete ricevuto il bonifico?" },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(await ingestisciWebhook(payload)).toBe(0);
+  });
+});
