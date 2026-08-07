@@ -262,3 +262,70 @@ describe("ingestione webhook", () => {
     expect(foto?.allegati[0]?.mediaId).toBe("MEDIA_1");
   });
 });
+
+// Il flusso Meta impone: webhook verificato PRIMA, numero registrato dopo.
+// Una configurazione deve quindi poter esistere col solo verify token —
+// ma non deve poter essere accesa finché è incompleta, altrimenti
+// rifiuterebbe ogni webhook in silenzio (senza app secret nessuna firma
+// può essere verificata).
+describe("configurazione parziale", () => {
+  function makeCtx(): any {
+    return {
+      user: {
+        id: 1, openId: "local-1", name: "Admin", email: "a@b.it",
+        loginMethod: "local", role: "admin", ruolo: "direzione",
+        ruoli: ["direzione"], createdAt: new Date(), updatedAt: new Date(),
+        lastSignedIn: new Date(),
+      },
+      req: { protocol: "http", headers: {}, get: () => "localhost:3000" },
+      res: {},
+      sedeId: 1,
+      sediIds: [1],
+    };
+  }
+
+  beforeAll(() => {
+    process.env.MAIL_ENCRYPTION_KEY = "chiave-di-test";
+    configWhatsApp.length = 0;
+  });
+
+  it("si crea col solo verify token e non è accendibile finché è incompleta", async () => {
+    const { appRouter } = await import("../routers");
+    const caller = appRouter.createCaller(makeCtx());
+
+    const creata = await caller.mail.whatsapp.create({
+      nome: "Aziendale",
+      verifyToken: "verify-token-di-prova-lungo",
+    });
+    expect(creata.phoneNumberId).toBe("");
+    expect(creata.attiva).toBe(false);
+    expect(creata.tokenConfigurato).toBe(false);
+
+    // L'handshake del webhook funziona già: è ciò che serve su Meta ora.
+    const { configPerVerifyToken } = await import("./whatsapp");
+    expect(configPerVerifyToken("verify-token-di-prova-lungo")).toBeDefined();
+
+    // Ma accenderla no, e l'errore dice cosa manca.
+    await expect(
+      caller.mail.whatsapp.update({ id: creata.id, attiva: true })
+    ).rejects.toThrow(/Phone number ID.*app secret/s);
+
+    // Completata, si accende.
+    await caller.mail.whatsapp.update({
+      id: creata.id,
+      numero: "+390187872687",
+      phoneNumberId: "PHONE_9",
+      wabaId: "WABA_9",
+      token: "token-lungo-abbastanza",
+      appSecret: "app-secret-lungo",
+    });
+    const accesa = await caller.mail.whatsapp.update({
+      id: creata.id,
+      attiva: true,
+    });
+    expect(accesa.attiva).toBe(true);
+    // I segreti non escono mai dal server.
+    expect(JSON.stringify(accesa)).not.toContain("app-secret-lungo");
+    expect(JSON.stringify(accesa)).not.toContain("token-lungo-abbastanza");
+  });
+});

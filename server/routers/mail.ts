@@ -260,44 +260,50 @@ export const mailRouter = router({
       };
     }),
 
+    // Il flusso di Meta impone quest'ordine: prima si verifica il webhook,
+    // POI si registra il numero. Ma il phone number id nasce solo con la
+    // registrazione — quindi alla creazione serve il solo verify token, e
+    // il resto si completa dopo. L'accensione, quella, li pretende tutti.
     create: protectedProcedure
       .input(
         z.object({
           nome: z.string().min(1).max(80),
-          numero: z.string().min(5).max(30),
-          phoneNumberId: z.string().min(3).max(60),
-          wabaId: z.string().min(3).max(60),
-          token: z.string().min(10).max(1000),
-          appSecret: z.string().min(10).max(200),
+          numero: z.string().max(30).optional(),
+          phoneNumberId: z.string().max(60).optional(),
+          wabaId: z.string().max(60).optional(),
+          token: z.string().max(1000).optional(),
+          appSecret: z.string().max(200).optional(),
           verifyToken: z.string().min(8).max(200),
         })
       )
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
-        assertChiaveCifratura();
+        const phoneNumberId = input.phoneNumberId?.trim() ?? "";
         if (
-          configWhatsApp.some(
-            (c) => c.phoneNumberId === input.phoneNumberId.trim()
-          )
+          phoneNumberId &&
+          configWhatsApp.some((c) => c.phoneNumberId === phoneNumberId)
         ) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "Questo numero è già configurato.",
           });
         }
+        if (input.token || input.appSecret) assertChiaveCifratura();
         const now = new Date();
         const config: ConfigWhatsApp = {
           id: newConfigWhatsAppId(),
           sedeId: ctx.sedeId ?? 1,
           nome: input.nome.trim(),
-          numero: input.numero.trim(),
-          phoneNumberId: input.phoneNumberId.trim(),
-          wabaId: input.wabaId.trim(),
-          tokenCifrato: proteggiSegreto(input.token),
-          appSecretCifrato: proteggiSegreto(input.appSecret),
+          numero: input.numero?.trim() ?? "",
+          phoneNumberId,
+          wabaId: input.wabaId?.trim() ?? "",
+          tokenCifrato: input.token ? proteggiSegreto(input.token) : "",
+          appSecretCifrato: input.appSecret
+            ? proteggiSegreto(input.appSecret)
+            : "",
           verifyToken: input.verifyToken.trim(),
-          // Si aggiunge spento: prima si completa la verifica del webhook
-          // su Meta, poi si accende.
+          // Si aggiunge spenta: prima si completa la verifica del webhook
+          // su Meta e si registra il numero, poi si accende.
           attiva: false,
           ultimoMessaggio: null,
           messaggiRicevuti: 0,
@@ -315,8 +321,12 @@ export const mailRouter = router({
         z.object({
           id: z.number(),
           nome: z.string().min(1).max(80).optional(),
-          token: z.string().min(10).max(1000).optional(),
-          appSecret: z.string().min(10).max(200).optional(),
+          numero: z.string().max(30).optional(),
+          phoneNumberId: z.string().max(60).optional(),
+          wabaId: z.string().max(60).optional(),
+          token: z.string().max(1000).optional(),
+          appSecret: z.string().max(200).optional(),
+          verifyToken: z.string().min(8).max(200).optional(),
           attiva: z.boolean().optional(),
         })
       )
@@ -324,16 +334,42 @@ export const mailRouter = router({
         requireDirezione(ctx.user);
         const c = configWhatsApp.find((x) => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
-        if (input.token !== undefined) {
+        if (input.token) {
           assertChiaveCifratura();
           c!.tokenCifrato = proteggiSegreto(input.token);
         }
-        if (input.appSecret !== undefined) {
+        if (input.appSecret) {
           assertChiaveCifratura();
           c!.appSecretCifrato = proteggiSegreto(input.appSecret);
         }
         if (input.nome !== undefined) c!.nome = input.nome.trim();
-        if (input.attiva !== undefined) c!.attiva = input.attiva;
+        if (input.numero !== undefined) c!.numero = input.numero.trim();
+        if (input.phoneNumberId !== undefined) {
+          c!.phoneNumberId = input.phoneNumberId.trim();
+        }
+        if (input.wabaId !== undefined) c!.wabaId = input.wabaId.trim();
+        if (input.verifyToken !== undefined) {
+          c!.verifyToken = input.verifyToken.trim();
+        }
+        if (input.attiva !== undefined) {
+          // Accendere una configurazione incompleta significherebbe rifiutare
+          // ogni webhook in silenzio (senza app secret la firma non si
+          // verifica): meglio dirlo qui, con l'elenco di cosa manca.
+          if (input.attiva) {
+            const mancanti: string[] = [];
+            if (!c!.phoneNumberId) mancanti.push("Phone number ID");
+            if (!c!.wabaId) mancanti.push("WhatsApp Business Account ID");
+            if (!c!.tokenCifrato) mancanti.push("token di accesso");
+            if (!c!.appSecretCifrato) mancanti.push("app secret");
+            if (mancanti.length > 0) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: `Prima di attivare il numero completa: ${mancanti.join(", ")}.`,
+              });
+            }
+          }
+          c!.attiva = input.attiva;
+        }
         c!.updatedAt = new Date();
         saveConfigWhatsApp();
         return configPubblica(c!);

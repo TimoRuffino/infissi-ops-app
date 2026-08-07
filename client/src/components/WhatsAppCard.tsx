@@ -38,8 +38,10 @@ export default function WhatsAppCard() {
 
   const [aperto, setAperto] = useState(false);
   const [daEliminare, setDaEliminare] = useState<any>(null);
+  const [completa, setCompleta] = useState<any>(null);
   const [copiato, setCopiato] = useState(false);
-  const [f, setF] = useState({
+  const [copiatoVt, setCopiatoVt] = useState<number | null>(null);
+  const VUOTO = {
     nome: "Numero aziendale",
     numero: "",
     phoneNumberId: "",
@@ -47,28 +49,26 @@ export default function WhatsAppCard() {
     token: "",
     appSecret: "",
     verifyToken: "",
-  });
+  };
+  const [f, setF] = useState(VUOTO);
 
   const invalidate = () => utils.mail.whatsapp.invalidate();
   const create = trpc.mail.whatsapp.create.useMutation({
     onSuccess: () => {
-      toast.success("Numero aggiunto. Completa la verifica su Meta, poi accendilo.");
+      toast.success(
+        "Configurazione creata. Ora verifica il webhook su Meta con questo verify token."
+      );
       setAperto(false);
-      setF({
-        nome: "Numero aziendale",
-        numero: "",
-        phoneNumberId: "",
-        wabaId: "",
-        token: "",
-        appSecret: "",
-        verifyToken: "",
-      });
+      setF(VUOTO);
       invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
   const update = trpc.mail.whatsapp.update.useMutation({
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setCompleta(null);
+      invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
   const remove = trpc.mail.whatsapp.delete.useMutation({
@@ -158,79 +158,199 @@ export default function WhatsAppCard() {
           </div>
         </div>
 
-        {rows.map((c: any) => (
-          <div key={c.id} className="rounded-lg border p-3 space-y-1.5">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="min-w-0">
-                <div className="font-medium flex items-center gap-2">
-                  {c.nome}
-                  {c.attiva ? (
-                    <Badge className="bg-green-600 hover:bg-green-600 text-xs">
-                      Attivo
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="text-xs">Spento</Badge>
-                  )}
+        {rows.map((c: any) => {
+          const mancanti = [
+            !c.phoneNumberId && "Phone number ID",
+            !c.wabaId && "WABA ID",
+            !c.tokenConfigurato && "token",
+            !c.appSecretConfigurato && "app secret",
+          ].filter(Boolean) as string[];
+          return (
+            <div key={c.id} className="rounded-lg border p-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="min-w-0">
+                  <div className="font-medium flex items-center gap-2">
+                    {c.nome}
+                    {c.attiva ? (
+                      <Badge className="bg-green-600 hover:bg-green-600 text-xs">
+                        Attivo
+                      </Badge>
+                    ) : mancanti.length > 0 ? (
+                      <Badge variant="outline" className="text-xs">
+                        Da completare
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">Spento</Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.numero || "numero non ancora indicato"}
+                    {c.phoneNumberId ? ` · phone id ${c.phoneNumberId}` : ""}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {c.numero} · phone id {c.phoneNumberId}
+                <div className="flex items-center gap-2 shrink-0">
+                  <Switch
+                    checked={c.attiva}
+                    disabled={mancanti.length > 0}
+                    onCheckedChange={(attiva) =>
+                      update.mutate({ id: c.id, attiva })
+                    }
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setDaEliminare(c)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Switch
-                  checked={c.attiva}
-                  onCheckedChange={(attiva) => update.mutate({ id: c.id, attiva })}
-                />
+
+              {/* Il verify token serve subito, prima ancora del numero:
+                  è quello da incollare su Meta per verificare il webhook. */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">
+                  Verify token:
+                </span>
+                <code className="text-xs font-mono truncate bg-muted px-1.5 py-0.5 rounded">
+                  {c.verifyToken}
+                </code>
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={() => setDaEliminare(c)}
+                  className="h-6 w-6 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(c.verifyToken);
+                    setCopiatoVt(c.id);
+                    setTimeout(() => setCopiatoVt(null), 2000);
+                  }}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  {copiatoVt === c.id ? (
+                    <Check className="h-3 w-3 text-green-600" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
                 </Button>
               </div>
+
+              {mancanti.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-amber-600 dark:text-amber-500">
+                    Da completare dopo aver registrato il numero: {mancanti.join(", ")}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setF({ ...VUOTO, nome: c.nome, numero: c.numero });
+                      setCompleta(c);
+                    }}
+                  >
+                    Completa
+                  </Button>
+                </div>
+              )}
+
+              {c.ultimoMessaggio && (
+                <p className="text-xs text-muted-foreground">
+                  Ultimo messaggio:{" "}
+                  {new Date(c.ultimoMessaggio).toLocaleString("it-IT")} ·{" "}
+                  {c.messaggiRicevuti} ricevuti in totale
+                </p>
+              )}
+              {c.ultimoErrore && (
+                <p className="text-xs text-destructive">{c.ultimoErrore}</p>
+              )}
             </div>
-            {c.ultimoMessaggio && (
-              <p className="text-xs text-muted-foreground">
-                Ultimo messaggio:{" "}
-                {new Date(c.ultimoMessaggio).toLocaleString("it-IT")} ·{" "}
-                {c.messaggiRicevuti} ricevuti in totale
-              </p>
-            )}
-            {c.ultimoErrore && (
-              <p className="text-xs text-destructive">{c.ultimoErrore}</p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
 
+      {/* Passo 1 — basta il verify token: su Meta il webhook si verifica
+          PRIMA che il numero esista, quindi il resto arriva dopo. */}
       <Dialog open={aperto} onOpenChange={setAperto}>
         <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Collega un numero WhatsApp</DialogTitle>
+            <DialogTitle>Collega un numero WhatsApp — passo 1</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Meta chiede di verificare il webhook <strong>prima</strong> di
+              registrare il numero. Qui serve solo il verify token: lo generi,
+              lo incolli su Meta, e quando il numero sarà registrato torni a
+              completare gli altri campi.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Etichetta</Label>
+              <Input
+                value={f.nome}
+                onChange={(e) => setF({ ...f, nome: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Verify token</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={f.verifyToken}
+                  onChange={(e) => setF({ ...f, verifyToken: e.target.value })}
+                  className="font-mono text-xs"
+                  placeholder="Premi «Genera»"
+                />
+                <Button variant="outline" onClick={generaVerifyToken}>
+                  Genera
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                È una stringa a caso, non una credenziale: Meta te la rimanda
+                indietro e il CRM verifica di riconoscerla. Non confonderla col
+                token di accesso, che comincia per <code>EAA…</code>.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAperto(false)}>
+                Annulla
+              </Button>
+              <Button
+                disabled={
+                  !f.nome.trim() ||
+                  f.verifyToken.trim().length < 8 ||
+                  create.isPending
+                }
+                onClick={() =>
+                  create.mutate({
+                    nome: f.nome.trim(),
+                    verifyToken: f.verifyToken.trim(),
+                  })
+                }
+              >
+                Crea
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Passo 2 — dopo la registrazione del numero su Meta. */}
+      <Dialog open={completa !== null} onOpenChange={(o) => !o && setCompleta(null)}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Completa «{completa?.nome}» — passo 2</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
               I valori stanno in <strong>developers.facebook.com</strong> → la
-              tua app → WhatsApp → Configurazione API. Il token deve essere
-              permanente (utente di sistema), non quello temporaneo da 24 ore.
+              tua app → WhatsApp → Configurazione API, tranne l'app secret che
+              è in Impostazioni app → Di base. Il token conviene sia permanente
+              (utente di sistema): quello temporaneo scade in 24 ore.
             </p>
-            <div className="flex gap-2">
-              <div className="space-y-1.5 flex-1">
-                <Label>Etichetta</Label>
-                <Input
-                  value={f.nome}
-                  onChange={(e) => setF({ ...f, nome: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5 flex-1">
-                <Label>Numero</Label>
-                <Input
-                  value={f.numero}
-                  onChange={(e) => setF({ ...f, numero: e.target.value })}
-                  placeholder="+39 0187 872687"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Numero</Label>
+              <Input
+                value={f.numero}
+                onChange={(e) => setF({ ...f, numero: e.target.value })}
+                placeholder="+39 0187 872687"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Phone number ID</Label>
@@ -249,7 +369,7 @@ export default function WhatsAppCard() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Token di accesso permanente</Label>
+              <Label>Token di accesso</Label>
               <Input
                 type="password"
                 value={f.token}
@@ -270,43 +390,24 @@ export default function WhatsAppCard() {
                 conosca l'URL potrebbe iniettare messaggi falsi.
               </p>
             </div>
-            <div className="space-y-1.5">
-              <Label>Verify token</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={f.verifyToken}
-                  onChange={(e) => setF({ ...f, verifyToken: e.target.value })}
-                  className="font-mono text-xs"
-                  placeholder="Genera e incolla lo stesso valore su Meta"
-                />
-                <Button variant="outline" onClick={generaVerifyToken}>
-                  Genera
-                </Button>
-              </div>
-            </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setAperto(false)}>
+              <Button variant="outline" onClick={() => setCompleta(null)}>
                 Annulla
               </Button>
               <Button
-                disabled={
-                  !f.numero.trim() || !f.phoneNumberId.trim() ||
-                  !f.wabaId.trim() || !f.token || !f.appSecret ||
-                  f.verifyToken.trim().length < 8 || create.isPending
-                }
+                disabled={update.isPending}
                 onClick={() =>
-                  create.mutate({
-                    nome: f.nome.trim(),
-                    numero: f.numero.trim(),
-                    phoneNumberId: f.phoneNumberId.trim(),
-                    wabaId: f.wabaId.trim(),
-                    token: f.token,
-                    appSecret: f.appSecret,
-                    verifyToken: f.verifyToken.trim(),
+                  update.mutate({
+                    id: completa.id,
+                    numero: f.numero.trim() || undefined,
+                    phoneNumberId: f.phoneNumberId.trim() || undefined,
+                    wabaId: f.wabaId.trim() || undefined,
+                    token: f.token || undefined,
+                    appSecret: f.appSecret || undefined,
                   })
                 }
               >
-                Collega
+                Salva
               </Button>
             </div>
           </div>
