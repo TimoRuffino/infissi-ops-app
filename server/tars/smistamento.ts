@@ -72,7 +72,7 @@ export async function smistaComunicazioni(sedeId: number): Promise<void> {
         const rigaCommessa = commessa
           ? `Commessa collegata: ${(commessa as any).codice} (${(commessa as any).cliente})`
           : "Commessa collegata: nessuna";
-        return `<comunicazione id="${m.id}">
+        return `<comunicazione id="${m.id}" canale="${m.canale}">
 Da: ${m.mittenteNome ? `${m.mittenteNome} <${m.mittente}>` : m.mittente}
 Ricevuta: ${m.receivedAt.toISOString()}
 Oggetto: ${m.oggetto || "(senza oggetto)"}

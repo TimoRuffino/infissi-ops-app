@@ -51,9 +51,49 @@ export async function estraiTestoAllegato(
 }
 
 /**
- * Ripesca un allegato dalla casella d'origine e ne restituisce il testo.
- * Il messaggio non viene toccato (connessione readOnly).
+ * Ripesca un allegato dal canale d'origine e ne restituisce il testo.
+ * Nulla è archiviato nel CRM: la casella (o Meta) resta la fonte.
  */
+export async function leggiAllegato(
+  comunicazione: Comunicazione,
+  nomeAllegato: string
+): Promise<{ testo: string; nome: string; mimeType: string }> {
+  return comunicazione.canale === "whatsapp"
+    ? leggiAllegatoDaWhatsApp(comunicazione, nomeAllegato)
+    : leggiAllegatoDaCasella(comunicazione, nomeAllegato);
+}
+
+// WhatsApp: il media si scarica da Meta con l'id ricevuto nel webhook.
+// Attenzione operativa: Meta conserva i media ~30 giorni, dopodiché
+// l'allegato di una conversazione vecchia non è più recuperabile.
+async function leggiAllegatoDaWhatsApp(
+  comunicazione: Comunicazione,
+  nomeAllegato: string
+): Promise<{ testo: string; nome: string; mimeType: string }> {
+  const { configWhatsApp, scaricaMedia } = await import("./whatsapp");
+  const config = configWhatsApp.find((c) => c.id === comunicazione.casellaId);
+  if (!config) {
+    throw new Error("Il numero WhatsApp d'origine non è più configurato.");
+  }
+  const dichiarato = comunicazione.allegati.find(
+    (a) => a.nome.toLowerCase() === nomeAllegato.toLowerCase()
+  );
+  if (!dichiarato?.mediaId) {
+    const nomi = comunicazione.allegati.map((a) => a.nome).join(", ");
+    throw new Error(
+      `Nessun allegato "${nomeAllegato}" su questo messaggio. Presenti: ${nomi || "nessuno"}.`
+    );
+  }
+  const { buffer, mimeType } = await scaricaMedia(config, dichiarato.mediaId);
+  if (buffer.length > MAX_BYTE) {
+    throw new Error(
+      `L'allegato pesa ${Math.round(buffer.length / 1024 / 1024)} MB: oltre il limite di lettura.`
+    );
+  }
+  const testo = await estraiTestoAllegato(buffer, mimeType, nomeAllegato);
+  return { testo, nome: nomeAllegato, mimeType };
+}
+
 export async function leggiAllegatoDaCasella(
   comunicazione: Comunicazione,
   nomeAllegato: string

@@ -70,6 +70,68 @@ async function startServer() {
     next();
   });
 
+  // ── Webhook WhatsApp (Meta) ─────────────────────────────────────────────
+  // Montato PRIMA di express.json: la firma HMAC di Meta si verifica sui
+  // byte grezzi del corpo, e un parser JSON li avrebbe già consumati e
+  // ri-serializzati (spazi e ordine delle chiavi cambiano → firma non
+  // valida). Anonimo per necessità — è Meta a chiamare — ma ogni POST
+  // passa dalla verifica della firma prima di essere guardato.
+  app.get("/api/webhook/whatsapp", async (req, res) => {
+    const { configPerVerifyToken } = await import("../tars/whatsapp");
+    const mode = String(req.query["hub.mode"] ?? "");
+    const token = String(req.query["hub.verify_token"] ?? "");
+    const challenge = String(req.query["hub.challenge"] ?? "");
+    if (mode === "subscribe" && configPerVerifyToken(token)) {
+      res.status(200).type("text/plain").send(challenge);
+      return;
+    }
+    res.sendStatus(403);
+  });
+
+  app.post(
+    "/api/webhook/whatsapp",
+    express.raw({ type: "*/*", limit: "10mb" }),
+    async (req, res) => {
+      const { verificaFirma, ingestisciWebhook, configWhatsApp } = await import(
+        "../tars/whatsapp"
+      );
+      const { decryptSecret } = await import("./secretBox");
+      const raw: Buffer = Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(String(req.body ?? ""));
+      const firma = req.get("x-hub-signature-256");
+
+      // Il payload dice a quale numero appartiene, ma leggerlo prima di
+      // verificare significherebbe fidarsi: si prova invece la firma con
+      // ogni app secret configurato.
+      const valida = configWhatsApp.some((c) => {
+        if (!c.attiva || !c.appSecretCifrato) return false;
+        try {
+          return verificaFirma(raw, firma, decryptSecret(c.appSecretCifrato));
+        } catch {
+          return false;
+        }
+      });
+      if (!valida) {
+        console.warn("[whatsapp] webhook con firma non valida, ignorato");
+        res.sendStatus(403);
+        return;
+      }
+
+      // A Meta si risponde 200 subito: l'elaborazione lenta farebbe
+      // scattare i suoi retry e duplicherebbe il lavoro (l'insert è
+      // idempotente, ma inutile pagarlo due volte).
+      res.sendStatus(200);
+      try {
+        const payload = JSON.parse(raw.toString("utf8"));
+        const n = await ingestisciWebhook(payload);
+        if (n > 0) console.log(`[whatsapp] ${n} messaggi ricevuti`);
+      } catch (e: any) {
+        console.error("[whatsapp] webhook:", e?.message ?? e);
+      }
+    }
+  );
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

@@ -26,6 +26,14 @@ import {
   testaCasella,
 } from "../tars/imap";
 import {
+  configPubblica,
+  configWhatsApp,
+  newConfigWhatsAppId,
+  proteggiSegreto,
+  saveConfigWhatsApp,
+  type ConfigWhatsApp,
+} from "../tars/whatsapp";
+import {
   deleteComunicazione,
   deleteComunicazioniByCasella,
   getComunicazione,
@@ -187,7 +195,7 @@ export const mailRouter = router({
         riavviaWatchers();
         let cancellate = 0;
         if (input.cancellaComunicazioni) {
-          cancellate = await deleteComunicazioniByCasella(c.id);
+          cancellate = await deleteComunicazioniByCasella(c.id, "email");
         }
         return { success: true as const, cancellate };
       }),
@@ -232,6 +240,127 @@ export const mailRouter = router({
       }),
   }),
 
+  // ── WhatsApp (sola lettura) ───────────────────────────────────────────
+  whatsapp: router({
+    list: protectedProcedure.query(({ ctx }) => {
+      requireDirezione(ctx.user);
+      return configWhatsApp
+        .filter((c) => c.sedeId === ctx.sedeId)
+        .map(configPubblica);
+    }),
+
+    // L'URL da incollare in Meta: si costruisce dall'host della richiesta,
+    // così è giusto sia in locale sia su Railway senza configurazione.
+    webhookUrl: protectedProcedure.query(({ ctx }) => {
+      const host = ctx.req.get("host") ?? "localhost:3000";
+      const proto = ctx.req.protocol ?? "https";
+      return {
+        url: `${proto}://${host}/api/webhook/whatsapp`,
+        chiaveConfigurata: secretBoxConfigured(),
+      };
+    }),
+
+    create: protectedProcedure
+      .input(
+        z.object({
+          nome: z.string().min(1).max(80),
+          numero: z.string().min(5).max(30),
+          phoneNumberId: z.string().min(3).max(60),
+          wabaId: z.string().min(3).max(60),
+          token: z.string().min(10).max(1000),
+          appSecret: z.string().min(10).max(200),
+          verifyToken: z.string().min(8).max(200),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        assertChiaveCifratura();
+        if (
+          configWhatsApp.some(
+            (c) => c.phoneNumberId === input.phoneNumberId.trim()
+          )
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Questo numero è già configurato.",
+          });
+        }
+        const now = new Date();
+        const config: ConfigWhatsApp = {
+          id: newConfigWhatsAppId(),
+          sedeId: ctx.sedeId ?? 1,
+          nome: input.nome.trim(),
+          numero: input.numero.trim(),
+          phoneNumberId: input.phoneNumberId.trim(),
+          wabaId: input.wabaId.trim(),
+          tokenCifrato: proteggiSegreto(input.token),
+          appSecretCifrato: proteggiSegreto(input.appSecret),
+          verifyToken: input.verifyToken.trim(),
+          // Si aggiunge spento: prima si completa la verifica del webhook
+          // su Meta, poi si accende.
+          attiva: false,
+          ultimoMessaggio: null,
+          messaggiRicevuti: 0,
+          ultimoErrore: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        configWhatsApp.push(config);
+        saveConfigWhatsApp();
+        return configPubblica(config);
+      }),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().min(1).max(80).optional(),
+          token: z.string().min(10).max(1000).optional(),
+          appSecret: z.string().min(10).max(200).optional(),
+          attiva: z.boolean().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = configWhatsApp.find((x) => x.id === input.id);
+        assertSedeScope(c ?? null, ctx.sedeId);
+        if (input.token !== undefined) {
+          assertChiaveCifratura();
+          c!.tokenCifrato = proteggiSegreto(input.token);
+        }
+        if (input.appSecret !== undefined) {
+          assertChiaveCifratura();
+          c!.appSecretCifrato = proteggiSegreto(input.appSecret);
+        }
+        if (input.nome !== undefined) c!.nome = input.nome.trim();
+        if (input.attiva !== undefined) c!.attiva = input.attiva;
+        c!.updatedAt = new Date();
+        saveConfigWhatsApp();
+        return configPubblica(c!);
+      }),
+
+    delete: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          cancellaComunicazioni: z.boolean().default(false),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = configWhatsApp.find((x) => x.id === input.id);
+        assertSedeScope(c ?? null, ctx.sedeId);
+        const idx = configWhatsApp.findIndex((x) => x.id === input.id);
+        configWhatsApp.splice(idx, 1);
+        saveConfigWhatsApp();
+        let cancellate = 0;
+        if (input.cancellaComunicazioni) {
+          cancellate = await deleteComunicazioniByCasella(input.id, "whatsapp");
+        }
+        return { success: true as const, cancellate };
+      }),
+  }),
+
   // ── Comunicazioni ─────────────────────────────────────────────────────
   comunicazioni: router({
     list: protectedProcedure
@@ -241,6 +370,7 @@ export const mailRouter = router({
             commessaId: z.number().optional(),
             clienteId: z.number().optional(),
             casellaId: z.number().optional(),
+            canale: z.enum(["email", "whatsapp"]).optional(),
             stato: z.enum(["nuova", "vista", "gestita"]).optional(),
             search: z.string().max(200).optional(),
             soloNonCollegate: z.boolean().optional(),
@@ -255,6 +385,7 @@ export const mailRouter = router({
           commessaId: input?.commessaId ?? null,
           clienteId: input?.clienteId ?? null,
           casellaId: input?.casellaId ?? null,
+          canale: input?.canale,
           stato: input?.stato,
           search: input?.search,
           soloNonCollegate: input?.soloNonCollegate,

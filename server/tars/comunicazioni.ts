@@ -23,18 +23,24 @@ export type Allegato = {
   // driver è `local` gli allegati vengono elencati ma non scaricati: in
   // base64 dentro la JSONB peggiorerebbero il problema già noto.
   storageKey?: string | null;
+  // WhatsApp: id del media su Meta, per scaricarlo al bisogno via Graph
+  // API. Come per gli allegati IMAP, la fonte resta il canale d'origine.
+  mediaId?: string | null;
 };
 
 export type Comunicazione = {
   id: number;
   sedeId: number;
+  // Origine del messaggio: id della casella email quando canale='email',
+  // id della configurazione WhatsApp quando canale='whatsapp'. I due spazi
+  // di id sono distinti dal canale, che entra nell'indice unico.
   casellaId: number;
   messageId: string;
   // UID IMAP nella cartella d'origine: serve a ripescare il messaggio (per
   // gli allegati) senza ricerca. Null sui record precedenti a questa
-  // colonna — lì si ricade sulla ricerca per Message-ID.
+  // colonna, e sempre null su WhatsApp — lì il messaggio si ritrova per id.
   uid: number | null;
-  canale: "email";
+  canale: "email" | "whatsapp";
   direzione: "in" | "out";
   mittente: string;
   mittenteNome: string | null;
@@ -110,10 +116,16 @@ export function ensureComunicazioniSchema(): Promise<void> {
           received_at TIMESTAMPTZ NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
-      // Idempotenza dell'ingestione: la stessa mail riletta non si duplica.
+      // Idempotenza dell'ingestione: lo stesso messaggio riletto non si
+      // duplica. Il canale entra nella chiave perché casella_id vive in
+      // spazi di id separati (caselle email vs configurazioni WhatsApp):
+      // senza, la casella 1 e il numero 1 si contenderebbero le righe.
+      // L'indice nuovo è più permissivo del vecchio, quindi la creazione
+      // non può fallire sui dati esistenti.
       await kvSql!`
-        CREATE UNIQUE INDEX IF NOT EXISTS comunicazioni_casella_message
-          ON comunicazioni (casella_id, message_id)`;
+        CREATE UNIQUE INDEX IF NOT EXISTS comunicazioni_canale_casella_message
+          ON comunicazioni (canale, casella_id, message_id)`;
+      await kvSql!`DROP INDEX IF EXISTS comunicazioni_casella_message`;
       // La query calda: elenco per sede in ordine cronologico inverso.
       await kvSql!`
         CREATE INDEX IF NOT EXISTS comunicazioni_sede_received
@@ -183,7 +195,10 @@ export async function insertComunicazione(
 
   if (!kvSql) {
     const dup = memRows.some(
-      (r) => r.casellaId === c.casellaId && r.messageId === c.messageId
+      (r) =>
+        r.canale === c.canale &&
+        r.casellaId === c.casellaId &&
+        r.messageId === c.messageId
     );
     if (dup) return null;
     const row: Comunicazione = {
@@ -213,7 +228,7 @@ export async function insertComunicazione(
       ${c.clienteId}, ${c.commessaId}, ${c.matchConfidenza}, ${c.matchMotivo},
       ${c.stato}, ${c.tarsAnalizzata ?? false}, ${c.receivedAt}
     )
-    ON CONFLICT (casella_id, message_id) DO NOTHING
+    ON CONFLICT (canale, casella_id, message_id) DO NOTHING
     RETURNING *`;
   return rows.length ? fromRow(rows[0]) : null;
 }
@@ -354,18 +369,27 @@ export async function markAnalizzate(ids: number[]): Promise<void> {
     WHERE id = ANY(${ids as any})`;
 }
 
-/** Cancella tutte le comunicazioni di una casella (alla sua rimozione). */
+/**
+ * Cancella le comunicazioni di una casella (alla sua rimozione). Il canale
+ * è obbligatorio: casella_id vive in spazi separati per email e WhatsApp,
+ * e senza filtro si cancellerebbero i messaggi dell'altro canale.
+ */
 export async function deleteComunicazioniByCasella(
-  casellaId: number
+  casellaId: number,
+  canale: Comunicazione["canale"] = "email"
 ): Promise<number> {
   if (!kvSql) {
     const before = memRows.length;
-    memRows = memRows.filter((r) => r.casellaId !== casellaId);
+    memRows = memRows.filter(
+      (r) => !(r.casellaId === casellaId && r.canale === canale)
+    );
     return before - memRows.length;
   }
   await ensureComunicazioniSchema();
   const rows = await kvSql`
-    DELETE FROM comunicazioni WHERE casella_id = ${casellaId} RETURNING id`;
+    DELETE FROM comunicazioni
+    WHERE casella_id = ${casellaId} AND canale = ${canale}
+    RETURNING id`;
   return rows.length;
 }
 
@@ -376,6 +400,7 @@ export type FiltroComunicazioni = {
   commessaId?: number | null;
   clienteId?: number | null;
   casellaId?: number | null;
+  canale?: Comunicazione["canale"];
   stato?: Comunicazione["stato"];
   search?: string;
   // Solo quelle senza commessa collegata — la coda "da smistare".
@@ -395,6 +420,7 @@ export async function listComunicazioni(
     if (f.commessaId != null) rows = rows.filter((r) => r.commessaId === f.commessaId);
     if (f.clienteId != null) rows = rows.filter((r) => r.clienteId === f.clienteId);
     if (f.casellaId != null) rows = rows.filter((r) => r.casellaId === f.casellaId);
+    if (f.canale) rows = rows.filter((r) => r.canale === f.canale);
     if (f.stato) rows = rows.filter((r) => r.stato === f.stato);
     if (f.soloNonCollegate) rows = rows.filter((r) => r.commessaId == null);
     if (f.search) {
@@ -421,6 +447,7 @@ export async function listComunicazioni(
   if (f.commessaId != null) conds.push(sql`commessa_id = ${f.commessaId}`);
   if (f.clienteId != null) conds.push(sql`cliente_id = ${f.clienteId}`);
   if (f.casellaId != null) conds.push(sql`casella_id = ${f.casellaId}`);
+  if (f.canale) conds.push(sql`canale = ${f.canale}`);
   if (f.stato) conds.push(sql`stato = ${f.stato}`);
   if (f.soloNonCollegate) conds.push(sql`commessa_id IS NULL`);
   if (f.search) {

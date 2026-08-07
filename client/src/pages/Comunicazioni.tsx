@@ -29,6 +29,7 @@ import {
   Inbox,
   Link2,
   Mail,
+  MessageCircle,
   Paperclip,
   RefreshCw,
   Search,
@@ -69,6 +70,25 @@ function iniziali(c: any): string {
   return ((parti[0]?.[0] ?? "?") + (parti[1]?.[0] ?? "")).toUpperCase();
 }
 
+// Pastiglia del canale: verde WhatsApp, neutro email. Su una lista mista
+// serve capire a colpo d'occhio da dove arriva un messaggio.
+function IconaCanale({ canale, className }: { canale: string; className?: string }) {
+  if (canale === "whatsapp") {
+    return (
+      <MessageCircle
+        className={cn("h-3.5 w-3.5 text-[#25D366]", className)}
+        aria-label="WhatsApp"
+      />
+    );
+  }
+  return (
+    <Mail
+      className={cn("h-3.5 w-3.5 text-muted-foreground", className)}
+      aria-label="Email"
+    />
+  );
+}
+
 // ── Riga in lista ───────────────────────────────────────────────────────────
 
 function Riga({
@@ -106,11 +126,12 @@ function Riga({
         <div className="flex items-center justify-between gap-2">
           <span
             className={cn(
-              "text-sm truncate",
+              "text-sm truncate flex items-center gap-1.5",
               nuova ? "font-semibold" : "font-medium text-muted-foreground"
             )}
           >
-            {c.mittenteNome ?? c.mittente}
+            <IconaCanale canale={c.canale} />
+            <span className="truncate">{c.mittenteNome ?? c.mittente}</span>
           </span>
           <span className="text-[11px] text-muted-foreground shrink-0">
             {oraBreve(c.receivedAt)}
@@ -122,7 +143,8 @@ function Riga({
             nuova ? "text-foreground" : "text-muted-foreground"
           )}
         >
-          {c.oggetto || "(senza oggetto)"}
+          {/* Su WhatsApp non esiste l'oggetto: si mostra il testo. */}
+          {c.oggetto || (c.canale === "whatsapp" ? c.testo : "") || "(senza oggetto)"}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5 min-h-4">
           {c.allegati?.length > 0 && (
@@ -199,8 +221,12 @@ function Lettura({
             </Button>
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="font-semibold leading-snug break-words">
-              {c.oggetto || "(senza oggetto)"}
+            <h2 className="font-semibold leading-snug break-words flex items-center gap-2">
+              <IconaCanale canale={c.canale} className="h-4 w-4 shrink-0" />
+              {c.oggetto ||
+                (c.canale === "whatsapp"
+                  ? "Messaggio WhatsApp"
+                  : "(senza oggetto)")}
             </h2>
             <div className="text-sm text-muted-foreground mt-0.5">
               {c.mittenteNome ? `${c.mittenteNome} · ` : ""}
@@ -208,7 +234,9 @@ function Lettura({
             </div>
             <div className="text-xs text-muted-foreground">
               {new Date(c.receivedAt).toLocaleString("it-IT")}
-              {casella ? ` · ricevuta su ${casella.nome} (${casella.indirizzo})` : ""}
+              {c.canale === "email" && casella
+                ? ` · ricevuta su ${casella.nome} (${casella.indirizzo})`
+                : ""}
             </div>
           </div>
           <div className="flex gap-1 shrink-0">

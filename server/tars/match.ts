@@ -9,6 +9,8 @@
 // restituisce confidenza "bassa" con l'elenco dei candidati, e sarà
 // l'operatore (o Tars con chiedi_chiarimento) a decidere.
 
+import { stessoNumero } from "@shared/telefono";
+
 const CODICE_RE = /\bCOM[\s\-–_]?(\d{4})[\s\-–_]?(\d{1,4})\b/i;
 
 export type EsitoMatch = {
@@ -31,9 +33,14 @@ type CommessaLite = {
   codice: string;
   clienteId?: number | null;
   email?: string | null;
+  telefono?: string | null;
   stato: string;
   archivedAt?: unknown;
 };
+
+function nomeCompleto(c: ClienteLite): string {
+  return `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
+}
 
 function normalizzaEmail(e: string | null | undefined): string {
   return (e ?? "").trim().toLowerCase();
@@ -48,19 +55,123 @@ export function estraiCodiceCommessa(testo: string): string | null {
   return `COM-${anno}-${prog}`;
 }
 
+/**
+ * Aggancio di un messaggio WhatsApp, per numero del mittente.
+ *
+ * Il codice commessa citato nel testo resta la prova più forte anche qui —
+ * capita che il cliente lo riporti — ma il caso normale è il numero.
+ * Quando il numero identifica un cliente con più commesse aperte non si
+ * indovina: si aggancia il cliente e si dichiara l'ambiguità.
+ */
+function matchPerTelefono(
+  numero: string,
+  testoIntero: string,
+  clienti: ClienteLite[],
+  attive: CommessaLite[]
+): EsitoMatch {
+  // 1. Codice esplicito nel messaggio: vale quanto nelle mail.
+  const codice = estraiCodiceCommessa(testoIntero);
+  if (codice) {
+    const commessa = attive.find(
+      (c) => c.codice.toUpperCase() === codice.toUpperCase()
+    );
+    if (commessa) {
+      return {
+        clienteId: commessa.clienteId ?? null,
+        commessaId: commessa.id,
+        confidenza: "alta",
+        motivo: `Il codice ${codice} compare nel messaggio.`,
+      };
+    }
+  }
+
+  // 2. Numero del mittente = telefono di contatto di una singola commessa.
+  //    È il riferimento del cantiere: più specifico dell'anagrafica cliente.
+  const perCommessa = attive.filter((c) => stessoNumero(c.telefono, numero));
+  if (perCommessa.length === 1) {
+    return {
+      clienteId: perCommessa[0].clienteId ?? null,
+      commessaId: perCommessa[0].id,
+      confidenza: "alta",
+      motivo: `Il numero del mittente è il contatto della commessa ${perCommessa[0].codice}.`,
+    };
+  }
+
+  // 3. Numero del mittente = telefono in anagrafica cliente.
+  const cliente = clienti.find((c) => stessoNumero(c.telefono, numero));
+  if (cliente) {
+    const sue = attive.filter((c) => c.clienteId === cliente.id);
+    const nome = nomeCompleto(cliente);
+    if (sue.length === 1) {
+      return {
+        clienteId: cliente.id,
+        commessaId: sue[0].id,
+        confidenza: "alta",
+        motivo: `Numero riconosciuto come ${nome}, che ha una sola commessa attiva (${sue[0].codice}).`,
+      };
+    }
+    if (sue.length > 1) {
+      return {
+        clienteId: cliente.id,
+        commessaId: null,
+        confidenza: "media",
+        motivo: `Numero riconosciuto come ${nome}, che ha ${sue.length} commesse attive (${sue
+          .map((c) => c.codice)
+          .join(", ")}): quale non è deducibile dal messaggio.`,
+      };
+    }
+    return {
+      clienteId: cliente.id,
+      commessaId: null,
+      confidenza: "media",
+      motivo: `Numero riconosciuto come ${nome}, senza commesse attive.`,
+    };
+  }
+
+  // 4. Più commesse condividono quel numero (stesso referente su cantieri
+  //    diversi): meglio dichiararlo che sceglierne una.
+  if (perCommessa.length > 1) {
+    return {
+      clienteId: null,
+      commessaId: null,
+      confidenza: "bassa",
+      motivo: `Il numero del mittente compare su ${perCommessa.length} commesse: ${perCommessa
+        .map((c) => c.codice)
+        .join(", ")}.`,
+    };
+  }
+
+  return {
+    clienteId: null,
+    commessaId: null,
+    confidenza: "nessuna",
+    motivo: "Numero non presente in anagrafica.",
+  };
+}
+
 export function matchComunicazione(params: {
   mittente: string;
   oggetto: string;
   testo: string;
   clienti: ClienteLite[];
   commesse: CommessaLite[];
+  // "whatsapp" quando il mittente è un numero di telefono anziché un
+  // indirizzo email: cambia quale colonna dell'anagrafica si confronta.
+  canale?: "email" | "whatsapp";
 }): EsitoMatch {
   const mittente = normalizzaEmail(params.mittente);
   const testoIntero = `${params.oggetto}\n${params.testo}`;
 
-  // Le commesse archiviate non si agganciano mai: una mail nuova non
+  // Le commesse archiviate non si agganciano mai: un messaggio nuovo non
   // riapre un fascicolo chiuso.
   const attive = params.commesse.filter((c) => !c.archivedAt);
+
+  // ── WhatsApp: il numero è l'identificatore, e in questo settore è più
+  //    affidabile dell'email — il telefono in anagrafica è quasi sempre
+  //    compilato, l'indirizzo spesso no.
+  if (params.canale === "whatsapp") {
+    return matchPerTelefono(params.mittente, testoIntero, params.clienti, attive);
+  }
 
   // ── 1. Codice commessa citato per esteso. La prova più forte che esista.
   const codice = estraiCodiceCommessa(testoIntero);
@@ -92,7 +203,7 @@ export function matchComunicazione(params: {
 
   if (cliente) {
     const sue = attive.filter((c) => c.clienteId === cliente.id);
-    const nome = `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim();
+    const nome = nomeCompleto(cliente);
     if (sue.length === 1) {
       return {
         clienteId: cliente.id,
@@ -156,7 +267,7 @@ export function matchComunicazione(params: {
   });
   if (perCognome.length === 1) {
     const sue = attive.filter((c) => c.clienteId === perCognome[0].id);
-    const nome = `${perCognome[0].cognome ?? ""} ${perCognome[0].nome ?? ""}`.trim();
+    const nome = nomeCompleto(perCognome[0]);
     return {
       clienteId: perCognome[0].id,
       commessaId: sue.length === 1 ? sue[0].id : null,

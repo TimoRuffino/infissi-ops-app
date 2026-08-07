@@ -36,6 +36,7 @@ import { isDirezione } from "@/lib/roles";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
+import WhatsAppCard from "@/components/WhatsAppCard";
 
 // Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
 // guarded routes in App.tsx; adding a new entry here automatically surfaces
@@ -274,6 +275,9 @@ export default function Integrazioni() {
 
       {/* Caselle email lette dal CRM (sola lettura) */}
       <CaselleEmailCard />
+
+      {/* WhatsApp Business — ricezione messaggi (sola lettura) */}
+      <WhatsAppCard />
 
       {/* Backup notturno su Google Drive */}
       <BackupDrive />
