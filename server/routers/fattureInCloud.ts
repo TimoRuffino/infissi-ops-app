@@ -44,14 +44,38 @@ function getCfg(): FicConfig {
   return cfgRows[0];
 }
 
+// Il token manuale ha una forma precisa: "a/" + un JWT. Il Client ID (che
+// si incolla nella stessa schermata di Fatture in Cloud, un rigo sopra) non
+// ce l'ha — ed è l'errore più facile da fare, perché i due valori vivono
+// accanto. Meglio dirlo al salvataggio che lasciare un 401 senza spiegazione.
+export function tokenSembraValido(t: string): boolean {
+  return /^a\/[A-Za-z0-9._-]{20,}$/.test(t.trim());
+}
+
+// Gli errori dell'API arrivano in inglese e generici: qui diventano frasi
+// che dicono all'operatore cosa fare.
+function messaggioErroreFic(status: number, corpo: string): string {
+  if (status === 401) {
+    return "Token rifiutato da Fatture in Cloud: è scaduto, è stato revocato, oppure non è un token (controlla di non aver incollato il Client ID).";
+  }
+  if (status === 403) {
+    return "Token valido ma senza i permessi necessari: nelle Applicazioni connesse abilita la lettura di «Fatture emesse» e «Anagrafica», poi rigenera il token.";
+  }
+  if (status === 404) {
+    return "Azienda non trovata con questo token: ripremi «Trova azienda» e riseleziona quella giusta.";
+  }
+  if (status === 429) {
+    return "Troppe richieste verso Fatture in Cloud: riprova tra qualche minuto.";
+  }
+  return `Fatture in Cloud HTTP ${status}: ${corpo.slice(0, 200)}`;
+}
+
 async function ficGet(path: string, token: string): Promise<any> {
   const res = await fetch(`${FIC}${path}`, {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    throw new Error(
-      `Fatture in Cloud HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-    );
+    throw new Error(messaggioErroreFic(res.status, await res.text()));
   }
   return await res.json();
 }
@@ -257,7 +281,17 @@ export const fattureInCloudRouter = router({
     )
     .mutation(({ input }) => {
       const cfg = getCfg();
-      if (input.accessToken !== undefined) cfg.accessToken = input.accessToken.trim();
+      if (input.accessToken !== undefined) {
+        const t = input.accessToken.trim();
+        if (!tokenSembraValido(t)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Questo non è un token di Fatture in Cloud: quello giusto comincia con «a/» ed è molto lungo. Se il valore che hai incollato somiglia a un codice breve, è il Client ID — serve a generare il token, non a sostituirlo.",
+          });
+        }
+        cfg.accessToken = t;
+      }
       if (input.companyId !== undefined) cfg.companyId = input.companyId;
       if (input.enabled !== undefined) cfg.enabled = input.enabled;
       _cfgStore.save();

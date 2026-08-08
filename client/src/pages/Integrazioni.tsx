@@ -485,10 +485,12 @@ function FattureInCloudCard() {
 
         <div className="flex gap-2 items-end flex-wrap">
           <div className="space-y-1 flex-1 min-w-[260px]">
-            <Label className="text-xs">Token API (Fatture in Cloud → Impostazioni → API)</Label>
+            <Label className="text-xs">
+              Access Token (comincia con <code>a/</code>)
+            </Label>
             <Input
               type="password"
-              placeholder={st.tokenMasked ?? "Incolla il token…"}
+              placeholder={st.tokenMasked ?? "a/eyJ0eXAiOiJKV1Qi…"}
               value={token}
               onChange={(e) => setToken(e.target.value)}
               className="h-9 font-mono text-xs"
@@ -528,12 +530,34 @@ function FattureInCloudCard() {
         )}
 
         {!st.configured && (
-          <p className="text-[11px] text-text-3">
-            1) Su fattureincloud.it → Impostazioni → API crea un token con
-            permessi di lettura su «Fatture emesse» e «Anagrafica». 2) Incollalo
-            qui e premi «Trova azienda». 3) Attiva l'interruttore. I clienti
-            nuovi arrivano da soli, senza toccare le fatture.
-          </p>
+          <div className="text-[11px] text-text-3 space-y-1">
+            <p>
+              1) Su{" "}
+              <a
+                href="https://secure.fattureincloud.it/settings-apps"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                secure.fattureincloud.it/settings-apps
+              </a>{" "}
+              → «Connetti una nuova applicazione» → incolla il{" "}
+              <strong>Client ID</strong> della vostra app, scegli l'azienda e
+              dai i permessi di lettura su «Fatture emesse» e «Anagrafica».
+            </p>
+            <p>
+              2) Fatto questo, Fatture in Cloud genera un{" "}
+              <strong>Access Token</strong>: è quello lungo che comincia con{" "}
+              <code>a/</code>. Incolla <em>quello</em> qui sopra — non il Client
+              ID, che serve solo a generarlo.
+            </p>
+            <p>
+              3) Premi «Trova azienda», scegli quella giusta, attiva
+              l'interruttore. Da lì arrivano clienti nuovi e fatture: le fatture
+              diventano proposte da approvare in Contabilità, mai scritture
+              automatiche.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>

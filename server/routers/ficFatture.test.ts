@@ -185,3 +185,35 @@ describe("riconciliazione FIC", () => {
     expect(ficFatture.find((f) => f.id === 9003)!.rate[0].stato).toBe("paid");
   });
 });
+
+// Il Client ID e l'Access Token vivono nella stessa schermata di Fatture in
+// Cloud, un rigo sopra l'altro: incollare il primo al posto del secondo è
+// l'errore più facile da fare, e produce un 401 che non spiega niente.
+describe("validazione token FIC", () => {
+  it("riconosce un token vero", async () => {
+    const { tokenSembraValido } = await import("./fattureInCloud");
+    expect(
+      tokenSembraValido(
+        "a/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.abcdefghijklmno"
+      )
+    ).toBe(true);
+  });
+
+  it("rifiuta il Client ID e altri valori che token non sono", async () => {
+    const { tokenSembraValido } = await import("./fattureInCloud");
+    // Il Client ID reale ha questa forma: niente prefisso "a/".
+    expect(tokenSembraValido("46YmsOEc2PqxzQaluXRbvV9kShqkTl8E")).toBe(false);
+    expect(tokenSembraValido("")).toBe(false);
+    expect(tokenSembraValido("a/corto")).toBe(false);
+    expect(tokenSembraValido("Bearer a/eyJ0eXAiOiJKV1Qi")).toBe(false);
+  });
+
+  it("il salvataggio rifiuta il Client ID con un messaggio che dice cosa fare", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    await expect(
+      caller.fattureInCloud.saveConfig({
+        accessToken: "46YmsOEc2PqxzQaluXRbvV9kShqkTl8E",
+      })
+    ).rejects.toThrow(/Client ID/);
+  });
+});
