@@ -33,6 +33,7 @@ import SediList from "./pages/SediList";
 import TarsInbox from "./pages/TarsInbox";
 import Conoscenza from "./pages/Conoscenza";
 import Comunicazioni from "./pages/Comunicazioni";
+import Economia from "./pages/Economia";
 import RequireDirezione from "./components/RequireDirezione";
 
 function Router() {
@@ -45,6 +46,7 @@ function Router() {
         <Route path="/kanban" component={KanbanBoard} />
         <Route path="/magazzino" component={Magazzino} />
         <Route path="/pagamenti" component={Pagamenti} />
+        <Route path="/economia" component={Economia} />
         <Route path="/marginalita">
           {() => <RequireDirezione><Marginalita /></RequireDirezione>}
         </Route>

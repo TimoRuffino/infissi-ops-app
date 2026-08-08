@@ -47,6 +47,8 @@ import {
   HardHat,
   Bot,
   Mail,
+  ChevronDown,
+  Landmark,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -56,7 +58,7 @@ import { TarsChatFloating } from "./TarsChat";
 import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
-import { isDirezione } from "@/lib/roles";
+import { hasRuolo, isDirezione } from "@/lib/roles";
 import { AnimatePresence } from "framer-motion";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
@@ -71,6 +73,10 @@ type MenuItem = {
   path: string;
   badge?: string;
   direzioneOnly?: boolean;
+  // Solo direzione e amministrazione (superfici economiche).
+  economiaOnly?: boolean;
+  // Un gruppo: la voce apre/chiude le figlie invece di navigare.
+  children?: MenuItem[];
 };
 
 const menuItems: MenuItem[] = [
@@ -80,8 +86,16 @@ const menuItems: MenuItem[] = [
   { icon: Kanban, label: "Board", path: "/kanban" },
   { icon: CalendarDays, label: "Calendario", path: "/planning" },
   { icon: Package, label: "Magazzino", path: "/magazzino" },
-  { icon: Banknote, label: "Pagamenti", path: "/pagamenti" },
-  { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
+  {
+    icon: TrendingUp,
+    label: "Economia",
+    path: "/economia",
+    children: [
+      { icon: Landmark, label: "Contabilità", path: "/economia", economiaOnly: true },
+      { icon: Banknote, label: "Pagamenti", path: "/pagamenti" },
+      { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
+    ],
+  },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   { icon: Bot, label: "Tars", path: "/inbox" },
   { icon: Mail, label: "Comunicazioni", path: "/comunicazioni" },
@@ -92,6 +106,16 @@ const menuItems: MenuItem[] = [
   { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
+
+// Chi vede una voce: i vincoli di ruolo rispecchiano quelli del server
+// (il server resta l'autorità — qui si evita solo il link morto).
+function visibile(item: MenuItem, user: unknown): boolean {
+  if (item.direzioneOnly && !isDirezione(user)) return false;
+  if (item.economiaOnly && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
+    return false;
+  }
+  return true;
+}
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
@@ -152,8 +176,12 @@ function DashboardLayoutContent({
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
+  // Gruppi aperti/chiusi a mano; senza scelta esplicita, un gruppo è aperto
+  // quando contiene la pagina corrente.
+  const [gruppiAperti, setGruppiAperti] = useState<Record<string, boolean>>({});
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item =>
+  const tutteLeVoci = menuItems.flatMap((i) => (i.children ? i.children : [i]));
+  const activeMenuItem = tutteLeVoci.find(item =>
     item.path === "/" ? location === "/" : location.startsWith(item.path)
   );
   const isMobile = useIsMobile();
@@ -241,40 +269,113 @@ function DashboardLayoutContent({
             </div>
             <SidebarMenu className="px-2 py-1">
               {menuItems
-                .filter((item) => !item.direzioneOnly || isDirezione(user))
-                .map(item => {
-                const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    {/* Active voice (spec §3.1): bg white/10 + 3px primary left
-                        bar + white text. Styled on the button directly so the
-                        highlight always paints above the dark sidebar. */}
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`relative h-10 transition-all ${
-                        isActive
-                          ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
-                          : "font-normal"
-                      }`}
-                    >
-                      {isActive && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
-                      )}
-                      <item.icon
-                        className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
-                      />
-                      <span className="flex-1">{item.label}</span>
-                      {item.badge && (
-                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-medium opacity-60">
-                          {item.badge}
-                        </Badge>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+                .map((item) =>
+                  item.children
+                    ? {
+                        ...item,
+                        children: item.children.filter((c) => visibile(c, user)),
+                      }
+                    : item
+                )
+                .filter((item) =>
+                  item.children ? item.children.length > 0 : visibile(item, user)
+                )
+                .map((item) => {
+                  const figlie = item.children ?? [];
+                  const isActive =
+                    item.path === "/"
+                      ? location === "/"
+                      : figlie.length > 0
+                        ? figlie.some((c) => location.startsWith(c.path))
+                        : location.startsWith(item.path);
+
+                  // Gruppo: la voce apre/chiude; le figlie navigano. Aperto
+                  // da solo quando una figlia è la pagina corrente.
+                  if (figlie.length > 0) {
+                    const aperto = gruppiAperti[item.label] ?? isActive;
+                    return (
+                      <SidebarMenuItem key={item.label}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() =>
+                            setGruppiAperti((s) => ({ ...s, [item.label]: !aperto }))
+                          }
+                          tooltip={item.label}
+                          className={`relative h-10 transition-all ${
+                            isActive ? "text-white font-semibold" : "font-normal"
+                          }`}
+                        >
+                          <item.icon
+                            className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
+                          />
+                          <span className="flex-1">{item.label}</span>
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 opacity-60 transition-transform ${aperto ? "" : "-rotate-90"}`}
+                          />
+                        </SidebarMenuButton>
+                        {aperto && (
+                          <div className="ml-4 border-l border-white/10 pl-1 mt-0.5 space-y-0.5">
+                            {figlie.map((c) => {
+                              const attiva = location.startsWith(c.path);
+                              return (
+                                <SidebarMenuButton
+                                  key={c.path}
+                                  isActive={attiva}
+                                  onClick={() => setLocation(c.path)}
+                                  tooltip={c.label}
+                                  className={`relative h-9 transition-all ${
+                                    attiva
+                                      ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
+                                      : "font-normal"
+                                  }`}
+                                >
+                                  {attiva && (
+                                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                                  )}
+                                  <c.icon
+                                    className={`h-4 w-4 transition-colors ${attiva ? "text-white" : ""}`}
+                                  />
+                                  <span className="flex-1">{c.label}</span>
+                                </SidebarMenuButton>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </SidebarMenuItem>
+                    );
+                  }
+
+                  return (
+                    <SidebarMenuItem key={item.path}>
+                      {/* Active voice (spec §3.1): bg white/10 + 3px primary left
+                          bar + white text. Styled on the button directly so the
+                          highlight always paints above the dark sidebar. */}
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        onClick={() => setLocation(item.path)}
+                        tooltip={item.label}
+                        className={`relative h-10 transition-all ${
+                          isActive
+                            ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
+                            : "font-normal"
+                        }`}
+                      >
+                        {isActive && (
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                        )}
+                        <item.icon
+                          className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
+                        />
+                        <span className="flex-1">{item.label}</span>
+                        {item.badge && (
+                          <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-medium opacity-60">
+                            {item.badge}
+                          </Badge>
+                        )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
             </SidebarMenu>
           </SidebarContent>
 

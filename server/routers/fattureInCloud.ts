@@ -3,6 +3,11 @@ import { TRPCError } from "@trpc/server";
 import { adminProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getClientiStore, createClienteFromSync } from "./clienti";
+import {
+  generaProposteRiconciliazione,
+  upsertFatture,
+  type RataFic,
+} from "./ficFatture";
 
 // ── Fatture in Cloud → CRM sync ──────────────────────────────────────────────
 // Polls the FiC API (v2) for the current year's issued invoices and creates
@@ -105,9 +110,20 @@ export async function runFicSync(): Promise<string> {
   try {
     const year = new Date().getFullYear();
     const entities: Array<{ name: string; vat: string | null; cf: string | null }> = [];
+    const fatture: Array<{
+      id: number;
+      numero: string;
+      data: string;
+      clienteNome: string;
+      clienteVat: string | null;
+      clienteCf: string | null;
+      importoNetto: number;
+      importoLordo: number;
+      rate: RataFic[];
+    }> = [];
     for (let page = 1; page <= 10; page++) {
       const j = await ficGet(
-        `/c/${cfg.companyId}/issued_documents?type=invoice&per_page=100&page=${page}&fields=id,date,entity`,
+        `/c/${cfg.companyId}/issued_documents?type=invoice&per_page=100&page=${page}&fields=id,number,numeration,date,entity,amount_net,amount_gross,payments_list`,
         cfg.accessToken
       );
       const rows: any[] = j?.data ?? [];
@@ -119,6 +135,24 @@ export async function runFicSync(): Promise<string> {
           name: String(e.name).trim(),
           vat: e.vat_number ? String(e.vat_number) : null,
           cf: e.tax_code ? String(e.tax_code) : null,
+        });
+        fatture.push({
+          id: Number(r.id),
+          numero: `${r.number ?? "?"}${r.numeration ?? ""}`,
+          data: String(r.date),
+          clienteNome: String(e.name).trim(),
+          clienteVat: e.vat_number ? String(e.vat_number) : null,
+          clienteCf: e.tax_code ? String(e.tax_code) : null,
+          importoNetto: Number(r.amount_net ?? 0),
+          importoLordo: Number(r.amount_gross ?? 0),
+          rate: (Array.isArray(r.payments_list) ? r.payments_list : []).map(
+            (p: any) => ({
+              importo: Number(p.amount ?? 0),
+              scadenza: p.due_date ? String(p.due_date) : null,
+              stato: String(p.status ?? "not_paid"),
+              dataPagamento: p.paid_date ? String(p.paid_date) : null,
+            })
+          ),
         });
       }
       if (rows.length < 100) break;
@@ -157,7 +191,12 @@ export async function runFicSync(): Promise<string> {
       created++;
     }
 
-    const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year}, ${created} nuovi clienti creati`;
+    // Fatture nello store locale + riconciliazione: le rate incassate su
+    // FIC diventano PROPOSTE di registrazione, mai scritture dirette.
+    const { nuove, aggiornate } = upsertFatture(fatture);
+    const proposteCreate = generaProposteRiconciliazione();
+
+    const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     _cfgStore.save();

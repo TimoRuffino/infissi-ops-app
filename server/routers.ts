@@ -29,6 +29,8 @@ import { fattureInCloudRouter } from "./routers/fattureInCloud";
 import { fileStorageAdminRouter } from "./routers/fileStorageAdmin";
 import { tarsRouter } from "./routers/tars";
 import { mailRouter } from "./routers/mail";
+import { ficFattureRouter } from "./routers/ficFatture";
+import { economiaRouter } from "./routers/economia";
 import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -175,6 +177,8 @@ export const appRouter = router({
   fileStorage: fileStorageAdminRouter,
   tars: tarsRouter,
   mail: mailRouter,
+  ficFatture: ficFattureRouter,
+  economia: economiaRouter,
 });
 
 export type AppRouter = typeof appRouter;
