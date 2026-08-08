@@ -140,13 +140,22 @@ export default function TarsInbox() {
         )}
       </div>
 
-      <Tabs defaultValue="pendenti">
+      {/* La chat è la porta d'ingresso: si parla, e le proposte arrivano
+          lì dentro. Le tab restano per la coda e il registro. */}
+      <Tabs defaultValue="chat">
         <TabsList>
           <TabsTrigger value="chat">
             <MessageCircle className="h-3.5 w-3.5 mr-1" />
             Chat
           </TabsTrigger>
-          <TabsTrigger value="pendenti">In attesa</TabsTrigger>
+          <TabsTrigger value="pendenti">
+            In attesa
+            {(stats.data?.pendenti ?? 0) > 0 && (
+              <Badge className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+                {stats.data!.pendenti}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="decise">Decise</TabsTrigger>
           {direzione && (
             <TabsTrigger value="registro">

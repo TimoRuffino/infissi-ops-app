@@ -236,6 +236,46 @@ export const TOOL_DEFS: AnthropicTool[] = [
     },
   },
   {
+    name: "leggi_interventi",
+    description:
+      "Gli appuntamenti del calendario (rilievi, pose, assistenze): data, ora, squadra, stato. Filtri per commessa, periodo, tipo o stato.",
+    input_schema: {
+      type: "object",
+      properties: {
+        commessaId: { type: "number" },
+        dal: { type: "string", description: "YYYY-MM-DD" },
+        al: { type: "string", description: "YYYY-MM-DD" },
+        tipo: { type: "string" },
+        stato: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "leggi_garanzie",
+    description:
+      "Le garanzie registrate: descrizione, scadenza, stato. Filtri per commessa o stato.",
+    input_schema: {
+      type: "object",
+      properties: {
+        commessaId: { type: "number" },
+        stato: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "leggi_fornitori",
+    description: "L'anagrafica fornitori: ragione sociale, categoria, contatti, referente.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+    },
+  },
+  {
+    name: "leggi_squadre",
+    description: "Le squadre di posa attive, coi loro componenti.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "leggi_economia",
     description:
       "La situazione contabile aggregata: pattuito, incassato, residuo, costi, margine (lato commesse) e fatturato/incassato (lato Fatture in Cloud), con l'andamento mensile. Riservato a direzione e amministrazione: per gli altri operatori risponde che il dato non è consultabile.",
@@ -737,6 +777,76 @@ export async function eseguiStrumento(
         );
       }
 
+      case "leggi_interventi": {
+        const caller = await getCaller(rt.ctx);
+        const rows = await caller.interventi.list({
+          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
+          from: input.dal ? String(input.dal) : undefined,
+          to: input.al ? String(input.al) : undefined,
+          tipo: input.tipo ? String(input.tipo) : undefined,
+          stato: input.stato ? String(input.stato) : undefined,
+        });
+        return ok(
+          rows.slice(0, 25).map((i: any) => ({
+            id: i.id,
+            data: i.data,
+            oraInizio: i.oraInizio ?? null,
+            tipo: i.tipo,
+            stato: i.stato,
+            commessaId: i.commessaId ?? null,
+            squadraId: i.squadraId ?? null,
+            indirizzo: i.indirizzo ?? null,
+            note: i.note ?? null,
+          }))
+        );
+      }
+      case "leggi_garanzie": {
+        const caller = await getCaller(rt.ctx);
+        const rows = await caller.garanzie.list({
+          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
+          stato: input.stato ? String(input.stato) : undefined,
+        });
+        return ok(
+          rows.slice(0, 25).map((g: any) => ({
+            id: g.id,
+            descrizione: g.descrizione,
+            stato: g.stato,
+            dataScadenza: g.dataScadenza ?? null,
+            commessaId: g.commessaId ?? null,
+          }))
+        );
+      }
+      case "leggi_fornitori": {
+        const caller = await getCaller(rt.ctx);
+        const rows = await caller.fornitori.list();
+        const q = input.query ? String(input.query).toLowerCase() : null;
+        return ok(
+          rows
+            .filter(
+              (f: any) => !q || f.ragioneSociale.toLowerCase().includes(q)
+            )
+            .slice(0, 20)
+            .map((f: any) => ({
+              id: f.id,
+              ragioneSociale: f.ragioneSociale,
+              categoria: f.categoria,
+              telefono: f.telefono ?? null,
+              email: f.email ?? null,
+              referente: f.referenteCommerciale ?? null,
+            }))
+        );
+      }
+      case "leggi_squadre": {
+        const caller = await getCaller(rt.ctx);
+        const rows = await caller.squadre.list();
+        return ok(
+          rows.map((s: any) => ({
+            id: s.id,
+            nome: s.nome,
+            componenti: s.componenti ?? s.membri ?? null,
+          }))
+        );
+      }
       case "leggi_economia": {
         // Il caller applica requireDirezioneOAmministrazione: se a parlare
         // con Tars è un commerciale, l'errore FORBIDDEN arriva qui e viene

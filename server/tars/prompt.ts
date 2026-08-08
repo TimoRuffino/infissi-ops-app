@@ -2,7 +2,7 @@
 // conoscenza aziendale (§12.1) appeso in coda. Il testo è statico a meno
 // della conoscenza: il prompt caching lavora sul blocco intero.
 
-import { conoscenza } from "./stores";
+import { conoscenza, proposte } from "./stores";
 
 const SYSTEM_BASE = `Sei Tars, l'agente operativo di Ruffino Ops, il gestionale di Ruffino Group — azienda di
 infissi e serramenti di Sarzana (La Spezia). Lavori a fianco di un ufficio di poche
@@ -111,21 +111,67 @@ Chiudi con un riepilogo di 2-3 frasi in italiano: cosa hai guardato, cosa hai pr
 cosa resta da chiarire. Se non hai proposto nulla, dì perché in una frase (o usa
 nessuna_azione). Questo testo finisce nel registro esecuzioni e va letto da una persona.`;
 
+// Le ultime decisioni degli operatori sulle proposte: il feedback più
+// onesto che esista. I rifiuti pesano più delle approvazioni — sono loro
+// a dire dove l'agente sta sbagliando. Fatti, non regole: le regole le
+// scrive la direzione in /conoscenza, qui c'è solo lo storico.
+const MAX_DECISIONI = 15;
+
+function bloccoDecisioni(sedeId: number | null): string {
+  const decise = proposte
+    .filter(
+      (p) =>
+        (sedeId == null || p.sedeId === sedeId) &&
+        (p.stato === "approvata" || p.stato === "rifiutata") &&
+        p.decisaAt != null
+    )
+    .sort((a, b) => (b.decisaAt as any) - (a.decisaAt as any));
+  if (decise.length === 0) return "";
+
+  // Tutti i rifiuti recenti (il segnale), più qualche approvazione (la
+  // conferma), dentro il tetto.
+  const rifiuti = decise.filter((p) => p.stato === "rifiutata").slice(0, 10);
+  const approvazioni = decise
+    .filter((p) => p.stato === "approvata")
+    .slice(0, MAX_DECISIONI - rifiuti.length);
+  const campione = [...rifiuti, ...approvazioni];
+
+  const righe = campione.map((p) => {
+    const esito =
+      p.stato === "rifiutata"
+        ? `RIFIUTATA${p.motivoRifiuto ? ` (${p.motivoRifiuto.replace(/_/g, " ")})` : ""}`
+        : "approvata";
+    return `- [${p.tipo}] "${p.titolo}" → ${esito}`;
+  });
+
+  return `
+
+═══ DECISIONI RECENTI DEGLI OPERATORI ═══
+Come sono state accolte le tue ultime proposte. I rifiuti indicano dove stai
+sbagliando: non riproporre la stessa cosa nello stesso modo, e alza l'asticella su
+quel tipo di proposta. "azione non necessaria" e "lo faccio io" significano che stai
+facendo rumore; "dato sbagliato" e "commessa sbagliata" che devi verificare meglio.
+
+${righe.join("\n")}`;
+}
+
 export function buildSystemPrompt(sedeId: number | null): string {
   const vociAttive = conoscenza.filter(
     (v) => v.attiva && (sedeId == null || v.sedeId === sedeId)
   );
-  if (vociAttive.length === 0) return SYSTEM_BASE;
 
-  const blocco = vociAttive
-    .map((v) => `[${v.categoria}] ${v.titolo}: ${v.contenuto}`)
-    .join("\n");
-
-  return `${SYSTEM_BASE}
+  let prompt = SYSTEM_BASE;
+  if (vociAttive.length > 0) {
+    const blocco = vociAttive
+      .map((v) => `[${v.categoria}] ${v.titolo}: ${v.contenuto}`)
+      .join("\n");
+    prompt += `
 
 ═══ CONOSCENZA AZIENDALE ═══
 Regole e convenzioni definite dalla direzione. Prevalgono sulle tue assunzioni generali
 sul settore.
 
 ${blocco}`;
+  }
+  return prompt + bloccoDecisioni(sedeId);
 }

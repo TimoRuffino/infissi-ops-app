@@ -270,29 +270,51 @@ export default function Integrazioni() {
         )}
       </Card>
 
-      {/* Tars — l'agente operativo */}
-      <TarsCard />
+      {/* Le card raggruppate per tema, con aria in mezzo: dodici card in
+          colonna unica erano un muro in cui niente si distingueva. */}
+      <div className="space-y-2 pt-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
+          Agente
+        </h3>
+        <TarsCard />
+      </div>
 
-      {/* Caselle email lette dal CRM (sola lettura) */}
-      <CaselleEmailCard />
+      <div className="space-y-2 pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
+          Canali — email e WhatsApp
+        </h3>
+        <div className="space-y-4">
+          <CaselleEmailCard />
+          <WhatsAppCard />
+        </div>
+      </div>
 
-      {/* WhatsApp Business — ricezione messaggi (sola lettura) */}
-      <WhatsAppCard />
+      <div className="space-y-2 pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
+          Contabilità
+        </h3>
+        <FattureInCloudCard />
+      </div>
 
-      {/* Backup notturno su Google Drive */}
-      <BackupDrive />
+      <div className="space-y-2 pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
+          Calendari
+        </h3>
+        <div className="space-y-4">
+          <GoogleCalendarImport />
+          <GoogleCalendarSync />
+        </div>
+      </div>
 
-      {/* Fatture in Cloud → clienti automatici */}
-      <FattureInCloudCard />
-
-      {/* Mostra i calendari Google dentro al CRM (import) */}
-      <GoogleCalendarImport />
-
-      {/* Pubblica il calendario del CRM su Google (export feeds) */}
-      <GoogleCalendarSync />
+      <div className="space-y-2 pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
+          Sistema
+        </h3>
+        <BackupDrive />
+      </div>
 
       {/* Info */}
-      <Card className="bg-muted/30">
+      <Card className="bg-muted/30 mt-4">
         <CardContent className="p-4">
           <h4 className="text-sm font-semibold mb-2">Come funzionano le integrazioni</h4>
           <div className="space-y-2 text-xs text-muted-foreground">
