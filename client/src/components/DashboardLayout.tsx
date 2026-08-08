@@ -82,10 +82,27 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Contact, label: "Clienti", path: "/clienti" },
-  { icon: Building2, label: "Commesse", path: "/commesse" },
-  { icon: Kanban, label: "Board", path: "/kanban" },
-  { icon: CalendarDays, label: "Calendario", path: "/planning" },
-  { icon: Package, label: "Magazzino", path: "/magazzino" },
+  {
+    icon: Building2,
+    label: "Commesse",
+    path: "/commesse",
+    children: [
+      { icon: Building2, label: "Commesse", path: "/commesse" },
+      { icon: Kanban, label: "Board", path: "/kanban" },
+      { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
+      { icon: Archive, label: "Archivio", path: "/archivio" },
+    ],
+  },
+  {
+    icon: HardHat,
+    label: "Cantiere",
+    path: "/planning",
+    children: [
+      { icon: CalendarDays, label: "Calendario", path: "/planning" },
+      { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
+      { icon: Package, label: "Magazzino", path: "/magazzino" },
+    ],
+  },
   {
     icon: TrendingUp,
     label: "Economia",
@@ -97,11 +114,15 @@ const menuItems: MenuItem[] = [
     ],
   },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
-  { icon: Bot, label: "Tars", path: "/inbox" },
-  { icon: Mail, label: "Comunicazioni", path: "/comunicazioni" },
-  { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
-  { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
-  { icon: Archive, label: "Archivio", path: "/archivio" },
+  {
+    icon: Bot,
+    label: "Tars",
+    path: "/inbox",
+    children: [
+      { icon: Bot, label: "Proposte e chat", path: "/inbox" },
+      { icon: Mail, label: "Comunicazioni", path: "/comunicazioni" },
+    ],
+  },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
   { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },

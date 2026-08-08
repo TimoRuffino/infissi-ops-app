@@ -160,3 +160,104 @@ export function programmaSmistamento(sedeId: number): void {
     }, DEBOUNCE_MS)
   );
 }
+
+// ── Fatture orfane ──────────────────────────────────────────────────────────
+// Le fatture che il match deterministico non ha saputo abbinare (cliente
+// sconosciuto in anagrafica, o più commesse plausibili) vanno a Tars: lui
+// indaga con gli strumenti e propone il collegamento. Il match certo NON
+// passa di qui — quello lo fa gratis il motore deterministico.
+
+const MAX_FATTURE_PER_RUN = 10;
+let fattureInCorso = false;
+let fatturePausaFinoA = 0;
+
+export async function smistaFatture(sedeId: number): Promise<void> {
+  const config = getTarsConfig();
+  if (!config.attivo || !anthropicConfigured()) return;
+  if (fattureInCorso || Date.now() < fatturePausaFinoA) return;
+
+  const { ficFatture, saveFicFatture, statoFattura } = await import(
+    "../routers/ficFatture"
+  );
+  const { getCommesseStore } = await import("../routers/commesse");
+  const commesse = getCommesseStore();
+
+  const orfane = ficFatture
+    .filter((f) => {
+      if (f.ignorata || f.tarsAnalizzata) return false;
+      return statoFattura(f, commesse).stato === "non_abbinabile";
+    })
+    .slice(0, MAX_FATTURE_PER_RUN);
+  if (orfane.length === 0) return;
+
+  fattureInCorso = true;
+  try {
+    const blocchi = orfane
+      .map((f) => {
+        const incassato = f.rate
+          .filter((r) => r.stato === "paid")
+          .reduce((s, r) => s + r.importo, 0);
+        return `<fattura ficId="${f.id}">
+Numero: ${f.numero} · Data: ${f.data}
+Cliente in fattura: ${f.clienteNome}${f.clienteVat ? ` · P.IVA ${f.clienteVat}` : ""}${f.clienteCf ? ` · CF ${f.clienteCf}` : ""}
+Importo lordo: € ${f.importoLordo}
+Incassato su FIC: € ${incassato}
+Motivo del mancato abbinamento: ${statoFattura(f, commesse).motivo}
+</fattura>`;
+      })
+      .join("\n\n");
+
+    const richiesta = `<trigger>
+Tipo: riconciliazione_fatture
+Data e ora: ${new Date().toISOString()}
+</trigger>
+
+Le fatture qui sotto arrivano da Fatture in Cloud e il collegamento automatico non ha
+individuato la commessa. Per ciascuna: cerca il cliente e le sue commesse con gli
+strumenti (il nome in fattura può essere scritto diversamente dall'anagrafica: ragioni
+sociali abbreviate, soci con cognomi diversi, condomini). Confronta importi e periodo.
+Se individui la commessa giusta, usa proponi_collegamento_fattura con l'id FIC. Se una
+fattura non c'entra con le commesse (consulenze, vendite al banco, altro), non proporre
+nulla per lei. Se non c'è nulla da proporre, usa nessuna_azione.
+
+${blocchi}`;
+
+    const esecuzione = await runTars({
+      ctx: ctxSistema(sedeId),
+      trigger: "riconciliazione_fatture",
+      commessaId: null,
+      richiesta,
+    });
+
+    if (esecuzione.esito === "errore") {
+      fatturePausaFinoA = Date.now() + PAUSA_DOPO_ERRORE_MS;
+      console.warn(
+        `[tars] riconciliazione fatture fallita, pausa 15m: ${esecuzione.errore}`
+      );
+      return;
+    }
+
+    // Esaminate una volta, qualunque sia l'esito — come le mail.
+    for (const f of orfane) f.tarsAnalizzata = true;
+    saveFicFatture();
+    if (esecuzione.proposteIds.length > 0) {
+      console.log(
+        `[tars] riconciliazione fatture: ${orfane.length} esaminate, ${esecuzione.proposteIds.length} proposte`
+      );
+    }
+  } finally {
+    fattureInCorso = false;
+  }
+}
+
+let fattureTimer: NodeJS.Timeout | null = null;
+
+export function programmaSmistamentoFatture(sedeId: number): void {
+  if (fattureTimer) clearTimeout(fattureTimer);
+  fattureTimer = setTimeout(() => {
+    fattureTimer = null;
+    void smistaFatture(sedeId).catch((e) =>
+      console.error("[tars] riconciliazione fatture:", e?.message ?? e)
+    );
+  }, DEBOUNCE_MS);
+}

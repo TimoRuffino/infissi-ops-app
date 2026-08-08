@@ -30,6 +30,18 @@ export async function eseguiProposta(
   const p = proposta.payload ?? {};
 
   switch (proposta.tipo) {
+    case "collega_fattura": {
+      // Il collegamento passa dalla stessa mutation dell'operatore: sede
+      // scope verificato lì, e la riconciliazione deterministica riparte
+      // subito — le proposte su pattuito e incassi arrivano da sole.
+      const esito = await caller.ficFatture.collega({
+        ficId: p.ficId,
+        commessaId: p.commessaId,
+      });
+      return esito.proposteCreate > 0
+        ? `Fattura ${p.fatturaNumero} collegata a ${p.commessaCodice} — ${esito.proposteCreate} proposte su pattuito/incassi in coda`
+        : `Fattura ${p.fatturaNumero} collegata a ${p.commessaCodice}`;
+    }
     case "collega_comunicazione": {
       const { setMatchComunicazione } = await import("./comunicazioni");
       const ok = await setMatchComunicazione(

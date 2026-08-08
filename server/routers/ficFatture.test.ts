@@ -217,3 +217,111 @@ describe("validazione token FIC", () => {
     ).rejects.toThrow(/Client ID/);
   });
 });
+
+// Le fatture che il motore deterministico NON sa abbinare vanno a Tars:
+// lui indaga e propone il collegamento; l'approvazione collega davvero e
+// fa partire le proposte su pattuito e incassi. Il giro si paga una volta.
+describe("fatture orfane → Tars", () => {
+  it("orfana → proposta di collegamento → approvazione collega e riconcilia", async () => {
+    const { vi } = await import("vitest");
+    const { getTarsConfig } = await import("../tars/stores");
+    const { smistaFatture } = await import("../tars/smistamento");
+    const realFetch = global.fetch;
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    getTarsConfig().attivo = true;
+
+    try {
+      const caller = appRouter.createCaller(makeCtx());
+      // La commessa giusta esiste, ma il nome in fattura non è in anagrafica.
+      const cliente = await caller.clienti.create({
+        nome: " ",
+        cognome: "Condominio Girasole",
+        tipo: "condominio",
+      });
+      const commessa = await caller.commesse.create({ clienteId: cliente.id });
+
+      upsertFatture([
+        fatturaBase(9100, {
+          numero: "9100/A",
+          // Grafia diversa: il match per nome fallisce, Tars deve capire.
+          clienteNome: "COND. GIRASOLE - AMM. BRUNI",
+          importoLordo: 7320,
+          rate: [
+            { importo: 7320, scadenza: "2026-07-31", stato: "paid", dataPagamento: "2026-07-25" },
+          ],
+        }),
+      ]);
+
+      let i = 0;
+      const risposte = [
+        {
+          stop_reason: "tool_use",
+          usage: { input_tokens: 100, output_tokens: 50 },
+          content: [
+            { type: "tool_use", id: "t1", name: "cerca_clienti", input: { query: "Girasole" } },
+          ],
+        },
+        {
+          stop_reason: "tool_use",
+          usage: { input_tokens: 100, output_tokens: 50 },
+          content: [
+            {
+              type: "tool_use",
+              id: "t2",
+              name: "proponi_collegamento_fattura",
+              input: {
+                ficId: 9100,
+                commessaId: commessa.id,
+                titolo: `Collega la fattura 9100/A a ${commessa.codice} (Condominio Girasole)`,
+                motivazione:
+                  "Il nome in fattura è il Condominio Girasole scritto con l'amministratore; l'importo è compatibile.",
+                confidenza: "media",
+              },
+            },
+          ],
+        },
+        {
+          stop_reason: "end_turn",
+          usage: { input_tokens: 100, output_tokens: 50 },
+          content: [{ type: "text", text: "Proposto un collegamento." }],
+        },
+      ];
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => risposte[Math.min(i++, risposte.length - 1)],
+        text: async () => "",
+      })) as any;
+
+      await smistaFatture(1);
+
+      const proposta = proposte.find(
+        (p) => p.tipo === "collega_fattura" && p.payload?.ficId === 9100
+      );
+      expect(proposta).toBeDefined();
+      expect(ficFatture.find((f) => f.id === 9100)!.tarsAnalizzata).toBe(true);
+
+      // Approvazione (direzione) → collegata + proposte soldi in coda.
+      await caller.tars.proposte.approva({ id: proposta!.id });
+      const f = ficFatture.find((x) => x.id === 9100)!;
+      expect(f.commessaId).toBe(commessa.id);
+      expect(
+        proposte.some(
+          (p) =>
+            p.tipo === "pagamento" &&
+            p.commessaId === commessa.id &&
+            JSON.stringify(p.payload).includes("9100/A")
+        )
+      ).toBe(true);
+
+      // Già esaminata: il secondo giro non richiama l'API.
+      const spy = vi.fn();
+      global.fetch = spy as any;
+      await smistaFatture(1);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = realFetch;
+      delete process.env.ANTHROPIC_API_KEY;
+      getTarsConfig().attivo = false;
+    }
+  });
+});

@@ -236,6 +236,17 @@ export const TOOL_DEFS: AnthropicTool[] = [
     },
   },
   {
+    name: "leggi_economia",
+    description:
+      "La situazione contabile aggregata: pattuito, incassato, residuo, costi, margine (lato commesse) e fatturato/incassato (lato Fatture in Cloud), con l'andamento mensile. Riservato a direzione e amministrazione: per gli altri operatori risponde che il dato non è consultabile.",
+    input_schema: {
+      type: "object",
+      properties: {
+        anno: { type: "number", description: "Default: anno corrente" },
+      },
+    },
+  },
+  {
     name: "leggi_fatture_cloud",
     description:
       "Fatture emesse sincronizzate da Fatture in Cloud: numero, data, cliente, importo, rate con stato d'incasso, commessa abbinata. Sola lettura. Utile per verificare se un pagamento dichiarato risulta incassato davvero.",
@@ -307,6 +318,20 @@ export const TOOL_DEFS: AnthropicTool[] = [
         ...PROPOSTA_PROPS,
       },
       required: ["comunicazioneId", "commessaId", "titolo", "motivazione", "confidenza"],
+    },
+  },
+  {
+    name: "proponi_collegamento_fattura",
+    description:
+      "Propone di collegare una fattura di Fatture in Cloud a una commessa. Usalo per le fatture che il match automatico non ha saputo abbinare, quando dagli indizi (nome cliente, importo, periodo, prodotti) individui la commessa giusta — dopo averla verificata con gli strumenti. All'approvazione partiranno da sole le proposte su pattuito e incassi.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ficId: { type: "number", description: "Id FIC della fattura" },
+        commessaId: { type: "number" },
+        ...PROPOSTA_PROPS,
+      },
+      required: ["ficId", "commessaId", "titolo", "motivazione", "confidenza"],
     },
   },
   {
@@ -712,6 +737,16 @@ export async function eseguiStrumento(
         );
       }
 
+      case "leggi_economia": {
+        // Il caller applica requireDirezioneOAmministrazione: se a parlare
+        // con Tars è un commerciale, l'errore FORBIDDEN arriva qui e viene
+        // riportato al modello come limite, non aggirato.
+        const caller = await getCaller(rt.ctx);
+        const overview = await caller.economia.overview({
+          anno: input.anno != null ? Number(input.anno) : undefined,
+        });
+        return ok(overview);
+      }
       case "leggi_fatture_cloud": {
         const { ficFatture, statoFattura } = await import(
           "../routers/ficFatture"
@@ -831,6 +866,32 @@ export async function eseguiStrumento(
             commessaId: Number(input.commessaId),
             commessaCodice: (commessa as any).codice ?? null,
             clienteId: (commessa as any).clienteId ?? null,
+          },
+        });
+      }
+      case "proponi_collegamento_fattura": {
+        const { ficFatture } = await import("../routers/ficFatture");
+        const fattura = ficFatture.find((f) => f.id === Number(input.ficId));
+        if (!fattura) return err("Fattura non trovata.");
+        const commessa = getCommessaById(Number(input.commessaId));
+        if (!commessa || (commessa as any).sedeId !== (rt.ctx.sedeId ?? 1)) {
+          return err("Commessa inesistente.");
+        }
+        if ((commessa as any).archivedAt) {
+          return err("La commessa è archiviata: le fatture nuove non si collegano ai fascicoli chiusi.");
+        }
+        return creaProposta(rt, {
+          tipo: "collega_fattura",
+          titolo: input.titolo,
+          motivazione: input.motivazione,
+          confidenza: input.confidenza,
+          commessaId: Number(input.commessaId),
+          payload: {
+            ficId: Number(input.ficId),
+            fatturaNumero: fattura.numero,
+            fatturaImporto: fattura.importoLordo,
+            commessaId: Number(input.commessaId),
+            commessaCodice: (commessa as any).codice ?? null,
           },
         });
       }

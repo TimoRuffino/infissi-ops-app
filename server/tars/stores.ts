@@ -17,6 +17,7 @@ import { persistedStore } from "../_core/persistence";
 
 export const TIPI_PROPOSTA = [
   "collega_comunicazione",
+  "collega_fattura",
   "rinomina_documento",
   "nota_timeline",
   "aggiornamento_magazzino",
@@ -32,10 +33,13 @@ export const TIPI_PROPOSTA = [
 export type TipoProposta = (typeof TIPI_PROPOSTA)[number];
 
 // Tipi ad alto rischio: l'approvazione richiede direzione o amministrazione.
+// collega_fattura è qui perché la mutation sottostante è comunque riservata
+// a quei ruoli: meglio bloccare all'approvazione che far fallire dopo.
 export const TIPI_ALTO_RISCHIO: TipoProposta[] = [
   "pagamento",
   "avanzamento_stato",
   "bozza_risposta",
+  "collega_fattura",
 ];
 
 export type StatoProposta =

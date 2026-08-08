@@ -220,6 +220,14 @@ export async function runFicSync(): Promise<string> {
     const { nuove, aggiornate } = upsertFatture(fatture);
     const proposteCreate = generaProposteRiconciliazione();
 
+    // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
+    // propone il collegamento. Fire-and-forget col suo debounce: il sync
+    // non deve aspettare l'agente. Oggi tutto vive sulla sede 1 (La
+    // Spezia); quando le fatture avranno una sede propria, questa riga
+    // andrà ripensata.
+    const { programmaSmistamentoFatture } = await import("../tars/smistamento");
+    programmaSmistamentoFatture(1);
+
     const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;

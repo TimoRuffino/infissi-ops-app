@@ -53,10 +53,17 @@ export type FatturaFic = {
   commessaId: number | null;
   collegataAMano: boolean;
   ignorata: boolean;
+  // Già esaminata da Tars per il collegamento: una fattura ambigua si paga
+  // una volta sola, come le mail.
+  tarsAnalizzata: boolean;
   aggiornataAt: Date;
 };
 
-const _fattureStore = persistedStore<FatturaFic>("fic_fatture", () => {});
+const _fattureStore = persistedStore<FatturaFic>("fic_fatture", (items) => {
+  for (const f of items) {
+    if (f.tarsAnalizzata === undefined) f.tarsAnalizzata = false;
+  }
+});
 export const ficFatture = _fattureStore.items;
 export const saveFicFatture = () => _fattureStore.save();
 
@@ -133,6 +140,7 @@ export function upsertFatture(
         commessaId: null,
         collegataAMano: false,
         ignorata: false,
+        tarsAnalizzata: false,
         aggiornataAt: new Date(),
       });
       nuove++;

@@ -16,6 +16,7 @@ import TarsAvatar from "@/components/TarsAvatar";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
+  collega_fattura: "Fattura",
   rinomina_documento: "Documento",
   nota_timeline: "Timeline",
   aggiornamento_magazzino: "Magazzino",
@@ -58,6 +59,11 @@ function describePayload(p: any): string[] {
     case "collega_comunicazione":
       out.push(
         `Collega la mail a ${pay.commessaCodice ?? `commessa #${pay.commessaId}`}`
+      );
+      break;
+    case "collega_fattura":
+      out.push(
+        `Collega la fattura ${pay.fatturaNumero} (${formatEuroSimbolo(pay.fatturaImporto)}) a ${pay.commessaCodice ?? `commessa #${pay.commessaId}`}`
       );
       break;
     case "rinomina_documento":
