@@ -106,6 +106,21 @@ export default function WhatsAppCard() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const [esitoProva, setEsitoProva] = useState<any>(null);
+  const prova = trpc.mail.whatsapp.prova.useMutation({
+    onSuccess: (r: any) => {
+      setEsitoProva(r);
+      if (r.ok) {
+        toast.success(
+          `Connessione riuscita — ${r.account}, ${r.numeri.length} numer${r.numeri.length === 1 ? "o" : "i"}`
+        );
+      } else {
+        toast.error(r.errore);
+      }
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const syncStorico = trpc.mail.whatsapp.syncStorico.useMutation({
     onSuccess: (r: any) => {
       if (r.ok) toast.success("Storico richiesto a Meta: arriverà via webhook");
@@ -400,6 +415,21 @@ export default function WhatsAppCard() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    disabled={prova.isPending || !c.tokenConfigurato}
+                    onClick={() => prova.mutate({ id: c.id })}
+                    title="Legge account e numeri da Meta: verifica il collegamento e registra l'uso del permesso per la App Review"
+                  >
+                    {prova.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3 mr-1" />
+                    )}
+                    Prova
+                  </Button>
                   <Switch
                     checked={c.attiva}
                     disabled={mancanti.length > 0}
@@ -486,6 +516,27 @@ export default function WhatsAppCard() {
                   Storico richiesto il{" "}
                   {new Date(c.storicoSincronizzato).toLocaleString("it-IT")}
                 </p>
+              )}
+
+              {/* Esito della prova: quello che Meta ci ha risposto davvero. */}
+              {esitoProva?.ok && (
+                <div className="rounded-md border bg-muted/40 p-2 space-y-1">
+                  <p className="text-xs font-medium">
+                    Account: {esitoProva.account}
+                  </p>
+                  {esitoProva.numeri.map((n: any) => (
+                    <p key={n.id} className="text-xs text-muted-foreground">
+                      {n.numero ?? n.id}
+                      {n.nome ? ` · ${n.nome}` : ""}
+                      {n.qualita ? ` · qualità ${n.qualita}` : ""}
+                      {n.stato === "SMB_APP"
+                        ? " · coexistence attiva"
+                        : n.stato
+                          ? ` · ${n.stato}`
+                          : ""}
+                    </p>
+                  ))}
+                </div>
               )}
 
               {c.ultimoMessaggio && (

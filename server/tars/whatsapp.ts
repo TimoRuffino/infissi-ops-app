@@ -358,6 +358,100 @@ export async function completaOnboarding(params: {
   return config;
 }
 
+// ── Prova connessione ───────────────────────────────────────────────────────
+// Legge account e numeri dalla WABA. Serve a due cose: dire all'operatore
+// se il collegamento regge davvero, e — per la App Review di Meta —
+// registrare un uso effettivo di whatsapp_business_management, che loro
+// pretendono prima di esaminare la richiesta.
+// Sola lettura: nessuna di queste chiamate modifica alcunché.
+
+function messaggioErroreMeta(status: number, body: any): string {
+  const msg = body?.error?.message ?? `HTTP ${status}`;
+  const code = body?.error?.code;
+  if (status === 401 || code === 190) {
+    return "Token rifiutato da Meta: è scaduto o è stato revocato. Rifai il collegamento col QR.";
+  }
+  if (status === 403 || code === 200) {
+    return "Permessi insufficienti: l'app non ha ancora whatsapp_business_management in accesso avanzato, oppure il token non li porta.";
+  }
+  if (status === 404) {
+    return "Account WhatsApp Business non trovato con questo token: il WABA ID potrebbe non essere più valido.";
+  }
+  if (code === 4 || code === 80007 || status === 429) {
+    return "Limite di richieste raggiunto: riprova tra qualche minuto.";
+  }
+  return msg;
+}
+
+export async function provaConnessione(config: ConfigWhatsApp): Promise<{
+  ok: boolean;
+  errore: string | null;
+  account: string | null;
+  numeri: Array<{
+    id: string;
+    numero: string | null;
+    nome: string | null;
+    qualita: string | null;
+    stato: string | null;
+  }>;
+}> {
+  const vuoto = { account: null, numeri: [] as any[] };
+  if (!config.tokenCifrato) {
+    return { ok: false, errore: "Nessun token: completa prima il collegamento.", ...vuoto };
+  }
+  if (!config.wabaId) {
+    return { ok: false, errore: "WABA ID mancante sulla configurazione.", ...vuoto };
+  }
+  let token: string;
+  try {
+    token = decryptSecret(config.tokenCifrato);
+  } catch {
+    return {
+      ok: false,
+      errore: "Token non decifrabile: MAIL_ENCRYPTION_KEY è cambiata dopo il salvataggio.",
+      ...vuoto,
+    };
+  }
+
+  const chiama = async (path: string) => {
+    const res = await fetch(`${GRAPH}${path}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(messaggioErroreMeta(res.status, body));
+    return body;
+  };
+
+  try {
+    const account = await chiama(`/${config.wabaId}?fields=id,name`);
+    const numeri = await chiama(
+      `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
+    );
+    config.ultimoErrore = null;
+    config.updatedAt = new Date();
+    saveConfigWhatsApp();
+    return {
+      ok: true,
+      errore: null,
+      account: account?.name ?? config.wabaId,
+      numeri: (numeri?.data ?? []).map((n: any) => ({
+        id: String(n.id),
+        numero: n.display_phone_number ?? null,
+        nome: n.verified_name ?? null,
+        qualita: n.quality_rating ?? null,
+        // "CLOUD_API" oppure "SMB_APP" — quest'ultimo conferma la coexistence.
+        stato: n.platform_type ?? null,
+      })),
+    };
+  } catch (e: any) {
+    const errore = e?.message ?? String(e);
+    config.ultimoErrore = errore;
+    config.updatedAt = new Date();
+    saveConfigWhatsApp();
+    return { ok: false, errore, ...vuoto };
+  }
+}
+
 // ── Media (download on-demand) ──────────────────────────────────────────────
 
 /**

@@ -33,6 +33,7 @@ import {
   getAppWhatsApp,
   newConfigWhatsAppId,
   proteggiSegreto,
+  provaConnessione,
   saveAppWhatsApp,
   saveConfigWhatsApp,
   sincronizzaStorico,
@@ -309,6 +310,18 @@ export const mailRouter = router({
             message: e?.message ?? "Onboarding non riuscito.",
           });
         }
+      }),
+
+    // Legge account e numeri dalla WABA: diagnostica per l'operatore e,
+    // per la App Review, la chiamata reale che Meta pretende di vedere
+    // prima di concedere il permesso in accesso avanzato.
+    prova: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = configWhatsApp.find((x) => x.id === input.id);
+        assertSedeScope(c ?? null, ctx.sedeId);
+        return provaConnessione(c!);
       }),
 
     // Ritenta il sync dello storico: utile solo entro 24 ore dal
