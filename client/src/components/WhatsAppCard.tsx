@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 // Carica l'SDK Facebook una volta sola. Serve solo quando la direzione
 // apre questa card: non lo si impone a ogni pagina del gestionale.
@@ -110,9 +111,10 @@ export default function WhatsAppCard() {
   const prova = trpc.mail.whatsapp.prova.useMutation({
     onSuccess: (r: any) => {
       setEsitoProva(r);
+      const riuscite = (r.chiamate ?? []).filter((c: any) => c.ok).length;
       if (r.ok) {
         toast.success(
-          `Connessione riuscita — ${r.account}, ${r.numeri.length} numer${r.numeri.length === 1 ? "o" : "i"}`
+          `${riuscite} chiamate API riuscite su ${r.chiamate?.length ?? 0}`
         );
       } else {
         toast.error(r.errore);
@@ -518,13 +520,17 @@ export default function WhatsAppCard() {
                 </p>
               )}
 
-              {/* Esito della prova: quello che Meta ci ha risposto davvero. */}
-              {esitoProva?.ok && (
-                <div className="rounded-md border bg-muted/40 p-2 space-y-1">
-                  <p className="text-xs font-medium">
-                    Account: {esitoProva.account}
-                  </p>
-                  {esitoProva.numeri.map((n: any) => (
+              {/* Esito della prova: cosa Meta ci ha risposto, chiamata per
+                  chiamata. Serve a vedere quale permesso è stato esercitato
+                  davvero mentre i contatori della App Review si muovono. */}
+              {esitoProva && (
+                <div className="rounded-md border bg-muted/40 p-2 space-y-1.5">
+                  {esitoProva.account && (
+                    <p className="text-xs font-medium">
+                      Account: {esitoProva.account}
+                    </p>
+                  )}
+                  {esitoProva.numeri?.map((n: any) => (
                     <p key={n.id} className="text-xs text-muted-foreground">
                       {n.numero ?? n.id}
                       {n.nome ? ` · ${n.nome}` : ""}
@@ -536,6 +542,22 @@ export default function WhatsAppCard() {
                           : ""}
                     </p>
                   ))}
+                  <div className="space-y-0.5 pt-0.5">
+                    {(esitoProva.chiamate ?? []).map((c: any, i: number) => (
+                      <p
+                        key={i}
+                        className={cn(
+                          "text-[11px] font-mono",
+                          c.ok
+                            ? "text-green-600 dark:text-green-500"
+                            : "text-destructive"
+                        )}
+                      >
+                        {c.ok ? "✓" : "✕"} {c.permesso} — {c.endpoint}
+                        {!c.ok ? ` · ${c.dettaglio}` : ""}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               )}
 

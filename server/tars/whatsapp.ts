@@ -383,6 +383,17 @@ function messaggioErroreMeta(status: number, body: any): string {
   return msg;
 }
 
+// Ogni chiamata dichiara quale permesso esercita: la App Review conta le
+// chiamate per permesso, e serve vedere quale ha fatto scattare il
+// contatore. Una che fallisce non ferma le altre — con più tentativi
+// indipendenti si scopre esattamente cosa manca.
+export type EsitoChiamata = {
+  permesso: string;
+  endpoint: string;
+  ok: boolean;
+  dettaglio: string;
+};
+
 export async function provaConnessione(config: ConfigWhatsApp): Promise<{
   ok: boolean;
   errore: string | null;
@@ -394,8 +405,9 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     qualita: string | null;
     stato: string | null;
   }>;
+  chiamate: EsitoChiamata[];
 }> {
-  const vuoto = { account: null, numeri: [] as any[] };
+  const vuoto = { account: null, numeri: [] as any[], chiamate: [] as EsitoChiamata[] };
   if (!config.tokenCifrato) {
     return { ok: false, errore: "Nessun token: completa prima il collegamento.", ...vuoto };
   }
@@ -413,43 +425,91 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     };
   }
 
-  const chiama = async (path: string) => {
-    const res = await fetch(`${GRAPH}${path}`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const body: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(messaggioErroreMeta(res.status, body));
-    return body;
+  const chiamate: EsitoChiamata[] = [];
+  const chiama = async (
+    permesso: string,
+    endpoint: string,
+    path: string
+  ): Promise<any | null> => {
+    try {
+      const res = await fetch(`${GRAPH}${path}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const body: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        chiamate.push({
+          permesso,
+          endpoint,
+          ok: false,
+          dettaglio: messaggioErroreMeta(res.status, body),
+        });
+        return null;
+      }
+      chiamate.push({ permesso, endpoint, ok: true, dettaglio: "chiamata riuscita" });
+      return body;
+    } catch (e: any) {
+      chiamate.push({
+        permesso,
+        endpoint,
+        ok: false,
+        dettaglio: e?.message ?? String(e),
+      });
+      return null;
+    }
   };
 
-  try {
-    const account = await chiama(`/${config.wabaId}?fields=id,name`);
-    const numeri = await chiama(
-      `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
-    );
-    config.ultimoErrore = null;
-    config.updatedAt = new Date();
-    saveConfigWhatsApp();
-    return {
-      ok: true,
-      errore: null,
-      account: account?.name ?? config.wabaId,
-      numeri: (numeri?.data ?? []).map((n: any) => ({
-        id: String(n.id),
-        numero: n.display_phone_number ?? null,
-        nome: n.verified_name ?? null,
-        qualita: n.quality_rating ?? null,
-        // "CLOUD_API" oppure "SMB_APP" — quest'ultimo conferma la coexistence.
-        stato: n.platform_type ?? null,
-      })),
-    };
-  } catch (e: any) {
-    const errore = e?.message ?? String(e);
-    config.ultimoErrore = errore;
-    config.updatedAt = new Date();
-    saveConfigWhatsApp();
-    return { ok: false, errore, ...vuoto };
-  }
+  // whatsapp_business_management — l'account e i suoi numeri.
+  const account = await chiama(
+    "whatsapp_business_management",
+    `GET /${config.wabaId}`,
+    `/${config.wabaId}?fields=id,name`
+  );
+  const numeri = await chiama(
+    "whatsapp_business_management",
+    `GET /${config.wabaId}/phone_numbers`,
+    `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
+  );
+
+  // business_management — gli asset del Business Manager. Due tentativi
+  // indipendenti: il campo owner_business_info sulla WABA, e l'elenco
+  // dei business del token. Ne basta uno per far scattare il contatore.
+  await chiama(
+    "business_management",
+    `GET /${config.wabaId}?fields=owner_business_info`,
+    `/${config.wabaId}?fields=id,owner_business_info`
+  );
+  await chiama(
+    "business_management",
+    "GET /me/businesses",
+    "/me/businesses?fields=id,name"
+  );
+
+  const ok = chiamate.some((c) => c.ok);
+  const fallite = chiamate.filter((c) => !c.ok);
+  const errore = ok
+    ? fallite.length > 0
+      ? `${fallite.length} chiamate su ${chiamate.length} non riuscite — vedi il dettaglio.`
+      : null
+    : (fallite[0]?.dettaglio ?? "Nessuna chiamata riuscita.");
+
+  config.ultimoErrore = ok ? null : errore;
+  config.updatedAt = new Date();
+  saveConfigWhatsApp();
+
+  return {
+    ok,
+    errore,
+    account: account?.name ?? (ok ? config.wabaId : null),
+    numeri: (numeri?.data ?? []).map((n: any) => ({
+      id: String(n.id),
+      numero: n.display_phone_number ?? null,
+      nome: n.verified_name ?? null,
+      qualita: n.quality_rating ?? null,
+      // "CLOUD_API" oppure "SMB_APP" — quest'ultimo conferma la coexistence.
+      stato: n.platform_type ?? null,
+    })),
+    chiamate,
+  };
 }
 
 // ── Media (download on-demand) ──────────────────────────────────────────────
