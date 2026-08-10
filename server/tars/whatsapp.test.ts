@@ -9,8 +9,10 @@ import { matchComunicazione } from "./match";
 import { normalizzaTelefono, stessoNumero } from "@shared/telefono";
 import {
   configWhatsApp,
+  getAppWhatsApp,
   ingestisciWebhook,
   verificaFirma,
+  verifyTokenValido,
 } from "./whatsapp";
 import {
   listComunicazioni,
@@ -478,5 +480,26 @@ describe("coexistence: echo e storico", () => {
       ],
     };
     expect(await ingestisciWebhook(payload)).toBe(0);
+  });
+});
+
+// Meta valida l'URL del webhook una volta per app, e in quel momento un
+// numero può non esserci ancora: l'handshake deve reggere comunque.
+describe("handshake del webhook", () => {
+  it("il token dell'app vale anche senza numeri configurati", () => {
+    const token = getAppWhatsApp().verifyToken;
+    expect(token).toMatch(/^[0-9a-f]{48}$/);
+    expect(verifyTokenValido(token)).toBe(true);
+  });
+
+  it("vale anche il token di un numero", () => {
+    const c = configWhatsApp[0];
+    expect(c.verifyToken).toBeTruthy();
+    expect(verifyTokenValido(c.verifyToken)).toBe(true);
+  });
+
+  it("un token sbagliato o vuoto non passa", () => {
+    expect(verifyTokenValido("sbagliato")).toBe(false);
+    expect(verifyTokenValido("")).toBe(false);
   });
 });

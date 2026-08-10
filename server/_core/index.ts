@@ -77,11 +77,11 @@ async function startServer() {
   // valida). Anonimo per necessità — è Meta a chiamare — ma ogni POST
   // passa dalla verifica della firma prima di essere guardato.
   app.get("/api/webhook/whatsapp", async (req, res) => {
-    const { configPerVerifyToken } = await import("../tars/whatsapp");
+    const { verifyTokenValido } = await import("../tars/whatsapp");
     const mode = String(req.query["hub.mode"] ?? "");
     const token = String(req.query["hub.verify_token"] ?? "");
     const challenge = String(req.query["hub.challenge"] ?? "");
-    if (mode === "subscribe" && configPerVerifyToken(token)) {
+    if (mode === "subscribe" && verifyTokenValido(token)) {
       res.status(200).type("text/plain").send(challenge);
       return;
     }

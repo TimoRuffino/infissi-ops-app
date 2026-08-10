@@ -89,32 +89,45 @@ export type AppWhatsApp = {
   // flusso di coexistence (scansione del QR dall'app del telefono).
   configId: string;
   appSecretCifrato: string;
+  // Il webhook su Meta si configura una volta per app, e va validato prima
+  // che esista un numero: serve quindi un verify token che non dipenda da
+  // nessuna configurazione. Non è una credenziale — è la stringa che Meta
+  // rimanda nell'handshake — ma resta imprevedibile.
+  verifyToken: string;
   updatedAt: Date;
 };
 
+function appVuota(): AppWhatsApp {
+  return {
+    id: 1,
+    appId: "",
+    configId: "",
+    appSecretCifrato: "",
+    verifyToken: nuovoVerifyToken(),
+    updatedAt: new Date(),
+  };
+}
+
 const _appStore = persistedStore<AppWhatsApp>("whatsapp_app", (items, meta) => {
   if (items.length === 0 && meta.firstBoot) {
-    items.push({
-      id: 1,
-      appId: "",
-      configId: "",
-      appSecretCifrato: "",
-      updatedAt: new Date(),
-    });
+    items.push(appVuota());
+  }
+  // Installazioni salvate prima che il token esistesse.
+  for (const a of items) {
+    if (!a.verifyToken) a.verifyToken = nuovoVerifyToken();
   }
 });
 
 export function getAppWhatsApp(): AppWhatsApp {
   if (_appStore.items.length === 0) {
-    _appStore.items.push({
-      id: 1,
-      appId: "",
-      configId: "",
-      appSecretCifrato: "",
-      updatedAt: new Date(),
-    });
+    _appStore.items.push(appVuota());
   }
-  return _appStore.items[0];
+  const a = _appStore.items[0];
+  if (!a.verifyToken) {
+    a.verifyToken = nuovoVerifyToken();
+    _appStore.save();
+  }
+  return a;
 }
 export const saveAppWhatsApp = () => _appStore.save();
 
@@ -125,6 +138,7 @@ export function appPubblica() {
     appId: a.appId,
     configId: a.configId,
     appSecretConfigurato: !!a.appSecretCifrato,
+    verifyToken: a.verifyToken,
     pronta: !!a.appId && !!a.configId && !!a.appSecretCifrato,
   };
 }
@@ -199,6 +213,16 @@ export function configPerPhoneNumberId(id: string): ConfigWhatsApp | undefined {
 /** La configurazione che risponde a un verify token (handshake GET). */
 export function configPerVerifyToken(token: string): ConfigWhatsApp | undefined {
   return configWhatsApp.find((c) => c.verifyToken === token);
+}
+
+/**
+ * Il token vale per l'handshake? Quello dell'app basta: Meta valida l'URL
+ * una volta sola, e in quel momento un numero può non esserci ancora.
+ */
+export function verifyTokenValido(token: string): boolean {
+  if (!token) return false;
+  if (token === getAppWhatsApp().verifyToken) return true;
+  return configPerVerifyToken(token) != null;
 }
 
 // ── Embedded Signup (coexistence) ───────────────────────────────────────────

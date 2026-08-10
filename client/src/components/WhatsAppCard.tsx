@@ -69,6 +69,7 @@ export default function WhatsAppCard() {
   const [daEliminare, setDaEliminare] = useState<any>(null);
   const [completa, setCompleta] = useState<any>(null);
   const [copiato, setCopiato] = useState(false);
+  const [tokenCopiato, setTokenCopiato] = useState(false);
   const [copiatoVt, setCopiatoVt] = useState<number | null>(null);
   const VUOTO = {
     nome: "Numero aziendale",
@@ -247,6 +248,15 @@ export default function WhatsAppCard() {
     });
   };
 
+  const copiaToken = () => {
+    const t = app.data?.verifyToken;
+    if (!t) return;
+    navigator.clipboard.writeText(t).then(() => {
+      setTokenCopiato(true);
+      setTimeout(() => setTokenCopiato(false), 2000);
+    });
+  };
+
   // Il verify token lo generiamo noi: è una stringa che Meta rimanda
   // indietro nell'handshake, non deve essere memorabile.
   const generaVerifyToken = () => {
@@ -351,11 +361,38 @@ export default function WhatsAppCard() {
               )}
             </Button>
           </div>
+          <Label className="text-xs pt-1 block">
+            Token di verifica (stesso riquadro su Meta)
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={app.data?.verifyToken ?? ""}
+              className="font-mono text-xs"
+            />
+            <Button size="icon" variant="outline" onClick={copiaToken}>
+              {tokenCopiato ? (
+                <Check className="h-4 w-4 text-green-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Sottoscrivi i campi <code>messages</code>, <code>history</code>,{" "}
-            <code>smb_app_state_sync</code> e <code>smb_message_echoes</code>:
-            gli ultimi tre servono per lo storico e per vedere anche i
-            messaggi scritti dal telefono.
+            Questi due campi bastano: l'URL si convalida anche prima che esista
+            un numero. Poi sottoscrivi i campi <code>messages</code>,{" "}
+            <code>history</code>, <code>smb_app_state_sync</code> e{" "}
+            <code>smb_message_echoes</code> — gli ultimi tre servono per lo
+            storico e per vedere anche i messaggi scritti dal telefono.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Se Meta dice che non riesce a convalidare l'URL, apri{" "}
+            <code className="break-all">
+              {url}?hub.mode=subscribe&amp;hub.verify_token=IL_TOKEN&amp;hub.challenge=12345
+            </code>{" "}
+            nel browser: se stampa <code>12345</code> il CRM risponde
+            correttamente e il problema è nel riquadro di Meta (spazi
+            incollati, URL con http al posto di https).
           </p>
         </div>
 
