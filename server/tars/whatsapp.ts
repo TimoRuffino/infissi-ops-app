@@ -470,19 +470,23 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
   );
 
-  // business_management — gli asset del Business Manager. Due tentativi
-  // indipendenti: il campo owner_business_info sulla WABA, e l'elenco
-  // dei business del token. Ne basta uno per far scattare il contatore.
-  await chiama(
+  // business_management — gli asset del Business Manager. Il campo
+  // owner_business_info sulla WABA è la via che funziona coi token da
+  // utente di sistema; /me/businesses si tenta solo se la prima fallisce
+  // (su quei token risponde "(#100) Missing Permission", ed è un rosso
+  // che confonderebbe senza aggiungere nulla).
+  const business = await chiama(
     "business_management",
     `GET /${config.wabaId}?fields=owner_business_info`,
     `/${config.wabaId}?fields=id,owner_business_info`
   );
-  await chiama(
-    "business_management",
-    "GET /me/businesses",
-    "/me/businesses?fields=id,name"
-  );
+  if (!business) {
+    await chiama(
+      "business_management",
+      "GET /me/businesses",
+      "/me/businesses?fields=id,name"
+    );
+  }
 
   const ok = chiamate.some((c) => c.ok);
   const fallite = chiamate.filter((c) => !c.ok);
