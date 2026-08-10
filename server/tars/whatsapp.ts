@@ -483,17 +483,32 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
   );
 
-  // business_management — gli asset del Business Manager. Il campo
-  // owner_business_info sulla WABA è la via che funziona coi token da
-  // utente di sistema; /me/businesses si tenta solo se la prima fallisce
-  // (su quei token risponde "(#100) Missing Permission", ed è un rosso
-  // che confonderebbe senza aggiungere nulla).
-  const business = await chiama(
+  // business_management — Meta conta le chiamate sull'oggetto Business,
+  // non quelle sulla WABA: owner_business_info passa ma non muove il
+  // contatore della App Review. Serve leggere il Business direttamente,
+  // e il suo id lo si ricava proprio da owner_business_info.
+  const proprietario = await chiama(
     "business_management",
     `GET /${config.wabaId}?fields=owner_business_info`,
     `/${config.wabaId}?fields=id,owner_business_info`
   );
-  if (!business) {
+  const businessId =
+    proprietario?.owner_business_info?.id ?? proprietario?.owner_business_info?.business_id;
+
+  if (businessId) {
+    await chiama(
+      "business_management",
+      `GET /${businessId}`,
+      `/${businessId}?fields=id,name,verification_status`
+    );
+    await chiama(
+      "business_management",
+      `GET /${businessId}/owned_whatsapp_business_accounts`,
+      `/${businessId}/owned_whatsapp_business_accounts?fields=id,name`
+    );
+  } else {
+    // Senza id del proprietario resta solo la via generica, che sui token
+    // da utente di sistema di norma risponde "(#100) Missing Permission".
     await chiama(
       "business_management",
       "GET /me/businesses",
