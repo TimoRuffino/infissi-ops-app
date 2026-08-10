@@ -145,6 +145,7 @@ export default function WhatsAppCard() {
   // La WABA arriva dal postMessage del popup, il code dalla callback:
   // due canali distinti, si aspettano a vicenda.
   const wabaRef = useRef<string | null>(null);
+  const numeroRef = useRef<string | null>(null);
   const [onboardingInCorso, setOnboardingInCorso] = useState(false);
 
   const onboarding = trpc.mail.whatsapp.onboarding.useMutation({
@@ -168,6 +169,11 @@ export default function WhatsAppCard() {
         const data = JSON.parse(event.data);
         if (data?.type !== "WA_EMBEDDED_SIGNUP") return;
         if (data?.data?.waba_id) wabaRef.current = String(data.data.waba_id);
+        // sessionInfoVersion 3 riporta anche il numero: usarlo evita di
+        // indovinare quale numero della WABA è quello appena collegato.
+        if (data?.data?.phone_number_id) {
+          numeroRef.current = String(data.data.phone_number_id);
+        }
         if (data?.event === "CANCEL" || data?.event === "ERROR") {
           setOnboardingInCorso(false);
         }
@@ -184,6 +190,7 @@ export default function WhatsAppCard() {
     if (!w.FB || !app.data?.configId) return;
     setOnboardingInCorso(true);
     wabaRef.current = null;
+    numeroRef.current = null;
     w.FB.login(
       (response: any) => {
         const code = response?.authResponse?.code;
@@ -200,20 +207,28 @@ export default function WhatsAppCard() {
             setOnboardingInCorso(false);
             return;
           }
-          onboarding.mutate({ code, wabaId: wabaRef.current });
+          onboarding.mutate({
+            code,
+            wabaId: wabaRef.current,
+            phoneNumberId: numeroRef.current ?? undefined,
+          });
         }, 500);
       },
       {
         config_id: app.data.configId,
         response_type: "code",
         override_default_response_type: true,
-        // Solo ciò che Meta documenta. Un `featureType` fra gli extras — che
-        // in giro viene suggerito per forzare la coexistence — non compare
-        // nello snippet ufficiale, e passarlo fa fallire il dialog con un
-        // "Sorry, something went wrong" privo di dettagli.
-        // La variante di accesso (coexistence o meno) la decide comunque la
-        // Configurazione del Login for Business, non questa chiamata.
-        extras: { setup: {} },
+        extras: {
+          setup: {},
+          // Senza questo il dialog propone la registrazione classica di un
+          // numero nuovo, e su un numero già usato dall'app WhatsApp Business
+          // si ferma con "già registrato: migra o scollega". Con la
+          // coexistence il dialog chiede invece il codice/QR da scansionare
+          // dall'app sul telefono e il numero resta dov'è.
+          featureType: "whatsapp_business_app_onboarding",
+          // v3: la sessione riporta anche il phone_number_id.
+          sessionInfoVersion: "3",
+        },
       }
     );
   };
@@ -291,6 +306,27 @@ export default function WhatsAppCard() {
           contesto per Tars. <strong>Solo ricezione:</strong> il CRM non invia
           nulla, e il numero resta usabile dall'app sul telefono (coexistence).
         </p>
+
+        {app.data?.pronta && (
+          <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1.5">
+            <p className="font-medium">Cosa scegliere nel popup di Meta</p>
+            <p className="text-muted-foreground">
+              Alla domanda su come collegare il numero scegli{" "}
+              <strong>«Il numero è già sull'app WhatsApp Business»</strong> (o
+              «Connect your existing WhatsApp Business app»), non la
+              registrazione di un numero nuovo. Poi arriva un messaggio su
+              WhatsApp e il QR da inquadrare dall'app sul telefono
+              (Impostazioni → Dispositivi collegati).
+            </p>
+            <p className="text-muted-foreground">
+              Se invece Meta risponde{" "}
+              <em>«numero già registrato: migra o scollega»</em>, sei finito
+              sulla registrazione classica: annulla e riparti, senza migrare
+              nulla. Serve l'app WhatsApp Business aggiornata (2.24.17 o
+              successiva) sul telefono che ha quel numero.
+            </p>
+          </div>
+        )}
 
         {!chiaveOk && (
           <div className="flex items-start gap-2 text-amber-600 dark:text-amber-500 text-xs">

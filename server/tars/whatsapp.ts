@@ -315,6 +315,7 @@ export async function sincronizzaStorico(
 export async function completaOnboarding(params: {
   code: string;
   wabaId: string;
+  phoneNumberId?: string;
   sedeId: number;
   nome?: string;
 }): Promise<ConfigWhatsApp> {
@@ -324,8 +325,10 @@ export async function completaOnboarding(params: {
   if (numeri.length === 0) {
     throw new Error("Nessun numero trovato su questo account WhatsApp Business.");
   }
-  // Con la coexistence il numero è uno: il primo è quello.
-  const numero = numeri[0];
+  // Se il popup ha detto quale numero è (sessionInfoVersion 3), è quello.
+  // Altrimenti si prende il primo: con la coexistence il numero è uno.
+  const numero =
+    numeri.find((n) => n.id === params.phoneNumberId) ?? numeri[0];
 
   let config = configWhatsApp.find((c) => c.phoneNumberId === numero.id);
   const now = new Date();

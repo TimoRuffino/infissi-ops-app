@@ -290,6 +290,7 @@ export const mailRouter = router({
         z.object({
           code: z.string().min(10).max(2000),
           wabaId: z.string().min(3).max(60),
+          phoneNumberId: z.string().min(3).max(60).optional(),
           nome: z.string().max(80).optional(),
         })
       )
@@ -300,6 +301,7 @@ export const mailRouter = router({
           const config = await completaOnboarding({
             code: input.code,
             wabaId: input.wabaId,
+            phoneNumberId: input.phoneNumberId,
             sedeId: ctx.sedeId ?? 1,
             nome: input.nome,
           });
