@@ -13,7 +13,7 @@
 // Segreti: il token di accesso e l'app secret sono cifrati con secretBox,
 // perché il backup notturno spedisce ogni raccolta su Drive.
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { persistedStore } from "../_core/persistence";
 import { decryptSecret, encryptSecret, isEncrypted } from "../_core/secretBox";
 import { normalizzaTelefono } from "@shared/telefono";
@@ -70,6 +70,10 @@ const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
     if (c.messaggiRicevuti === undefined) c.messaggiRicevuti = 0;
     if (c.storicoSincronizzato === undefined) c.storicoSincronizzato = null;
     if (c.onboardingAt === undefined) c.onboardingAt = null;
+    // Le configurazioni create dal collegamento col QR prima di questa
+    // correzione hanno il verify token vuoto: senza, l'handshake del
+    // callback non trova nulla da confrontare e Meta rifiuta l'URL.
+    if (!c.verifyToken) c.verifyToken = nuovoVerifyToken();
   }
 });
 
@@ -131,6 +135,11 @@ export const newConfigWhatsAppId = () => nextId++;
 
 export function proteggiSegreto(plain: string): string {
   return isEncrypted(plain) ? plain : encryptSecret(plain);
+}
+
+/** Stringa casuale per l'handshake del webhook: non è una credenziale. */
+export function nuovoVerifyToken(): string {
+  return randomBytes(24).toString("hex");
 }
 
 /** Vista sicura per il client: nessun segreto esce da qui. */
@@ -331,7 +340,11 @@ export async function completaOnboarding(params: {
       tokenCifrato: encryptSecret(token),
       // La firma dei webhook si verifica con l'app secret a livello di app.
       appSecretCifrato: "",
-      verifyToken: "",
+      // Il verify token serve comunque: l'handshake GET del callback lo
+      // confronta con quelli configurati, e senza nessun valore Meta non
+      // riesce a validare l'URL. Se ne genera uno da copiare sulla
+      // configurazione webhook dell'app.
+      verifyToken: nuovoVerifyToken(),
       attiva: true,
       ultimoMessaggio: null,
       messaggiRicevuti: 0,
