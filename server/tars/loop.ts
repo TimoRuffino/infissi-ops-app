@@ -38,7 +38,7 @@ export async function runTars(params: {
   // Proposta da cui nasce questo run (seguito di una decisione).
   origineId?: number | null;
 }): Promise<Esecuzione> {
-  const config = getTarsConfig();
+  const config = getTarsConfig(params.ctx.sedeId);
   const start = Date.now();
 
   const esecuzione: Esecuzione = {

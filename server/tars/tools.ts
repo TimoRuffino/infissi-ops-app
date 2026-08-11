@@ -903,6 +903,7 @@ export async function eseguiStrumento(
         const q = input.query ? String(input.query).toLowerCase() : null;
         const rows = ficFatture
           .filter((f) => {
+            if (f.sedeId !== (rt.ctx.sedeId ?? 1)) return false;
             if (f.ignorata) return false;
             const s = statoFattura(f, commesse);
             if (
@@ -1018,7 +1019,9 @@ export async function eseguiStrumento(
       }
       case "proponi_collegamento_fattura": {
         const { ficFatture } = await import("../routers/ficFatture");
-        const fattura = ficFatture.find((f) => f.id === Number(input.ficId));
+        const fattura = ficFatture.find(
+          (f) => f.id === Number(input.ficId) && f.sedeId === (rt.ctx.sedeId ?? 1)
+        );
         if (!fattura) return err("Fattura non trovata.");
         const commessa = getCommessaById(Number(input.commessaId));
         if (!commessa || (commessa as any).sedeId !== (rt.ctx.sedeId ?? 1)) {

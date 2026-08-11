@@ -255,10 +255,11 @@ export const mailRouter = router({
         .map(configPubblica);
     }),
 
-    // Configurazione dell'app Meta: una sola, vale per tutti i numeri.
+    // Configurazione dell'app Meta: una per sede, vale per i numeri di
+    // quella sede.
     app: protectedProcedure.query(({ ctx }) => {
       requireDirezione(ctx.user);
-      return appPubblica();
+      return appPubblica(ctx.sedeId);
     }),
 
     setApp: protectedProcedure
@@ -271,7 +272,7 @@ export const mailRouter = router({
       )
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const a = getAppWhatsApp();
+        const a = getAppWhatsApp(ctx.sedeId);
         if (input.appSecret) {
           assertChiaveCifratura();
           a.appSecretCifrato = proteggiSegreto(input.appSecret);
@@ -280,7 +281,7 @@ export const mailRouter = router({
         if (input.configId !== undefined) a.configId = input.configId.trim();
         a.updatedAt = new Date();
         saveAppWhatsApp();
-        return appPubblica();
+        return appPubblica(ctx.sedeId);
       }),
 
     // Chiusura dell'Embedded Signup: dal code si ricava il token, si
@@ -452,7 +453,10 @@ export const mailRouter = router({
             if (!c!.tokenCifrato) mancanti.push("token di accesso");
             // L'app secret può essere quello del numero o quello dell'app
             // (Embedded Signup): basta che ce ne sia uno.
-            if (!c!.appSecretCifrato && !getAppWhatsApp().appSecretCifrato) {
+            if (
+              !c!.appSecretCifrato &&
+              !getAppWhatsApp(c!.sedeId).appSecretCifrato
+            ) {
               mancanti.push("app secret");
             }
             if (mancanti.length > 0) {

@@ -88,7 +88,7 @@ export const tarsRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const config = getTarsConfig();
+      const config = getTarsConfig(ctx.sedeId);
       if (!config.attivo) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -155,7 +155,7 @@ fare, usa nessuna_azione.`;
     invia: protectedProcedure
       .input(z.object({ testo: z.string().min(1).max(4000) }))
       .mutation(async ({ input, ctx }) => {
-        const config = getTarsConfig();
+        const config = getTarsConfig(ctx.sedeId);
         if (!config.attivo) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -489,7 +489,7 @@ ${input.testo.trim()}`;
   // ── Config ────────────────────────────────────────────────────────────
   config: router({
     get: protectedProcedure.query(({ ctx }) => {
-      const c = getTarsConfig();
+      const c = getTarsConfig(ctx.sedeId);
       return {
         attivo: c.attivo,
         modello: c.modello,
@@ -505,7 +505,7 @@ ${input.testo.trim()}`;
       .input(z.object({ attivo: z.boolean() }))
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = getTarsConfig();
+        const c = getTarsConfig(ctx.sedeId);
         c.attivo = input.attivo;
         c.updatedAt = new Date();
         saveConfig();
@@ -515,7 +515,7 @@ ${input.testo.trim()}`;
       .input(z.object({ modello: z.enum(MODELLI_TARS) }))
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = getTarsConfig();
+        const c = getTarsConfig(ctx.sedeId);
         c.modello = input.modello;
         c.updatedAt = new Date();
         saveConfig();

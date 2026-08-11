@@ -25,6 +25,7 @@ import {
 import { matchComunicazione } from "./match";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
+import { DEFAULT_SEDE_ID } from "../routers/sedi";
 import { programmaSmistamento } from "./smistamento";
 
 const GRAPH_VERSION = "v21.0";
@@ -83,7 +84,11 @@ const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
 // scambiare il code dell'Embedded Signup e verificare la firma dei webhook.
 
 export type AppWhatsApp = {
-  id: 1;
+  id: number;
+  // Un'app Meta per sede. Ogni sede ha il suo numero, e un numero vive in
+  // un portfolio aziendale: obbligare due sedi a condividere app id, config
+  // id e app secret significherebbe obbligarle a condividere il portfolio.
+  sedeId: number;
   appId: string;
   // Configuration ID del Facebook Login for Business, quello che porta al
   // flusso di coexistence (scansione del QR dall'app del telefono).
@@ -97,9 +102,12 @@ export type AppWhatsApp = {
   updatedAt: Date;
 };
 
-function appVuota(): AppWhatsApp {
+let nextAppId = 2;
+
+function appVuota(sedeId: number, id: number): AppWhatsApp {
   return {
-    id: 1,
+    id,
+    sedeId,
     appId: "",
     configId: "",
     appSecretCifrato: "",
@@ -110,30 +118,42 @@ function appVuota(): AppWhatsApp {
 
 const _appStore = persistedStore<AppWhatsApp>("whatsapp_app", (items, meta) => {
   if (items.length === 0 && meta.firstBoot) {
-    items.push(appVuota());
+    items.push(appVuota(DEFAULT_SEDE_ID, 1));
   }
-  // Installazioni salvate prima che il token esistesse.
   for (const a of items) {
+    // Installazioni salvate prima che il token esistesse.
     if (!a.verifyToken) a.verifyToken = nuovoVerifyToken();
+    // L'unico record di prima era, di fatto, quello della sede principale.
+    if (a.sedeId === undefined) a.sedeId = DEFAULT_SEDE_ID;
   }
+  nextAppId = items.length ? Math.max(...items.map((a) => a.id)) + 1 : 1;
 });
 
-export function getAppWhatsApp(): AppWhatsApp {
-  if (_appStore.items.length === 0) {
-    _appStore.items.push(appVuota());
+export function getAppWhatsApp(sedeId: number | null): AppWhatsApp {
+  const sede = sedeId ?? DEFAULT_SEDE_ID;
+  let a = _appStore.items.find((x) => x.sedeId === sede);
+  if (!a) {
+    a = appVuota(sede, nextAppId++);
+    _appStore.items.push(a);
+    _appStore.save();
   }
-  const a = _appStore.items[0];
   if (!a.verifyToken) {
     a.verifyToken = nuovoVerifyToken();
     _appStore.save();
   }
   return a;
 }
+
+/** Tutte le app configurate, per il webhook: l'endpoint è uno per tutte. */
+export function tutteLeAppWhatsApp(): AppWhatsApp[] {
+  return _appStore.items;
+}
+
 export const saveAppWhatsApp = () => _appStore.save();
 
 /** Vista sicura: l'app secret non esce mai. */
-export function appPubblica() {
-  const a = getAppWhatsApp();
+export function appPubblica(sedeId: number | null) {
+  const a = getAppWhatsApp(sedeId);
   return {
     appId: a.appId,
     configId: a.configId,
@@ -164,7 +184,8 @@ export function configPubblica(c: ConfigWhatsApp) {
     tokenConfigurato: !!tokenCifrato,
     // L'app secret può stare sul numero (configurazione a mano) o a livello
     // di app (Embedded Signup): per la UI conta che ce ne sia uno.
-    appSecretConfigurato: !!appSecretCifrato || !!getAppWhatsApp().appSecretCifrato,
+    appSecretConfigurato:
+      !!appSecretCifrato || !!getAppWhatsApp(c.sedeId).appSecretCifrato,
   };
 }
 
@@ -173,7 +194,7 @@ export function configPubblica(c: ConfigWhatsApp) {
  * quello dell'app. Con l'Embedded Signup i numeri non ne hanno uno proprio.
  */
 export function appSecretPer(c: ConfigWhatsApp): string | null {
-  const cifrato = c.appSecretCifrato || getAppWhatsApp().appSecretCifrato;
+  const cifrato = c.appSecretCifrato || getAppWhatsApp(c.sedeId).appSecretCifrato;
   if (!cifrato) return null;
   try {
     return decryptSecret(cifrato);
@@ -221,7 +242,10 @@ export function configPerVerifyToken(token: string): ConfigWhatsApp | undefined 
  */
 export function verifyTokenValido(token: string): boolean {
   if (!token) return false;
-  if (token === getAppWhatsApp().verifyToken) return true;
+  // L'URL del webhook è uno per tutta l'installazione: l'handshake accetta
+  // il token di qualunque sede, altrimenti la seconda sede non riuscirebbe
+  // mai a validare il proprio callback.
+  if (tutteLeAppWhatsApp().some((a) => a.verifyToken === token)) return true;
   return configPerVerifyToken(token) != null;
 }
 
@@ -233,8 +257,8 @@ export function verifyTokenValido(token: string): boolean {
 // sola, senza copiare id a mano.
 
 /** code → business access token (di sistema, non scade). */
-async function scambiaCode(code: string): Promise<string> {
-  const app = getAppWhatsApp();
+async function scambiaCode(code: string, sedeId: number): Promise<string> {
+  const app = getAppWhatsApp(sedeId);
   if (!app.appId || !app.appSecretCifrato) {
     throw new Error(
       "Configurazione dell'app Meta incompleta: servono App ID e App secret."
@@ -343,7 +367,7 @@ export async function completaOnboarding(params: {
   sedeId: number;
   nome?: string;
 }): Promise<ConfigWhatsApp> {
-  const token = await scambiaCode(params.code);
+  const token = await scambiaCode(params.code, params.sedeId);
   await sottoscriviApp(params.wabaId, token);
   const numeri = await numeriDellaWaba(params.wabaId, token);
   if (numeri.length === 0) {

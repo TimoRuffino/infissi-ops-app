@@ -54,7 +54,7 @@ function ctxSistema(sedeId: number): TrpcContext {
 }
 
 export async function smistaComunicazioni(sedeId: number): Promise<void> {
-  const config = getTarsConfig();
+  const config = getTarsConfig(sedeId);
   if (!config.attivo || !anthropicConfigured()) return;
   if (inCorso.has(sedeId)) return;
   const pausa = pausaFinoA.get(sedeId);
@@ -168,13 +168,17 @@ export function programmaSmistamento(sedeId: number): void {
 // passa di qui — quello lo fa gratis il motore deterministico.
 
 const MAX_FATTURE_PER_RUN = 10;
-let fattureInCorso = false;
-let fatturePausaFinoA = 0;
+// Per sede, come per le mail: la pausa dopo un errore su una sede non deve
+// bloccare lo smistamento dell'altra.
+const fattureInCorso = new Set<number>();
+const fatturePausaFinoA = new Map<number, number>();
 
 export async function smistaFatture(sedeId: number): Promise<void> {
-  const config = getTarsConfig();
+  const config = getTarsConfig(sedeId);
   if (!config.attivo || !anthropicConfigured()) return;
-  if (fattureInCorso || Date.now() < fatturePausaFinoA) return;
+  if (fattureInCorso.has(sedeId)) return;
+  const pausaFatture = fatturePausaFinoA.get(sedeId);
+  if (pausaFatture && Date.now() < pausaFatture) return;
 
   const { ficFatture, saveFicFatture, statoFattura } = await import(
     "../routers/ficFatture"
@@ -184,13 +188,14 @@ export async function smistaFatture(sedeId: number): Promise<void> {
 
   const orfane = ficFatture
     .filter((f) => {
+      if (f.sedeId !== sedeId) return false;
       if (f.ignorata || f.tarsAnalizzata) return false;
       return statoFattura(f, commesse).stato === "non_abbinabile";
     })
     .slice(0, MAX_FATTURE_PER_RUN);
   if (orfane.length === 0) return;
 
-  fattureInCorso = true;
+  fattureInCorso.add(sedeId);
   try {
     const blocchi = orfane
       .map((f) => {
@@ -230,7 +235,7 @@ ${blocchi}`;
     });
 
     if (esecuzione.esito === "errore") {
-      fatturePausaFinoA = Date.now() + PAUSA_DOPO_ERRORE_MS;
+      fatturePausaFinoA.set(sedeId, Date.now() + PAUSA_DOPO_ERRORE_MS);
       console.warn(
         `[tars] riconciliazione fatture fallita, pausa 15m: ${esecuzione.errore}`
       );
@@ -246,18 +251,22 @@ ${blocchi}`;
       );
     }
   } finally {
-    fattureInCorso = false;
+    fattureInCorso.delete(sedeId);
   }
 }
 
-let fattureTimer: NodeJS.Timeout | null = null;
+// Un debounce per sede: il sync di una sede non deve annullare quello
+// dell'altra, che è ciò che faceva un timer condiviso.
+const fattureTimer = new Map<number, NodeJS.Timeout>();
 
 export function programmaSmistamentoFatture(sedeId: number): void {
-  if (fattureTimer) clearTimeout(fattureTimer);
-  fattureTimer = setTimeout(() => {
-    fattureTimer = null;
+  const pendente = fattureTimer.get(sedeId);
+  if (pendente) clearTimeout(pendente);
+  const t = setTimeout(() => {
+    fattureTimer.delete(sedeId);
     void smistaFatture(sedeId).catch((e) =>
       console.error("[tars] riconciliazione fatture:", e?.message ?? e)
     );
   }, DEBOUNCE_MS);
+  fattureTimer.set(sedeId, t);
 }

@@ -21,6 +21,7 @@ import {
 } from "../_core/permissions";
 import { getClientiStore } from "./clienti";
 import { getCommesseStore, getCommessaById } from "./commesse";
+import { DEFAULT_SEDE_ID } from "./sedi";
 import {
   proposte,
   newPropostaId,
@@ -40,6 +41,10 @@ export type RataFic = {
 
 export type FatturaFic = {
   id: number; // id FIC — chiave dell'upsert
+  // La sede il cui token FIC ha letto questa fattura. Due sedi possono
+  // fatturare da due aziende diverse: senza questo campo le fatture di una
+  // comparirebbero nell'Economia dell'altra.
+  sedeId: number;
   numero: string; // "12/A"
   data: string; // "YYYY-MM-DD"
   clienteNome: string;
@@ -63,6 +68,8 @@ export type FatturaFic = {
 const _fattureStore = persistedStore<FatturaFic>("fic_fatture", (items) => {
   for (const f of items) {
     if (f.tarsAnalizzata === undefined) f.tarsAnalizzata = false;
+    // Tutto lo storico è stato letto col token dell'unica sede esistente.
+    if (f.sedeId === undefined) f.sedeId = DEFAULT_SEDE_ID;
   }
 });
 export const ficFatture = _fattureStore.items;
@@ -102,9 +109,14 @@ export function upsertFatture(
     importoNetto: number;
     importoLordo: number;
     rate: RataFic[];
-  }>
+  }>,
+  sedeId: number
 ): { nuove: number; aggiornate: number } {
-  const clienti = getClientiStore();
+  // Il match del cliente resta dentro la sede: un omonimo altrove non deve
+  // agganciare la fattura al cliente sbagliato.
+  const clienti = getClientiStore().filter(
+    (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
   const perNome = new Map<string, number[]>();
   for (const c of clienti) {
     const k = normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`);
@@ -119,7 +131,7 @@ export function upsertFatture(
     const match = perNome.get(k);
     const clienteId = match && match.length === 1 ? match[0] : null;
 
-    const esistente = ficFatture.find((f) => f.id === r.id);
+    const esistente = ficFatture.find((f) => f.id === r.id && f.sedeId === sedeId);
     if (esistente) {
       esistente.numero = r.numero;
       esistente.data = r.data;
@@ -137,6 +149,7 @@ export function upsertFatture(
     } else {
       ficFatture.push({
         ...r,
+        sedeId,
         clienteId,
         commessaId: null,
         collegataAMano: false,
@@ -278,11 +291,14 @@ function creaPropostaDiretta(args: {
  * il dedupe è triplo — rata già in commessa, proposta già pendente, cap
  * per commessa. Ritorna quante proposte ha creato.
  */
-export function generaProposteRiconciliazione(): number {
-  const commesse = getCommesseStore();
+export function generaProposteRiconciliazione(sedeId: number): number {
+  const commesse = getCommesseStore().filter(
+    (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
+  const fatture = ficFatture.filter((f) => f.sedeId === sedeId);
   let create = 0;
 
-  for (const f of ficFatture) {
+  for (const f of fatture) {
     if (create >= MAX_PROPOSTE_PER_GIRO) break;
     if (f.ignorata) continue;
     const { commessa, motivo } = commessaPerFattura(f, commesse);
@@ -292,7 +308,7 @@ export function generaProposteRiconciliazione(): number {
 
     // Pattuito: solo se la commessa non ce l'ha, e solo da QUESTA fattura
     // se è l'unica del cliente sulla commessa — mai sommare per conto suo.
-    const fattureStessaCommessa = ficFatture.filter((x) => {
+    const fattureStessaCommessa = fatture.filter((x) => {
       if (x.ignorata) return false;
       const m = commessaPerFattura(x, commesse);
       return m.commessa?.id === commessa.id;
@@ -387,6 +403,18 @@ export function statoFattura(
   return { stato: "da_riconciliare", commessa, motivo };
 }
 
+// Una fattura di QUESTA sede. Come per le commesse: fuori sede è NOT_FOUND,
+// non FORBIDDEN — un id non deve poter confermare l'esistenza di un dato
+// altrui.
+function trovaFattura(ficId: number, sedeId: number | null): FatturaFic {
+  const sede = sedeId ?? DEFAULT_SEDE_ID;
+  const f = ficFatture.find((x) => x.id === ficId && x.sedeId === sede);
+  if (!f) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Fattura non trovata." });
+  }
+  return f;
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const ficFattureRouter = router({
@@ -397,9 +425,10 @@ export const ficFattureRouter = router({
     .query(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const anno = input?.anno ?? new Date().getFullYear();
+      const sede = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const commesse = getCommesseStore();
       return ficFatture
-        .filter((f) => f.data.startsWith(String(anno)))
+        .filter((f) => f.sedeId === sede && f.data.startsWith(String(anno)))
         .map((f) => {
           const s = statoFattura(f, commesse);
           const incassato = f.rate
@@ -429,10 +458,7 @@ export const ficFattureRouter = router({
     .input(z.object({ ficId: z.number(), commessaId: z.number().nullable() }))
     .mutation(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
-      const f = ficFatture.find((x) => x.id === input.ficId);
-      if (!f) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Fattura non trovata." });
-      }
+      const f = trovaFattura(input.ficId, ctx.sedeId);
       if (input.commessaId != null) {
         const commessa = getCommessaById(input.commessaId);
         assertSedeScope(commessa ?? null, ctx.sedeId);
@@ -445,7 +471,9 @@ export const ficFattureRouter = router({
       }
       f.aggiornataAt = new Date();
       saveFicFatture();
-      const proposteCreate = generaProposteRiconciliazione();
+      const proposteCreate = generaProposteRiconciliazione(
+        ctx.sedeId ?? DEFAULT_SEDE_ID
+      );
       return { success: true as const, proposteCreate };
     }),
 
@@ -453,17 +481,16 @@ export const ficFattureRouter = router({
     .input(z.object({ ficId: z.number(), ignorata: z.boolean() }))
     .mutation(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
-      const f = ficFatture.find((x) => x.id === input.ficId);
-      if (!f) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Fattura non trovata." });
-      }
+      const f = trovaFattura(input.ficId, ctx.sedeId);
       f.ignorata = input.ignorata;
       f.aggiornataAt = new Date();
       saveFicFatture();
       return { success: true as const };
     }),
 
-  riconciliaOra: adminProcedure.mutation(() => {
-    return { proposteCreate: generaProposteRiconciliazione() };
+  riconciliaOra: adminProcedure.mutation(({ ctx }) => {
+    return {
+      proposteCreate: generaProposteRiconciliazione(ctx.sedeId ?? DEFAULT_SEDE_ID),
+    };
   }),
 });

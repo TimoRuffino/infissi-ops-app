@@ -68,6 +68,9 @@ export function getClientiStore() {
 }
 
 export function createClienteFromSync(data: {
+  // La sede del token che ha letto la fattura: il cliente nasce dove è
+  // stato fatturato, non sempre sulla sede principale.
+  sedeId: number;
   cognome: string;
   nome: string;
   tipo: "privato" | "azienda" | "condominio" | "ente_pubblico";
@@ -77,7 +80,7 @@ export function createClienteFromSync(data: {
   const now = new Date();
   const cliente = {
     id: nextId++,
-    sedeId: 1,
+    sedeId: data.sedeId,
     nome: data.nome,
     cognome: data.cognome,
     tipo: data.tipo,

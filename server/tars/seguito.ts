@@ -74,7 +74,7 @@ Non riproporre la segnalazione: quella è già stata accolta.`;
  */
 export function avviaSeguito(p: Proposta, ctx: TrpcContext): boolean {
   if (!meritaSeguito(p)) return false;
-  const config = getTarsConfig();
+  const config = getTarsConfig(p.sedeId);
   if (!config.attivo || !anthropicConfigured()) return false;
 
   // Prima il segno, poi la corsa: se due click arrivano insieme, il secondo

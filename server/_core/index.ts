@@ -97,7 +97,7 @@ async function startServer() {
         ingestisciWebhook,
         configWhatsApp,
         appSecretPer,
-        getAppWhatsApp,
+        tutteLeAppWhatsApp,
       } = await import("../tars/whatsapp");
       const { decryptSecret } = await import("./secretBox");
       const raw: Buffer = Buffer.isBuffer(req.body)
@@ -115,10 +115,13 @@ async function startServer() {
         const s = appSecretPer(c);
         if (s) segreti.add(s);
       }
-      const appSecret = getAppWhatsApp().appSecretCifrato;
-      if (appSecret) {
+      // L'endpoint è uno per tutte le sedi: si provano gli app secret di
+      // ognuna. Chi non ha la chiave giusta non passa la firma, ed è tutto
+      // ciò che serve — nessun payload viene letto prima di questo punto.
+      for (const a of tutteLeAppWhatsApp()) {
+        if (!a.appSecretCifrato) continue;
         try {
-          segreti.add(decryptSecret(appSecret));
+          segreti.add(decryptSecret(a.appSecretCifrato));
         } catch {
           /* chiave di cifratura assente o cambiata */
         }

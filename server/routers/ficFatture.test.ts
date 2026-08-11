@@ -75,7 +75,7 @@ describe("riconciliazione FIC", () => {
   it("il sync abbina il cliente per nome, comunque sia scritto", () => {
     const r = upsertFatture([
       fatturaBase(9001, { clienteNome: "MARIO  riconcilia" }),
-    ]);
+    ], 1);
     expect(r.nuove).toBe(1);
     const f = ficFatture.find((x) => x.id === 9001)!;
     expect(f.clienteId).toBe(clienteId);
@@ -89,7 +89,7 @@ describe("riconciliazione FIC", () => {
   });
 
   it("rata incassata su FIC → proposta di pagamento, e il rilancio non duplica", async () => {
-    const prima = generaProposteRiconciliazione();
+    const prima = generaProposteRiconciliazione(1);
     expect(prima).toBeGreaterThanOrEqual(1);
     const mie = proposte.filter(
       (p) =>
@@ -102,7 +102,7 @@ describe("riconciliazione FIC", () => {
     expect(mie[0].payload.note).toContain("FIC 9001/A");
 
     // Idempotenza: il sync gira ogni 6 ore, la proposta resta una.
-    const seconda = generaProposteRiconciliazione();
+    const seconda = generaProposteRiconciliazione(1);
     const dopo = proposte.filter(
       (p) =>
         p.trigger === "riconciliazione_fic" &&
@@ -147,8 +147,8 @@ describe("riconciliazione FIC", () => {
 
   it("cliente con più commesse senza importo distintivo → nessuna proposta", async () => {
     await caller.commesse.create({ clienteId }); // seconda commessa attiva
-    upsertFatture([fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })]);
-    const create = generaProposteRiconciliazione();
+    upsertFatture([fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })], 1);
+    const create = generaProposteRiconciliazione(1);
     const perQuesta = proposte.filter((p) =>
       JSON.stringify(p.payload).includes("9002/A")
     );
@@ -163,8 +163,8 @@ describe("riconciliazione FIC", () => {
   it("cliente sconosciuto → non abbinabile, mai proposte al buio", () => {
     upsertFatture([
       fatturaBase(9003, { numero: "9003/A", clienteNome: "Sconosciuto Totale" }),
-    ]);
-    generaProposteRiconciliazione();
+    ], 1);
+    generaProposteRiconciliazione(1);
     expect(
       proposte.some((p) => JSON.stringify(p.payload).includes("9003/A"))
     ).toBe(false);
@@ -180,7 +180,7 @@ describe("riconciliazione FIC", () => {
           { importo: 1220, scadenza: "2026-08-31", stato: "paid", dataPagamento: "2026-08-07" },
         ],
       }),
-    ]);
+    ], 1);
     expect(ficFatture.filter((f) => f.id === 9003)).toHaveLength(prima);
     expect(ficFatture.find((f) => f.id === 9003)!.rate[0].stato).toBe("paid");
   });
@@ -250,7 +250,7 @@ describe("fatture orfane → Tars", () => {
             { importo: 7320, scadenza: "2026-07-31", stato: "paid", dataPagamento: "2026-07-25" },
           ],
         }),
-      ]);
+      ], 1);
 
       let i = 0;
       const risposte = [

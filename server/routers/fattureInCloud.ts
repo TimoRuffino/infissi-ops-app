@@ -2,6 +2,12 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import {
+  decryptSecret,
+  encryptSecret,
+  secretBoxConfigured,
+} from "../_core/secretBox";
+import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   generaProposteRiconciliazione,
@@ -19,29 +25,81 @@ const FIC = "https://api-v2.fattureincloud.it";
 
 type FicConfig = {
   id: number;
-  accessToken: string | null;
+  // Una configurazione per sede: due sedi possono fatturare da due aziende
+  // diverse su Fatture in Cloud, con token e company id propri.
+  sedeId: number;
+  // Cifrato a riposo. Il token FIC dà accesso in lettura a tutta la
+  // contabilità dell'azienda, e il backup notturno spedisce ogni store su
+  // Drive: in chiaro finirebbe là dentro.
+  accessTokenCifrato: string | null;
   companyId: number | null;
   enabled: boolean;
   lastSyncAt: Date | null;
   lastResult: string | null;
 };
 
-const _cfgStore = persistedStore<FicConfig>("fic_config", () => {});
+let nextCfgId = 2;
+
+const _cfgStore = persistedStore<FicConfig>("fic_config", (items) => {
+  for (const c of items as any[]) {
+    if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
+    // Migrazione del token salvato in chiaro dalla versione precedente.
+    if (c.accessToken) {
+      if (secretBoxConfigured()) {
+        c.accessTokenCifrato = encryptSecret(c.accessToken);
+        c.accessToken = null;
+      } else {
+        // Senza chiave non si può cifrare: il token resta dov'è e continua a
+        // funzionare, ma lo diciamo — è un segreto che va nel backup.
+        console.warn(
+          "[fic] token in chiaro non cifrato: MAIL_ENCRYPTION_KEY non configurata"
+        );
+      }
+    }
+    if (c.accessTokenCifrato === undefined) c.accessTokenCifrato = null;
+  }
+  nextCfgId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
+});
 const cfgRows = _cfgStore.items;
 
-function getCfg(): FicConfig {
-  if (cfgRows.length === 0) {
-    cfgRows.push({
-      id: 1,
-      accessToken: null,
+function getCfg(sedeId: number | null): FicConfig {
+  const sede = sedeId ?? DEFAULT_SEDE_ID;
+  let c = cfgRows.find((x) => x.sedeId === sede);
+  if (!c) {
+    c = {
+      id: nextCfgId++,
+      sedeId: sede,
+      accessTokenCifrato: null,
       companyId: null,
       enabled: false,
       lastSyncAt: null,
       lastResult: null,
-    });
+    };
+    cfgRows.push(c);
     _cfgStore.save();
   }
-  return cfgRows[0];
+  return c;
+}
+
+function assertChiaveCifratura() {
+  if (!secretBoxConfigured()) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "MAIL_ENCRYPTION_KEY non configurata sul server: senza chiave il token di Fatture in Cloud non può essere salvato in sicurezza (finirebbe in chiaro nel backup).",
+    });
+  }
+}
+
+/** Il token in chiaro, solo al momento della chiamata. */
+function tokenDi(cfg: FicConfig): string | null {
+  const cifrato = cfg.accessTokenCifrato;
+  if (!cifrato) return (cfg as any).accessToken ?? null;
+  try {
+    return decryptSecret(cifrato);
+  } catch {
+    return null;
+  }
 }
 
 // Il token manuale ha una forma precisa: "a/" + un JWT. Il Client ID (che
@@ -122,15 +180,17 @@ function splitPersona(full: string, cf: string | null): { cognome: string; nome:
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
-let syncing = false;
+// Un lucchetto per sede: la sede 2 non deve aspettare il giro della sede 1.
+const syncing = new Set<number>();
 
-export async function runFicSync(): Promise<string> {
-  const cfg = getCfg();
-  if (!cfg.accessToken || !cfg.companyId) {
+export async function runFicSync(sedeId: number): Promise<string> {
+  const cfg = getCfg(sedeId);
+  const token = tokenDi(cfg);
+  if (!token || !cfg.companyId) {
     throw new Error("Token o azienda non configurati");
   }
-  if (syncing) throw new Error("Sincronizzazione già in corso");
-  syncing = true;
+  if (syncing.has(sedeId)) throw new Error("Sincronizzazione già in corso");
+  syncing.add(sedeId);
   try {
     const year = new Date().getFullYear();
     const entities: Array<{ name: string; vat: string | null; cf: string | null }> = [];
@@ -148,7 +208,7 @@ export async function runFicSync(): Promise<string> {
     for (let page = 1; page <= 10; page++) {
       const j = await ficGet(
         `/c/${cfg.companyId}/issued_documents?type=invoice&per_page=100&page=${page}&fields=id,number,numeration,date,entity,amount_net,amount_gross,payments_list`,
-        cfg.accessToken
+        token
       );
       const rows: any[] = j?.data ?? [];
       for (const r of rows) {
@@ -182,7 +242,9 @@ export async function runFicSync(): Promise<string> {
       if (rows.length < 100) break;
     }
 
-    const clienti = getClientiStore();
+    // L'anagrafica di questa sede: un omonimo in un'altra sede non deve
+    // impedire la creazione del cliente qui, e viceversa.
+    const clienti = getClientiStore().filter((c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId);
     const have = new Set<string>();
     for (const c of clienti) {
       have.add(normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`));
@@ -197,6 +259,7 @@ export async function runFicSync(): Promise<string> {
       const isCompany = !!(e.vat && e.vat !== "0") || COMPANY_RE.test(e.name);
       if (isCompany) {
         createClienteFromSync({
+          sedeId,
           cognome: e.name,
           nome: " ",
           tipo: /condominio/i.test(e.name) ? "condominio" : "azienda",
@@ -205,6 +268,7 @@ export async function runFicSync(): Promise<string> {
       } else {
         const sp = splitPersona(e.name, e.cf);
         createClienteFromSync({
+          sedeId,
           cognome: sp.cognome,
           nome: sp.nome,
           tipo: "privato",
@@ -217,16 +281,14 @@ export async function runFicSync(): Promise<string> {
 
     // Fatture nello store locale + riconciliazione: le rate incassate su
     // FIC diventano PROPOSTE di registrazione, mai scritture dirette.
-    const { nuove, aggiornate } = upsertFatture(fatture);
-    const proposteCreate = generaProposteRiconciliazione();
+    const { nuove, aggiornate } = upsertFatture(fatture, sedeId);
+    const proposteCreate = generaProposteRiconciliazione(sedeId);
 
     // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
     // propone il collegamento. Fire-and-forget col suo debounce: il sync
-    // non deve aspettare l'agente. Oggi tutto vive sulla sede 1 (La
-    // Spezia); quando le fatture avranno una sede propria, questa riga
-    // andrà ripensata.
+    // non deve aspettare l'agente.
     const { programmaSmistamentoFatture } = await import("../tars/smistamento");
-    programmaSmistamentoFatture(1);
+    programmaSmistamentoFatture(sedeId);
 
     const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione`;
     cfg.lastSyncAt = new Date();
@@ -234,13 +296,13 @@ export async function runFicSync(): Promise<string> {
     _cfgStore.save();
     return result;
   } catch (e: any) {
-    const cfg2 = getCfg();
+    const cfg2 = getCfg(sedeId);
     cfg2.lastSyncAt = new Date();
     cfg2.lastResult = `ERRORE: ${e?.message ?? "sconosciuto"}`;
     _cfgStore.save();
     throw e;
   } finally {
-    syncing = false;
+    syncing.delete(sedeId);
   }
 }
 
@@ -249,13 +311,17 @@ let ficTimer: NodeJS.Timeout | null = null;
 export function startFicScheduler(): void {
   if (ficTimer) return;
   ficTimer = setInterval(async () => {
-    try {
-      const cfg = getCfg();
-      if (cfg.enabled && cfg.accessToken && cfg.companyId) {
-        await runFicSync();
+    // Ogni sede col suo giro: se una ha il token scaduto, le altre
+    // continuano. Un errore per sede non ferma la fila.
+    for (const sedeId of allSedeIds()) {
+      try {
+        const cfg = getCfg(sedeId);
+        if (cfg.enabled && tokenDi(cfg) && cfg.companyId) {
+          await runFicSync(sedeId);
+        }
+      } catch (e) {
+        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
       }
-    } catch (e) {
-      console.error("[fic] sync automatico fallito:", e);
     }
   }, 6 * 60 * 60 * 1000);
   ficTimer.unref?.();
@@ -267,11 +333,12 @@ function maskToken(t: string | null): string | null {
 }
 
 export const fattureInCloudRouter = router({
-  status: adminProcedure.query(() => {
-    const cfg = getCfg();
+  status: adminProcedure.query(({ ctx }) => {
+    const cfg = getCfg(ctx.sedeId);
+    const token = tokenDi(cfg);
     return {
-      configured: !!(cfg.accessToken && cfg.companyId),
-      tokenMasked: maskToken(cfg.accessToken),
+      configured: !!(token && cfg.companyId),
+      tokenMasked: maskToken(token),
       companyId: cfg.companyId,
       enabled: cfg.enabled,
       lastSyncAt: cfg.lastSyncAt,
@@ -287,8 +354,8 @@ export const fattureInCloudRouter = router({
         enabled: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
-      const cfg = getCfg();
+    .mutation(({ input, ctx }) => {
+      const cfg = getCfg(ctx.sedeId);
       if (input.accessToken !== undefined) {
         const t = input.accessToken.trim();
         if (!tokenSembraValido(t)) {
@@ -298,7 +365,10 @@ export const fattureInCloudRouter = router({
               "Questo non è un token di Fatture in Cloud: quello giusto comincia con «a/» ed è molto lungo. Se il valore che hai incollato somiglia a un codice breve, è il Client ID — serve a generare il token, non a sostituirlo.",
           });
         }
-        cfg.accessToken = t;
+        assertChiaveCifratura();
+        cfg.accessTokenCifrato = encryptSecret(t);
+        // Il campo in chiaro della versione precedente non deve sopravvivere.
+        delete (cfg as any).accessToken;
       }
       if (input.companyId !== undefined) cfg.companyId = input.companyId;
       if (input.enabled !== undefined) cfg.enabled = input.enabled;
@@ -307,17 +377,17 @@ export const fattureInCloudRouter = router({
     }),
 
   // Companies visible to the token — lets the UI offer a picker.
-  companies: adminProcedure.mutation(async () => {
-    const cfg = getCfg();
-    if (!cfg.accessToken) {
+  companies: adminProcedure.mutation(async ({ ctx }) => {
+    const token = tokenDi(getCfg(ctx.sedeId));
+    if (!token) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Salva prima il token" });
     }
-    const j = await ficGet("/user/companies", cfg.accessToken);
+    const j = await ficGet("/user/companies", token);
     const list: any[] = j?.data?.companies ?? [];
     return list.map((c) => ({ id: c.id as number, name: String(c.name ?? c.id) }));
   }),
 
-  syncNow: adminProcedure.mutation(async () => {
-    return { result: await runFicSync() };
+  syncNow: adminProcedure.mutation(async ({ ctx }) => {
+    return { result: await runFicSync(ctx.sedeId ?? DEFAULT_SEDE_ID) };
   }),
 });

@@ -12,6 +12,7 @@
 //   agente_config        interruttore e modello. Un solo record.
 
 import { persistedStore } from "../_core/persistence";
+import { DEFAULT_SEDE_ID } from "../routers/sedi";
 
 // ── Proposte ────────────────────────────────────────────────────────────────
 
@@ -307,7 +308,11 @@ export const MODELLI_TARS = [
 export type ModelloTars = (typeof MODELLI_TARS)[number];
 
 export type TarsConfig = {
-  id: 1;
+  id: number;
+  // Una configurazione per sede: una sede può tenere Tars spento mentre
+  // un'altra lo usa, e i modelli possono essere diversi (chi analizza poche
+  // commesse difficili vuole Opus, chi ne smista molte può stare su Sonnet).
+  sedeId: number;
   attivo: boolean;
   modello: string;
   // Budget per esecuzione (il piano prevede anche un budget mensile in €;
@@ -324,8 +329,7 @@ export type TarsConfig = {
 
 const VERSIONE_DEFAULT = 2;
 
-const DEFAULT_CONFIG: TarsConfig = {
-  id: 1,
+const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   attivo: false, // spento finché la direzione non lo accende
   modello: "claude-opus-5",
   // Con la lettura degli strumenti in parallelo un giro costa meno tempo:
@@ -338,11 +342,15 @@ const DEFAULT_CONFIG: TarsConfig = {
   updatedAt: new Date(),
 };
 
+let nextConfigId = 2;
+
 const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) => {
   if (items.length === 0 && meta.firstBoot) {
-    items.push({ ...DEFAULT_CONFIG });
+    items.push({ ...DEFAULT_CONFIG, id: 1, sedeId: DEFAULT_SEDE_ID });
   }
   for (const c of items) {
+    // Il record globale di prima diventa quello della sede principale.
+    if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
     if (c.maxToolCalls === undefined) c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
     if (c.maxProposte === undefined) c.maxProposte = DEFAULT_CONFIG.maxProposte;
     if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
@@ -356,12 +364,22 @@ const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) =
       c.versioneDefault = VERSIONE_DEFAULT;
     }
   }
+  nextConfigId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
 });
 
-export function getTarsConfig(): TarsConfig {
-  if (_configStore.items.length === 0) {
-    _configStore.items.push({ ...DEFAULT_CONFIG });
+/**
+ * La configurazione di Tars per una sede. Se la sede non ne ha ancora una,
+ * nasce spenta: attivare un agente che legge i dati di una sede nuova deve
+ * restare una decisione presa da qualcuno, non un effetto collaterale.
+ */
+export function getTarsConfig(sedeId: number | null): TarsConfig {
+  const sede = sedeId ?? DEFAULT_SEDE_ID;
+  let c = _configStore.items.find((x) => x.sedeId === sede);
+  if (!c) {
+    c = { ...DEFAULT_CONFIG, id: nextConfigId++, sedeId: sede, updatedAt: new Date() };
+    _configStore.items.push(c);
+    _configStore.save();
   }
-  return _configStore.items[0];
+  return c;
 }
 export const saveConfig = () => _configStore.save();

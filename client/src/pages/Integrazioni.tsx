@@ -105,6 +105,13 @@ export default function Integrazioni() {
         <p className="text-muted-foreground text-sm mt-1">
           Gestione avanzata e configurazione integrazioni
         </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Caselle email, WhatsApp, Fatture in Cloud e Tars valgono{" "}
+          <strong>per la sede selezionata</strong> (la scegli in alto nella
+          barra laterale): ogni sede ha i suoi collegamenti e può tenerne
+          alcuni spenti. Il backup su Google Drive è l'eccezione — è uno per
+          tutta l'installazione, e salva i dati di tutte le sedi.
+        </p>
       </div>
 
       {/* Gestione — direzione only. Hub per le sezioni operative avanzate

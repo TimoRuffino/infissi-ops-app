@@ -79,7 +79,11 @@ export const economiaRouter = router({
       }
 
       // ── Lato FIC: fatturato e incassi da fattura ─────────────────────
-      const fattureAnno = ficFatture.filter((f) => f.data.startsWith(annoStr));
+      // Le fatture della sede: quelle di un'altra azienda del gruppo non
+      // entrano in questo bilancio.
+      const fattureAnno = ficFatture.filter(
+        (f) => f.sedeId === ctx.sedeId && f.data.startsWith(annoStr)
+      );
       let fatturato = 0;
       let incassatoFic = 0;
       let daIncassareFic = 0;
