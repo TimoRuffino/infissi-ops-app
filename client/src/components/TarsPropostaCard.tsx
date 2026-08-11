@@ -138,10 +138,20 @@ export default function TarsPropostaCard({
     onDecisa?.();
   };
 
+  // Il seguito gira sul server dopo la risposta: quando finisce nessuno ce
+  // lo dice, quindi si ripassa a chiedere. Due colpi, poi basta — se Tars è
+  // più lento di così la proposta comparirà al prossimo caricamento.
+  const attendiSeguito = () => {
+    toast.info("Tars sta cercando l'azione che chiude la situazione…");
+    setTimeout(invalidate, 10_000);
+    setTimeout(invalidate, 30_000);
+  };
+
   const approva = trpc.tars.proposte.approva.useMutation({
     onSuccess: (p: any) => {
       toast.success(p.esito ?? "Proposta approvata");
       invalidate();
+      if (p.seguitoAvviato) attendiSeguito();
     },
     onError: (e) => {
       toast.error(e.message);
@@ -156,9 +166,10 @@ export default function TarsPropostaCard({
     onError: (e) => toast.error(e.message),
   });
   const rispondi = trpc.tars.proposte.rispondi.useMutation({
-    onSuccess: () => {
+    onSuccess: (p: any) => {
       toast.success("Risposta registrata");
       invalidate();
+      if (p?.seguitoAvviato) attendiSeguito();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -174,7 +185,11 @@ export default function TarsPropostaCard({
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-500">
-              {proposta.tipo === "domanda" ? "Tars chiede" : "Tars propone"}
+              {proposta.origineId != null
+                ? "Tars propone come chiuderla"
+                : proposta.tipo === "domanda"
+                  ? "Tars chiede"
+                  : "Tars propone"}
             </span>
             <div className="flex items-center gap-2 shrink-0">
               <Badge variant="outline" className="text-xs">

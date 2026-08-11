@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
-import { proposte, getTarsConfig } from "./stores";
+import { proposte, esecuzioni, getTarsConfig } from "./stores";
 
 function makeCtx(): TrpcContext {
   return {
@@ -322,5 +322,252 @@ describe("tars.chat", () => {
     // Pulizia della conversazione.
     await caller.tars.chat.pulisci();
     expect(await caller.tars.chat.get()).toHaveLength(0);
+  });
+});
+
+// ── Un rifiuto è definitivo ────────────────────────────────────────────────
+// Il blocco nel system prompt è un suggerimento; questo è il muro. Serve a
+// una cosa sola: che l'operatore non veda due volte la stessa proposta.
+describe("tars — proposta rifiutata non torna", () => {
+  const realFetch = global.fetch;
+  beforeAll(() => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  function propostaPagamento(commessaId: number, importo: number, titolo: string) {
+    return {
+      stop_reason: "tool_use",
+      usage,
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "proponi_pagamento",
+          input: {
+            commessaId,
+            importo,
+            data: "2026-08-10",
+            tipo: "acconto_1",
+            titolo,
+            motivazione: "Prova di ripetizione.",
+            confidenza: "alta",
+          },
+        },
+      ],
+    };
+  }
+  const chiusura = {
+    stop_reason: "end_turn",
+    usage,
+    content: [{ type: "text", text: "Chiudo." }],
+  };
+
+  it("la stessa proposta non rientra in coda, e il modello sa perché", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const commessa = await caller.commesse.create({
+      cliente: "Ripetizione Srl",
+      importoTotale: 2000,
+    });
+    const titolo = `Registra acconto €1.000 su ${commessa.codice}`;
+
+    global.fetch = anthropicScript([
+      propostaPagamento(commessa.id, 1000, titolo),
+      chiusura,
+    ]) as any;
+    const primo = await caller.tars.analizza({ commessaId: commessa.id });
+    expect(primo.proposte).toHaveLength(1);
+
+    await caller.tars.proposte.rifiuta({
+      id: primo.proposte[0].id,
+      motivo: "azione_non_necessaria",
+    });
+
+    // Identica: payload uguale.
+    global.fetch = anthropicScript([
+      propostaPagamento(commessa.id, 1000, titolo),
+      chiusura,
+    ]) as any;
+    const secondo = await caller.tars.analizza({ commessaId: commessa.id });
+    expect(secondo.proposte).toHaveLength(0);
+    // Il modello riceve il motivo del rifiuto: è quello che gli evita di
+    // riscrivere la stessa proposta con altre parole.
+    const registro = esecuzioni.find((e) => e.id === secondo.esecuzioneId)!;
+    expect(registro.strumenti[0].esito).toMatch(/gi\u00e0 stata rifiutata/);
+    expect(registro.strumenti[0].esito).toMatch(/azione non necessaria/);
+
+    // Riscritta: payload diverso, stesso titolo → bloccata comunque.
+    global.fetch = anthropicScript([
+      propostaPagamento(commessa.id, 999, titolo),
+      chiusura,
+    ]) as any;
+    const terzo = await caller.tars.analizza({ commessaId: commessa.id });
+    expect(terzo.proposte).toHaveLength(0);
+
+    // In coda resta solo la rifiutata: nessun doppione.
+    const suQuesta = proposte.filter((p) => p.commessaId === commessa.id);
+    expect(suQuesta).toHaveLength(1);
+    expect(suQuesta[0].stato).toBe("rifiutata");
+  });
+
+  it("una proposta identica già pendente non si duplica", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({
+      cliente: "Doppione Spa",
+      importoTotale: 5000,
+    });
+    const titolo = `Registra acconto €2.500 su ${commessa.codice}`;
+
+    global.fetch = anthropicScript([
+      propostaPagamento(commessa.id, 2500, titolo),
+      chiusura,
+    ]) as any;
+    await caller.tars.analizza({ commessaId: commessa.id });
+
+    global.fetch = anthropicScript([
+      propostaPagamento(commessa.id, 2500, titolo),
+      chiusura,
+    ]) as any;
+    const secondo = await caller.tars.analizza({ commessaId: commessa.id });
+    expect(secondo.proposte).toHaveLength(0);
+    expect(
+      proposte.filter((p) => p.commessaId === commessa.id && p.stato === "pendente")
+    ).toHaveLength(1);
+  });
+});
+
+// ── Seguito di una decisione ───────────────────────────────────────────────
+// Approvare una segnalazione conferma un problema, non lo risolve: Tars
+// riparte una volta per proporre l'azione che lo chiude.
+describe("tars — seguito dell'approvazione", () => {
+  const realFetch = global.fetch;
+  beforeAll(() => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  async function attendi(cond: () => boolean, ms = 3000) {
+    const fine = Date.now() + ms;
+    while (Date.now() < fine) {
+      if (cond()) return true;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return cond();
+  }
+
+  it("segnalazione approvata → proposta di azione, e il seguito non si ripete", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const commessa = await caller.commesse.create({
+      cliente: "Seguito Test",
+      importoTotale: 4000,
+    });
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "proponi_segnalazione",
+            input: {
+              severita: "alta",
+              descrizione: "Il cliente sollecita su una posa già data per fatta.",
+              commessaId: commessa.id,
+              titolo: `Incoerenza sulla posa di ${commessa.codice}`,
+              motivazione: "La timeline dice posata, il cliente scrive che non lo è.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      { stop_reason: "end_turn", usage, content: [{ type: "text", text: "Segnalato." }] },
+    ]) as any;
+
+    const analisi = await caller.tars.analizza({ commessaId: commessa.id });
+    const segnalazione = analisi.proposte[0];
+    expect(segnalazione.tipo).toBe("segnalazione");
+
+    // Il seguito parte all'approvazione: da qui il modello propone l'azione.
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "proponi_ticket",
+            input: {
+              commessaId: commessa.id,
+              oggetto: "Verifica posa contestata",
+              descrizione: "Il cliente sostiene che la posa non è avvenuta.",
+              categoria: "difetto_posa",
+              priorita: "alta",
+              titolo: `Apri ticket verifica posa su ${commessa.codice}`,
+              motivazione: "La segnalazione approvata resta aperta: serve un intervento.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      { stop_reason: "end_turn", usage, content: [{ type: "text", text: "Proposto il ticket." }] },
+    ]) as any;
+
+    const approvata: any = await caller.tars.proposte.approva({ id: segnalazione.id });
+    expect(approvata.seguitoAvviato).toBe(true);
+
+    const arrivata = await attendi(() =>
+      proposte.some((p) => p.origineId === segnalazione.id)
+    );
+    expect(arrivata).toBe(true);
+
+    const seguito = proposte.find((p) => p.origineId === segnalazione.id)!;
+    expect(seguito.tipo).toBe("ticket");
+    expect(seguito.stato).toBe("pendente");
+    expect(seguito.trigger).toBe("seguito");
+
+    // Approvare il seguito NON genera un altro seguito: la catena finisce.
+    const decisa: any = await caller.tars.proposte.approva({ id: seguito.id });
+    expect(decisa.seguitoAvviato).toBe(false);
+    expect(proposte.filter((p) => p.origineId === seguito.id)).toHaveLength(0);
+  });
+
+  it("l'analisi resta leggibile sulla commessa dopo la decisione", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({ cliente: "Memoria Test" });
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "nessuna_azione",
+            input: { motivo: "Tutto coerente: nessun passo mancante." },
+          },
+        ],
+      },
+    ]) as any;
+    await caller.tars.analizza({ commessaId: commessa.id });
+
+    const storico = await caller.tars.esecuzioni.perCommessa({
+      commessaId: commessa.id,
+    });
+    expect(storico).toHaveLength(1);
+    expect(storico[0].riepilogo).toMatch(/coerente/);
   });
 });

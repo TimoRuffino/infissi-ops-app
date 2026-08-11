@@ -341,10 +341,26 @@ export default function Integrazioni() {
 // ── Tars — l'agente operativo ────────────────────────────────────────────────
 // L'interruttore che spegne tutto in tre secondi. Off = il CRM funziona
 // esattamente come prima; Tars legge dati e crea proposte solo quando è on.
+// Opus ragiona meglio sulle contraddizioni, che è l'unico lavoro di Tars:
+// resta il default. Gli altri due sono lì per quando i volumi contano più
+// della profondità.
+const ETICHETTA_MODELLO: Record<string, string> = {
+  "claude-opus-5": "Opus 5 — il più capace",
+  "claude-sonnet-5": "Sonnet 5 — equilibrato",
+  "claude-haiku-4-5-20251001": "Haiku 4.5 — il più economico",
+};
+
 function TarsCard() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const config = trpc.tars.config.get.useQuery(undefined, { retry: false });
+  const setModello = trpc.tars.config.setModello.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Modello: ${ETICHETTA_MODELLO[r.modello] ?? r.modello}`);
+      utils.tars.config.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const setAttivo = trpc.tars.config.setAttivo.useMutation({
     onSuccess: (r) => {
       toast.success(r.attivo ? "Tars attivato" : "Tars spento");
@@ -406,10 +422,32 @@ function TarsCard() {
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Modello: {config.data?.modello ?? "—"} · Budget per esecuzione: 15
-          strumenti, 60s, 5 proposte
-        </p>
+        {isDirezione(user) ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Modello:</span>
+            <select
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              value={config.data?.modello ?? ""}
+              disabled={setModello.isPending}
+              onChange={(e) => setModello.mutate({ modello: e.target.value as any })}
+            >
+              {(config.data?.modelliDisponibili ?? []).map((m) => (
+                <option key={m} value={m}>
+                  {ETICHETTA_MODELLO[m] ?? m}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">
+              · {config.data?.maxToolCalls ?? "—"} strumenti,{" "}
+              {Math.round((config.data?.timeoutMs ?? 0) / 1000)}s,{" "}
+              {config.data?.maxProposte ?? "—"} proposte per esecuzione
+            </span>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Modello: {ETICHETTA_MODELLO[config.data?.modello ?? ""] ?? config.data?.modello ?? "—"}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

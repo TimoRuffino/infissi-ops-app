@@ -68,11 +68,20 @@ export type Proposta = {
   esito: string | null;
   motivoRifiuto: string | null;
   esecuzioneId: number | null;
-  trigger: string; // "on_demand" | (futuri: "evento", "notturno")
+  trigger: string; // "on_demand" | "chat" | "seguito" | (futuri: "notturno")
   createdAt: Date;
   decisaAt: Date | null;
   decisaDa: number | null;
   decisaDaNome: string | null;
+  // Seguito: una segnalazione approvata (o una domanda a cui è stata data
+  // risposta) descrive una situazione, non la risolve. Alla decisione Tars
+  // riparte una volta sola per proporre l'azione che la chiude. Questi
+  // campi sono il segno che è già partito: senza, l'approvazione della
+  // proposta di seguito ne genererebbe un'altra, all'infinito.
+  seguitoAt: Date | null;
+  seguitoEsecuzioneId: number | null;
+  // La proposta da cui nasce, se nasce da un seguito.
+  origineId: number | null;
 };
 
 let nextPropostaId = 1;
@@ -80,10 +89,86 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", (items) => {
   nextPropostaId = items.length
     ? Math.max(...items.map((p) => p.id)) + 1
     : 1;
+  for (const p of items) {
+    if (p.seguitoAt === undefined) p.seguitoAt = null;
+    if (p.seguitoEsecuzioneId === undefined) p.seguitoEsecuzioneId = null;
+    if (p.origineId === undefined) p.origineId = null;
+  }
 });
 export const proposte = _proposteStore.items;
 export const saveProposte = () => _proposteStore.save();
 export const newPropostaId = () => nextPropostaId++;
+
+// ── Impronta di una proposta ────────────────────────────────────────────────
+// Due proposte sono "la stessa cosa" se hanno lo stesso tipo sulla stessa
+// commessa e chiedono la stessa cosa. Serve a una regola sola: ciò che un
+// operatore ha rifiutato non torna in coda. Il blocco di decisioni nel
+// system prompt è un suggerimento al modello — questo è un muro.
+//
+// Due chiavi perché due modi di ripetersi: payload identico (la ripetizione
+// letterale) e titolo identico (lo stesso intento riscritto con un payload
+// leggermente diverso).
+
+function jsonStabile(v: any): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(jsonStabile).join(",")}]`;
+  const chiavi = Object.keys(v).sort();
+  return `{${chiavi.map((k) => `${JSON.stringify(k)}:${jsonStabile(v[k])}`).join(",")}}`;
+}
+
+function normalizzaTitolo(t: string): string {
+  return t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export type ImprontaProposta = { payload: string; titolo: string };
+
+export function improntaProposta(p: {
+  tipo: string;
+  commessaId: number | null;
+  payload: any;
+  titolo: string;
+}): ImprontaProposta {
+  const base = `${p.tipo}|${p.commessaId ?? "-"}`;
+  return {
+    payload: `${base}|${jsonStabile(p.payload ?? null)}`,
+    titolo: `${base}|${normalizzaTitolo(p.titolo ?? "")}`,
+  };
+}
+
+/**
+ * La proposta già rifiutata che coincide con questa, se esiste. Il motivo
+ * del rifiuto torna al modello: sapere PERCHÉ è stata bocciata gli evita di
+ * girarci intorno riscrivendola.
+ */
+export function propostaGiaRifiutata(
+  candidata: { tipo: string; commessaId: number | null; payload: any; titolo: string },
+  sedeId: number
+): Proposta | undefined {
+  const imp = improntaProposta(candidata);
+  return proposte.find((p) => {
+    if (p.sedeId !== sedeId || p.stato !== "rifiutata") return false;
+    const altra = improntaProposta(p);
+    return altra.payload === imp.payload || altra.titolo === imp.titolo;
+  });
+}
+
+/** Idem per una proposta ancora in attesa: non si mette in coda due volte. */
+export function propostaGiaInCoda(
+  candidata: { tipo: string; commessaId: number | null; payload: any; titolo: string },
+  sedeId: number
+): Proposta | undefined {
+  const imp = improntaProposta(candidata);
+  return proposte.find((p) => {
+    if (p.sedeId !== sedeId || p.stato !== "pendente") return false;
+    const altra = improntaProposta(p);
+    return altra.payload === imp.payload || altra.titolo === imp.titolo;
+  });
+}
 
 // ── Conoscenza aziendale ────────────────────────────────────────────────────
 
@@ -211,6 +296,16 @@ export const saveChat = () => _chatStore.save();
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+// I modelli fra cui la direzione può scegliere. Opus ragiona meglio sulle
+// contraddizioni — che è tutto il lavoro di Tars; Sonnet costa meno per le
+// analisi di massa; Haiku serve solo se i volumi esplodono.
+export const MODELLI_TARS = [
+  "claude-opus-5",
+  "claude-sonnet-5",
+  "claude-haiku-4-5-20251001",
+] as const;
+export type ModelloTars = (typeof MODELLI_TARS)[number];
+
 export type TarsConfig = {
   id: 1;
   attivo: boolean;
@@ -220,16 +315,26 @@ export type TarsConfig = {
   maxToolCalls: number;
   maxProposte: number;
   timeoutMs: number;
+  // Versione dei default applicata a questo record. Serve a far arrivare un
+  // cambio di modello o di budget anche alle installazioni già avviate:
+  // senza, il record salvato resterebbe su Sonnet per sempre.
+  versioneDefault?: number;
   updatedAt: Date;
 };
+
+const VERSIONE_DEFAULT = 2;
 
 const DEFAULT_CONFIG: TarsConfig = {
   id: 1,
   attivo: false, // spento finché la direzione non lo accende
-  modello: "claude-sonnet-5",
-  maxToolCalls: 15,
+  modello: "claude-opus-5",
+  // Con la lettura degli strumenti in parallelo un giro costa meno tempo:
+  // il budget più alto serve a farlo arrivare in fondo all'indagine, non a
+  // fargli fare più giri a vuoto.
+  maxToolCalls: 25,
   maxProposte: 5,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
+  versioneDefault: VERSIONE_DEFAULT,
   updatedAt: new Date(),
 };
 
@@ -237,12 +342,19 @@ const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) =
   if (items.length === 0 && meta.firstBoot) {
     items.push({ ...DEFAULT_CONFIG });
   }
-  // Backfill di campi nuovi su record esistenti.
   for (const c of items) {
-    if (c.maxToolCalls === undefined) c.maxToolCalls = 15;
-    if (c.maxProposte === undefined) c.maxProposte = 5;
-    if (c.timeoutMs === undefined) c.timeoutMs = 60_000;
+    if (c.maxToolCalls === undefined) c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
+    if (c.maxProposte === undefined) c.maxProposte = DEFAULT_CONFIG.maxProposte;
+    if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
     if (c.modello === undefined) c.modello = DEFAULT_CONFIG.modello;
+    // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
+    // una decisione umana, e una migrazione non la prende per nessuno.
+    if ((c.versioneDefault ?? 1) < VERSIONE_DEFAULT) {
+      c.modello = DEFAULT_CONFIG.modello;
+      c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
+      c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
+      c.versioneDefault = VERSIONE_DEFAULT;
+    }
   }
 });
 

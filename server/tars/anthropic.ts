@@ -84,7 +84,15 @@ export async function callAnthropic(params: {
         },
       ],
       messages: params.messages,
-      tools: params.tools,
+      // Le definizioni degli strumenti sono la seconda voce più cara del
+      // prompt e non cambiano mai: il breakpoint sull'ultima le mette in
+      // cache in blocco. Un giro del loop ne rilegge decine di migliaia di
+      // token — a pagamento pieno, ogni volta.
+      tools: params.tools.map((t, i) =>
+        i === params.tools.length - 1
+          ? { ...t, cache_control: { type: "ephemeral" } }
+          : t
+      ),
     }),
   });
 

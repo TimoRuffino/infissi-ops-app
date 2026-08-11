@@ -24,6 +24,7 @@ import { getCommesseStore, getCommessaById } from "./commesse";
 import {
   proposte,
   newPropostaId,
+  propostaGiaRifiutata,
   saveProposte,
   type Proposta,
 } from "../tars/stores";
@@ -238,6 +239,10 @@ function creaPropostaDiretta(args: {
     (p) => p.commessaId === args.commessaId && p.stato === "pendente"
   ).length;
   if (pendenti >= MAX_PENDENTI_PER_COMMESSA) return null;
+  // Anche la riconciliazione deterministica rispetta un rifiuto: se un
+  // operatore ha detto no a questa rata, ripresentarla a ogni sync sarebbe
+  // il rumore peggiore — automatico e inarrestabile.
+  if (propostaGiaRifiutata(args, args.sedeId)) return null;
   const p: Proposta = {
     id: newPropostaId(),
     sedeId: args.sedeId,
@@ -260,6 +265,9 @@ function creaPropostaDiretta(args: {
     decisaAt: null,
     decisaDa: null,
     decisaDaNome: null,
+    seguitoAt: null,
+    seguitoEsecuzioneId: null,
+    origineId: null,
   };
   proposte.push(p);
   return p;

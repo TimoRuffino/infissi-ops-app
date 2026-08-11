@@ -17,6 +17,8 @@ import {
   proposte,
   saveProposte,
   newPropostaId,
+  propostaGiaRifiutata,
+  propostaGiaInCoda,
   type Proposta,
   type TipoProposta,
 } from "./stores";
@@ -39,6 +41,9 @@ export type ToolRuntime = {
   trigger: string;
   maxProposte: number;
   proposteIds: number[];
+  // Se questo run nasce dall'approvazione di un'altra proposta, le proposte
+  // che genera ne portano il riferimento: sulla commessa si legge la catena.
+  origineId?: number | null;
   // Impostato da nessuna_azione: il loop termina.
   terminato: { motivo: string } | null;
 };
@@ -65,11 +70,40 @@ function creaProposta(
     commessaId?: number | null;
     clienteId?: number | null;
     opzioni?: string[] | null;
+    origineId?: number | null;
   }
 ): { content: string; isError?: boolean } {
   if (rt.proposteIds.length >= rt.maxProposte) {
     return err(
       `Budget proposte esaurito (max ${rt.maxProposte} per esecuzione). Non creare altre proposte: chiudi con il riepilogo.`
+    );
+  }
+
+  const sedeId = rt.ctx.sedeId ?? 1;
+  const candidata = {
+    tipo: args.tipo,
+    commessaId: args.commessaId ?? null,
+    payload: args.payload,
+    titolo: args.titolo,
+  };
+
+  // Una proposta rifiutata non torna. Il "no" di un operatore è definitivo:
+  // riproporre la stessa cosa è il modo più rapido di farsi ignorare.
+  const rifiutata = propostaGiaRifiutata(candidata, sedeId);
+  if (rifiutata) {
+    const perche = rifiutata.motivoRifiuto
+      ? ` Motivo del rifiuto: ${rifiutata.motivoRifiuto.replace(/_/g, " ")}.`
+      : "";
+    return err(
+      `Questa proposta è già stata rifiutata da un operatore (#${rifiutata.id}, "${rifiutata.titolo}").${perche} Non riproporla né riscriverla in altre parole. Se hai un dato NUOVO che ribalta quel rifiuto, dillo nel riepilogo e lascia decidere a loro.`
+    );
+  }
+
+  // E non si mette in coda due volte la stessa cosa.
+  const inCoda = propostaGiaInCoda(candidata, sedeId);
+  if (inCoda) {
+    return err(
+      `Proposta identica già in attesa di decisione (#${inCoda.id}, "${inCoda.titolo}"). Non duplicarla.`
     );
   }
   // Anti-rumore: mai più di 3 proposte pendenti sulla stessa commessa.
@@ -78,7 +112,7 @@ function creaProposta(
       (p) =>
         p.commessaId === args.commessaId &&
         p.stato === "pendente" &&
-        p.sedeId === (rt.ctx.sedeId ?? 1)
+        p.sedeId === sedeId
     ).length;
     if (pendenti >= MAX_PENDENTI_PER_COMMESSA) {
       return err(
@@ -88,7 +122,7 @@ function creaProposta(
   }
   const p: Proposta = {
     id: newPropostaId(),
-    sedeId: rt.ctx.sedeId ?? 1,
+    sedeId,
     tipo: args.tipo,
     titolo: args.titolo,
     motivazione: args.motivazione,
@@ -107,6 +141,9 @@ function creaProposta(
     decisaAt: null,
     decisaDa: null,
     decisaDaNome: null,
+    seguitoAt: null,
+    seguitoEsecuzioneId: null,
+    origineId: args.origineId ?? rt.origineId ?? null,
   };
   proposte.push(p);
   saveProposte();

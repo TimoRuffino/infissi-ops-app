@@ -18,6 +18,7 @@ import {
 } from "../_core/permissions";
 import { anthropicConfigured } from "../tars/anthropic";
 import { runTars } from "../tars/loop";
+import { avviaSeguito } from "../tars/seguito";
 import { eseguiProposta } from "../tars/esecutore";
 import {
   proposte,
@@ -32,6 +33,7 @@ import {
   saveChat,
   CATEGORIE_CONOSCENZA,
   MAX_MESSAGGI_CHAT,
+  MODELLI_TARS,
   TIPI_ALTO_RISCHIO,
   type MessaggioChat,
 } from "../tars/stores";
@@ -288,7 +290,11 @@ ${input.testo.trim()}`;
             message: `Esecuzione fallita: ${p.esito}`,
           });
         }
-        return p;
+        // Una segnalazione approvata ha confermato un problema, non l'ha
+        // risolto: Tars riparte in background per proporre l'azione che lo
+        // chiude. Non si attende — il click deve restare istantaneo.
+        const seguito = avviaSeguito(p, ctx);
+        return { ...idrataProposta(p), seguitoAvviato: seguito };
       }),
 
     rifiuta: protectedProcedure
@@ -343,7 +349,9 @@ ${input.testo.trim()}`;
         p.decisaDa = user?.id ?? null;
         p.decisaDaNome = user?.name ?? null;
         saveProposte();
-        return p;
+        // Il dato che mancava adesso c'è: Tars lo usa subito, una volta.
+        const seguito = avviaSeguito(p, ctx);
+        return { ...idrataProposta(p), seguitoAvviato: seguito };
       }),
 
     stats: protectedProcedure.query(({ ctx }) => {
@@ -430,6 +438,43 @@ ${input.testo.trim()}`;
 
   // ── Registro esecuzioni ───────────────────────────────────────────────
   esecuzioni: router({
+    // Cosa Tars ha detto su UNA commessa, e quando. Non è direzione-only:
+    // il riepilogo di un'analisi è parte della storia della commessa, e
+    // chi la lavora deve poterlo rileggere domani — prima viveva solo
+    // nello stato del componente e sparìva al ricaricamento della pagina.
+    perCommessa: protectedProcedure
+      .input(
+        z.object({
+          commessaId: z.number(),
+          limit: z.number().int().min(1).max(20).optional(),
+        })
+      )
+      .query(({ input, ctx }) => {
+        const commessa = getCommessaById(input.commessaId);
+        assertSedeScope(commessa ?? null, ctx.sedeId);
+        return esecuzioni
+          .filter(
+            (e) =>
+              e.sedeId === ctx.sedeId &&
+              e.commessaId === input.commessaId &&
+              (e.riepilogo ?? "").trim() !== ""
+          )
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, input.limit ?? 5)
+          .map((e) => ({
+            id: e.id,
+            trigger: e.trigger,
+            riepilogo: e.riepilogo,
+            utenteNome: e.utenteNome,
+            durataMs: e.durataMs,
+            createdAt: e.createdAt,
+            proposte: e.proposteIds
+              .map((id) => proposte.find((p) => p.id === id))
+              .filter(Boolean)
+              .map(idrataProposta),
+          }));
+      }),
+
     list: protectedProcedure
       .input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional())
       .query(({ input, ctx }) => {
@@ -448,6 +493,10 @@ ${input.testo.trim()}`;
       return {
         attivo: c.attivo,
         modello: c.modello,
+        modelliDisponibili: MODELLI_TARS,
+        maxToolCalls: c.maxToolCalls,
+        maxProposte: c.maxProposte,
+        timeoutMs: c.timeoutMs,
         chiaveConfigurata: anthropicConfigured(),
         puoModificare: isDirezione(ctx.user),
       };
@@ -461,6 +510,16 @@ ${input.testo.trim()}`;
         c.updatedAt = new Date();
         saveConfig();
         return { attivo: c.attivo };
+      }),
+    setModello: protectedProcedure
+      .input(z.object({ modello: z.enum(MODELLI_TARS) }))
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = getTarsConfig();
+        c.modello = input.modello;
+        c.updatedAt = new Date();
+        saveConfig();
+        return { modello: c.modello };
       }),
   }),
 });

@@ -35,6 +35,8 @@ export async function runTars(params: {
   // Turni precedenti (chat): vengono anteposti alla richiesta così il
   // modello mantiene il filo. Solo testo — i tool-use passati non servono.
   storia?: AnthropicMessage[];
+  // Proposta da cui nasce questo run (seguito di una decisione).
+  origineId?: number | null;
 }): Promise<Esecuzione> {
   const config = getTarsConfig();
   const start = Date.now();
@@ -65,6 +67,7 @@ export async function runTars(params: {
     maxProposte: config.maxProposte,
     proposteIds: [],
     terminato: null,
+    origineId: params.origineId ?? null,
   };
 
   const system = buildSystemPrompt(params.ctx.sedeId);
@@ -106,30 +109,39 @@ export async function runTars(params: {
 
       messages.push({ role: "assistant", content: res.content });
 
-      const results: ContentBlock[] = [];
-      for (const tu of toolUses) {
-        toolCalls++;
-        const overBudget = toolCalls > config.maxToolCalls;
-        const out = overBudget
-          ? {
-              content:
-                "Budget di chiamate a strumenti esaurito. Chiudi ora con il riepilogo di quanto raccolto.",
-              isError: true,
-            }
-          : await eseguiStrumento(rt, tu.name, tu.input ?? {});
+      // Il modello chiede più strumenti in un colpo: si eseguono insieme.
+      // Sono letture indipendenti — aspettarle in fila allungava il giro
+      // per niente. Il budget si conta prima, così resta deterministico
+      // qualunque sia l'ordine in cui finiscono.
+      const budget = toolUses.map(() => ++toolCalls <= config.maxToolCalls);
+      if (budget.some((ok) => !ok)) esecuzione.esito = "budget_esaurito";
+
+      const esiti = await Promise.all(
+        toolUses.map((tu, i) =>
+          budget[i]
+            ? eseguiStrumento(rt, tu.name, tu.input ?? {})
+            : Promise.resolve({
+                content:
+                  "Budget di chiamate a strumenti esaurito. Chiudi ora con il riepilogo di quanto raccolto.",
+                isError: true,
+              })
+        )
+      );
+
+      const results: ContentBlock[] = toolUses.map((tu, i) => {
+        const out = esiti[i];
         esecuzione.strumenti.push({
           nome: tu.name,
           input: tu.input ?? {},
           esito: sintesiEsito(out),
         });
-        results.push({
+        return {
           type: "tool_result",
           tool_use_id: tu.id,
           content: out.content,
           ...(out.isError ? { is_error: true } : {}),
-        });
-        if (overBudget) esecuzione.esito = "budget_esaurito";
-      }
+        };
+      });
       messages.push({ role: "user", content: results });
 
       // nessuna_azione: chiediamo comunque un ultimo turno di testo? No —
