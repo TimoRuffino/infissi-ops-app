@@ -381,26 +381,95 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
 
 const DRIVE = "https://www.googleapis.com/drive/v3";
 
+// ── Chiamate a Drive, con ritentativi ───────────────────────────────────────
+// Drive risponde 503 "Transient failure" quando ha un problema suo, e 429 o
+// 403 rateLimitExceeded quando le richieste arrivano troppo dense — un
+// backup è 650 file di fila, quindi succede. Google documenta una cosa sola
+// per questi casi: riprovare con attese crescenti.
+//
+// Senza ritentativi un singolo 503 sulla prima cartella buttava via l'intero
+// backup notturno, ed è esattamente quello che è accaduto.
+
+const TENTATIVI_DRIVE = 5;
+
+/** Errori che passano da soli: ha senso solo riprovare. Esportata per i test. */
+export function erroreTransitorio(status: number, corpo: string): boolean {
+  if (status === 429 || status >= 500) return true;
+  // 403 è ambiguo: permessi (definitivo) o quota di frequenza (transitorio).
+  if (status === 403) {
+    return /rateLimitExceeded|userRateLimitExceeded|backendError/i.test(corpo);
+  }
+  return false;
+}
+
+export function attesaMs(tentativo: number, retryAfter: string | null): number {
+  const secondi = retryAfter ? Number(retryAfter) : NaN;
+  if (Number.isFinite(secondi) && secondi > 0) {
+    return Math.min(secondi * 1000, 60_000);
+  }
+  // 1s, 2s, 4s, 8s… più un pizzico di casualità, così più richieste in coda
+  // non ripartono tutte nello stesso istante.
+  return Math.min(1000 * 2 ** tentativo, 30_000) + Math.floor(Math.random() * 500);
+}
+
+export async function driveFetch(
+  url: string,
+  init: RequestInit,
+  cosa: string
+): Promise<Response> {
+  let ultimo = "";
+  for (let tentativo = 0; tentativo < TENTATIVI_DRIVE; tentativo++) {
+    const res = await fetch(url, init);
+    if (res.ok) return res;
+
+    const corpo = await res.text().catch(() => "");
+    ultimo = `HTTP ${res.status}: ${corpo.slice(0, 300)}`;
+    const ritentabile = erroreTransitorio(res.status, corpo);
+    const ultimoGiro = tentativo === TENTATIVI_DRIVE - 1;
+
+    if (!ritentabile) throw new Error(`${cosa} fallita (${ultimo})`);
+    if (ultimoGiro) {
+      throw new Error(
+        `${cosa} fallita: Google Drive ha risposto ${res.status} anche dopo ${TENTATIVI_DRIVE} tentativi. Non è un problema di configurazione — è un guasto momentaneo di Drive. Riprova con «Esegui adesso», o aspetta il backup di stanotte.`
+      );
+    }
+
+    const attesa = attesaMs(tentativo, res.headers.get("retry-after"));
+    console.warn(
+      `[backup] ${cosa}: ${ultimo} — ritento tra ${Math.round(attesa / 1000)}s (${tentativo + 1}/${TENTATIVI_DRIVE})`
+    );
+    await new Promise((r) => setTimeout(r, attesa));
+  }
+  throw new Error(`${cosa} fallita (${ultimo})`);
+}
+
 async function driveFindFolder(token: string, name: string, parentId: string): Promise<string | null> {
   const q = encodeURIComponent(
     `name = '${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
-  const res = await fetch(
+  const res = await driveFetch(
     `${DRIVE}/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
-    { headers: { authorization: `Bearer ${token}` } }
+    { headers: { authorization: `Bearer ${token}` } },
+    `Ricerca della cartella "${name}" su Drive`
   );
-  if (!res.ok) throw new Error(`Drive list fallita (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
   const j: any = await res.json();
   return j.files?.[0]?.id ?? null;
 }
 
 async function driveCreateFolder(token: string, name: string, parentId: string): Promise<string> {
-  const res = await fetch(`${DRIVE}/files?supportsAllDrives=true&fields=id`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parentId] }),
-  });
-  if (!res.ok) throw new Error(`Creazione cartella Drive fallita (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const res = await driveFetch(
+    `${DRIVE}/files?supportsAllDrives=true&fields=id`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      }),
+    },
+    `Creazione della cartella "${name}" su Drive`
+  );
   return ((await res.json()) as any).id;
 }
 
@@ -419,7 +488,9 @@ async function driveUploadFile(
     data,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
-  const res = await fetch(
+  // Il corpo è un Buffer, non uno stream: si può rispedire tale e quale a
+  // ogni tentativo.
+  await driveFetch(
     `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id`,
     {
       method: "POST",
@@ -428,9 +499,9 @@ async function driveUploadFile(
         "content-type": `multipart/related; boundary=${boundary}`,
       },
       body,
-    }
+    },
+    `Caricamento di "${name}" su Drive`
   );
-  if (!res.ok) throw new Error(`Upload "${name}" fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
 }
 
 // ── Backup tree ──────────────────────────────────────────────────────────────
@@ -924,6 +995,29 @@ function msUntilRomeMidnight(): number {
 
 let scheduled: NodeJS.Timeout | null = null;
 
+// Ritentativi della notte. Il wrapper su Drive copre il singolo 503; questo
+// copre il caso in cui Drive sia giù per qualche minuto — succede, e senza
+// questo la notte resta senza backup fino a 24 ore dopo.
+const RITENTATIVI_NOTTURNI = 3;
+const ATTESA_RITENTATIVO_MS = 20 * 60_000;
+
+async function backupNotturnoConRitentativi(): Promise<void> {
+  for (let tentativo = 1; tentativo <= RITENTATIVI_NOTTURNI; tentativo++) {
+    const log = await runBackup("schedulato");
+    if (log.ok) return;
+    if (tentativo === RITENTATIVI_NOTTURNI) {
+      console.error(
+        `[backup] notturno fallito ${RITENTATIVI_NOTTURNI} volte, ultimo errore: ${log.error}`
+      );
+      return;
+    }
+    console.warn(
+      `[backup] notturno fallito (${log.error}) — ritento tra 20 minuti (${tentativo}/${RITENTATIVI_NOTTURNI})`
+    );
+    await new Promise((r) => setTimeout(r, ATTESA_RITENTATIVO_MS));
+  }
+}
+
 export function startBackupScheduler(): void {
   if (scheduled) return;
   const arm = () => {
@@ -931,7 +1025,7 @@ export function startBackupScheduler(): void {
     scheduled = setTimeout(async () => {
       try {
         if (getConfig().enabled) {
-          await runBackup("schedulato");
+          await backupNotturnoConRitentativi();
         }
       } catch (e) {
         console.error("[backup] nightly run failed:", e);
