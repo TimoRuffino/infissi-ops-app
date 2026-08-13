@@ -41,10 +41,20 @@ export async function runTars(params: {
   const config = getTarsConfig(params.ctx.sedeId);
   const start = Date.now();
 
+  // I lavori di massa girano sul modello economico: smistare dieci mail è
+  // un compito di aggancio, non di ragionamento — e succede molte volte al
+  // giorno. Il modello pieno resta per chi lo chiede (analizza, chat) e per
+  // il seguito di una decisione, dove l'errore costa di più del token.
+  const TRIGGER_ECONOMICI = new Set(["smistamento", "riconciliazione_fatture"]);
+  const modello = TRIGGER_ECONOMICI.has(params.trigger)
+    ? config.modelloAutomatico
+    : config.modello;
+
   const esecuzione: Esecuzione = {
     id: newEsecuzioneId(),
     sedeId: params.ctx.sedeId ?? 1,
     trigger: params.trigger,
+    modello,
     commessaId: params.commessaId,
     richiesta: params.richiesta,
     strumenti: [],
@@ -52,6 +62,8 @@ export async function runTars(params: {
     riepilogo: null,
     tokensIn: 0,
     tokensOut: 0,
+    tokensCacheRead: 0,
+    tokensCacheWrite: 0,
     durataMs: 0,
     esito: "ok",
     errore: null,
@@ -84,7 +96,7 @@ export async function runTars(params: {
 
     while (true) {
       const res = await callAnthropic({
-        model: config.modello,
+        model: modello,
         system,
         messages,
         tools: TOOL_DEFS,
@@ -92,6 +104,8 @@ export async function runTars(params: {
       });
       esecuzione.tokensIn += res.usage.input_tokens;
       esecuzione.tokensOut += res.usage.output_tokens;
+      esecuzione.tokensCacheRead += res.usage.cache_read_input_tokens ?? 0;
+      esecuzione.tokensCacheWrite += res.usage.cache_creation_input_tokens ?? 0;
 
       const testo = res.content
         .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")

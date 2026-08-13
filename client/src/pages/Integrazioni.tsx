@@ -362,8 +362,19 @@ function TarsCard() {
   const utils = trpc.useUtils();
   const config = trpc.tars.config.get.useQuery(undefined, { retry: false });
   const setModello = trpc.tars.config.setModello.useMutation({
+    onSuccess: () => {
+      toast.success("Modello aggiornato");
+      utils.tars.config.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const setBudget = trpc.tars.config.setBudget.useMutation({
     onSuccess: (r) => {
-      toast.success(`Modello: ${ETICHETTA_MODELLO[r.modello] ?? r.modello}`);
+      toast.success(
+        r.budgetMensileUsd > 0
+          ? `Budget mensile: $${r.budgetMensileUsd}`
+          : "Budget mensile: nessun tetto"
+      );
       utils.tars.config.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -378,6 +389,9 @@ function TarsCard() {
   const [, setLocation] = useLocation();
 
   const attivo = config.data?.attivo ?? false;
+  const spesa = config.data?.spesaMeseUsd ?? 0;
+  const budget = config.data?.budgetMensileUsd ?? 0;
+  const sopraBudget = budget > 0 && spesa >= budget;
   const chiaveOk = config.data?.chiaveConfigurata ?? false;
 
   return (
@@ -429,26 +443,103 @@ function TarsCard() {
             </Button>
           )}
         </div>
+        {/* Spesa del mese contro il budget: la barra è il colpo d'occhio,
+            il numero è la verità. Stima dai token, non la fattura. */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Spesa stimata del mese</span>
+            <span className={sopraBudget ? "text-destructive font-medium" : ""}>
+              ${spesa.toFixed(2)}
+              {budget > 0 ? ` / $${budget}` : " (nessun tetto)"}
+            </span>
+          </div>
+          {budget > 0 && (
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full ${sopraBudget ? "bg-destructive" : "bg-primary"}`}
+                style={{ width: `${Math.min(100, (spesa / budget) * 100)}%` }}
+              />
+            </div>
+          )}
+          {sopraBudget && (
+            <p className="text-xs text-destructive">
+              Budget esaurito: i lavori automatici sono fermi e le analisi
+              manuali vengono rifiutate finché il tetto non viene alzato o il
+              mese non cambia.
+            </p>
+          )}
+        </div>
+
         {isDirezione(user) ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">Modello:</span>
-            <select
-              className="h-8 rounded-md border bg-background px-2 text-xs"
-              value={config.data?.modello ?? ""}
-              disabled={setModello.isPending}
-              onChange={(e) => setModello.mutate({ modello: e.target.value as any })}
-            >
-              {(config.data?.modelliDisponibili ?? []).map((m) => (
-                <option key={m} value={m}>
-                  {ETICHETTA_MODELLO[m] ?? m}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">
-              · {config.data?.maxToolCalls ?? "—"} strumenti,{" "}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground w-36">
+                Modello (analisi e chat):
+              </span>
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+                value={config.data?.modello ?? ""}
+                disabled={setModello.isPending}
+                onChange={(e) => setModello.mutate({ modello: e.target.value as any })}
+              >
+                {(config.data?.modelliDisponibili ?? []).map((m) => (
+                  <option key={m} value={m}>
+                    {ETICHETTA_MODELLO[m] ?? m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground w-36">
+                Modello lavori automatici:
+              </span>
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+                value={config.data?.modelloAutomatico ?? ""}
+                disabled={setModello.isPending}
+                onChange={(e) =>
+                  setModello.mutate({
+                    modello: e.target.value as any,
+                    automatico: true,
+                  })
+                }
+              >
+                {(config.data?.modelliDisponibili ?? []).map((m) => (
+                  <option key={m} value={m}>
+                    {ETICHETTA_MODELLO[m] ?? m}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">
+                smistamento mail e fatture
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground w-36">
+                Budget mensile ($):
+              </span>
+              <Input
+                type="number"
+                min={0}
+                step={5}
+                defaultValue={budget}
+                key={budget}
+                className="h-8 w-24 text-xs"
+                disabled={setBudget.isPending}
+                onBlur={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v) && v >= 0 && v !== budget) {
+                    setBudget.mutate({ budgetMensileUsd: v });
+                  }
+                }}
+              />
+              <span className="text-xs text-muted-foreground">0 = nessun tetto</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {config.data?.maxToolCalls ?? "—"} strumenti,{" "}
               {Math.round((config.data?.timeoutMs ?? 0) / 1000)}s,{" "}
               {config.data?.maxProposte ?? "—"} proposte per esecuzione
-            </span>
+            </p>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">

@@ -16,7 +16,7 @@
 
 import type { TrpcContext } from "../_core/context";
 import { anthropicConfigured } from "./anthropic";
-import { getTarsConfig } from "./stores";
+import { budgetMensileSuperato, getTarsConfig } from "./stores";
 import { runTars } from "./loop";
 import { listDaAnalizzare, markAnalizzate } from "./comunicazioni";
 import { getCommessaById } from "../routers/commesse";
@@ -56,6 +56,9 @@ function ctxSistema(sedeId: number): TrpcContext {
 export async function smistaComunicazioni(sedeId: number): Promise<void> {
   const config = getTarsConfig(sedeId);
   if (!config.attivo || !anthropicConfigured()) return;
+  // Budget mensile finito: i lavori automatici si fermano da soli. Le mail
+  // restano non analizzate e verranno riprese quando il budget riapre.
+  if (budgetMensileSuperato(sedeId)) return;
   if (inCorso.has(sedeId)) return;
   const pausa = pausaFinoA.get(sedeId);
   if (pausa && Date.now() < pausa) return;
@@ -176,6 +179,7 @@ const fatturePausaFinoA = new Map<number, number>();
 export async function smistaFatture(sedeId: number): Promise<void> {
   const config = getTarsConfig(sedeId);
   if (!config.attivo || !anthropicConfigured()) return;
+  if (budgetMensileSuperato(sedeId)) return;
   if (fattureInCorso.has(sedeId)) return;
   const pausaFatture = fatturePausaFinoA.get(sedeId);
   if (pausaFatture && Date.now() < pausaFatture) return;

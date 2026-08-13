@@ -16,7 +16,12 @@
 import type { TrpcContext } from "../_core/context";
 import { anthropicConfigured } from "./anthropic";
 import { runTars } from "./loop";
-import { getTarsConfig, saveProposte, type Proposta } from "./stores";
+import {
+  budgetMensileSuperato,
+  getTarsConfig,
+  saveProposte,
+  type Proposta,
+} from "./stores";
 
 /** I tipi che descrivono una situazione invece di risolverla. */
 export function meritaSeguito(p: Proposta): boolean {
@@ -76,6 +81,9 @@ export function avviaSeguito(p: Proposta, ctx: TrpcContext): boolean {
   if (!meritaSeguito(p)) return false;
   const config = getTarsConfig(p.sedeId);
   if (!config.attivo || !anthropicConfigured()) return false;
+  // Col budget finito il seguito non parte: la proposta resta decisa e
+  // l'operatore può sempre chiedere l'analisi a mano quando il budget riapre.
+  if (budgetMensileSuperato(p.sedeId)) return false;
 
   // Prima il segno, poi la corsa: se due click arrivano insieme, il secondo
   // trova già scritto e non parte.

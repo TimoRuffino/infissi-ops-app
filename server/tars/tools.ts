@@ -52,8 +52,20 @@ const MAX_PENDENTI_PER_COMMESSA = 3;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// Un tool result entra nel prompt e ci RESTA per tutti i giri successivi
+// del run: un fascicolo da 40k caratteri si paga a ogni giro. Il tetto tiene
+// il run dentro un costo prevedibile; se il modello ha bisogno del dettaglio
+// tagliato, ha strumenti più mirati per chiederlo.
+const MAX_RISULTATO_CHAR = 8_000;
+
 function ok(data: unknown): { content: string; isError?: boolean } {
-  return { content: JSON.stringify(data) };
+  const json = JSON.stringify(data);
+  if (json.length <= MAX_RISULTATO_CHAR) return { content: json };
+  return {
+    content:
+      json.slice(0, MAX_RISULTATO_CHAR) +
+      `\n…[risultato troncato: ${json.length} caratteri totali. Se ti serve il dettaglio mancante, usa uno strumento più mirato o un filtro più stretto.]`,
+  };
 }
 function err(msg: string): { content: string; isError: boolean } {
   return { content: msg, isError: true };

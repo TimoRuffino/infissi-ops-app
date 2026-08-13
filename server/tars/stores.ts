@@ -220,6 +220,9 @@ export type Esecuzione = {
   id: number;
   sedeId: number;
   trigger: string;
+  // Il modello che ha davvero girato: senza, la spesa non si può calcolare
+  // a posteriori (il config può essere cambiato nel frattempo).
+  modello: string | null;
   commessaId: number | null;
   richiesta: string; // il messaggio utente passato al modello
   strumenti: StrumentoChiamato[];
@@ -227,6 +230,10 @@ export type Esecuzione = {
   riepilogo: string | null; // il testo finale del modello
   tokensIn: number;
   tokensOut: number;
+  // La cache cambia il prezzo di un fattore 10: contarla insieme all'input
+  // pieno gonfierebbe la spesa stimata e farebbe scattare il budget a vuoto.
+  tokensCacheRead: number;
+  tokensCacheWrite: number;
   durataMs: number;
   esito: "ok" | "errore" | "budget_esaurito";
   errore: string | null;
@@ -242,11 +249,73 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
     nextEsecuzioneId = items.length
       ? Math.max(...items.map((e) => e.id)) + 1
       : 1;
+    for (const e of items) {
+      if (e.modello === undefined) e.modello = null;
+      if (e.tokensCacheRead === undefined) e.tokensCacheRead = 0;
+      if (e.tokensCacheWrite === undefined) e.tokensCacheWrite = 0;
+    }
   }
 );
 export const esecuzioni = _esecuzioniStore.items;
 export const saveEsecuzioni = () => _esecuzioniStore.save();
 export const newEsecuzioneId = () => nextEsecuzioneId++;
+
+// ── Spesa ───────────────────────────────────────────────────────────────────
+// Prezzi Anthropic per milione di token (USD). Cache read ~0.1× dell'input,
+// cache write ~1.25×. Il numero che ne esce è una STIMA da cruscotto — la
+// fattura vera la fa Anthropic — ma basta per un budget.
+
+type Prezzi = { in: number; out: number };
+const PREZZI_MTOK: Record<string, Prezzi> = {
+  "claude-opus-5": { in: 5, out: 25 },
+  "claude-sonnet-5": { in: 3, out: 15 },
+  "claude-haiku-4-5-20251001": { in: 1, out: 5 },
+};
+// Un modello sconosciuto (record vecchi senza modello, id futuri) si conta
+// al prezzo più alto: un budget che sbaglia deve sbagliare per eccesso.
+const PREZZI_FALLBACK: Prezzi = { in: 5, out: 25 };
+
+export function costoEsecuzioneUsd(e: {
+  modello: string | null;
+  tokensIn: number;
+  tokensOut: number;
+  tokensCacheRead: number;
+  tokensCacheWrite: number;
+}): number {
+  const p = (e.modello && PREZZI_MTOK[e.modello]) || PREZZI_FALLBACK;
+  return (
+    (e.tokensIn * p.in +
+      e.tokensOut * p.out +
+      e.tokensCacheRead * p.in * 0.1 +
+      e.tokensCacheWrite * p.in * 1.25) /
+    1_000_000
+  );
+}
+
+/** Spesa stimata del mese corrente per una sede. */
+export function spesaMeseUsd(sedeId: number): number {
+  const ora = new Date();
+  const anno = ora.getFullYear();
+  const mese = ora.getMonth();
+  let totale = 0;
+  for (const e of esecuzioni) {
+    if (e.sedeId !== sedeId) continue;
+    const d = new Date(e.createdAt);
+    if (d.getFullYear() !== anno || d.getMonth() !== mese) continue;
+    totale += costoEsecuzioneUsd(e);
+  }
+  return totale;
+}
+
+/**
+ * Il budget mensile è finito? I trigger automatici si fermano qui; quelli
+ * umani ricevono un errore che dice quanto è stato speso e dove alzarlo.
+ */
+export function budgetMensileSuperato(sedeId: number): boolean {
+  const config = getTarsConfig(sedeId);
+  if (!config.budgetMensileUsd || config.budgetMensileUsd <= 0) return false;
+  return spesaMeseUsd(sedeId) >= config.budgetMensileUsd;
+}
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 // Una conversazione per utente per sede. La chat è un altro modo di
@@ -315,6 +384,14 @@ export type TarsConfig = {
   sedeId: number;
   attivo: boolean;
   modello: string;
+  // I lavori di massa (smistamento mail, riconciliazione fatture) girano su
+  // un modello più economico: sono compiti di aggancio, non di ragionamento
+  // profondo, e sono anche i più frequenti — è lì che si brucia il budget.
+  modelloAutomatico: string;
+  // Tetto mensile stimato in USD (i prezzi Anthropic sono in dollari).
+  // Superato il tetto: i trigger automatici si fermano, quelli umani
+  // ricevono un errore chiaro. 0 = nessun limite.
+  budgetMensileUsd: number;
   // Budget per esecuzione (il piano prevede anche un budget mensile in €;
   // arriverà con i trigger schedulati, quando i volumi lo giustificano).
   maxToolCalls: number;
@@ -332,6 +409,8 @@ const VERSIONE_DEFAULT = 2;
 const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   attivo: false, // spento finché la direzione non lo accende
   modello: "claude-opus-5",
+  modelloAutomatico: "claude-sonnet-5",
+  budgetMensileUsd: 25,
   // Con la lettura degli strumenti in parallelo un giro costa meno tempo:
   // il budget più alto serve a farlo arrivare in fondo all'indagine, non a
   // fargli fare più giri a vuoto.
@@ -355,6 +434,12 @@ const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) =
     if (c.maxProposte === undefined) c.maxProposte = DEFAULT_CONFIG.maxProposte;
     if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
     if (c.modello === undefined) c.modello = DEFAULT_CONFIG.modello;
+    if (c.modelloAutomatico === undefined) {
+      c.modelloAutomatico = DEFAULT_CONFIG.modelloAutomatico;
+    }
+    if (c.budgetMensileUsd === undefined) {
+      c.budgetMensileUsd = DEFAULT_CONFIG.budgetMensileUsd;
+    }
     // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
     // una decisione umana, e una migrazione non la prende per nessuno.
     if ((c.versioneDefault ?? 1) < VERSIONE_DEFAULT) {

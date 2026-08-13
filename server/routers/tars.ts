@@ -31,6 +31,8 @@ import {
   saveConfig,
   getChat,
   saveChat,
+  budgetMensileSuperato,
+  spesaMeseUsd,
   CATEGORIE_CONOSCENZA,
   MAX_MESSAGGI_CHAT,
   MODELLI_TARS,
@@ -46,6 +48,18 @@ const MOTIVI_RIFIUTO = [
   "lo_faccio_io",
   "altro",
 ] as const;
+
+// Trigger umani oltre il budget: errore chiaro con il numero, non un
+// silenzio. La direzione può alzare il tetto da Impostazioni.
+function assertBudgetDisponibile(sedeId: number | null) {
+  const sede = sedeId ?? 1;
+  if (!budgetMensileSuperato(sede)) return;
+  const config = getTarsConfig(sede);
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: `Budget mensile di Tars esaurito: spesi ~$${spesaMeseUsd(sede).toFixed(2)} su $${config.budgetMensileUsd}. La direzione può alzare il tetto da Impostazioni → Integrazioni.`,
+  });
+}
 
 function trovaProposta(id: number, sedeId: number | null) {
   const p = proposte.find((x) => x.id === id);
@@ -101,6 +115,7 @@ export const tarsRouter = router({
           message: "ANTHROPIC_API_KEY non configurata sul server.",
         });
       }
+      assertBudgetDisponibile(ctx.sedeId);
       const commessa = getCommessaById(input.commessaId);
       assertSedeScope(commessa ?? null, ctx.sedeId);
       if ((commessa as any).archivedAt) {
@@ -168,14 +183,17 @@ fare, usa nessuna_azione.`;
             message: "ANTHROPIC_API_KEY non configurata sul server.",
           });
         }
+        assertBudgetDisponibile(ctx.sedeId);
         const user: any = ctx.user;
         const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
 
-        // Il filo del discorso: gli ultimi turni, solo testo. I tool-use
-        // delle esecuzioni passate non servono a mantenere il contesto.
-        const storia = rec.messaggi.slice(-20).map((m) => ({
+        // Il filo del discorso: gli ultimi turni, solo testo, ciascuno
+        // accorciato. I tool-use delle esecuzioni passate non servono, e
+        // dodici turni bastano a non perdere il filo: la storia intera si
+        // ripaga a ogni messaggio, ed è la voce che cresce da sola.
+        const storia = rec.messaggi.slice(-12).map((m) => ({
           role: m.ruolo === "utente" ? ("user" as const) : ("assistant" as const),
-          content: m.testo || "…",
+          content: (m.testo || "…").slice(0, 2_000),
         }));
 
         const richiesta = `<trigger>
@@ -493,10 +511,13 @@ ${input.testo.trim()}`;
       return {
         attivo: c.attivo,
         modello: c.modello,
+        modelloAutomatico: c.modelloAutomatico,
         modelliDisponibili: MODELLI_TARS,
         maxToolCalls: c.maxToolCalls,
         maxProposte: c.maxProposte,
         timeoutMs: c.timeoutMs,
+        budgetMensileUsd: c.budgetMensileUsd,
+        spesaMeseUsd: spesaMeseUsd(ctx.sedeId ?? 1),
         chiaveConfigurata: anthropicConfigured(),
         puoModificare: isDirezione(ctx.user),
       };
@@ -512,14 +533,32 @@ ${input.testo.trim()}`;
         return { attivo: c.attivo };
       }),
     setModello: protectedProcedure
-      .input(z.object({ modello: z.enum(MODELLI_TARS) }))
+      .input(
+        z.object({
+          modello: z.enum(MODELLI_TARS),
+          // true = il modello dei lavori automatici (smistamento mail,
+          // riconciliazione fatture); false/assente = quello principale.
+          automatico: z.boolean().optional(),
+        })
+      )
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
         const c = getTarsConfig(ctx.sedeId);
-        c.modello = input.modello;
+        if (input.automatico) c.modelloAutomatico = input.modello;
+        else c.modello = input.modello;
         c.updatedAt = new Date();
         saveConfig();
-        return { modello: c.modello };
+        return { modello: c.modello, modelloAutomatico: c.modelloAutomatico };
+      }),
+    setBudget: protectedProcedure
+      .input(z.object({ budgetMensileUsd: z.number().min(0).max(10_000) }))
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = getTarsConfig(ctx.sedeId);
+        c.budgetMensileUsd = input.budgetMensileUsd;
+        c.updatedAt = new Date();
+        saveConfig();
+        return { budgetMensileUsd: c.budgetMensileUsd };
       }),
   }),
 });

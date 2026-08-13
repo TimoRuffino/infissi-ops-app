@@ -6,7 +6,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
-import { proposte, esecuzioni, getTarsConfig } from "./stores";
+import {
+  proposte,
+  esecuzioni,
+  getTarsConfig,
+  budgetMensileSuperato,
+  costoEsecuzioneUsd,
+} from "./stores";
 
 function makeCtx(): TrpcContext {
   return {
@@ -569,5 +575,154 @@ describe("tars — seguito dell'approvazione", () => {
     });
     expect(storico).toHaveLength(1);
     expect(storico[0].riepilogo).toMatch(/coerente/);
+  });
+});
+
+// ── Budget mensile ─────────────────────────────────────────────────────────
+// La spesa è una stima dai token, ma il muro è vero: automatici fermi,
+// umani con errore che dice il numero.
+describe("tars — budget mensile", () => {
+  const realFetch = global.fetch;
+  beforeAll(() => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  it("costoEsecuzioneUsd: prezzi giusti per modello, cache scontata", () => {
+    // 1M token in + 1M out su Sonnet: 3 + 15 = 18 $.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "claude-sonnet-5",
+        tokensIn: 1_000_000,
+        tokensOut: 1_000_000,
+        tokensCacheRead: 0,
+        tokensCacheWrite: 0,
+      })
+    ).toBeCloseTo(18);
+    // Cache read su Opus: 0.1× dell'input → 1M letti dalla cache = 0.5 $.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "claude-opus-5",
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensCacheRead: 1_000_000,
+        tokensCacheWrite: 0,
+      })
+    ).toBeCloseTo(0.5);
+    // Modello sconosciuto → prezzo Opus (per eccesso, mai per difetto).
+    expect(
+      costoEsecuzioneUsd({
+        modello: null,
+        tokensIn: 1_000_000,
+        tokensOut: 0,
+        tokensCacheRead: 0,
+        tokensCacheWrite: 0,
+      })
+    ).toBeCloseTo(5);
+  });
+
+  it("oltre il budget: analizza rifiuta col numero, sotto budget passa", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const commessa = await caller.commesse.create({ cliente: "Budget Test" });
+
+    // Un'esecuzione da ~30 $ su un budget di 20: il muro deve chiudere.
+    await caller.tars.config.setBudget({ budgetMensileUsd: 20 });
+    esecuzioni.push({
+      id: 999_001,
+      sedeId: 1,
+      trigger: "on_demand",
+      modello: "claude-opus-5",
+      commessaId: null,
+      richiesta: "",
+      strumenti: [],
+      proposteIds: [],
+      riepilogo: null,
+      tokensIn: 1_000_000, // 5 $
+      tokensOut: 1_000_000, // 25 $
+      tokensCacheRead: 0,
+      tokensCacheWrite: 0,
+      durataMs: 0,
+      esito: "ok",
+      errore: null,
+      utenteId: null,
+      utenteNome: null,
+      createdAt: new Date(),
+    });
+    expect(budgetMensileSuperato(1)).toBe(true);
+
+    await expect(
+      caller.tars.analizza({ commessaId: commessa.id })
+    ).rejects.toThrow(/Budget mensile di Tars esaurito.*\$20/);
+    await expect(caller.tars.chat.invia({ testo: "ciao" })).rejects.toThrow(
+      /Budget mensile/
+    );
+
+    // Il budget non tocca le altre sedi.
+    expect(budgetMensileSuperato(2)).toBe(false);
+
+    // Tetto alzato → si riparte.
+    await caller.tars.config.setBudget({ budgetMensileUsd: 100 });
+    expect(budgetMensileSuperato(1)).toBe(false);
+
+    // Pulizia: l'esecuzione finta non deve sporcare gli altri test.
+    const idx = esecuzioni.findIndex((e) => e.id === 999_001);
+    esecuzioni.splice(idx, 1);
+    await caller.tars.config.setBudget({ budgetMensileUsd: 25 });
+  });
+
+  it("i lavori automatici girano sul modello economico", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const commessa = await caller.commesse.create({ cliente: "Modello Test" });
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "nessuna_azione",
+            input: { motivo: "Niente da fare." },
+          },
+        ],
+      },
+    ]) as any;
+
+    // on_demand → modello principale.
+    const r1 = await caller.tars.analizza({ commessaId: commessa.id });
+    const e1 = esecuzioni.find((e) => e.id === r1.esecuzioneId)!;
+    expect(e1.modello).toBe(getTarsConfig(1).modello);
+
+    // trigger economico → modello automatico.
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "nessuna_azione",
+            input: { motivo: "Niente." },
+          },
+        ],
+      },
+    ]) as any;
+    const { runTars } = await import("./loop");
+    const e2 = await runTars({
+      ctx,
+      trigger: "smistamento",
+      commessaId: null,
+      richiesta: "test",
+    });
+    expect(e2.modello).toBe(getTarsConfig(1).modelloAutomatico);
+    expect(e2.modello).not.toBe(getTarsConfig(1).modello);
   });
 });
