@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { serveWellKnown } from "./wellKnown";
 import { bootstrapAll } from "./persistence";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -222,6 +223,9 @@ async function startServer() {
       createContext,
     })
   );
+  // Verifiche di dominio: prima della SPA, che risponde a tutto.
+  serveWellKnown(app);
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
