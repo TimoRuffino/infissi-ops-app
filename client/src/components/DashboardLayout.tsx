@@ -338,7 +338,7 @@ function DashboardLayoutContent({
                                   tooltip={c.label}
                                   className={`relative h-9 transition-all ${
                                     attiva
-                                      ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
+                                      ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-white font-semibold"
                                       : "font-normal"
                                   }`}
                                 >
@@ -360,16 +360,14 @@ function DashboardLayoutContent({
 
                   return (
                     <SidebarMenuItem key={item.path}>
-                      {/* Active voice (spec §3.1): bg white/10 + 3px primary left
-                          bar + white text. Styled on the button directly so the
-                          highlight always paints above the dark sidebar. */}
+                      {/* Keep the active destination crisp against the dark rail. */}
                       <SidebarMenuButton
                         isActive={isActive}
                         onClick={() => setLocation(item.path)}
                         tooltip={item.label}
                         className={`relative h-10 transition-all ${
                           isActive
-                            ? "bg-white/10 hover:bg-white/15 data-[active=true]:bg-white/10 text-white font-semibold"
+                            ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-white font-semibold"
                             : "font-normal"
                         }`}
                       >
@@ -405,7 +403,7 @@ function DashboardLayoutContent({
                     <p className="text-sm font-medium truncate leading-none text-white">
                       {user?.name || "-"}
                     </p>
-                    <p className="text-xs text-white/50 truncate mt-1">
+                    <p className="text-xs text-sidebar-foreground truncate mt-1">
                       {(user as any)?.ruolo?.replace(/_/g, " ") || user?.role || "-"}
                     </p>
                   </div>
@@ -440,7 +438,7 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-card/92 px-2 shadow-xs backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
+          <div className="flex border-b h-14 items-center justify-between bg-card px-2 shadow-xs sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex items-center gap-3">

@@ -661,7 +661,7 @@ export default function CommesseList() {
       </div>
 
       {/* Sticky toolbar: search + stato + only-mine + counter */}
-      <div className="sticky top-14 md:top-0 z-30 -mx-4 px-4 py-2.5 sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6 bg-background/94 border-y border-border/80 backdrop-blur">
+      <div className="sticky top-14 md:top-0 z-30 -mx-4 px-4 py-2.5 sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6 bg-background border-y border-border">
         <div className="grid gap-2">
           <div className="flex items-center gap-2">
             <div className="relative min-w-0 flex-1 sm:max-w-md">

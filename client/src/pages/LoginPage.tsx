@@ -41,13 +41,13 @@ export default function LoginPage() {
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 hidden w-[34vw] border-r border-border/70 bg-card/35 lg:block"
+        className="pointer-events-none absolute inset-y-0 left-0 hidden w-[34vw] border-r border-border bg-card lg:block"
         style={{
           backgroundImage:
-            "linear-gradient(135deg, rgba(24,86,106,0.12), rgba(198,83,43,0.05) 46%, transparent 46%)",
+            "linear-gradient(145deg, var(--color-accent-soft), var(--card) 60%, var(--color-info-soft))",
         }}
       />
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,transparent_55%,rgba(18,113,91,0.07)_55%,transparent_76%)]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,transparent_62%,color-mix(in_srgb,var(--color-accent-brand)_10%,transparent)_62%,transparent_82%)]" />
 
       <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
         <motion.div
