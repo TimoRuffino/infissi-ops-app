@@ -266,7 +266,7 @@ function CalendarioSettimana({
                       key={ev.id}
                       onClick={() => onEventClick(ev)}
                       className="text-[10px] leading-tight p-1 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
-                      style={{ backgroundColor: CALENDAR_COLOR_MAP[ev.tipo] ?? "#6b7280" }}
+                      style={{ backgroundColor: CALENDAR_COLOR_MAP[ev.tipo] ?? "var(--color-cal-altro)" }}
                       title={ev.note}
                     >
                       {ev.note}
@@ -816,7 +816,7 @@ export default function Dashboard() {
                   <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="valore" fill="#3A5BDC" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="valore" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -885,8 +885,8 @@ export default function Dashboard() {
                 <YAxis type="category" dataKey="nome" tick={{ fontSize: 12 }} width={120} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="attivi" name="Attivi" fill="#3A5BDC" stackId="a" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="completati" name="Completati" fill="#0E9384" stackId="a" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="attivi" name="Attivi" fill="var(--chart-1)" stackId="a" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="completati" name="Completati" fill="var(--chart-5)" stackId="a" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

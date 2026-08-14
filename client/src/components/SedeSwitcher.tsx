@@ -29,7 +29,7 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
     onSuccess: async (sede) => {
       // Refresh everything — data is scoped to the active sede server-side.
       await utils.invalidate();
-      toast.success(`Sede attiva: ${sede?.nome ?? ""}`, { icon: "🏢" });
+      toast.success(`Sede attiva: ${sede?.nome ?? ""}`);
     },
     onError: (err) => toast.error(err.message ?? "Cambio sede non riuscito"),
   });
@@ -41,7 +41,7 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
 
   // Compact icon badge reused by both layouts.
   const Badge = (
-    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm">
+    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground shadow-xs">
       <Building2 className="h-4 w-4" />
     </span>
   );
@@ -59,7 +59,7 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex w-full justify-center rounded-lg p-0.5 transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" title="Cambia sede">
+          <button className="flex w-full justify-center rounded-lg p-0.5 transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" title="Cambia sede">
             {Badge}
           </button>
         </DropdownMenuTrigger>
@@ -79,13 +79,13 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   if (!canSwitch) {
     if (!activeSede) return null;
     return (
-      <div className="flex items-center gap-2.5 rounded-xl border bg-card px-2.5 py-2 shadow-sm">
+      <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs">
         {Badge}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="text-[10px] font-medium uppercase text-white/48">
             Sede attiva
           </div>
-          <div className="truncate text-sm font-semibold text-foreground">
+          <div className="truncate text-sm font-semibold text-white">
             {activeSede.nome}
           </div>
         </div>
@@ -98,19 +98,19 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="group flex w-full items-center gap-2.5 rounded-xl border bg-card px-2.5 py-2 shadow-sm transition-all hover:border-primary/40 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs transition-[background-color,border-color,box-shadow] hover:border-sidebar-primary/45 hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           title="Cambia sede"
         >
           {Badge}
           <div className="min-w-0 flex-1 text-left leading-tight">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-[10px] font-medium uppercase text-white/48">
               Sede attiva
             </div>
-            <div className="truncate text-sm font-semibold text-foreground">
+            <div className="truncate text-sm font-semibold text-white">
               {activeSede?.nome ?? "Seleziona sede"}
             </div>
           </div>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-white/48 transition-colors group-hover:text-white" />
         </button>
       </DropdownMenuTrigger>
       <SwitcherMenu
@@ -143,7 +143,7 @@ function SwitcherMenu({
 }) {
   return (
     <DropdownMenuContent align="start" className="w-60">
-      <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+      <DropdownMenuLabel className="text-[11px] uppercase text-muted-foreground">
         Le tue sedi
       </DropdownMenuLabel>
       <DropdownMenuSeparator />

@@ -4,10 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 3px);
+  --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 2px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -42,270 +42,253 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Redesign tokens that generate Tailwind utilities (bg-*, text-*, border-*,
-   shadow-*, font-*). Literal values from the handoff spec §1. */
 @theme {
-  /* Brand + action */
-  --color-primary-hover: #3C4018;
-  --color-primary-soft: #EDEEE9;
-  --color-ink: #2E3116;
-  /* Terracotta: accento di EVIDENZA, mai uno stato. Tinta 21.5°, a un passo
-     dal rosso danger — usarla per un badge di stato renderebbe "in evidenza"
-     e "in errore" la stessa cosa a colpo d'occhio. */
-  --color-accent-brand: #B95A25;    /* riempimenti e bordi */
-  --color-accent-text: #A64F1F;     /* 5.59:1 su surface, 4.59:1 su crema */
-  --color-accent-soft: #F7EBE5;
+  --color-primary-hover: #123f4d;
+  --color-primary-soft: #dceff1;
+  --color-ink: #10231f;
+  --color-accent-brand: #c6532b;
+  --color-accent-text: #a94724;
+  --color-accent-soft: #f7e5de;
 
-  /* Warm neutrals */
-  --color-surface: #FFFFFF;
-  --color-surface-2: #F7F3EA;
-  --color-border-soft: #DDD5C4;
-  --color-border-strong: #C6B893;
-  --color-text-1: #1F2013;        /* 16.5:1 bianco · 13.5:1 crema */
-  --color-text-2: #585A47;        /* 7.07 · 5.81 */
-  --color-text-3: #666851;        /* 5.73 · 4.71 — il vincolo è la crema */
+  --color-surface: #ffffff;
+  --color-surface-2: #eef3f1;
+  --color-border-soft: #dce5e2;
+  --color-border-strong: #bdcbc7;
+  --color-text-1: #121a18;
+  --color-text-2: #4f5e59;
+  --color-text-3: #697872;
 
-  /* Semantic + soft pairs */
-  --color-success: #146C34;       /* 6.51 · 5.35 · 138° */
-  --color-success-soft: #E4F0E5;
-  --color-warning: #7E6107;       /* 5.83 · 4.79 · 45° — spostato via da terracotta */
-  --color-warning-soft: #FBF1D9;
-  --color-danger: #C81E1E;        /* 5.74 · 4.71 · 0° */
-  --color-danger-soft: #FAE7E3;
-  --color-info: #2C5F73;          /* teal mediterraneo, 195° */
-  --color-info-soft: #E3EDF1;
+  --color-success: #12715b;
+  --color-success-soft: #def3ed;
+  --color-warning: #926704;
+  --color-warning-soft: #f8edcf;
+  --color-danger: #c8322b;
+  --color-danger-soft: #f8e2df;
+  --color-info: #3657c8;
+  --color-info-soft: #e3e8fa;
 
-  /* Commessa state palette (§2.1) */
-  --color-st-preventivo: #3F5E70;
-  --color-st-preventivo-soft: #EAEDEF;
-  --color-st-misure: #6B5673;
-  --color-st-misure-soft: #EFECF0;
-  --color-st-contratto: #8C4A52;
-  --color-st-contratto-soft: #F2EBEC;
-  --color-st-ordine: #785C19;
-  --color-st-ordine-soft: #F0EDE4;
-  --color-st-produzione: #2F6B60;
-  --color-st-produzione-soft: #E8EFEE;
-  --color-st-pagamento: #146C34;
-  --color-st-pagamento-soft: #E5EFE9;
-  --color-st-chiusura: #5C5A52;
-  --color-st-chiusura-soft: #ECECEA;
+  --color-st-preventivo: #225a6b;
+  --color-st-preventivo-soft: #e3eef1;
+  --color-st-misure: #6d4fc2;
+  --color-st-misure-soft: #ece7f8;
+  --color-st-contratto: #b64c72;
+  --color-st-contratto-soft: #f5e3eb;
+  --color-st-ordine: #9a6a08;
+  --color-st-ordine-soft: #f5edda;
+  --color-st-produzione: #12715b;
+  --color-st-produzione-soft: #def3ed;
+  --color-st-pagamento: #247a3e;
+  --color-st-pagamento-soft: #e1f2e5;
+  --color-st-chiusura: #65706d;
+  --color-st-chiusura-soft: #e8eeec;
 
-  /* Tipi di calendario (§11.2). Erano hex scritti a mano in due pagine, e
-     le due pagine non erano d'accordo: "posa" verde nella dashboard, arancio
-     nel planning. Un colore che deve far riconoscere il tipo a colpo d'occhio
-     non può insegnare due cose diverse — ora la fonte è una sola. */
-  --color-cal-rilievo: #3F5E70;
-  --color-cal-rilievo-soft: #EAEDEF;
-  --color-cal-posa: #2F6B60;
-  --color-cal-posa-soft: #E8EFEE;
-  --color-cal-assistenza: #8C4A52;
-  --color-cal-assistenza-soft: #F2EBEC;
-  --color-cal-altro: #5C5A52;
-  --color-cal-altro-soft: #ECECEA;
+  --color-cal-rilievo: #225a6b;
+  --color-cal-rilievo-soft: #e3eef1;
+  --color-cal-posa: #12715b;
+  --color-cal-posa-soft: #def3ed;
+  --color-cal-assistenza: #b64c72;
+  --color-cal-assistenza-soft: #f5e3eb;
+  --color-cal-altro: #65706d;
+  --color-cal-altro-soft: #e8eeec;
 
-  /* Fonts */
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "Hanken Grotesk", "Inter", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Manrope", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Radii (§1.5) */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 
-  /* Shadows (§1.5) */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
-  --shadow-lg: 0 12px 28px rgba(16, 24, 40, 0.12);
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 8px 22px rgba(16, 24, 40, 0.09);
+  --shadow-lg: 0 18px 42px rgba(16, 24, 40, 0.13);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-instant: 100ms;
+  --duration-fast: 160ms;
+  --duration-base: 220ms;
+  --duration-slow: 320ms;
 }
 
 :root {
-  /* Ruffino Flow — redesign tokens (handoff spec, definitive hex values) */
-  --primary: #4D511F;                /* oliva · 8.36:1 sia come testo sia come fondo */
-  --primary-foreground: #FFFFFF;
-  --sidebar-primary: #B7C07A;
-  --sidebar-primary-foreground: #15160F;
-  /* Donut "commesse per stato" — mirror of the §2.1 state palette */
-  --chart-1: #3A5BDC;                /* preventivo */
-  --chart-2: #7A5AF0;                /* misure esecutive */
-  --chart-3: #C026D3;                /* aggiornamento contratto */
-  --chart-4: #D97706;                /* da ordinare */
-  --chart-5: #0E9384;                /* produzione */
-  --radius: 0.625rem;                /* 10px = --r-md */
-  --background: #EFE8DC;             /* crema */
-  --foreground: #1F2013;             /* text-1 */
-  --card: #FFFFFF;                   /* surface */
-  --card-foreground: #1F2013;
-  --popover: #FFFFFF;
-  --popover-foreground: #1F2013;
-  --secondary: #F7F3EA;             /* surface-2 */
-  --secondary-foreground: #1F2013;
-  --muted: #F7F3EA;
-  --muted-foreground: #585A47;       /* text-2 */
-  /* shadcn `accent` = subtle hover surface (NOT the gold evidence accent) */
-  --accent: #E9E2D3;
-  --accent-foreground: #1F2013;
-  --destructive: #C81E1E;            /* danger */
-  --destructive-foreground: #FFFFFF;
-  --border: #DDD5C4;
-  --input: #C6B893;
-  --ring: #4D511F;
-  --sidebar: #2E3116;                /* ink oliva */
+  --radius: 0.5rem;
+  --background: #f5f7f6;
+  --foreground: #121a18;
+  --card: #ffffff;
+  --card-foreground: #121a18;
+  --popover: #ffffff;
+  --popover-foreground: #121a18;
+  --primary: #18566a;
+  --primary-foreground: #ffffff;
+  --secondary: #eef3f1;
+  --secondary-foreground: #121a18;
+  --muted: #eef3f1;
+  --muted-foreground: #4f5e59;
+  --accent: #e4ece9;
+  --accent-foreground: #121a18;
+  --destructive: #c8322b;
+  --destructive-foreground: #ffffff;
+  --border: #dce5e2;
+  --input: #bdcbc7;
+  --ring: #18566a;
+  --chart-1: #18566a;
+  --chart-2: #6d4fc2;
+  --chart-3: #c6532b;
+  --chart-4: #b7791f;
+  --chart-5: #12715b;
+  --sidebar: #10231f;
   --sidebar-foreground: rgba(255, 255, 255, 0.72);
-  --sidebar-accent: rgba(255, 255, 255, 0.08);  /* active/hover voice */
-  --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: rgba(255, 255, 255, 0.10);
-  --sidebar-ring: #B7C07A;
-}
-
-.dark {
-  /* Palette scura allineata ai token del redesign: prima questo blocco era
-     ancora l'oklch della versione precedente, freddo e azzurrato, mentre i
-     token nuovi erano warm neutral. Le due metà dell'app non combaciavano —
-     e `--accent`, che in chiaro è la superficie di hover, qui era VERDE.
-     Sono le variabili che usano 70 file: allinearle vale più di ogni
-     ritocco alle 15 già modernizzate. */
-  --background: #15160F;             /* app-bg terroso */
-  --foreground: #EFE8DC;             /* crema · 13.5:1 */
-  --card: #1E2016;                   /* surface */
-  --card-foreground: #EFE8DC;
-  --popover: #282A1D;                /* surface-2 */
-  --popover-foreground: #EFE8DC;
-  --primary: #B7C07A;                /* oliva chiaro · 8.51:1 */
-  --primary-foreground: #15160F;     /* 9.39:1 dentro al bottone */
-  --secondary: #282A1D;
-  --secondary-foreground: #EFE8DC;
-  --muted: #282A1D;
-  --muted-foreground: #B8B5A0;       /* text-2 · 7.97:1 — il token più usato */
-  --accent: #313426;                 /* superficie di hover, non un colore */
-  --accent-foreground: #EFE8DC;
-  --destructive: #F58585;            /* 6.89:1 */
-  --destructive-foreground: #2A1614;
-  --border: #343722;
-  --input: #474B31;                  /* i campi hanno più presenza dei divisori */
-  --ring: #B7C07A;
-  --radius: 0.625rem;
-  /* Donut stati: stessa sequenza del chiaro, luminosità da fondo scuro */
-  --chart-1: #8AA3F5;
-  --chart-2: #B39CF7;
-  --chart-3: #E285EE;
-  --chart-4: #F0A84A;
-  --chart-5: #5FCFC0;
-  --sidebar: #15160F;
-  --sidebar-foreground: rgba(255, 255, 255, 0.72);
-  --sidebar-primary: #B7C07A;
-  --sidebar-primary-foreground: #15160F;
+  --sidebar-primary: #78d7ca;
+  --sidebar-primary-foreground: #08110f;
   --sidebar-accent: rgba(255, 255, 255, 0.08);
-  --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: rgba(255, 255, 255, 0.10);
-  --sidebar-ring: #B7C07A;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.11);
+  --sidebar-ring: #78d7ca;
 }
 
-/* ── Dark mode dei token del redesign ───────────────────────────────────────
-   Il blocco `.dark` sopra ridefinisce solo le variabili shadcn. I token del
-   redesign (--color-text-*, --color-surface*, i semantici, la palette degli
-   stati) restavano ai valori chiari: `text-text-1` è #16181D, quasi nero, e
-   su una card scura spariva. Sono 15 file — testo invisibile, non "brutto".
-   Qui ogni token ha la sua controparte scura, verificata a contrasto. */
 .dark {
-  /* Superfici: schiarite per gradini, non invertite */
-  --color-surface: #1E2016;
-  --color-surface-2: #282A1D;
-  --color-border-soft: #343722;
-  --color-border-strong: #474B31;
+  --background: #101412;
+  --foreground: #eef6f3;
+  --card: #171d1b;
+  --card-foreground: #eef6f3;
+  --popover: #1e2523;
+  --popover-foreground: #eef6f3;
+  --primary: #78d7ca;
+  --primary-foreground: #08110f;
+  --secondary: #1e2523;
+  --secondary-foreground: #eef6f3;
+  --muted: #1e2523;
+  --muted-foreground: #a8b8b2;
+  --accent: #26302d;
+  --accent-foreground: #eef6f3;
+  --destructive: #ff8c84;
+  --destructive-foreground: #2b1110;
+  --border: #2b3632;
+  --input: #3b4944;
+  --ring: #78d7ca;
+  --chart-1: #78d7ca;
+  --chart-2: #b69bf6;
+  --chart-3: #f28c67;
+  --chart-4: #e2b95f;
+  --chart-5: #72d68f;
+  --sidebar: #0a0f0d;
+  --sidebar-foreground: rgba(255, 255, 255, 0.74);
+  --sidebar-primary: #78d7ca;
+  --sidebar-primary-foreground: #08110f;
+  --sidebar-accent: rgba(255, 255, 255, 0.09);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.12);
+  --sidebar-ring: #78d7ca;
 
-  /* Testo: 14.0 / 7.4 / 4.9 su surface */
-  --color-text-1: #EFE8DC;   /* 13.54:1 */
-  --color-text-2: #B8B5A0;   /*  7.97:1 */
-  --color-text-3: #95937F;   /*  5.31:1 */
-
-  /* Brand: desaturato e schiarito, non lo stesso blu del chiaro */
-  --color-primary-hover: #CBD495;
-  --color-primary-soft: #2A2E1B;
-  --color-ink: #15160F;
-  --color-accent-brand: #E08B4F;   /* terracotta schiarita · 6.26:1 */
-  --color-accent-text: #E08B4F;
-  --color-accent-soft: #33231A;
-
-  /* Semantici: coppia testo/fondo ripensata per lo scuro */
-  --color-success: #7FC58F;
-  --color-success-soft: #17271A;
-  --color-warning: #D6B155;        /* oro, non arancio: resta lontano da terracotta */
-  --color-warning-soft: #2B2513;
-  --color-danger: #F09090;
-  --color-danger-soft: #2A1614;
-  --color-info: #7FB3C4;
-  --color-info-soft: #16262C;
-
-  /* Palette stati commessa: stessa sequenza cromatica, luminosità alzata */
-  --color-st-preventivo: #8FB3C6;
-  --color-st-preventivo-soft: #1B262B;
-  --color-st-misure: #B79FC0;
-  --color-st-misure-soft: #241E27;
-  --color-st-contratto: #D4919A;
-  --color-st-contratto-soft: #2B1D1F;
-  --color-st-ordine: #C9A94F;
-  --color-st-ordine-soft: #272113;
-  --color-st-produzione: #79BFB2;
-  --color-st-produzione-soft: #152724;
-  --color-st-pagamento: #7FC58F;
-  --color-st-pagamento-soft: #17271A;
-  --color-st-chiusura: #AFAC9E;
-  --color-st-chiusura-soft: #26251F;
-
-  --color-cal-rilievo: #8FB3C6;
-  --color-cal-rilievo-soft: #1B262B;
-  --color-cal-posa: #79BFB2;
-  --color-cal-posa-soft: #152724;
-  --color-cal-assistenza: #D4919A;
-  --color-cal-assistenza-soft: #2B1D1F;
-  --color-cal-altro: #AFAC9E;
-  --color-cal-altro-soft: #26251F;
-
-  /* Ombre: nello scuro un'ombra nera non si vede — serve più opacità */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.24);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.44);
-  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55);
-}
-
-/* ── Movimento ──────────────────────────────────────────────────────────────
-   Durate e curve come token: senza, ogni componente sceglie la sua e
-   l'interfaccia non ha un ritmo. Entrata più lenta dell'uscita — un pannello
-   che se ne va in fretta fa sembrare l'app reattiva. */
-@theme {
-  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --duration-instant: 100ms;   /* feedback al tocco */
-  --duration-fast: 160ms;      /* hover, colore, uscite */
-  --duration-base: 220ms;      /* entrate, espansioni */
-  --duration-slow: 320ms;      /* transizioni di pagina */
+  --color-surface: #171d1b;
+  --color-surface-2: #1e2523;
+  --color-border-soft: #2b3632;
+  --color-border-strong: #3b4944;
+  --color-text-1: #eef6f3;
+  --color-text-2: #a8b8b2;
+  --color-text-3: #84948e;
+  --color-primary-hover: #a7e7de;
+  --color-primary-soft: #162c2a;
+  --color-ink: #0a0f0d;
+  --color-accent-brand: #f28c67;
+  --color-accent-text: #f28c67;
+  --color-accent-soft: #331f18;
+  --color-success: #72d68f;
+  --color-success-soft: #14271b;
+  --color-warning: #e2b95f;
+  --color-warning-soft: #2c2311;
+  --color-danger: #ff8c84;
+  --color-danger-soft: #2b1110;
+  --color-info: #9cadff;
+  --color-info-soft: #1c2445;
+  --color-st-preventivo: #85bfd0;
+  --color-st-preventivo-soft: #152a31;
+  --color-st-misure: #b69bf6;
+  --color-st-misure-soft: #241b3a;
+  --color-st-contratto: #ee94b4;
+  --color-st-contratto-soft: #331821;
+  --color-st-ordine: #e2b95f;
+  --color-st-ordine-soft: #2c2311;
+  --color-st-produzione: #72d6bf;
+  --color-st-produzione-soft: #132923;
+  --color-st-pagamento: #72d68f;
+  --color-st-pagamento-soft: #14271b;
+  --color-st-chiusura: #adb9b5;
+  --color-st-chiusura-soft: #202826;
+  --color-cal-rilievo: #85bfd0;
+  --color-cal-rilievo-soft: #152a31;
+  --color-cal-posa: #72d6bf;
+  --color-cal-posa-soft: #132923;
+  --color-cal-assistenza: #ee94b4;
+  --color-cal-assistenza-soft: #331821;
+  --color-cal-altro: #adb9b5;
+  --color-cal-altro-soft: #202826;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 18px 42px rgba(0, 0, 0, 0.52);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    box-sizing: border-box;
   }
+
+  html {
+    font-family: var(--font-sans);
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0) 240px),
+      linear-gradient(90deg, rgba(24, 86, 106, 0.035) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(24, 86, 106, 0.028) 1px, transparent 1px);
+    background-size: auto, 32px 32px, 32px 32px;
+    font-family: var(--font-sans);
     font-optical-sizing: auto;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     font-size: 14px;
-    line-height: 1.45;
-    letter-spacing: -0.005em;
+    line-height: 1.5;
+    letter-spacing: 0;
+    margin: 0;
+    min-width: 0;
+    overflow-x: hidden;
   }
-  /* Tabular figures everywhere numbers carry meaning (KPI, tables, importi). */
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  .dark body {
+    background-image:
+      linear-gradient(180deg, rgba(120, 215, 202, 0.055), rgba(120, 215, 202, 0) 260px),
+      linear-gradient(90deg, rgba(120, 215, 202, 0.045) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(120, 215, 202, 0.035) 1px, transparent 1px);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ring) 78%, white);
+    outline-offset: 2px;
+  }
+
   .tabular-nums,
   th,
   td,
   .font-mono {
     font-variant-numeric: tabular-nums;
   }
+
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),
@@ -320,43 +303,28 @@
 }
 
 @layer components {
-  /* Eyebrow / label — the ONLY place full uppercase is allowed (§1.4). */
   .eyebrow {
-    font-size: 11px;
-    line-height: 14px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--color-text-3);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 14px;
+    letter-spacing: 0;
+    text-transform: uppercase;
   }
 
-  /* Mono codes — Geist Mono, slight tracking (§1.4). */
   .codice-mono {
     font-family: var(--font-mono);
     font-size: 13px;
+    font-weight: 600;
     line-height: 18px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
   }
 
-  /**
-   * Custom container utility that centers content and adds responsive padding.
-   *
-   * This overrides Tailwind's default container behavior to:
-   * - Auto-center content (mx-auto)
-   * - Add responsive horizontal padding
-   * - Set max-width for large screens
-   *
-   * Usage: <div className="container">...</div>
-   *
-   * For custom widths, use max-w-* utilities directly:
-   * <div className="max-w-6xl mx-auto px-4">...</div>
-   */
   .container {
     width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem; /* 16px - mobile padding */
+    padding-left: 1rem;
     padding-right: 1rem;
   }
 
@@ -367,28 +335,38 @@
 
   @media (min-width: 640px) {
     .container {
-      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-left: 1.5rem;
       padding-right: 1.5rem;
     }
   }
 
   @media (min-width: 1024px) {
     .container {
-      padding-left: 2rem; /* 32px - desktop padding */
+      max-width: 1320px;
+      padding-left: 2rem;
       padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
     }
   }
 }
 
-/* Respect reduced-motion (§1.6 / §6): kill transforms + animations. */
+@layer utilities {
+  .font-display,
+  .tracking-tight,
+  .tracking-wide,
+  .tracking-wider,
+  .tracking-widest,
+  .tracking-\[-0\.02em\] {
+    letter-spacing: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
   }
 }

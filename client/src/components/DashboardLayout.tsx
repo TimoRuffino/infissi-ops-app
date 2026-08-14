@@ -248,17 +248,17 @@ function DashboardLayoutContent({
       <div className="relative" ref={sidebarRef}>
         <Sidebar
           collapsible="icon"
-          className="border-r-0"
+          className="border-r border-sidebar-border"
           disableTransition={isResizing}
         >
-          <SidebarHeader className="h-16 justify-center">
+          <SidebarHeader className="h-16 justify-center border-b border-sidebar-border">
             <div className="flex items-center gap-3 px-2 transition-all w-full">
               <button
                 onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring shrink-0"
                 aria-label="Toggle navigation"
               >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                <PanelLeft className="h-4 w-4" />
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -271,11 +271,11 @@ function DashboardLayoutContent({
                     <div className="font-display text-[15px] font-bold text-white truncate">
                       Ruffino Flow
                     </div>
-                    <div className="text-[10px] text-white/45 truncate">
+                    <div className="text-[10px] text-white/50 truncate">
                       Gestionale commesse infissi
                     </div>
                   </div>
-                  <div className="ml-auto">
+                  <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />
                   </div>
                 </div>
@@ -351,7 +351,7 @@ function DashboardLayoutContent({
                                   }`}
                                 >
                                   {attiva && (
-                                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
                                   )}
                                   <c.icon
                                     className={`h-4 w-4 transition-colors ${attiva ? "text-white" : ""}`}
@@ -382,7 +382,7 @@ function DashboardLayoutContent({
                         }`}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-primary" />
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
                         )}
                         <item.icon
                           className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
@@ -403,17 +403,17 @@ function DashboardLayoutContent({
           <SidebarFooter className="p-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0 bg-primary/10">
-                    <AvatarFallback className="text-xs font-semibold text-primary bg-primary/10">
+                <button className="flex items-center gap-3 rounded-lg px-1 py-1 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+                  <Avatar className="h-9 w-9 border border-sidebar-border shrink-0 bg-sidebar-primary/15">
+                    <AvatarFallback className="text-xs font-semibold text-sidebar-primary bg-sidebar-primary/15">
                       {user?.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
+                    <p className="text-sm font-medium truncate leading-none text-white">
                       {user?.name || "-"}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1">
+                    <p className="text-xs text-white/50 truncate mt-1">
                       {(user as any)?.ruolo?.replace(/_/g, " ") || user?.role || "-"}
                     </p>
                   </div>
@@ -448,7 +448,7 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
+          <div className="flex border-b h-14 items-center justify-between bg-card/92 px-2 shadow-xs backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div className="flex items-center gap-3">
@@ -462,7 +462,7 @@ function DashboardLayoutContent({
             <NotificheDropdown />
           </div>
         )}
-        <main className="flex-1 p-4 sm:p-6">
+        <main className="flex-1 min-h-dvh bg-background p-4 sm:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <PageContainer key={location}>{children}</PageContainer>
           </AnimatePresence>
