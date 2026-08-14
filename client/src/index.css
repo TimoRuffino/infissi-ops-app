@@ -46,46 +46,63 @@
    shadow-*, font-*). Literal values from the handoff spec §1. */
 @theme {
   /* Brand + action */
-  --color-primary-hover: #2E49B8;
-  --color-primary-soft: #EAEEFC;
-  --color-ink: #0F1B2D;
-  --color-gold: #E0A422;            /* solo riempimenti e bordi, MAI testo */
-  --color-gold-text: #966D08;       /* la variante leggibile: 4.68:1 su surface */
+  --color-primary-hover: #3C4018;
+  --color-primary-soft: #EDEEE9;
+  --color-ink: #2E3116;
+  /* Terracotta: accento di EVIDENZA, mai uno stato. Tinta 21.5°, a un passo
+     dal rosso danger — usarla per un badge di stato renderebbe "in evidenza"
+     e "in errore" la stessa cosa a colpo d'occhio. */
+  --color-accent-brand: #B95A25;    /* riempimenti e bordi */
+  --color-accent-text: #A64F1F;     /* 5.59:1 su surface, 4.59:1 su crema */
+  --color-accent-soft: #F7EBE5;
 
   /* Warm neutrals */
   --color-surface: #FFFFFF;
-  --color-surface-2: #FAFAF8;
-  --color-border-soft: #E6E4DF;
-  --color-border-strong: #D6D3CC;
-  --color-text-1: #16181D;
-  --color-text-2: #5C5F66;
-  --color-text-3: #6E7178;        /* 4.89:1 su surface, 4.52:1 su app-bg */
+  --color-surface-2: #F7F3EA;
+  --color-border-soft: #DDD5C4;
+  --color-border-strong: #C6B893;
+  --color-text-1: #1F2013;        /* 16.5:1 bianco · 13.5:1 crema */
+  --color-text-2: #585A47;        /* 7.07 · 5.81 */
+  --color-text-3: #666851;        /* 5.73 · 4.71 — il vincolo è la crema */
 
   /* Semantic + soft pairs */
-  --color-success: #146C34;       /* 6.51:1 su surface, 5.75:1 su success-soft */
-  --color-success-soft: #E7F4EC;
-  --color-warning: #B45309;       /* 5.02:1 su surface, 4.51:1 su warning-soft */
-  --color-warning-soft: #FEF1E0;
-  --color-danger: #C81E1E;        /* 5.74:1 su surface, 5.02:1 su danger-soft */
-  --color-danger-soft: #FDECEC;
-  --color-info: #3A5BDC;
-  --color-info-soft: #EAEEFC;
+  --color-success: #146C34;       /* 6.51 · 5.35 · 138° */
+  --color-success-soft: #E4F0E5;
+  --color-warning: #7E6107;       /* 5.83 · 4.79 · 45° — spostato via da terracotta */
+  --color-warning-soft: #FBF1D9;
+  --color-danger: #C81E1E;        /* 5.74 · 4.71 · 0° */
+  --color-danger-soft: #FAE7E3;
+  --color-info: #2C5F73;          /* teal mediterraneo, 195° */
+  --color-info-soft: #E3EDF1;
 
   /* Commessa state palette (§2.1) */
-  --color-st-preventivo: #3A5BDC;
-  --color-st-preventivo-soft: #EAEEFC;
-  --color-st-misure: #7A5AF0;
-  --color-st-misure-soft: #EFEBFE;
-  --color-st-contratto: #C026D3;
-  --color-st-contratto-soft: #FAEAFB;
-  --color-st-ordine: #D97706;
-  --color-st-ordine-soft: #FEF1E0;
-  --color-st-produzione: #0E9384;
-  --color-st-produzione-soft: #E3F6F3;
-  --color-st-pagamento: #15803D;
-  --color-st-pagamento-soft: #E7F4EC;
-  --color-st-chiusura: #475467;
-  --color-st-chiusura-soft: #F1F3F5;
+  --color-st-preventivo: #3F5E70;
+  --color-st-preventivo-soft: #EAEDEF;
+  --color-st-misure: #6B5673;
+  --color-st-misure-soft: #EFECF0;
+  --color-st-contratto: #8C4A52;
+  --color-st-contratto-soft: #F2EBEC;
+  --color-st-ordine: #785C19;
+  --color-st-ordine-soft: #F0EDE4;
+  --color-st-produzione: #2F6B60;
+  --color-st-produzione-soft: #E8EFEE;
+  --color-st-pagamento: #146C34;
+  --color-st-pagamento-soft: #E5EFE9;
+  --color-st-chiusura: #5C5A52;
+  --color-st-chiusura-soft: #ECECEA;
+
+  /* Tipi di calendario (§11.2). Erano hex scritti a mano in due pagine, e
+     le due pagine non erano d'accordo: "posa" verde nella dashboard, arancio
+     nel planning. Un colore che deve far riconoscere il tipo a colpo d'occhio
+     non può insegnare due cose diverse — ora la fonte è una sola. */
+  --color-cal-rilievo: #3F5E70;
+  --color-cal-rilievo-soft: #EAEDEF;
+  --color-cal-posa: #2F6B60;
+  --color-cal-posa-soft: #E8EFEE;
+  --color-cal-assistenza: #8C4A52;
+  --color-cal-assistenza-soft: #F2EBEC;
+  --color-cal-altro: #5C5A52;
+  --color-cal-altro-soft: #ECECEA;
 
   /* Fonts */
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
@@ -107,10 +124,10 @@
 
 :root {
   /* Ruffino Flow — redesign tokens (handoff spec, definitive hex values) */
-  --primary: #3A5BDC;                /* azioni, link, nav attiva */
+  --primary: #4D511F;                /* oliva · 8.36:1 sia come testo sia come fondo */
   --primary-foreground: #FFFFFF;
-  --sidebar-primary: #3A5BDC;
-  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-primary: #B7C07A;
+  --sidebar-primary-foreground: #15160F;
   /* Donut "commesse per stato" — mirror of the §2.1 state palette */
   --chart-1: #3A5BDC;                /* preventivo */
   --chart-2: #7A5AF0;                /* misure esecutive */
@@ -118,30 +135,30 @@
   --chart-4: #D97706;                /* da ordinare */
   --chart-5: #0E9384;                /* produzione */
   --radius: 0.625rem;                /* 10px = --r-md */
-  --background: #F6F6F4;             /* app-bg (warm neutral) */
-  --foreground: #16181D;             /* text-1 */
+  --background: #EFE8DC;             /* crema */
+  --foreground: #1F2013;             /* text-1 */
   --card: #FFFFFF;                   /* surface */
-  --card-foreground: #16181D;
+  --card-foreground: #1F2013;
   --popover: #FFFFFF;
-  --popover-foreground: #16181D;
-  --secondary: #FAFAF8;             /* surface-2 */
-  --secondary-foreground: #16181D;
-  --muted: #FAFAF8;
-  --muted-foreground: #5C5F66;       /* text-2 */
+  --popover-foreground: #1F2013;
+  --secondary: #F7F3EA;             /* surface-2 */
+  --secondary-foreground: #1F2013;
+  --muted: #F7F3EA;
+  --muted-foreground: #585A47;       /* text-2 */
   /* shadcn `accent` = subtle hover surface (NOT the gold evidence accent) */
-  --accent: #F1F0EC;
-  --accent-foreground: #16181D;
+  --accent: #E9E2D3;
+  --accent-foreground: #1F2013;
   --destructive: #C81E1E;            /* danger */
   --destructive-foreground: #FFFFFF;
-  --border: #E6E4DF;
-  --input: #E6E4DF;
-  --ring: #3A5BDC;
-  --sidebar: #0F1B2D;                /* ink */
+  --border: #DDD5C4;
+  --input: #C6B893;
+  --ring: #4D511F;
+  --sidebar: #2E3116;                /* ink oliva */
   --sidebar-foreground: rgba(255, 255, 255, 0.72);
   --sidebar-accent: rgba(255, 255, 255, 0.08);  /* active/hover voice */
   --sidebar-accent-foreground: #FFFFFF;
   --sidebar-border: rgba(255, 255, 255, 0.10);
-  --sidebar-ring: #3A5BDC;
+  --sidebar-ring: #B7C07A;
 }
 
 .dark {
@@ -151,25 +168,25 @@
      e `--accent`, che in chiaro è la superficie di hover, qui era VERDE.
      Sono le variabili che usano 70 file: allinearle vale più di ogni
      ritocco alle 15 già modernizzate. */
-  --background: #14171C;             /* app-bg, un gradino sotto le card */
-  --foreground: #E8EAED;             /* text-1 · 14.0:1 */
-  --card: #1A1D23;                   /* surface */
-  --card-foreground: #E8EAED;
-  --popover: #22262E;                /* surface-2: i popover stanno sopra */
-  --popover-foreground: #E8EAED;
-  --primary: #8AA3F5;                /* 6.94:1 su surface */
-  --primary-foreground: #0B1018;     /* 7.84:1 dentro al bottone */
-  --secondary: #22262E;
-  --secondary-foreground: #E8EAED;
-  --muted: #22262E;
-  --muted-foreground: #A8ACB4;       /* text-2 · 7.4:1 — il token più usato */
-  --accent: #2A2F38;                 /* superficie di hover, non un colore */
-  --accent-foreground: #E8EAED;
+  --background: #15160F;             /* app-bg terroso */
+  --foreground: #EFE8DC;             /* crema · 13.5:1 */
+  --card: #1E2016;                   /* surface */
+  --card-foreground: #EFE8DC;
+  --popover: #282A1D;                /* surface-2 */
+  --popover-foreground: #EFE8DC;
+  --primary: #B7C07A;                /* oliva chiaro · 8.51:1 */
+  --primary-foreground: #15160F;     /* 9.39:1 dentro al bottone */
+  --secondary: #282A1D;
+  --secondary-foreground: #EFE8DC;
+  --muted: #282A1D;
+  --muted-foreground: #B8B5A0;       /* text-2 · 7.97:1 — il token più usato */
+  --accent: #313426;                 /* superficie di hover, non un colore */
+  --accent-foreground: #EFE8DC;
   --destructive: #F58585;            /* 6.89:1 */
-  --destructive-foreground: #2E1919;
-  --border: #2E333C;
-  --input: #3D434E;                  /* i campi hanno più presenza dei divisori */
-  --ring: #8AA3F5;
+  --destructive-foreground: #2A1614;
+  --border: #343722;
+  --input: #474B31;                  /* i campi hanno più presenza dei divisori */
+  --ring: #B7C07A;
   --radius: 0.625rem;
   /* Donut stati: stessa sequenza del chiaro, luminosità da fondo scuro */
   --chart-1: #8AA3F5;
@@ -177,14 +194,14 @@
   --chart-3: #E285EE;
   --chart-4: #F0A84A;
   --chart-5: #5FCFC0;
-  --sidebar: #0B1018;
+  --sidebar: #15160F;
   --sidebar-foreground: rgba(255, 255, 255, 0.72);
-  --sidebar-primary: #8AA3F5;
-  --sidebar-primary-foreground: #0B1018;
+  --sidebar-primary: #B7C07A;
+  --sidebar-primary-foreground: #15160F;
   --sidebar-accent: rgba(255, 255, 255, 0.08);
   --sidebar-accent-foreground: #FFFFFF;
   --sidebar-border: rgba(255, 255, 255, 0.10);
-  --sidebar-ring: #8AA3F5;
+  --sidebar-ring: #B7C07A;
 }
 
 /* ── Dark mode dei token del redesign ───────────────────────────────────────
@@ -195,48 +212,58 @@
    Qui ogni token ha la sua controparte scura, verificata a contrasto. */
 .dark {
   /* Superfici: schiarite per gradini, non invertite */
-  --color-surface: #1A1D23;
-  --color-surface-2: #22262E;
-  --color-border-soft: #2E333C;
-  --color-border-strong: #3D434E;
+  --color-surface: #1E2016;
+  --color-surface-2: #282A1D;
+  --color-border-soft: #343722;
+  --color-border-strong: #474B31;
 
   /* Testo: 14.0 / 7.4 / 4.9 su surface */
-  --color-text-1: #E8EAED;
-  --color-text-2: #A8ACB4;
-  --color-text-3: #888D96;
+  --color-text-1: #EFE8DC;   /* 13.54:1 */
+  --color-text-2: #B8B5A0;   /*  7.97:1 */
+  --color-text-3: #95937F;   /*  5.31:1 */
 
   /* Brand: desaturato e schiarito, non lo stesso blu del chiaro */
-  --color-primary-hover: #A5B8F8;
-  --color-primary-soft: #1E2740;
-  --color-ink: #0B1018;
-  --color-gold: #E8B94A;
-  --color-gold-text: #E8B94A;
+  --color-primary-hover: #CBD495;
+  --color-primary-soft: #2A2E1B;
+  --color-ink: #15160F;
+  --color-accent-brand: #E08B4F;   /* terracotta schiarita · 6.26:1 */
+  --color-accent-text: #E08B4F;
+  --color-accent-soft: #33231A;
 
   /* Semantici: coppia testo/fondo ripensata per lo scuro */
-  --color-success: #6BCB8B;
-  --color-success-soft: #16281E;
-  --color-warning: #F0A84A;
-  --color-warning-soft: #2C2113;
-  --color-danger: #F58585;
-  --color-danger-soft: #2E1919;
-  --color-info: #8AA3F5;
-  --color-info-soft: #1E2740;
+  --color-success: #7FC58F;
+  --color-success-soft: #17271A;
+  --color-warning: #D6B155;        /* oro, non arancio: resta lontano da terracotta */
+  --color-warning-soft: #2B2513;
+  --color-danger: #F09090;
+  --color-danger-soft: #2A1614;
+  --color-info: #7FB3C4;
+  --color-info-soft: #16262C;
 
   /* Palette stati commessa: stessa sequenza cromatica, luminosità alzata */
-  --color-st-preventivo: #8AA3F5;
-  --color-st-preventivo-soft: #1E2740;
-  --color-st-misure: #B39CF7;
-  --color-st-misure-soft: #241E3D;
-  --color-st-contratto: #E285EE;
-  --color-st-contratto-soft: #331A36;
-  --color-st-ordine: #F0A84A;
-  --color-st-ordine-soft: #2C2113;
-  --color-st-produzione: #5FCFC0;
-  --color-st-produzione-soft: #122C29;
-  --color-st-pagamento: #6BCB8B;
-  --color-st-pagamento-soft: #16281E;
-  --color-st-chiusura: #9BA5B7;
-  --color-st-chiusura-soft: #22262E;
+  --color-st-preventivo: #8FB3C6;
+  --color-st-preventivo-soft: #1B262B;
+  --color-st-misure: #B79FC0;
+  --color-st-misure-soft: #241E27;
+  --color-st-contratto: #D4919A;
+  --color-st-contratto-soft: #2B1D1F;
+  --color-st-ordine: #C9A94F;
+  --color-st-ordine-soft: #272113;
+  --color-st-produzione: #79BFB2;
+  --color-st-produzione-soft: #152724;
+  --color-st-pagamento: #7FC58F;
+  --color-st-pagamento-soft: #17271A;
+  --color-st-chiusura: #AFAC9E;
+  --color-st-chiusura-soft: #26251F;
+
+  --color-cal-rilievo: #8FB3C6;
+  --color-cal-rilievo-soft: #1B262B;
+  --color-cal-posa: #79BFB2;
+  --color-cal-posa-soft: #152724;
+  --color-cal-assistenza: #D4919A;
+  --color-cal-assistenza-soft: #2B1D1F;
+  --color-cal-altro: #AFAC9E;
+  --color-cal-altro-soft: #26251F;
 
   /* Ombre: nello scuro un'ombra nera non si vede — serve più opacità */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);

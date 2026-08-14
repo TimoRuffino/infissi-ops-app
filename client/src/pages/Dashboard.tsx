@@ -1,4 +1,9 @@
 import { trpc } from "@/lib/trpc";
+import {
+  CALENDARI,
+  CALENDAR_COLOR_MAP,
+  COLORI_STATO_COMMESSA,
+} from "@/lib/calendario";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -111,19 +116,7 @@ function StatCard({
 }
 
 // Donut palette — §2.1 state colours.
-const PIE_COLORS = ["#3A5BDC", "#7A5AF0", "#C026D3", "#D97706", "#0E9384", "#15803D", "#475467"];
-
-// ── Calendar types with colors (PRD Sez.11.2) ──
-const CALENDARI = [
-  { key: "rilievo", label: "Rilievo", color: "#2563eb" },
-  { key: "posa", label: "Posa", color: "#059669" },
-  { key: "assistenza", label: "Interventi/Regolazioni", color: "#d97706" },
-  { key: "altro", label: "Altro", color: "#6b7280" },
-] as const;
-
-const CALENDAR_COLOR_MAP: Record<string, string> = Object.fromEntries(
-  CALENDARI.map((c) => [c.key, c.color])
-);
+const PIE_COLORS = COLORI_STATO_COMMESSA;
 
 function getWeekDates(baseDate: Date): Date[] {
   const d = new Date(baseDate);

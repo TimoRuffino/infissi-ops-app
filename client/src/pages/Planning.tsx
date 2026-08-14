@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { CALENDAR_COLOR_MAP, CALENDAR_SOFT_MAP } from "@/lib/calendario";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,20 +82,10 @@ const dayNamesLong = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì
 
 // Tinted card background per tipo — paired with a solid 4px left border and a
 // solid type chip (CALENDAR_COLOR_MAP) so the type reads at a glance.
-const tipoCardClass: Record<string, string> = {
-  rilievo:    "bg-blue-100/80",
-  posa:       "bg-orange-100/80",
-  assistenza: "bg-violet-100/80",
-  altro:      "bg-gray-100/80",
-};
-
-// Solid hex per tipo — used for the colored dot on calendar entries.
-const CALENDAR_COLOR_MAP: Record<string, string> = {
-  rilievo: "#2563eb",
-  posa: "#d97706",
-  assistenza: "#7c3aed",
-  altro: "#6b7280",
-};
+// Fondo tenue per tipo, abbinato al bordo sinistro e al chip pieno.
+const tipoCardStyle = (tipo: string): React.CSSProperties => ({
+  backgroundColor: CALENDAR_SOFT_MAP[tipo] ?? "var(--color-cal-altro-soft)",
+});
 
 const tipoLabels: Record<string, string> = {
   rilievo: "Rilievo",
@@ -1280,9 +1271,13 @@ function InterventoBlock(props: {
       draggable
       onDragStart={props.onDragStart}
       className={`rounded-md border border-border/60 p-2 cursor-pointer hover:shadow-md transition-all ${
-        tipoCardClass[i.tipo] ?? "bg-gray-100/80"
-      } ${isDragging ? "opacity-30" : ""}`}
-      style={{ borderLeftColor: color, borderLeftWidth: 4 }}
+        isDragging ? "opacity-30" : ""
+      }`}
+      style={{
+        ...tipoCardStyle(i.tipo),
+        borderLeftColor: color,
+        borderLeftWidth: 4,
+      }}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1" onClick={props.onEdit}>
