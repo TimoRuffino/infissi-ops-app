@@ -49,7 +49,8 @@
   --color-primary-hover: #2E49B8;
   --color-primary-soft: #EAEEFC;
   --color-ink: #0F1B2D;
-  --color-gold: #E0A422;            /* evidence accent, sparing use */
+  --color-gold: #E0A422;            /* solo riempimenti e bordi, MAI testo */
+  --color-gold-text: #966D08;       /* la variante leggibile: 4.68:1 su surface */
 
   /* Warm neutrals */
   --color-surface: #FFFFFF;
@@ -58,14 +59,14 @@
   --color-border-strong: #D6D3CC;
   --color-text-1: #16181D;
   --color-text-2: #5C5F66;
-  --color-text-3: #9A9CA3;
+  --color-text-3: #6E7178;        /* 4.89:1 su surface, 4.52:1 su app-bg */
 
   /* Semantic + soft pairs */
-  --color-success: #15803D;
+  --color-success: #146C34;       /* 6.51:1 su surface, 5.75:1 su success-soft */
   --color-success-soft: #E7F4EC;
-  --color-warning: #D97706;
+  --color-warning: #B45309;       /* 5.02:1 su surface, 4.51:1 su warning-soft */
   --color-warning-soft: #FEF1E0;
-  --color-danger: #DC2626;
+  --color-danger: #C81E1E;        /* 5.74:1 su surface, 5.02:1 su danger-soft */
   --color-danger-soft: #FDECEC;
   --color-info: #3A5BDC;
   --color-info-soft: #EAEEFC;
@@ -130,7 +131,7 @@
   /* shadcn `accent` = subtle hover surface (NOT the gold evidence accent) */
   --accent: #F1F0EC;
   --accent-foreground: #16181D;
-  --destructive: #DC2626;            /* danger */
+  --destructive: #C81E1E;            /* danger */
   --destructive-foreground: #FFFFFF;
   --border: #E6E4DF;
   --input: #E6E4DF;
@@ -144,38 +145,117 @@
 }
 
 .dark {
-  --primary: oklch(0.7 0.18 260);
-  --primary-foreground: oklch(0.1 0 0);
-  --sidebar-primary: oklch(0.7 0.18 260);
-  --sidebar-primary-foreground: oklch(0.1 0 0);
-  --background: oklch(0.14 0.02 260);
-  --foreground: oklch(0.92 0.01 260);
-  --card: oklch(0.18 0.025 260);
-  --card-foreground: oklch(0.92 0.01 260);
-  --popover: oklch(0.18 0.025 260);
-  --popover-foreground: oklch(0.92 0.01 260);
-  --secondary: oklch(0.22 0.03 260);
-  --secondary-foreground: oklch(0.8 0.01 260);
-  --muted: oklch(0.24 0.025 260);
-  --muted-foreground: oklch(0.6 0.02 260);
-  --accent: oklch(0.6 0.18 150);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.6 0.22 25);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.7 0.18 260);
-  --chart-1: oklch(0.7 0.18 260);
-  --chart-2: oklch(0.7 0.16 150);
-  --chart-3: oklch(0.75 0.14 50);
-  --chart-4: oklch(0.65 0.2 25);
-  --chart-5: oklch(0.65 0.16 310);
-  --sidebar: oklch(0.16 0.03 260);
-  --sidebar-foreground: oklch(0.92 0.01 260);
-  --sidebar-accent: oklch(0.22 0.04 260);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.7 0.18 260);
+  /* Palette scura allineata ai token del redesign: prima questo blocco era
+     ancora l'oklch della versione precedente, freddo e azzurrato, mentre i
+     token nuovi erano warm neutral. Le due metà dell'app non combaciavano —
+     e `--accent`, che in chiaro è la superficie di hover, qui era VERDE.
+     Sono le variabili che usano 70 file: allinearle vale più di ogni
+     ritocco alle 15 già modernizzate. */
+  --background: #14171C;             /* app-bg, un gradino sotto le card */
+  --foreground: #E8EAED;             /* text-1 · 14.0:1 */
+  --card: #1A1D23;                   /* surface */
+  --card-foreground: #E8EAED;
+  --popover: #22262E;                /* surface-2: i popover stanno sopra */
+  --popover-foreground: #E8EAED;
+  --primary: #8AA3F5;                /* 6.94:1 su surface */
+  --primary-foreground: #0B1018;     /* 7.84:1 dentro al bottone */
+  --secondary: #22262E;
+  --secondary-foreground: #E8EAED;
+  --muted: #22262E;
+  --muted-foreground: #A8ACB4;       /* text-2 · 7.4:1 — il token più usato */
+  --accent: #2A2F38;                 /* superficie di hover, non un colore */
+  --accent-foreground: #E8EAED;
+  --destructive: #F58585;            /* 6.89:1 */
+  --destructive-foreground: #2E1919;
+  --border: #2E333C;
+  --input: #3D434E;                  /* i campi hanno più presenza dei divisori */
+  --ring: #8AA3F5;
+  --radius: 0.625rem;
+  /* Donut stati: stessa sequenza del chiaro, luminosità da fondo scuro */
+  --chart-1: #8AA3F5;
+  --chart-2: #B39CF7;
+  --chart-3: #E285EE;
+  --chart-4: #F0A84A;
+  --chart-5: #5FCFC0;
+  --sidebar: #0B1018;
+  --sidebar-foreground: rgba(255, 255, 255, 0.72);
+  --sidebar-primary: #8AA3F5;
+  --sidebar-primary-foreground: #0B1018;
+  --sidebar-accent: rgba(255, 255, 255, 0.08);
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(255, 255, 255, 0.10);
+  --sidebar-ring: #8AA3F5;
+}
+
+/* ── Dark mode dei token del redesign ───────────────────────────────────────
+   Il blocco `.dark` sopra ridefinisce solo le variabili shadcn. I token del
+   redesign (--color-text-*, --color-surface*, i semantici, la palette degli
+   stati) restavano ai valori chiari: `text-text-1` è #16181D, quasi nero, e
+   su una card scura spariva. Sono 15 file — testo invisibile, non "brutto".
+   Qui ogni token ha la sua controparte scura, verificata a contrasto. */
+.dark {
+  /* Superfici: schiarite per gradini, non invertite */
+  --color-surface: #1A1D23;
+  --color-surface-2: #22262E;
+  --color-border-soft: #2E333C;
+  --color-border-strong: #3D434E;
+
+  /* Testo: 14.0 / 7.4 / 4.9 su surface */
+  --color-text-1: #E8EAED;
+  --color-text-2: #A8ACB4;
+  --color-text-3: #888D96;
+
+  /* Brand: desaturato e schiarito, non lo stesso blu del chiaro */
+  --color-primary-hover: #A5B8F8;
+  --color-primary-soft: #1E2740;
+  --color-ink: #0B1018;
+  --color-gold: #E8B94A;
+  --color-gold-text: #E8B94A;
+
+  /* Semantici: coppia testo/fondo ripensata per lo scuro */
+  --color-success: #6BCB8B;
+  --color-success-soft: #16281E;
+  --color-warning: #F0A84A;
+  --color-warning-soft: #2C2113;
+  --color-danger: #F58585;
+  --color-danger-soft: #2E1919;
+  --color-info: #8AA3F5;
+  --color-info-soft: #1E2740;
+
+  /* Palette stati commessa: stessa sequenza cromatica, luminosità alzata */
+  --color-st-preventivo: #8AA3F5;
+  --color-st-preventivo-soft: #1E2740;
+  --color-st-misure: #B39CF7;
+  --color-st-misure-soft: #241E3D;
+  --color-st-contratto: #E285EE;
+  --color-st-contratto-soft: #331A36;
+  --color-st-ordine: #F0A84A;
+  --color-st-ordine-soft: #2C2113;
+  --color-st-produzione: #5FCFC0;
+  --color-st-produzione-soft: #122C29;
+  --color-st-pagamento: #6BCB8B;
+  --color-st-pagamento-soft: #16281E;
+  --color-st-chiusura: #9BA5B7;
+  --color-st-chiusura-soft: #22262E;
+
+  /* Ombre: nello scuro un'ombra nera non si vede — serve più opacità */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.44);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Movimento ──────────────────────────────────────────────────────────────
+   Durate e curve come token: senza, ogni componente sceglie la sua e
+   l'interfaccia non ha un ritmo. Entrata più lenta dell'uscita — un pannello
+   che se ne va in fretta fa sembrare l'app reattiva. */
+@theme {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-instant: 100ms;   /* feedback al tocco */
+  --duration-fast: 160ms;      /* hover, colore, uscite */
+  --duration-base: 220ms;      /* entrate, espansioni */
+  --duration-slow: 320ms;      /* transizioni di pagina */
 }
 
 @layer base {
