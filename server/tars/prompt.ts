@@ -133,7 +133,7 @@ nessuna_azione). Questo testo finisce nel registro esecuzioni e va letto da una 
 // scrive la direzione in /conoscenza, qui c'è solo lo storico.
 const MAX_DECISIONI = 15;
 
-function bloccoDecisioni(sedeId: number | null): string {
+export function bloccoDecisioni(sedeId: number | null): string {
   const decise = proposte
     .filter(
       (p) =>
@@ -160,9 +160,7 @@ function bloccoDecisioni(sedeId: number | null): string {
     return `- [${p.tipo}] "${p.titolo}" → ${esito}`;
   });
 
-  return `
-
-═══ DECISIONI RECENTI DEGLI OPERATORI ═══
+  return `═══ DECISIONI RECENTI DEGLI OPERATORI ═══
 Come sono state accolte le tue ultime proposte. I rifiuti indicano dove stai
 sbagliando: non riproporre la stessa cosa nello stesso modo, e alza l'asticella su
 quel tipo di proposta. "azione non necessaria" e "lo faccio io" significano che stai
@@ -189,5 +187,9 @@ sul settore.
 
 ${blocco}`;
   }
-  return prompt + bloccoDecisioni(sedeId);
+  // Le decisioni NON stanno qui: cambiano a ogni approvazione o rifiuto, e
+  // il system è a monte dei messaggi nel prefisso della cache — spostarne una
+  // riga butta via l'intero blocco a ogni click. Vanno nel turno utente, dopo
+  // il prefisso stabile. Le vedi in `bloccoDecisioni`, montato da runTars.
+  return prompt;
 }

@@ -233,7 +233,11 @@ export type Esecuzione = {
   // La cache cambia il prezzo di un fattore 10: contarla insieme all'input
   // pieno gonfierebbe la spesa stimata e farebbe scattare il budget a vuoto.
   tokensCacheRead: number;
-  tokensCacheWrite: number;
+  // Scrivere in cache costa 1.25× a 5 minuti e 2× a un'ora. Sommarle in un
+  // campo solo sbaglierebbe la stima del 60% sul prefisso stabile, che è
+  // proprio la parte grossa.
+  tokensCacheWrite5m: number;
+  tokensCacheWrite1h: number;
   durataMs: number;
   esito: "ok" | "errore" | "budget_esaurito";
   errore: string | null;
@@ -252,7 +256,11 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
     for (const e of items) {
       if (e.modello === undefined) e.modello = null;
       if (e.tokensCacheRead === undefined) e.tokensCacheRead = 0;
-      if (e.tokensCacheWrite === undefined) e.tokensCacheWrite = 0;
+      // Prima esisteva un solo campo, ed era sempre a 5 minuti.
+      const vecchio = (e as any).tokensCacheWrite;
+      if (e.tokensCacheWrite5m === undefined) e.tokensCacheWrite5m = vecchio ?? 0;
+      if (e.tokensCacheWrite1h === undefined) e.tokensCacheWrite1h = 0;
+      delete (e as any).tokensCacheWrite;
     }
   }
 );
@@ -280,14 +288,16 @@ export function costoEsecuzioneUsd(e: {
   tokensIn: number;
   tokensOut: number;
   tokensCacheRead: number;
-  tokensCacheWrite: number;
+  tokensCacheWrite5m: number;
+  tokensCacheWrite1h: number;
 }): number {
   const p = (e.modello && PREZZI_MTOK[e.modello]) || PREZZI_FALLBACK;
   return (
     (e.tokensIn * p.in +
       e.tokensOut * p.out +
       e.tokensCacheRead * p.in * 0.1 +
-      e.tokensCacheWrite * p.in * 1.25) /
+      e.tokensCacheWrite5m * p.in * 1.25 +
+      e.tokensCacheWrite1h * p.in * 2) /
     1_000_000
   );
 }

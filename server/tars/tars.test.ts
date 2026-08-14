@@ -5,6 +5,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
+import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
 import type { TrpcContext } from "../_core/context";
 import {
   proposte,
@@ -598,7 +599,8 @@ describe("tars — budget mensile", () => {
         tokensIn: 1_000_000,
         tokensOut: 1_000_000,
         tokensCacheRead: 0,
-        tokensCacheWrite: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 0,
       })
     ).toBeCloseTo(18);
     // Cache read su Opus: 0.1× dell'input → 1M letti dalla cache = 0.5 $.
@@ -608,9 +610,32 @@ describe("tars — budget mensile", () => {
         tokensIn: 0,
         tokensOut: 0,
         tokensCacheRead: 1_000_000,
-        tokensCacheWrite: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 0,
       })
     ).toBeCloseTo(0.5);
+    // Scrittura a 1 ora: 2× l'input. 1M token su Sonnet = 6 $, non 3.75.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "claude-sonnet-5",
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensCacheRead: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 1_000_000,
+      })
+    ).toBeCloseTo(6);
+    // La stessa quantità a 5 minuti costa 1.25×.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "claude-sonnet-5",
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensCacheRead: 0,
+        tokensCacheWrite5m: 1_000_000,
+        tokensCacheWrite1h: 0,
+      })
+    ).toBeCloseTo(3.75);
     // Modello sconosciuto → prezzo Opus (per eccesso, mai per difetto).
     expect(
       costoEsecuzioneUsd({
@@ -618,7 +643,8 @@ describe("tars — budget mensile", () => {
         tokensIn: 1_000_000,
         tokensOut: 0,
         tokensCacheRead: 0,
-        tokensCacheWrite: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 0,
       })
     ).toBeCloseTo(5);
   });
@@ -644,7 +670,8 @@ describe("tars — budget mensile", () => {
       tokensIn: 1_000_000, // 5 $
       tokensOut: 1_000_000, // 25 $
       tokensCacheRead: 0,
-      tokensCacheWrite: 0,
+      tokensCacheWrite5m: 0,
+      tokensCacheWrite1h: 0,
       durataMs: 0,
       esito: "ok",
       errore: null,
@@ -724,5 +751,57 @@ describe("tars — budget mensile", () => {
     });
     expect(e2.modello).toBe(getTarsConfig(1).modelloAutomatico);
     expect(e2.modello).not.toBe(getTarsConfig(1).modello);
+  });
+});
+
+// ── Il prefisso della cache deve restare immobile ──────────────────────────
+// system e strumenti sono la parte cara del prompt e stanno a monte di tutto:
+// se qualcosa di volatile ci finisce dentro, ogni click su «approva» butta via
+// la cache. Questo test è il guardiano di quell'invariante.
+describe("tars — prefisso stabile per la cache", () => {
+  it("il system prompt non contiene le decisioni, che cambiano a ogni click", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({ cliente: "Cache Test" });
+
+    const prima = buildSystemPrompt(1);
+
+    // Una decisione: prima finiva nel system e ne cambiava i byte.
+    proposte.push({
+      id: 999_100,
+      sedeId: 1,
+      tipo: "segnalazione",
+      titolo: "Titolo che non deve entrare nel system",
+      motivazione: "x",
+      confidenza: "alta",
+      payload: {},
+      commessaId: commessa.id,
+      clienteId: null,
+      opzioni: null,
+      risposta: null,
+      stato: "rifiutata",
+      esito: null,
+      motivoRifiuto: "azione_non_necessaria",
+      esecuzioneId: null,
+      trigger: "on_demand",
+      createdAt: new Date(),
+      decisaAt: new Date(),
+      decisaDa: 1,
+      decisaDaNome: "Admin",
+      seguitoAt: null,
+      seguitoEsecuzioneId: null,
+      origineId: null,
+    });
+
+    const dopo = buildSystemPrompt(1);
+    expect(dopo).toBe(prima); // byte identici → la cache regge
+    expect(dopo).not.toContain("Titolo che non deve entrare nel system");
+
+    // Il blocco esiste ancora: è solo montato nel turno utente.
+    const blocco = bloccoDecisioni(1);
+    expect(blocco).toContain("Titolo che non deve entrare nel system");
+    expect(blocco).toContain("azione non necessaria");
+
+    proposte.splice(proposte.findIndex((p) => p.id === 999_100), 1);
   });
 });

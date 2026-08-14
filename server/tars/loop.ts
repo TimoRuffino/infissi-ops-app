@@ -12,7 +12,7 @@ import {
   type AnthropicMessage,
   type ContentBlock,
 } from "./anthropic";
-import { buildSystemPrompt } from "./prompt";
+import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
 import {
   eseguiStrumento,
   sintesiEsito,
@@ -63,7 +63,8 @@ export async function runTars(params: {
     tokensIn: 0,
     tokensOut: 0,
     tokensCacheRead: 0,
-    tokensCacheWrite: 0,
+    tokensCacheWrite5m: 0,
+    tokensCacheWrite1h: 0,
     durataMs: 0,
     esito: "ok",
     errore: null,
@@ -83,9 +84,16 @@ export async function runTars(params: {
   };
 
   const system = buildSystemPrompt(params.ctx.sedeId);
+  // Le decisioni recenti cambiano a ogni approvazione. Stanno in coda al
+  // turno utente, dopo tutto il prefisso in cache: così un click su «approva»
+  // non invalida più system e strumenti, che sono la parte cara e immobile.
+  const decisioni = bloccoDecisioni(params.ctx.sedeId);
   const messages: AnthropicMessage[] = [
     ...(params.storia ?? []),
-    { role: "user", content: params.richiesta },
+    {
+      role: "user",
+      content: decisioni ? `${decisioni}\n\n${params.richiesta}` : params.richiesta,
+    },
   ];
 
   const abort = new AbortController();
@@ -105,7 +113,16 @@ export async function runTars(params: {
       esecuzione.tokensIn += res.usage.input_tokens;
       esecuzione.tokensOut += res.usage.output_tokens;
       esecuzione.tokensCacheRead += res.usage.cache_read_input_tokens ?? 0;
-      esecuzione.tokensCacheWrite += res.usage.cache_creation_input_tokens ?? 0;
+      const scritture = res.usage.cache_creation;
+      if (scritture) {
+        esecuzione.tokensCacheWrite5m += scritture.ephemeral_5m_input_tokens ?? 0;
+        esecuzione.tokensCacheWrite1h += scritture.ephemeral_1h_input_tokens ?? 0;
+      } else {
+        // Risposta senza il dettaglio: si conta al prezzo più basso dei due,
+        // che è quello dei 5 minuti — la stima sbaglia per difetto, mai
+        // facendo scattare un budget che invece era capiente.
+        esecuzione.tokensCacheWrite5m += res.usage.cache_creation_input_tokens ?? 0;
+      }
 
       const testo = res.content
         .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")

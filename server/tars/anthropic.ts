@@ -36,6 +36,12 @@ export type AnthropicResponse = {
     output_tokens: number;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
+    // Le scritture costano 1.25× a 5 minuti e 2× a un'ora: sommarle
+    // insieme farebbe sbagliare la stima di spesa del 60%.
+    cache_creation?: {
+      ephemeral_5m_input_tokens?: number;
+      ephemeral_1h_input_tokens?: number;
+    };
   };
 };
 
@@ -62,6 +68,8 @@ function conCacheSullUltimoBlocco(
       ? [{ type: "text", text: ultimo.content }]
       : [...ultimo.content];
   if (blocchi.length === 0) return messages;
+  // Qui NIENTE 1h: la conversazione esiste solo dentro il run, e un TTL lungo
+  // pagherebbe 2× una scrittura che nessuno rileggerà domani.
   blocchi[blocchi.length - 1] = {
     ...blocchi[blocchi.length - 1],
     cache_control: { type: "ephemeral" },
@@ -98,11 +106,16 @@ export async function callAnthropic(params: {
       max_tokens: params.maxTokens ?? 4096,
       // Il system è identico a ogni chiamata del loop (e tra esecuzioni
       // ravvicinate): il cache_control dimezza il costo della voce più cara.
+      // TTL di un'ora su system e strumenti. Sono identici fra un'esecuzione
+      // e l'altra, ma i giri sono distanziati (la posta arriva quando arriva)
+      // e con i 5 minuti di default la cache scadeva nei buchi: si ripagava
+      // la scrittura ogni volta. Scrivere costa 2× invece di 1.25×, leggere
+      // resta 0.1× — conviene da tre letture in su per finestra.
       system: [
         {
           type: "text",
           text: params.system,
-          cache_control: { type: "ephemeral" },
+          cache_control: { type: "ephemeral", ttl: "1h" },
         },
       ],
       // Terzo breakpoint (su 4 concessi): l'ultimo blocco dell'ultimo
@@ -116,7 +129,7 @@ export async function callAnthropic(params: {
       // token — a pagamento pieno, ogni volta.
       tools: params.tools.map((t, i) =>
         i === params.tools.length - 1
-          ? { ...t, cache_control: { type: "ephemeral" } }
+          ? { ...t, cache_control: { type: "ephemeral", ttl: "1h" } }
           : t
       ),
     }),
