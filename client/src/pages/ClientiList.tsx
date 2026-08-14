@@ -196,7 +196,7 @@ export default function ClientiList() {
                   value={form.tipo}
                   onValueChange={(v: any) => setForm({ ...form, tipo: v })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Tipo di cliente">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

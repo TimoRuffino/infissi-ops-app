@@ -291,7 +291,7 @@ export default function KanbanBoard() {
           />
         </div>
         <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
-          <SelectTrigger className="w-[170px] h-9">
+          <SelectTrigger className="w-[170px] h-9" aria-label="Filtra per priorità">
             <Filter className="h-3.5 w-3.5 mr-1.5" />
             <SelectValue />
           </SelectTrigger>

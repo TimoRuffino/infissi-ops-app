@@ -527,6 +527,9 @@ export default function Comunicazioni() {
       <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-card flex">
         {mostraLista && (
           <div
+            tabIndex={0}
+            role="region"
+            aria-label="Elenco comunicazioni"
             className={cn(
               "overflow-y-auto min-h-0",
               mobile ? "w-full" : "w-[340px] xl:w-[380px] border-r shrink-0"

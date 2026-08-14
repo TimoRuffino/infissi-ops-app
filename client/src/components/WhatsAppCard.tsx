@@ -352,7 +352,12 @@ export default function WhatsAppCard() {
         <div className="space-y-1.5">
           <Label className="text-xs">URL del webhook (da incollare su Meta)</Label>
           <div className="flex gap-2">
-            <Input readOnly value={url} className="font-mono text-xs" />
+            <Input
+              readOnly
+              aria-label="URL del webhook da incollare su Meta"
+              value={url}
+              className="font-mono text-xs"
+            />
             <Button size="icon" variant="outline" onClick={copiaUrl}>
               {copiato ? (
                 <Check className="h-4 w-4 text-green-600" />
@@ -367,6 +372,7 @@ export default function WhatsAppCard() {
           <div className="flex gap-2">
             <Input
               readOnly
+              aria-label="Token di verifica del webhook"
               value={app.data?.verifyToken ?? ""}
               className="font-mono text-xs"
             />

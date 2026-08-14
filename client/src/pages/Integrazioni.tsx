@@ -187,7 +187,11 @@ export default function Integrazioni() {
                   Non configurata
                 </Badge>
               )}
-              <Switch checked={todoEnabled} onCheckedChange={setTodoEnabled} />
+              <Switch
+                aria-label="Attiva la sincronizzazione con Microsoft To Do"
+                checked={todoEnabled}
+                onCheckedChange={setTodoEnabled}
+              />
             </div>
           </div>
         </CardHeader>
@@ -408,6 +412,7 @@ function TarsCard() {
           </CardTitle>
           {isDirezione(user) && (
             <Switch
+              aria-label="Accendi o spegni Tars"
               checked={attivo}
               disabled={setAttivo.isPending || (!attivo && !chiaveOk)}
               onCheckedChange={(v) => setAttivo.mutate({ attivo: v })}
@@ -477,6 +482,7 @@ function TarsCard() {
                 Modello (analisi e chat):
               </span>
               <select
+                aria-label="Modello per analisi e chat"
                 className="h-8 rounded-md border bg-background px-2 text-xs"
                 value={config.data?.modello ?? ""}
                 disabled={setModello.isPending}
@@ -494,6 +500,7 @@ function TarsCard() {
                 Modello lavori automatici:
               </span>
               <select
+                aria-label="Modello per i lavori automatici"
                 className="h-8 rounded-md border bg-background px-2 text-xs"
                 value={config.data?.modelloAutomatico ?? ""}
                 disabled={setModello.isPending}
@@ -519,6 +526,7 @@ function TarsCard() {
                 Budget mensile ($):
               </span>
               <Input
+                aria-label="Budget mensile di Tars in dollari"
                 type="number"
                 min={0}
                 step={5}

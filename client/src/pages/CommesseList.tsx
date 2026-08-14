@@ -340,7 +340,7 @@ export default function CommesseList() {
                             })
                           }
                         >
-                          <SelectTrigger className="flex-1">
+                          <SelectTrigger className="flex-1" aria-label="Tipologia">
                             <SelectValue placeholder="Tipologia" />
                           </SelectTrigger>
                           <SelectContent>

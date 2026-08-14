@@ -206,13 +206,13 @@ function CalendarioSettimana({
             Calendario settimanale
           </CardTitle>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevWeek}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevWeek} aria-label="Settimana precedente">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" className="h-7 text-xs" onClick={goToday}>
               Oggi
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextWeek}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextWeek} aria-label="Settimana successiva">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -1007,9 +1007,11 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {([
               { key: "urgente", label: "Urgente", color: "border-red-400 bg-red-50", badge: "bg-red-600 text-white" },
-              { key: "alta", label: "Alta", color: "border-orange-400 bg-orange-50", badge: "bg-orange-500 text-white" },
-              { key: "media", label: "Media", color: "border-amber-300 bg-amber-50", badge: "bg-amber-400 text-white" },
-              { key: "bassa", label: "Bassa", color: "border-slate-300 bg-slate-50", badge: "bg-slate-400 text-white" },
+              // Testo scuro su fondo tenue, non bianco su tinta piena: il
+              // bianco su ambra dava 1.72:1 — un badge che nessuno legge.
+              { key: "alta", label: "Alta", color: "border-danger/40 bg-danger-soft", badge: "bg-danger-soft text-danger" },
+              { key: "media", label: "Media", color: "border-warning/40 bg-warning-soft", badge: "bg-warning-soft text-warning" },
+              { key: "bassa", label: "Bassa", color: "border-border-strong bg-surface-2", badge: "bg-surface-2 text-text-2" },
             ] as const).map((pri) => {
               const list: any[] = (commessePerPriorita.data as any)?.[pri.key] ?? [];
               return (

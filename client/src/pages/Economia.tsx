@@ -179,7 +179,15 @@ function Panoramica({ anno }: { anno: number }) {
       <div>
         <h3 className="text-sm font-medium mb-2">Andamento {anno}</h3>
         <Card>
-          <CardContent className="py-3 overflow-x-auto">
+          {/* tabIndex: una regione che scorre dev'essere raggiungibile da
+              tastiera, altrimenti chi non usa il mouse non vede le colonne
+              oltre il bordo. */}
+          <CardContent
+            className="py-3 overflow-x-auto"
+            tabIndex={0}
+            role="region"
+            aria-label={`Andamento ${anno}`}
+          >
             <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="text-xs text-muted-foreground">
@@ -414,7 +422,7 @@ export default function Economia() {
         <h1 className="text-xl font-semibold">Contabilità</h1>
         <div className="ml-auto flex gap-2 items-center">
           <Select value={String(anno)} onValueChange={(v) => setAnno(Number(v))}>
-            <SelectTrigger className="h-9 w-[110px]">
+            <SelectTrigger className="h-9 w-[110px]" aria-label="Anno contabile">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

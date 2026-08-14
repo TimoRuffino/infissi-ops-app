@@ -58,10 +58,19 @@ export default function NotificheDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="relative h-9 w-9 flex items-center justify-center rounded-lg hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <button
+          type="button"
+          aria-label={
+            unread.length > 0
+              ? `Notifiche: ${unread.length} da leggere`
+              : "Notifiche"
+          }
+          className="relative h-9 w-9 flex items-center justify-center rounded-lg hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <Bell className="h-4 w-4 text-muted-foreground" />
           {unread.length > 0 && (
             <span
+              aria-hidden="true"
               className={`absolute -top-0.5 -right-0.5 h-4 min-w-4 px-0.5 flex items-center justify-center rounded-full text-[9px] font-bold text-white ${unreadUrgent > 0 ? "bg-danger" : "bg-warning"}`}
             >
               {unread.length}
