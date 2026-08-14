@@ -1,4 +1,5 @@
 import { z } from "zod";
+import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
@@ -17,11 +18,14 @@ import {
 
 // ── Fatture in Cloud → CRM sync ──────────────────────────────────────────────
 // Polls the FiC API (v2) for the current year's issued invoices and creates
-// any client that doesn't exist in the CRM yet — the manual migration done
-// once, kept alive automatically. Read-only towards FiC; token pasted by
-// direzione in Impostazioni (FiC → Impostazioni → API → nuovo token).
+// any client that doesn't exist in the CRM yet. Read-only towards FiC;
+// OAuth Authorization Code is the primary mode, with automatic refresh.
 
 const FIC = "https://api-v2.fattureincloud.it";
+const FIC_SCOPES = "entity.clients:r issued_documents.invoices:r";
+const FIC_CALLBACK_PATH = "/api/oauth/fic/callback";
+
+type FicAuthMode = "manual" | "oauth";
 
 type FicConfig = {
   id: number;
@@ -32,6 +36,10 @@ type FicConfig = {
   // contabilità dell'azienda, e il backup notturno spedisce ogni store su
   // Drive: in chiaro finirebbe là dentro.
   accessTokenCifrato: string | null;
+  refreshTokenCifrato: string | null;
+  accessTokenExpiresAt: Date | null;
+  oauthConnectedAt: Date | null;
+  authMode: FicAuthMode;
   companyId: number | null;
   enabled: boolean;
   lastSyncAt: Date | null;
@@ -40,7 +48,7 @@ type FicConfig = {
 
 let nextCfgId = 2;
 
-const _cfgStore = persistedStore<FicConfig>("fic_config", (items) => {
+const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
   for (const c of items as any[]) {
     if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
     // Migrazione del token salvato in chiaro dalla versione precedente.
@@ -57,19 +65,27 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", (items) => {
       }
     }
     if (c.accessTokenCifrato === undefined) c.accessTokenCifrato = null;
+    if (c.refreshTokenCifrato === undefined) c.refreshTokenCifrato = null;
+    if (c.accessTokenExpiresAt === undefined) c.accessTokenExpiresAt = null;
+    if (c.oauthConnectedAt === undefined) c.oauthConnectedAt = null;
+    if (c.authMode !== "oauth") c.authMode = "manual";
   }
-  nextCfgId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
+  nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
 const cfgRows = _cfgStore.items;
 
 function getCfg(sedeId: number | null): FicConfig {
   const sede = sedeId ?? DEFAULT_SEDE_ID;
-  let c = cfgRows.find((x) => x.sedeId === sede);
+  let c = cfgRows.find(x => x.sedeId === sede);
   if (!c) {
     c = {
       id: nextCfgId++,
       sedeId: sede,
       accessTokenCifrato: null,
+      refreshTokenCifrato: null,
+      accessTokenExpiresAt: null,
+      oauthConnectedAt: null,
+      authMode: "manual",
       companyId: null,
       enabled: false,
       lastSyncAt: null,
@@ -91,15 +107,189 @@ function assertChiaveCifratura() {
   }
 }
 
-/** Il token in chiaro, solo al momento della chiamata. */
-function tokenDi(cfg: FicConfig): string | null {
-  const cifrato = cfg.accessTokenCifrato;
-  if (!cifrato) return (cfg as any).accessToken ?? null;
+function leggiSegreto(cifrato: string | null): string | null {
+  if (!cifrato) return null;
   try {
     return decryptSecret(cifrato);
   } catch {
     return null;
   }
+}
+
+/** Il token in chiaro, solo al momento della chiamata. */
+function tokenDi(cfg: FicConfig): string | null {
+  if (!cfg.accessTokenCifrato) return (cfg as any).accessToken ?? null;
+  return leggiSegreto(cfg.accessTokenCifrato);
+}
+
+export function ficOAuthClientFromEnv(): {
+  clientId: string;
+  clientSecret: string;
+} | null {
+  const clientId = process.env.FIC_OAUTH_CLIENT_ID?.trim();
+  const clientSecret = process.env.FIC_OAUTH_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+type PendingFicState = {
+  sedeId: number;
+  redirectUri: string;
+  expiresAt: number;
+};
+
+const pendingFicStates = new Map<string, PendingFicState>();
+
+export function issueFicOAuthState(
+  sedeId: number,
+  redirectUri: string
+): string {
+  const state = crypto.randomBytes(24).toString("base64url");
+  pendingFicStates.set(state, {
+    sedeId,
+    redirectUri,
+    expiresAt: Date.now() + 10 * 60_000,
+  });
+  return state;
+}
+
+function consumeFicOAuthState(state: string): PendingFicState | null {
+  const pending = pendingFicStates.get(state) ?? null;
+  pendingFicStates.delete(state);
+  if (!pending || pending.expiresAt <= Date.now()) return null;
+  return pending;
+}
+
+export function buildFicAuthUrl(
+  redirectUri: string,
+  state: string
+): string | null {
+  const client = ficOAuthClientFromEnv();
+  if (!client) return null;
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: client.clientId,
+    redirect_uri: redirectUri,
+    scope: FIC_SCOPES,
+    state,
+  });
+  return `${FIC}/oauth/authorize?${params.toString()}`;
+}
+
+type FicTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+};
+
+async function requestFicToken(
+  payload: Record<string, string>
+): Promise<FicTokenResponse> {
+  const res = await fetch(`${FIC}/oauth/token`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `OAuth Fatture in Cloud fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 240)}`
+    );
+  }
+  return (await res.json()) as FicTokenResponse;
+}
+
+function salvaTokenOAuth(cfg: FicConfig, token: FicTokenResponse): void {
+  if (!token.access_token || !tokenSembraValido(token.access_token)) {
+    throw new Error(
+      "Fatture in Cloud non ha restituito un access token valido"
+    );
+  }
+  assertChiaveCifratura();
+  cfg.accessTokenCifrato = encryptSecret(token.access_token);
+  if (token.refresh_token)
+    cfg.refreshTokenCifrato = encryptSecret(token.refresh_token);
+  cfg.accessTokenExpiresAt = new Date(
+    Date.now() + Math.max(60, Number(token.expires_in) || 86_400) * 1000
+  );
+  cfg.oauthConnectedAt ??= new Date();
+  cfg.authMode = "oauth";
+  delete (cfg as any).accessToken;
+  _cfgStore.save();
+}
+
+export async function handleFicOAuthCallback(
+  code: string,
+  state: string
+): Promise<{ sedeId: number }> {
+  const pending = consumeFicOAuthState(state);
+  if (!pending) throw new Error("Stato OAuth non valido o scaduto");
+  const client = ficOAuthClientFromEnv();
+  if (!client) throw new Error("Client OAuth Fatture in Cloud non configurato");
+  const token = await requestFicToken({
+    grant_type: "authorization_code",
+    client_id: client.clientId,
+    client_secret: client.clientSecret,
+    redirect_uri: pending.redirectUri,
+    code,
+  });
+  if (!token.refresh_token) {
+    throw new Error("Fatture in Cloud non ha restituito il refresh token");
+  }
+  const cfg = getCfg(pending.sedeId);
+  salvaTokenOAuth(cfg, token);
+
+  // Riduce un passaggio: quando l'account espone una sola azienda, la
+  // selezioniamo subito. Gli account multi-azienda restano espliciti in UI.
+  try {
+    const companies = await ficGet("/user/companies", token.access_token!);
+    const list: any[] = companies?.data?.companies ?? [];
+    if (list.length === 1) {
+      cfg.companyId = Number(list[0].id);
+      _cfgStore.save();
+    }
+  } catch {
+    // Il collegamento OAuth è valido anche se la scoperta azienda fallisce.
+  }
+  return { sedeId: pending.sedeId };
+}
+
+const refreshInFlight = new Map<number, Promise<string>>();
+
+async function refreshFicToken(cfg: FicConfig): Promise<string> {
+  const existing = refreshInFlight.get(cfg.sedeId);
+  if (existing) return existing;
+  const promise = (async () => {
+    const client = ficOAuthClientFromEnv();
+    const refreshToken = leggiSegreto(cfg.refreshTokenCifrato);
+    if (!client || !refreshToken) {
+      throw new Error(
+        "Collegamento OAuth incompleto: ricollega Fatture in Cloud"
+      );
+    }
+    const token = await requestFicToken({
+      grant_type: "refresh_token",
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      refresh_token: refreshToken,
+    });
+    salvaTokenOAuth(cfg, token);
+    return token.access_token!;
+  })().finally(() => refreshInFlight.delete(cfg.sedeId));
+  refreshInFlight.set(cfg.sedeId, promise);
+  return promise;
+}
+
+export async function accessTokenFic(cfg: FicConfig): Promise<string | null> {
+  const token = tokenDi(cfg);
+  if (cfg.authMode !== "oauth") return token;
+  const expiresAt = cfg.accessTokenExpiresAt
+    ? new Date(cfg.accessTokenExpiresAt).getTime()
+    : 0;
+  if (token && expiresAt > Date.now() + 5 * 60_000) return token;
+  return refreshFicToken(cfg);
 }
 
 // Il token manuale ha una forma precisa: "a/" + un JWT. Il Client ID (che
@@ -152,7 +342,9 @@ function normKey(s: string): string {
     .join(" ");
 }
 function consonants(s: string): string {
-  const clean = stripAcc(s).replace(/[^A-Za-z]/g, "").toUpperCase();
+  const clean = stripAcc(s)
+    .replace(/[^A-Za-z]/g, "")
+    .toUpperCase();
   const cons = clean.replace(/[AEIOU]/g, "");
   const vows = clean.replace(/[^AEIOU]/g, "");
   return (cons + vows + "XXX").slice(0, 3);
@@ -160,19 +352,28 @@ function consonants(s: string): string {
 const COMPANY_RE =
   /\b(S\.?R\.?L\.?S?|S\.?P\.?A\.?|S\.?N\.?C\.?|S\.?A\.?S\.?|SOC(IETA)?'?|COOP|CONDOMINIO|IMPRESA|COSTRUZIONI|EDIL\w*|STUDIO|HOTEL|RISTORANTE|BAR|IMMOBILIARE|SERVICE|GROUP|ITALIA|DITTA|&)\b/i;
 
-function splitPersona(full: string, cf: string | null): { cognome: string; nome: string } {
+function splitPersona(
+  full: string,
+  cf: string | null
+): { cognome: string; nome: string } {
   const toks = full.trim().split(/\s+/);
   if (toks.length === 1) return { cognome: full, nome: full };
   if (cf && /^[A-Za-z]{6}/.test(cf)) {
     const target = cf.toUpperCase().slice(0, 3);
     for (let i = toks.length - 1; i >= 1; i--) {
       if (consonants(toks.slice(0, i).join(" ")) === target) {
-        return { cognome: toks.slice(0, i).join(" "), nome: toks.slice(i).join(" ") };
+        return {
+          cognome: toks.slice(0, i).join(" "),
+          nome: toks.slice(i).join(" "),
+        };
       }
     }
     for (let i = 1; i < toks.length; i++) {
       if (consonants(toks.slice(i).join(" ")) === target) {
-        return { cognome: toks.slice(i).join(" "), nome: toks.slice(0, i).join(" ") };
+        return {
+          cognome: toks.slice(i).join(" "),
+          nome: toks.slice(0, i).join(" "),
+        };
       }
     }
   }
@@ -185,7 +386,7 @@ const syncing = new Set<number>();
 
 export async function runFicSync(sedeId: number): Promise<string> {
   const cfg = getCfg(sedeId);
-  const token = tokenDi(cfg);
+  const token = await accessTokenFic(cfg);
   if (!token || !cfg.companyId) {
     throw new Error("Token o azienda non configurati");
   }
@@ -193,7 +394,11 @@ export async function runFicSync(sedeId: number): Promise<string> {
   syncing.add(sedeId);
   try {
     const year = new Date().getFullYear();
-    const entities: Array<{ name: string; vat: string | null; cf: string | null }> = [];
+    const entities: Array<{
+      name: string;
+      vat: string | null;
+      cf: string | null;
+    }> = [];
     const fatture: Array<{
       id: number;
       numero: string;
@@ -244,7 +449,9 @@ export async function runFicSync(sedeId: number): Promise<string> {
 
     // L'anagrafica di questa sede: un omonimo in un'altra sede non deve
     // impedire la creazione del cliente qui, e viceversa.
-    const clienti = getClientiStore().filter((c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId);
+    const clienti = getClientiStore().filter(
+      (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+    );
     const have = new Set<string>();
     for (const c of clienti) {
       have.add(normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`));
@@ -273,7 +480,9 @@ export async function runFicSync(sedeId: number): Promise<string> {
           nome: sp.nome,
           tipo: "privato",
           codiceFiscale:
-            e.cf && /^[A-Za-z0-9]{16}$/.test(e.cf) ? e.cf.toUpperCase() : undefined,
+            e.cf && /^[A-Za-z0-9]{16}$/.test(e.cf)
+              ? e.cf.toUpperCase()
+              : undefined,
         });
       }
       created++;
@@ -310,20 +519,27 @@ export async function runFicSync(sedeId: number): Promise<string> {
 let ficTimer: NodeJS.Timeout | null = null;
 export function startFicScheduler(): void {
   if (ficTimer) return;
-  ficTimer = setInterval(async () => {
-    // Ogni sede col suo giro: se una ha il token scaduto, le altre
-    // continuano. Un errore per sede non ferma la fila.
-    for (const sedeId of allSedeIds()) {
-      try {
-        const cfg = getCfg(sedeId);
-        if (cfg.enabled && tokenDi(cfg) && cfg.companyId) {
-          await runFicSync(sedeId);
+  ficTimer = setInterval(
+    async () => {
+      // Ogni sede col suo giro: se una ha il token scaduto, le altre
+      // continuano. Un errore per sede non ferma la fila.
+      for (const sedeId of allSedeIds()) {
+        try {
+          const cfg = getCfg(sedeId);
+          const hasCredential =
+            !!cfg.accessTokenCifrato ||
+            !!cfg.refreshTokenCifrato ||
+            !!(cfg as any).accessToken;
+          if (cfg.enabled && hasCredential && cfg.companyId) {
+            await runFicSync(sedeId);
+          }
+        } catch (e) {
+          console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
         }
-      } catch (e) {
-        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
       }
-    }
-  }, 6 * 60 * 60 * 1000);
+    },
+    6 * 60 * 60 * 1000
+  );
   ficTimer.unref?.();
 }
 
@@ -338,6 +554,11 @@ export const fattureInCloudRouter = router({
     const token = tokenDi(cfg);
     return {
       configured: !!(token && cfg.companyId),
+      connected: !!token || !!cfg.refreshTokenCifrato,
+      authMode: cfg.authMode,
+      oauthClientReady: !!ficOAuthClientFromEnv(),
+      oauthConnectedAt: cfg.oauthConnectedAt,
+      accessTokenExpiresAt: cfg.accessTokenExpiresAt,
       tokenMasked: maskToken(token),
       companyId: cfg.companyId,
       enabled: cfg.enabled,
@@ -367,6 +588,10 @@ export const fattureInCloudRouter = router({
         }
         assertChiaveCifratura();
         cfg.accessTokenCifrato = encryptSecret(t);
+        cfg.refreshTokenCifrato = null;
+        cfg.accessTokenExpiresAt = null;
+        cfg.oauthConnectedAt = null;
+        cfg.authMode = "manual";
         // Il campo in chiaro della versione precedente non deve sopravvivere.
         delete (cfg as any).accessToken;
       }
@@ -376,15 +601,61 @@ export const fattureInCloudRouter = router({
       return { success: true } as const;
     }),
 
+  oauthStartUrl: adminProcedure.mutation(({ ctx }) => {
+    assertChiaveCifratura();
+    if (!ficOAuthClientFromEnv()) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Configura FIC_OAUTH_CLIENT_ID e FIC_OAUTH_CLIENT_SECRET sul server prima di collegare l'account.",
+      });
+    }
+    const redirectUri =
+      process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
+      `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
+    const state = issueFicOAuthState(
+      ctx.sedeId ?? DEFAULT_SEDE_ID,
+      redirectUri
+    );
+    const url = buildFicAuthUrl(redirectUri, state);
+    if (!url) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "OAuth FIC non configurato",
+      });
+    }
+    return { url, redirectUri };
+  }),
+
+  disconnectOAuth: adminProcedure.mutation(({ ctx }) => {
+    const cfg = getCfg(ctx.sedeId);
+    cfg.accessTokenCifrato = null;
+    cfg.refreshTokenCifrato = null;
+    cfg.accessTokenExpiresAt = null;
+    cfg.oauthConnectedAt = null;
+    cfg.authMode = "manual";
+    cfg.companyId = null;
+    cfg.enabled = false;
+    delete (cfg as any).accessToken;
+    _cfgStore.save();
+    return { success: true } as const;
+  }),
+
   // Companies visible to the token — lets the UI offer a picker.
   companies: adminProcedure.mutation(async ({ ctx }) => {
-    const token = tokenDi(getCfg(ctx.sedeId));
+    const token = await accessTokenFic(getCfg(ctx.sedeId));
     if (!token) {
-      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Salva prima il token" });
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Salva prima il token",
+      });
     }
     const j = await ficGet("/user/companies", token);
     const list: any[] = j?.data?.companies ?? [];
-    return list.map((c) => ({ id: c.id as number, name: String(c.name ?? c.id) }));
+    return list.map(c => ({
+      id: c.id as number,
+      name: String(c.name ?? c.id),
+    }));
   }),
 
   syncNow: adminProcedure.mutation(async ({ ctx }) => {

@@ -86,10 +86,8 @@ export type Proposta = {
 };
 
 let nextPropostaId = 1;
-const _proposteStore = persistedStore<Proposta>("azioni_suggerite", (items) => {
-  nextPropostaId = items.length
-    ? Math.max(...items.map((p) => p.id)) + 1
-    : 1;
+const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
+  nextPropostaId = items.length ? Math.max(...items.map(p => p.id)) + 1 : 1;
   for (const p of items) {
     if (p.seguitoAt === undefined) p.seguitoAt = null;
     if (p.seguitoEsecuzioneId === undefined) p.seguitoEsecuzioneId = null;
@@ -114,7 +112,7 @@ function jsonStabile(v: any): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return `[${v.map(jsonStabile).join(",")}]`;
   const chiavi = Object.keys(v).sort();
-  return `{${chiavi.map((k) => `${JSON.stringify(k)}:${jsonStabile(v[k])}`).join(",")}}`;
+  return `{${chiavi.map(k => `${JSON.stringify(k)}:${jsonStabile(v[k])}`).join(",")}}`;
 }
 
 function normalizzaTitolo(t: string): string {
@@ -147,11 +145,16 @@ export function improntaProposta(p: {
  * girarci intorno riscrivendola.
  */
 export function propostaGiaRifiutata(
-  candidata: { tipo: string; commessaId: number | null; payload: any; titolo: string },
+  candidata: {
+    tipo: string;
+    commessaId: number | null;
+    payload: any;
+    titolo: string;
+  },
   sedeId: number
 ): Proposta | undefined {
   const imp = improntaProposta(candidata);
-  return proposte.find((p) => {
+  return proposte.find(p => {
     if (p.sedeId !== sedeId || p.stato !== "rifiutata") return false;
     const altra = improntaProposta(p);
     return altra.payload === imp.payload || altra.titolo === imp.titolo;
@@ -160,11 +163,16 @@ export function propostaGiaRifiutata(
 
 /** Idem per una proposta ancora in attesa: non si mette in coda due volte. */
 export function propostaGiaInCoda(
-  candidata: { tipo: string; commessaId: number | null; payload: any; titolo: string },
+  candidata: {
+    tipo: string;
+    commessaId: number | null;
+    payload: any;
+    titolo: string;
+  },
   sedeId: number
 ): Proposta | undefined {
   const imp = improntaProposta(candidata);
-  return proposte.find((p) => {
+  return proposte.find(p => {
     if (p.sedeId !== sedeId || p.stato !== "pendente") return false;
     const altra = improntaProposta(p);
     return altra.payload === imp.payload || altra.titolo === imp.titolo;
@@ -198,8 +206,8 @@ export type VoceConoscenza = {
 let nextVoceId = 1;
 const _conoscenzaStore = persistedStore<VoceConoscenza>(
   "conoscenza_aziendale",
-  (items) => {
-    nextVoceId = items.length ? Math.max(...items.map((v) => v.id)) + 1 : 1;
+  items => {
+    nextVoceId = items.length ? Math.max(...items.map(v => v.id)) + 1 : 1;
   }
 );
 export const conoscenza = _conoscenzaStore.items;
@@ -225,6 +233,10 @@ export type Esecuzione = {
   modello: string | null;
   commessaId: number | null;
   richiesta: string; // il messaggio utente passato al modello
+  profiloStrumenti: string;
+  strumentiDisponibili: number;
+  toolCacheHits: number;
+  fascicoloPrecaricato: boolean;
   strumenti: StrumentoChiamato[];
   proposteIds: number[];
   riepilogo: string | null; // il testo finale del modello
@@ -249,16 +261,19 @@ export type Esecuzione = {
 let nextEsecuzioneId = 1;
 const _esecuzioniStore = persistedStore<Esecuzione>(
   "agente_esecuzioni",
-  (items) => {
-    nextEsecuzioneId = items.length
-      ? Math.max(...items.map((e) => e.id)) + 1
-      : 1;
+  items => {
+    nextEsecuzioneId = items.length ? Math.max(...items.map(e => e.id)) + 1 : 1;
     for (const e of items) {
       if (e.modello === undefined) e.modello = null;
+      if (e.profiloStrumenti === undefined) e.profiloStrumenti = "completo";
+      if (e.strumentiDisponibili === undefined) e.strumentiDisponibili = 0;
+      if (e.toolCacheHits === undefined) e.toolCacheHits = 0;
+      if (e.fascicoloPrecaricato === undefined) e.fascicoloPrecaricato = false;
       if (e.tokensCacheRead === undefined) e.tokensCacheRead = 0;
       // Prima esisteva un solo campo, ed era sempre a 5 minuti.
       const vecchio = (e as any).tokensCacheWrite;
-      if (e.tokensCacheWrite5m === undefined) e.tokensCacheWrite5m = vecchio ?? 0;
+      if (e.tokensCacheWrite5m === undefined)
+        e.tokensCacheWrite5m = vecchio ?? 0;
       if (e.tokensCacheWrite1h === undefined) e.tokensCacheWrite1h = 0;
       delete (e as any).tokensCacheWrite;
     }
@@ -352,13 +367,13 @@ export type ChatRecord = {
 export const MAX_MESSAGGI_CHAT = 60;
 
 let nextChatId = 1;
-const _chatStore = persistedStore<ChatRecord>("tars_chat", (items) => {
-  nextChatId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
+const _chatStore = persistedStore<ChatRecord>("tars_chat", items => {
+  nextChatId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
 
 export function getChat(sedeId: number, utenteId: number): ChatRecord {
   let rec = _chatStore.items.find(
-    (c) => c.sedeId === sedeId && c.utenteId === utenteId
+    c => c.sedeId === sedeId && c.utenteId === utenteId
   );
   if (!rec) {
     rec = {
@@ -433,34 +448,39 @@ const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
 
 let nextConfigId = 2;
 
-const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) => {
-  if (items.length === 0 && meta.firstBoot) {
-    items.push({ ...DEFAULT_CONFIG, id: 1, sedeId: DEFAULT_SEDE_ID });
+const _configStore = persistedStore<TarsConfig>(
+  "agente_config",
+  (items, meta) => {
+    if (items.length === 0 && meta.firstBoot) {
+      items.push({ ...DEFAULT_CONFIG, id: 1, sedeId: DEFAULT_SEDE_ID });
+    }
+    for (const c of items) {
+      // Il record globale di prima diventa quello della sede principale.
+      if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
+      if (c.maxToolCalls === undefined)
+        c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
+      if (c.maxProposte === undefined)
+        c.maxProposte = DEFAULT_CONFIG.maxProposte;
+      if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
+      if (c.modello === undefined) c.modello = DEFAULT_CONFIG.modello;
+      if (c.modelloAutomatico === undefined) {
+        c.modelloAutomatico = DEFAULT_CONFIG.modelloAutomatico;
+      }
+      if (c.budgetMensileUsd === undefined) {
+        c.budgetMensileUsd = DEFAULT_CONFIG.budgetMensileUsd;
+      }
+      // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
+      // una decisione umana, e una migrazione non la prende per nessuno.
+      if ((c.versioneDefault ?? 1) < VERSIONE_DEFAULT) {
+        c.modello = DEFAULT_CONFIG.modello;
+        c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
+        c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
+        c.versioneDefault = VERSIONE_DEFAULT;
+      }
+    }
+    nextConfigId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
   }
-  for (const c of items) {
-    // Il record globale di prima diventa quello della sede principale.
-    if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
-    if (c.maxToolCalls === undefined) c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
-    if (c.maxProposte === undefined) c.maxProposte = DEFAULT_CONFIG.maxProposte;
-    if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
-    if (c.modello === undefined) c.modello = DEFAULT_CONFIG.modello;
-    if (c.modelloAutomatico === undefined) {
-      c.modelloAutomatico = DEFAULT_CONFIG.modelloAutomatico;
-    }
-    if (c.budgetMensileUsd === undefined) {
-      c.budgetMensileUsd = DEFAULT_CONFIG.budgetMensileUsd;
-    }
-    // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
-    // una decisione umana, e una migrazione non la prende per nessuno.
-    if ((c.versioneDefault ?? 1) < VERSIONE_DEFAULT) {
-      c.modello = DEFAULT_CONFIG.modello;
-      c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
-      c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
-      c.versioneDefault = VERSIONE_DEFAULT;
-    }
-  }
-  nextConfigId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
-});
+);
 
 /**
  * La configurazione di Tars per una sede. Se la sede non ne ha ancora una,
@@ -469,9 +489,14 @@ const _configStore = persistedStore<TarsConfig>("agente_config", (items, meta) =
  */
 export function getTarsConfig(sedeId: number | null): TarsConfig {
   const sede = sedeId ?? DEFAULT_SEDE_ID;
-  let c = _configStore.items.find((x) => x.sedeId === sede);
+  let c = _configStore.items.find(x => x.sedeId === sede);
   if (!c) {
-    c = { ...DEFAULT_CONFIG, id: nextConfigId++, sedeId: sede, updatedAt: new Date() };
+    c = {
+      ...DEFAULT_CONFIG,
+      id: nextConfigId++,
+      sedeId: sede,
+      updatedAt: new Date(),
+    };
     _configStore.items.push(c);
     _configStore.save();
   }

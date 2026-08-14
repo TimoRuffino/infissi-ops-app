@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { UNAUTHED_ERR_MSG } from '@shared/const';
+import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
@@ -67,15 +67,30 @@ const trpcClient = trpc.createClient({
 });
 
 function installAnalytics() {
+  if (!import.meta.env.PROD || typeof document === "undefined") return;
+
   const endpoint = import.meta.env.VITE_ANALYTICS_ENDPOINT;
   const websiteId = import.meta.env.VITE_ANALYTICS_WEBSITE_ID;
 
-  if (!endpoint || !websiteId || typeof document === "undefined") return;
+  if (!endpoint || !websiteId || document.getElementById("umami-analytics")) {
+    return;
+  }
+
+  let scriptUrl: URL;
+  try {
+    scriptUrl = new URL(`${String(endpoint).replace(/\/$/, "")}/umami`);
+    if (!(["http:", "https:"] as string[]).includes(scriptUrl.protocol)) return;
+  } catch {
+    return;
+  }
 
   const script = document.createElement("script");
+  script.id = "umami-analytics";
+  script.async = true;
   script.defer = true;
-  script.src = `${String(endpoint).replace(/\/$/, "")}/umami`;
+  script.src = scriptUrl.toString();
   script.dataset.websiteId = String(websiteId);
+  script.addEventListener("error", () => script.remove(), { once: true });
   document.head.appendChild(script);
 }
 

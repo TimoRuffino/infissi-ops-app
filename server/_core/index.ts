@@ -127,7 +127,7 @@ async function startServer() {
           /* chiave di cifratura assente o cambiata */
         }
       }
-      const valida = Array.from(segreti).some((s) =>
+      const valida = Array.from(segreti).some(s =>
         verificaFirma(raw, firma, s)
       );
       if (!valida) {
@@ -191,6 +191,25 @@ async function startServer() {
     } catch (e: any) {
       console.error("[backup] OAuth callback failed:", e?.message);
       res.redirect("/integrazioni?gdrive=errore");
+    }
+  });
+
+  // ── Fatture in Cloud — OAuth callback ─────────────────────────────────────
+  // The one-shot state is issued only to an authenticated direzione user and
+  // carries the active sede plus the exact redirect URI used for the exchange.
+  app.get("/api/oauth/fic/callback", async (req, res) => {
+    const { handleFicOAuthCallback } = await import(
+      "../routers/fattureInCloud"
+    );
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+    try {
+      if (!code) throw new Error(String(req.query.error ?? "Codice mancante"));
+      await handleFicOAuthCallback(code, state);
+      res.redirect("/integrazioni?fic=ok");
+    } catch (e: any) {
+      console.error("[fic] OAuth callback failed:", e?.message);
+      res.redirect("/integrazioni?fic=errore");
     }
   });
 

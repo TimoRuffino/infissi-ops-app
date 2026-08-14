@@ -10,6 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "storage:check": "tsx scripts/check-storage.ts",
+    "storage:dry-run": "tsx scripts/migrate-documents-to-storage.ts",
+    "storage:migrate": "tsx scripts/migrate-documents-to-storage.ts --apply",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {

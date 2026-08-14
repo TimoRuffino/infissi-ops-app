@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { requireDirezione } from "../_core/permissions";
-import { getStorageDriver } from "../_core/fileStorage";
+import {
+  getStorageDriver,
+  probeStorage,
+  storageConfiguration,
+} from "../_core/fileStorage";
 import { migrateFilesToStorage } from "../_core/fileStorageMigrate";
 import { getAllStoreSnapshots } from "../_core/persistence";
 
@@ -12,11 +16,15 @@ import { getAllStoreSnapshots } from "../_core/persistence";
 export const fileStorageAdminRouter = router({
   status: protectedProcedure.query(({ ctx }) => {
     requireDirezione(ctx.user);
+    const configuration = storageConfiguration();
     const keys = ["preventivi_documenti", "ticket_allegati"];
-    const snapshots = getAllStoreSnapshots().filter((s) => keys.includes(s.key));
+    const snapshots = getAllStoreSnapshots().filter(s => keys.includes(s.key));
     return {
-      driver: getStorageDriver().name,
-      collections: snapshots.map((s) => {
+      driver: configuration.configured
+        ? getStorageDriver().name
+        : configuration.requestedDriver,
+      configuration,
+      collections: snapshots.map(s => {
         let inline = 0;
         let migrati = 0;
         let inlineBytes = 0;
@@ -27,9 +35,26 @@ export const fileStorageAdminRouter = router({
             inlineBytes += Math.floor((r.dataBase64.length * 3) / 4);
           }
         }
-        return { key: s.key, total: s.items.length, inline, migrati, inlineBytes };
+        return {
+          key: s.key,
+          total: s.items.length,
+          inline,
+          migrati,
+          inlineBytes,
+        };
       }),
     };
+  }),
+
+  probe: protectedProcedure.mutation(async ({ ctx }) => {
+    requireDirezione(ctx.user);
+    const configuration = storageConfiguration();
+    if (!configuration.configured) {
+      throw new Error(
+        `Storage non configurato: mancano ${configuration.missing.join(", ")}`
+      );
+    }
+    return probeStorage();
   }),
 
   migrate: protectedProcedure

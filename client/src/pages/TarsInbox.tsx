@@ -33,12 +33,16 @@ function ElencoProposte({ stato }: { stato?: "pendente" }) {
   const proposte = trpc.tars.proposte.list.useQuery(
     stato ? { stato } : undefined
   );
-  const rows = (proposte.data ?? []).filter(
-    (p: any) => (stato ? true : p.stato !== "pendente")
+  const rows = (proposte.data ?? []).filter((p: any) =>
+    stato ? true : p.stato !== "pendente"
   );
 
   if (proposte.isLoading) {
-    return <p className="text-sm text-muted-foreground py-8 text-center">Caricamento…</p>;
+    return (
+      <p className="text-sm text-muted-foreground py-8 text-center">
+        Caricamento…
+      </p>
+    );
   }
   if (rows.length === 0) {
     return (
@@ -85,8 +89,13 @@ function RegistroEsecuzioni() {
               </CardTitle>
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString("it-IT")} ·{" "}
-                {Math.round(e.durataMs / 1000)}s · {e.strumenti.length} strumenti ·{" "}
-                {e.tokensIn + e.tokensOut} token
+                {Math.round(e.durataMs / 1000)}s · {e.strumenti.length}{" "}
+                strumenti · {e.tokensIn + e.tokensOut} token
+                {e.profiloStrumenti ? ` · profilo ${e.profiloStrumenti}` : ""}
+                {e.fascicoloPrecaricato ? " · fascicolo pronto" : ""}
+                {e.toolCacheHits > 0
+                  ? ` · ${e.toolCacheHits} letture riusate`
+                  : ""}
                 {e.utenteNome ? ` · ${e.utenteNome}` : ""}
               </span>
             </div>
@@ -94,7 +103,9 @@ function RegistroEsecuzioni() {
           <CardContent className="space-y-2 text-sm">
             <LinkCommessa commessaId={e.commessaId} />
             {e.riepilogo && (
-              <p className="whitespace-pre-wrap text-muted-foreground">{e.riepilogo}</p>
+              <p className="whitespace-pre-wrap text-muted-foreground">
+                {e.riepilogo}
+              </p>
             )}
             {e.errore && <p className="text-destructive">{e.errore}</p>}
             {e.strumenti.length > 0 && (
@@ -107,7 +118,9 @@ function RegistroEsecuzioni() {
                     <li key={i}>
                       <span className="font-mono">{s.nome}</span>
                       {"  "}
-                      <span className="opacity-70">{JSON.stringify(s.input)}</span>
+                      <span className="opacity-70">
+                        {JSON.stringify(s.input)}
+                      </span>
                     </li>
                   ))}
                 </ul>

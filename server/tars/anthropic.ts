@@ -54,30 +54,6 @@ export function anthropicConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-// Sposta il breakpoint di cache sull'ultimo blocco dell'ultimo messaggio,
-// senza mutare l'input del chiamante. Un content stringa diventa un blocco
-// testo: al modello arriva identico, ma può portare il cache_control.
-function conCacheSullUltimoBlocco(
-  messages: AnthropicMessage[]
-): AnthropicMessage[] {
-  if (messages.length === 0) return messages;
-  const out = [...messages];
-  const ultimo = out[out.length - 1];
-  const blocchi: any[] =
-    typeof ultimo.content === "string"
-      ? [{ type: "text", text: ultimo.content }]
-      : [...ultimo.content];
-  if (blocchi.length === 0) return messages;
-  // Qui NIENTE 1h: la conversazione esiste solo dentro il run, e un TTL lungo
-  // pagherebbe 2× una scrittura che nessuno rileggerà domani.
-  blocchi[blocchi.length - 1] = {
-    ...blocchi[blocchi.length - 1],
-    cache_control: { type: "ephemeral" },
-  };
-  out[out.length - 1] = { ...ultimo, content: blocchi };
-  return out;
-}
-
 export async function callAnthropic(params: {
   model: string;
   system: string;
@@ -104,6 +80,10 @@ export async function callAnthropic(params: {
     body: JSON.stringify({
       model: params.model,
       max_tokens: params.maxTokens ?? 4096,
+      // Automatic prompt caching follows the growing conversation prefix.
+      // Tool results from the previous round are read at cache price without
+      // mutating message blocks or moving a manual breakpoint every turn.
+      cache_control: { type: "ephemeral" },
       // Il system è identico a ogni chiamata del loop (e tra esecuzioni
       // ravvicinate): il cache_control dimezza il costo della voce più cara.
       // TTL di un'ora su system e strumenti. Sono identici fra un'esecuzione
@@ -118,11 +98,7 @@ export async function callAnthropic(params: {
           cache_control: { type: "ephemeral", ttl: "1h" },
         },
       ],
-      // Terzo breakpoint (su 4 concessi): l'ultimo blocco dell'ultimo
-      // messaggio. Dentro un run il modello fa più giri e la conversazione
-      // cresce solo in coda: senza questo, ogni giro rilegge a prezzo pieno
-      // tutti i tool result dei giri precedenti.
-      messages: conCacheSullUltimoBlocco(params.messages),
+      messages: params.messages,
       // Le definizioni degli strumenti sono la seconda voce più cara del
       // prompt e non cambiano mai: il breakpoint sull'ultima le mette in
       // cache in blocco. Un giro del loop ne rilegge decine di migliaia di

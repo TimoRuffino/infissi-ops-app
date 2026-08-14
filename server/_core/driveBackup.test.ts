@@ -8,13 +8,21 @@ import {
   attesaMs,
   driveFetch,
   erroreTransitorio,
+  resolveBackupFileData,
 } from "./driveBackup";
+import { sha256Hex } from "./fileStorage";
 
 const TRANSIENTE_503 = JSON.stringify({
   error: {
     code: 503,
     message: "Transient failure.",
-    errors: [{ message: "Transient failure.", domain: "global", reason: "transientError" }],
+    errors: [
+      {
+        message: "Transient failure.",
+        domain: "global",
+        reason: "transientError",
+      },
+    ],
   },
 });
 
@@ -26,7 +34,11 @@ const QUOTA_403 = JSON.stringify({
   error: { code: 403, errors: [{ reason: "userRateLimitExceeded" }] },
 });
 
-function risposta(status: number, corpo: string, headers: Record<string, string> = {}) {
+function risposta(
+  status: number,
+  corpo: string,
+  headers: Record<string, string> = {}
+) {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -101,7 +113,7 @@ describe("driveFetch", () => {
     global.fetch = fetchMock as any;
 
     await expect(
-      driveFetch("https://drive/test", {}, "Caricamento di \"x.pdf\"")
+      driveFetch("https://drive/test", {}, 'Caricamento di "x.pdf"')
     ).rejects.toThrow(/Caricamento di "x\.pdf" fallita \(HTTP 403/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -139,5 +151,55 @@ describe("driveFetch", () => {
     await vi.advanceTimersByTimeAsync(25_000);
     await p;
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("resolveBackupFileData", () => {
+  it("mantiene compatibili i file legacy inline", async () => {
+    const data = await resolveBackupFileData({
+      id: 1,
+      nome: "preventivo.pdf",
+      dataBase64: Buffer.from("legacy").toString("base64"),
+    });
+    expect(data?.toString()).toBe("legacy");
+  });
+
+  it("legge e verifica i file migrati tramite storageKey", async () => {
+    const stored = Buffer.from("contenuto su R2");
+    const loader = vi.fn(async () => stored);
+    const data = await resolveBackupFileData(
+      {
+        id: 2,
+        nome: "contratto.pdf",
+        storageKey: "preventivi_documenti/12/2.pdf",
+        checksum: sha256Hex(stored),
+      },
+      loader
+    );
+
+    expect(data).toEqual(stored);
+    expect(loader).toHaveBeenCalledWith("preventivi_documenti/12/2.pdf");
+  });
+
+  it("ferma il backup se un oggetto migrato manca", async () => {
+    await expect(
+      resolveBackupFileData(
+        { nome: "foto.jpg", storageKey: "ticket_allegati/8/4.jpg" },
+        async () => null
+      )
+    ).rejects.toThrow(/Backup incompleto.*non trovato/);
+  });
+
+  it("ferma il backup se il checksum non coincide", async () => {
+    await expect(
+      resolveBackupFileData(
+        {
+          nome: "misure.pdf",
+          storageKey: "preventivi_documenti/1/9.pdf",
+          checksum: sha256Hex(Buffer.from("atteso")),
+        },
+        async () => Buffer.from("corrotto")
+      )
+    ).rejects.toThrow(/Backup incompleto.*checksum non valido/);
   });
 });

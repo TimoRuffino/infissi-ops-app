@@ -56,7 +56,7 @@ function writeToLogFile(source: LogSource, entries: unknown[]) {
   const logPath = path.join(LOG_DIR, `${source}.log`);
 
   // Format entries with timestamps
-  const lines = entries.map((entry) => {
+  const lines = entries.map(entry => {
     const ts = new Date().toISOString();
     return `[${ts}] ${JSON.stringify(entry)}`;
   });
@@ -132,7 +132,7 @@ function vitePluginManusDebugCollector(): Plugin {
         }
 
         let body = "";
-        req.on("data", (chunk) => {
+        req.on("data", chunk => {
           body += chunk.toString();
         });
 
@@ -150,10 +150,18 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+function serveOnly(plugin: Plugin): Plugin {
+  return { ...plugin, apply: "serve" };
+}
 
 export default defineConfig({
-  plugins,
+  plugins: [
+    react(),
+    tailwindcss(),
+    serveOnly(jsxLocPlugin()),
+    serveOnly(vitePluginManusRuntime()),
+    serveOnly(vitePluginManusDebugCollector()),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -167,6 +175,33 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("/node_modules/")) return;
+          if (
+            /\/node_modules\/(react|react-dom|scheduler|wouter|use-sync-external-store)\//.test(
+              id
+            )
+          ) {
+            return "vendor-react";
+          }
+          if (
+            /\/node_modules\/(@radix-ui|lucide-react|sonner|cmdk|class-variance-authority|clsx|tailwind-merge|next-themes)\//.test(
+              id
+            )
+          ) {
+            return "vendor-ui";
+          }
+          if (/\/node_modules\/(@tanstack|@trpc|superjson|zod)\//.test(id)) {
+            return "vendor-data";
+          }
+          if (/\/node_modules\/(recharts|victory-vendor|d3-[^/]+)\//.test(id)) {
+            return "vendor-charts";
+          }
+        },
+      },
+    },
   },
   server: {
     host: true,

@@ -49,7 +49,9 @@ Brianzatende, Seraplastic, St Scale, Sharknet.
 ═══ METODO DI LAVORO ═══
 1. CAPISCI PRIMA DI PROPORRE. Prima di qualunque proposta, leggi lo stato reale con gli
    strumenti. Non proporre su un'ipotesi: verificala. Una proposta basata su un dato che
-   non hai controllato è peggio di nessuna proposta, perché sembra affidabile.
+   non hai controllato è peggio di nessuna proposta, perché sembra affidabile. Quando hai
+   già l'id di una commessa, inizia da leggi_fascicolo_commessa: riunisce i registri
+   operativi in una lettura e evita di richiedere separatamente gli stessi dati.
 2. CERCA LA CONTRADDIZIONE. Il valore che porti sta dove i fatti non tornano: una fattura
    pagata che non risulta incassata, merce data in arrivo che è già in ritardo, un cliente
    che sollecita su una commessa che risulta consegnata. Quando trovi una contraddizione,
@@ -136,7 +138,7 @@ const MAX_DECISIONI = 15;
 export function bloccoDecisioni(sedeId: number | null): string {
   const decise = proposte
     .filter(
-      (p) =>
+      p =>
         (sedeId == null || p.sedeId === sedeId) &&
         (p.stato === "approvata" || p.stato === "rifiutata") &&
         p.decisaAt != null
@@ -146,13 +148,13 @@ export function bloccoDecisioni(sedeId: number | null): string {
 
   // Tutti i rifiuti recenti (il segnale), più qualche approvazione (la
   // conferma), dentro il tetto.
-  const rifiuti = decise.filter((p) => p.stato === "rifiutata").slice(0, 10);
+  const rifiuti = decise.filter(p => p.stato === "rifiutata").slice(0, 10);
   const approvazioni = decise
-    .filter((p) => p.stato === "approvata")
+    .filter(p => p.stato === "approvata")
     .slice(0, MAX_DECISIONI - rifiuti.length);
   const campione = [...rifiuti, ...approvazioni];
 
-  const righe = campione.map((p) => {
+  const righe = campione.map(p => {
     const esito =
       p.stato === "rifiutata"
         ? `RIFIUTATA${p.motivoRifiuto ? ` (${p.motivoRifiuto.replace(/_/g, " ")})` : ""}`
@@ -171,13 +173,13 @@ ${righe.join("\n")}`;
 
 export function buildSystemPrompt(sedeId: number | null): string {
   const vociAttive = conoscenza.filter(
-    (v) => v.attiva && (sedeId == null || v.sedeId === sedeId)
+    v => v.attiva && (sedeId == null || v.sedeId === sedeId)
   );
 
   let prompt = SYSTEM_BASE;
   if (vociAttive.length > 0) {
     const blocco = vociAttive
-      .map((v) => `[${v.categoria}] ${v.titolo}: ${v.contenuto}`)
+      .map(v => `[${v.categoria}] ${v.titolo}: ${v.contenuto}`)
       .join("\n");
     prompt += `
 

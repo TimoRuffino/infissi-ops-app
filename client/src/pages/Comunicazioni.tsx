@@ -44,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -59,7 +59,10 @@ function oraBreve(d: string | Date): string {
     data.getMonth() === oggi.getMonth() &&
     data.getFullYear() === oggi.getFullYear();
   if (stessoGiorno) {
-    return data.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    return data.toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
   return data.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
 }
@@ -70,13 +73,35 @@ function iniziali(c: any): string {
   return ((parti[0]?.[0] ?? "?") + (parti[1]?.[0] ?? "")).toUpperCase();
 }
 
-// Pastiglia del canale: verde WhatsApp, neutro email. Su una lista mista
+function anteprima(c: any): string {
+  const testo = String(c.testo ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (testo) return testo;
+  return c.canale === "whatsapp"
+    ? "Messaggio senza testo"
+    : "Nessuna anteprima";
+}
+
+function dimensioneFile(bytes: number): string {
+  if (!bytes) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Indicatore del canale: verde WhatsApp, neutro email. Su una lista mista
 // serve capire a colpo d'occhio da dove arriva un messaggio.
-function IconaCanale({ canale, className }: { canale: string; className?: string }) {
+function IconaCanale({
+  canale,
+  className,
+}: {
+  canale: string;
+  className?: string;
+}) {
   if (canale === "whatsapp") {
     return (
       <MessageCircle
-        className={cn("h-3.5 w-3.5 text-[#25D366]", className)}
+        className={cn("h-3.5 w-3.5 text-success", className)}
         aria-label="WhatsApp"
       />
     );
@@ -106,18 +131,29 @@ function Riga({
   return (
     <button
       onClick={onClick}
+      aria-current={selezionata ? "true" : undefined}
       className={cn(
-        "w-full text-left px-3 py-2.5 border-b flex gap-2.5 items-start transition-colors",
-        selezionata ? "bg-accent" : "hover:bg-muted/60",
-        nuova && !selezionata && "bg-blue-50/50 dark:bg-blue-950/20"
+        "group relative flex min-h-[92px] w-full items-start gap-3 border-b border-border-soft px-3.5 py-3 text-left",
+        "transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        selezionata
+          ? "bg-accent/70"
+          : nuova
+            ? "bg-primary-soft/35 hover:bg-primary-soft/55"
+            : "bg-card hover:bg-muted/65"
       )}
     >
+      {nuova && (
+        <span
+          className="absolute inset-y-3 left-0 w-[3px] rounded-r-full bg-accent-brand"
+          aria-hidden="true"
+        />
+      )}
       <div
         className={cn(
-          "h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5",
+          "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
           nuova
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground"
+            ? "bg-primary text-primary-foreground shadow-xs"
+            : "bg-surface-2 text-text-2"
         )}
       >
         {iniziali(c)}
@@ -126,35 +162,55 @@ function Riga({
         <div className="flex items-center justify-between gap-2">
           <span
             className={cn(
-              "text-sm truncate flex items-center gap-1.5",
-              nuova ? "font-semibold" : "font-medium text-muted-foreground"
+              "flex min-w-0 items-center gap-1.5 truncate text-sm",
+              nuova ? "font-bold text-foreground" : "font-semibold text-text-2"
             )}
           >
             <IconaCanale canale={c.canale} />
             <span className="truncate">{c.mittenteNome ?? c.mittente}</span>
           </span>
-          <span className="text-[11px] text-muted-foreground shrink-0">
+          <span
+            className={cn(
+              "shrink-0 text-[11px] tabular-nums",
+              nuova ? "font-bold text-accent-text" : "text-text-3"
+            )}
+          >
             {oraBreve(c.receivedAt)}
           </span>
         </div>
         <div
           className={cn(
-            "text-sm truncate",
-            nuova ? "text-foreground" : "text-muted-foreground"
+            "mt-0.5 truncate text-sm",
+            nuova ? "font-semibold text-foreground" : "text-text-2"
           )}
         >
-          {/* Su WhatsApp non esiste l'oggetto: si mostra il testo. */}
-          {c.oggetto || (c.canale === "whatsapp" ? c.testo : "") || "(senza oggetto)"}
+          {c.oggetto ||
+            (c.canale === "whatsapp" ? c.testo : "") ||
+            "(senza oggetto)"}
         </div>
-        <div className="flex items-center gap-1.5 mt-0.5 min-h-4">
+        <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
+          {anteprima(c)}
+        </p>
+        <div className="mt-1 flex min-h-4 items-center gap-2 text-[11px] text-text-3">
           {c.allegati?.length > 0 && (
-            <Paperclip className="h-3 w-3 text-muted-foreground" />
+            <span className="inline-flex items-center gap-1">
+              <Paperclip className="h-3 w-3" />
+              {c.allegati.length}
+            </span>
           )}
           {c.commessaId != null && (
-            <Link2 className="h-3 w-3 text-green-600 dark:text-green-500" />
+            <span className="inline-flex items-center gap-1 text-success">
+              <Link2 className="h-3 w-3" />
+              Commessa
+            </span>
           )}
           {haPropostaTars && <TarsAvatar size="sm" className="h-4 w-4" />}
-          {nuova && <span className="h-2 w-2 rounded-full bg-primary ml-auto" />}
+          {c.stato === "gestita" && (
+            <span className="ml-auto inline-flex items-center gap-1 text-success">
+              <CheckCheck className="h-3 w-3" />
+              Gestita
+            </span>
+          )}
         </div>
       </div>
     </button>
@@ -195,7 +251,7 @@ function Lettura({
       setCollegaAperto(false);
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const setStato = trpc.mail.comunicazioni.setStato.useMutation({
     onSuccess: invalidate,
@@ -207,42 +263,65 @@ function Lettura({
       onChiudi();
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      {/* Intestazione */}
-      <div className="px-4 py-3 border-b space-y-2 shrink-0">
-        <div className="flex items-start gap-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
+      <div className="shrink-0 border-b border-border-soft px-4 py-4 sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
           {mobile && (
-            <Button size="icon" variant="ghost" className="-ml-2" onClick={onChiudi}>
-              <ArrowLeft className="h-4 w-4" />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="-ml-2 size-10"
+              onClick={onChiudi}
+              aria-label="Torna all'elenco"
+              title="Torna all'elenco"
+            >
+              <ArrowLeft className="h-5 w-5" />
             </Button>
           )}
-          <div className="min-w-0 flex-1">
-            <h2 className="font-semibold leading-snug break-words flex items-center gap-2">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground shadow-xs">
+            {iniziali(c)}
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex min-w-0 items-center gap-2">
               <IconaCanale canale={c.canale} className="h-4 w-4 shrink-0" />
-              {c.oggetto ||
-                (c.canale === "whatsapp"
-                  ? "Messaggio WhatsApp"
-                  : "(senza oggetto)")}
-            </h2>
-            <div className="text-sm text-muted-foreground mt-0.5">
-              {c.mittenteNome ? `${c.mittenteNome} · ` : ""}
-              <span className="break-all">{c.mittente}</span>
+              <span className="truncate text-sm font-bold text-foreground">
+                {c.mittenteNome ?? c.mittente}
+              </span>
+              <Badge
+                variant={c.stato === "gestita" ? "success" : "secondary"}
+                className="hidden sm:inline-flex"
+              >
+                {c.stato === "nuova"
+                  ? "Nuova"
+                  : c.stato === "gestita"
+                    ? "Gestita"
+                    : "Vista"}
+              </Badge>
             </div>
-            <div className="text-xs text-muted-foreground">
+            {c.mittenteNome && (
+              <div className="truncate text-xs text-text-3">{c.mittente}</div>
+            )}
+            <div className="text-xs leading-5 text-text-3">
               {new Date(c.receivedAt).toLocaleString("it-IT")}
               {c.canale === "email" && casella
                 ? ` · ricevuta su ${casella.nome} (${casella.indirizzo})`
                 : ""}
             </div>
           </div>
-          <div className="flex gap-1 shrink-0">
+          <div className="flex shrink-0 gap-1">
             <Button
               size="icon"
               variant="ghost"
+              className="size-10 sm:size-9"
+              aria-label={
+                c.stato === "gestita"
+                  ? "Riapri comunicazione"
+                  : "Segna come gestita"
+              }
               title={c.stato === "gestita" ? "Gestita" : "Segna come gestita"}
               onClick={() =>
                 setStato.mutate({
@@ -254,13 +333,15 @@ function Lettura({
               <CheckCheck
                 className={cn(
                   "h-4 w-4",
-                  c.stato === "gestita" && "text-green-600 dark:text-green-500"
+                  c.stato === "gestita" && "text-success"
                 )}
               />
             </Button>
             <Button
               size="icon"
-              variant="ghost"
+              variant="dangerGhost"
+              className="size-10 sm:size-9"
+              aria-label="Elimina dal CRM"
               title="Elimina dal CRM"
               onClick={() => setConfermaElimina(true)}
             >
@@ -269,22 +350,32 @@ function Lettura({
           </div>
         </div>
 
-        {/* Aggancio commessa */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="mt-4 break-words text-lg font-bold leading-snug text-foreground">
+          {c.oggetto ||
+            (c.canale === "whatsapp"
+              ? "Messaggio WhatsApp"
+              : "(senza oggetto)")}
+        </h2>
+      </div>
+
+      <div className="shrink-0 border-b border-border-soft bg-surface-2/65 px-4 py-2.5 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {c.commessaId != null ? (
             <>
               <Link
                 href={`/commesse/${c.commessaId}`}
-                className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
               >
                 <Link2 className="h-3.5 w-3.5" />
-                {commessa.data?.codice ?? `Commessa #${c.commessaId}`}
-                {commessa.data?.cliente ? ` — ${commessa.data.cliente}` : ""}
+                <span className="truncate">
+                  {commessa.data?.codice ?? `Commessa #${c.commessaId}`}
+                  {commessa.data?.cliente ? ` · ${commessa.data.cliente}` : ""}
+                </span>
               </Link>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 text-xs"
+                className="h-8 text-xs"
                 onClick={() => collega.mutate({ id: c.id, commessaId: null })}
               >
                 Scollega
@@ -294,58 +385,69 @@ function Lettura({
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs"
-              onClick={() => setCollegaAperto((v) => !v)}
+              className="h-8 text-xs"
+              onClick={() => setCollegaAperto(v => !v)}
             >
               <Link2 className="h-3 w-3 mr-1" />
               Collega a una commessa
             </Button>
           )}
           {c.matchMotivo && (
-            <span className="text-xs text-muted-foreground italic">
-              {c.matchMotivo}
-            </span>
+            <span className="min-w-0 text-xs text-text-3">{c.matchMotivo}</span>
           )}
         </div>
 
         {collegaAperto && (
-          <SearchSelect
-            value={null}
-            onChange={(v: string) =>
-              collega.mutate({ id: c.id, commessaId: Number(v) })
-            }
-            options={(commesse.data ?? []).map((cm: any) => ({
-              value: String(cm.id),
-              label: `${cm.codice} — ${cm.cliente}`,
-              keywords: cm.citta ?? "",
-            }))}
-            placeholder="Cerca la commessa…"
-          />
+          <div className="mt-2">
+            <SearchSelect
+              value={null}
+              onChange={(v: string) =>
+                collega.mutate({ id: c.id, commessaId: Number(v) })
+              }
+              options={(commesse.data ?? []).map((cm: any) => ({
+                value: String(cm.id),
+                label: `${cm.codice} — ${cm.cliente}`,
+                keywords: cm.citta ?? "",
+              }))}
+              placeholder="Cerca la commessa…"
+            />
+          </div>
         )}
       </div>
 
-      {/* Corpo */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-        {proposteTars.map((p) => (
-          <TarsPropostaCard key={p.id} proposta={p} />
-        ))}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+        <div className="mx-auto max-w-3xl space-y-5">
+          {proposteTars.map(p => (
+            <TarsPropostaCard key={p.id} proposta={p} />
+          ))}
 
-        {c.allegati?.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {c.allegati.map((a: any, i: number) => (
-              <Badge key={i} variant="secondary" className="font-normal">
-                <Paperclip className="h-3 w-3 mr-1" />
-                {a.nome}
-                <span className="text-muted-foreground ml-1">
-                  {a.size ? `(${Math.round(a.size / 1024)} KB)` : ""}
-                </span>
-              </Badge>
-            ))}
+          {c.allegati?.length > 0 && (
+            <section aria-label="Allegati" className="space-y-2">
+              <div className="text-xs font-bold uppercase text-text-3">
+                Allegati
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {c.allegati.map((a: any, i: number) => (
+                  <div
+                    key={`${a.nome}-${i}`}
+                    className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
+                  >
+                    <Paperclip className="h-4 w-4 shrink-0 text-accent-text" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                      {a.nome}
+                    </span>
+                    <span className="shrink-0 text-xs text-text-3">
+                      {dimensioneFile(a.size)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-text-1">
+            {c.testo || "(messaggio vuoto)"}
           </div>
-        )}
-
-        <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-          {c.testo || "(messaggio vuoto)"}
         </div>
       </div>
 
@@ -371,17 +473,24 @@ export default function Comunicazioni() {
   const [filtro, setFiltro] = useState<
     "tutte" | "nuove" | "da_smistare" | "gestite"
   >("tutte");
+  const [canale, setCanale] = useState<"tutti" | "email" | "whatsapp">("tutti");
   const [casellaId, setCasellaId] = useState<number | null>(null);
   const [selezionataId, setSelezionataId] = useState<number | null>(null);
   const [caselleAperte, setCaselleAperte] = useState(false);
+  const deferredSearch = useDeferredValue(search.trim());
 
   const stats = trpc.mail.comunicazioni.stats.useQuery();
   const opzioniCaselle = trpc.mail.caselle.opzioni.useQuery();
   const rows = trpc.mail.comunicazioni.list.useQuery({
-    search: search.trim() || undefined,
+    search: deferredSearch || undefined,
     casellaId: casellaId ?? undefined,
+    canale: canale === "tutti" ? undefined : canale,
     stato:
-      filtro === "nuove" ? "nuova" : filtro === "gestite" ? "gestita" : undefined,
+      filtro === "nuove"
+        ? "nuova"
+        : filtro === "gestite"
+          ? "gestita"
+          : undefined,
     soloNonCollegate: filtro === "da_smistare" ? true : undefined,
     limit: 100,
   });
@@ -404,18 +513,18 @@ export default function Comunicazioni() {
   const sync = trpc.mail.caselle.sync.useMutation({
     onSuccess: (esiti: any[]) => {
       const tot = esiti.reduce((s, e) => s + e.importate, 0);
-      const err = esiti.find((e) => e.errore);
+      const err = esiti.find(e => e.errore);
       if (err) toast.error(err.errore);
       else toast.success(tot > 0 ? `${tot} nuove mail` : "Nessuna novità");
       utils.mail.comunicazioni.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const setStato = trpc.mail.comunicazioni.setStato.useMutation({
     onSuccess: () => utils.mail.comunicazioni.invalidate(),
   });
   const tutteViste = trpc.mail.comunicazioni.segnaTutteViste.useMutation({
-    onSuccess: (r) => {
+    onSuccess: r => {
       if (r.aggiornate > 0) toast.success(`${r.aggiornate} segnate come viste`);
       utils.mail.comunicazioni.invalidate();
     },
@@ -433,118 +542,212 @@ export default function Comunicazioni() {
   const mostraLettura = selezionata != null;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] min-h-[420px] space-y-3">
-      {/* Testata */}
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <Mail className="h-5 w-5" />
-        <h1 className="text-xl font-semibold">Comunicazioni</h1>
-        {(stats.data?.nuove ?? 0) > 0 && (
-          <>
-            <Badge>{stats.data!.nuove} nuove</Badge>
+    <div className="flex h-[calc(100dvh-8rem)] min-h-[520px] min-w-0 flex-col gap-3">
+      <div className="flex shrink-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
+            <Mail className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold leading-tight">Comunicazioni</h1>
+            <p className="truncate text-sm text-text-2">
+              Posta e messaggi della sede attiva
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {(stats.data?.nuove ?? 0) > 0 && (
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 text-xs"
+              className="hidden sm:inline-flex"
               disabled={tutteViste.isPending}
               onClick={() => tutteViste.mutate()}
             >
-              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+              <CheckCheck className="h-3.5 w-3.5" />
               Tutte viste
             </Button>
-          </>
-        )}
-        <div className="ml-auto flex gap-2">
+          )}
           <Button
-            size="sm"
+            size="icon"
             variant="outline"
+            className="size-10 sm:h-8 sm:w-auto sm:px-3"
             disabled={sync.isPending}
             onClick={() => sync.mutate({})}
+            aria-label="Aggiorna comunicazioni"
+            title="Aggiorna comunicazioni"
           >
             {sync.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />
+              <RefreshCw className="h-4 w-4" />
             )}
-            Aggiorna
+            <span className="hidden sm:inline">Aggiorna</span>
           </Button>
           {isDirezione(user) && (
             <Button
-              size="sm"
+              size="icon"
               variant="outline"
+              className="size-10 sm:h-8 sm:w-auto sm:px-3"
               onClick={() => setCaselleAperte(true)}
+              aria-label="Gestisci caselle"
+              title="Gestisci caselle"
             >
-              <Settings2 className="h-3.5 w-3.5 mr-1" />
-              Caselle
+              <Settings2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Caselle</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* Filtri */}
       {mostraLista && (
-        <div className="flex gap-2 flex-wrap items-center shrink-0">
-          <Tabs value={filtro} onValueChange={(v) => setFiltro(v as any)}>
-            <TabsList>
-              <TabsTrigger value="tutte">Tutte</TabsTrigger>
-              <TabsTrigger value="nuove">Nuove</TabsTrigger>
-              <TabsTrigger value="da_smistare">Da smistare</TabsTrigger>
-              <TabsTrigger value="gestite">Gestite</TabsTrigger>
+        <div className="shrink-0 space-y-2">
+          <Tabs value={filtro} onValueChange={v => setFiltro(v as any)}>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:w-auto sm:grid-cols-4">
+              <TabsTrigger className="min-h-9 gap-2" value="tutte">
+                Tutte
+                <span className="tabular-nums text-[11px] opacity-70">
+                  {stats.data?.totali ?? 0}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger className="min-h-9 gap-2" value="nuove">
+                Nuove
+                <span className="tabular-nums text-[11px] opacity-70">
+                  {stats.data?.nuove ?? 0}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger className="min-h-9 gap-2" value="da_smistare">
+                Da smistare
+                <span className="tabular-nums text-[11px] opacity-70">
+                  {stats.data?.nonCollegate ?? 0}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger className="min-h-9 gap-2" value="gestite">
+                Gestite
+                <span className="tabular-nums text-[11px] opacity-70">
+                  {stats.data?.gestite ?? 0}
+                </span>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
-          {(opzioniCaselle.data?.length ?? 0) > 1 && (
-            <Select
-              value={casellaId != null ? String(casellaId) : "tutte"}
-              onValueChange={(v) =>
-                setCasellaId(v === "tutte" ? null : Number(v))
-              }
+
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3" />
+              <Input
+                className="h-10 pl-9"
+                placeholder="Cerca mittente, oggetto o testo"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <div
+              className={cn(
+                "grid gap-2 sm:flex",
+                (opzioniCaselle.data?.length ?? 0) > 0 && canale !== "whatsapp"
+                  ? "grid-cols-2"
+                  : "grid-cols-1"
+              )}
             >
-              <SelectTrigger className="h-9 w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tutte">Tutte le caselle</SelectItem>
-                {(opzioniCaselle.data ?? []).map((c: any) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.nome}
+              <Select
+                value={canale}
+                onValueChange={v => {
+                  setCanale(v as typeof canale);
+                  if (v === "whatsapp") setCasellaId(null);
+                }}
+              >
+                <SelectTrigger
+                  className="h-10 w-full sm:w-[150px]"
+                  aria-label="Canale"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tutti">Tutti i canali</SelectItem>
+                  <SelectItem value="email">
+                    Email ({stats.data?.email ?? 0})
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8 h-9"
-              placeholder="Cerca…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+                  <SelectItem value="whatsapp">
+                    WhatsApp ({stats.data?.whatsapp ?? 0})
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {(opzioniCaselle.data?.length ?? 0) > 0 &&
+              canale !== "whatsapp" ? (
+                <Select
+                  value={casellaId != null ? String(casellaId) : "tutte"}
+                  onValueChange={v =>
+                    setCasellaId(v === "tutte" ? null : Number(v))
+                  }
+                >
+                  <SelectTrigger
+                    className="h-10 w-full sm:w-[180px]"
+                    aria-label="Casella email"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tutte">Tutte le caselle</SelectItem>
+                    {(opzioniCaselle.data ?? []).map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
           </div>
+          {(stats.data?.nuove ?? 0) > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full sm:hidden"
+              disabled={tutteViste.isPending}
+              onClick={() => tutteViste.mutate()}
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Segna tutte come viste
+            </Button>
+          )}
         </div>
       )}
 
-      {/* Corpo: lista + lettura */}
-      <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-card flex">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-xs">
         {mostraLista && (
           <div
             tabIndex={0}
             role="region"
             aria-label="Elenco comunicazioni"
             className={cn(
-              "overflow-y-auto min-h-0",
-              mobile ? "w-full" : "w-[340px] xl:w-[380px] border-r shrink-0"
+              "min-h-0 min-w-0 overflow-y-auto",
+              mobile
+                ? "w-full"
+                : "w-[clamp(320px,32vw,420px)] shrink-0 border-r border-border-soft"
             )}
           >
+            <div className="sticky top-0 z-10 flex h-10 items-center justify-between border-b border-border-soft bg-card/95 px-3.5 backdrop-blur-sm">
+              <span className="text-xs font-bold uppercase text-text-3">
+                Messaggi
+              </span>
+              <span className="text-xs tabular-nums text-text-3">
+                {lista.length}
+                {rows.isFetching && !rows.isLoading ? " · aggiornamento" : ""}
+              </span>
+            </div>
             {rows.isLoading && (
               <div className="py-12 text-center">
-                <Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" />
+                <Loader2 className="mx-auto h-5 w-5 animate-spin text-text-3" />
               </div>
             )}
             {!rows.isLoading && lista.length === 0 && (
-              <div className="py-12 px-4 text-center text-sm text-muted-foreground">
-                <Inbox className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <div className="px-5 py-14 text-center text-sm text-text-3">
+                <div className="mx-auto mb-3 grid size-11 place-items-center rounded-lg bg-surface-2">
+                  <Inbox className="h-5 w-5" />
+                </div>
                 {filtro === "tutte" && !search
-                  ? "Nessuna mail. Configura una casella da «Caselle» qui sopra e premi «Aggiorna»."
+                  ? "Nessuna comunicazione"
                   : "Niente qui con questi filtri."}
               </div>
             )}
@@ -561,7 +764,7 @@ export default function Comunicazioni() {
         )}
 
         {mostraLettura ? (
-          <div className={cn("min-h-0 flex-1", mobile && "w-full")}>
+          <div className={cn("min-h-0 min-w-0 flex-1", mobile && "w-full")}>
             <Lettura
               c={selezionata}
               proposteTars={proposteMail.get(selezionata.id) ?? []}
@@ -571,10 +774,12 @@ export default function Comunicazioni() {
           </div>
         ) : (
           !mobile && (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              <div className="text-center space-y-2">
-                <Mail className="h-10 w-10 mx-auto opacity-30" />
-                <p>Seleziona una mail per leggerla</p>
+            <div className="flex min-w-0 flex-1 items-center justify-center bg-surface-2/35 text-sm text-text-3">
+              <div className="space-y-3 text-center">
+                <div className="mx-auto grid size-12 place-items-center rounded-lg bg-accent/70 text-accent-text">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <p className="font-medium">Apri una comunicazione</p>
               </div>
             </div>
           )

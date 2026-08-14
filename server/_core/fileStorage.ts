@@ -11,8 +11,7 @@
 //     volume, Railway's filesystem is ephemeral — see the guard in
 //     fileStorageMigrate.ts.
 //   - "s3": any S3-compatible endpoint (Cloudflare R2, AWS S3, MinIO) via
-//     REST + SigV4 signed with node:crypto — no npm dependency, same
-//     approach as the Drive backup module.
+//     REST + SigV4 signed with node:crypto.
 //
 // Env:
 //   STORAGE_DRIVER=local|s3        (default local)
@@ -43,7 +42,10 @@ export type StorageDriver = {
 // Storage keys are generated server-side only — but sanitize anyway so a
 // weird filename can never traverse out of the root ("../../etc/passwd").
 function sanitizeSegment(s: string): string {
-  return s.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\.+/, "_").slice(0, 80);
+  return s
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^\.+/, "_")
+    .slice(0, 80);
 }
 
 /** Build a storage key: "<collection>/<parentId>/<recordId>-<rand><ext>". */
@@ -111,6 +113,45 @@ type S3Config = {
   region: string;
 };
 
+const S3_REQUIRED_ENV = [
+  "S3_ENDPOINT",
+  "S3_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+] as const;
+
+export type StorageConfiguration = {
+  requestedDriver: "local" | "s3";
+  configured: boolean;
+  missing: string[];
+  endpoint: string | null;
+  bucket: string | null;
+  region: string | null;
+};
+
+/** Safe diagnostics: never returns access keys or secrets. */
+export function storageConfiguration(): StorageConfiguration {
+  const requestedDriver =
+    (process.env.STORAGE_DRIVER || "local").toLowerCase() === "s3"
+      ? "s3"
+      : "local";
+  const missing =
+    requestedDriver === "s3"
+      ? S3_REQUIRED_ENV.filter(name => !process.env[name])
+      : [];
+  return {
+    requestedDriver,
+    configured: missing.length === 0,
+    missing: [...missing],
+    endpoint:
+      requestedDriver === "s3"
+        ? (process.env.S3_ENDPOINT?.replace(/\/+$/, "") ?? null)
+        : null,
+    bucket: requestedDriver === "s3" ? (process.env.S3_BUCKET ?? null) : null,
+    region: requestedDriver === "s3" ? process.env.S3_REGION || "auto" : null,
+  };
+}
+
 function s3ConfigFromEnv(): S3Config | null {
   const endpoint = process.env.S3_ENDPOINT?.replace(/\/+$/, "");
   const bucket = process.env.S3_BUCKET;
@@ -141,7 +182,10 @@ async function s3Request(
 ): Promise<{ status: number; body: Buffer }> {
   const url = new URL(`${cfg.endpoint}/${cfg.bucket}/${key}`);
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); // YYYYMMDDTHHMMSSZ
+  const amzDate = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, ""); // YYYYMMDDTHHMMSSZ
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = crypto
     .createHash("sha256")
@@ -151,7 +195,7 @@ async function s3Request(
   // Canonical request. Path segments must be URI-encoded but slashes kept.
   const canonicalUri = url.pathname
     .split("/")
-    .map((seg) => encodeURIComponent(seg))
+    .map(seg => encodeURIComponent(seg))
     .join("/");
   const headers: Record<string, string> = {
     host: url.host,
@@ -161,7 +205,7 @@ async function s3Request(
   if (body && mimeType) headers["content-type"] = mimeType;
   const signedHeaderNames = Object.keys(headers).sort();
   const canonicalHeaders = signedHeaderNames
-    .map((h) => `${h}:${headers[h].trim()}\n`)
+    .map(h => `${h}:${headers[h].trim()}\n`)
     .join("");
   const signedHeaders = signedHeaderNames.join(";");
   const canonicalRequest = [
@@ -282,7 +326,12 @@ export async function putFile(
 ): Promise<{ storageKey: string; checksum: string }> {
   const driver = getStorageDriver();
   assertDurableDriver(driver);
-  const storageKey = buildStorageKey(collection, parentId, recordId, originalName);
+  const storageKey = buildStorageKey(
+    collection,
+    parentId,
+    recordId,
+    originalName
+  );
   await driver.put(storageKey, buffer, mimeType);
   return { storageKey, checksum: sha256Hex(buffer) };
 }
@@ -296,5 +345,46 @@ export function deleteFileQuiet(storageKey: string | null | undefined): void {
   if (!storageKey) return;
   getStorageDriver()
     .delete(storageKey)
-    .catch((e) => console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e));
+    .catch(e =>
+      console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e)
+    );
+}
+
+export type StorageProbeResult = {
+  driver: StorageDriver["name"];
+  ok: true;
+  latencyMs: number;
+  bytes: number;
+};
+
+/** Put → get → checksum → delete, without leaving application data behind. */
+export async function probeStorage(
+  driver: StorageDriver = getStorageDriver()
+): Promise<StorageProbeResult> {
+  assertDurableDriver(driver);
+  const started = Date.now();
+  const payload = Buffer.from(
+    `ruffino-storage-probe:${crypto.randomUUID()}`,
+    "utf8"
+  );
+  const key = `_health/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.txt`;
+  let written = false;
+  try {
+    await driver.put(key, payload, "text/plain; charset=utf-8");
+    written = true;
+    const readBack = await driver.get(key);
+    if (!readBack)
+      throw new Error("STORAGE: la sonda scritta non è rileggibile");
+    if (sha256Hex(readBack) !== sha256Hex(payload)) {
+      throw new Error("STORAGE: checksum della sonda non valido");
+    }
+  } finally {
+    if (written) await driver.delete(key);
+  }
+  return {
+    driver: driver.name,
+    ok: true,
+    latencyMs: Date.now() - started,
+    bytes: payload.length,
+  };
 }

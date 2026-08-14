@@ -143,7 +143,7 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         ALTER TABLE comunicazioni
           ADD COLUMN IF NOT EXISTS uid INTEGER`;
-    })().catch((e) => {
+    })().catch(e => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
       throw e;
@@ -195,7 +195,7 @@ export async function insertComunicazione(
 
   if (!kvSql) {
     const dup = memRows.some(
-      (r) =>
+      r =>
         r.canale === c.canale &&
         r.casellaId === c.casellaId &&
         r.messageId === c.messageId
@@ -239,7 +239,7 @@ export async function setStatoComunicazione(
   stato: Comunicazione["stato"]
 ): Promise<boolean> {
   if (!kvSql) {
-    const r = memRows.find((x) => x.id === id && x.sedeId === sedeId);
+    const r = memRows.find(x => x.id === id && x.sedeId === sedeId);
     if (!r) return false;
     r.stato = stato;
     return true;
@@ -264,7 +264,7 @@ export async function setMatchComunicazione(
   }
 ): Promise<boolean> {
   if (!kvSql) {
-    const r = memRows.find((x) => x.id === id && x.sedeId === sedeId);
+    const r = memRows.find(x => x.id === id && x.sedeId === sedeId);
     if (!r) return false;
     r.clienteId = match.clienteId;
     r.commessaId = match.commessaId;
@@ -294,7 +294,7 @@ export async function deleteComunicazione(
   sedeId: number
 ): Promise<boolean> {
   if (!kvSql) {
-    const r = memRows.find((x) => x.id === id && x.sedeId === sedeId);
+    const r = memRows.find(x => x.id === id && x.sedeId === sedeId);
     if (!r || r.deletedAt) return false;
     r.deletedAt = new Date();
     return true;
@@ -319,7 +319,7 @@ export async function listDaAnalizzare(
 ): Promise<Comunicazione[]> {
   if (!kvSql) {
     return memRows
-      .filter((r) => r.sedeId === sedeId && !r.deletedAt && !r.tarsAnalizzata)
+      .filter(r => r.sedeId === sedeId && !r.deletedAt && !r.tarsAnalizzata)
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
       .slice(0, limit);
   }
@@ -381,7 +381,7 @@ export async function deleteComunicazioniByCasella(
   if (!kvSql) {
     const before = memRows.length;
     memRows = memRows.filter(
-      (r) => !(r.casellaId === casellaId && r.canale === canale)
+      r => !(r.casellaId === casellaId && r.canale === canale)
     );
     return before - memRows.length;
   }
@@ -416,17 +416,20 @@ export async function listComunicazioni(
   const offset = f.offset ?? 0;
 
   if (!kvSql) {
-    let rows = memRows.filter((r) => r.sedeId === f.sedeId && !r.deletedAt);
-    if (f.commessaId != null) rows = rows.filter((r) => r.commessaId === f.commessaId);
-    if (f.clienteId != null) rows = rows.filter((r) => r.clienteId === f.clienteId);
-    if (f.casellaId != null) rows = rows.filter((r) => r.casellaId === f.casellaId);
-    if (f.canale) rows = rows.filter((r) => r.canale === f.canale);
-    if (f.stato) rows = rows.filter((r) => r.stato === f.stato);
-    if (f.soloNonCollegate) rows = rows.filter((r) => r.commessaId == null);
+    let rows = memRows.filter(r => r.sedeId === f.sedeId && !r.deletedAt);
+    if (f.commessaId != null)
+      rows = rows.filter(r => r.commessaId === f.commessaId);
+    if (f.clienteId != null)
+      rows = rows.filter(r => r.clienteId === f.clienteId);
+    if (f.casellaId != null)
+      rows = rows.filter(r => r.casellaId === f.casellaId);
+    if (f.canale) rows = rows.filter(r => r.canale === f.canale);
+    if (f.stato) rows = rows.filter(r => r.stato === f.stato);
+    if (f.soloNonCollegate) rows = rows.filter(r => r.commessaId == null);
     if (f.search) {
       const q = f.search.toLowerCase();
       rows = rows.filter(
-        (r) =>
+        r =>
           r.oggetto.toLowerCase().includes(q) ||
           r.mittente.toLowerCase().includes(q) ||
           r.testo.toLowerCase().includes(q)
@@ -471,7 +474,7 @@ export async function getComunicazione(
   sedeId: number
 ): Promise<Comunicazione | null> {
   if (!kvSql) {
-    return memRows.find((r) => r.id === id && r.sedeId === sedeId) ?? null;
+    return memRows.find(r => r.id === id && r.sedeId === sedeId) ?? null;
   }
   await ensureComunicazioniSchema();
   const rows = await kvSql`
@@ -479,15 +482,23 @@ export async function getComunicazione(
   return rows.length ? fromRow(rows[0]) : null;
 }
 
-export async function statsComunicazioni(
-  sedeId: number
-): Promise<{ nuove: number; totali: number; nonCollegate: number }> {
+export async function statsComunicazioni(sedeId: number): Promise<{
+  nuove: number;
+  totali: number;
+  nonCollegate: number;
+  gestite: number;
+  email: number;
+  whatsapp: number;
+}> {
   if (!kvSql) {
-    const mie = memRows.filter((r) => r.sedeId === sedeId && !r.deletedAt);
+    const mie = memRows.filter(r => r.sedeId === sedeId && !r.deletedAt);
     return {
-      nuove: mie.filter((r) => r.stato === "nuova").length,
+      nuove: mie.filter(r => r.stato === "nuova").length,
       totali: mie.length,
-      nonCollegate: mie.filter((r) => r.commessaId == null).length,
+      nonCollegate: mie.filter(r => r.commessaId == null).length,
+      gestite: mie.filter(r => r.stato === "gestita").length,
+      email: mie.filter(r => r.canale === "email").length,
+      whatsapp: mie.filter(r => r.canale === "whatsapp").length,
     };
   }
   await ensureComunicazioniSchema();
@@ -495,13 +506,19 @@ export async function statsComunicazioni(
     SELECT
       COUNT(*) FILTER (WHERE stato = 'nuova') AS nuove,
       COUNT(*) AS totali,
-      COUNT(*) FILTER (WHERE commessa_id IS NULL) AS non_collegate
+      COUNT(*) FILTER (WHERE commessa_id IS NULL) AS non_collegate,
+      COUNT(*) FILTER (WHERE stato = 'gestita') AS gestite,
+      COUNT(*) FILTER (WHERE canale = 'email') AS email,
+      COUNT(*) FILTER (WHERE canale = 'whatsapp') AS whatsapp
     FROM comunicazioni WHERE sede_id = ${sedeId} AND deleted_at IS NULL`;
   const r = rows[0] ?? {};
   return {
     nuove: Number(r.nuove ?? 0),
     totali: Number(r.totali ?? 0),
     nonCollegate: Number(r.non_collegate ?? 0),
+    gestite: Number(r.gestite ?? 0),
+    email: Number(r.email ?? 0),
+    whatsapp: Number(r.whatsapp ?? 0),
   };
 }
 

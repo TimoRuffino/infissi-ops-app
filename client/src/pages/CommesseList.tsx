@@ -13,6 +13,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -48,7 +49,12 @@ import SearchSelect from "@/components/SearchSelect";
 import StatoChip from "@/components/StatoChip";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
-import { PRIORITA_VARIANT, PRIORITA_LABEL, STATI_ORDER, statoLabel } from "@/lib/stato";
+import {
+  PRIORITA_VARIANT,
+  PRIORITA_LABEL,
+  STATI_ORDER,
+  statoLabel,
+} from "@/lib/stato";
 
 type DeleteTarget = { id: number; codice: string; stato: string } | null;
 
@@ -56,7 +62,10 @@ type RigaProdotto = { nome: string; quantita: string };
 
 // "Ruffino Timothy" → "#TR": iniziali nome+cognome nell'ordine di lettura
 // naturale (nome prima), così l'assegnatario sta in una colonna stretta.
-function iniziali(u: { nome?: string | null; cognome?: string | null }): string {
+function iniziali(u: {
+  nome?: string | null;
+  cognome?: string | null;
+}): string {
   const n = (u.nome ?? "").trim();
   const c = (u.cognome ?? "").trim();
   const sigla = `${n.charAt(0)}${c.charAt(0)}`.toUpperCase();
@@ -160,9 +169,7 @@ export default function CommesseList() {
       urgenti: rows.filter((c: any) => c.priorita === "urgente").length,
       consegneDaConfermare: rows.filter(
         (c: any) =>
-          c.stato === "produzione" &&
-          !c.dataConsegnaConfermata &&
-          !c.archivedAt
+          c.stato === "produzione" && !c.dataConsegnaConfermata && !c.archivedAt
       ).length,
       nonAssegnate: rows.filter((c: any) => c.assegnatoA == null).length,
     };
@@ -188,12 +195,13 @@ export default function CommesseList() {
 
   // Inline cliente creation from inside the "Nuova commessa" dialog.
   const createClienteMutation = trpc.clienti.create.useMutation({
-    onSuccess: (cliente) => {
+    onSuccess: cliente => {
       utils.clienti.invalidate();
       // Auto-select the freshly created cliente in the commessa form + inherit
       // its fields.
-      const nomeCognome = `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim();
-      setForm((prev) => ({
+      const nomeCognome =
+        `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim();
+      setForm(prev => ({
         ...prev,
         clienteId: String(cliente.id),
         cliente: nomeCognome,
@@ -201,7 +209,9 @@ export default function CommesseList() {
         citta: cliente.citta ?? "",
         telefono: cliente.telefono ?? "",
         email: cliente.email ?? "",
-        assegnatoA: cliente.assegnatoA ? String(cliente.assegnatoA) : prev.assegnatoA,
+        assegnatoA: cliente.assegnatoA
+          ? String(cliente.assegnatoA)
+          : prev.assegnatoA,
       }));
       setClienteDialogOpen(false);
       setClienteForm(emptyClienteForm);
@@ -220,7 +230,7 @@ export default function CommesseList() {
       utils.commesse.invalidate();
       toast.success("Commessa archiviata");
     },
-    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
+    onError: e => toast.error(e.message ?? "Archiviazione non riuscita"),
   });
 
   const [form, setForm] = useState(emptyForm);
@@ -230,7 +240,15 @@ export default function CommesseList() {
   function handleClienteSelect(clienteIdStr: string) {
     // Empty string from "Cliente non registrato" clear action.
     if (!clienteIdStr) {
-      setForm({ ...form, clienteId: "", cliente: "", indirizzo: "", citta: "", telefono: "", email: "" });
+      setForm({
+        ...form,
+        clienteId: "",
+        cliente: "",
+        indirizzo: "",
+        citta: "",
+        telefono: "",
+        email: "",
+      });
       return;
     }
     const id = parseInt(clienteIdStr, 10);
@@ -266,8 +284,8 @@ export default function CommesseList() {
       consegnaIndicativa: form.consegnaIndicativa,
       assegnatoA: form.assegnatoA ? parseInt(form.assegnatoA, 10) : undefined,
       prodotti: form.prodotti
-        .filter((p) => p.nome.trim())
-        .map((p) => ({
+        .filter(p => p.nome.trim())
+        .map(p => ({
           nome: p.nome.trim(),
           quantita: Math.max(1, parseInt(p.quantita, 10) || 1),
         })),
@@ -284,7 +302,9 @@ export default function CommesseList() {
       email: clienteForm.email || undefined,
       indirizzo: clienteForm.indirizzo || undefined,
       citta: clienteForm.citta || undefined,
-      assegnatoA: clienteForm.assegnatoA ? parseInt(clienteForm.assegnatoA, 10) : undefined,
+      assegnatoA: clienteForm.assegnatoA
+        ? parseInt(clienteForm.assegnatoA, 10)
+        : undefined,
     });
   }
 
@@ -331,10 +351,15 @@ export default function CommesseList() {
           <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nuova commessa</DialogTitle>
+              <DialogDescription className="sr-only">
+                Collega un cliente e inserisci i dati iniziali della nuova
+                commessa.
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-2">
               <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                Il codice sara generato automaticamente (formato COM-ANNO-NUMERO).
+                Il codice sara generato automaticamente (formato
+                COM-ANNO-NUMERO).
               </div>
               <div className="space-y-2">
                 <Label>Cliente *</Label>
@@ -352,7 +377,9 @@ export default function CommesseList() {
                       onCreate={() => {
                         setClienteForm({
                           ...emptyClienteForm,
-                          assegnatoA: currentUser.data ? String(currentUser.data.id) : "",
+                          assegnatoA: currentUser.data
+                            ? String(currentUser.data.id)
+                            : "",
                         });
                         setClienteDialogOpen(true);
                       }}
@@ -367,7 +394,9 @@ export default function CommesseList() {
                     onClick={() => {
                       setClienteForm({
                         ...emptyClienteForm,
-                        assegnatoA: currentUser.data ? String(currentUser.data.id) : "",
+                        assegnatoA: currentUser.data
+                          ? String(currentUser.data.id)
+                          : "",
                       });
                       setClienteDialogOpen(true);
                     }}
@@ -379,12 +408,16 @@ export default function CommesseList() {
                   <Input
                     placeholder="Nome cliente non registrato *"
                     value={form.cliente}
-                    onChange={(e) => setForm({ ...form, cliente: e.target.value })}
+                    onChange={e =>
+                      setForm({ ...form, cliente: e.target.value })
+                    }
                     className="mt-1.5"
                   />
                 )}
                 {form.clienteId !== "" && (
-                  <p className="text-xs text-muted-foreground mt-1">{form.cliente}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {form.cliente}
+                  </p>
                 )}
               </div>
 
@@ -393,7 +426,7 @@ export default function CommesseList() {
                 <SearchSelect
                   options={utenteOptions}
                   value={form.assegnatoA}
-                  onChange={(v) => setForm({ ...form, assegnatoA: v })}
+                  onChange={v => setForm({ ...form, assegnatoA: v })}
                   placeholder="Nessuno"
                   searchPlaceholder="Cerca utente..."
                   allowClear
@@ -413,7 +446,7 @@ export default function CommesseList() {
                       >
                         <Select
                           value={riga.nome}
-                          onValueChange={(v) =>
+                          onValueChange={v =>
                             setForm({
                               ...form,
                               prodotti: form.prodotti.map((r, j) =>
@@ -422,11 +455,14 @@ export default function CommesseList() {
                             })
                           }
                         >
-                          <SelectTrigger className="min-w-0" aria-label="Tipologia">
+                          <SelectTrigger
+                            className="min-w-0"
+                            aria-label="Tipologia"
+                          >
                             <SelectValue placeholder="Tipologia" />
                           </SelectTrigger>
                           <SelectContent>
-                            {TIPOLOGIE_PRODOTTO.map((t) => (
+                            {TIPOLOGIE_PRODOTTO.map(t => (
                               <SelectItem key={t} value={t}>
                                 {t}
                               </SelectItem>
@@ -438,7 +474,7 @@ export default function CommesseList() {
                           min={1}
                           className="tabular-nums"
                           value={riga.quantita}
-                          onChange={(e) =>
+                          onChange={e =>
                             setForm({
                               ...form,
                               prodotti: form.prodotti.map((r, j) =>
@@ -525,7 +561,7 @@ export default function CommesseList() {
                   <Label>Indirizzo</Label>
                   <Input
                     value={form.indirizzo}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, indirizzo: e.target.value })
                     }
                   />
@@ -534,9 +570,7 @@ export default function CommesseList() {
                   <Label>Città</Label>
                   <Input
                     value={form.citta}
-                    onChange={(e) =>
-                      setForm({ ...form, citta: e.target.value })
-                    }
+                    onChange={e => setForm({ ...form, citta: e.target.value })}
                   />
                 </div>
               </div>
@@ -546,7 +580,7 @@ export default function CommesseList() {
                   <Input
                     type="tel"
                     value={form.telefono}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, telefono: e.target.value })
                     }
                   />
@@ -556,9 +590,7 @@ export default function CommesseList() {
                   <Input
                     type="email"
                     value={form.email}
-                    onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
-                    }
+                    onChange={e => setForm({ ...form, email: e.target.value })}
                   />
                 </div>
               </div>
@@ -566,11 +598,14 @@ export default function CommesseList() {
                 <Label>Note</Label>
                 <Textarea
                   value={form.note}
-                  onChange={(e) => setForm({ ...form, note: e.target.value })}
+                  onChange={e => setForm({ ...form, note: e.target.value })}
                   rows={2}
                 />
               </div>
-              <Button onClick={handleCreate} disabled={!form.cliente || createMutation.isPending}>
+              <Button
+                onClick={handleCreate}
+                disabled={!form.cliente || createMutation.isPending}
+              >
                 {createMutation.isPending ? "Creazione..." : "Crea commessa"}
               </Button>
             </div>
@@ -669,7 +704,7 @@ export default function CommesseList() {
               <Input
                 placeholder="Cerca per codice, cliente, città…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={e => setSearch(e.target.value)}
                 className="pl-9 h-9"
               />
             </div>
@@ -680,7 +715,7 @@ export default function CommesseList() {
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={filtroStato}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 setFiltroStato(v);
                 setSoloConsegneDaDatare(false);
               }}
@@ -690,7 +725,7 @@ export default function CommesseList() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="tutti">Tutti gli stati</SelectItem>
-                {STATI_ORDER.map((s) => (
+                {STATI_ORDER.map(s => (
                   <SelectItem key={s} value={s}>
                     {statoLabel(s)}
                   </SelectItem>
@@ -768,20 +803,31 @@ export default function CommesseList() {
         <>
           <div className="grid gap-3 md:grid-cols-2 xl:hidden">
             {commesseFiltrate.map((c: any) => {
-              const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
+              const assignee = c.assegnatoA
+                ? utenteById.get(c.assegnatoA)
+                : null;
               const prodotti: any[] = c.prodottiSintesi ?? [];
               const prodottiLabel = prodotti.length
-                ? prodotti.map((p: any) => `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`).join(", ")
+                ? prodotti
+                    .map(
+                      (p: any) =>
+                        `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`
+                    )
+                    .join(", ")
                 : "Prodotti non indicati";
               const creata = c.dataApertura
-                ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString("it-IT")
+                ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString(
+                    "it-IT"
+                  )
                 : c.createdAt
                   ? new Date(c.createdAt).toLocaleDateString("it-IT")
                   : "—";
               const consegna = c.dataConsegnaConfermata
                 ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
                 : c.dataConsegnaIndicativa
-                  ? new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")
+                  ? new Date(c.dataConsegnaIndicativa).toLocaleDateString(
+                      "it-IT"
+                    )
                   : c.consegnaIndicativa
                     ? `~${c.consegnaIndicativa} giorni`
                     : "—";
@@ -795,8 +841,12 @@ export default function CommesseList() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="codice-mono text-text-3">{c.codice}</span>
-                        <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                        <span className="codice-mono text-text-3">
+                          {c.codice}
+                        </span>
+                        <Badge
+                          variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}
+                        >
                           {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                         </Badge>
                       </div>
@@ -813,7 +863,10 @@ export default function CommesseList() {
                       {c.citta || "Città non indicata"}
                     </span>
                   </div>
-                  <p className="mt-2 truncate text-xs text-text-2" title={prodottiLabel}>
+                  <p
+                    className="mt-2 truncate text-xs text-text-2"
+                    title={prodottiLabel}
+                  >
                     {prodottiLabel}
                   </p>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-text-2">
@@ -821,13 +874,20 @@ export default function CommesseList() {
                       <span className="block text-[10px] font-semibold text-text-3">
                         Aperta
                       </span>
-                      <span className="block truncate tabular-nums">{creata}</span>
+                      <span className="block truncate tabular-nums">
+                        {creata}
+                      </span>
                     </div>
                     <div className="rounded-md bg-surface-2 px-2 py-1.5">
                       <span className="block text-[10px] font-semibold text-text-3">
                         Consegna
                       </span>
-                      <span className="block truncate tabular-nums" title={consegna}>{consegna}</span>
+                      <span
+                        className="block truncate tabular-nums"
+                        title={consegna}
+                      >
+                        {consegna}
+                      </span>
                     </div>
                     <div className="min-w-0 rounded-md bg-surface-2 px-2 py-1.5">
                       <span className="block text-[10px] font-semibold text-text-3">
@@ -835,7 +895,11 @@ export default function CommesseList() {
                       </span>
                       <span
                         className="block truncate"
-                        title={assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : undefined}
+                        title={
+                          assignee
+                            ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
+                            : undefined
+                        }
                       >
                         {assignee
                           ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
@@ -862,33 +926,50 @@ export default function CommesseList() {
               <thead className="bg-surface-2">
                 <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
                   <th className="eyebrow px-4 py-3 font-semibold">Commessa</th>
-                  <th className="eyebrow px-4 py-3 font-semibold">Cliente e cantiere</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">
+                    Cliente e cantiere
+                  </th>
                   <th className="eyebrow px-4 py-3 font-semibold">Stato</th>
                   <th className="eyebrow px-4 py-3 font-semibold">Prodotti</th>
                   <th className="eyebrow px-4 py-3 font-semibold">Date</th>
                   <th className="eyebrow px-3 py-3 font-semibold">Assegnata</th>
-                  <th className="w-11 px-1 py-3"><span className="sr-only">Azioni</span></th>
+                  <th className="w-11 px-1 py-3">
+                    <span className="sr-only">Azioni</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {commesseFiltrate.map((c: any) => {
-                  const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
+                  const assignee = c.assegnatoA
+                    ? utenteById.get(c.assegnatoA)
+                    : null;
                   const prodotti: any[] = c.prodottiSintesi ?? [];
                   const prodottiLabel = prodotti.length
-                    ? prodotti.map((p: any) => `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`).join(", ")
+                    ? prodotti
+                        .map(
+                          (p: any) =>
+                            `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`
+                        )
+                        .join(", ")
                     : "Prodotti non indicati";
                   const creata = c.dataApertura
-                    ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString("it-IT")
+                    ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString(
+                        "it-IT"
+                      )
                     : c.createdAt
                       ? new Date(c.createdAt).toLocaleDateString("it-IT")
                       : "—";
                   const consegna = c.dataConsegnaConfermata
-                    ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
+                    ? new Date(c.dataConsegnaConfermata).toLocaleDateString(
+                        "it-IT"
+                      )
                     : c.dataConsegnaIndicativa
-                    ? new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")
-                    : c.consegnaIndicativa
-                    ? `~${c.consegnaIndicativa} giorni`
-                    : "—";
+                      ? new Date(c.dataConsegnaIndicativa).toLocaleDateString(
+                          "it-IT"
+                        )
+                      : c.consegnaIndicativa
+                        ? `~${c.consegnaIndicativa} giorni`
+                        : "—";
                   return (
                     <tr
                       key={c.id}
@@ -896,7 +977,10 @@ export default function CommesseList() {
                       onClick={() => setLocation(`/commesse/${c.id}`)}
                     >
                       <td className="overflow-hidden px-4 py-3">
-                        <span className="block truncate codice-mono text-text-2" title={c.codice}>
+                        <span
+                          className="block truncate codice-mono text-text-2"
+                          title={c.codice}
+                        >
                           {c.codice}
                         </span>
                         <Badge
@@ -907,12 +991,21 @@ export default function CommesseList() {
                         </Badge>
                       </td>
                       <td className="overflow-hidden px-4 py-3 font-medium text-text-1">
-                        <span className="block truncate font-semibold" title={c.cliente || undefined}>
+                        <span
+                          className="block truncate font-semibold"
+                          title={c.cliente || undefined}
+                        >
                           {c.cliente || "—"}
                         </span>
                         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs font-normal text-text-2">
-                          <MapPin className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
-                          <span className="truncate" title={c.citta || undefined}>
+                          <MapPin
+                            className="h-3.5 w-3.5 shrink-0 text-text-3"
+                            aria-hidden="true"
+                          />
+                          <span
+                            className="truncate"
+                            title={c.citta || undefined}
+                          >
                             {c.citta || "Città non indicata"}
                           </span>
                         </span>
@@ -928,11 +1021,21 @@ export default function CommesseList() {
                       <td className="overflow-hidden px-4 py-3 text-[11px] text-text-2">
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-text-3">Aperta</span>
-                          <span className="truncate tabular-nums" title={creata}>{creata}</span>
+                          <span
+                            className="truncate tabular-nums"
+                            title={creata}
+                          >
+                            {creata}
+                          </span>
                         </span>
                         <span className="mt-1 flex items-center justify-between gap-2">
                           <span className="text-text-3">Consegna</span>
-                          <span className="truncate tabular-nums" title={consegna}>{consegna}</span>
+                          <span
+                            className="truncate tabular-nums"
+                            title={consegna}
+                          >
+                            {consegna}
+                          </span>
                         </span>
                       </td>
                       <td className="overflow-hidden px-3 py-3">
@@ -941,13 +1044,20 @@ export default function CommesseList() {
                             className="block truncate text-xs font-medium text-text-2"
                             title={`${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()}
                           >
-                            {assignee.cognome || assignee.nome || iniziali(assignee)}
+                            {assignee.cognome ||
+                              assignee.nome ||
+                              iniziali(assignee)}
                           </span>
                         ) : (
-                          <span className="text-xs text-text-3">Non assegnata</span>
+                          <span className="text-xs text-text-3">
+                            Non assegnata
+                          </span>
                         )}
                       </td>
-                      <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-1 py-2"
+                        onClick={e => e.stopPropagation()}
+                      >
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -960,17 +1070,25 @@ export default function CommesseList() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => setLocation(`/commesse/${c.id}`)}>
+                            <DropdownMenuItem
+                              onClick={() => setLocation(`/commesse/${c.id}`)}
+                            >
                               <ArrowRight className="h-4 w-4" /> Apri scheda
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => archiveCommessa.mutate(c.id)}>
+                            <DropdownMenuItem
+                              onClick={() => archiveCommessa.mutate(c.id)}
+                            >
                               <Archive className="h-4 w-4" /> Archivia
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-danger focus:text-danger"
                               onClick={() =>
-                                setDeleteTarget({ id: c.id, codice: c.codice, stato: c.stato })
+                                setDeleteTarget({
+                                  id: c.id,
+                                  codice: c.codice,
+                                  stato: c.stato,
+                                })
                               }
                             >
                               <Trash2 className="h-4 w-4" /> Elimina
@@ -989,7 +1107,7 @@ export default function CommesseList() {
 
       <DeleteCommessaDialog
         open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        onOpenChange={o => !o && setDeleteTarget(null)}
         codice={deleteTarget?.codice ?? null}
         stato={deleteTarget?.stato ?? null}
         onConfirm={() => deleteTarget && deleteCommessa.mutate(deleteTarget.id)}
@@ -1000,6 +1118,9 @@ export default function CommesseList() {
         <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuovo cliente</DialogTitle>
+            <DialogDescription className="sr-only">
+              Crea un cliente senza uscire dalla nuova commessa.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1007,14 +1128,18 @@ export default function CommesseList() {
                 <Label>Cognome *</Label>
                 <Input
                   value={clienteForm.cognome}
-                  onChange={(e) => setClienteForm({ ...clienteForm, cognome: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({ ...clienteForm, cognome: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>Nome *</Label>
                 <Input
                   value={clienteForm.nome}
-                  onChange={(e) => setClienteForm({ ...clienteForm, nome: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({ ...clienteForm, nome: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -1022,9 +1147,13 @@ export default function CommesseList() {
               <Label>Tipo</Label>
               <Select
                 value={clienteForm.tipo}
-                onValueChange={(v: any) => setClienteForm({ ...clienteForm, tipo: v })}
+                onValueChange={(v: any) =>
+                  setClienteForm({ ...clienteForm, tipo: v })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="privato">Privato</SelectItem>
                   <SelectItem value="azienda">Azienda</SelectItem>
@@ -1039,7 +1168,9 @@ export default function CommesseList() {
                 <Input
                   type="tel"
                   value={clienteForm.telefono}
-                  onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({ ...clienteForm, telefono: e.target.value })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
@@ -1047,7 +1178,9 @@ export default function CommesseList() {
                 <Input
                   type="email"
                   value={clienteForm.email}
-                  onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({ ...clienteForm, email: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -1056,14 +1189,21 @@ export default function CommesseList() {
                 <Label>Indirizzo</Label>
                 <Input
                   value={clienteForm.indirizzo}
-                  onChange={(e) => setClienteForm({ ...clienteForm, indirizzo: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({
+                      ...clienteForm,
+                      indirizzo: e.target.value,
+                    })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>Città</Label>
                 <Input
                   value={clienteForm.citta}
-                  onChange={(e) => setClienteForm({ ...clienteForm, citta: e.target.value })}
+                  onChange={e =>
+                    setClienteForm({ ...clienteForm, citta: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -1072,7 +1212,9 @@ export default function CommesseList() {
               <SearchSelect
                 options={utenteOptions}
                 value={clienteForm.assegnatoA}
-                onChange={(v) => setClienteForm({ ...clienteForm, assegnatoA: v })}
+                onChange={v =>
+                  setClienteForm({ ...clienteForm, assegnatoA: v })
+                }
                 placeholder="Nessuno"
                 searchPlaceholder="Cerca utente..."
                 allowClear
@@ -1081,10 +1223,14 @@ export default function CommesseList() {
             <Button
               onClick={handleCreateCliente}
               disabled={
-                !clienteForm.nome || !clienteForm.cognome || createClienteMutation.isPending
+                !clienteForm.nome ||
+                !clienteForm.cognome ||
+                createClienteMutation.isPending
               }
             >
-              {createClienteMutation.isPending ? "Creazione..." : "Crea e seleziona"}
+              {createClienteMutation.isPending
+                ? "Creazione..."
+                : "Crea e seleziona"}
             </Button>
           </div>
         </DialogContent>

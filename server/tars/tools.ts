@@ -25,11 +25,13 @@ import {
 import { listComunicazioni } from "./comunicazioni";
 import { getCommessaById } from "../routers/commesse";
 
+type ToolResult = { content: string; isError?: boolean };
+
 // Import dinamico per rompere il ciclo routers.ts → tars router → tools.
 let _appRouterPromise: Promise<any> | null = null;
 async function getCaller(ctx: TrpcContext) {
   if (!_appRouterPromise) {
-    _appRouterPromise = import("../routers").then((m) => m.appRouter);
+    _appRouterPromise = import("../routers").then(m => m.appRouter);
   }
   const appRouter = await _appRouterPromise;
   return appRouter.createCaller(ctx);
@@ -46,6 +48,10 @@ export type ToolRuntime = {
   origineId?: number | null;
   // Impostato da nessuna_azione: il loop termina.
   terminato: { motivo: string } | null;
+  // Identical reads inside one run never need to be fetched or re-injected
+  // twice: the first result is already present in the model context.
+  risultatiCache?: Map<string, Promise<ToolResult>>;
+  toolCacheHits?: number;
 };
 
 const MAX_PENDENTI_PER_COMMESSA = 3;
@@ -121,7 +127,7 @@ function creaProposta(
   // Anti-rumore: mai più di 3 proposte pendenti sulla stessa commessa.
   if (args.commessaId != null) {
     const pendenti = proposte.filter(
-      (p) =>
+      p =>
         p.commessaId === args.commessaId &&
         p.stato === "pendente" &&
         p.sedeId === sedeId
@@ -188,8 +194,7 @@ export const TOOL_DEFS: AnthropicTool[] = [
   // Lettura
   {
     name: "cerca_clienti",
-    description:
-      "Cerca clienti per nome, città o email. Max 10 risultati.",
+    description: "Cerca clienti per nome, città o email. Max 10 risultati.",
     input_schema: {
       type: "object",
       properties: { query: { type: "string" } },
@@ -223,6 +228,16 @@ export const TOOL_DEFS: AnthropicTool[] = [
     name: "leggi_commessa",
     description:
       "Fascicolo completo di una commessa: stato, date, importi, registro pagamenti, registro costi, prodotti, squadra.",
+    input_schema: {
+      type: "object",
+      properties: { commessaId: { type: "number" } },
+      required: ["commessaId"],
+    },
+  },
+  {
+    name: "leggi_fascicolo_commessa",
+    description:
+      "Vista operativa compatta di una commessa in una sola lettura: dati economici, timeline, doc gate e documenti, ordini, magazzino, ticket, interventi e garanzie. Usalo come prima lettura quando analizzi una commessa; passa agli strumenti specifici solo se serve altro dettaglio.",
     input_schema: {
       type: "object",
       properties: { commessaId: { type: "number" } },
@@ -313,7 +328,8 @@ export const TOOL_DEFS: AnthropicTool[] = [
   },
   {
     name: "leggi_fornitori",
-    description: "L'anagrafica fornitori: ragione sociale, categoria, contatti, referente.",
+    description:
+      "L'anagrafica fornitori: ragione sociale, categoria, contatti, referente.",
     input_schema: {
       type: "object",
       properties: { query: { type: "string" } },
@@ -406,7 +422,13 @@ export const TOOL_DEFS: AnthropicTool[] = [
         commessaId: { type: "number" },
         ...PROPOSTA_PROPS,
       },
-      required: ["comunicazioneId", "commessaId", "titolo", "motivazione", "confidenza"],
+      required: [
+        "comunicazioneId",
+        "commessaId",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -436,14 +458,29 @@ export const TOOL_DEFS: AnthropicTool[] = [
         nuovoTipo: {
           type: "string",
           enum: [
-            "preventivo", "contratto", "misure", "fattura", "ordine",
-            "conferma_ordine", "ddt_consegna", "ddt_posa", "ddt_finale",
-            "saldo", "foto", "altro",
+            "preventivo",
+            "contratto",
+            "misure",
+            "fattura",
+            "ordine",
+            "conferma_ordine",
+            "ddt_consegna",
+            "ddt_posa",
+            "ddt_finale",
+            "saldo",
+            "foto",
+            "altro",
           ],
         },
         ...PROPOSTA_PROPS,
       },
-      required: ["documentoId", "commessaId", "titolo", "motivazione", "confidenza"],
+      required: [
+        "documentoId",
+        "commessaId",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -458,7 +495,14 @@ export const TOOL_DEFS: AnthropicTool[] = [
         nota: { type: "string" },
         ...PROPOSTA_PROPS,
       },
-      required: ["stepId", "commessaId", "nota", "titolo", "motivazione", "confidenza"],
+      required: [
+        "stepId",
+        "commessaId",
+        "nota",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -477,7 +521,13 @@ export const TOOL_DEFS: AnthropicTool[] = [
         note: { type: "string" },
         ...PROPOSTA_PROPS,
       },
-      required: ["prodottoId", "commessaId", "titolo", "motivazione", "confidenza"],
+      required: [
+        "prodottoId",
+        "commessaId",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -511,7 +561,10 @@ export const TOOL_DEFS: AnthropicTool[] = [
         citta: { type: "string" },
         telefono: { type: "string" },
         email: { type: "string" },
-        priorita: { type: "string", enum: ["bassa", "media", "alta", "urgente"] },
+        priorita: {
+          type: "string",
+          enum: ["bassa", "media", "alta", "urgente"],
+        },
         importoTotale: { type: "number" },
         dataConsegnaConfermata: { type: "string", description: "YYYY-MM-DD" },
         note: { type: "string" },
@@ -538,11 +591,18 @@ export const TOOL_DEFS: AnthropicTool[] = [
         categoria: {
           type: "string",
           enum: [
-            "difetto_prodotto", "difetto_posa", "regolazione",
-            "sostituzione", "garanzia", "altro",
+            "difetto_prodotto",
+            "difetto_posa",
+            "regolazione",
+            "sostituzione",
+            "garanzia",
+            "altro",
           ],
         },
-        priorita: { type: "string", enum: ["bassa", "media", "alta", "urgente"] },
+        priorita: {
+          type: "string",
+          enum: ["bassa", "media", "alta", "urgente"],
+        },
         ...PROPOSTA_PROPS,
       },
       required: ["oggetto", "categoria", "titolo", "motivazione", "confidenza"],
@@ -560,12 +620,27 @@ export const TOOL_DEFS: AnthropicTool[] = [
         data: { type: "string", description: "YYYY-MM-DD" },
         metodo: {
           type: "string",
-          enum: ["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"],
+          enum: [
+            "bonifico",
+            "contanti",
+            "assegno",
+            "pos",
+            "finanziamento",
+            "altro",
+          ],
         },
         tipo: {
           type: "string",
-          enum: ["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"],
-          description: "Quale rata è. Deducila dal piano pagamenti e dalle rate già registrate.",
+          enum: [
+            "acconto_1",
+            "acconto_2",
+            "acconto_3",
+            "acconto_4",
+            "acconto_5",
+            "saldo",
+          ],
+          description:
+            "Quale rata è. Deducila dal piano pagamenti e dalle rate già registrate.",
         },
         nota: {
           type: "string",
@@ -573,7 +648,14 @@ export const TOOL_DEFS: AnthropicTool[] = [
         },
         ...PROPOSTA_PROPS,
       },
-      required: ["commessaId", "importo", "data", "titolo", "motivazione", "confidenza"],
+      required: [
+        "commessaId",
+        "importo",
+        "data",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -587,15 +669,28 @@ export const TOOL_DEFS: AnthropicTool[] = [
         nuovoStato: {
           type: "string",
           enum: [
-            "preventivo", "misure_esecutive", "aggiornamento_contratto",
-            "fatture_pagamento", "da_ordinare", "produzione",
-            "ordini_ultimazione", "attesa_posa", "finiture_saldo",
-            "interventi_regolazioni", "archiviata",
+            "preventivo",
+            "misure_esecutive",
+            "aggiornamento_contratto",
+            "fatture_pagamento",
+            "da_ordinare",
+            "produzione",
+            "ordini_ultimazione",
+            "attesa_posa",
+            "finiture_saldo",
+            "interventi_regolazioni",
+            "archiviata",
           ],
         },
         ...PROPOSTA_PROPS,
       },
-      required: ["commessaId", "nuovoStato", "titolo", "motivazione", "confidenza"],
+      required: [
+        "commessaId",
+        "nuovoStato",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -611,7 +706,14 @@ export const TOOL_DEFS: AnthropicTool[] = [
         commessaId: { type: "number" },
         ...PROPOSTA_PROPS,
       },
-      required: ["destinatario", "canale", "testo", "titolo", "motivazione", "confidenza"],
+      required: [
+        "destinatario",
+        "canale",
+        "testo",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -626,7 +728,13 @@ export const TOOL_DEFS: AnthropicTool[] = [
         commessaId: { type: "number" },
         ...PROPOSTA_PROPS,
       },
-      required: ["severita", "descrizione", "titolo", "motivazione", "confidenza"],
+      required: [
+        "severita",
+        "descrizione",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
     },
   },
   {
@@ -662,19 +770,106 @@ export const TOOL_DEFS: AnthropicTool[] = [
   },
 ];
 
+const TERMINAZIONE = ["chiedi_chiarimento", "nessuna_azione"] as const;
+
+const PROFILI: Record<string, readonly string[]> = {
+  riconciliazione_fatture: [
+    "cerca_clienti",
+    "leggi_cliente",
+    "cerca_commesse",
+    "leggi_fascicolo_commessa",
+    "leggi_fatture_cloud",
+    "proponi_collegamento_fattura",
+    ...TERMINAZIONE,
+  ],
+  smistamento: [
+    "cerca_clienti",
+    "leggi_cliente",
+    "cerca_commesse",
+    "leggi_fascicolo_commessa",
+    "leggi_fatture_cloud",
+    "leggi_allegato",
+    "cerca_comunicazioni",
+    "proponi_collegamento",
+    "proponi_rinomina_documento",
+    "proponi_nota_timeline",
+    "proponi_aggiornamento_magazzino",
+    "proponi_modifica_cliente",
+    "proponi_modifica_commessa",
+    "proponi_ticket",
+    "proponi_pagamento",
+    "proponi_avanzamento_stato",
+    "proponi_bozza_risposta",
+    "proponi_segnalazione",
+    ...TERMINAZIONE,
+  ],
+  on_demand: [
+    "leggi_fascicolo_commessa",
+    "leggi_cliente",
+    "leggi_fatture_cloud",
+    "cerca_comunicazioni",
+    "leggi_allegato",
+    "leggi_fornitori",
+    "leggi_squadre",
+    "leggi_economia",
+    "proponi_rinomina_documento",
+    "proponi_nota_timeline",
+    "proponi_aggiornamento_magazzino",
+    "proponi_modifica_cliente",
+    "proponi_modifica_commessa",
+    "proponi_ticket",
+    "proponi_pagamento",
+    "proponi_avanzamento_stato",
+    "proponi_bozza_risposta",
+    "proponi_segnalazione",
+    ...TERMINAZIONE,
+  ],
+};
+
+export function toolProfileForTrigger(trigger: string): string {
+  return PROFILI[trigger] ? trigger : "completo";
+}
+
+/** Stable order matters: an unchanged profile preserves Anthropic's cache. */
+export function toolDefsForTrigger(trigger: string): AnthropicTool[] {
+  const names = PROFILI[trigger];
+  if (!names) return TOOL_DEFS;
+  const wanted = new Set(names);
+  return TOOL_DEFS.filter(tool => wanted.has(tool.name));
+}
+
+const READ_TOOLS = new Set(
+  TOOL_DEFS.filter(
+    tool => tool.name.startsWith("leggi_") || tool.name.startsWith("cerca_")
+  ).map(tool => tool.name)
+);
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => `${JSON.stringify(key)}:${stableJson(val)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 // ── Esecuzione ──────────────────────────────────────────────────────────────
 
-export async function eseguiStrumento(
+async function eseguiStrumentoSenzaCache(
   rt: ToolRuntime,
   nome: string,
   input: any
-): Promise<{ content: string; isError?: boolean }> {
+): Promise<ToolResult> {
   try {
     switch (nome) {
       // ── Lettura ──────────────────────────────────────────────────────
       case "cerca_clienti": {
         const caller = await getCaller(rt.ctx);
-        const rows = await caller.clienti.list({ search: String(input.query ?? "") });
+        const rows = await caller.clienti.list({
+          search: String(input.query ?? ""),
+        });
         return ok(
           rows.slice(0, 10).map((c: any) => ({
             id: c.id,
@@ -711,7 +906,8 @@ export async function eseguiStrumento(
         const rows = await caller.commesse.list({
           search: input.query ? String(input.query) : undefined,
           stato: input.stato ? String(input.stato) : undefined,
-          clienteId: input.clienteId != null ? Number(input.clienteId) : undefined,
+          clienteId:
+            input.clienteId != null ? Number(input.clienteId) : undefined,
           archived: "all",
         });
         return ok(
@@ -736,9 +932,123 @@ export async function eseguiStrumento(
         if (!c) return err("Commessa non trovata.");
         return ok(c);
       }
+      case "leggi_fascicolo_commessa": {
+        const caller = await getCaller(rt.ctx);
+        const id = Number(input.commessaId);
+        const [
+          c,
+          timeline,
+          documenti,
+          docGate,
+          ordini,
+          magazzino,
+          tickets,
+          interventi,
+          garanzie,
+        ] = await Promise.all([
+          caller.commesse.byId(id),
+          caller.timeline.byCommessa(id),
+          caller.preventiviContratti.byCommessa(id),
+          caller.preventiviContratti.statoGate(id),
+          caller.fornitori.ordini.list({ commessaId: id }),
+          caller.magazzino.list({ commessaId: id }),
+          caller.ticket.list({ commessaId: id }),
+          caller.interventi.list({ commessaId: id }),
+          caller.garanzie.list({ commessaId: id }),
+        ]);
+        if (!c) return err("Commessa non trovata.");
+
+        const commessa: any = c;
+        return ok({
+          commessa: {
+            id: commessa.id,
+            codice: commessa.codice,
+            clienteId: commessa.clienteId ?? null,
+            cliente: commessa.cliente ?? null,
+            stato: commessa.stato,
+            priorita: commessa.priorita,
+            archiviata: !!commessa.archivedAt,
+            indirizzo: commessa.indirizzo ?? null,
+            citta: commessa.citta ?? null,
+            dataApertura: commessa.dataApertura ?? null,
+            dataConsegnaConfermata: commessa.dataConsegnaConfermata ?? null,
+            importoTotale: commessa.importoTotale ?? null,
+            importoIncassato: commessa.importoIncassato ?? 0,
+            residuo:
+              commessa.importoTotale != null
+                ? Number(commessa.importoTotale) -
+                  Number(commessa.importoIncassato ?? 0)
+                : null,
+            prodotti: commessa.prodottiSintesi ?? commessa.prodotti ?? null,
+            pagamenti: (commessa.pagamenti ?? []).slice(-20),
+            costi: (commessa.costi ?? []).slice(-20),
+            note: commessa.note ?? null,
+          },
+          timeline: timeline.map((s: any) => ({
+            id: s.id,
+            step: s.stepNumber,
+            titolo: s.titolo ?? null,
+            stato: s.stato,
+            programmata: s.dataProgrammata ?? null,
+            completata: s.dataCompletamento ?? null,
+            note: s.note ?? null,
+          })),
+          documenti: documenti.slice(0, 40).map((d: any) => ({
+            id: d.id,
+            nome: d.nome,
+            tipo: d.tipo,
+            statoAtUpload: d.statoAtUpload ?? null,
+            createdAt: d.createdAt,
+          })),
+          docGate,
+          ordini: ordini.slice(0, 20).map((o: any) => ({
+            id: o.id,
+            codice: o.codiceOrdine,
+            fornitore: o.fornitoreNome,
+            stato: o.stato,
+            dataOrdine: o.dataOrdine,
+            consegnaPrevista: o.dataConsegnaPrevista ?? null,
+            importo: o.importoTotale ?? null,
+          })),
+          magazzino: magazzino.slice(0, 30).map((m: any) => ({
+            id: m.id,
+            prodotto: m.prodotto ?? m.nome ?? m.descrizione ?? null,
+            fornitore: m.fornitore ?? null,
+            numeroOrdine: m.numeroOrdine ?? null,
+            consegna: m.dataConsegna ?? null,
+            arrivato: !!m.arrivato,
+            note: m.note ?? null,
+          })),
+          ticket: tickets.slice(0, 20).map((t: any) => ({
+            id: t.id,
+            oggetto: t.oggetto,
+            stato: t.stato,
+            categoria: t.categoria,
+            priorita: t.priorita,
+            createdAt: t.createdAt,
+          })),
+          interventi: interventi.slice(0, 25).map((i: any) => ({
+            id: i.id,
+            data: i.data,
+            ora: i.oraInizio ?? null,
+            tipo: i.tipo,
+            stato: i.stato,
+            squadraId: i.squadraId ?? null,
+            note: i.note ?? null,
+          })),
+          garanzie: garanzie.slice(0, 20).map((g: any) => ({
+            id: g.id,
+            descrizione: g.descrizione,
+            stato: g.stato,
+            scadenza: g.dataScadenza ?? null,
+          })),
+        });
+      }
       case "leggi_timeline": {
         const caller = await getCaller(rt.ctx);
-        const steps = await caller.timeline.byCommessa(Number(input.commessaId));
+        const steps = await caller.timeline.byCommessa(
+          Number(input.commessaId)
+        );
         return ok(
           steps.map((s: any) => ({
             id: s.id,
@@ -775,7 +1085,8 @@ export async function eseguiStrumento(
       case "leggi_ordini_fornitore": {
         const caller = await getCaller(rt.ctx);
         const rows = await caller.fornitori.ordini.list({
-          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : undefined,
           stato: input.stato ? String(input.stato) : undefined,
         });
         return ok(
@@ -806,8 +1117,10 @@ export async function eseguiStrumento(
       case "leggi_ticket": {
         const caller = await getCaller(rt.ctx);
         const rows = await caller.ticket.list({
-          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
-          clienteId: input.clienteId != null ? Number(input.clienteId) : undefined,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : undefined,
+          clienteId:
+            input.clienteId != null ? Number(input.clienteId) : undefined,
           stato: input.stato ? String(input.stato) : undefined,
         });
         return ok(
@@ -829,7 +1142,8 @@ export async function eseguiStrumento(
       case "leggi_interventi": {
         const caller = await getCaller(rt.ctx);
         const rows = await caller.interventi.list({
-          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : undefined,
           from: input.dal ? String(input.dal) : undefined,
           to: input.al ? String(input.al) : undefined,
           tipo: input.tipo ? String(input.tipo) : undefined,
@@ -852,7 +1166,8 @@ export async function eseguiStrumento(
       case "leggi_garanzie": {
         const caller = await getCaller(rt.ctx);
         const rows = await caller.garanzie.list({
-          commessaId: input.commessaId != null ? Number(input.commessaId) : undefined,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : undefined,
           stato: input.stato ? String(input.stato) : undefined,
         });
         return ok(
@@ -914,7 +1229,7 @@ export async function eseguiStrumento(
         const commesse = getCommesseStore();
         const q = input.query ? String(input.query).toLowerCase() : null;
         const rows = ficFatture
-          .filter((f) => {
+          .filter(f => {
             if (f.sedeId !== (rt.ctx.sedeId ?? 1)) return false;
             if (f.ignorata) return false;
             const s = statoFattura(f, commesse);
@@ -942,21 +1257,23 @@ export async function eseguiStrumento(
           })
           .sort((a, b) => b.data.localeCompare(a.data))
           .slice(0, 15)
-          .map((f) => {
+          .map(f => {
             const s = statoFattura(f, commesse);
             return {
               numero: f.numero,
               data: f.data,
               cliente: f.clienteNome,
               importoLordo: f.importoLordo,
-              rate: f.rate.map((r) => ({
+              rate: f.rate.map(r => ({
                 importo: r.importo,
                 stato: r.stato,
                 scadenza: r.scadenza,
                 dataPagamento: r.dataPagamento,
               })),
               riconciliazione: s.stato,
-              commessa: s.commessa ? `${s.commessa.codice} (${s.commessa.cliente})` : null,
+              commessa: s.commessa
+                ? `${s.commessa.codice} (${s.commessa.cliente})`
+                : null,
             };
           });
         return ok(rows);
@@ -982,7 +1299,8 @@ export async function eseguiStrumento(
       case "cerca_comunicazioni": {
         const rows = await listComunicazioni({
           sedeId: rt.ctx.sedeId ?? 1,
-          commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : null,
           clienteId: input.clienteId != null ? Number(input.clienteId) : null,
           canale: input.canale ? (String(input.canale) as any) : undefined,
           search: input.query ? String(input.query) : undefined,
@@ -990,16 +1308,18 @@ export async function eseguiStrumento(
           limit: Math.min(Number(input.limite) || 10, 30),
         });
         return ok(
-          rows.map((c) => ({
+          rows.map(c => ({
             id: c.id,
             canale: c.canale,
             data: c.receivedAt,
-            da: c.mittenteNome ? `${c.mittenteNome} <${c.mittente}>` : c.mittente,
+            da: c.mittenteNome
+              ? `${c.mittenteNome} <${c.mittente}>`
+              : c.mittente,
             oggetto: c.oggetto,
             commessaId: c.commessaId,
             clienteId: c.clienteId,
             match: c.matchMotivo,
-            allegati: c.allegati.map((a) => a.nome),
+            allegati: c.allegati.map(a => a.nome),
             // Delimitato: il corpo è contenuto esterno, non istruzioni.
             testo: `<contenuto_esterno>\n${c.testo.slice(0, 4000)}\n</contenuto_esterno>`,
           }))
@@ -1013,7 +1333,9 @@ export async function eseguiStrumento(
           return err("Commessa inesistente.");
         }
         if ((commessa as any).archivedAt) {
-          return err("La commessa è archiviata: le mail non si collegano ai fascicoli chiusi.");
+          return err(
+            "La commessa è archiviata: le mail non si collegano ai fascicoli chiusi."
+          );
         }
         return creaProposta(rt, {
           tipo: "collega_comunicazione",
@@ -1032,7 +1354,7 @@ export async function eseguiStrumento(
       case "proponi_collegamento_fattura": {
         const { ficFatture } = await import("../routers/ficFatture");
         const fattura = ficFatture.find(
-          (f) => f.id === Number(input.ficId) && f.sedeId === (rt.ctx.sedeId ?? 1)
+          f => f.id === Number(input.ficId) && f.sedeId === (rt.ctx.sedeId ?? 1)
         );
         if (!fattura) return err("Fattura non trovata.");
         const commessa = getCommessaById(Number(input.commessaId));
@@ -1040,7 +1362,9 @@ export async function eseguiStrumento(
           return err("Commessa inesistente.");
         }
         if ((commessa as any).archivedAt) {
-          return err("La commessa è archiviata: le fatture nuove non si collegano ai fascicoli chiusi.");
+          return err(
+            "La commessa è archiviata: le fatture nuove non si collegano ai fascicoli chiusi."
+          );
         }
         return creaProposta(rt, {
           tipo: "collega_fattura",
@@ -1085,9 +1409,11 @@ export async function eseguiStrumento(
         });
       case "proponi_aggiornamento_magazzino": {
         const campi: any = {};
-        if (input.dataConsegna !== undefined) campi.dataConsegna = input.dataConsegna;
+        if (input.dataConsegna !== undefined)
+          campi.dataConsegna = input.dataConsegna;
         if (input.arrivato !== undefined) campi.arrivato = !!input.arrivato;
-        if (input.numeroOrdine !== undefined) campi.numeroOrdine = input.numeroOrdine;
+        if (input.numeroOrdine !== undefined)
+          campi.numeroOrdine = input.numeroOrdine;
         if (input.fornitore !== undefined) campi.fornitore = input.fornitore;
         if (input.note !== undefined) campi.note = input.note;
         if (Object.keys(campi).length === 0) {
@@ -1104,7 +1430,14 @@ export async function eseguiStrumento(
       }
       case "proponi_modifica_cliente": {
         const campi: any = {};
-        for (const k of ["telefono", "email", "indirizzo", "citta", "cap", "note"]) {
+        for (const k of [
+          "telefono",
+          "email",
+          "indirizzo",
+          "citta",
+          "cap",
+          "note",
+        ]) {
           if (input[k] !== undefined) campi[k] = input[k];
         }
         if (Object.keys(campi).length === 0) {
@@ -1122,8 +1455,14 @@ export async function eseguiStrumento(
       case "proponi_modifica_commessa": {
         const campi: any = {};
         for (const k of [
-          "indirizzo", "citta", "telefono", "email", "priorita",
-          "importoTotale", "dataConsegnaConfermata", "note",
+          "indirizzo",
+          "citta",
+          "telefono",
+          "email",
+          "priorita",
+          "importoTotale",
+          "dataConsegnaConfermata",
+          "note",
         ]) {
           if (input[k] !== undefined) campi[k] = input[k];
         }
@@ -1140,7 +1479,11 @@ export async function eseguiStrumento(
         });
       }
       case "proponi_ticket": {
-        if (input.commessaId == null && input.clienteId == null && !input.contatto) {
+        if (
+          input.commessaId == null &&
+          input.clienteId == null &&
+          !input.contatto
+        ) {
           return err("Indica almeno uno tra commessaId, clienteId e contatto.");
         }
         return creaProposta(rt, {
@@ -1148,10 +1491,12 @@ export async function eseguiStrumento(
           titolo: input.titolo,
           motivazione: input.motivazione,
           confidenza: input.confidenza,
-          commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : null,
           clienteId: input.clienteId != null ? Number(input.clienteId) : null,
           payload: {
-            commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+            commessaId:
+              input.commessaId != null ? Number(input.commessaId) : null,
             clienteId: input.clienteId != null ? Number(input.clienteId) : null,
             contatto: input.contatto ?? null,
             oggetto: String(input.oggetto),
@@ -1195,7 +1540,8 @@ export async function eseguiStrumento(
           titolo: input.titolo,
           motivazione: input.motivazione,
           confidenza: input.confidenza,
-          commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : null,
           payload: {
             destinatario: String(input.destinatario),
             canale: String(input.canale),
@@ -1208,7 +1554,8 @@ export async function eseguiStrumento(
           titolo: input.titolo,
           motivazione: input.motivazione,
           confidenza: input.confidenza,
-          commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : null,
           payload: {
             severita: String(input.severita),
             descrizione: String(input.descrizione),
@@ -1220,7 +1567,8 @@ export async function eseguiStrumento(
           titolo: String(input.domanda).slice(0, 200),
           motivazione: String(input.contesto),
           confidenza: "media",
-          commessaId: input.commessaId != null ? Number(input.commessaId) : null,
+          commessaId:
+            input.commessaId != null ? Number(input.commessaId) : null,
           opzioni: Array.isArray(input.opzioni)
             ? input.opzioni.slice(0, 4).map(String)
             : null,
@@ -1238,8 +1586,41 @@ export async function eseguiStrumento(
   }
 }
 
+export async function eseguiStrumento(
+  rt: ToolRuntime,
+  nome: string,
+  input: any
+): Promise<ToolResult> {
+  if (!READ_TOOLS.has(nome)) {
+    return eseguiStrumentoSenzaCache(rt, nome, input);
+  }
+
+  const cache = (rt.risultatiCache ??= new Map());
+  const key = `${nome}:${stableJson(input ?? {})}`;
+  const existing = cache.get(key);
+  if (existing) {
+    const previous = await existing;
+    if (previous.isError) return previous;
+    rt.toolCacheHits = (rt.toolCacheHits ?? 0) + 1;
+    return ok({
+      cacheHit: true,
+      messaggio:
+        "Risultato identico già presente nel contesto di questa esecuzione; riusa quello precedente.",
+    });
+  }
+
+  const pending = eseguiStrumentoSenzaCache(rt, nome, input);
+  cache.set(key, pending);
+  const result = await pending;
+  if (result.isError) cache.delete(key);
+  return result;
+}
+
 // Sintesi leggibile per il registro esecuzioni.
-export function sintesiEsito(res: { content: string; isError?: boolean }): string {
+export function sintesiEsito(res: {
+  content: string;
+  isError?: boolean;
+}): string {
   if (res.isError) return `ERRORE: ${res.content.slice(0, 200)}`;
   return res.content.length > 200
     ? `${res.content.slice(0, 200)}… (${res.content.length} char)`

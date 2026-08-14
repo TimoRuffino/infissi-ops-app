@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build PRD_infissi_ops_v3.pdf from documento_requisiti_infissi_ops.md.
+# Build PRD_infissi_ops_v4.pdf from documento_requisiti_infissi_ops.md.
 #
 # Pipeline:
 #   1) Convert markdown → HTML via the `marked` CLI (npx, no install).
@@ -39,7 +39,7 @@ cat > "$TMP/head.html" <<'HEAD'
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>PRD — Ruffino Ops v3.0</title>
+<title>PRD — Ruffino Flow v4.3</title>
 <style>
   @page { size: A4; margin: 1.6cm 1.4cm; }
   html, body {

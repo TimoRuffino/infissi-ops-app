@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -131,7 +132,10 @@ export default function ClientiList() {
   // Filter by the user a cliente is assigned to ("" = tutti).
   const [filtroAssegnato, setFiltroAssegnato] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
 
   const currentUser = trpc.auth.me.useQuery();
   const utentiList = trpc.utenti.list.useQuery(undefined);
@@ -140,8 +144,8 @@ export default function ClientiList() {
   const assegnatoAFilter = filtroAssegnato
     ? parseInt(filtroAssegnato, 10)
     : onlyMine
-    ? (currentUser.data?.id as number | undefined)
-    : undefined;
+      ? (currentUser.data?.id as number | undefined)
+      : undefined;
 
   const clienti = trpc.clienti.list.useQuery({
     search: search || undefined,
@@ -164,7 +168,7 @@ export default function ClientiList() {
       setDeleteTarget(null);
       toast.success("Cliente eliminato");
     },
-    onError: (e) => toast.error(e.message ?? "Eliminazione non riuscita"),
+    onError: e => toast.error(e.message ?? "Eliminazione non riuscita"),
   });
 
   const archiveCliente = trpc.clienti.archive.useMutation({
@@ -173,7 +177,7 @@ export default function ClientiList() {
       utils.commesse.invalidate();
       toast.success("Cliente archiviato (con le sue commesse)");
     },
-    onError: (e) => toast.error(e.message ?? "Archiviazione non riuscita"),
+    onError: e => toast.error(e.message ?? "Archiviazione non riuscita"),
   });
 
   const [form, setForm] = useState(emptyForm);
@@ -216,7 +220,9 @@ export default function ClientiList() {
       (utentiList.data ?? []).map((u: any) => ({
         value: String(u.id),
         label: u.nome ?? u.email ?? `Utente ${u.id}`,
-        keywords: [u.email, u.ruolo, u.ruoli?.join(" ")].filter(Boolean).join(" "),
+        keywords: [u.email, u.ruolo, u.ruoli?.join(" ")]
+          .filter(Boolean)
+          .join(" "),
         hint: u.ruolo ?? u.ruoli?.[0],
       })),
     [utentiList.data]
@@ -245,6 +251,9 @@ export default function ClientiList() {
           <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nuovo cliente</DialogTitle>
+              <DialogDescription className="sr-only">
+                Inserisci i dati anagrafici e commerciali del nuovo cliente.
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2">
               <div className="space-y-1.5">
@@ -270,7 +279,7 @@ export default function ClientiList() {
                     <Label>Cognome *</Label>
                     <Input
                       value={form.cognome}
-                      onChange={(e) =>
+                      onChange={e =>
                         setForm({ ...form, cognome: e.target.value })
                       }
                     />
@@ -279,7 +288,7 @@ export default function ClientiList() {
                     <Label>Nome *</Label>
                     <Input
                       value={form.nome}
-                      onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                      onChange={e => setForm({ ...form, nome: e.target.value })}
                     />
                   </div>
                 </div>
@@ -293,7 +302,7 @@ export default function ClientiList() {
                         : "Es. Rossi Costruzioni S.r.l."
                     }
                     value={form.cognome}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, cognome: e.target.value })
                     }
                   />
@@ -304,7 +313,7 @@ export default function ClientiList() {
                   <Label>Codice fiscale</Label>
                   <Input
                     value={form.codiceFiscale}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, codiceFiscale: e.target.value })
                     }
                   />
@@ -313,7 +322,7 @@ export default function ClientiList() {
                   <Label>Partita IVA</Label>
                   <Input
                     value={form.partitaIva}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, partitaIva: e.target.value })
                     }
                   />
@@ -331,7 +340,7 @@ export default function ClientiList() {
                     <Label>Indirizzo</Label>
                     <Input
                       value={form.indirizzo}
-                      onChange={(e) =>
+                      onChange={e =>
                         setForm({ ...form, indirizzo: e.target.value })
                       }
                     />
@@ -340,7 +349,7 @@ export default function ClientiList() {
                     <Label>CAP</Label>
                     <Input
                       value={form.cap}
-                      onChange={(e) => setForm({ ...form, cap: e.target.value })}
+                      onChange={e => setForm({ ...form, cap: e.target.value })}
                     />
                   </div>
                 </div>
@@ -348,9 +357,7 @@ export default function ClientiList() {
                   <Label>Città</Label>
                   <Input
                     value={form.citta}
-                    onChange={(e) =>
-                      setForm({ ...form, citta: e.target.value })
-                    }
+                    onChange={e => setForm({ ...form, citta: e.target.value })}
                   />
                 </div>
               </div>
@@ -363,12 +370,14 @@ export default function ClientiList() {
                   <label className="flex shrink-0 items-center gap-2 text-xs">
                     <Switch
                       checked={form.lavoroStessoResidenza}
-                      onCheckedChange={(v) =>
+                      onCheckedChange={v =>
                         setForm({ ...form, lavoroStessoResidenza: v })
                       }
                     />
                     <span className="text-muted-foreground">
-                      {form.tipo === "privato" ? "Stesso della residenza" : "Stessa della sede legale"}
+                      {form.tipo === "privato"
+                        ? "Stesso della residenza"
+                        : "Stessa della sede legale"}
                     </span>
                   </label>
                 </div>
@@ -379,8 +388,11 @@ export default function ClientiList() {
                         <Label>Indirizzo lavoro</Label>
                         <Input
                           value={form.indirizzoLavoro}
-                          onChange={(e) =>
-                            setForm({ ...form, indirizzoLavoro: e.target.value })
+                          onChange={e =>
+                            setForm({
+                              ...form,
+                              indirizzoLavoro: e.target.value,
+                            })
                           }
                         />
                       </div>
@@ -388,7 +400,7 @@ export default function ClientiList() {
                         <Label>CAP</Label>
                         <Input
                           value={form.capLavoro}
-                          onChange={(e) =>
+                          onChange={e =>
                             setForm({ ...form, capLavoro: e.target.value })
                           }
                         />
@@ -398,7 +410,7 @@ export default function ClientiList() {
                       <Label>Città lavoro</Label>
                       <Input
                         value={form.cittaLavoro}
-                        onChange={(e) =>
+                        onChange={e =>
                           setForm({ ...form, cittaLavoro: e.target.value })
                         }
                       />
@@ -412,7 +424,7 @@ export default function ClientiList() {
                   <Input
                     type="tel"
                     value={form.telefono}
-                    onChange={(e) =>
+                    onChange={e =>
                       setForm({ ...form, telefono: e.target.value })
                     }
                   />
@@ -422,23 +434,23 @@ export default function ClientiList() {
                   <Input
                     type="email"
                     value={form.email}
-                    onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
-                    }
+                    onChange={e => setForm({ ...form, email: e.target.value })}
                   />
                 </div>
               </div>
               <div className="rounded-md border p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Detrazione fiscale</div>
+                    <div className="text-sm font-medium">
+                      Detrazione fiscale
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       Il cliente vuole usufruirne?
                     </div>
                   </div>
                   <Switch
                     checked={form.detrazione}
-                    onCheckedChange={(v) =>
+                    onCheckedChange={v =>
                       setForm({
                         ...form,
                         detrazione: v,
@@ -471,12 +483,14 @@ export default function ClientiList() {
               </div>
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
-                  <div className="text-sm font-medium">Interesse finanziamento</div>
+                  <div className="text-sm font-medium">
+                    Interesse finanziamento
+                  </div>
                   <div className="text-xs text-muted-foreground">Si / No</div>
                 </div>
                 <Switch
                   checked={form.interesseFinanziamento}
-                  onCheckedChange={(v) =>
+                  onCheckedChange={v =>
                     setForm({ ...form, interesseFinanziamento: v })
                   }
                 />
@@ -493,7 +507,9 @@ export default function ClientiList() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="nessuna">Nessuna pratica edilizia</SelectItem>
+                    <SelectItem value="nessuna">
+                      Nessuna pratica edilizia
+                    </SelectItem>
                     <SelectItem value="cil">CIL</SelectItem>
                     <SelectItem value="cila">CILA</SelectItem>
                     <SelectItem value="scia">SCIA</SelectItem>
@@ -505,7 +521,7 @@ export default function ClientiList() {
                 <Textarea
                   rows={2}
                   value={form.note}
-                  onChange={(e) => setForm({ ...form, note: e.target.value })}
+                  onChange={e => setForm({ ...form, note: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
@@ -513,7 +529,7 @@ export default function ClientiList() {
                 <SearchSelect
                   options={utenteOptions}
                   value={form.assegnatoA != null ? String(form.assegnatoA) : ""}
-                  onChange={(v) =>
+                  onChange={v =>
                     setForm({ ...form, assegnatoA: v ? parseInt(v) : null })
                   }
                   placeholder="Seleziona utente (default: me)"
@@ -548,7 +564,9 @@ export default function ClientiList() {
                     detrazione: form.detrazione,
                     tipoDetrazione:
                       form.detrazione && form.tipoDetrazione
-                        ? (form.tipoDetrazione as "ecobonus" | "ristrutturazione")
+                        ? (form.tipoDetrazione as
+                            | "ecobonus"
+                            | "ristrutturazione")
                         : null,
                     interesseFinanziamento: form.interesseFinanziamento,
                     praticaEdilizia: form.praticaEdilizia,
@@ -649,7 +667,7 @@ export default function ClientiList() {
               <Input
                 placeholder="Cerca per nome, città, email…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={e => setSearch(e.target.value)}
                 className="pl-9 h-9"
               />
             </div>
@@ -675,7 +693,10 @@ export default function ClientiList() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={tagFilter} onValueChange={(v: any) => setTagFilter(v)}>
+            <Select
+              value={tagFilter}
+              onValueChange={(v: any) => setTagFilter(v)}
+            >
               <SelectTrigger className="w-[170px] h-9">
                 <SelectValue placeholder="Segnali" />
               </SelectTrigger>
@@ -691,7 +712,7 @@ export default function ClientiList() {
               size="sm"
               onClick={() => {
                 setFiltroAssegnato("");
-                setOnlyMine((v) => !v);
+                setOnlyMine(v => !v);
               }}
               title="Filtra solo i clienti assegnati a me"
             >
@@ -700,7 +721,7 @@ export default function ClientiList() {
             </Button>
             <Select
               value={filtroAssegnato || "tutti"}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 setFiltroAssegnato(v === "tutti" ? "" : v);
                 setOnlyMine(false);
               }}
@@ -782,7 +803,9 @@ export default function ClientiList() {
                         <Badge variant="outline" className="text-[10px]">
                           {tipoLabels[c.tipo] ?? c.tipo}
                         </Badge>
-                        {c.detrazione && <Badge variant="info">Detrazione</Badge>}
+                        {c.detrazione && (
+                          <Badge variant="info">Detrazione</Badge>
+                        )}
                         {c.interesseFinanziamento && (
                           <Badge variant="secondary">Finanziamento</Badge>
                         )}
@@ -833,15 +856,20 @@ export default function ClientiList() {
                   <th className="eyebrow px-4 py-3 font-semibold">Cliente</th>
                   <th className="eyebrow px-4 py-3 font-semibold">Contatti</th>
                   <th className="eyebrow px-4 py-3 font-semibold">Segnali</th>
-                  <th className="eyebrow px-2 py-3 text-center font-semibold">Commesse</th>
+                  <th className="eyebrow px-2 py-3 text-center font-semibold">
+                    Commesse
+                  </th>
                   <th className="eyebrow px-4 py-3 font-semibold">Assegnato</th>
-                  <th className="w-11 px-1 py-3"><span className="sr-only">Azioni</span></th>
+                  <th className="w-11 px-1 py-3">
+                    <span className="sr-only">Azioni</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {clientiFiltrati.map((c: any) => {
                   const TipoIcon = tipoIcons[c.tipo] ?? User;
-                  const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
+                  const displayName =
+                    `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
                   const assignee =
                     c.assegnatoA != null ? utenteById.get(c.assegnatoA) : null;
                   return (
@@ -871,14 +899,26 @@ export default function ClientiList() {
                       <td className="overflow-hidden px-4 py-3">
                         <div className="min-w-0 space-y-1 text-xs text-text-2">
                           <span className="flex min-w-0 items-center gap-1.5">
-                            <MapPin className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
-                            <span className="truncate" title={c.citta || undefined}>
+                            <MapPin
+                              className="h-3.5 w-3.5 shrink-0 text-text-3"
+                              aria-hidden="true"
+                            />
+                            <span
+                              className="truncate"
+                              title={c.citta || undefined}
+                            >
                               {c.citta || "Città non indicata"}
                             </span>
                           </span>
                           <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
-                            <Phone className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
-                            <span className="truncate" title={c.telefono || undefined}>
+                            <Phone
+                              className="h-3.5 w-3.5 shrink-0 text-text-3"
+                              aria-hidden="true"
+                            />
+                            <span
+                              className="truncate"
+                              title={c.telefono || undefined}
+                            >
                               {c.telefono || "Telefono non indicato"}
                             </span>
                           </span>
@@ -894,14 +934,16 @@ export default function ClientiList() {
                           {c.interesseFinanziamento && (
                             <Badge variant="secondary">Finanziamento</Badge>
                           )}
-                          {c.praticaEdilizia && c.praticaEdilizia !== "nessuna" && (
-                            <Badge variant="secondary" className="uppercase">
-                              {c.praticaEdilizia}
-                            </Badge>
-                          )}
+                          {c.praticaEdilizia &&
+                            c.praticaEdilizia !== "nessuna" && (
+                              <Badge variant="secondary" className="uppercase">
+                                {c.praticaEdilizia}
+                              </Badge>
+                            )}
                           {!c.detrazione &&
                             !c.interesseFinanziamento &&
-                            (!c.praticaEdilizia || c.praticaEdilizia === "nessuna") && (
+                            (!c.praticaEdilizia ||
+                              c.praticaEdilizia === "nessuna") && (
                               <span className="text-text-3">—</span>
                             )}
                         </div>
@@ -912,12 +954,21 @@ export default function ClientiList() {
                       <td className="overflow-hidden px-4 py-3 text-text-2">
                         <span
                           className="block truncate"
-                          title={assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : undefined}
+                          title={
+                            assignee
+                              ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
+                              : undefined
+                          }
                         >
-                          {assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : "Non assegnato"}
+                          {assignee
+                            ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
+                            : "Non assegnato"}
                         </span>
                       </td>
-                      <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-1 py-2"
+                        onClick={e => e.stopPropagation()}
+                      >
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -930,10 +981,14 @@ export default function ClientiList() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => setLocation(`/clienti/${c.id}`)}>
+                            <DropdownMenuItem
+                              onClick={() => setLocation(`/clienti/${c.id}`)}
+                            >
                               <ArrowRight className="h-4 w-4" /> Apri scheda
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => archiveCliente.mutate(c.id)}>
+                            <DropdownMenuItem
+                              onClick={() => archiveCliente.mutate(c.id)}
+                            >
                               <Archive className="h-4 w-4" /> Archivia
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -942,7 +997,8 @@ export default function ClientiList() {
                               onClick={() =>
                                 setDeleteTarget({
                                   id: c.id,
-                                  label: displayName || c.email || `Cliente ${c.id}`,
+                                  label:
+                                    displayName || c.email || `Cliente ${c.id}`,
                                 })
                               }
                             >
@@ -962,7 +1018,7 @@ export default function ClientiList() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        onOpenChange={o => !o && setDeleteTarget(null)}
         title="Eliminare il cliente?"
         description={`Stai per eliminare "${deleteTarget?.label ?? ""}". L'operazione è definitiva e non può essere annullata. Le commesse collegate restano, ma perdono il riferimento al cliente.`}
         confirmLabel="Elimina"

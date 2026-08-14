@@ -1,8 +1,18 @@
-# L'Agente — Il cervello operativo di Ruffino Ops
+# L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.0 — 24/07/2026
-**Prerequisiti:** Fase 0 e Fase 1 del `Piano_AI_Ruffino_Ops_v1.md`
-**Sostituisce:** nulla. Si costruisce *sopra* la pipeline della Fase 1, non al posto suo.
+**Versione:** 1.1 — 14/08/2026
+**Stato:** loop agentico, proposte, email/WhatsApp, FiC read-only, memoria, budget, audit e caching implementati. Ricerca semantica/pgvector resta roadmap.
+**Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
+
+### Stato implementativo sintetico
+
+- I messaggi email e WhatsApp confluiscono nella tabella `comunicazioni`; lo smistamento parte solo sui nuovi record non ancora analizzati.
+- La riconciliazione FiC usa un trigger separato e un modello automatico più economico.
+- `on_demand`, chat e seguito usano il modello principale configurato per sede.
+- Il catalogo strumenti è filtrato per trigger; l'ordine resta stabile per il prompt caching.
+- Quando è nota la commessa, il loop precarica un fascicolo aggregato prima del primo turno del modello.
+- La cache strumenti è isolata al singolo run; prompt e tool schema usano la cache Anthropic.
+- Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
 ---
 
@@ -50,8 +60,8 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 │  AGENTE (loop con strumenti)                             │
 │  Si sveglia su: evento non risolto · job notturno ·      │
 │  richiesta esplicita dell'operatore                      │
-│  12 strumenti di lettura · 9 strumenti di proposta       │
-│  Budget: max 15 chiamate, 60s, €0.05 per esecuzione      │
+│  Profilo strumenti scelto dal trigger                     │
+│  Default: max 25 chiamate, 120s, 5 proposte, $25/mese    │
 └─────────────────────────┬───────────────────────────────┘
                           ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -73,6 +83,7 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_cliente` | Anagrafica + elenco commesse | |
 | `cerca_commesse` | Per codice, cliente, stato, città | Max 10 |
 | `leggi_commessa` | Fascicolo: stato, date, importi, pagamenti, prodotti | |
+| `leggi_fascicolo_commessa` | Vista aggregata di commessa, timeline, documenti, gate, ordini, magazzino, ticket, interventi e garanzie | Precaricata quando `commessaId` è noto |
 | `leggi_timeline` | 18 step con date, note, esecutori | |
 | `leggi_documenti` | Elenco metadati documenti di una commessa | Non il contenuto |
 | `leggi_contenuto_documento` | Testo estratto di un documento | Contenuto **non fidato** |
@@ -80,7 +91,9 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_ordini_fornitore` | Ordini, righe, stati, importi | |
 | `leggi_magazzino` | Prodotti, fornitori, date consegna, arrivi | |
 | `leggi_fatture_cloud` | Fatture FIC: numero, data, importo, stato pagamento | Sola lettura |
-| `ricerca_semantica` | RAG su documenti e comunicazioni (Fase 4) | |
+| `leggi_ticket`, `leggi_interventi`, `leggi_garanzie` | Stato operativo e post-vendita | |
+| `leggi_fornitori`, `leggi_squadre`, `leggi_economia` | Contesto organizzativo ed economico | |
+| `ricerca_semantica` | RAG su documenti e comunicazioni | **Roadmap**, non esposto oggi |
 
 ### 4.2 Strumenti di proposta
 
@@ -107,6 +120,21 @@ Un agente che non può dire "non lo so" è un agente che inventa. Questo strumen
 
 **`nessuna_azione`** — terminazione esplicita con motivazione. Senza di esso, un modello messo davanti a un compito tende a produrre *qualcosa* pur di non sembrare inutile. Rendere il non fare nulla una scelta legittima e dichiarabile abbassa drasticamente il rumore.
 
+### 4.4 Profili, fascicolo e cache
+
+Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli input token e peggiora la scelta. Il codice seleziona quindi un profilo stabile:
+
+| Trigger | Profilo | Obiettivo |
+|---|---|---|
+| `riconciliazione_fatture` | `riconciliazione` | FiC, clienti, commesse, economia e proposte pagamento/collegamento |
+| `smistamento` | `smistamento` | Comunicazioni, allegati, entità CRM e proposte di aggancio |
+| `on_demand` | `operativo` | Fascicolo e strumenti necessari all'analisi di una commessa |
+| `chat`, `seguito` | `completo` | Esplorazione richiesta dall'operatore |
+
+`leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima di Anthropic quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
+
+Le letture `leggi_*`/`cerca_*` sono memorizzate per singola esecuzione con chiave JSON stabile. Due richieste uguali e contemporanee condividono anche la Promise in corso; un errore viene rimosso dalla cache. Non esiste cache cross-run: sarebbe facile mostrare dati stantii o di un altro contesto.
+
 ---
 
 ## 5. Quando l'agente si sveglia
@@ -126,11 +154,11 @@ Un agente che non può dire "non lo so" è un agente che inventa. Questo strumen
 
 ## 6. Le quattro sorgenti
 
-### 6.1 Email (Gmail)
-Già in Fase 1. L'agente aggiunge la capacità di seguire il thread, cercare comunicazioni precedenti con lo stesso cliente e riconciliare quanto scritto con lo stato reale della commessa.
+### 6.1 Email (IMAP)
+Implementata tramite caselle IMAP per sede. L'ingestione è idempotente, conserva il riferimento UID e accoda a Tars solo i messaggi nuovi; lo storico importato non genera una valanga di run retroattivi.
 
 ### 6.2 WhatsApp (Cloud API)
-Già in Fase 2. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). L'agente deve leggere gli ultimi 10 messaggi del thread prima di interpretare, altrimenti classifica male. Questo è esattamente un caso in cui il riflesso non basta e serve il ragionamento.
+Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
 
 ### 6.3 Fatture in Cloud
 Oggi la sincronizzazione crea solo clienti mancanti (§40). L'agente la estende **in sola lettura** a:
@@ -232,14 +260,14 @@ Il rischio sale rispetto alla pipeline, perché l'agente legge contenuti non fid
 4. **Segnalazione obbligatoria**: se l'agente rileva un tentativo di manipolazione, deve creare una proposta di tipo segnalazione con severità alta. Il tentativo diventa visibile invece di essere silenziosamente ignorato.
 
 ### 9.2 Limiti di esecuzione
-- Max **15 chiamate a strumenti** per esecuzione, poi terminazione forzata con quanto raccolto
-- Timeout **60 secondi**
+- Default **25 chiamate a strumenti** per esecuzione, poi un ultimo turno di chiusura senza nuove letture
+- Timeout default **120 secondi**
 - Max **5 proposte** per esecuzione. Un agente che ne genera 12 su una commessa ha frainteso qualcosa.
 - Max **3 proposte pendenti** per commessa: oltre, sospende e segnala. Previene il rumore, che è la causa di morte numero uno di questi sistemi.
 - Budget mensile con interruttore automatico
 
 ### 9.3 Registro completo
-Ogni esecuzione salvata in `agente_esecuzioni`: trigger, strumenti chiamati con parametri e risultati, ragionamento, proposte generate, token, costo, esito. Consultabile dalla direzione. Serve per il debug, per capire *perché* ha proposto una cosa, e per la rendicontabilità.
+Ogni esecuzione salvata in `agente_esecuzioni`: trigger, modello effettivo, profilo e numero di strumenti esposti, preload fascicolo, strumenti chiamati, cache hit, proposte generate, token input/output, cache read/write 5m/1h, costo stimato, durata ed esito. Consultabile dalla direzione per debug e rendicontabilità.
 
 ### 9.4 Interruttore
 Un toggle in `/integrazioni`: **"Agente attivo"**. Off = il CRM funziona esattamente come oggi. Deve essere una cosa che spegni in tre secondi senza chiamare nessuno.
@@ -257,9 +285,17 @@ Un toggle in `/integrazioni`: **"Agente attivo"**. Off = il CRM funziona esattam
 | Brief, bozze, RAG | — | Sonnet 5 | ~€17 |
 | **Totale** | | | **≈ €48/mese** |
 
-Budget consigliato: **€80/mese** con interruttore al 100%.
+Il default applicativo è **$25/mese per sede**, modificabile dalla direzione. Al superamento, i trigger automatici si fermano; le richieste umane ricevono un errore esplicito. Le stime della tabella restano ipotesi iniziali: il dato da usare per decidere è l'audit reale.
 
-Il costo reale resta il tuo tempo di sviluppo. Usa il caching sul blocco system (identico a ogni chiamata) e la Batch API sul job notturno che non ha vincoli di latenza: dimezza la voce più cara.
+### 10.1 Caching implementato
+
+La richiesta Anthropic marca con cache control:
+
+- il system prompt stabile con TTL 1 ora;
+- l'ultimo schema tool del profilo con TTL 1 ora;
+- il prefisso crescente della conversazione come `ephemeral`, così i tool result del giro precedente vengono riletti a prezzo cache.
+
+Le decisioni recenti, che cambiano spesso, restano in fondo al turno utente e non invalidano il prefisso stabile. Il costo distingue input pieno, cache read, write 5 minuti e write 1 ora; accorparli produrrebbe una stima errata. Insieme a profili e fascicolo, questo è il sistema principale di riduzione token.
 
 ---
 

@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { jsPDF } from "jspdf";
 import autoTableImport from "jspdf-autotable";
+import { getFile, sha256Hex } from "./fileStorage";
 
 // tsx/esbuild ESM-CJS interop: depending on the bundler the callable lands
 // either on the namespace itself or on .default.
@@ -61,7 +62,9 @@ function getConfig(): BackupConfig {
   return configRows[0];
 }
 
-export function updateConfig(patch: Partial<Pick<BackupConfig, "folderId" | "enabled">>) {
+export function updateConfig(
+  patch: Partial<Pick<BackupConfig, "folderId" | "enabled">>
+) {
   const cfg = getConfig();
   if (patch.folderId !== undefined) cfg.folderId = patch.folderId.trim();
   if (patch.enabled !== undefined) cfg.enabled = patch.enabled;
@@ -83,7 +86,7 @@ type BackupLog = {
 };
 
 let nextLogId = 1;
-const _logStore = persistedStore<BackupLog>("backup_log", (loaded) => {
+const _logStore = persistedStore<BackupLog>("backup_log", loaded => {
   nextLogId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const logRows = _logStore.items;
@@ -143,7 +146,10 @@ function loadOAuthFile(): void {
 // already in; this only fills the gap when the DB is absent/empty).
 setTimeout(loadOAuthFile, 0);
 
-export function oauthClientFromEnv(): { clientId: string; clientSecret: string } | null {
+export function oauthClientFromEnv(): {
+  clientId: string;
+  clientSecret: string;
+} | null {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
@@ -166,7 +172,10 @@ function consumeOAuthState(state: string): boolean {
   return exp != null && Date.now() < exp;
 }
 
-export function buildAuthUrl(redirectUri: string, state: string): string | null {
+export function buildAuthUrl(
+  redirectUri: string,
+  state: string
+): string | null {
   const client = oauthClientFromEnv();
   if (!client) return null;
   const p = new URLSearchParams({
@@ -186,7 +195,8 @@ export async function handleOAuthCallback(
   state: string,
   redirectUri: string
 ): Promise<void> {
-  if (!consumeOAuthState(state)) throw new Error("Stato OAuth non valido o scaduto");
+  if (!consumeOAuthState(state))
+    throw new Error("Stato OAuth non valido o scaduto");
   const client = oauthClientFromEnv();
   if (!client) throw new Error("Client OAuth non configurato");
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -201,11 +211,15 @@ export async function handleOAuthCallback(
     }).toString(),
   });
   if (!res.ok) {
-    throw new Error(`Scambio codice OAuth fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+    throw new Error(
+      `Scambio codice OAuth fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`
+    );
   }
   const j: any = await res.json();
   if (!j.refresh_token) {
-    throw new Error("Google non ha restituito un refresh token — riprova il collegamento");
+    throw new Error(
+      "Google non ha restituito un refresh token — riprova il collegamento"
+    );
   }
   // Identify the connected account for the UI.
   let email: string | null = null;
@@ -213,7 +227,8 @@ export async function handleOAuthCallback(
     const about = await fetch(`${DRIVE}/about?fields=user(emailAddress)`, {
       headers: { authorization: `Bearer ${j.access_token}` },
     });
-    if (about.ok) email = ((await about.json()) as any)?.user?.emailAddress ?? null;
+    if (about.ok)
+      email = ((await about.json()) as any)?.user?.emailAddress ?? null;
   } catch {
     /* non-fatal */
   }
@@ -261,7 +276,9 @@ async function getOAuthAccessToken(): Promise<string> {
     }).toString(),
   });
   if (!res.ok) {
-    throw new Error(`Refresh token Google rifiutato (HTTP ${res.status}) — ricollega l'account da Impostazioni`);
+    throw new Error(
+      `Refresh token Google rifiutato (HTTP ${res.status}) — ricollega l'account da Impostazioni`
+    );
   }
   const j: any = await res.json();
   oauthCachedToken = {
@@ -305,7 +322,8 @@ export async function checkBackupRoot(): Promise<{
 }> {
   try {
     const row = oauthRows[0];
-    if (!row?.rootFolderId) return { ok: false, error: "Nessuna cartella di backup ancora creata" };
+    if (!row?.rootFolderId)
+      return { ok: false, error: "Nessuna cartella di backup ancora creata" };
     const token = await getOAuthAccessToken();
     const res = await fetch(
       `${DRIVE}/files/${row.rootFolderId}?fields=id,name,trashed,parents&supportsAllDrives=true`,
@@ -313,7 +331,12 @@ export async function checkBackupRoot(): Promise<{
     );
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const j: any = await res.json();
-    return { ok: true, name: j.name, parents: j.parents ?? [], trashed: !!j.trashed };
+    return {
+      ok: true,
+      name: j.name,
+      parents: j.parents ?? [],
+      trashed: !!j.trashed,
+    };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "errore" };
   }
@@ -326,8 +349,8 @@ export function loadServiceAccount(): ServiceAccount | null {
     const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
       ? process.env.GOOGLE_SERVICE_ACCOUNT_JSON
       : process.env.GOOGLE_SERVICE_ACCOUNT_FILE
-      ? fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_FILE, "utf8")
-      : null;
+        ? fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_FILE, "utf8")
+        : null;
     if (!raw) return null;
     const j = JSON.parse(raw);
     if (!j.client_email || !j.private_key) return null;
@@ -345,7 +368,11 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
   }
   const nowSec = Math.floor(Date.now() / 1000);
   const b64url = (s: Buffer | string) =>
-    Buffer.from(s).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    Buffer.from(s)
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = b64url(
     JSON.stringify({
@@ -372,10 +399,15 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
     body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}&assertion=${jwt}`,
   });
   if (!res.ok) {
-    throw new Error(`Token Google rifiutato (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`);
+    throw new Error(
+      `Token Google rifiutato (HTTP ${res.status}): ${(await res.text()).slice(0, 300)}`
+    );
   }
   const j: any = await res.json();
-  cachedToken = { token: j.access_token, expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000 };
+  cachedToken = {
+    token: j.access_token,
+    expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000,
+  };
   return cachedToken.token;
 }
 
@@ -409,7 +441,9 @@ export function attesaMs(tentativo: number, retryAfter: string | null): number {
   }
   // 1s, 2s, 4s, 8s… più un pizzico di casualità, così più richieste in coda
   // non ripartono tutte nello stesso istante.
-  return Math.min(1000 * 2 ** tentativo, 30_000) + Math.floor(Math.random() * 500);
+  return (
+    Math.min(1000 * 2 ** tentativo, 30_000) + Math.floor(Math.random() * 500)
+  );
 }
 
 export async function driveFetch(
@@ -438,12 +472,16 @@ export async function driveFetch(
     console.warn(
       `[backup] ${cosa}: ${ultimo} — ritento tra ${Math.round(attesa / 1000)}s (${tentativo + 1}/${TENTATIVI_DRIVE})`
     );
-    await new Promise((r) => setTimeout(r, attesa));
+    await new Promise(r => setTimeout(r, attesa));
   }
   throw new Error(`${cosa} fallita (${ultimo})`);
 }
 
-async function driveFindFolder(token: string, name: string, parentId: string): Promise<string | null> {
+async function driveFindFolder(
+  token: string,
+  name: string,
+  parentId: string
+): Promise<string | null> {
   const q = encodeURIComponent(
     `name = '${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
@@ -456,12 +494,19 @@ async function driveFindFolder(token: string, name: string, parentId: string): P
   return j.files?.[0]?.id ?? null;
 }
 
-async function driveCreateFolder(token: string, name: string, parentId: string): Promise<string> {
+async function driveCreateFolder(
+  token: string,
+  name: string,
+  parentId: string
+): Promise<string> {
   const res = await driveFetch(
     `${DRIVE}/files?supportsAllDrives=true&fields=id`,
     {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
         name,
         mimeType: "application/vnd.google-apps.folder",
@@ -483,8 +528,12 @@ async function driveUploadFile(
   const boundary = `bk${crypto.randomBytes(12).toString("hex")}`;
   const meta = JSON.stringify({ name, parents: [parentId] });
   const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`),
-    Buffer.from(`--${boundary}\r\ncontent-type: ${mimeType || "application/octet-stream"}\r\n\r\n`),
+    Buffer.from(
+      `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`
+    ),
+    Buffer.from(
+      `--${boundary}\r\ncontent-type: ${mimeType || "application/octet-stream"}\r\n\r\n`
+    ),
     data,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
@@ -523,7 +572,11 @@ function sanitizeName(s: string): string {
   );
 }
 
-function jsonFile(segments: string[], name: string, value: unknown): BackupFile {
+function jsonFile(
+  segments: string[],
+  name: string,
+  value: unknown
+): BackupFile {
   return {
     segments,
     name,
@@ -539,7 +592,8 @@ function sanitizeUtente(u: any) {
 
 // Map upload doc tipo → human folder name.
 function docFolder(tipo: string): string {
-  if (tipo === "preventivo" || tipo === "contratto") return "Preventivi e contratti";
+  if (tipo === "preventivo" || tipo === "contratto")
+    return "Preventivi e contratti";
   if (tipo === "misure") return "Misure";
   if (tipo === "fattura" || tipo === "saldo") return "Fatture e pagamenti";
   if (tipo === "ordine" || tipo === "conferma_ordine") return "Ordini";
@@ -566,7 +620,8 @@ function buildSchedaPdf(
   const marginX = 14;
   const accent: [number, number, number] = [37, 99, 235];
   let y = 16;
-  const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
+  const displayName =
+    `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
@@ -575,7 +630,11 @@ function buildSchedaPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(110);
-  doc.text(`Backup del ${new Date().toLocaleDateString("it-IT")} — Ruffino Flow`, marginX, y);
+  doc.text(
+    `Backup del ${new Date().toLocaleDateString("it-IT")} — Ruffino Flow`,
+    marginX,
+    y
+  );
   doc.setTextColor(0);
   y += 4;
 
@@ -618,7 +677,9 @@ function buildSchedaPdf(
       ["Finanziamento", c.interesseFinanziamento ? "Interessato" : "No"],
       [
         "Assegnato a",
-        assegnatario ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim() : "—",
+        assegnatario
+          ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
+          : "—",
       ],
     ],
     theme: "grid",
@@ -655,10 +716,10 @@ function buildSchedaPdf(
         cm.dataConsegnaConfermata
           ? fmtDate(cm.dataConsegnaConfermata)
           : cm.dataConsegnaIndicativa
-          ? `${fmtDate(cm.dataConsegnaIndicativa)} (indicativa)`
-          : cm.consegnaIndicativa
-          ? `~${cm.consegnaIndicativa} gg`
-          : "—",
+            ? `${fmtDate(cm.dataConsegnaIndicativa)} (indicativa)`
+            : cm.consegnaIndicativa
+              ? `~${cm.consegnaIndicativa} gg`
+              : "—",
       ]),
       theme: "striped",
       styles: { fontSize: 8.5, cellPadding: 1.6 },
@@ -735,7 +796,46 @@ function snapshotByKey(): Record<string, any[]> {
   return out;
 }
 
-export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
+type BackupFileRecord = {
+  id?: number;
+  nome?: string;
+  dataBase64?: string | null;
+  storageKey?: string | null;
+  checksum?: string | null;
+};
+
+/**
+ * Resolve the canonical bytes for a record included in the backup.
+ * Migrated records use object storage; legacy records still use inline base64.
+ */
+export async function resolveBackupFileData(
+  record: BackupFileRecord,
+  load: (storageKey: string) => Promise<Buffer | null> = getFile
+): Promise<Buffer | null> {
+  const label =
+    record.nome || (record.id != null ? `#${record.id}` : "senza nome");
+  if (record.storageKey) {
+    const data = await load(record.storageKey);
+    if (!data) {
+      throw new Error(
+        `Backup incompleto: file \"${label}\" non trovato nello storage (${record.storageKey})`
+      );
+    }
+    if (record.checksum && sha256Hex(data) !== record.checksum) {
+      throw new Error(
+        `Backup incompleto: checksum non valido per \"${label}\" (${record.storageKey})`
+      );
+    }
+    return data;
+  }
+  if (record.dataBase64) return Buffer.from(record.dataBase64, "base64");
+  return null;
+}
+
+export async function buildBackupTree(): Promise<{
+  rootName: string;
+  files: BackupFile[];
+}> {
   const stores = snapshotByKey();
   const today = new Date();
   const y = today.getFullYear();
@@ -769,7 +869,11 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
 
     // Users assigned to the sede (sediIds array, legacy single sedeId).
     const sedeUtenti = utenti.filter((u: any) => {
-      const ids: number[] = Array.isArray(u.sediIds) ? u.sediIds : u.sedeId ? [u.sedeId] : [];
+      const ids: number[] = Array.isArray(u.sediIds)
+        ? u.sediIds
+        : u.sedeId
+          ? [u.sedeId]
+          : [];
       return ids.length === 0 || ids.includes(sede.id);
     });
     files.push(jsonFile([sedeSeg], "Utenti.json", sedeUtenti));
@@ -784,12 +888,19 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
       ];
 
       const clienteCommesse = commesse.filter(
-        (cm: any) => cm.clienteId === c.id || (c.commesseIds ?? []).includes(cm.id)
+        (cm: any) =>
+          cm.clienteId === c.id || (c.commesseIds ?? []).includes(cm.id)
       );
       const commessaIds = new Set(clienteCommesse.map((cm: any) => cm.id));
-      const clienteInterventi = interventi.filter((i: any) => commessaIds.has(i.commessaId));
-      const clienteTicket = tickets.filter((t: any) => commessaIds.has(t.commessaId));
-      const clienteGaranzie = garanzie.filter((g: any) => commessaIds.has(g.commessaId));
+      const clienteInterventi = interventi.filter((i: any) =>
+        commessaIds.has(i.commessaId)
+      );
+      const clienteTicket = tickets.filter((t: any) =>
+        commessaIds.has(t.commessaId)
+      );
+      const clienteGaranzie = garanzie.filter((g: any) =>
+        commessaIds.has(g.commessaId)
+      );
 
       files.push(jsonFile(clienteSeg, "cliente.json", c));
       try {
@@ -815,30 +926,40 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
       }
 
       for (const cm of clienteCommesse) {
-        const cmSeg = [...clienteSeg, "Commesse", sanitizeName(cm.codice ?? `COM-${cm.id}`)];
+        const cmSeg = [
+          ...clienteSeg,
+          "Commesse",
+          sanitizeName(cm.codice ?? `COM-${cm.id}`),
+        ];
         files.push(jsonFile(cmSeg, "commessa.json", cm));
 
         // Uploaded documents grouped by type.
-        for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
-          if (!doc.dataBase64) continue;
+        for (const doc of documenti.filter(
+          (x: any) => x.commessaId === cm.id
+        )) {
+          const data = await resolveBackupFileData(doc);
+          if (!data) continue;
           files.push({
             segments: [...cmSeg, docFolder(doc.tipo)],
             name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
             mimeType: doc.mimeType || "application/octet-stream",
-            data: Buffer.from(doc.dataBase64, "base64"),
+            data,
           });
         }
 
         // Ticket attachments under the commessa.
-        for (const t of clienteTicket.filter((x: any) => x.commessaId === cm.id)) {
+        for (const t of clienteTicket.filter(
+          (x: any) => x.commessaId === cm.id
+        )) {
           const all = ticketAllegati.filter((a: any) => a.ticketId === t.id);
           for (const a of all) {
-            if (!a.dataBase64) continue;
+            const data = await resolveBackupFileData(a);
+            if (!data) continue;
             files.push({
               segments: [...cmSeg, `Ticket ${t.id}`],
               name: sanitizeName(a.nome ?? `allegato-${a.id}`),
               mimeType: a.mimeType || "application/octet-stream",
-              data: Buffer.from(a.dataBase64, "base64"),
+              data,
             });
           }
         }
@@ -850,7 +971,8 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
       (cm: any) =>
         (cm.sedeId ?? 1) === sede.id &&
         !clienti.some(
-          (c: any) => c.id === cm.clienteId || (c.commesseIds ?? []).includes(cm.id)
+          (c: any) =>
+            c.id === cm.clienteId || (c.commesseIds ?? []).includes(cm.id)
         )
     );
     for (const cm of orphan) {
@@ -861,13 +983,29 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
       ];
       files.push(jsonFile(cmSeg, "commessa.json", cm));
       for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
-        if (!doc.dataBase64) continue;
+        const data = await resolveBackupFileData(doc);
+        if (!data) continue;
         files.push({
           segments: [...cmSeg, docFolder(doc.tipo)],
           name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
           mimeType: doc.mimeType || "application/octet-stream",
-          data: Buffer.from(doc.dataBase64, "base64"),
+          data,
         });
+      }
+
+      for (const t of tickets.filter((x: any) => x.commessaId === cm.id)) {
+        for (const a of ticketAllegati.filter(
+          (x: any) => x.ticketId === t.id
+        )) {
+          const data = await resolveBackupFileData(a);
+          if (!data) continue;
+          files.push({
+            segments: [...cmSeg, `Ticket ${t.id}`],
+            name: sanitizeName(a.nome ?? `allegato-${a.id}`),
+            mimeType: a.mimeType || "application/octet-stream",
+            data,
+          });
+        }
       }
     }
   }
@@ -877,7 +1015,10 @@ export function buildBackupTree(): { rootName: string; files: BackupFile[] } {
 
 // ── Writers ──────────────────────────────────────────────────────────────────
 
-async function writeLocal(rootName: string, files: BackupFile[]): Promise<void> {
+async function writeLocal(
+  rootName: string,
+  files: BackupFile[]
+): Promise<void> {
   const base = path.join(process.cwd(), "backups", rootName);
   for (const f of files) {
     const dir = path.join(base, ...f.segments.map(sanitizeName));
@@ -922,7 +1063,9 @@ async function writeDrive(
 
 let running = false;
 
-export async function runBackup(trigger: "schedulato" | "manuale"): Promise<BackupLog> {
+export async function runBackup(
+  trigger: "schedulato" | "manuale"
+): Promise<BackupLog> {
   if (running) throw new Error("Backup già in corso");
   running = true;
   const cfg = getConfig();
@@ -944,7 +1087,7 @@ export async function runBackup(trigger: "schedulato" | "manuale"): Promise<Back
   _logStore.save();
 
   try {
-    const { rootName, files } = buildBackupTree();
+    const { rootName, files } = await buildBackupTree();
     log.rootName = rootName;
     log.files = files.length;
     log.bytes = files.reduce((s, f) => s + f.data.length, 0);
@@ -1014,7 +1157,7 @@ async function backupNotturnoConRitentativi(): Promise<void> {
     console.warn(
       `[backup] notturno fallito (${log.error}) — ritento tra 20 minuti (${tentativo}/${RITENTATIVI_NOTTURNI})`
     );
-    await new Promise((r) => setTimeout(r, ATTESA_RITENTATIVO_MS));
+    await new Promise(r => setTimeout(r, ATTESA_RITENTATIVO_MS));
   }
 }
 

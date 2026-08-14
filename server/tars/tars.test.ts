@@ -14,6 +14,13 @@ import {
   budgetMensileSuperato,
   costoEsecuzioneUsd,
 } from "./stores";
+import {
+  eseguiStrumento,
+  TOOL_DEFS,
+  toolDefsForTrigger,
+  type ToolRuntime,
+} from "./tools";
+import { callAnthropic } from "./anthropic";
 
 function makeCtx(): TrpcContext {
   return {
@@ -211,7 +218,11 @@ describe("tars", () => {
           },
         ],
       },
-      { stop_reason: "end_turn", usage, content: [{ type: "text", text: "Fatto." }] },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Fatto." }],
+      },
     ]) as any;
 
     const esito = await caller.tars.analizza({ commessaId: commessa.id });
@@ -243,7 +254,7 @@ describe("tars", () => {
 
   it("le proposte restano nella coda sede-scoped", () => {
     // Tutte le proposte create nei test appartengono alla sede 1.
-    expect(proposte.every((p) => p.sedeId === 1)).toBe(true);
+    expect(proposte.every(p => p.sedeId === 1)).toBe(true);
   });
 });
 
@@ -293,7 +304,8 @@ describe("tars.chat", () => {
               data: "2026-08-06",
               tipo: "acconto_1",
               titolo: `Registra acconto €1.500 su ${commessa.codice}`,
-              motivazione: "Richiesto dall'operatore in chat; pattuito coerente.",
+              motivazione:
+                "Richiesto dall'operatore in chat; pattuito coerente.",
               confidenza: "alta",
             },
           },
@@ -303,7 +315,10 @@ describe("tars.chat", () => {
         stop_reason: "end_turn",
         usage,
         content: [
-          { type: "text", text: "Pronto: approva qui sotto e registro la rata." },
+          {
+            type: "text",
+            text: "Pronto: approva qui sotto e registro la rata.",
+          },
         ],
       },
     ]) as any;
@@ -322,7 +337,9 @@ describe("tars.chat", () => {
     expect(storia[1].proposte).toHaveLength(1);
 
     // Approvazione dalla chat → mutation reale.
-    await caller.tars.proposte.approva({ id: (risposta.proposte[0] as any).id });
+    await caller.tars.proposte.approva({
+      id: (risposta.proposte[0] as any).id,
+    });
     const c = await caller.commesse.byId(commessa.id);
     expect(c!.importoIncassato).toBe(1500);
 
@@ -344,7 +361,11 @@ describe("tars — proposta rifiutata non torna", () => {
     global.fetch = realFetch;
   });
 
-  function propostaPagamento(commessaId: number, importo: number, titolo: string) {
+  function propostaPagamento(
+    commessaId: number,
+    importo: number,
+    titolo: string
+  ) {
     return {
       stop_reason: "tool_use",
       usage,
@@ -403,7 +424,7 @@ describe("tars — proposta rifiutata non torna", () => {
     expect(secondo.proposte).toHaveLength(0);
     // Il modello riceve il motivo del rifiuto: è quello che gli evita di
     // riscrivere la stessa proposta con altre parole.
-    const registro = esecuzioni.find((e) => e.id === secondo.esecuzioneId)!;
+    const registro = esecuzioni.find(e => e.id === secondo.esecuzioneId)!;
     expect(registro.strumenti[0].esito).toMatch(/gi\u00e0 stata rifiutata/);
     expect(registro.strumenti[0].esito).toMatch(/azione non necessaria/);
 
@@ -416,7 +437,7 @@ describe("tars — proposta rifiutata non torna", () => {
     expect(terzo.proposte).toHaveLength(0);
 
     // In coda resta solo la rifiutata: nessun doppione.
-    const suQuesta = proposte.filter((p) => p.commessaId === commessa.id);
+    const suQuesta = proposte.filter(p => p.commessaId === commessa.id);
     expect(suQuesta).toHaveLength(1);
     expect(suQuesta[0].stato).toBe("rifiutata");
   });
@@ -443,7 +464,9 @@ describe("tars — proposta rifiutata non torna", () => {
     const secondo = await caller.tars.analizza({ commessaId: commessa.id });
     expect(secondo.proposte).toHaveLength(0);
     expect(
-      proposte.filter((p) => p.commessaId === commessa.id && p.stato === "pendente")
+      proposte.filter(
+        p => p.commessaId === commessa.id && p.stato === "pendente"
+      )
     ).toHaveLength(1);
   });
 });
@@ -464,7 +487,7 @@ describe("tars — seguito dell'approvazione", () => {
     const fine = Date.now() + ms;
     while (Date.now() < fine) {
       if (cond()) return true;
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise(r => setTimeout(r, 20));
     }
     return cond();
   }
@@ -489,16 +512,22 @@ describe("tars — seguito dell'approvazione", () => {
             name: "proponi_segnalazione",
             input: {
               severita: "alta",
-              descrizione: "Il cliente sollecita su una posa già data per fatta.",
+              descrizione:
+                "Il cliente sollecita su una posa già data per fatta.",
               commessaId: commessa.id,
               titolo: `Incoerenza sulla posa di ${commessa.codice}`,
-              motivazione: "La timeline dice posata, il cliente scrive che non lo è.",
+              motivazione:
+                "La timeline dice posata, il cliente scrive che non lo è.",
               confidenza: "alta",
             },
           },
         ],
       },
-      { stop_reason: "end_turn", usage, content: [{ type: "text", text: "Segnalato." }] },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Segnalato." }],
+      },
     ]) as any;
 
     const analisi = await caller.tars.analizza({ commessaId: commessa.id });
@@ -522,24 +551,31 @@ describe("tars — seguito dell'approvazione", () => {
               categoria: "difetto_posa",
               priorita: "alta",
               titolo: `Apri ticket verifica posa su ${commessa.codice}`,
-              motivazione: "La segnalazione approvata resta aperta: serve un intervento.",
+              motivazione:
+                "La segnalazione approvata resta aperta: serve un intervento.",
               confidenza: "alta",
             },
           },
         ],
       },
-      { stop_reason: "end_turn", usage, content: [{ type: "text", text: "Proposto il ticket." }] },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Proposto il ticket." }],
+      },
     ]) as any;
 
-    const approvata: any = await caller.tars.proposte.approva({ id: segnalazione.id });
+    const approvata: any = await caller.tars.proposte.approva({
+      id: segnalazione.id,
+    });
     expect(approvata.seguitoAvviato).toBe(true);
 
     const arrivata = await attendi(() =>
-      proposte.some((p) => p.origineId === segnalazione.id)
+      proposte.some(p => p.origineId === segnalazione.id)
     );
     expect(arrivata).toBe(true);
 
-    const seguito = proposte.find((p) => p.origineId === segnalazione.id)!;
+    const seguito = proposte.find(p => p.origineId === segnalazione.id)!;
     expect(seguito.tipo).toBe("ticket");
     expect(seguito.stato).toBe("pendente");
     expect(seguito.trigger).toBe("seguito");
@@ -547,7 +583,7 @@ describe("tars — seguito dell'approvazione", () => {
     // Approvare il seguito NON genera un altro seguito: la catena finisce.
     const decisa: any = await caller.tars.proposte.approva({ id: seguito.id });
     expect(decisa.seguitoAvviato).toBe(false);
-    expect(proposte.filter((p) => p.origineId === seguito.id)).toHaveLength(0);
+    expect(proposte.filter(p => p.origineId === seguito.id)).toHaveLength(0);
   });
 
   it("l'analisi resta leggibile sulla commessa dopo la decisione", async () => {
@@ -696,7 +732,7 @@ describe("tars — budget mensile", () => {
     expect(budgetMensileSuperato(1)).toBe(false);
 
     // Pulizia: l'esecuzione finta non deve sporcare gli altri test.
-    const idx = esecuzioni.findIndex((e) => e.id === 999_001);
+    const idx = esecuzioni.findIndex(e => e.id === 999_001);
     esecuzioni.splice(idx, 1);
     await caller.tars.config.setBudget({ budgetMensileUsd: 25 });
   });
@@ -724,7 +760,7 @@ describe("tars — budget mensile", () => {
 
     // on_demand → modello principale.
     const r1 = await caller.tars.analizza({ commessaId: commessa.id });
-    const e1 = esecuzioni.find((e) => e.id === r1.esecuzioneId)!;
+    const e1 = esecuzioni.find(e => e.id === r1.esecuzioneId)!;
     expect(e1.modello).toBe(getTarsConfig(1).modello);
 
     // trigger economico → modello automatico.
@@ -802,6 +838,98 @@ describe("tars — prefisso stabile per la cache", () => {
     expect(blocco).toContain("Titolo che non deve entrare nel system");
     expect(blocco).toContain("azione non necessaria");
 
-    proposte.splice(proposte.findIndex((p) => p.id === 999_100), 1);
+    proposte.splice(
+      proposte.findIndex(p => p.id === 999_100),
+      1
+    );
+  });
+});
+
+describe("tars — profili e cache operativa", () => {
+  const realFetch = global.fetch;
+  afterAll(() => {
+    global.fetch = realFetch;
+  });
+
+  it("carica solo gli strumenti necessari nei trigger automatici", () => {
+    const riconciliazione = toolDefsForTrigger("riconciliazione_fatture");
+    const smistamento = toolDefsForTrigger("smistamento");
+    const nomi = riconciliazione.map(t => t.name);
+
+    expect(riconciliazione.length).toBeLessThan(TOOL_DEFS.length / 2);
+    expect(JSON.stringify(riconciliazione).length).toBeLessThan(
+      JSON.stringify(TOOL_DEFS).length * 0.45
+    );
+    expect(nomi).toContain("proponi_collegamento_fattura");
+    expect(nomi).toContain("leggi_fascicolo_commessa");
+    expect(nomi).not.toContain("proponi_ticket");
+    expect(smistamento.map(t => t.name)).toContain("leggi_allegato");
+    expect(toolDefsForTrigger("chat")).toBe(TOOL_DEFS);
+  });
+
+  it("legge il fascicolo completo una volta e riusa le richieste duplicate", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({
+      cliente: "Cache Fascicolo",
+      importoTotale: 4200,
+    });
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_200,
+      trigger: "on_demand",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+      toolCacheHits: 0,
+    };
+
+    const prima = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
+      commessaId: commessa.id,
+    });
+    expect(prima.isError).toBeFalsy();
+    const fascicolo = JSON.parse(prima.content);
+    expect(fascicolo.commessa.id).toBe(commessa.id);
+    expect(fascicolo).toHaveProperty("timeline");
+    expect(fascicolo).toHaveProperty("docGate");
+    expect(fascicolo).toHaveProperty("magazzino");
+
+    const seconda = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
+      commessaId: commessa.id,
+    });
+    expect(JSON.parse(seconda.content).cacheHit).toBe(true);
+    expect(rt.toolCacheHits).toBe(1);
+  });
+
+  it("abilita la cache automatica sul prefisso crescente dei messaggi", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    let body: any = null;
+    global.fetch = vi.fn(async (_url, init: any) => {
+      body = JSON.parse(init.body);
+      return {
+        ok: true,
+        json: async () => ({
+          id: "msg_test",
+          model: "claude-test",
+          role: "assistant",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "ok" }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      } as any;
+    }) as any;
+
+    await callAnthropic({
+      model: "claude-test",
+      system: "system stabile",
+      messages: [{ role: "user", content: "ciao" }],
+      tools: toolDefsForTrigger("riconciliazione_fatture"),
+    });
+
+    expect(body.cache_control).toEqual({ type: "ephemeral" });
+    expect(body.messages).toEqual([{ role: "user", content: "ciao" }]);
+    expect(body.system[0].cache_control.ttl).toBe("1h");
+    expect(body.tools.at(-1).cache_control.ttl).toBe("1h");
   });
 });

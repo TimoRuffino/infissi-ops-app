@@ -16,7 +16,8 @@ import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
 import {
   eseguiStrumento,
   sintesiEsito,
-  TOOL_DEFS,
+  toolDefsForTrigger,
+  toolProfileForTrigger,
   type ToolRuntime,
 } from "./tools";
 import {
@@ -49,6 +50,8 @@ export async function runTars(params: {
   const modello = TRIGGER_ECONOMICI.has(params.trigger)
     ? config.modelloAutomatico
     : config.modello;
+  const tools = toolDefsForTrigger(params.trigger);
+  const profiloStrumenti = toolProfileForTrigger(params.trigger);
 
   const esecuzione: Esecuzione = {
     id: newEsecuzioneId(),
@@ -57,6 +60,10 @@ export async function runTars(params: {
     modello,
     commessaId: params.commessaId,
     richiesta: params.richiesta,
+    profiloStrumenti,
+    strumentiDisponibili: tools.length,
+    toolCacheHits: 0,
+    fascicoloPrecaricato: false,
     strumenti: [],
     proposteIds: [],
     riepilogo: null,
@@ -81,6 +88,8 @@ export async function runTars(params: {
     proposteIds: [],
     terminato: null,
     origineId: params.origineId ?? null,
+    risultatiCache: new Map(),
+    toolCacheHits: 0,
   };
 
   const system = buildSystemPrompt(params.ctx.sedeId);
@@ -88,11 +97,31 @@ export async function runTars(params: {
   // turno utente, dopo tutto il prefisso in cache: così un click su «approva»
   // non invalida più system e strumenti, che sono la parte cara e immobile.
   const decisioni = bloccoDecisioni(params.ctx.sedeId);
+  let richiesta = params.richiesta;
+  if (
+    params.commessaId != null &&
+    tools.some(tool => tool.name === "leggi_fascicolo_commessa")
+  ) {
+    const fascicolo = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
+      commessaId: params.commessaId,
+    });
+    if (!fascicolo.isError) {
+      esecuzione.fascicoloPrecaricato = true;
+      richiesta = `<fascicolo_commessa_verificato id="${params.commessaId}">
+${fascicolo.content}
+</fascicolo_commessa_verificato>
+
+Il fascicolo sopra è già stato letto dal CRM per questa esecuzione. Usalo come fonte
+iniziale e chiedi strumenti aggiuntivi solo per dettagli non presenti.
+
+${params.richiesta}`;
+    }
+  }
   const messages: AnthropicMessage[] = [
     ...(params.storia ?? []),
     {
       role: "user",
-      content: decisioni ? `${decisioni}\n\n${params.richiesta}` : params.richiesta,
+      content: decisioni ? `${decisioni}\n\n${richiesta}` : richiesta,
     },
   ];
 
@@ -107,7 +136,7 @@ export async function runTars(params: {
         model: modello,
         system,
         messages,
-        tools: TOOL_DEFS,
+        tools,
         signal: abort.signal,
       });
       esecuzione.tokensIn += res.usage.input_tokens;
@@ -115,18 +144,23 @@ export async function runTars(params: {
       esecuzione.tokensCacheRead += res.usage.cache_read_input_tokens ?? 0;
       const scritture = res.usage.cache_creation;
       if (scritture) {
-        esecuzione.tokensCacheWrite5m += scritture.ephemeral_5m_input_tokens ?? 0;
-        esecuzione.tokensCacheWrite1h += scritture.ephemeral_1h_input_tokens ?? 0;
+        esecuzione.tokensCacheWrite5m +=
+          scritture.ephemeral_5m_input_tokens ?? 0;
+        esecuzione.tokensCacheWrite1h +=
+          scritture.ephemeral_1h_input_tokens ?? 0;
       } else {
         // Risposta senza il dettaglio: si conta al prezzo più basso dei due,
         // che è quello dei 5 minuti — la stima sbaglia per difetto, mai
         // facendo scattare un budget che invece era capiente.
-        esecuzione.tokensCacheWrite5m += res.usage.cache_creation_input_tokens ?? 0;
+        esecuzione.tokensCacheWrite5m +=
+          res.usage.cache_creation_input_tokens ?? 0;
       }
 
       const testo = res.content
-        .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
+        .filter(
+          (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text"
+        )
+        .map(b => b.text)
         .join("\n")
         .trim();
       if (testo) esecuzione.riepilogo = testo;
@@ -145,7 +179,7 @@ export async function runTars(params: {
       // per niente. Il budget si conta prima, così resta deterministico
       // qualunque sia l'ordine in cui finiscono.
       const budget = toolUses.map(() => ++toolCalls <= config.maxToolCalls);
-      if (budget.some((ok) => !ok)) esecuzione.esito = "budget_esaurito";
+      if (budget.some(ok => !ok)) esecuzione.esito = "budget_esaurito";
 
       const esiti = await Promise.all(
         toolUses.map((tu, i) =>
@@ -188,12 +222,13 @@ export async function runTars(params: {
     esecuzione.esito = "errore";
     esecuzione.errore = abort.signal.aborted
       ? `Timeout esecuzione (${config.timeoutMs / 1000}s)`
-      : e?.message ?? String(e);
+      : (e?.message ?? String(e));
   } finally {
     clearTimeout(timer);
   }
 
   esecuzione.proposteIds = rt.proposteIds;
+  esecuzione.toolCacheHits = rt.toolCacheHits ?? 0;
   esecuzione.durataMs = Date.now() - start;
   esecuzioni.push(esecuzione);
   saveEsecuzioni();

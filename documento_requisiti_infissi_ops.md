@@ -1,7 +1,7 @@
-# Documento Requisiti — Ruffino Ops (PRD)
+# Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (06/08/2026).
-**Versione:** 4.2 — Storage documenti su object storage, marginalità e registro costi fornitore, post‑vendita v2 (solleciti, ticket senza commessa, ricerca, stati snelliti), squadre di posa assegnabili alla commessa, prodotti dichiarati in creazione, data di apertura visibile, formato unico degli importi. Base v4.1 — Pagina Pagamenti, acconti modificabili, date programmate in timeline, Magazzino con filtro fornitore, form azienda (ragione sociale + sede legale), responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Pagamenti/acconti, sincronizzazione Google Calendar (export+import), backup notturno su Google Drive, Fatture in Cloud, WhatsApp, notifiche personalizzate v2, timeline ordine con note, migrazione dati 2026.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (14/08/2026).
+**Versione:** 4.3 — Inbox Comunicazioni email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting. Base v4.2 — Storage documenti su object storage, marginalità, post‑vendita v2, squadre di posa, prodotti e formato unico degli importi. Base v4.1 — Pagamenti, timeline programmabile e responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Calendar, Drive, FiC e migrazione dati 2026.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -16,7 +16,7 @@
 ---
 
 ## 1. Visione del prodotto
-**Ruffino Ops** è lo strumento operativo centrale di **Ruffino Immobiliare S.R.L.** Collega ufficio, laboratorio di produzione e cantiere, accompagnando ogni cliente dalla prima richiesta fino alla garanzia post‑vendita. Non è un semplice database: è un **assistente proattivo** che ricorda le scadenze in base alla priorità delle commesse, blocca i passaggi di stato senza i documenti richiesti, e fornisce viste operative (Board, Calendario, Classifica) pensate per le persone reali che le useranno tutti i giorni.
+**Ruffino Flow** è lo strumento operativo centrale di **Ruffino Immobiliare S.R.L.** Collega ufficio, laboratorio di produzione e cantiere, accompagnando ogni cliente dalla prima richiesta fino alla garanzia post‑vendita. Non è un semplice database: è un assistente proattivo che ricorda le scadenze, blocca i passaggi di stato senza i documenti richiesti, unifica le comunicazioni e affianca gli operatori con proposte Tars sempre verificabili.
 
 Pilastri:
 1. **Una commessa = un percorso tracciato.** Stato, documenti, interventi, anomalie e firme convivono in un unico fascicolo.
@@ -27,13 +27,14 @@ Pilastri:
 ---
 
 ## 2. Architettura tecnica (sintesi)
-- **Frontend.** React 19 + Vite + Wouter (routing) + tRPC v10 (client) + React Query (caching) + Tailwind + shadcn/ui + lucide-react + sonner (toast) + jsPDF/jspdf‑autotable per i PDF dei preventivatori.
-- **Backend.** Node + Express + tRPC v10. Persistenza in `kv_store` (Postgres JSONB) tramite un piccolo layer `persistedStore` con save debounciato, retry su errori transienti, recovery in background.
+- **Frontend.** React 19 + Vite 7 + Wouter (routing) + tRPC 11 (client) + React Query (caching) + Tailwind 4 + shadcn/ui + lucide-react + sonner (toast) + jsPDF/jspdf‑autotable. Le pagine sono caricate per rotta con `React.lazy`; i vendor sono separati per React, UI, dati e grafici.
+- **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
 - **Scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri‑armato), sync Fatture in Cloud (ogni 6 h quando abilitato).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
-- **Storage file.** Documenti caricati come base64 nel KV store, separati per dominio (`preventivi_documenti`, `ticket_allegati`). Cap per‑file 10 MB.
+- **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
+- **Agente AI.** Tars usa Anthropic tool use, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
 
 ---
 
@@ -57,7 +58,9 @@ Pilastri:
 - Formato di archiviazione: `scrypt$<saltHex>$<hashHex>` (salt 16 byte, key 64 byte).
 - `verifyPassword` è constant‑time tramite `timingSafeEqual`.
 - Le password create/aggiornate dalla UI sono sempre hashate.
+- Le password nuove devono avere almeno 12 caratteri.
 - Le password legacy in chiaro residue nel DB vengono **automaticamente upgradate a hash al primo boot successivo** all'aggiornamento (vedi `utenti.onLoad`).
+- Su store utenti vuoto viene creato un solo amministratore da `BOOTSTRAP_ADMIN_*`; in produzione `BOOTSTRAP_ADMIN_PASSWORD` è obbligatoria. Non esistono più password seed fisse nel codice corrente.
 
 ### 3.4 Segreto JWT
 - In **produzione** la variabile d'ambiente `JWT_SECRET` è OBBLIGATORIA: in sua assenza il server fa throw all'avvio.
@@ -86,8 +89,8 @@ Su ogni risposta HTTP:
 - **Isolamento sede.** Ogni query/mutation è vincolata alla sede attiva (`ctx.sedeId`); guardie `assertSedeScope` su tutte le entità (vedi §34).
 
 ### 3.8 Operatività residua a carico del titolare (non risolvibile via codice)
-- Rotazione manuale delle password committate in git history prima della migrazione a hash.
-- Pulizia dello storico Git da quelle password (BFG / `git filter-repo` + force‑push).
+- Rotazione manuale delle vecchie password seed eventualmente ancora attive e revoca dei token GitHub non riconosciuti.
+- Decisione e finestra coordinata per pulire lo storico Git (BFG / `git filter-repo` + force‑push). Il codice corrente non contiene più password seed fisse, ma la cronologia resta immutata.
 
 ---
 
@@ -96,7 +99,7 @@ Su ogni risposta HTTP:
 ### 4.1 Set di ruoli
 - `direzione` — ammessi accesso completo + gestione utenti + sezioni gated (Squadre, Garanzie, Fornitori, Produzione, Utenti, Integrazioni avanzate).
 - `amministrazione` — focus su fatturazione, finiture, saldo.
-- `commerciale` — venditori; partecipano alla **Classifica**.
+- `commerciale` — gestione clienti e commesse commerciali.
 - `tecnico_rilievi` — rilievi e misure.
 - `squadra_posa` — esecuzione in cantiere.
 - `post_vendita` — ticket, reclami, rifacimenti.
@@ -278,8 +281,8 @@ Ordine canonico (`STATI_COMMESSA`):
 
 ### 8.2 Storage e schema
 - Persistito in `preventivi_documenti` (kv_store JSONB).
-- Per ogni documento: `id, commessaId, nome, tipo, mimeType, size, dataBase64, note, statoAtUpload, createdBy, createdAt`.
-- Lista `byCommessa` strippa `dataBase64` e restituisce un flag `hasData`. Solo `byId` ritorna il contenuto.
+- Per ogni documento: `id, sedeId, commessaId, nome, tipo, mimeType, size, storageKey?, checksum?, dataBase64?, note, statoAtUpload, createdBy, createdAt`.
+- `storageKey` è la fonte canonica dopo la migrazione; `dataBase64` resta per record legacy/fallback. La lista `byCommessa` non restituisce i byte e usa `hasData`; `byId` rilegge dallo storage e ricostruisce il payload atteso dal client.
 
 ### 8.3 Upload — controlli
 - **MimeType allowlist** (stored XSS hardening):
@@ -305,7 +308,7 @@ Ordine canonico (`STATI_COMMESSA`):
 - Soft delete NON previsto. La cancellazione è definitiva.
 
 ### 8.7 Allegati ticket
-- Pattern identico (router `ticketAllegati`), stesso schema base64, stessa allowlist mime, stesso size check, cap 10 MB.
+- Pattern identico (router `ticketAllegati`), con `storageKey`/checksum e fallback base64, stessa allowlist mime, stesso size check, cap 10 MB.
 - Cancellando un ticket si cancellano in cascata i suoi allegati (`deleteAllegatiByTicket`).
 
 ---
@@ -601,7 +604,6 @@ Stesso schema più:
   - Board Kanban.
   - Dashboard.
   - Notifiche proattive (vedi §27).
-  - Classifica venditori.
 - Restano accessibili a `/archivio` (scope `only`) e tramite link diretto `/commesse/:id`.
 
 ### 22.3 Pagina Archivio
@@ -703,7 +705,7 @@ La pagina Impostazioni ospita l'hub **Gestione** (direzione‑only: Fornitori, P
 Vedi §39. Card con stato collegamento, ultimo backup, prossima esecuzione, "Esegui ora", collega/scollega account.
 
 ### 27.2 Fatture in Cloud → Clienti
-Vedi §40. Card con token (mascherato), selettore azienda, switch abilitazione, "Sincronizza ora", esito ultimo sync.
+Vedi §40. Card OAuth con stato collegamento, scadenza credenziali, selettore azienda, switch abilitazione, "Sincronizza ora" e disconnessione. Il token manuale mascherato resta dentro un pannello secondario come fallback di emergenza.
 
 ### 27.3 Mostra Google nel calendario CRM (import)
 Vedi §38.2. Gestione sorgenti: nome + indirizzo iCal segreto (mascherato in lista), colore auto‑assegnato, toggle mostra/nascondi, stato sync, "Aggiorna", istruzioni passo‑passo.
@@ -726,7 +728,9 @@ Integrazione richiesta al fornitore (import automatico clienti/preventivi/commes
 
 ### 28.1 KV store
 - Tabella `kv_store(key text primary key, data jsonb, updated_at timestamptz)`.
-- Ogni router business possiede una o più "raccolte" persistite: `clienti`, `commesse`, `aperture`, `interventi`, `anomalie`, `tickets`, `ticket_allegati`, `squadre`, `garanzie`, `verbali`, `fornitori`, `fornitori_ordini`, `fornitori_listini`, `produzione_distinte`, `produzione_fasi`, `produzione_nc`, `preventivi_documenti`, `reclami`, `rifacimenti`, `timeline_steps`, `utenti`, `sedi`, `calendar_tokens`, `external_calendars`, `notifiche_read`, `backup_config`, `backup_log`, `backup_oauth`, `fic_config`, `magazzino_prodotti`.
+- Ogni router business possiede una o più raccolte persistite, tra cui `clienti`, `commesse`, `tickets`, `ticket_allegati`, `preventivi_documenti`, `utenti`, `sedi`, `backup_*`, `fic_config`, `fic_fatture`, `caselle_email`, `whatsapp_*`, `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`.
+
+La tabella `comunicazioni` è separata dal KV store: insert idempotente per `(casella_id, canale, message_id)`, indici per lista e tombstone per le eliminazioni dal CRM (§51).
 
 Il refresh token Google del backup è inoltre **specchiato su file** (`data/backup-oauth.json`, mode 600, gitignored) così i riavvii senza DATABASE_URL non scollegano Drive; la riga DB, quando presente, ha precedenza.
 
@@ -756,6 +760,8 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - Tailwind + shadcn/ui (Button, Card, Badge, Dialog, AlertDialog, Avatar, Input, Label, Select, Switch, Tabs, Tooltip, DropdownMenu).
 - Icone lucide‑react.
 - Toast: sonner.
+- Font Plus Jakarta Sans; palette chiara calda con superfici bianche, inchiostro scuro e giallo come accento. I colori di stato usano token semantici (`success`, `warning`, `danger`, `info`), non hex locali.
+- Raggi tra 8 e 14 px, bordi visibili e ombre contenute. Le superfici operative non devono apparire fredde, eccessivamente opache o spigolose.
 - Componente `<SearchSelect>` riutilizzato per dropdown ricercabili (utenti, squadre, fornitori, ecc.).
 - Componente `<ConfirmDialog>` riutilizzato per: cancellazioni, archiviazioni, "Procedi comunque" del doc gate, ripristino archivio.
 - Componente `<FilePreviewDialog>` per preview PDF/immagini.
@@ -792,19 +798,21 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ## 31. Roadmap aperta (lavori noti)
 
 ### 31.1 Sicurezza
-- **Rotazione credenziali** committate nello storico Git + **purge history** (BFG/`git filter-repo`).
+- **Operatività:** ruotare le vecchie credenziali seed eventualmente ancora usate, rifare il login locale `gh` e revocare token GitHub non riconosciuti.
+- **Decisione separata:** purge delle password seed dalla cronologia (BFG/`git filter-repo`). Richiede riscrittura SHA, force-push concordato e riallineamento di ogni clone.
 - CSP (Content Security Policy) tarata su Vite, blob preview, Maps proxy.
 
 ### 31.2 Ottimizzazione
-- **Per‑file storage** dei documenti: oggi ogni upload riscrive tutta la JSONB della raccolta `preventivi_documenti`. Migrazione consigliata verso una row kv per documento o, meglio, una tabella `documents` con colonna `bytea`/object storage esterno. Richiede backup DB prima di toccare i dati.
+- **Attivazione object storage:** il layer per-file è completo; restano configurazione R2 su Railway, probe, backup Drive, dry-run sui dati reali e apply (§47). Il dry-run locale senza `DATABASE_URL` non è una verifica della produzione.
 - Aggregato dashboard in un unico endpoint per ridurre il fan‑out lato client.
+- Monitoraggio del rapporto `cache_read_input_tokens`/input token e del costo per trigger Tars dopo il deploy (§50).
 
 ### 31.3 UX
 - Drag&drop diretto sulle colonne del Kanban (oggi solo bottoni avanza/indietro).
 - Confetti hardware‑accelerati (opzionale).
 
 ### 31.4 Integrazioni
-- **Fatture in Cloud OAuth** (app 21541): flusso authorize + refresh token in sostituzione del token manuale (credenziali già emesse, implementazione pianificata).
+- **Fatture in Cloud OAuth:** codice completato. Restano configurazione delle variabili Railway, registrazione del redirect e collegamento di ogni sede (§40.3).
 - **Antenore (Wnd/Oknoplast)**: connettore import clienti/preventivi/ordini — in attesa di specifiche dal fornitore.
 - Esportazione CSV/Excel commesse, clienti, anomalie.
 - Push notifications mobile.
@@ -829,7 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
-- v3.0 — Riallineamento completo del PRD al codice corrente: dual address, tipoDetrazione, dataConsegnaIndicativa, soft‑archive, Archivio, Classifica venditori, doc‑gate con bypass, hardening sicurezza (scrypt, JWT fail‑hard, mimeType allowlist, rate‑limit login, security headers, session eviction, logout server‑side), assegnazione utente modificabile, preventivatori Fivizzanese e Punto del Serramento, Planning con joined info.
+- **v4.3 (14/08/2026)** — Inbox Comunicazioni email/WhatsApp (§51); Tars con fascicolo commessa, profili tool, prompt caching e cache per run (§50); OAuth FiC Authorization Code con refresh (§40.3); backup Drive compatibile con `storageKey`; probe e runbook R2 (§47); bootstrap utenti senza password fisse; sistema visuale caldo e code splitting (§52).
 - **v4.2 (06/08/2026)** — Storage documenti su object storage con migrazione verificata (§47); marginalità e registro costi fornitore dentro la commessa (§45); post‑vendita v2: solleciti, interventi pianificabili dal ticket, ticket senza commessa, ricerca, stato `risolto` ritirato (§13); squadre di posa visibili e assegnabili alla commessa (§46); prodotti dichiarati in creazione e modificabili dopo (§44); data di apertura in scheda e in lista (§9); formato e parsing unici degli importi (§48); correzioni notevoli (§49).
 - **v4.1 (23/07/2026)** — Pagina Pagamenti (§37.4) con registrazione rapida degli acconti; acconti modificabili in place (§37.1‑37.2); date programmabili sugli step della timeline, pensate per l'Appuntamento Posa (§35.2‑bis); Magazzino a 2 tile per riga con 4 prodotti visibili, badge fornitore e filtro fornitore a tendina (§36.3); form cliente con Ragione sociale e Sede legale per i non privati (§5.2); responsive mobile su header schede e tabelle di lista (§29.3).
 - **v4.0 (16/07/2026)** — Rimossa la Classifica venditori (§23). Multi‑sede con isolamento completo; redesign UI (board v2, calendario mese‑default con chip pieni, timeline note post‑it, dashboard personalizzata); Magazzino (tile+popup, ordini, lead time, dropdown fornitori); registro acconti; notifiche v2 con stato lettura; sincronizzazione Google Calendar export+import; backup notturno Google Drive (OAuth drive.file); Fatture in Cloud sync clienti; WhatsApp deep link; scheda cliente PDF; hardening (scrypt versionato, CSRF, SSRF guard, trust proxy, mascheramento segreti); migrazione dati 2026 (§43).
@@ -947,6 +955,9 @@ Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no 
 ### 39.1 Contenuto e struttura
 Ogni notte alle **00:00 Europe/Rome** (o manualmente) viene generato uno snapshot datato:
 ```
+
+- Per documenti e allegati il backup risolve prima `storageKey`, rilegge i byte dal driver attivo e verifica il checksum SHA‑256. Se l'oggetto manca o è corrotto il run fallisce in modo visibile: non viene prodotto un backup silenziosamente incompleto.
+- I record legacy con `dataBase64` restano supportati. Gli allegati ticket sono inclusi anche quando la commessa o il cliente collegato non sono più presenti.
 Backup CRM YYYY-MM-DD/
   database/<store>.json            ← dump integrale di ogni raccolta (utenti SENZA password)
   Sede <nome>/
@@ -986,7 +997,15 @@ Ogni 6 ore (se abilitato) o su "Sincronizza ora", il CRM legge le **fatture emes
 - I clienti creati vanno sulla sede primaria.
 
 ### 40.3 Config & stato
-Store `fic_config`: token API (mascherato in status), companyId (picker "Trova azienda" via `/user/companies`), enabled, ultimo esito. Router `fattureInCloud` (direzione): `status`, `saveConfig`, `companies`, `syncNow`. **Roadmap**: passaggio a OAuth app (credenziali già emesse) con refresh automatico (§31.4).
+Store `fic_config`: modalità `oauth` o `manual`, access token e refresh token cifrati, scadenza, `companyId`, abilitazione, data collegamento e ultimo esito. Lo status non restituisce mai segreti in chiaro.
+
+- OAuth Authorization Code: `oauthStartUrl` crea uno state monouso valido 10 minuti; callback `/api/oauth/fic/callback`; scopes read‑only `entity.clients:r issued_documents.invoices:r`.
+- L'access token viene rinnovato prima della scadenza con refresh deduplicato per sede. Il refresh token aggiornato viene persistito cifrato.
+- Se l'account espone una sola azienda, questa viene selezionata automaticamente; altrimenti resta il picker `/user/companies`.
+- La disconnessione rimuove i token OAuth. Il token manuale resta disponibile soltanto come fallback di emergenza.
+- Router direzione: `status`, `oauthStartUrl`, `disconnectOAuth`, `saveConfig`, `companies`, `syncNow`.
+
+Il requisito OAuth è code-complete. L'attivazione in produzione richiede `FIC_OAUTH_CLIENT_ID`, `FIC_OAUTH_CLIENT_SECRET`, `FIC_OAUTH_REDIRECT_URI` e un `MAIL_ENCRYPTION_KEY` stabile su Railway.
 
 ## 41. WhatsApp (deep link)
 
@@ -1115,8 +1134,13 @@ Su Railway senza volume il filesystem è effimero: un record otterrebbe `storage
 - **rifiuta di partire** senza un backup Drive riuscito nelle ultime 24 h (controlla `backup_log`);
 - **rifiuta** il driver `local` su Railway senza opt‑in esplicito.
 
+`pnpm storage:check` e la procedura direzione `fileStorage.probe` verificano la configurazione con un ciclo reale put → get → checksum → delete senza esporre access key o secret. Il runbook Cloudflare R2 è in `docs/storage-r2.md`.
+
 ### 47.6 Cascate
 L'eliminazione di un documento, di un allegato, di un ticket e — nuova — di una **commessa** rimuove anche i byte dallo storage. Prima l'eliminazione di una commessa lasciava i documenti orfani nella raccolta.
+
+### 47.7 Backup dopo la migrazione
+Il backup Drive non legge più soltanto `dataBase64`: usa `storageKey` come fonte canonica, verifica `checksum` e conserva il fallback legacy. Questo requisito è coperto da test per lettura inline, oggetto presente, oggetto mancante e checksum non valido.
 
 ---
 
@@ -1156,3 +1180,80 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 | Costo posa che tornava indietro al blur | una scrittura deve invalidare **tutte** le query che mostrano quel dato, non solo la più ovvia |
 | Colonna Prodotti ferma dopo una modifica dal tab | idem: `byId` **e** `list` |
 | Rata suggerita sempre "1° acconto" | se una `list` filtra dei campi, ciò che serve alla UI va esposto in forma sintetica (`nPagamenti`) |
+
+---
+
+## 50. Tars — agente operativo con approvazione umana
+
+### 50.1 Principio di sicurezza
+Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura diretta sui dati business: crea record in `azioni_suggerite`; un operatore approva o rifiuta; l'esecutore applica la proposta tramite la stessa mutation tRPC usata dall'interfaccia. Pagamenti, avanzamenti di stato, bozze di risposta e collegamenti fattura richiedono ruoli elevati.
+
+Le proposte rifiutate e quelle già pendenti hanno un'impronta stabile su tipo, commessa, titolo e payload. La stessa azione non deve tornare in coda riscritta con parole diverse; il motivo del rifiuto viene restituito al modello.
+
+### 50.2 Trigger e profili strumenti
+Il catalogo tool inviato ad Anthropic dipende dal trigger:
+
+- `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
+- `smistamento`: comunicazioni, ricerca e collegamento alle entità;
+- `on_demand`: profilo operativo mirato;
+- `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
+
+L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`.
+
+### 50.3 Fascicolo commessa
+`leggi_fascicolo_commessa` raccoglie in parallelo dati commessa, timeline, documenti e doc gate, ordini fornitori, magazzino, ticket, interventi e garanzie, restituendo soltanto i campi utili al ragionamento.
+
+Quando `commessaId` è noto all'avvio, il loop precarica il fascicolo nel primo messaggio (`fascicoloPrecaricato=true`), evitando il primo round-trip modello → tool. Una lettura identica successiva è assorbita dalla cache del run.
+
+### 50.4 Riduzione token e cache
+La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
+
+1. **Prompt caching Anthropic:** system prompt stabile con TTL 1 ora; ultimo schema tool con TTL 1 ora; prefisso crescente della conversazione marcato `ephemeral`.
+2. **Cache strumenti per run:** ogni `leggi_*` e `cerca_*` usa una chiave JSON stabile; due richieste identiche, anche contemporanee, condividono la stessa Promise. Gli errori non restano in cache.
+3. **Profilo minimo:** i trigger automatici non pagano lo schema di strumenti irrilevanti.
+4. **Fascicolo compatto:** una lettura aggregata sostituisce numerose chiamate frammentate e output ripetuti.
+
+L'audit salva input, output, cache read, cache write 5m/1h, cache hit strumenti, costo stimato ed esito. La Inbox Tars espone profilo, preload e cache hit per diagnosticare run costosi.
+
+### 50.5 Store e budget
+Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
+
+---
+
+## 51. Comunicazioni (`/comunicazioni`)
+
+### 51.1 Modello e ingestione
+Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. I campi principali sono canale, direzione, mittente, destinatari, oggetto, testo troncato, allegati, cliente/commessa, confidenza match, stato e data ricezione.
+
+Gli stati sono `nuova`, `vista`, `gestita`. L'eliminazione dal CRM usa `deleted_at`: il messaggio resta nella casella sorgente e il tombstone impedisce che venga importato di nuovo.
+
+### 51.2 Matching e Tars
+Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. I messaggi non ancora analizzati possono entrare nel trigger di smistamento Tars. Un avatar sulla riga e una card nel lettore mostrano le proposte pendenti di collegamento.
+
+### 51.3 Inbox operativa
+La pagina DEVE offrire:
+
+- conteggi Tutte, Nuove, Da smistare e Gestite;
+- filtro canale Email/WhatsApp, filtro casella e ricerca su mittente, oggetto e testo;
+- riga con canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
+- lettore con mittente, sorgente, data, stato, collegamento commessa, proposte Tars, allegati e corpo;
+- azioni accessibili per gestita/riapri, elimina e ritorno alla lista mobile;
+- aggiornamento caselle e gestione configurazione per la direzione.
+
+Su desktop la lista ha larghezza vincolata e il lettore usa `min-width: 0`; su mobile si mostra una vista alla volta. Nessun messaggio, filtro o allegato deve introdurre scroll orizzontale di pagina.
+
+---
+
+## 52. Design system, caricamento e analytics
+
+### 52.1 Identità visuale
+Il tema usa Plus Jakarta Sans, fondo grigio caldo, card bianche, testo inchiostro e giallo saturo come accento. Successo, warning, errore e informazione restano cromaticamente distinti. I componenti operativi usano bordi visibili, raggio moderato e ombre leggere; sono vietati colori locali che ricreano una palette fredda o opaca.
+
+### 52.2 Responsive e tabelle
+Clienti, Commesse e Comunicazioni non devono richiedere scroll orizzontale globale. Gli header sticky devono occupare spazio nel flusso e non coprire la prima riga. Le colonne secondarie si nascondono progressivamente; controlli e titoli rifluiscono senza sovrapporsi.
+
+### 52.3 Code splitting
+Ogni pagina è importata con `React.lazy` e caricata dentro un `Suspense` stabile. Il build separa i vendor React, UI, dati e grafici per caching indipendente. Il runtime Manus, JSX location e il debug collector sono ammessi soltanto sul dev server e non devono gonfiare `index.html` di produzione.
+
+### 52.4 Umami
+Lo script Umami viene installato soltanto in produzione, con endpoint HTTP(S) valido e website id presenti. Ha un id univoco per evitare duplicati, usa `async`/`defer` e si rimuove in caso di errore di caricamento. In sviluppo non deve generare richieste o warning console.

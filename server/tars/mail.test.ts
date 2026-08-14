@@ -31,10 +31,35 @@ const CLIENTI = [
 ];
 
 const COMMESSE = [
-  { id: 10, codice: "COM-2026-035", clienteId: 1, stato: "produzione", email: null },
-  { id: 11, codice: "COM-2026-051", clienteId: 2, stato: "attesa_posa", email: "cantiere@example.com" },
-  { id: 12, codice: "COM-2026-052", clienteId: 2, stato: "preventivo", email: null },
-  { id: 13, codice: "COM-2025-001", clienteId: 1, stato: "archiviata", email: null, archivedAt: new Date() },
+  {
+    id: 10,
+    codice: "COM-2026-035",
+    clienteId: 1,
+    stato: "produzione",
+    email: null,
+  },
+  {
+    id: 11,
+    codice: "COM-2026-051",
+    clienteId: 2,
+    stato: "attesa_posa",
+    email: "cantiere@example.com",
+  },
+  {
+    id: 12,
+    codice: "COM-2026-052",
+    clienteId: 2,
+    stato: "preventivo",
+    email: null,
+  },
+  {
+    id: 13,
+    codice: "COM-2025-001",
+    clienteId: 1,
+    stato: "archiviata",
+    email: null,
+    archivedAt: new Date(),
+  },
 ];
 
 describe("secretBox", () => {
@@ -64,7 +89,12 @@ describe("secretBox", () => {
     const cifrato = encryptSecret("segreto");
     const parti = cifrato.split(".");
     // Altera il ciphertext lasciando intatto il tag: GCM deve accorgersene.
-    const manomesso = [parti[0], parti[1], parti[2], Buffer.from("altro").toString("base64")].join(".");
+    const manomesso = [
+      parti[0],
+      parti[1],
+      parti[2],
+      Buffer.from("altro").toString("base64"),
+    ].join(".");
     expect(() => decryptSecret(manomesso)).toThrow();
   });
 
@@ -75,7 +105,9 @@ describe("secretBox", () => {
 
 describe("estraiCodiceCommessa", () => {
   it("riconosce le varianti di punteggiatura", () => {
-    expect(estraiCodiceCommessa("rif. COM-2026-035 grazie")).toBe("COM-2026-035");
+    expect(estraiCodiceCommessa("rif. COM-2026-035 grazie")).toBe(
+      "COM-2026-035"
+    );
     expect(estraiCodiceCommessa("COM 2026 35")).toBe("COM-2026-035");
     expect(estraiCodiceCommessa("com_2026_035")).toBe("COM-2026-035");
   });
@@ -206,10 +238,14 @@ describe("ingestione comunicazioni", () => {
   });
 
   it("inserisce e poi ignora il duplicato sullo stesso message_id", async () => {
-    const prima = await insertComunicazione(nuova("<abc@example.com>", "Prima"));
+    const prima = await insertComunicazione(
+      nuova("<abc@example.com>", "Prima")
+    );
     expect(prima).not.toBeNull();
 
-    const doppia = await insertComunicazione(nuova("<abc@example.com>", "Prima"));
+    const doppia = await insertComunicazione(
+      nuova("<abc@example.com>", "Prima")
+    );
     expect(doppia).toBeNull();
 
     const rows = await listComunicazioni({ sedeId: 1 });
@@ -232,9 +268,12 @@ describe("ingestione comunicazioni", () => {
       matchConfidenza: "nessuna",
     });
     const perCommessa = await listComunicazioni({ sedeId: 1, commessaId: 10 });
-    expect(perCommessa.every((c) => c.commessaId === 10)).toBe(true);
+    expect(perCommessa.every(c => c.commessaId === 10)).toBe(true);
 
-    const sciolte = await listComunicazioni({ sedeId: 1, soloNonCollegate: true });
+    const sciolte = await listComunicazioni({
+      sedeId: 1,
+      soloNonCollegate: true,
+    });
     expect(sciolte).toHaveLength(1);
     expect(sciolte[0].oggetto).toBe("Senza commessa");
   });
@@ -245,7 +284,7 @@ describe("ingestione comunicazioni", () => {
       sedeId: 2,
     });
     const sede1 = await listComunicazioni({ sedeId: 1 });
-    expect(sede1.some((c) => c.oggetto === "Altra sede")).toBe(false);
+    expect(sede1.some(c => c.oggetto === "Altra sede")).toBe(false);
   });
 
   it("l'eliminazione è un tombstone: sparisce dalle liste ma NON risorge alla risincronizzazione", async () => {
@@ -259,9 +298,12 @@ describe("ingestione comunicazioni", () => {
 
     // Sparita da liste e stats…
     const rows = await listComunicazioni({ sedeId: 1 });
-    expect(rows.some((c) => c.id === daEliminare!.id)).toBe(false);
+    expect(rows.some(c => c.id === daEliminare!.id)).toBe(false);
     const stats = await statsComunicazioni(1);
     expect(stats.totali).toBe(rows.length);
+    expect(stats.email).toBe(rows.length);
+    expect(stats.whatsapp).toBe(0);
+    expect(stats.gestite).toBe(0);
 
     // …ma il re-import dello stesso message_id viene assorbito dal tombstone.
     const reimport = await insertComunicazione(
@@ -277,11 +319,11 @@ describe("ingestione comunicazioni", () => {
     const inCoda = await listDaAnalizzare(1, 10);
     // Le collegate ci sono (Tars può proporre azioni di gestione), le
     // eliminate no. "Senza commessa" resta in coda per il collegamento.
-    expect(inCoda.some((c) => c.oggetto === "Senza commessa")).toBe(true);
-    expect(inCoda.some((c) => c.commessaId != null)).toBe(true);
-    expect(inCoda.every((c) => !c.deletedAt && !c.tarsAnalizzata)).toBe(true);
+    expect(inCoda.some(c => c.oggetto === "Senza commessa")).toBe(true);
+    expect(inCoda.some(c => c.commessaId != null)).toBe(true);
+    expect(inCoda.every(c => !c.deletedAt && !c.tarsAnalizzata)).toBe(true);
 
-    await markAnalizzate(inCoda.map((c) => c.id));
+    await markAnalizzate(inCoda.map(c => c.id));
     const dopo = await listDaAnalizzare(1, 10);
     expect(dopo).toHaveLength(0);
 
@@ -321,7 +363,11 @@ describe("estrazione testo allegati", () => {
     const buffer = Buffer.from(doc.output("arraybuffer"));
 
     const { estraiTestoAllegato } = await import("./allegati");
-    const testo = await estraiTestoAllegato(buffer, "application/pdf", "co.pdf");
+    const testo = await estraiTestoAllegato(
+      buffer,
+      "application/pdf",
+      "co.pdf"
+    );
     expect(testo).toContain("Conferma ordine 4471");
   });
 });
@@ -335,7 +381,9 @@ describe("segnaTutteViste", () => {
     const n = await segnaTutteViste(1);
     expect(n).toBe(prima.length);
 
-    expect(await listComunicazioni({ sedeId: 1, stato: "nuova" })).toHaveLength(0);
+    expect(await listComunicazioni({ sedeId: 1, stato: "nuova" })).toHaveLength(
+      0
+    );
     // Idempotente.
     expect(await segnaTutteViste(1)).toBe(0);
   });
@@ -367,8 +415,8 @@ describe("backfill storico", () => {
     expect(vecchia!.tarsAnalizzata).toBe(true);
     // Visibile in lista, agganciata, ma NON in coda di analisi.
     const lista = await listComunicazioni({ sedeId: 1, commessaId: 10 });
-    expect(lista.some((c) => c.id === vecchia!.id)).toBe(true);
+    expect(lista.some(c => c.id === vecchia!.id)).toBe(true);
     const coda = await listDaAnalizzare(1, 50);
-    expect(coda.some((c) => c.id === vecchia!.id)).toBe(false);
+    expect(coda.some(c => c.id === vecchia!.id)).toBe(false);
   });
 });
