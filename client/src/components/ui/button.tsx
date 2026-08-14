@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 // Default height 40px (sm 32px), radius 10px, weight 600, focus ring,
 // disabled = opacity .5 + cursor not-allowed.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-[background-color,border-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-primary/25 aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-[background-color,border-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
@@ -29,7 +29,7 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-accent",
         // Ghost / icona
         ghost: "text-text-1 hover:bg-accent",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-accent-text underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2 has-[>svg]:px-3.5",

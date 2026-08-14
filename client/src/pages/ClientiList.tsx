@@ -223,7 +223,7 @@ export default function ClientiList() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
@@ -345,7 +345,7 @@ export default function ClientiList() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Citta</Label>
+                  <Label>Città</Label>
                   <Input
                     value={form.citta}
                     onChange={(e) =>
@@ -395,7 +395,7 @@ export default function ClientiList() {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Citta lavoro</Label>
+                      <Label>Città lavoro</Label>
                       <Input
                         value={form.cittaLavoro}
                         onChange={(e) =>
@@ -641,96 +641,99 @@ export default function ClientiList() {
       </div>
 
       {/* Sticky toolbar: search + tipo chips + only-mine + counter */}
-      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background/92 border-b border-border backdrop-blur">
-        <div className="flex gap-2 items-center flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
-            <Input
-              placeholder="Cerca per nome, città, email…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9"
-            />
-          </div>
-          <Button
-            variant={!tipoFilter ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTipoFilter(undefined)}
-          >
-            Tutti
-          </Button>
-          {Object.entries(tipoLabels).map(([key, label]) => (
+      <div className="sticky top-14 md:top-0 z-30 -mx-4 px-4 py-2.5 sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6 bg-background/94 border-y border-border/80 backdrop-blur">
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-full flex-1 sm:min-w-[240px] xl:max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
+              <Input
+                placeholder="Cerca per nome, città, email…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 h-9"
+              />
+            </div>
             <Button
-              key={key}
-              variant={tipoFilter === key ? "default" : "outline"}
+              variant={!tipoFilter ? "default" : "outline"}
               size="sm"
-              onClick={() => setTipoFilter(key)}
+              onClick={() => setTipoFilter(undefined)}
             >
-              {label}
+              Tutti
             </Button>
-          ))}
-          <Select value={tagFilter} onValueChange={(v: any) => setTagFilter(v)}>
-            <SelectTrigger className="w-[170px] h-9">
-              <SelectValue placeholder="Segnali" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutti">Tutti i segnali</SelectItem>
-              <SelectItem value="detrazione">Detrazione</SelectItem>
-              <SelectItem value="finanziamento">Finanziamento</SelectItem>
-              <SelectItem value="non_assegnati">Non assegnati</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant={onlyMine && !filtroAssegnato ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              setFiltroAssegnato("");
-              setOnlyMine((v) => !v);
-            }}
-            title="Filtra solo i clienti assegnati a me"
-          >
-            <UserCircle className="h-3.5 w-3.5 mr-1" />
-            {onlyMine && !filtroAssegnato ? "Solo mie" : "Tutte"}
-          </Button>
-          {/* Filter by assignee */}
-          <Select
-            value={filtroAssegnato || "tutti"}
-            onValueChange={(v) => {
-              setFiltroAssegnato(v === "tutti" ? "" : v);
-              setOnlyMine(false);
-            }}
-          >
-            <SelectTrigger className="w-[190px] h-9">
-              <SelectValue placeholder="Assegnato a" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
-              {(utentiList.data ?? []).map((u: any) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {personName(u, u.email ?? `Utente ${u.id}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {hasActiveFilters && (
+            {Object.entries(tipoLabels).map(([key, label]) => (
+              <Button
+                key={key}
+                variant={tipoFilter === key ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTipoFilter(key)}
+              >
+                {label}
+              </Button>
+            ))}
+            <span className="ml-auto whitespace-nowrap text-sm text-text-2 tabular-nums">
+              {clientiFiltrati.length} clienti
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={tagFilter} onValueChange={(v: any) => setTagFilter(v)}>
+              <SelectTrigger className="w-[170px] h-9">
+                <SelectValue placeholder="Segnali" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutti">Tutti i segnali</SelectItem>
+                <SelectItem value="detrazione">Detrazione</SelectItem>
+                <SelectItem value="finanziamento">Finanziamento</SelectItem>
+                <SelectItem value="non_assegnati">Non assegnati</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
-              variant="ghost"
+              variant={onlyMine && !filtroAssegnato ? "default" : "outline"}
               size="sm"
               onClick={() => {
-                setSearch("");
-                setTipoFilter(undefined);
-                setTagFilter("tutti");
-                setOnlyMine(false);
                 setFiltroAssegnato("");
+                setOnlyMine((v) => !v);
+              }}
+              title="Filtra solo i clienti assegnati a me"
+            >
+              <UserCircle className="h-3.5 w-3.5 mr-1" />
+              {onlyMine && !filtroAssegnato ? "Solo mie" : "Tutte"}
+            </Button>
+            <Select
+              value={filtroAssegnato || "tutti"}
+              onValueChange={(v) => {
+                setFiltroAssegnato(v === "tutti" ? "" : v);
+                setOnlyMine(false);
               }}
             >
-              <FilterX className="h-3.5 w-3.5 mr-1" />
-              Pulisci
-            </Button>
-          )}
-          <span className="ml-auto text-sm text-text-2 tabular-nums">
-            {clientiFiltrati.length} clienti
-          </span>
+              <SelectTrigger className="w-[190px] h-9">
+                <SelectValue placeholder="Assegnato a" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
+                {(utentiList.data ?? []).map((u: any) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {personName(u, u.email ?? `Utente ${u.id}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearch("");
+                  setTipoFilter(undefined);
+                  setTagFilter("tutti");
+                  setOnlyMine(false);
+                  setFiltroAssegnato("");
+                }}
+              >
+                <FilterX className="h-3.5 w-3.5 mr-1" />
+                Pulisci
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -759,7 +762,7 @@ export default function ClientiList() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:hidden">
+          <div className="grid gap-3 md:grid-cols-2 xl:hidden">
             {clientiFiltrati.map((c: any) => {
               const TipoIcon = tipoIcons[c.tipo] ?? User;
               const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
@@ -797,7 +800,7 @@ export default function ClientiList() {
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <MapPin className="h-3.5 w-3.5" />
-                      {c.citta || "Citta non indicata"}
+                      {c.citta || "Città non indicata"}
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <UserCircle className="h-3.5 w-3.5" />
@@ -805,23 +808,34 @@ export default function ClientiList() {
                         ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
                         : "Non assegnato"}
                     </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Building2 className="h-3.5 w-3.5" />
+                      {c.commesseIds?.length ?? 0} commesse
+                    </span>
                   </div>
                 </button>
               );
             })}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead className="sticky top-[52px] z-20 bg-surface-2">
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-surface shadow-xs xl:block">
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-[28%]" />
+                <col className="w-[22%]" />
+                <col className="w-[22%]" />
+                <col className="w-[9%]" />
+                <col className="w-[15%]" />
+                <col className="w-[4%]" />
+              </colgroup>
+              <thead className="bg-surface-2">
                 <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
-                  <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Nome</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Tag fiscali</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5">Citta</th>
-                  <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Telefono</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 text-right">Commesse</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5">Assegnato</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Cliente</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Contatti</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Segnali</th>
+                  <th className="eyebrow px-2 py-3 text-center font-semibold">Commesse</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Assegnato</th>
+                  <th className="w-11 px-1 py-3"><span className="sr-only">Azioni</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -833,28 +847,48 @@ export default function ClientiList() {
                   return (
                     <tr
                       key={c.id}
-                      className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
+                      className="h-16 cursor-pointer border-b border-border last:border-0 hover:bg-accent/35 transition-colors"
                       onClick={() => setLocation(`/clienti/${c.id}`)}
                     >
-                      <td className="px-3 sm:px-4">
+                      <td className="overflow-hidden px-4 py-3">
                         <div className="flex min-w-0 items-center gap-2">
-                          <TipoIcon className="h-4 w-4 text-text-3 shrink-0" />
-                          <span
-                            className="truncate font-medium text-text-1"
-                            title={displayName || undefined}
-                          >
-                            {displayName || "—"}
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-text-2">
+                            <TipoIcon className="h-4 w-4" aria-hidden="true" />
                           </span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {tipoLabels[c.tipo] ?? c.tipo}
-                          </Badge>
+                          <div className="min-w-0">
+                            <span
+                              className="block truncate font-semibold text-text-1"
+                              title={displayName || undefined}
+                            >
+                              {displayName || "—"}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-text-3">
+                              {tipoLabels[c.tipo] ?? c.tipo}
+                            </span>
+                          </div>
                         </div>
                       </td>
-                      <td className="px-4 hidden xl:table-cell">
-                        <div className="flex items-center gap-1 flex-wrap">
+                      <td className="overflow-hidden px-4 py-3">
+                        <div className="min-w-0 space-y-1 text-xs text-text-2">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <MapPin className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
+                            <span className="truncate" title={c.citta || undefined}>
+                              {c.citta || "Città non indicata"}
+                            </span>
+                          </span>
+                          <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
+                            <span className="truncate" title={c.telefono || undefined}>
+                              {c.telefono || "Telefono non indicato"}
+                            </span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className="overflow-hidden px-4 py-3">
+                        <div className="flex max-h-12 items-center gap-1 overflow-hidden flex-wrap">
                           {c.detrazione && (
                             <Badge variant="info" className="capitalize">
-                              Detrazione{c.tipoDetrazione ? `: ${c.tipoDetrazione}` : ""}
+                              {c.tipoDetrazione || "Detrazione"}
                             </Badge>
                           )}
                           {c.interesseFinanziamento && (
@@ -872,18 +906,26 @@ export default function ClientiList() {
                             )}
                         </div>
                       </td>
-                      <td className="px-4 text-text-2">{c.citta || "—"}</td>
-                      <td className="px-3 sm:px-4 text-text-2 tabular-nums">{c.telefono || "—"}</td>
-                      <td className="px-4 text-right tabular-nums font-medium text-text-1">
+                      <td className="px-2 py-3 text-center tabular-nums font-semibold text-text-1">
                         {c.commesseIds?.length ?? 0}
                       </td>
-                      <td className="px-4 text-text-2">
-                        {assignee ? `${assignee.cognome ?? ""} ${assignee.nome}`.trim() : "—"}
+                      <td className="overflow-hidden px-4 py-3 text-text-2">
+                        <span
+                          className="block truncate"
+                          title={assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : undefined}
+                        >
+                          {assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : "Non assegnato"}
+                        </span>
                       </td>
-                      <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" className="text-text-3">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-text-3"
+                              aria-label={`Azioni per ${displayName || `cliente ${c.id}`}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

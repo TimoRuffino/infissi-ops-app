@@ -11,7 +11,8 @@ export default function StatoChip({
 }) {
   return (
     <span
-      className={`inline-flex items-center h-[22px] px-2 rounded-[8px] text-xs font-semibold whitespace-nowrap ${statoChipClass(
+      title={statoLabel(stato)}
+      className={`inline-flex max-w-full items-center h-[22px] overflow-hidden text-ellipsis px-2 rounded-[8px] text-xs font-semibold whitespace-nowrap ${statoChipClass(
         stato
       )} ${className}`}
     >

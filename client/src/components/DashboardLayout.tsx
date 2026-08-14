@@ -264,17 +264,9 @@ function DashboardLayoutContent({
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <img
                     src="/logo.svg"
-                    alt="Ruffino Flow"
-                    className="h-6 brightness-0 invert shrink-0"
+                    alt="Ruffino Group"
+                    className="h-5 w-auto max-w-[116px] brightness-0 invert shrink-0"
                   />
-                  <div className="min-w-0 leading-none">
-                    <div className="font-display text-[15px] font-bold text-white truncate">
-                      Ruffino Flow
-                    </div>
-                    <div className="text-[10px] text-white/50 truncate">
-                      Gestionale commesse infissi
-                    </div>
-                  </div>
                   <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />
                   </div>
@@ -462,7 +454,7 @@ function DashboardLayoutContent({
             <NotificheDropdown />
           </div>
         )}
-        <main className="flex-1 min-h-dvh bg-background p-4 sm:p-6">
+        <main className="flex-1 min-h-dvh bg-background p-4 sm:p-5 lg:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <PageContainer key={location}>{children}</PageContainer>
           </AnimatePresence>

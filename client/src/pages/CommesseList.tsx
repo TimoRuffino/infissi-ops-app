@@ -311,14 +311,14 @@ export default function CommesseList() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
             Commesse
           </h1>
           <p className="text-text-2 text-sm mt-1">
-            Stato avanzamento, priorita e prossime azioni operative
+            Stato avanzamento, priorità e prossime azioni operative
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -483,7 +483,7 @@ export default function CommesseList() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Priorita</Label>
+                  <Label>Priorità</Label>
                   <Select
                     value={form.priorita}
                     onValueChange={(v: any) =>
@@ -531,7 +531,7 @@ export default function CommesseList() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Citta</Label>
+                  <Label>Città</Label>
                   <Input
                     value={form.citta}
                     onChange={(e) =>
@@ -661,78 +661,82 @@ export default function CommesseList() {
       </div>
 
       {/* Sticky toolbar: search + stato + only-mine + counter */}
-      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 bg-background/92 border-b border-border backdrop-blur">
-        <div className="flex gap-2 items-center flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
-            <Input
-              placeholder="Cerca per codice, cliente, città…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9"
-            />
+      <div className="sticky top-14 md:top-0 z-30 -mx-4 px-4 py-2.5 sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6 bg-background/94 border-y border-border/80 backdrop-blur">
+        <div className="grid gap-2">
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-3" />
+              <Input
+                placeholder="Cerca per codice, cliente, città…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 h-9"
+              />
+            </div>
+            <span className="ml-auto whitespace-nowrap text-sm text-text-2 tabular-nums">
+              {commesseFiltrate.length} commesse
+            </span>
           </div>
-          <Select
-            value={filtroStato}
-            onValueChange={(v) => {
-              setFiltroStato(v);
-              setSoloConsegneDaDatare(false);
-            }}
-          >
-            <SelectTrigger className="w-[190px] h-9">
-              <SelectValue placeholder="Stato" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutti">Tutti gli stati</SelectItem>
-              {STATI_ORDER.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {statoLabel(s)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
-            <SelectTrigger className="w-[160px] h-9">
-              <SelectValue placeholder="Priorita" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutte">Tutte le priorita</SelectItem>
-              <SelectItem value="urgente">Urgente</SelectItem>
-              <SelectItem value="alta">Alta</SelectItem>
-              <SelectItem value="media">Media</SelectItem>
-              <SelectItem value="bassa">Bassa</SelectItem>
-            </SelectContent>
-          </Select>
-          {currentUser.data && (
-            <Button
-              variant={onlyMine ? "default" : "outline"}
-              size="sm"
-              onClick={() => setOnlyMine(!onlyMine)}
-            >
-              <User className="h-3.5 w-3.5 mr-1" />
-              {onlyMine ? "Solo mie" : "Tutte"}
-            </Button>
-          )}
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearch("");
-                setFiltroStato("tutti");
-                setFiltroPriorita("tutte");
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={filtroStato}
+              onValueChange={(v) => {
+                setFiltroStato(v);
                 setSoloConsegneDaDatare(false);
-                setSoloNonAssegnate(false);
-                setOnlyMine(false);
               }}
             >
-              <FilterX className="h-3.5 w-3.5 mr-1" />
-              Pulisci
-            </Button>
-          )}
-          <span className="ml-auto text-sm text-text-2 tabular-nums">
-            {commesseFiltrate.length} commesse
-          </span>
+              <SelectTrigger className="w-[190px] h-9">
+                <SelectValue placeholder="Stato" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutti">Tutti gli stati</SelectItem>
+                {STATI_ORDER.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statoLabel(s)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
+              <SelectTrigger className="w-[160px] h-9">
+                <SelectValue placeholder="Priorità" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutte">Tutte le priorità</SelectItem>
+                <SelectItem value="urgente">Urgente</SelectItem>
+                <SelectItem value="alta">Alta</SelectItem>
+                <SelectItem value="media">Media</SelectItem>
+                <SelectItem value="bassa">Bassa</SelectItem>
+              </SelectContent>
+            </Select>
+            {currentUser.data && (
+              <Button
+                variant={onlyMine ? "default" : "outline"}
+                size="sm"
+                onClick={() => setOnlyMine(!onlyMine)}
+              >
+                <User className="h-3.5 w-3.5 mr-1" />
+                {onlyMine ? "Solo mie" : "Tutte"}
+              </Button>
+            )}
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearch("");
+                  setFiltroStato("tutti");
+                  setFiltroPriorita("tutte");
+                  setSoloConsegneDaDatare(false);
+                  setSoloNonAssegnate(false);
+                  setOnlyMine(false);
+                }}
+              >
+                <FilterX className="h-3.5 w-3.5 mr-1" />
+                Pulisci
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -762,9 +766,18 @@ export default function CommesseList() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:hidden">
+          <div className="grid gap-3 md:grid-cols-2 xl:hidden">
             {commesseFiltrate.map((c: any) => {
               const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
+              const prodotti: any[] = c.prodottiSintesi ?? [];
+              const prodottiLabel = prodotti.length
+                ? prodotti.map((p: any) => `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`).join(", ")
+                : "Prodotti non indicati";
+              const creata = c.dataApertura
+                ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString("it-IT")
+                : c.createdAt
+                  ? new Date(c.createdAt).toLocaleDateString("it-IT")
+                  : "—";
               const consegna = c.dataConsegnaConfermata
                 ? new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")
                 : c.dataConsegnaIndicativa
@@ -797,21 +810,33 @@ export default function CommesseList() {
                     <StatoChip stato={c.stato} />
                     <span className="inline-flex items-center gap-1 text-xs text-text-2">
                       <MapPin className="h-3.5 w-3.5" />
-                      {c.citta || "Citta non indicata"}
+                      {c.citta || "Città non indicata"}
                     </span>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-text-2">
+                  <p className="mt-2 truncate text-xs text-text-2" title={prodottiLabel}>
+                    {prodottiLabel}
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-text-2">
+                    <div className="min-w-0 rounded-md bg-surface-2 px-2 py-1.5">
+                      <span className="block text-[10px] font-semibold text-text-3">
+                        Aperta
+                      </span>
+                      <span className="block truncate tabular-nums">{creata}</span>
+                    </div>
                     <div className="rounded-md bg-surface-2 px-2 py-1.5">
                       <span className="block text-[10px] font-semibold text-text-3">
                         Consegna
                       </span>
-                      <span className="tabular-nums">{consegna}</span>
+                      <span className="block truncate tabular-nums" title={consegna}>{consegna}</span>
                     </div>
-                    <div className="rounded-md bg-surface-2 px-2 py-1.5">
+                    <div className="min-w-0 rounded-md bg-surface-2 px-2 py-1.5">
                       <span className="block text-[10px] font-semibold text-text-3">
                         Assegnata
                       </span>
-                      <span>
+                      <span
+                        className="block truncate"
+                        title={assignee ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() : undefined}
+                      >
                         {assignee
                           ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()
                           : "Non assegnata"}
@@ -823,26 +848,35 @@ export default function CommesseList() {
             })}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
-            <table className="w-full min-w-[980px] text-sm">
-              <thead className="sticky top-[52px] z-20 bg-surface-2">
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-surface shadow-xs xl:block">
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-[14%]" />
+                <col className="w-[24%]" />
+                <col className="w-[15%]" />
+                <col className="w-[19%]" />
+                <col className="w-[15%]" />
+                <col className="w-[9%]" />
+                <col className="w-[4%]" />
+              </colgroup>
+              <thead className="bg-surface-2">
                 <tr className="border-b border-border text-left [&>th]:bg-surface-2 [&>th]:shadow-[inset_0_-1px_0_var(--color-border)]">
-                  <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Codice</th>
-                  <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Cliente</th>
-                  <th className="eyebrow font-semibold px-3 sm:px-4 py-2.5">Stato</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 hidden lg:table-cell">Prodotti</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5">Citta</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Creata il</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 hidden xl:table-cell">Consegna stimata</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5">Priorita</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5">Assegnata</th>
-                  <th className="eyebrow font-semibold px-4 py-2.5 w-10"></th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Commessa</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Cliente e cantiere</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Stato</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Prodotti</th>
+                  <th className="eyebrow px-4 py-3 font-semibold">Date</th>
+                  <th className="eyebrow px-3 py-3 font-semibold">Assegnata</th>
+                  <th className="w-11 px-1 py-3"><span className="sr-only">Azioni</span></th>
                 </tr>
               </thead>
               <tbody>
                 {commesseFiltrate.map((c: any) => {
                   const assignee = c.assegnatoA ? utenteById.get(c.assegnatoA) : null;
                   const prodotti: any[] = c.prodottiSintesi ?? [];
+                  const prodottiLabel = prodotti.length
+                    ? prodotti.map((p: any) => `${p.quantita > 1 ? `${p.quantita}x ` : ""}${p.nome}`).join(", ")
+                    : "Prodotti non indicati";
                   const creata = c.dataApertura
                     ? new Date(`${c.dataApertura}T12:00:00`).toLocaleDateString("it-IT")
                     : c.createdAt
@@ -858,73 +892,70 @@ export default function CommesseList() {
                   return (
                     <tr
                       key={c.id}
-                      className="border-b border-border last:border-0 h-14 hover:bg-surface-2 cursor-pointer transition-colors"
+                      className="h-16 cursor-pointer border-b border-border last:border-0 hover:bg-accent/35 transition-colors"
                       onClick={() => setLocation(`/commesse/${c.id}`)}
                     >
-                      <td className="px-3 sm:px-4">
-                        <span className="codice-mono text-text-2">{c.codice}</span>
-                      </td>
-                      <td className="px-3 sm:px-4 font-medium text-text-1">
-                        <span className="block max-w-[240px] truncate" title={c.cliente || undefined}>
-                          {c.cliente || "—"}
+                      <td className="overflow-hidden px-4 py-3">
+                        <span className="block truncate codice-mono text-text-2" title={c.codice}>
+                          {c.codice}
                         </span>
-                      </td>
-                      <td className="px-3 sm:px-4">
-                        <StatoChip stato={c.stato} />
-                      </td>
-                      <td className="px-4 hidden lg:table-cell">
-                        {prodotti.length === 0 ? (
-                          <span className="text-text-3">—</span>
-                        ) : (
-                          <span className="flex items-center gap-1 flex-wrap">
-                            {prodotti.slice(0, 2).map((p: any, i: number) => (
-                              <Badge key={i} variant="secondary" className="text-[10px] font-normal">
-                                {p.quantita > 1 && (
-                                  <span className="tabular-nums font-semibold mr-1">
-                                    {p.quantita}x
-                                  </span>
-                                )}
-                                {p.nome}
-                              </Badge>
-                            ))}
-                            {prodotti.length > 2 && (
-                              <span
-                                className="text-[10px] text-text-3"
-                                title={prodotti
-                                  .slice(2)
-                                  .map((p: any) => `${p.quantita}x ${p.nome}`)
-                                  .join(", ")}
-                              >
-                                +{prodotti.length - 2}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 text-text-2">{c.citta || "—"}</td>
-                      <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{creata}</td>
-                      <td className="px-4 text-text-2 tabular-nums hidden xl:table-cell">{consegna}</td>
-                      <td className="px-4">
-                        <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
+                        <Badge
+                          variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}
+                          className="mt-1 text-[10px]"
+                        >
                           {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                         </Badge>
                       </td>
-                      <td className="px-4">
+                      <td className="overflow-hidden px-4 py-3 font-medium text-text-1">
+                        <span className="block truncate font-semibold" title={c.cliente || undefined}>
+                          {c.cliente || "—"}
+                        </span>
+                        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs font-normal text-text-2">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden="true" />
+                          <span className="truncate" title={c.citta || undefined}>
+                            {c.citta || "Città non indicata"}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="overflow-hidden px-4 py-3">
+                        <StatoChip stato={c.stato} />
+                      </td>
+                      <td className="overflow-hidden px-4 py-3 text-xs text-text-2">
+                        <span className="block truncate" title={prodottiLabel}>
+                          {prodottiLabel}
+                        </span>
+                      </td>
+                      <td className="overflow-hidden px-4 py-3 text-[11px] text-text-2">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="text-text-3">Aperta</span>
+                          <span className="truncate tabular-nums" title={creata}>{creata}</span>
+                        </span>
+                        <span className="mt-1 flex items-center justify-between gap-2">
+                          <span className="text-text-3">Consegna</span>
+                          <span className="truncate tabular-nums" title={consegna}>{consegna}</span>
+                        </span>
+                      </td>
+                      <td className="overflow-hidden px-3 py-3">
                         {assignee ? (
                           <span
-                            className="codice-mono text-xs font-semibold text-text-2"
+                            className="block truncate text-xs font-medium text-text-2"
                             title={`${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim()}
                           >
-                            {iniziali(assignee)}
+                            {assignee.cognome || assignee.nome || iniziali(assignee)}
                           </span>
                         ) : (
-                          <span className="text-text-3">—</span>
+                          <span className="text-xs text-text-3">Non assegnata</span>
                         )}
                       </td>
-                      <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" className="text-text-3">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-text-3"
+                              aria-label={`Azioni per la commessa ${c.codice}`}
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -1029,7 +1060,7 @@ export default function CommesseList() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Citta</Label>
+                <Label>Città</Label>
                 <Input
                   value={clienteForm.citta}
                   onChange={(e) => setClienteForm({ ...clienteForm, citta: e.target.value })}
