@@ -175,29 +175,21 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 650,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes("/node_modules/")) return;
+
+          // React and the UI/data packages that depend on it must stay together.
+          // Splitting them into separate manual chunks creates a circular startup
+          // order where Radix can execute before React is initialized.
           if (
-            /\/node_modules\/(react|react-dom|scheduler|wouter|use-sync-external-store)\//.test(
+            /\/node_modules\/(react|react-dom|scheduler|wouter|use-sync-external-store|@radix-ui|lucide-react|sonner|cmdk|class-variance-authority|clsx|tailwind-merge|next-themes|@tanstack|@trpc|superjson|zod)\//.test(
               id
             )
           ) {
-            return "vendor-react";
-          }
-          if (
-            /\/node_modules\/(@radix-ui|lucide-react|sonner|cmdk|class-variance-authority|clsx|tailwind-merge|next-themes)\//.test(
-              id
-            )
-          ) {
-            return "vendor-ui";
-          }
-          if (/\/node_modules\/(@tanstack|@trpc|superjson|zod)\//.test(id)) {
-            return "vendor-data";
-          }
-          if (/\/node_modules\/(recharts|victory-vendor|d3-[^/]+)\//.test(id)) {
-            return "vendor-charts";
+            return "vendor-runtime";
           }
         },
       },
