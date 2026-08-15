@@ -2,11 +2,12 @@
 // prevedibili — sono soldi. E il dedupe deve reggere ai rilanci: il sync
 // gira ogni 6 ore, le proposte no.
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
   commessaPerFattura,
+  _setScaricaFatturaPdfForTests,
   ficFatture,
   generaProposteRiconciliazione,
   statoFattura,
@@ -222,6 +223,14 @@ describe("validazione token FIC", () => {
 // lui indaga e propone il collegamento; l'approvazione collega davvero e
 // fa partire le proposte su pattuito e incassi. Il giro si paga una volta.
 describe("fatture orfane → Tars", () => {
+  beforeAll(() => {
+    _setScaricaFatturaPdfForTests(async () =>
+      Buffer.from("%PDF-1.4\n%%EOF", "ascii")
+    );
+  });
+
+  afterAll(() => _setScaricaFatturaPdfForTests(null));
+
   it("orfana → proposta di collegamento → approvazione collega e riconcilia", async () => {
     const { vi } = await import("vitest");
     const { getTarsConfig } = await import("../tars/stores");
@@ -304,6 +313,19 @@ describe("fatture orfane → Tars", () => {
       await caller.tars.proposte.approva({ id: proposta!.id });
       const f = ficFatture.find((x) => x.id === 9100)!;
       expect(f.commessaId).toBe(commessa.id);
+      const docs = await caller.preventiviContratti.byCommessa(commessa.id);
+      const fatture = docs.filter((d: any) => d.source === "fic");
+      expect(fatture).toHaveLength(1);
+      expect(fatture[0]).toMatchObject({
+        nome: "Fattura 9100-A.pdf",
+        tipo: "fattura",
+        mimeType: "application/pdf",
+        hasData: true,
+      });
+
+      await caller.ficFatture.collega({ ficId: 9100, commessaId: commessa.id });
+      const docsDopo = await caller.preventiviContratti.byCommessa(commessa.id);
+      expect(docsDopo.filter((d: any) => d.source === "fic")).toHaveLength(1);
       expect(
         proposte.some(
           (p) =>
@@ -318,6 +340,12 @@ describe("fatture orfane → Tars", () => {
       global.fetch = spy as any;
       await smistaFatture(1);
       expect(spy).not.toHaveBeenCalled();
+
+      await caller.ficFatture.collega({ ficId: 9100, commessaId: null });
+      const docsScollegati = await caller.preventiviContratti.byCommessa(
+        commessa.id
+      );
+      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(false);
     } finally {
       global.fetch = realFetch;
       delete process.env.ANTHROPIC_API_KEY;

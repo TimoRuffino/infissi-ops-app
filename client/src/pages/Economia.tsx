@@ -247,12 +247,13 @@ function RigaFattura({ f }: { f: any }) {
     onSuccess: (r) => {
       toast.success(
         r.proposteCreate > 0
-          ? `Collegata — ${r.proposteCreate} proposte create, approvale da Tars`
-          : "Collegata"
+          ? `Collegata e PDF allegato — ${r.proposteCreate} proposte da approvare in Tars`
+          : "Collegata e PDF allegato alla commessa"
       );
       setCollega(false);
       utils.ficFatture.invalidate();
       utils.economia.invalidate();
+      utils.preventiviContratti.invalidate();
       utils.tars.proposte.invalidate();
     },
     onError: (e) => toast.error(e.message),

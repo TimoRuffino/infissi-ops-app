@@ -75,6 +75,15 @@ const _fattureStore = persistedStore<FatturaFic>("fic_fatture", (items) => {
 export const ficFatture = _fattureStore.items;
 export const saveFicFatture = () => _fattureStore.save();
 
+let scaricaFatturaPdfForTests:
+  | ((sedeId: number, ficId: number) => Promise<Buffer>)
+  | null = null;
+export function _setScaricaFatturaPdfForTests(
+  fn: ((sedeId: number, ficId: number) => Promise<Buffer>) | null
+): void {
+  scaricaFatturaPdfForTests = fn;
+}
+
 // ── Normalizzazione nomi (stessa della migrazione clienti) ──────────────────
 
 function stripAcc(s: string): string {
@@ -456,16 +465,38 @@ export const ficFattureRouter = router({
   // subito e produce le proposte per quella commessa.
   collega: protectedProcedure
     .input(z.object({ ficId: z.number(), commessaId: z.number().nullable() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const f = trovaFattura(input.ficId, ctx.sedeId);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      let documentoId: number | null = null;
       if (input.commessaId != null) {
         const commessa = getCommessaById(input.commessaId);
         assertSedeScope(commessa ?? null, ctx.sedeId);
+        const [{ scaricaFatturaPdf }, { upsertDocumentoFic }] = await Promise.all([
+          import("./fattureInCloud"),
+          import("./preventiviContratti"),
+        ]);
+        const pdf = await (scaricaFatturaPdfForTests ?? scaricaFatturaPdf)(
+          sedeId,
+          f.id
+        );
+        const documento = await upsertDocumentoFic({
+          sedeId,
+          ficId: f.id,
+          commessaId: input.commessaId,
+          numero: f.numero,
+          data: f.data,
+          pdf,
+          createdBy: ctx.user?.id ?? null,
+        });
+        documentoId = documento.id;
         f.commessaId = input.commessaId;
         f.collegataAMano = true;
         f.ignorata = false;
       } else {
+        const { deleteDocumentoFic } = await import("./preventiviContratti");
+        deleteDocumentoFic(sedeId, f.id);
         f.commessaId = null;
         f.collegataAMano = false;
       }
@@ -474,7 +505,7 @@ export const ficFattureRouter = router({
       const proposteCreate = generaProposteRiconciliazione(
         ctx.sedeId ?? DEFAULT_SEDE_ID
       );
-      return { success: true as const, proposteCreate };
+      return { success: true as const, proposteCreate, documentoId };
     }),
 
   ignora: protectedProcedure

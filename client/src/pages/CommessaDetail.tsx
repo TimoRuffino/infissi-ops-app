@@ -1079,7 +1079,7 @@ export default function CommessaDetail() {
       <Tabs defaultValue="preventivi">
         <TabsList>
           <TabsTrigger value="preventivi">
-            Preventivi / Contratti ({documenti.data?.length ?? 0})
+            File e documenti ({documenti.data?.length ?? 0})
           </TabsTrigger>
           <TabsTrigger value="prodotti">
             Prodotti ({(c.prodotti?.length ?? 0)})
@@ -1092,7 +1092,7 @@ export default function CommessaDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Preventivi/Contratti Tab */}
+        {/* File e documenti Tab */}
         <TabsContent value="preventivi" className="space-y-4 mt-4">
           <div className="flex justify-end">
             <Dialog
@@ -1191,7 +1191,7 @@ export default function CommessaDetail() {
               <FileText className="h-9 w-9 text-text-3" />
               <p className="text-[15px] font-semibold">Nessun documento</p>
               <p className="text-sm text-text-2 max-w-xs">
-                Trascina qui preventivi, contratti o foto — oppure usa il
+                Qui compariranno preventivi, contratti, fatture e foto. Usa il
                 pulsante per caricare un file.
               </p>
               <Button size="sm" variant="outline" onClick={() => setUploadDialog(true)}>
@@ -1214,6 +1214,11 @@ export default function CommessaDetail() {
                           >
                             {d.tipo}
                           </Badge>
+                          {d.source === "fic" && (
+                            <Badge variant="outline" className="text-[10px]">
+                              Fatture in Cloud
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                           <span>{(d.size / 1024).toFixed(1)} KB</span>

@@ -328,6 +328,54 @@ async function ficGet(path: string, token: string): Promise<any> {
   return await res.json();
 }
 
+const MAX_FATTURA_PDF_BYTES = 10 * 1024 * 1024;
+
+/** Scarica il PDF ufficiale senza inoltrare il bearer token all'URL firmato. */
+export async function scaricaFatturaPdf(
+  sedeId: number,
+  ficId: number
+): Promise<Buffer> {
+  const cfg = getCfg(sedeId);
+  const token = await accessTokenFic(cfg);
+  if (!token || !cfg.companyId) {
+    throw new Error(
+      "Fatture in Cloud non configurato per questa sede: collega l'account e seleziona l'azienda."
+    );
+  }
+  const response = await ficGet(
+    `/c/${cfg.companyId}/issued_documents/${ficId}?fields=id,url`,
+    token
+  );
+  const pdfUrl = typeof response?.data?.url === "string"
+    ? response.data.url.trim()
+    : "";
+  if (!/^https:\/\//i.test(pdfUrl)) {
+    throw new Error(
+      "Fatture in Cloud non ha restituito il PDF della fattura. Riprova tra poco."
+    );
+  }
+  const pdfResponse = await fetch(pdfUrl, {
+    headers: { accept: "application/pdf" },
+  });
+  if (!pdfResponse.ok) {
+    throw new Error(
+      `Download PDF fattura fallito (HTTP ${pdfResponse.status}). Riprova il collegamento.`
+    );
+  }
+  const declaredSize = Number(pdfResponse.headers.get("content-length") ?? 0);
+  if (declaredSize > MAX_FATTURA_PDF_BYTES) {
+    throw new Error("Il PDF della fattura supera il limite di 10MB.");
+  }
+  const pdf = Buffer.from(await pdfResponse.arrayBuffer());
+  if (pdf.length > MAX_FATTURA_PDF_BYTES) {
+    throw new Error("Il PDF della fattura supera il limite di 10MB.");
+  }
+  if (pdf.length < 5 || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throw new Error("Il file ricevuto da Fatture in Cloud non è un PDF valido.");
+  }
+  return pdf;
+}
+
 // ── Name handling (same CF-validated split used by the manual migration) ────
 function stripAcc(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");

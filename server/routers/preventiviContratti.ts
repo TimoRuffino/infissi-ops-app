@@ -44,6 +44,8 @@ type Documento = {
   statoAtUpload: string | null; // commessa.stato at time of upload (for gates)
   createdBy: number | null;
   createdAt: Date;
+  source?: "fic";
+  sourceRef?: string;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
@@ -122,9 +124,11 @@ function buildNomeFromTipo(
 // If `name` already exists among the commessa's documenti, return it with a
 // numeric suffix before the extension ("foo.pdf" → "foo (2).pdf") that makes
 // it unique. Otherwise returns `name` unchanged.
-function dedupeName(name: string, commessaId: number): string {
+function dedupeName(name: string, commessaId: number, excludeId?: number): string {
   const taken = new Set(
-    documenti.filter((d) => d.commessaId === commessaId).map((d) => d.nome)
+    documenti
+      .filter((d) => d.commessaId === commessaId && d.id !== excludeId)
+      .map((d) => d.nome)
   );
   if (!taken.has(name)) return name;
   const dotIdx = name.lastIndexOf(".");
@@ -182,6 +186,106 @@ export function deleteDocumentiByCommessa(commessaId: number) {
     }
   }
   _documentiStore.save();
+}
+
+function ficSourceRef(sedeId: number, ficId: number): string {
+  return `${sedeId}:${ficId}`;
+}
+
+/** Crea o sposta il documento FIC senza duplicarlo nei ricollegamenti. */
+export async function upsertDocumentoFic(args: {
+  sedeId: number;
+  ficId: number;
+  commessaId: number;
+  numero: string;
+  data: string;
+  pdf: Buffer;
+  createdBy: number | null;
+}): Promise<Documento> {
+  if (args.pdf.length > MAX_SIZE_BYTES) {
+    throw new Error("Il PDF della fattura supera il limite di 10MB.");
+  }
+  const commessa = commessaInSede(args.commessaId, args.sedeId);
+  if (!commessa) throw new Error("Commessa non trovata");
+
+  const sourceRef = ficSourceRef(args.sedeId, args.ficId);
+  const existing = documenti.find(
+    (d) => d.source === "fic" && d.sourceRef === sourceRef
+  );
+  const id = existing?.id ?? nextId++;
+  const numeroSicuro = args.numero
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  const nome = dedupeName(
+    `Fattura ${numeroSicuro || args.ficId}.pdf`,
+    args.commessaId,
+    existing?.id
+  );
+  const oldStorageKey = existing?.storageKey;
+  const doc: Documento = existing ?? {
+    id,
+    commessaId: args.commessaId,
+    nome,
+    tipo: "fattura",
+    mimeType: "application/pdf",
+    size: args.pdf.length,
+    note: null,
+    statoAtUpload: commessa.stato ?? null,
+    createdBy: args.createdBy,
+    createdAt: new Date(),
+  };
+
+  doc.commessaId = args.commessaId;
+  doc.nome = nome;
+  doc.tipo = "fattura";
+  doc.mimeType = "application/pdf";
+  doc.size = args.pdf.length;
+  doc.note = `Importata automaticamente da Fatture in Cloud · ${args.data}`;
+  doc.statoAtUpload = commessa.stato ?? null;
+  doc.source = "fic";
+  doc.sourceRef = sourceRef;
+
+  try {
+    const stored = await putFile(
+      "preventivi_documenti",
+      args.commessaId,
+      doc.id,
+      nome,
+      args.pdf,
+      "application/pdf"
+    );
+    doc.storageKey = stored.storageKey;
+    doc.checksum = stored.checksum;
+    delete doc.dataBase64;
+  } catch (e) {
+    console.warn(
+      "[preventiviContratti] storage fattura FIC fallito, fallback base64 inline:",
+      e
+    );
+    doc.dataBase64 = args.pdf.toString("base64");
+    doc.storageKey = null;
+    doc.checksum = null;
+  }
+
+  if (!existing) documenti.push(doc);
+  _documentiStore.save();
+  if (oldStorageKey && oldStorageKey !== doc.storageKey) {
+    deleteFileQuiet(oldStorageKey);
+  }
+  return doc;
+}
+
+/** Rimuove solo il file importato da FIC, senza toccare upload manuali. */
+export function deleteDocumentoFic(sedeId: number, ficId: number): void {
+  const sourceRef = ficSourceRef(sedeId, ficId);
+  const idx = documenti.findIndex(
+    (d) => d.source === "fic" && d.sourceRef === sourceRef
+  );
+  if (idx === -1) return;
+  const [doc] = documenti.splice(idx, 1);
+  _documentiStore.save();
+  deleteFileQuiet(doc.storageKey);
 }
 
 // Legacy helper kept for backward compat.
