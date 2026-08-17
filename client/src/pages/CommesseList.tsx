@@ -801,7 +801,7 @@ export default function CommesseList() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:hidden">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:hidden">
             {commesseFiltrate.map((c: any) => {
               const assignee = c.assegnatoA
                 ? utenteById.get(c.assegnatoA)
@@ -835,7 +835,7 @@ export default function CommesseList() {
                 <button
                   key={c.id}
                   type="button"
-                  className="rounded-lg border border-border bg-card p-3 text-left shadow-xs transition-[background-color,border-color,box-shadow] hover:border-primary/35 hover:bg-surface hover:shadow-sm"
+                  className="min-w-0 w-full max-w-full overflow-hidden rounded-lg border border-border bg-card p-3 text-left shadow-xs transition-[background-color,border-color,box-shadow] hover:border-primary/35 hover:bg-surface hover:shadow-sm"
                   onClick={() => setLocation(`/commesse/${c.id}`)}
                 >
                   <div className="flex items-start justify-between gap-3">

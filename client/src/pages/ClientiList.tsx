@@ -783,7 +783,7 @@ export default function ClientiList() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:hidden">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:hidden">
             {clientiFiltrati.map((c: any) => {
               const TipoIcon = tipoIcons[c.tipo] ?? User;
               const displayName = `${c.cognome ?? ""} ${c.nome ?? ""}`.trim();
@@ -793,7 +793,7 @@ export default function ClientiList() {
                 <button
                   key={c.id}
                   type="button"
-                  className="rounded-lg border border-border bg-card p-3 text-left shadow-xs transition-[background-color,border-color,box-shadow] hover:border-primary/35 hover:bg-surface hover:shadow-sm"
+                  className="min-w-0 w-full max-w-full overflow-hidden rounded-lg border border-border bg-card p-3 text-left shadow-xs transition-[background-color,border-color,box-shadow] hover:border-primary/35 hover:bg-surface hover:shadow-sm"
                   onClick={() => setLocation(`/clienti/${c.id}`)}
                 >
                   <div className="flex items-start justify-between gap-3">
