@@ -181,12 +181,12 @@ export default function TarsPropostaCard({
   const busy = approva.isPending || rifiuta.isPending || rispondi.isPending;
 
   return (
-    <div className="rounded-lg border border-amber-300/70 dark:border-amber-700/50 border-l-4 border-l-amber-500 bg-card p-3 space-y-2">
+    <div className="rounded-lg border border-primary/25 border-l-4 border-l-primary bg-card bg-[image:var(--gradient-soft)] p-3 space-y-2">
       <div className="flex items-start gap-2.5">
         <TarsAvatar size="md" className="mt-0.5" />
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-500">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">
               {proposta.origineId != null
                 ? "Tars propone come chiuderla"
                 : proposta.tipo === "domanda"

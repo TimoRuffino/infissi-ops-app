@@ -8,13 +8,13 @@ import { cn } from "@/lib/utils";
 // Default height 40px (sm 32px), radius 10px, weight 600, focus ring,
 // disabled = opacity .5 + cursor not-allowed.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-[background-color,border-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-[background-color,background-image,border-color,color,box-shadow,opacity,transform] duration-150 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
         // Primario
         default:
-          "bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover hover:shadow-sm",
+          "bg-primary [background-image:var(--gradient-primary)] text-primary-foreground shadow-xs hover:[background-image:var(--gradient-primary-hover)] hover:-translate-y-px hover:shadow-sm active:translate-y-0",
         // Confirm-modal destructive action (solid). For in-list/menu deletes
         // use `dangerGhost` instead — never expose a solid red in a row.
         destructive:

@@ -25,7 +25,7 @@ export default function TarsAvatar({
   return (
     <div
       className={cn(
-        "rounded-full bg-gradient-to-br from-amber-400 to-orange-600 text-white",
+        "rounded-full bg-primary [background-image:var(--gradient-primary)] text-primary-foreground",
         "flex items-center justify-center shrink-0 shadow-sm",
         pulse && "animate-pulse",
         s.box,

@@ -174,7 +174,7 @@ export function TarsChatFloating() {
     <>
       {aperta && (
         <div className="fixed bottom-20 right-4 z-50 w-[min(400px,calc(100vw-2rem))] h-[min(560px,calc(100dvh-7rem))] bg-background border rounded-xl shadow-2xl flex flex-col overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-gradient-to-r from-amber-500/10 to-transparent shrink-0">
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b bg-[image:var(--gradient-soft)] shrink-0">
             <TarsAvatar size="md" />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold leading-tight">Tars</div>
