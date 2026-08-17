@@ -361,7 +361,7 @@ function RigaFattura({ f }: { f: any }) {
         </div>
 
         {collega && (
-          <div className="rounded-md border border-border/80 bg-muted/35 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="rounded-md border border-border/80 bg-muted/35 p-3 pb-16 sm:pb-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold">
