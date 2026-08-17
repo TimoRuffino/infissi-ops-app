@@ -126,6 +126,8 @@ export default function TarsPropostaCard({
 
   const invalidate = () => {
     utils.tars.proposte.invalidate();
+    utils.ficFatture.invalidate();
+    utils.economia.invalidate();
     if (proposta.commessaId) {
       // La mutation approvata può aver toccato la commessa: rinfresca tutto
       // ciò che la mostra (trappola nota: mai invalidare solo byId).

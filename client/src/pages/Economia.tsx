@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import SearchSelect from "@/components/SearchSelect";
+import TarsPropostaCard from "@/components/TarsPropostaCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { formatEuroSimbolo } from "@/lib/euro";
@@ -28,6 +29,8 @@ import {
   EyeOff,
   RefreshCw,
   ShieldAlert,
+  Check,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
@@ -241,7 +244,23 @@ function Panoramica({ anno }: { anno: number }) {
 function RigaFattura({ f }: { f: any }) {
   const utils = trpc.useUtils();
   const [collega, setCollega] = useState(false);
+  const [commessaSelezionata, setCommessaSelezionata] = useState<string | null>(
+    null
+  );
   const commesse = trpc.commesse.list.useQuery(undefined, { enabled: collega });
+  const opzioniCommesse = (commesse.data ?? []).map((cm: any) => ({
+    value: String(cm.id),
+    label: `${cm.codice} — ${cm.cliente}`,
+    keywords: `${cm.citta ?? ""} ${cm.cliente ?? ""}`,
+  }));
+  const destinazione = opzioniCommesse.find(
+    (cm) => cm.value === commessaSelezionata
+  );
+
+  const chiudiCollegamento = () => {
+    setCollega(false);
+    setCommessaSelezionata(null);
+  };
 
   const collegaMut = trpc.ficFatture.collega.useMutation({
     onSuccess: (r) => {
@@ -250,7 +269,7 @@ function RigaFattura({ f }: { f: any }) {
           ? `Collegata e PDF allegato — ${r.proposteCreate} proposte da approvare in Tars`
           : "Collegata e PDF allegato alla commessa"
       );
-      setCollega(false);
+      chiudiCollegamento();
       utils.ficFatture.invalidate();
       utils.economia.invalidate();
       utils.preventiviContratti.invalidate();
@@ -316,7 +335,11 @@ function RigaFattura({ f }: { f: any }) {
               size="sm"
               variant="ghost"
               className="h-7 text-xs"
-              onClick={() => setCollega((v) => !v)}
+              aria-expanded={collega}
+              onClick={() => {
+                if (collega) chiudiCollegamento();
+                else setCollega(true);
+              }}
             >
               <Link2 className="h-3 w-3 mr-1" />
               {f.commessaId != null ? "Sposta" : "Collega"}
@@ -338,18 +361,83 @@ function RigaFattura({ f }: { f: any }) {
         </div>
 
         {collega && (
-          <SearchSelect
-            value={f.commessaId != null ? String(f.commessaId) : null}
-            onChange={(v: string) =>
-              collegaMut.mutate({ ficId: f.id, commessaId: Number(v) })
-            }
-            options={(commesse.data ?? []).map((cm: any) => ({
-              value: String(cm.id),
-              label: `${cm.codice} — ${cm.cliente}`,
-              keywords: cm.citta ?? "",
-            }))}
-            placeholder="Cerca la commessa…"
-          />
+          <div className="rounded-md border border-border/80 bg-muted/35 p-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">
+                  {f.commessaId != null ? "Sposta fattura" : "Collega fattura"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Destinazione
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={chiudiCollegamento}
+                aria-label="Chiudi collegamento"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <SearchSelect
+              value={commessaSelezionata}
+              onChange={setCommessaSelezionata}
+              options={opzioniCommesse}
+              disabled={commesse.isLoading || collegaMut.isPending}
+              placeholder={
+                commesse.isLoading ? "Caricamento commesse…" : "Cerca la commessa…"
+              }
+              searchPlaceholder="Cerca per codice, cliente o città…"
+              emptyText="Nessuna commessa trovata"
+            />
+
+            {destinazione && (
+              <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2.5 text-sm">
+                <Check className="h-4 w-4 text-primary shrink-0" />
+                <span className="font-medium truncate">{destinazione.label}</span>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 sm:h-10"
+                onClick={chiudiCollegamento}
+                disabled={collegaMut.isPending}
+              >
+                Annulla
+              </Button>
+              <Button
+                type="button"
+                className="h-11 sm:h-10"
+                disabled={!commessaSelezionata || collegaMut.isPending}
+                onClick={() =>
+                  collegaMut.mutate({
+                    ficId: f.id,
+                    commessaId: Number(commessaSelezionata),
+                  })
+                }
+              >
+                {collegaMut.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-2" />
+                )}
+                {collegaMut.isPending
+                  ? "Collegamento in corso…"
+                  : "Conferma collegamento"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {f.propostaTars && (
+          <TarsPropostaCard proposta={f.propostaTars} />
         )}
       </CardContent>
     </Card>

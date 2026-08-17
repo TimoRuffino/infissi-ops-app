@@ -308,6 +308,16 @@ describe("fatture orfane → Tars", () => {
       );
       expect(proposta).toBeDefined();
       expect(ficFatture.find((f) => f.id === 9100)!.tarsAnalizzata).toBe(true);
+      const elenco = await caller.ficFatture.list({ anno: 2026 });
+      expect(elenco.find((f) => f.id === 9100)).toMatchObject({
+        stato: "proposta",
+        propostaTars: {
+          id: proposta!.id,
+          tipo: "collega_fattura",
+          stato: "pendente",
+          commessaId: commessa.id,
+        },
+      });
 
       // Approvazione (direzione) → collegata + proposte soldi in coda.
       await caller.tars.proposte.approva({ id: proposta!.id });

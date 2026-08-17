@@ -436,10 +436,25 @@ export const ficFattureRouter = router({
       const anno = input?.anno ?? new Date().getFullYear();
       const sede = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const commesse = getCommesseStore();
+      const proposteCollegamento = new Map(
+        proposte
+          .filter(
+            (p) =>
+              p.sedeId === sede &&
+              p.tipo === "collega_fattura" &&
+              p.stato === "pendente" &&
+              typeof p.payload?.ficId === "number"
+          )
+          .map((p) => [p.payload.ficId as number, p])
+      );
       return ficFatture
         .filter((f) => f.sedeId === sede && f.data.startsWith(String(anno)))
         .map((f) => {
           const s = statoFattura(f, commesse);
+          const propostaCollegamento = proposteCollegamento.get(f.id);
+          const commessaProposta = propostaCollegamento
+            ? commesse.find((c) => c.id === propostaCollegamento.commessaId)
+            : null;
           const incassato = f.rate
             .filter((r) => r.stato === "paid")
             .reduce((sum, r) => sum + r.importo, 0);
@@ -450,12 +465,24 @@ export const ficFattureRouter = router({
             clienteNome: f.clienteNome,
             importoLordo: f.importoLordo,
             incassato,
-            stato: s.stato,
-            motivo: s.motivo,
+            stato: propostaCollegamento ? "proposta" as const : s.stato,
+            motivo: propostaCollegamento
+              ? "Tars ha individuato una possibile commessa."
+              : s.motivo,
             commessaId: s.commessa?.id ?? null,
             commessaCodice: s.commessa?.codice ?? null,
             commessaCliente: s.commessa?.cliente ?? null,
             collegataAMano: f.collegataAMano,
+            propostaTars: propostaCollegamento
+              ? {
+                  ...propostaCollegamento,
+                  commessaCodice:
+                    propostaCollegamento.payload?.commessaCodice ??
+                    commessaProposta?.codice ??
+                    null,
+                  commessaCliente: commessaProposta?.cliente ?? null,
+                }
+              : null,
           };
         })
         .sort((a, b) => b.data.localeCompare(a.data));
