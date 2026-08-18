@@ -1,12 +1,14 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.2 — 18/08/2026
+**Versione:** 1.3 — 18/08/2026
 **Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Ricerca semantica/pgvector resta roadmap.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
 ### Stato implementativo sintetico
 
 - I messaggi email e WhatsApp confluiscono nella tabella `comunicazioni`; lo smistamento parte solo sui nuovi record non ancora analizzati.
+- Il filtro conserva sempre richieste di preventivo e opportunità concrete; esclude solo spam, newsletter e invii massivi senza valore operativo.
+- Per creare un lead da una comunicazione Tars deve chiedere l'assegnatario e applicarlo a cliente e commessa.
 - La riconciliazione FiC usa un trigger separato e un modello automatico più economico.
 - `on_demand`, chat e seguito usano il modello principale configurato per sede.
 - Il catalogo strumenti è filtrato per trigger; l'ordine resta stabile per il prompt caching.
@@ -92,6 +94,7 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_contenuto_documento` | Testo estratto di un documento | Contenuto **non fidato** |
 | `leggi_quadro_azienda` | KPI trasversali, colli di bottiglia e qualità decisionale di Tars | Compatto e sede-scoped |
 | `leggi_organizzazione` | Utenti, ruoli, sedi e squadre senza credenziali o segreti | Solo direzione |
+| `leggi_assegnatari` | Utenti attivi assegnabili nella sede corrente | Accessibile nel flusso lead |
 | `leggi_produzione` | Distinte, fasi e non conformità di produzione | |
 | `leggi_qualita_operativa` | Anomalie, reclami, rifacimenti e non conformità | |
 | `cerca_comunicazioni` | Email/WhatsApp per cliente, commessa, periodo | |
@@ -116,7 +119,7 @@ Ognuno crea una riga in `azioni_suggerite` e restituisce l'id. **Nessuno scrive 
 | `proponi_modifica_cliente` | `clienti.update` | Medio |
 | `proponi_modifica_commessa` | `commesse.update` | Medio |
 | `proponi_collegamento` | collega una comunicazione a una commessa | Basso |
-| `proponi_nuovo_lead` | crea cliente + commessa preventivo e collega la comunicazione | Medio |
+| `proponi_nuovo_lead` | crea cliente + commessa preventivo, assegna entrambi e collega la comunicazione | Medio |
 | `proponi_ticket` | `tickets.create` | Medio |
 | `proponi_pagamento` | `commesse.addPagamento` | **Alto** |
 | `proponi_avanzamento_stato` | `commesse.update({stato})` | **Alto** |
@@ -128,6 +131,11 @@ Ognuno crea una riga in `azioni_suggerite` e restituisce l'id. **Nessuno scrive 
 **`chiedi_chiarimento`** — quando l'agente non ha abbastanza informazioni, invece di indovinare crea una domanda per l'operatore: *"La fattura FIC 2026/312 da €4.320 non corrisponde a nessun ordine. Si riferisce a COM-2026-035 o a COM-2026-051?"* con due bottoni di risposta.
 
 Un agente che non può dire "non lo so" è un agente che inventa. Questo strumento è il suo modo di dirlo in maniera azionabile.
+
+Nel flusso nuovo lead non è facoltativo: Tars usa `leggi_assegnatari`, mostra le
+persone attive della sede e attende una scelta. La risposta riapre una sola volta
+l'analisi con il contenuto della mail originale; soltanto allora può essere
+creata la proposta `proponi_nuovo_lead`.
 
 **`nessuna_azione`** — terminazione esplicita con motivazione. Senza di esso, un modello messo davanti a un compito tende a produrre *qualcosa* pur di non sembrare inutile. Rendere il non fare nulla una scelta legittima e dichiarabile abbassa drasticamente il rumore.
 

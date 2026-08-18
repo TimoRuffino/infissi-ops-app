@@ -48,6 +48,14 @@ function anthropicScript(responses: any[]) {
 
 const usage = { input_tokens: 100, output_tokens: 50 };
 
+async function attendi(check: () => Promise<boolean>): Promise<boolean> {
+  for (let i = 0; i < 60; i++) {
+    if (await check()) return true;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
 describe("smistamento", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
@@ -185,11 +193,11 @@ describe("smistamento", () => {
     expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
     const com = await getComunicazione(spam!.id, 1);
     expect(com!.tarsAnalizzata).toBe(true);
-    expect(com!.categoria).toBe("offerta_marketing");
+    expect(com!.categoria).toBe("spam");
     expect(com!.commessaId).toBeNull();
   });
 
-  it("Tars può proporre e creare un lead da una mail senza commessa", async () => {
+  it("Tars chiede l'assegnatario, poi propone e crea il lead", async () => {
     const ctx = makeCtx();
     const caller = appRouter.createCaller(ctx);
     getTarsConfig().attivo = true;
@@ -221,6 +229,72 @@ describe("smistamento", () => {
         content: [
           {
             type: "tool_use",
+            id: "tu_assegnatari",
+            name: "leggi_assegnatari",
+            input: {},
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_domanda",
+            name: "chiedi_chiarimento",
+            input: {
+              comunicazioneId: mail!.id,
+              domanda: "A chi assegno la richiesta di Luca Bianchi?",
+              contesto:
+                "È una nuova richiesta di preventivo senza cliente o commessa corrispondenti.",
+              opzioni: ["Admin Ruffino"],
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Mi serve l'assegnatario." }],
+      },
+    ]);
+
+    const esito = await caller.tars.analizzaComunicazione({
+      comunicazioneId: mail!.id,
+      istruzione: "Se è un nuovo contatto, prepara cliente e commessa.",
+    });
+    expect(esito.proposte.some((p: any) => p.tipo === "crea_lead")).toBe(false);
+    const domanda = esito.proposte.find((p: any) => p.tipo === "domanda");
+    expect(domanda).toBeDefined();
+    expect(domanda.payload.comunicazioneId).toBe(mail!.id);
+    expect(domanda.opzioni).toContain("Admin Ruffino");
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_cerca_cliente",
+            name: "cerca_clienti",
+            input: { query: "Luca Bianchi" },
+          },
+          {
+            type: "tool_use",
+            id: "tu_cerca_commessa",
+            name: "cerca_commesse",
+            input: { query: "Luca Bianchi Lerici" },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
             id: "tu_lead",
             name: "proponi_nuovo_lead",
             input: {
@@ -230,10 +304,11 @@ describe("smistamento", () => {
               tipo: "privato",
               email: "luca.bianchi@example.com",
               citta: "Lerici",
+              assegnatoA: 1,
               prodotti: [{ nome: "Finestre", quantita: 6 }],
               titolo: "Crea il lead Luca Bianchi",
               motivazione:
-                "La mail chiede esplicitamente preventivo e sopralluogo per sei finestre.",
+                "La mail chiede preventivo e sopralluogo; l'operatore l'ha assegnata ad Admin Ruffino.",
               confidenza: "alta",
             },
           },
@@ -246,13 +321,26 @@ describe("smistamento", () => {
       },
     ]);
 
-    const esito = await caller.tars.analizzaComunicazione({
-      comunicazioneId: mail!.id,
-      istruzione: "Se è un nuovo contatto, prepara cliente e commessa.",
+    const risposta: any = await caller.tars.proposte.rispondi({
+      id: domanda.id,
+      risposta: "Admin Ruffino",
     });
-    const proposta = esito.proposte.find((p: any) => p.tipo === "crea_lead");
+    expect(risposta.seguitoAvviato).toBe(true);
+    const propostaArrivata = await attendi(async () => {
+        const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
+        return pendenti.some(
+          (p: any) => p.tipo === "crea_lead" && p.origineId === domanda.id
+        );
+      });
+    expect(propostaArrivata).toBe(true);
+
+    const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
+    const proposta = pendenti.find(
+      (p: any) => p.tipo === "crea_lead" && p.origineId === domanda.id
+    );
     expect(proposta).toBeDefined();
     expect(proposta.payload.comunicazioneId).toBe(mail!.id);
+    expect(proposta.payload.assegnatoA).toBe(1);
 
     await caller.tars.proposte.approva({ id: proposta.id });
     const collegata = await getComunicazione(mail!.id, 1);
@@ -262,6 +350,9 @@ describe("smistamento", () => {
     const creata = await caller.commesse.byId(collegata!.commessaId!);
     expect(creata?.stato).toBe("preventivo");
     expect(creata?.prodotti[0]?.quantita).toBe(6);
+    expect(creata?.assegnatoA).toBe(1);
+    const cliente = await caller.clienti.byId(collegata!.clienteId!);
+    expect(cliente?.assegnatoA).toBe(1);
   });
 
   it("con Tars spento non parte e non consuma la coda", async () => {

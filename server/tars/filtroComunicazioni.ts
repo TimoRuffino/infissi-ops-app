@@ -138,6 +138,50 @@ export function classificaComunicazione(input: {
   commessaId?: number | null;
   segnali?: SegnaliFiltro;
 }): EsitoFiltro {
+  const mittente = normalizzaMittente(input.mittente);
+  const oggetto = input.oggetto.toLowerCase();
+  const testo = input.testo.toLowerCase().slice(0, 12_000);
+  const insieme = `${mittente}\n${oggetto}\n${testo}`;
+  const contenutoPrincipale = `${oggetto}\n${testo.slice(0, 5000)}`;
+
+  // Una richiesta che può generare lavoro non deve essere nascosta da una
+  // newsletter flaggata male, né da una vecchia regola sul mittente. Molti
+  // portali usano infatti lo stesso indirizzo per campagne e nuovi contatti.
+  const richiestaEsplicita = include(
+    /\b(richiesta (?:di )?(?:preventivo|sopralluogo|appuntamento|informazioni)|vorre(?:i|mmo) (?:ricevere |avere |fissare )?(?:un )?(?:preventivo|sopralluogo|appuntamento)|avre(?:i|mmo) bisogno (?:di|del|della)|potete (?:farmi|farci|inviarmi|inviarci|preparare|fissare)|desider(?:o|iamo) (?:ricevere|avere|fissare)|quanto (?:costa|costano|verrebbe)|contattatemi|richiamatemi)\b/i,
+    contenutoPrincipale
+  );
+  const interesseConcreto = include(
+    /\b(sono|siamo) interessat[oi] (?:a|ad|alla|al)|\bmi serve\b|\bci servono\b|\bnecessit(?:o|iamo)\b/i,
+    contenutoPrincipale
+  );
+  const prodottoOLavoro = include(
+    /\b(infissi?|serramenti?|finestre?|porte? finestre?|portoncini?|persiane?|tapparelle?|zanzariere?|vetri?|vetrate?|sostituzion[ei]|installazion[ei]|ristrutturazion[ei]|cantiere|sopralluogo|preventivo)\b/i,
+    contenutoPrincipale
+  );
+  const portaLavoro =
+    richiestaEsplicita || (interesseConcreto && prodottoOLavoro);
+
+  if (input.commessaId != null) {
+    return {
+      categoria: "operativa",
+      score: 100,
+      motivo: "Messaggio collegato a una commessa del CRM.",
+      fonte: "regole",
+    };
+  }
+  if (portaLavoro) {
+    return {
+      categoria: input.clienteId != null ? "operativa" : "nuovo_lead",
+      score: 95,
+      motivo:
+        input.clienteId != null
+          ? "Richiesta commerciale di un cliente esistente: mantenuta nella coda operativa."
+          : "Richiesta commerciale concreta: mantenuta come opportunità anche in presenza di segnali promozionali.",
+      fonte: "regole",
+    };
+  }
+
   const regola = trovaRegolaMittente(input.sedeId, input.mittente);
   if (regola) {
     return {
@@ -148,10 +192,6 @@ export function classificaComunicazione(input: {
     };
   }
 
-  const mittente = normalizzaMittente(input.mittente);
-  const oggetto = input.oggetto.toLowerCase();
-  const testo = input.testo.toLowerCase().slice(0, 12_000);
-  const insieme = `${mittente}\n${oggetto}\n${testo}`;
   const segnali = input.segnali ?? {};
   const motiviSpam: string[] = [];
   const motiviMarketing: string[] = [];
@@ -159,7 +199,6 @@ export function classificaComunicazione(input: {
   let spam = 0;
   let marketing = 0;
   let operativo = 0;
-  let lead = 0;
   let amministrativa = 0;
   let fornitore = 0;
 
@@ -218,22 +257,9 @@ export function classificaComunicazione(input: {
     marketing += 10;
   }
 
-  if (input.commessaId != null) {
-    operativo += 100;
-    motiviOperativi.push("gia collegata a una commessa");
-  } else if (input.clienteId != null) {
+  if (input.clienteId != null) {
     operativo += 45;
     motiviOperativi.push("mittente o contenuto riconosciuto in anagrafica");
-  }
-  if (
-    include(
-      /\b(richiesta (di )?preventivo|vorrei (un )?preventivo|sopralluogo|nuovi infissi|sostituire (le )?finestre|richiesta informazioni)\b/i,
-      `${oggetto}\n${testo.slice(0, 5000)}`
-    )
-  ) {
-    lead += 70;
-    operativo += 40;
-    motiviOperativi.push("richiesta commerciale compatibile con un nuovo lead");
   }
   if (
     include(
@@ -279,25 +305,9 @@ export function classificaComunicazione(input: {
   }
   if (marketingNetto >= 55) {
     return {
-      categoria: "offerta_marketing",
+      categoria: "spam",
       score: limitaScore(marketingNetto),
-      motivo: `Esclusa automaticamente: ${motiviMarketing.join(", ")}.`,
-      fonte: "regole",
-    };
-  }
-  if (input.commessaId != null) {
-    return {
-      categoria: "operativa",
-      score: 100,
-      motivo: "Messaggio collegato a una commessa del CRM.",
-      fonte: "regole",
-    };
-  }
-  if (lead >= 60) {
-    return {
-      categoria: "nuovo_lead",
-      score: limitaScore(lead),
-      motivo: motiviOperativi.join(", "),
+      motivo: `Newsletter o invio promozionale senza valore operativo: ${motiviMarketing.join(", ")}.`,
       fonte: "regole",
     };
   }

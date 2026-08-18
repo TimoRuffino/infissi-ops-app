@@ -85,6 +85,34 @@ function err(msg: string): { content: string; isError: boolean } {
   return { content: msg, isError: true };
 }
 
+function utentiAssegnabili(utenti: any[], ctx: TrpcContext) {
+  const sedeId = ctx.sedeId ?? 1;
+  const assegnabili = utenti
+    .filter(
+      u =>
+        (u.attivo ?? true) &&
+        (!Array.isArray(u.sediIds) || u.sediIds.includes(sedeId))
+    )
+    .map(u => ({
+      id: Number(u.id),
+      nome: `${u.nome ?? ""} ${u.cognome ?? ""}`.trim(),
+      ruoli: u.ruoli ?? (u.ruolo ? [u.ruolo] : []),
+    }));
+  const corrente: any = ctx.user;
+  if (
+    Number(corrente?.id) > 0 &&
+    corrente?.ruolo !== "sistema" &&
+    !assegnabili.some(u => u.id === Number(corrente.id))
+  ) {
+    assegnabili.push({
+      id: Number(corrente.id),
+      nome: String(corrente.name ?? corrente.email ?? "Operatore"),
+      ruoli: corrente.ruoli ?? (corrente.ruolo ? [corrente.ruolo] : []),
+    });
+  }
+  return assegnabili;
+}
+
 function creaProposta(
   rt: ToolRuntime,
   args: {
@@ -387,6 +415,12 @@ export const TOOL_DEFS: AnthropicTool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "leggi_assegnatari",
+    description:
+      "Elenca gli utenti attivi assegnabili nella sede corrente (id, nome e ruoli). Usalo prima di proporre un nuovo lead; se l'operatore non ha già indicato chiaramente una persona, chiedigli a chi assegnarlo.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "leggi_produzione",
     description:
       "Distinte base, fasi di produzione e non conformità, filtrabili per commessa. Restituisce record operativi compatti e relativi stati.",
@@ -512,7 +546,7 @@ export const TOOL_DEFS: AnthropicTool[] = [
   {
     name: "proponi_nuovo_lead",
     description:
-      "Propone di creare cliente e commessa in stato preventivo partendo da una comunicazione non riconducibile a commesse esistenti, poi collega la comunicazione. Usalo solo dopo aver cercato clienti e commesse ed escluso duplicati. È una singola proposta: nulla viene creato prima dell'approvazione.",
+      "Propone di creare cliente e commessa in stato preventivo partendo da una comunicazione non riconducibile a commesse esistenti, poi collega la comunicazione. Usalo solo dopo aver cercato clienti e commesse, escluso duplicati e ottenuto dall'operatore l'assegnatario. È una singola proposta: nulla viene creato prima dell'approvazione.",
     input_schema: {
       type: "object",
       properties: {
@@ -530,6 +564,11 @@ export const TOOL_DEFS: AnthropicTool[] = [
         telefono: { type: "string" },
         indirizzo: { type: "string" },
         citta: { type: "string" },
+        assegnatoA: {
+          type: "number",
+          description:
+            "Id dell'utente attivo scelto esplicitamente dall'operatore",
+        },
         priorita: {
           type: "string",
           enum: ["bassa", "media", "alta", "urgente"],
@@ -557,6 +596,7 @@ export const TOOL_DEFS: AnthropicTool[] = [
         "nome",
         "cognome",
         "tipo",
+        "assegnatoA",
         "titolo",
         "motivazione",
         "confidenza",
@@ -926,8 +966,9 @@ export const TOOL_DEFS: AnthropicTool[] = [
           type: "string",
           description: "Cosa hai già verificato e cosa manca",
         },
-        opzioni: { type: "array", items: { type: "string" }, maxItems: 4 },
+        opzioni: { type: "array", items: { type: "string" }, maxItems: 12 },
         commessaId: { type: "number" },
+        comunicazioneId: { type: "number" },
       },
       required: ["domanda", "contesto"],
     },
@@ -970,6 +1011,7 @@ const PROFILI: Record<string, readonly string[]> = {
     "leggi_fatture_cloud",
     "leggi_allegato",
     "cerca_comunicazioni",
+    "leggi_assegnatari",
     "proponi_collegamento",
     "proponi_nuovo_lead",
     "proponi_rinomina_documento",
@@ -991,6 +1033,7 @@ const PROFILI: Record<string, readonly string[]> = {
     "leggi_fascicolo_commessa",
     "leggi_allegato",
     "cerca_comunicazioni",
+    "leggi_assegnatari",
     "proponi_collegamento",
     "proponi_nuovo_lead",
     "proponi_nota_timeline",
@@ -1475,6 +1518,11 @@ async function eseguiStrumentoSenzaCache(
           })),
         });
       }
+      case "leggi_assegnatari": {
+        const caller = await getCaller(rt.ctx);
+        const utenti = await caller.utenti.list();
+        return ok(utentiAssegnabili(utenti, rt.ctx).slice(0, 50));
+      }
       case "leggi_produzione": {
         const caller = await getCaller(rt.ctx);
         const filtro =
@@ -1893,6 +1941,20 @@ async function eseguiStrumentoSenzaCache(
         if (!nome || !cognome) {
           return err("Nome e cognome/ragione sociale sono obbligatori.");
         }
+        const assegnatoA = Number(input.assegnatoA);
+        const caller = await getCaller(rt.ctx);
+        const assegnatario = utentiAssegnabili(
+          await caller.utenti.list(),
+          rt.ctx
+        ).find(
+          u => u.id === assegnatoA
+        );
+        if (!assegnatario) {
+          return err(
+            "Assegnatario mancante o non valido. Usa leggi_assegnatari e chiedi all'operatore a chi assegnare cliente e commessa prima di creare la proposta."
+          );
+        }
+        const assegnatoNome = assegnatario.nome;
         const emailGrezz = String(input.email ?? comunicazione.mittente).trim();
         const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailGrezz)
           ? emailGrezz.toLowerCase()
@@ -1913,6 +1975,8 @@ async function eseguiStrumentoSenzaCache(
           confidenza: input.confidenza,
           payload: {
             comunicazioneId,
+            assegnatoA,
+            assegnatoNome,
             cliente: {
               nome,
               cognome,
@@ -1925,6 +1989,7 @@ async function eseguiStrumentoSenzaCache(
                 ? { indirizzo: String(input.indirizzo).trim() }
                 : {}),
               ...(input.citta ? { citta: String(input.citta).trim() } : {}),
+              assegnatoA,
               note: `Lead proposto da Tars dalla comunicazione #${comunicazioneId}.`,
             },
             commessa: {
@@ -1936,6 +2001,7 @@ async function eseguiStrumentoSenzaCache(
                 ? { indirizzo: String(input.indirizzo).trim() }
                 : {}),
               ...(input.citta ? { citta: String(input.citta).trim() } : {}),
+              assegnatoA,
               priorita: input.priorita ?? "media",
               note: String(
                 input.note ??
@@ -2179,9 +2245,14 @@ async function eseguiStrumentoSenzaCache(
           commessaId:
             input.commessaId != null ? Number(input.commessaId) : null,
           opzioni: Array.isArray(input.opzioni)
-            ? input.opzioni.slice(0, 4).map(String)
+            ? input.opzioni.slice(0, 12).map(String)
             : null,
-          payload: { domanda: String(input.domanda) },
+          payload: {
+            domanda: String(input.domanda),
+            ...(input.comunicazioneId != null
+              ? { comunicazioneId: Number(input.comunicazioneId) }
+              : {}),
+          },
         });
       case "nessuna_azione":
         rt.terminato = { motivo: String(input.motivo ?? "") };

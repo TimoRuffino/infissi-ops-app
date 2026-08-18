@@ -15,6 +15,7 @@
 
 import type { TrpcContext } from "../_core/context";
 import { anthropicConfigured } from "./anthropic";
+import { getComunicazione } from "./comunicazioni";
 import { runTars } from "./loop";
 import {
   budgetMensileSuperato,
@@ -90,13 +91,41 @@ export function avviaSeguito(p: Proposta, ctx: TrpcContext): boolean {
   p.seguitoAt = new Date();
   saveProposte();
 
-  void runTars({
-    ctx,
-    trigger: "seguito",
-    commessaId: p.commessaId,
-    richiesta: richiestaSeguito(p),
-    origineId: p.id,
-  })
+  const comunicazioneId = Number(p.payload?.comunicazioneId);
+  const haComunicazione = Number.isFinite(comunicazioneId);
+  void (async () => {
+    let richiesta = richiestaSeguito(p);
+    if (haComunicazione) {
+      const comunicazione = await getComunicazione(
+        comunicazioneId,
+        ctx.sedeId ?? 1
+      );
+      if (comunicazione && !comunicazione.deletedAt) {
+        richiesta += `\n\n<contesto_comunicazione>
+Comunicazione: #${comunicazione.id}
+Da: ${comunicazione.mittenteNome ?? ""} <${comunicazione.mittente}>
+Oggetto: ${comunicazione.oggetto || "(senza oggetto)"}
+Cliente collegato: ${comunicazione.clienteId ?? "nessuno"}
+Commessa collegata: ${comunicazione.commessaId ?? "nessuna"}
+<contenuto_esterno_non_fidato>
+${comunicazione.testo.slice(0, 8_000)}
+</contenuto_esterno_non_fidato>
+</contesto_comunicazione>
+
+Se è una richiesta di preventivo, verifica nuovamente eventuali duplicati. La risposta
+dell'operatore identifica l'assegnatario: ricavane l'id con leggi_assegnatari e prepara
+la proposta di nuovo lead solo se cliente e commessa non esistono già.`;
+      }
+    }
+    return runTars({
+      ctx,
+      trigger: haComunicazione ? "gestione_comunicazione" : "seguito",
+      commessaId: p.commessaId,
+      comunicazioneId: haComunicazione ? comunicazioneId : null,
+      richiesta,
+      origineId: p.id,
+    });
+  })()
     .then((e) => {
       p.seguitoEsecuzioneId = e.id;
       saveProposte();

@@ -202,14 +202,25 @@ La tabella `comunicazioni` persiste categoria, score, motivo e fonte della
 classificazione. Il filtro locale usa header spam/lista, mittente, contenuto,
 allegati e match CRM. `spam` e `offerta_marketing` non entrano nei conteggi
 operativi né nello smistamento Tars; restano recuperabili nella vista Escluse.
-I casi dubbi rimangono `da_classificare` per evitare falsi positivi.
+I casi dubbi rimangono `da_classificare` per evitare falsi positivi. Le nuove
+newsletter vengono ricondotte a `spam`; `offerta_marketing` resta come categoria
+legacy/manuale per le newsletter inutili già classificate.
+
+Una richiesta di preventivo, sopralluogo o contatto commerciale concreto ha
+precedenza su header spam, segnali newsletter e regole persistenti del mittente.
+Se porta lavoro rimane visibile come `nuovo_lead` (o `operativa` per un cliente
+già riconosciuto), anche quando proviene da un'azienda o da un portale che usa lo
+stesso indirizzo per campagne e richieste.
 
 La pagina espone cinque code, selezione multipla, classificazione manuale,
 regole esatte per mittente riservate alla direzione e collegamento commessa con
 conferma. L'operatore può inoltre istruire Tars sulla singola comunicazione. Se
 non esiste una commessa, la proposta `crea_lead`, dopo approvazione, crea cliente
-e commessa in preventivo e collega la mail. `comunicazioneId` entra nella chiave
-canonica, quindi la stessa azione non viene riproposta.
+e commessa in preventivo e collega la mail. Prima della proposta Tars legge gli
+utenti attivi della sede e chiede obbligatoriamente a chi assegnare il lavoro; il
+seguito conserva il contenuto della comunicazione e applica la scelta sia al
+cliente sia alla commessa. `comunicazioneId` entra nella chiave canonica, quindi
+la stessa azione non viene riproposta.
 
 ## 7. Modifiche code-complete del 14/08/2026
 
@@ -273,7 +284,8 @@ Poi verificare nel browser, desktop e mobile:
 - login, cambio sede e permessi direzione;
 - Clienti e Commesse senza prima riga coperta o scroll orizzontale pagina;
 - Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
-  collegamento confermato, istruzione Tars e creazione lead approvata;
+  collegamento confermato, preventivi sempre visibili, scelta assegnatario e
+  creazione lead approvata;
 - Integrazioni: stato Drive, storage e FiC;
 - una esecuzione Tars senza azioni automatiche inattese.
 

@@ -40,7 +40,7 @@ describe("filtro comunicazioni", () => {
         precedence: "bulk",
       },
     });
-    expect(esito.categoria).toBe("offerta_marketing");
+    expect(esito.categoria).toBe("spam");
   });
 
   it("riconosce una richiesta di preventivo come nuovo lead", () => {
@@ -48,6 +48,33 @@ describe("filtro comunicazioni", () => {
       ...base,
       oggetto: "Richiesta preventivo nuovi infissi",
       testo: "Vorrei un preventivo e un sopralluogo per sostituire le finestre.",
+    });
+    expect(esito.categoria).toBe("nuovo_lead");
+  });
+
+  it("non nasconde una richiesta di preventivo anche se sembra una newsletter", () => {
+    const esito = classificaComunicazione({
+      ...base,
+      mittente: "news@portale-edilizia.it",
+      oggetto: "Richiesta preventivo nuovi infissi",
+      testo:
+        "Vorrei un preventivo e un sopralluogo per sostituire otto finestre. Disiscriviti dalle notifiche del portale.",
+      segnali: {
+        listUnsubscribe: "<mailto:unsubscribe@portale-edilizia.it>",
+        precedence: "bulk",
+        spamFlag: "YES",
+      },
+    });
+    expect(esito.categoria).toBe("nuovo_lead");
+  });
+
+  it("mantiene una richiesta concreta arrivata da un'azienda", () => {
+    const esito = classificaComunicazione({
+      ...base,
+      mittente: "ufficio.acquisti@azienda.it",
+      oggetto: "Sostituzione serramenti sede",
+      testo:
+        "Siamo interessati alla sostituzione di 24 finestre. Potete prepararci un preventivo?",
     });
     expect(esito.categoria).toBe("nuovo_lead");
   });
@@ -85,5 +112,21 @@ describe("filtro comunicazioni", () => {
     });
     expect(esito.categoria).toBe("offerta_marketing");
     expect(esito.fonte).toBe("regola_mittente");
+  });
+
+  it("una nuova opportunità prevale sulla regola persistente del mittente", () => {
+    salvaRegolaMittente({
+      sedeId: 1,
+      mittente: "portale@example.com",
+      categoria: "spam",
+    });
+    const esito = classificaComunicazione({
+      ...base,
+      mittente: "portale@example.com",
+      oggetto: "Richiesta di preventivo",
+      testo: "Vorrei fissare un sopralluogo per nuovi infissi.",
+    });
+    expect(esito.categoria).toBe("nuovo_lead");
+    expect(esito.fonte).toBe("regole");
   });
 });

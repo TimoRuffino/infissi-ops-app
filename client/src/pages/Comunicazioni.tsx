@@ -100,7 +100,7 @@ const CATEGORIA_UI: Record<Categoria, { label: string; className: string }> = {
     className: "border-border-strong bg-surface-2 text-text-2",
   },
   offerta_marketing: {
-    label: "Offerta",
+    label: "Newsletter inutile",
     className: "border-warning/30 bg-warning/10 text-warning-foreground",
   },
   spam: {
@@ -407,7 +407,7 @@ function Lettura({
           label: "Crea lead",
           icon: UserPlus,
           testo:
-            "Verifica che non esistano già cliente e commessa. Se è una richiesta reale, prepara la creazione del nuovo cliente e di una commessa in preventivo, poi collega questa comunicazione.",
+            "Verifica che non esistano già cliente e commessa. Se è una richiesta reale, mostrami gli assegnatari e chiedimi a chi affidarla; solo dopo prepara cliente, commessa in preventivo e collegamento della comunicazione.",
         },
         {
           label: "Apri ticket",
@@ -739,7 +739,7 @@ function Lettura({
             <DialogTitle>
               {esclusione === "spam"
                 ? "Segnare come spam?"
-                : "Escludere come offerta?"}
+                : "Escludere come newsletter inutile?"}
             </DialogTitle>
             <DialogDescription>
               Il messaggio uscirà dalla coda operativa e non consumerà
@@ -1159,8 +1159,8 @@ export default function Comunicazioni() {
                     variant="ghost"
                     className="size-8 shrink-0"
                     onClick={() => setBulkEsclusione("offerta_marketing")}
-                    aria-label="Escludi come offerte"
-                    title="Escludi come offerte"
+                    aria-label="Escludi come newsletter inutili"
+                    title="Escludi come newsletter inutili"
                   >
                     <Megaphone className="h-3.5 w-3.5" />
                   </Button>
@@ -1310,11 +1310,11 @@ export default function Comunicazioni() {
         title={
           bulkEsclusione === "spam"
             ? "Segnare la selezione come spam?"
-            : "Escludere la selezione come offerte?"
+            : "Escludere le newsletter inutili?"
         }
         description={`${selezionate.size} comunicazioni usciranno dalla coda operativa e non verranno analizzate automaticamente da Tars.`}
         confirmLabel={
-          bulkEsclusione === "spam" ? "Segna come spam" : "Escludi offerte"
+          bulkEsclusione === "spam" ? "Segna come spam" : "Escludi newsletter"
         }
         onConfirm={() =>
           bulk.mutate({

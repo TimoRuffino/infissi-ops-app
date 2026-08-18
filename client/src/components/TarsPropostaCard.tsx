@@ -89,6 +89,7 @@ function describePayload(p: any): string[] {
         `Crea cliente: ${pay.cliente?.cognome ?? ""} ${pay.cliente?.nome ?? ""}`.trim()
       );
       out.push("Apre una commessa in preventivo e collega la comunicazione");
+      if (pay.assegnatoNome) out.push(`Assegnato a: ${pay.assegnatoNome}`);
       if (pay.cliente?.email) out.push(`Email: ${pay.cliente.email}`);
       if (pay.commessa?.citta) out.push(`Città: ${pay.commessa.citta}`);
       break;
@@ -317,19 +318,22 @@ export default function TarsPropostaCard({
 
       {pendente && proposta.tipo === "domanda" && (
         <div className="space-y-2">
-          {(proposta.opzioni ?? []).map((o: string) => (
-            <Button
-              key={o}
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => rispondi.mutate({ id: proposta.id, risposta: o })}
-              className="mr-2"
-            >
-              <MessageCircleQuestion className="h-3.5 w-3.5 mr-1" />
-              {o}
-            </Button>
-          ))}
+          <div className="flex flex-wrap gap-2">
+            {(proposta.opzioni ?? []).map((o: string) => (
+              <Button
+                key={o}
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() =>
+                  rispondi.mutate({ id: proposta.id, risposta: o })
+                }
+              >
+                <MessageCircleQuestion className="h-3.5 w-3.5" />
+                {o}
+              </Button>
+            ))}
+          </div>
           <div className="flex gap-2">
             <Textarea
               placeholder="Oppure rispondi liberamente…"
