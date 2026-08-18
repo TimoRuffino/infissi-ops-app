@@ -19,6 +19,7 @@ import {
 import { anthropicConfigured } from "../tars/anthropic";
 import { runTars } from "../tars/loop";
 import { avviaSeguito } from "../tars/seguito";
+import { eseguiAuditProcessi } from "../tars/auditProcessi";
 import { eseguiProposta } from "../tars/esecutore";
 import {
   proposte,
@@ -374,9 +375,72 @@ ${input.testo.trim()}`;
 
     stats: protectedProcedure.query(({ ctx }) => {
       const mie = proposte.filter((p) => p.sedeId === ctx.sedeId);
+      const soglia90 = Date.now() - 90 * 86_400_000;
+      const decise = mie.filter(
+        p => p.decisaAt && new Date(p.decisaAt).getTime() >= soglia90
+      );
+      const approvate = decise.filter(p => p.stato === "approvata").length;
+      const rifiutate = decise.filter(p => p.stato === "rifiutata").length;
+      const ultimeEsecuzioni = esecuzioni
+        .filter(e => e.sedeId === ctx.sedeId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       return {
         pendenti: mie.filter((p) => p.stato === "pendente").length,
         totali: mie.length,
+        miglioramentiPendenti: mie.filter(
+          p => p.stato === "pendente" && p.tipo === "miglioramento_processo"
+        ).length,
+        tassoApprovazione:
+          approvate + rifiutate > 0
+            ? Math.round((approvate / (approvate + rifiutate)) * 100)
+            : null,
+        decisioni90Giorni: approvate + rifiutate,
+        duplicatiBloccati: ultimeEsecuzioni.reduce(
+          (tot, e) => tot + (e.proposteDuplicateBloccate ?? 0),
+          0
+        ),
+        ultimaEsecuzioneAt: ultimeEsecuzioni[0]?.createdAt ?? null,
+      };
+    }),
+  }),
+
+  // ── Audit processi ────────────────────────────────────────────────────
+  auditProcessi: router({
+    esegui: protectedProcedure.mutation(async ({ ctx }) => {
+      requireDirezione(ctx.user);
+      const config = getTarsConfig(ctx.sedeId);
+      if (!config.attivo || !config.auditProcessiAttivo) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "L'audit processi di Tars non è attivo.",
+        });
+      }
+      if (!anthropicConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ANTHROPIC_API_KEY non configurata sul server.",
+        });
+      }
+      assertBudgetDisponibile(ctx.sedeId);
+      const esecuzione = await eseguiAuditProcessi(ctx.sedeId ?? 1, {
+        forza: true,
+        ctx,
+      });
+      if (!esecuzione) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Audit già in corso oppure non disponibile.",
+        });
+      }
+      return {
+        esecuzioneId: esecuzione.id,
+        esito: esecuzione.esito,
+        errore: esecuzione.errore,
+        riepilogo: esecuzione.riepilogo,
+        durataMs: esecuzione.durataMs,
+        proposte: proposte
+          .filter(p => esecuzione.proposteIds.includes(p.id))
+          .map(idrataProposta),
       };
     }),
   }),
@@ -517,6 +581,8 @@ ${input.testo.trim()}`;
         maxProposte: c.maxProposte,
         timeoutMs: c.timeoutMs,
         budgetMensileUsd: c.budgetMensileUsd,
+        auditProcessiAttivo: c.auditProcessiAttivo,
+        ultimoAuditProcessiAt: c.ultimoAuditProcessiAt,
         spesaMeseUsd: spesaMeseUsd(ctx.sedeId ?? 1),
         chiaveConfigurata: anthropicConfigured(),
         puoModificare: isDirezione(ctx.user),
@@ -559,6 +625,16 @@ ${input.testo.trim()}`;
         c.updatedAt = new Date();
         saveConfig();
         return { budgetMensileUsd: c.budgetMensileUsd };
+      }),
+    setAuditProcessi: protectedProcedure
+      .input(z.object({ attivo: z.boolean() }))
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const c = getTarsConfig(ctx.sedeId);
+        c.auditProcessiAttivo = input.attivo;
+        c.updatedAt = new Date();
+        saveConfig();
+        return { auditProcessiAttivo: c.auditProcessiAttivo };
       }),
   }),
 });

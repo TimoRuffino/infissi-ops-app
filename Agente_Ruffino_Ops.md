@@ -1,7 +1,7 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.1 — 14/08/2026
-**Stato:** loop agentico, proposte, email/WhatsApp, FiC read-only, memoria, budget, audit e caching implementati. Ricerca semantica/pgvector resta roadmap.
+**Versione:** 1.2 — 18/08/2026
+**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Ricerca semantica/pgvector resta roadmap.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
 ### Stato implementativo sintetico
@@ -11,6 +11,9 @@
 - `on_demand`, chat e seguito usano il modello principale configurato per sede.
 - Il catalogo strumenti è filtrato per trigger; l'ordine resta stabile per il prompt caching.
 - Quando è nota la commessa, il loop precarica un fascicolo aggregato prima del primo turno del modello.
+- Chat e analisi on-demand possono interrogare documenti, organizzazione, produzione, qualità e quadro economico, sempre nei limiti di ruolo e sede dell'operatore.
+- Un audit automatico per sede confronta periodicamente i principali indicatori e può proporre fino a tre miglioramenti di processo misurabili.
+- La coda riconosce la stessa azione anche quando titolo o formulazione cambiano e blocca duplicati pendenti, approvati, rifiutati o già gestiti.
 - La cache strumenti è isolata al singolo run; prompt e tool schema usano la cache Anthropic.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
@@ -87,6 +90,10 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_timeline` | 18 step con date, note, esecutori | |
 | `leggi_documenti` | Elenco metadati documenti di una commessa | Non il contenuto |
 | `leggi_contenuto_documento` | Testo estratto di un documento | Contenuto **non fidato** |
+| `leggi_quadro_azienda` | KPI trasversali, colli di bottiglia e qualità decisionale di Tars | Compatto e sede-scoped |
+| `leggi_organizzazione` | Utenti, ruoli, sedi e squadre senza credenziali o segreti | Solo direzione |
+| `leggi_produzione` | Distinte, fasi e non conformità di produzione | |
+| `leggi_qualita_operativa` | Anomalie, reclami, rifacimenti e non conformità | |
 | `cerca_comunicazioni` | Email/WhatsApp per cliente, commessa, periodo | |
 | `leggi_ordini_fornitore` | Ordini, righe, stati, importi | |
 | `leggi_magazzino` | Prodotti, fornitori, date consegna, arrivi | |
@@ -111,6 +118,7 @@ Ognuno crea una riga in `azioni_suggerite` e restituisce l'id. **Nessuno scrive 
 | `proponi_pagamento` | `commesse.addPagamento` | **Alto** |
 | `proponi_avanzamento_stato` | `commesse.update({stato})` | **Alto** |
 | `proponi_bozza_risposta` | nessuna (invio manuale) | **Alto** |
+| `proponi_miglioramento_processo` | presa in carico della direzione | Medio |
 
 ### 4.3 I due strumenti che nessuno mette e che servono di più
 
@@ -129,6 +137,7 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 | `riconciliazione_fatture` | `riconciliazione` | FiC, clienti, commesse, economia e proposte pagamento/collegamento |
 | `smistamento` | `smistamento` | Comunicazioni, allegati, entità CRM e proposte di aggancio |
 | `on_demand` | `operativo` | Fascicolo e strumenti necessari all'analisi di una commessa |
+| `audit_processi` | `audit_processi` | Quadro aziendale e proposte di miglioramento misurabili |
 | `chat`, `seguito` | `completo` | Esplorazione richiesta dall'operatore |
 
 `leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima di Anthropic quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
@@ -141,10 +150,12 @@ Le letture `leggi_*`/`cerca_*` sono memorizzate per singola esecuzione con chiav
 
 **Su evento** — la pipeline classifica ma marca `richiedeApprofondimento: true`. Casi tipici: importo che non torna, allegato che riguarda più commesse, cliente non identificato ma con indizi, comunicazione che contraddice lo stato della commessa.
 
-**Su schedulazione (notturno, 02:00)** — tre passate:
+**Su schedulazione** — l'audit processi parte una volta al giorno per ogni sede attiva. Legge il quadro aziendale aggregato, cerca pattern ricorrenti e propone al massimo tre interventi con impatto e metrica di verifica. I controlli verticali restano:
 1. *Riconciliazione FIC*: fatture pagate su Fatture in Cloud senza corrispondenza nel registro acconti → proposte di registrazione pagamento
 2. *Fascicoli fermi*: commesse senza update da oltre 10 giorni → indaga e propone il prossimo passo, o niente
 3. *Coerenza*: commesse il cui stato non corrisponde ai fatti (in `attesa_posa` con merce non arrivata; in `produzione` senza data confermata da 15 giorni)
+
+L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa o ancora in coda. La direzione può avviarlo manualmente dalla Inbox Tars e disattivarlo per sede nelle Integrazioni.
 
 **Su richiesta** — bottone "Analizza" nella scheda commessa. L'operatore chiede all'agente di guardare una situazione specifica. È anche il modo migliore di costruire fiducia nel team: si vede lavorare, su un caso che si conosce.
 

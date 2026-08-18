@@ -3,15 +3,68 @@
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
-import { History, Inbox, MessageCircle } from "lucide-react";
+import {
+  Activity,
+  BrainCircuit,
+  CheckCircle2,
+  Clock3,
+  History,
+  Inbox,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 import { Link } from "wouter";
 import TarsAvatar from "@/components/TarsAvatar";
 import { TarsChatPanel } from "@/components/TarsChat";
+import { toast } from "sonner";
+
+function dataBreve(value: Date | string | null | undefined) {
+  if (!value) return "Mai";
+  const d = new Date(value);
+  const ore = Math.floor((Date.now() - d.getTime()) / 3_600_000);
+  if (ore < 1) return "Adesso";
+  if (ore < 24) return `${ore}h fa`;
+  const giorni = Math.floor(ore / 24);
+  if (giorni < 7) return `${giorni}g fa`;
+  return d.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+}
+
+function Indicatore({
+  icona: Icona,
+  etichetta,
+  valore,
+  dettaglio,
+}: {
+  icona: typeof Activity;
+  etichetta: string;
+  valore: string | number;
+  dettaglio: string;
+}) {
+  return (
+    <div className="min-w-0 px-3 py-3 sm:px-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icona className="h-3.5 w-3.5 text-primary" />
+        <span>{etichetta}</span>
+      </div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-xl font-semibold tabular-nums text-foreground">
+          {valore}
+        </span>
+        <span className="truncate text-[11px] text-muted-foreground">
+          {dettaglio}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function LinkCommessa({ commessaId }: { commessaId: number | null }) {
   const commessa = trpc.commesse.byId.useQuery(commessaId ?? 0, {
@@ -96,6 +149,9 @@ function RegistroEsecuzioni() {
                 {e.toolCacheHits > 0
                   ? ` · ${e.toolCacheHits} letture riusate`
                   : ""}
+                {e.proposteDuplicateBloccate > 0
+                  ? ` · ${e.proposteDuplicateBloccate} doppioni bloccati`
+                  : ""}
                 {e.utenteNome ? ` · ${e.utenteNome}` : ""}
               </span>
             </div>
@@ -135,50 +191,126 @@ function RegistroEsecuzioni() {
 
 export default function TarsInbox() {
   const { user } = useAuth();
+  const utils = trpc.useUtils();
   const stats = trpc.tars.proposte.stats.useQuery();
+  const config = trpc.tars.config.get.useQuery(undefined, { retry: false });
   const direzione = isDirezione(user);
+  const audit = trpc.tars.auditProcessi.esegui.useMutation({
+    onSuccess: risultato => {
+      toast.success(
+        risultato.proposte.length > 0
+          ? `${risultato.proposte.length} miglioramenti pronti da valutare`
+          : "Audit completato: nessun nuovo miglioramento necessario"
+      );
+      utils.tars.invalidate();
+    },
+    onError: errore => toast.error(errore.message),
+  });
+  const attivo = config.data?.attivo ?? false;
+  const auditAttivo = config.data?.auditProcessiAttivo ?? false;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2.5">
-        <TarsAvatar size="lg" />
-        <div>
-          <h1 className="text-xl font-semibold leading-tight">Tars</h1>
-          <p className="text-xs text-muted-foreground leading-tight">
-            propone, tu approvi
-          </p>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <TarsAvatar size="lg" className="h-11 w-11" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold leading-tight">Tars</h1>
+              <span
+                className={`h-2 w-2 rounded-full ${attivo ? "bg-success" : "bg-muted-foreground"}`}
+                aria-label={attivo ? "Tars attivo" : "Tars spento"}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Cervello operativo della sede
+            </p>
+          </div>
+          {(stats.data?.pendenti ?? 0) > 0 && (
+            <Badge>{stats.data!.pendenti} in attesa</Badge>
+          )}
         </div>
-        {(stats.data?.pendenti ?? 0) > 0 && (
-          <Badge>{stats.data!.pendenti} in attesa</Badge>
+        {direzione && (
+          <Button
+            variant="outline"
+            disabled={!attivo || !auditAttivo || audit.isPending}
+            onClick={() => audit.mutate()}
+          >
+            {audit.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Analizza i processi
+          </Button>
         )}
       </div>
 
-      {/* La chat è la porta d'ingresso: si parla, e le proposte arrivano
-          lì dentro. Le tab restano per la coda e il registro. */}
+      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card lg:grid-cols-4 lg:divide-x lg:divide-border">
+        <Indicatore
+          icona={Inbox}
+          etichetta="Da decidere"
+          valore={stats.data?.pendenti ?? 0}
+          dettaglio={`${stats.data?.miglioramentiPendenti ?? 0} sui processi`}
+        />
+        <Indicatore
+          icona={CheckCircle2}
+          etichetta="Affidabilità"
+          valore={
+            stats.data?.tassoApprovazione != null
+              ? `${stats.data.tassoApprovazione}%`
+              : "—"
+          }
+          dettaglio={`${stats.data?.decisioni90Giorni ?? 0} decisioni`}
+        />
+        <Indicatore
+          icona={ShieldCheck}
+          etichetta="Doppioni evitati"
+          valore={stats.data?.duplicatiBloccati ?? 0}
+          dettaglio="prima della coda"
+        />
+        <Indicatore
+          icona={Clock3}
+          etichetta="Ultimo audit"
+          valore={dataBreve(config.data?.ultimoAuditProcessiAt)}
+          dettaglio={auditAttivo ? "automatico" : "disattivato"}
+        />
+      </div>
+
       <Tabs defaultValue="chat">
-        <TabsList>
-          <TabsTrigger value="chat">
-            <MessageCircle className="h-3.5 w-3.5 mr-1" />
+        <TabsList
+          className={
+            direzione
+              ? "grid w-full grid-cols-4 sm:w-fit"
+              : "grid w-full grid-cols-3 sm:w-fit"
+          }
+        >
+          <TabsTrigger value="chat" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+            <MessageCircle className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
             Chat
           </TabsTrigger>
-          <TabsTrigger value="pendenti">
-            In attesa
+          <TabsTrigger value="pendenti" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+            <BrainCircuit className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
+            Decisioni
             {(stats.data?.pendenti ?? 0) > 0 && (
-              <Badge className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+              <Badge className="ml-0.5 hidden h-4 min-w-4 px-1 text-[10px] min-[360px]:inline-flex">
                 {stats.data!.pendenti}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="decise">Decise</TabsTrigger>
+          <TabsTrigger value="decise" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+            <CheckCircle2 className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
+            Storico
+          </TabsTrigger>
           {direzione && (
-            <TabsTrigger value="registro">
-              <History className="h-3.5 w-3.5 mr-1" />
+            <TabsTrigger value="registro" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+              <History className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
               Registro
             </TabsTrigger>
           )}
         </TabsList>
         <TabsContent value="chat" className="mt-4">
-          <div className="border rounded-lg bg-card h-[calc(100dvh-16rem)] min-h-[360px] flex flex-col overflow-hidden">
+          <div className="flex h-[calc(100dvh-25rem)] min-h-[360px] flex-col overflow-hidden rounded-lg border bg-card shadow-xs sm:h-[calc(100dvh-21rem)] sm:min-h-[420px]">
             <TarsChatPanel className="flex-1" />
           </div>
         </TabsContent>

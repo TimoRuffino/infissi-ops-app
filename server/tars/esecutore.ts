@@ -117,6 +117,8 @@ export async function eseguiProposta(
       return "Bozza approvata — da copiare e inviare a mano";
     case "segnalazione":
       return "Segnalazione presa in carico";
+    case "miglioramento_processo":
+      return "Miglioramento di processo preso in carico dalla direzione";
     case "domanda":
       // Le domande non si "approvano": si risponde (tars.rispondi).
       throw new Error(

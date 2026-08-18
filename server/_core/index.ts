@@ -45,6 +45,13 @@ async function startServer() {
   const { avviaPollerMail } = await import("../tars/imap");
   avviaPollerMail();
 
+  // Tars osserva gli indicatori trasversali una volta al giorno e propone
+  // miglioramenti di processo alla direzione, senza applicarli da solo.
+  const { avviaAuditProcessiScheduler } = await import(
+    "../tars/auditProcessi"
+  );
+  avviaAuditProcessiScheduler();
+
   const app = express();
   const server = createServer(app);
 

@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (14/08/2026).
-**Versione:** 4.3 — Inbox Comunicazioni email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting. Base v4.2 — Storage documenti su object storage, marginalità, post‑vendita v2, squadre di posa, prodotti e formato unico degli importi. Base v4.1 — Pagamenti, timeline programmabile e responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Calendar, Drive, FiC e migrazione dati 2026.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (18/08/2026).
+**Versione:** 4.4 — Tars con quadro aziendale, audit continuo dei processi, strumenti trasversali controllati, proposte di miglioramento misurabili e deduplica semantica delle decisioni. Base v4.3 — Inbox Comunicazioni email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting. Base v4.2 — Storage documenti su object storage, marginalità, post‑vendita v2, squadre di posa, prodotti e formato unico degli importi. Base v4.1 — Pagamenti, timeline programmabile e responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Calendar, Drive, FiC e migrazione dati 2026.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri‑armato), sync Fatture in Cloud (ogni 6 h quando abilitato).
+- **Scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri‑armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Agente AI.** Tars usa Anthropic tool use, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.4 (18/08/2026)** — Tars con quadro aziendale, lettura controllata di organizzazione/produzione/qualità/documenti, audit periodico dei processi, proposta di miglioramenti misurabili, deduplica per chiave d'azione e Inbox operativa (§50).
 - **v4.3 (14/08/2026)** — Inbox Comunicazioni email/WhatsApp (§51); Tars con fascicolo commessa, profili tool, prompt caching e cache per run (§50); OAuth FiC Authorization Code con refresh (§40.3); backup Drive compatibile con `storageKey`; probe e runbook R2 (§47); bootstrap utenti senza password fisse; sistema visuale caldo e code splitting (§52).
 - **v4.2 (06/08/2026)** — Storage documenti su object storage con migrazione verificata (§47); marginalità e registro costi fornitore dentro la commessa (§45); post‑vendita v2: solleciti, interventi pianificabili dal ticket, ticket senza commessa, ricerca, stato `risolto` ritirato (§13); squadre di posa visibili e assegnabili alla commessa (§46); prodotti dichiarati in creazione e modificabili dopo (§44); data di apertura in scheda e in lista (§9); formato e parsing unici degli importi (§48); correzioni notevoli (§49).
 - **v4.1 (23/07/2026)** — Pagina Pagamenti (§37.4) con registrazione rapida degli acconti; acconti modificabili in place (§37.1‑37.2); date programmabili sugli step della timeline, pensate per l'Appuntamento Posa (§35.2‑bis); Magazzino a 2 tile per riga con 4 prodotti visibili, badge fornitore e filtro fornitore a tendina (§36.3); form cliente con Ragione sociale e Sede legale per i non privati (§5.2); responsive mobile su header schede e tabelle di lista (§29.3).
@@ -1188,7 +1189,7 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 ### 50.1 Principio di sicurezza
 Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura diretta sui dati business: crea record in `azioni_suggerite`; un operatore approva o rifiuta; l'esecutore applica la proposta tramite la stessa mutation tRPC usata dall'interfaccia. Pagamenti, avanzamenti di stato, bozze di risposta e collegamenti fattura richiedono ruoli elevati.
 
-Le proposte rifiutate e quelle già pendenti hanno un'impronta stabile su tipo, commessa, titolo e payload. La stessa azione non deve tornare in coda riscritta con parole diverse; il motivo del rifiuto viene restituito al modello.
+Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e campi significativi del payload. La stessa azione non deve tornare in coda riscritta con parole diverse quando è pendente, approvata, rifiutata, risposta, fallita o già gestita. La similarità del titolo funge da controllo aggiuntivo e il motivo del rifiuto viene restituito al modello.
 
 ### 50.2 Trigger e profili strumenti
 Il catalogo tool inviato ad Anthropic dipende dal trigger:
@@ -1196,16 +1197,22 @@ Il catalogo tool inviato ad Anthropic dipende dal trigger:
 - `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
 - `smistamento`: comunicazioni, ricerca e collegamento alle entità;
 - `on_demand`: profilo operativo mirato;
+- `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
 - `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
 
 L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`.
 
-### 50.3 Fascicolo commessa
+### 50.3 Quadro aziendale e confini di accesso
+Tars DEVE poter incrociare anagrafiche, commesse, cantiere, economia, comunicazioni, inventario, produzione, qualità e storico delle proprie decisioni. `leggi_quadro_azienda` restituisce una sintesi compatta della sede con KPI, pratiche ferme, scadenze, anomalie e qualità decisionale dell'agente. Gli strumenti verticali permettono di approfondire contenuto documentale, produzione e qualità.
+
+L'accesso ampio non costituisce un bypass: ogni lettura usa il `ctx` applicativo, rimane sede-scoped e rispetta il ruolo. `leggi_organizzazione` e i dati economici richiedono la direzione; credenziali, token e segreti non sono mai restituiti. Il contenuto dei documenti è marcato come fonte esterna non fidata.
+
+### 50.4 Fascicolo commessa
 `leggi_fascicolo_commessa` raccoglie in parallelo dati commessa, timeline, documenti e doc gate, ordini fornitori, magazzino, ticket, interventi e garanzie, restituendo soltanto i campi utili al ragionamento.
 
 Quando `commessaId` è noto all'avvio, il loop precarica il fascicolo nel primo messaggio (`fascicoloPrecaricato=true`), evitando il primo round-trip modello → tool. Una lettura identica successiva è assorbita dalla cache del run.
 
-### 50.4 Riduzione token e cache
+### 50.5 Riduzione token e cache
 La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
 
 1. **Prompt caching Anthropic:** system prompt stabile con TTL 1 ora; ultimo schema tool con TTL 1 ora; prefisso crescente della conversazione marcato `ephemeral`.
@@ -1215,7 +1222,17 @@ La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
 
 L'audit salva input, output, cache read, cache write 5m/1h, cache hit strumenti, costo stimato ed esito. La Inbox Tars espone profilo, preload e cache hit per diagnosticare run costosi.
 
-### 50.5 Store e budget
+### 50.6 Audit continuo dei processi
+Quando Tars e l'audit sono abilitati, lo scheduler può eseguire una revisione per sede ogni circa 24 ore. Il run automatico usa il profilo minimo `audit_processi`, legge prima il quadro aziendale e DEVE:
+
+- proporre al massimo tre miglioramenti;
+- basarsi su pattern ricorrenti o indicatori misurabili, non su un singolo caso;
+- descrivere problema, intervento, impatto atteso e metrica di verifica;
+- evitare azioni già proposte o decise.
+
+La direzione può avviare l'audit manualmente dalla Inbox Tars e abilitarlo per sede nelle Integrazioni. L'esito resta una proposta: nessuna modifica di processo viene applicata automaticamente.
+
+### 50.7 Store e budget
 Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
 
 ---

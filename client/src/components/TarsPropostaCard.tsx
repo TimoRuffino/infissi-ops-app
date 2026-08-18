@@ -8,11 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { statoLabel } from "@/lib/stato";
-import { Check, X, Loader2, MessageCircleQuestion, Link2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Lightbulb,
+  Link2,
+  Loader2,
+  MessageCircleQuestion,
+  Reply,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import TarsAvatar from "@/components/TarsAvatar";
+import { cn } from "@/lib/utils";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
@@ -27,6 +40,7 @@ const TIPO_LABEL: Record<string, string> = {
   avanzamento_stato: "Stato",
   bozza_risposta: "Bozza",
   segnalazione: "Segnalazione",
+  miglioramento_processo: "Processo",
   domanda: "Domanda",
 };
 
@@ -42,11 +56,19 @@ function ConfidenzaDots({ livello }: { livello: string }) {
   const n = livello === "alta" ? 3 : livello === "media" ? 2 : 1;
   return (
     <span
-      className="text-xs text-muted-foreground shrink-0"
+      className="inline-flex shrink-0 items-center gap-1"
       title={`Confidenza ${livello}`}
+      aria-label={`Confidenza ${livello}`}
     >
-      {"●".repeat(n)}
-      <span className="opacity-30">{"●".repeat(3 - n)}</span>
+      {[1, 2, 3].map(i => (
+        <span
+          key={i}
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            i <= n ? "bg-primary" : "bg-border-strong"
+          )}
+        />
+      ))}
     </span>
   );
 }
@@ -108,6 +130,13 @@ function describePayload(p: any): string[] {
       break;
     case "segnalazione":
       out.push(`Severità ${pay.severita}: ${pay.descrizione}`);
+      break;
+    case "miglioramento_processo":
+      out.push(`Area: ${String(pay.area ?? "—").replace(/_/g, " ")}`);
+      out.push(`Problema: ${pay.problema}`);
+      out.push(`Proposta: ${pay.proposta}`);
+      out.push(`Impatto atteso: ${pay.impatto}`);
+      out.push(`Metrica: ${pay.metrica}`);
       break;
   }
   return out;
@@ -179,16 +208,30 @@ export default function TarsPropostaCard({
   const pendente = proposta.stato === "pendente";
   const righe = describePayload(proposta);
   const busy = approva.isPending || rifiuta.isPending || rispondi.isPending;
+  const processo = proposta.tipo === "miglioramento_processo";
 
   return (
-    <div className="rounded-lg border border-primary/25 border-l-4 border-l-primary bg-card bg-[image:var(--gradient-soft)] p-3 space-y-2">
+    <div
+      className={cn(
+        "rounded-lg border border-primary/20 border-l-4 border-l-primary bg-card p-3 shadow-xs space-y-3",
+        processo && "bg-[image:var(--gradient-soft)]"
+      )}
+    >
       <div className="flex items-start gap-2.5">
-        <TarsAvatar size="md" className="mt-0.5" />
+        {processo ? (
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
+            <Lightbulb className="h-4 w-4" />
+          </div>
+        ) : (
+          <TarsAvatar size="md" className="mt-0.5" />
+        )}
         <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">
               {proposta.origineId != null
                 ? "Tars propone come chiuderla"
+                : processo
+                  ? "Tars migliora il processo"
                 : proposta.tipo === "domanda"
                   ? "Tars chiede"
                   : "Tars propone"}
@@ -217,10 +260,10 @@ export default function TarsPropostaCard({
       <p className="text-sm text-muted-foreground">{proposta.motivazione}</p>
 
       {righe.length > 0 && (
-        <div className="text-sm space-y-0.5">
+        <div className="space-y-1.5 rounded-md bg-background/70 px-3 py-2 text-sm">
           {righe.map((r, i) => (
-            <div key={i} className="flex gap-1">
-              <span className="text-muted-foreground">→</span>
+            <div key={i} className="flex items-start gap-1.5">
+              <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="whitespace-pre-wrap break-words">{r}</span>
             </div>
           ))}
@@ -228,26 +271,34 @@ export default function TarsPropostaCard({
       )}
 
       {!pendente && (
-        <div className="text-xs text-muted-foreground">
+        <div className="border-t border-border/70 pt-2 text-xs text-muted-foreground">
           {proposta.stato === "approvata" && (
-            <span className="text-green-600 dark:text-green-500">
-              ✓ Approvata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
+            <span className="flex items-start gap-1.5 text-success">
+              <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>Approvata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
               {proposta.esito ? ` — ${proposta.esito}` : ""}
+              </span>
             </span>
           )}
           {proposta.stato === "rifiutata" && (
-            <span>
-              ✕ Rifiutata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
+            <span className="flex items-start gap-1.5">
+              <XCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>Rifiutata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
               {proposta.motivoRifiuto ? ` — ${proposta.motivoRifiuto.replace(/_/g, " ")}` : ""}
+              </span>
             </span>
           )}
           {proposta.stato === "errore" && (
-            <span className="text-destructive">
-              ⚠ Approvata ma fallita: {proposta.esito}
+            <span className="flex items-start gap-1.5 text-destructive">
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>Approvata ma fallita: {proposta.esito}</span>
             </span>
           )}
           {proposta.stato === "risposta" && (
-            <span>↩ Risposta: {proposta.risposta}</span>
+            <span className="flex items-start gap-1.5">
+              <Reply className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>Risposta: {proposta.risposta}</span>
+            </span>
           )}
         </div>
       )}
@@ -289,7 +340,7 @@ export default function TarsPropostaCard({
       )}
 
       {pendente && proposta.tipo !== "domanda" && !rifiutoAperto && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
           <Button
             size="sm"
             disabled={busy}

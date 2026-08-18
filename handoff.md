@@ -163,6 +163,7 @@ l'intero catalogo:
 - `riconciliazione_fatture`: set minimo per FiC e pagamenti;
 - `smistamento`: strumenti per comunicazioni e collegamento;
 - `on_demand`: profilo operativo mirato;
+- `audit_processi`: quadro aggregato e miglioramenti di processo;
 - chat/seguito: catalogo completo quando serve esplorazione libera.
 
 `leggi_fascicolo_commessa` raccoglie in parallelo commessa, timeline, documenti,
@@ -180,6 +181,18 @@ La cache è su due livelli:
 Ogni esecuzione registra profilo, numero di strumenti esposti, cache hit e
 preload fascicolo. Questi dati sono visibili nella Inbox Tars. La cache non
 attraversa utenti o run e non conserva risultati mutabili oltre l'esecuzione.
+
+Dal 18/08/2026 Tars dispone inoltre di letture trasversali per quadro aziendale,
+organizzazione, produzione, qualità e contenuto documentale. I dati restano
+sempre sede-scoped e le informazioni di direzione sono esposte solo ai ruoli
+autorizzati. L'audit processi viene controllato ogni sei ore e, per ogni sede,
+può essere eseguito al massimo una volta ogni circa 24 ore; produce solo
+proposte misurabili e mai modifiche autonome.
+
+La deduplica delle proposte usa una chiave d'azione canonica per tipo e target,
+con un controllo di similarità sul titolo come rete aggiuntiva. Sono bloccate
+sia le proposte già pendenti o rifiutate sia quelle approvate, risposte o già
+gestite. Il contatore dei duplicati evitati è visibile nella Inbox Tars.
 
 ## 7. Modifiche code-complete del 14/08/2026
 

@@ -46,7 +46,11 @@ export async function runTars(params: {
   // un compito di aggancio, non di ragionamento — e succede molte volte al
   // giorno. Il modello pieno resta per chi lo chiede (analizza, chat) e per
   // il seguito di una decisione, dove l'errore costa di più del token.
-  const TRIGGER_ECONOMICI = new Set(["smistamento", "riconciliazione_fatture"]);
+  const TRIGGER_ECONOMICI = new Set([
+    "smistamento",
+    "riconciliazione_fatture",
+    "audit_processi",
+  ]);
   const modello = TRIGGER_ECONOMICI.has(params.trigger)
     ? config.modelloAutomatico
     : config.modello;
@@ -63,6 +67,7 @@ export async function runTars(params: {
     profiloStrumenti,
     strumentiDisponibili: tools.length,
     toolCacheHits: 0,
+    proposteDuplicateBloccate: 0,
     fascicoloPrecaricato: false,
     strumenti: [],
     proposteIds: [],
@@ -90,6 +95,7 @@ export async function runTars(params: {
     origineId: params.origineId ?? null,
     risultatiCache: new Map(),
     toolCacheHits: 0,
+    duplicatiBloccati: 0,
   };
 
   const system = buildSystemPrompt(params.ctx.sedeId);
@@ -229,6 +235,7 @@ ${params.richiesta}`;
 
   esecuzione.proposteIds = rt.proposteIds;
   esecuzione.toolCacheHits = rt.toolCacheHits ?? 0;
+  esecuzione.proposteDuplicateBloccate = rt.duplicatiBloccati ?? 0;
   esecuzione.durataMs = Date.now() - start;
   esecuzioni.push(esecuzione);
   saveEsecuzioni();

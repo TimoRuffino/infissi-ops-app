@@ -1,6 +1,5 @@
-// L'avatar di Tars — la sua identità visiva in tutta l'app. Ovunque
-// compaia un suo consiglio, compare questa faccia: ambra, riconoscibile
-// a colpo d'occhio in mezzo alle card neutre del gestionale.
+// L'avatar di Tars — la sua identità visiva in tutta l'app. Usa lo stesso
+// gradiente delle azioni primarie per restare riconoscibile in ogni contesto.
 
 import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";

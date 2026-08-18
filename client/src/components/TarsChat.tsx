@@ -13,7 +13,17 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import TarsAvatar from "@/components/TarsAvatar";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
-import { Loader2, RotateCcw, Send, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  Clock3,
+  Loader2,
+  MailSearch,
+  RotateCcw,
+  Send,
+  WalletCards,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -22,14 +32,21 @@ export function TarsChatPanel({ className }: { className?: string }) {
   const utils = trpc.useUtils();
   const messaggi = trpc.tars.chat.get.useQuery(undefined, { retry: false });
   const [testo, setTesto] = useState("");
+  const [testoInInvio, setTestoInInvio] = useState<string | null>(null);
+  const [faseLavoro, setFaseLavoro] = useState(0);
   const fondoRef = useRef<HTMLDivElement>(null);
 
   const invia = trpc.tars.chat.invia.useMutation({
     onSuccess: () => {
+      setTestoInInvio(null);
       utils.tars.chat.invalidate();
       utils.tars.proposte.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e, variabili) => {
+      setTestoInInvio(null);
+      setTesto(variabili.testo);
+      toast.error(e.message);
+    },
   });
   const pulisci = trpc.tars.chat.pulisci.useMutation({
     onSuccess: () => utils.tars.chat.invalidate(),
@@ -40,38 +57,79 @@ export function TarsChatPanel({ className }: { className?: string }) {
   // Sempre in fondo: è una chat, l'ultima cosa detta è quella che conta.
   useEffect(() => {
     fondoRef.current?.scrollIntoView({ block: "end" });
-  }, [rows.length, invia.isPending]);
+  }, [rows.length, invia.isPending, faseLavoro]);
 
-  const submit = () => {
-    const t = testo.trim();
+  useEffect(() => {
+    if (!invia.isPending) {
+      setFaseLavoro(0);
+      return;
+    }
+    const timer = window.setInterval(
+      () => setFaseLavoro(fase => (fase + 1) % 4),
+      2400
+    );
+    return () => window.clearInterval(timer);
+  }, [invia.isPending]);
+
+  const inviaTesto = (valore: string) => {
+    const t = valore.trim();
     if (!t || invia.isPending) return;
+    setTestoInInvio(t);
     setTesto("");
     invia.mutate({ testo: t });
   };
+
+  const submit = () => {
+    inviaTesto(testo);
+  };
+
+  const suggerimenti = [
+    {
+      testo: "Dammi il quadro operativo dell'azienda e le priorità di oggi",
+      icona: Building2,
+    },
+    {
+      testo: "Quali commesse sono ferme da più di 10 giorni?",
+      icona: Clock3,
+    },
+    {
+      testo: "Ci sono comunicazioni importanti ancora da smistare?",
+      icona: MailSearch,
+    },
+    {
+      testo: "Quali incassi o fatture richiedono attenzione?",
+      icona: WalletCards,
+    },
+  ];
+
+  const fasi = [
+    "Interrogo i registri della sede…",
+    "Incrocio commesse, documenti e comunicazioni…",
+    "Verifico contraddizioni e azioni già proposte…",
+    "Preparo una risposta fondata sui dati…",
+  ];
 
   return (
     <div className={cn("flex flex-col min-h-0", className)}>
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
         {rows.length === 0 && !invia.isPending && (
-          <div className="text-center text-sm text-muted-foreground pt-8 space-y-3">
+          <div className="mx-auto max-w-lg pt-6 text-center text-sm text-muted-foreground space-y-4">
             <TarsAvatar size="lg" className="mx-auto" />
-            <p className="font-medium text-foreground">Ciao, sono Tars.</p>
-            <p className="max-w-[260px] mx-auto">
-              Chiedimi dello stato di una commessa, o dammi un ordine.
-              Preparo tutto, tu approvi.
+            <p className="font-semibold text-foreground">Da dove partiamo?</p>
+            <p className="max-w-sm mx-auto leading-relaxed">
+              Posso cercare nei registri operativi, confrontare i dati e
+              preparare azioni da approvare.
             </p>
-            <div className="flex flex-col gap-1.5 items-center pt-1">
-              {[
-                "Quali commesse sono ferme da più di 10 giorni?",
-                "Ci sono mail da smistare?",
-                "Chi non ha ancora pagato il saldo?",
-              ].map((s) => (
+            <div className="grid gap-2 pt-1 text-left sm:grid-cols-2">
+              {suggerimenti.map(({ testo: suggerimento, icona: Icona }) => (
                 <button
-                  key={s}
-                  className="text-xs border rounded-full px-3 py-1.5 hover:bg-muted transition-colors"
-                  onClick={() => invia.mutate({ testo: s })}
+                  key={suggerimento}
+                  type="button"
+                  className="flex min-h-11 items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-xs text-foreground shadow-xs transition-colors hover:border-primary/35 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                  onClick={() => inviaTesto(suggerimento)}
                 >
-                  {s}
+                  <Icona className="h-4 w-4 shrink-0 text-primary" />
+                  <span>{suggerimento}</span>
                 </button>
               ))}
             </div>
@@ -105,12 +163,31 @@ export function TarsChatPanel({ className }: { className?: string }) {
           </div>
         ))}
 
+        {testoInInvio && (
+          <div className="flex justify-end">
+            <div className="bg-primary [background-image:var(--gradient-primary)] text-primary-foreground rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[85%] whitespace-pre-wrap break-words">
+              {testoInInvio}
+            </div>
+          </div>
+        )}
+
         {invia.isPending && (
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center" aria-live="polite">
             <TarsAvatar size="sm" pulse />
-            <span className="text-sm text-muted-foreground">
-              Tars sta guardando…
-            </span>
+            <div className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Tars sta lavorando
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {fasi[faseLavoro]}
+              </span>
+            </div>
+          </div>
+        )}
+        {messaggi.isError && (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Impossibile caricare la conversazione.
           </div>
         )}
         <div ref={fondoRef} />
@@ -129,12 +206,15 @@ export function TarsChatPanel({ className }: { className?: string }) {
           placeholder="Scrivi a Tars… (Invio per mandare)"
           rows={1}
           className="text-sm resize-none min-h-[38px] max-h-28"
+          aria-label="Messaggio per Tars"
         />
         <Button
           size="icon"
           className="shrink-0"
           disabled={!testo.trim() || invia.isPending}
           onClick={submit}
+          aria-label="Invia messaggio"
+          title="Invia messaggio"
         >
           {invia.isPending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -148,6 +228,7 @@ export function TarsChatPanel({ className }: { className?: string }) {
             variant="ghost"
             className="shrink-0"
             title="Nuova conversazione"
+            aria-label="Nuova conversazione"
             disabled={pulisci.isPending || invia.isPending}
             onClick={() => pulisci.mutate()}
           >
@@ -182,7 +263,13 @@ export function TarsChatFloating() {
                 propone, tu approvi
               </div>
             </div>
-            <Button size="icon" variant="ghost" onClick={() => setAperta(false)}>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setAperta(false)}
+              aria-label="Chiudi chat"
+              title="Chiudi chat"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>

@@ -410,6 +410,17 @@ function TarsCard() {
     },
     onError: e => toast.error(e.message),
   });
+  const setAuditProcessi = trpc.tars.config.setAuditProcessi.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.auditProcessiAttivo
+          ? "Audit processi attivato"
+          : "Audit processi disattivato"
+      );
+      utils.tars.config.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
   const [, setLocation] = useLocation();
 
   const attivo = config.data?.attivo ?? false;
@@ -550,7 +561,25 @@ function TarsCard() {
                 ))}
               </select>
               <span className="text-xs text-muted-foreground">
-                smistamento mail e fatture
+                smistamento, fatture e audit
+              </span>
+            </div>
+            <div className="flex min-h-8 items-center gap-3">
+              <span className="text-xs text-muted-foreground w-36">
+                Audit processi:
+              </span>
+              <Switch
+                aria-label="Audit giornaliero dei processi"
+                checked={config.data?.auditProcessiAttivo ?? false}
+                disabled={setAuditProcessi.isPending || !attivo}
+                onCheckedChange={valore =>
+                  setAuditProcessi.mutate({ attivo: valore })
+                }
+              />
+              <span className="text-xs text-muted-foreground">
+                {config.data?.ultimoAuditProcessiAt
+                  ? `ultimo ${new Date(config.data.ultimoAuditProcessiAt).toLocaleString("it-IT")}`
+                  : "non ancora eseguito"}
               </span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">

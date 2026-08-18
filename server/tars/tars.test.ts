@@ -469,6 +469,44 @@ describe("tars — proposta rifiutata non torna", () => {
       )
     ).toHaveLength(1);
   });
+
+  it("un'azione già approvata non viene proposta di nuovo", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({
+      cliente: "Approvazione Unica Srl",
+      importoTotale: 6000,
+    });
+
+    global.fetch = anthropicScript([
+      propostaPagamento(
+        commessa.id,
+        3000,
+        `Registra acconto €3.000 su ${commessa.codice}`
+      ),
+      chiusura,
+    ]) as any;
+    const primo = await caller.tars.analizza({ commessaId: commessa.id });
+    await caller.tars.proposte.approva({ id: primo.proposte[0].id });
+
+    global.fetch = anthropicScript([
+      propostaPagamento(
+        commessa.id,
+        3000,
+        `Aggiungi il primo acconto da €3.000 a ${commessa.codice}`
+      ),
+      chiusura,
+    ]) as any;
+    const secondo = await caller.tars.analizza({ commessaId: commessa.id });
+
+    expect(secondo.proposte).toHaveLength(0);
+    const registro = esecuzioni.find(e => e.id === secondo.esecuzioneId)!;
+    expect(registro.proposteDuplicateBloccate).toBe(1);
+    expect(registro.strumenti[0].esito).toMatch(/già stata gestita/);
+    expect(
+      proposte.filter(p => p.commessaId === commessa.id && p.tipo === "pagamento")
+    ).toHaveLength(1);
+  });
 });
 
 // ── Seguito di una decisione ───────────────────────────────────────────────
@@ -854,6 +892,7 @@ describe("tars — profili e cache operativa", () => {
   it("carica solo gli strumenti necessari nei trigger automatici", () => {
     const riconciliazione = toolDefsForTrigger("riconciliazione_fatture");
     const smistamento = toolDefsForTrigger("smistamento");
+    const audit = toolDefsForTrigger("audit_processi");
     const nomi = riconciliazione.map(t => t.name);
 
     expect(riconciliazione.length).toBeLessThan(TOOL_DEFS.length / 2);
@@ -864,7 +903,86 @@ describe("tars — profili e cache operativa", () => {
     expect(nomi).toContain("leggi_fascicolo_commessa");
     expect(nomi).not.toContain("proponi_ticket");
     expect(smistamento.map(t => t.name)).toContain("leggi_allegato");
+    expect(audit.map(t => t.name)).toEqual([
+      "leggi_quadro_azienda",
+      "proponi_segnalazione",
+      "proponi_miglioramento_processo",
+      "chiedi_chiarimento",
+      "nessuna_azione",
+    ]);
     expect(toolDefsForTrigger("chat")).toBe(TOOL_DEFS);
+  });
+
+  it("costruisce un quadro aziendale compatto e sede-scoped", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.clienti.create({ nome: "Quadro", cognome: "Azienda" });
+    await caller.commesse.create({
+      cliente: "Quadro Azienda",
+      priorita: "urgente",
+    });
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_150,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+      toolCacheHits: 0,
+      duplicatiBloccati: 0,
+    };
+
+    const result = await eseguiStrumento(rt, "leggi_quadro_azienda", {
+      giorniFermo: 10,
+    });
+    expect(result.isError).toBeFalsy();
+    const quadro = JSON.parse(result.content);
+    expect(quadro.clienti.totali).toBeGreaterThan(0);
+    expect(quadro.commesse.attive).toBeGreaterThan(0);
+    expect(quadro.commesse.urgenti).toBeGreaterThan(0);
+    expect(quadro).toHaveProperty("qualita");
+    expect(quadro).toHaveProperty("produzioneAcquisti");
+    expect(quadro).toHaveProperty("tars.duplicatiBloccati30Giorni");
+  });
+
+  it("non duplica lo stesso miglioramento di processo riformulato", async () => {
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_160,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+      toolCacheHits: 0,
+      duplicatiBloccati: 0,
+    };
+    const base = {
+      area: "commesse",
+      problema: "Dodici commesse ferme oltre dieci giorni",
+      proposta: "Introdurre una revisione settimanale delle commesse ferme",
+      impatto: "Ridurre il tempo medio senza aggiornamenti",
+      metrica: "12 commesse ferme su 40 attive",
+      motivazione: "Il quadro aziendale mostra 12 commesse ferme.",
+      confidenza: "alta",
+    };
+    const prima = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      { ...base, titolo: "Rivedi ogni settimana le commesse ferme" }
+    );
+    const seconda = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      { ...base, titolo: "Programma il controllo settimanale delle commesse" }
+    );
+
+    expect(prima.isError).toBeFalsy();
+    expect(seconda.isError).toBe(true);
+    expect(seconda.content).toMatch(/già in attesa/);
+    expect(rt.proposteIds).toHaveLength(1);
+    expect(rt.duplicatiBloccati).toBe(1);
   });
 
   it("legge il fascicolo completo una volta e riusa le richieste duplicate", async () => {

@@ -90,6 +90,12 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   molte letture frammentate.
 - Le cache degli strumenti sono per singolo run; non condividerle tra utenti o
   esecuzioni.
+- Le letture trasversali devono restare sede-scoped; organizzazione ed economia
+  rispettano sempre i permessi del ruolo corrente.
+- Una proposta non va ricreata se la stessa azione è pendente, approvata,
+  rifiutata, risposta o già gestita: mantenere la chiave d'azione canonica.
+- L'audit processi deve proporre pattern misurabili, non reagire a casi isolati,
+  e non può eseguire mutazioni autonome.
 - Modifiche a prompt, tool schema o caching richiedono test in
   `server/tars/tars.test.ts` e controllo dei metadati di esecuzione.
 

@@ -9,7 +9,7 @@
 //                        iniettate nel system prompt. Mai dedotte dal modello.
 //   agente_esecuzioni    registro completo di ogni run: strumenti chiamati,
 //                        proposte, token, esito. Per debug e rendicontabilità.
-//   agente_config        interruttore e modello. Un solo record.
+//   agente_config        interruttori, modelli e audit processi per sede.
 
 import { persistedStore } from "../_core/persistence";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
@@ -29,6 +29,7 @@ export const TIPI_PROPOSTA = [
   "avanzamento_stato",
   "bozza_risposta",
   "segnalazione",
+  "miglioramento_processo",
   "domanda", // chiedi_chiarimento
 ] as const;
 export type TipoProposta = (typeof TIPI_PROPOSTA)[number];
@@ -83,6 +84,9 @@ export type Proposta = {
   seguitoEsecuzioneId: number | null;
   // La proposta da cui nasce, se nasce da un seguito.
   origineId: number | null;
+  // Identita semantica dell'azione, indipendente da titolo e motivazione.
+  // Serve a impedire che lo stesso effetto torni con parole diverse.
+  chiaveAzione?: string;
 };
 
 let nextPropostaId = 1;
@@ -92,6 +96,7 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
     if (p.seguitoAt === undefined) p.seguitoAt = null;
     if (p.seguitoEsecuzioneId === undefined) p.seguitoEsecuzioneId = null;
     if (p.origineId === undefined) p.origineId = null;
+    if (!p.chiaveAzione) p.chiaveAzione = chiaveAzioneProposta(p);
   }
 });
 export const proposte = _proposteStore.items;
@@ -99,14 +104,10 @@ export const saveProposte = () => _proposteStore.save();
 export const newPropostaId = () => nextPropostaId++;
 
 // ── Impronta di una proposta ────────────────────────────────────────────────
-// Due proposte sono "la stessa cosa" se hanno lo stesso tipo sulla stessa
-// commessa e chiedono la stessa cosa. Serve a una regola sola: ciò che un
-// operatore ha rifiutato non torna in coda. Il blocco di decisioni nel
-// system prompt è un suggerimento al modello — questo è un muro.
-//
-// Due chiavi perché due modi di ripetersi: payload identico (la ripetizione
-// letterale) e titolo identico (lo stesso intento riscritto con un payload
-// leggermente diverso).
+// Due proposte sono "la stessa cosa" se hanno lo stesso effetto sullo stesso
+// target. Le decisioni sono definitive: un'azione pendente, approvata,
+// rifiutata o già gestita non torna in coda con una formulazione diversa.
+// Il prompt orienta il modello; questa identità canonica è il vincolo reale.
 
 function jsonStabile(v: any): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
@@ -122,6 +123,136 @@ function normalizzaTitolo(t: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function normalizzaTesto(t: unknown): string {
+  return normalizzaTitolo(String(t ?? ""));
+}
+
+/**
+ * Chiave dell'effetto richiesto, non della formulazione del modello.
+ * Motivazione e confidenza sono volutamente escluse: cambiare spiegazione
+ * non rende nuova un'azione gia proposta.
+ */
+export function chiaveAzioneProposta(p: {
+  tipo: string;
+  commessaId?: number | null;
+  clienteId?: number | null;
+  payload?: any;
+  titolo?: string;
+}): string {
+  const pay = p.payload ?? {};
+  const target = `c:${p.commessaId ?? pay.commessaId ?? "-"}|cl:${p.clienteId ?? pay.clienteId ?? "-"}`;
+  let effetto: unknown;
+
+  switch (p.tipo) {
+    case "collega_comunicazione":
+      effetto = { comunicazioneId: pay.comunicazioneId };
+      break;
+    case "collega_fattura":
+      effetto = { ficId: pay.ficId };
+      break;
+    case "rinomina_documento":
+      effetto = {
+        documentoId: pay.documentoId,
+        nome: normalizzaTesto(pay.nome),
+        tipo: pay.tipo ?? null,
+      };
+      break;
+    case "nota_timeline":
+      effetto = { stepId: pay.stepId, note: normalizzaTesto(pay.note) };
+      break;
+    case "aggiornamento_magazzino":
+      effetto = { prodottoId: pay.prodottoId, campi: pay.campi ?? {} };
+      break;
+    case "modifica_cliente":
+    case "modifica_commessa":
+      effetto = pay.campi ?? {};
+      break;
+    case "ticket":
+      effetto = {
+        categoria: pay.categoria ?? null,
+        contatto: normalizzaTesto(pay.contatto),
+        oggetto: normalizzaTesto(pay.oggetto),
+      };
+      break;
+    case "pagamento":
+      effetto = {
+        importo: Number.isFinite(Number(pay.importo))
+          ? Number(pay.importo).toFixed(2)
+          : pay.importo,
+        data: pay.data ?? null,
+        tipo: pay.tipo ?? null,
+        riferimento: normalizzaTesto(pay.note),
+      };
+      break;
+    case "avanzamento_stato":
+      effetto = { nuovoStato: pay.nuovoStato };
+      break;
+    case "bozza_risposta":
+      effetto = {
+        destinatario: normalizzaTesto(pay.destinatario),
+        canale: pay.canale ?? null,
+        testo: normalizzaTesto(pay.testo),
+      };
+      break;
+    case "segnalazione":
+      effetto = {
+        severita: pay.severita ?? null,
+        descrizione: normalizzaTesto(pay.descrizione),
+      };
+      break;
+    case "miglioramento_processo":
+      effetto = {
+        area: normalizzaTesto(pay.area),
+        problema: normalizzaTesto(pay.problema),
+        proposta: normalizzaTesto(pay.proposta),
+      };
+      break;
+    case "domanda":
+      effetto = { domanda: normalizzaTesto(pay.domanda ?? p.titolo) };
+      break;
+    default:
+      effetto = pay;
+  }
+
+  return `${p.tipo}|${target}|${jsonStabile(effetto)}`;
+}
+
+function titoliSimili(a: string, b: string): boolean {
+  const na = normalizzaTitolo(a);
+  const nb = normalizzaTitolo(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const aa = new Set(na.split(" ").filter(x => x.length > 2));
+  const bb = new Set(nb.split(" ").filter(x => x.length > 2));
+  if (aa.size < 3 || bb.size < 3) return false;
+  let comuni = 0;
+  for (const token of Array.from(aa)) if (bb.has(token)) comuni++;
+  const unione = new Set(Array.from(aa).concat(Array.from(bb))).size;
+  return unione > 0 && comuni / unione >= 0.72;
+}
+
+function stessaProposta(
+  candidata: {
+    tipo: string;
+    commessaId: number | null;
+    clienteId?: number | null;
+    payload: any;
+    titolo: string;
+  },
+  esistente: Proposta
+): boolean {
+  if (candidata.tipo !== esistente.tipo) return false;
+  const chiave = chiaveAzioneProposta(candidata);
+  const altraChiave =
+    esistente.chiaveAzione ?? chiaveAzioneProposta(esistente);
+  if (chiave === altraChiave) return true;
+
+  const stessoTarget =
+    (candidata.commessaId ?? null) === esistente.commessaId &&
+    (candidata.clienteId ?? null) === esistente.clienteId;
+  return stessoTarget && titoliSimili(candidata.titolo, esistente.titolo);
 }
 
 export type ImprontaProposta = { payload: string; titolo: string };
@@ -148,16 +279,15 @@ export function propostaGiaRifiutata(
   candidata: {
     tipo: string;
     commessaId: number | null;
+    clienteId?: number | null;
     payload: any;
     titolo: string;
   },
   sedeId: number
 ): Proposta | undefined {
-  const imp = improntaProposta(candidata);
   return proposte.find(p => {
     if (p.sedeId !== sedeId || p.stato !== "rifiutata") return false;
-    const altra = improntaProposta(p);
-    return altra.payload === imp.payload || altra.titolo === imp.titolo;
+    return stessaProposta(candidata, p);
   });
 }
 
@@ -166,16 +296,34 @@ export function propostaGiaInCoda(
   candidata: {
     tipo: string;
     commessaId: number | null;
+    clienteId?: number | null;
     payload: any;
     titolo: string;
   },
   sedeId: number
 ): Proposta | undefined {
-  const imp = improntaProposta(candidata);
   return proposte.find(p => {
     if (p.sedeId !== sedeId || p.stato !== "pendente") return false;
-    const altra = improntaProposta(p);
-    return altra.payload === imp.payload || altra.titolo === imp.titolo;
+    return stessaProposta(candidata, p);
+  });
+}
+
+/** Una proposta gia decisa non deve rinascere con parole diverse. */
+export function propostaGiaGestita(
+  candidata: {
+    tipo: string;
+    commessaId: number | null;
+    clienteId?: number | null;
+    payload: any;
+    titolo: string;
+  },
+  sedeId: number
+): Proposta | undefined {
+  return proposte.find(p => {
+    if (p.sedeId !== sedeId || p.stato === "pendente" || p.stato === "rifiutata") {
+      return false;
+    }
+    return stessaProposta(candidata, p);
   });
 }
 
@@ -236,6 +384,7 @@ export type Esecuzione = {
   profiloStrumenti: string;
   strumentiDisponibili: number;
   toolCacheHits: number;
+  proposteDuplicateBloccate: number;
   fascicoloPrecaricato: boolean;
   strumenti: StrumentoChiamato[];
   proposteIds: number[];
@@ -268,6 +417,9 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
       if (e.profiloStrumenti === undefined) e.profiloStrumenti = "completo";
       if (e.strumentiDisponibili === undefined) e.strumentiDisponibili = 0;
       if (e.toolCacheHits === undefined) e.toolCacheHits = 0;
+      if (e.proposteDuplicateBloccate === undefined) {
+        e.proposteDuplicateBloccate = 0;
+      }
       if (e.fascicoloPrecaricato === undefined) e.fascicoloPrecaricato = false;
       if (e.tokensCacheRead === undefined) e.tokensCacheRead = 0;
       // Prima esisteva un solo campo, ed era sempre a 5 minuti.
@@ -422,6 +574,10 @@ export type TarsConfig = {
   maxToolCalls: number;
   maxProposte: number;
   timeoutMs: number;
+  // Analisi trasversale giornaliera: legge indicatori aggregati e propone
+  // miglioramenti di processo. Non modifica mai regole o dati da sola.
+  auditProcessiAttivo: boolean;
+  ultimoAuditProcessiAt: Date | null;
   // Versione dei default applicata a questo record. Serve a far arrivare un
   // cambio di modello o di budget anche alle installazioni già avviate:
   // senza, il record salvato resterebbe su Sonnet per sempre.
@@ -429,7 +585,7 @@ export type TarsConfig = {
   updatedAt: Date;
 };
 
-const VERSIONE_DEFAULT = 2;
+const VERSIONE_DEFAULT = 3;
 
 const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   attivo: false, // spento finché la direzione non lo accende
@@ -442,6 +598,8 @@ const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   maxToolCalls: 25,
   maxProposte: 5,
   timeoutMs: 120_000,
+  auditProcessiAttivo: true,
+  ultimoAuditProcessiAt: null,
   versioneDefault: VERSIONE_DEFAULT,
   updatedAt: new Date(),
 };
@@ -462,6 +620,10 @@ const _configStore = persistedStore<TarsConfig>(
       if (c.maxProposte === undefined)
         c.maxProposte = DEFAULT_CONFIG.maxProposte;
       if (c.timeoutMs === undefined) c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
+      if (c.auditProcessiAttivo === undefined) {
+        c.auditProcessiAttivo = DEFAULT_CONFIG.auditProcessiAttivo;
+      }
+      if (c.ultimoAuditProcessiAt === undefined) c.ultimoAuditProcessiAt = null;
       if (c.modello === undefined) c.modello = DEFAULT_CONFIG.modello;
       if (c.modelloAutomatico === undefined) {
         c.modelloAutomatico = DEFAULT_CONFIG.modelloAutomatico;
