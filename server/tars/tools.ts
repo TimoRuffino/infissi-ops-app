@@ -25,7 +25,7 @@ import {
   type Proposta,
   type TipoProposta,
 } from "./stores";
-import { listComunicazioni } from "./comunicazioni";
+import { getComunicazione, listComunicazioni } from "./comunicazioni";
 import { getCommessaById } from "../routers/commesse";
 import { isDirezione } from "../_core/permissions";
 
@@ -50,6 +50,9 @@ export type ToolRuntime = {
   // Se questo run nasce dall'approvazione di un'altra proposta, le proposte
   // che genera ne portano il riferimento: sulla commessa si legge la catena.
   origineId?: number | null;
+  // Le proposte nate dall'analisi puntuale di una mail portano sempre il
+  // riferimento, anche se il modello non lo ripete in ogni tool call.
+  comunicazioneId?: number | null;
   // Impostato da nessuna_azione: il loop termina.
   terminato: { motivo: string } | null;
   // Identical reads inside one run never need to be fetched or re-injected
@@ -103,11 +106,19 @@ function creaProposta(
   }
 
   const sedeId = rt.ctx.sedeId ?? 1;
+  const payload =
+    rt.comunicazioneId != null
+      ? {
+          ...(args.payload ?? {}),
+          comunicazioneId:
+            args.payload?.comunicazioneId ?? rt.comunicazioneId,
+        }
+      : args.payload;
   const candidata = {
     tipo: args.tipo,
     commessaId: args.commessaId ?? null,
     clienteId: args.clienteId ?? null,
-    payload: args.payload,
+    payload,
     titolo: args.titolo,
   };
 
@@ -163,7 +174,7 @@ function creaProposta(
     titolo: args.titolo,
     motivazione: args.motivazione,
     confidenza: args.confidenza,
-    payload: args.payload,
+    payload,
     commessaId: args.commessaId ?? null,
     clienteId: args.clienteId ?? null,
     opzioni: args.opzioni ?? null,
@@ -492,6 +503,60 @@ export const TOOL_DEFS: AnthropicTool[] = [
       required: [
         "comunicazioneId",
         "commessaId",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
+    },
+  },
+  {
+    name: "proponi_nuovo_lead",
+    description:
+      "Propone di creare cliente e commessa in stato preventivo partendo da una comunicazione non riconducibile a commesse esistenti, poi collega la comunicazione. Usalo solo dopo aver cercato clienti e commesse ed escluso duplicati. È una singola proposta: nulla viene creato prima dell'approvazione.",
+    input_schema: {
+      type: "object",
+      properties: {
+        comunicazioneId: { type: "number" },
+        nome: { type: "string", description: "Nome della persona o ragione sociale" },
+        cognome: {
+          type: "string",
+          description: "Cognome; per aziende usa la parte restante della ragione sociale",
+        },
+        tipo: {
+          type: "string",
+          enum: ["privato", "azienda", "condominio", "ente_pubblico"],
+        },
+        email: { type: "string" },
+        telefono: { type: "string" },
+        indirizzo: { type: "string" },
+        citta: { type: "string" },
+        priorita: {
+          type: "string",
+          enum: ["bassa", "media", "alta", "urgente"],
+        },
+        note: {
+          type: "string",
+          description: "Contesto utile estratto dalla richiesta, senza inventare dati",
+        },
+        prodotti: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              nome: { type: "string" },
+              quantita: { type: "number" },
+            },
+            required: ["nome"],
+          },
+          maxItems: 10,
+        },
+        ...PROPOSTA_PROPS,
+      },
+      required: [
+        "comunicazioneId",
+        "nome",
+        "cognome",
+        "tipo",
         "titolo",
         "motivazione",
         "confidenza",
@@ -906,6 +971,7 @@ const PROFILI: Record<string, readonly string[]> = {
     "leggi_allegato",
     "cerca_comunicazioni",
     "proponi_collegamento",
+    "proponi_nuovo_lead",
     "proponi_rinomina_documento",
     "proponi_nota_timeline",
     "proponi_aggiornamento_magazzino",
@@ -914,6 +980,23 @@ const PROFILI: Record<string, readonly string[]> = {
     "proponi_ticket",
     "proponi_pagamento",
     "proponi_avanzamento_stato",
+    "proponi_bozza_risposta",
+    "proponi_segnalazione",
+    ...TERMINAZIONE,
+  ],
+  gestione_comunicazione: [
+    "cerca_clienti",
+    "leggi_cliente",
+    "cerca_commesse",
+    "leggi_fascicolo_commessa",
+    "leggi_allegato",
+    "cerca_comunicazioni",
+    "proponi_collegamento",
+    "proponi_nuovo_lead",
+    "proponi_nota_timeline",
+    "proponi_modifica_cliente",
+    "proponi_modifica_commessa",
+    "proponi_ticket",
     "proponi_bozza_risposta",
     "proponi_segnalazione",
     ...TERMINAZIONE,
@@ -1788,6 +1871,78 @@ async function eseguiStrumentoSenzaCache(
             commessaId: Number(input.commessaId),
             commessaCodice: (commessa as any).codice ?? null,
             clienteId: (commessa as any).clienteId ?? null,
+          },
+        });
+      }
+      case "proponi_nuovo_lead": {
+        const comunicazioneId = Number(
+          input.comunicazioneId ?? rt.comunicazioneId
+        );
+        const comunicazione = await getComunicazione(
+          comunicazioneId,
+          rt.ctx.sedeId ?? 1
+        );
+        if (!comunicazione || comunicazione.deletedAt) {
+          return err("Comunicazione inesistente.");
+        }
+        if (comunicazione.commessaId != null) {
+          return err("La comunicazione è già collegata a una commessa.");
+        }
+        const nome = String(input.nome ?? "").trim();
+        const cognome = String(input.cognome ?? "").trim();
+        if (!nome || !cognome) {
+          return err("Nome e cognome/ragione sociale sono obbligatori.");
+        }
+        const emailGrezz = String(input.email ?? comunicazione.mittente).trim();
+        const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailGrezz)
+          ? emailGrezz.toLowerCase()
+          : undefined;
+        const prodotti = Array.isArray(input.prodotti)
+          ? input.prodotti
+              .map((p: any) => ({
+                nome: String(p?.nome ?? "").trim(),
+                quantita: Math.max(1, Math.round(Number(p?.quantita) || 1)),
+              }))
+              .filter((p: any) => p.nome)
+              .slice(0, 10)
+          : [];
+        return creaProposta(rt, {
+          tipo: "crea_lead",
+          titolo: String(input.titolo),
+          motivazione: String(input.motivazione),
+          confidenza: input.confidenza,
+          payload: {
+            comunicazioneId,
+            cliente: {
+              nome,
+              cognome,
+              tipo: input.tipo ?? "privato",
+              ...(email ? { email } : {}),
+              ...(input.telefono
+                ? { telefono: String(input.telefono).trim() }
+                : {}),
+              ...(input.indirizzo
+                ? { indirizzo: String(input.indirizzo).trim() }
+                : {}),
+              ...(input.citta ? { citta: String(input.citta).trim() } : {}),
+              note: `Lead proposto da Tars dalla comunicazione #${comunicazioneId}.`,
+            },
+            commessa: {
+              ...(email ? { email } : {}),
+              ...(input.telefono
+                ? { telefono: String(input.telefono).trim() }
+                : {}),
+              ...(input.indirizzo
+                ? { indirizzo: String(input.indirizzo).trim() }
+                : {}),
+              ...(input.citta ? { citta: String(input.citta).trim() } : {}),
+              priorita: input.priorita ?? "media",
+              note: String(
+                input.note ??
+                  `Richiesta ricevuta via ${comunicazione.canale}: ${comunicazione.oggetto}`
+              ).slice(0, 2000),
+              prodotti,
+            },
           },
         });
       }

@@ -32,6 +32,7 @@ export async function runTars(params: {
   ctx: TrpcContext;
   trigger: string;
   commessaId: number | null;
+  comunicazioneId?: number | null;
   richiesta: string; // messaggio utente per il modello
   // Turni precedenti (chat): vengono anteposti alla richiesta così il
   // modello mantiene il filo. Solo testo — i tool-use passati non servono.
@@ -63,6 +64,7 @@ export async function runTars(params: {
     trigger: params.trigger,
     modello,
     commessaId: params.commessaId,
+    comunicazioneId: params.comunicazioneId ?? null,
     richiesta: params.richiesta,
     profiloStrumenti,
     strumentiDisponibili: tools.length,
@@ -93,6 +95,7 @@ export async function runTars(params: {
     proposteIds: [],
     terminato: null,
     origineId: params.origineId ?? null,
+    comunicazioneId: params.comunicazioneId ?? null,
     risultatiCache: new Map(),
     toolCacheHits: 0,
     duplicatiBloccati: 0,

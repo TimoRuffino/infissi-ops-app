@@ -162,6 +162,8 @@ l'intero catalogo:
 
 - `riconciliazione_fatture`: set minimo per FiC e pagamenti;
 - `smistamento`: strumenti per comunicazioni e collegamento;
+- `gestione_comunicazione`: analisi puntuale della mail, allegati, nuovo lead,
+  ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aggregato e miglioramenti di processo;
 - chat/seguito: catalogo completo quando serve esplorazione libera.
@@ -193,6 +195,21 @@ La deduplica delle proposte usa una chiave d'azione canonica per tipo e target,
 con un controllo di similarità sul titolo come rete aggiuntiva. Sono bloccate
 sia le proposte già pendenti o rifiutate sia quelle approvate, risposte o già
 gestite. Il contatore dei duplicati evitati è visibile nella Inbox Tars.
+
+### Comunicazioni operative e filtro anti-rumore
+
+La tabella `comunicazioni` persiste categoria, score, motivo e fonte della
+classificazione. Il filtro locale usa header spam/lista, mittente, contenuto,
+allegati e match CRM. `spam` e `offerta_marketing` non entrano nei conteggi
+operativi né nello smistamento Tars; restano recuperabili nella vista Escluse.
+I casi dubbi rimangono `da_classificare` per evitare falsi positivi.
+
+La pagina espone cinque code, selezione multipla, classificazione manuale,
+regole esatte per mittente riservate alla direzione e collegamento commessa con
+conferma. L'operatore può inoltre istruire Tars sulla singola comunicazione. Se
+non esiste una commessa, la proposta `crea_lead`, dopo approvazione, crea cliente
+e commessa in preventivo e collega la mail. `comunicazioneId` entra nella chiave
+canonica, quindi la stessa azione non viene riproposta.
 
 ## 7. Modifiche code-complete del 14/08/2026
 
@@ -255,7 +272,8 @@ Poi verificare nel browser, desktop e mobile:
 
 - login, cambio sede e permessi direzione;
 - Clienti e Commesse senza prima riga coperta o scroll orizzontale pagina;
-- Comunicazioni: filtri, apertura, ritorno mobile, stato, collegamento commessa;
+- Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
+  collegamento confermato, istruzione Tars e creazione lead approvata;
 - Integrazioni: stato Drive, storage e FiC;
 - una esecuzione Tars senza azioni automatiche inattese.
 

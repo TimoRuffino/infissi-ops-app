@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
+  crea_lead: "Nuovo lead",
   collega_fattura: "Fattura",
   rinomina_documento: "Documento",
   nota_timeline: "Timeline",
@@ -82,6 +83,14 @@ function describePayload(p: any): string[] {
       out.push(
         `Collega la mail a ${pay.commessaCodice ?? `commessa #${pay.commessaId}`}`
       );
+      break;
+    case "crea_lead":
+      out.push(
+        `Crea cliente: ${pay.cliente?.cognome ?? ""} ${pay.cliente?.nome ?? ""}`.trim()
+      );
+      out.push("Apre una commessa in preventivo e collega la comunicazione");
+      if (pay.cliente?.email) out.push(`Email: ${pay.cliente.email}`);
+      if (pay.commessa?.citta) out.push(`Città: ${pay.commessa.citta}`);
       break;
     case "collega_fattura":
       out.push(
@@ -157,6 +166,9 @@ export default function TarsPropostaCard({
     utils.tars.proposte.invalidate();
     utils.ficFatture.invalidate();
     utils.economia.invalidate();
+    utils.mail.comunicazioni.invalidate();
+    utils.clienti.invalidate();
+    utils.commesse.invalidate();
     if (proposta.commessaId) {
       // La mutation approvata può aver toccato la commessa: rinfresca tutto
       // ciò che la mostra (trappola nota: mai invalidare solo byId).

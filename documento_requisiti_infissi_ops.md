@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (18/08/2026).
-**Versione:** 4.4 — Tars con quadro aziendale, audit continuo dei processi, strumenti trasversali controllati, proposte di miglioramento misurabili e deduplica semantica delle decisioni. Base v4.3 — Inbox Comunicazioni email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting. Base v4.2 — Storage documenti su object storage, marginalità, post‑vendita v2, squadre di posa, prodotti e formato unico degli importi. Base v4.1 — Pagamenti, timeline programmabile e responsive mobile. Base v4.0 — Multi‑sede, Magazzino, Calendar, Drive, FiC e migrazione dati 2026.
+**Versione:** 4.5 — Comunicazioni come coda operativa, classificazione multilivello, filtro spam/offerte prima dell'AI, regole mittente e gestione contestuale Tars con creazione lead approvata. Base v4.4 — Tars con quadro aziendale, audit continuo dei processi, strumenti trasversali controllati, proposte misurabili e deduplica semantica delle decisioni. Base v4.3 — Inbox email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.5 (18/08/2026)** — Comunicazioni con triage multilivello, filtro anti-spam/offerte prima dell'AI, regole mittente, azioni multiple e gestione Tars della singola mail con creazione lead approvata (§50-51).
 - **v4.4 (18/08/2026)** — Tars con quadro aziendale, lettura controllata di organizzazione/produzione/qualità/documenti, audit periodico dei processi, proposta di miglioramenti misurabili, deduplica per chiave d'azione e Inbox operativa (§50).
 - **v4.3 (14/08/2026)** — Inbox Comunicazioni email/WhatsApp (§51); Tars con fascicolo commessa, profili tool, prompt caching e cache per run (§50); OAuth FiC Authorization Code con refresh (§40.3); backup Drive compatibile con `storageKey`; probe e runbook R2 (§47); bootstrap utenti senza password fisse; sistema visuale caldo e code splitting (§52).
 - **v4.2 (06/08/2026)** — Storage documenti su object storage con migrazione verificata (§47); marginalità e registro costi fornitore dentro la commessa (§45); post‑vendita v2: solleciti, interventi pianificabili dal ticket, ticket senza commessa, ricerca, stato `risolto` ritirato (§13); squadre di posa visibili e assegnabili alla commessa (§46); prodotti dichiarati in creazione e modificabili dopo (§44); data di apertura in scheda e in lista (§9); formato e parsing unici degli importi (§48); correzioni notevoli (§49).
@@ -1196,6 +1197,7 @@ Il catalogo tool inviato ad Anthropic dipende dal trigger:
 
 - `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
 - `smistamento`: comunicazioni, ricerca e collegamento alle entità;
+- `gestione_comunicazione`: analisi puntuale di un messaggio con contesto minimo, allegati, collegamento, nuovo lead, ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
 - `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
@@ -1240,20 +1242,29 @@ Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_es
 ## 51. Comunicazioni (`/comunicazioni`)
 
 ### 51.1 Modello e ingestione
-Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. I campi principali sono canale, direzione, mittente, destinatari, oggetto, testo troncato, allegati, cliente/commessa, confidenza match, stato e data ricezione.
+Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. Oltre a canale, mittente, contenuto, allegati, cliente/commessa, stato e data, ogni riga persiste categoria, score, motivazione e fonte della classificazione, più l'ultimo riepilogo Tars richiesto dall'operatore.
 
 Gli stati sono `nuova`, `vista`, `gestita`. L'eliminazione dal CRM usa `deleted_at`: il messaggio resta nella casella sorgente e il tombstone impedisce che venga importato di nuovo.
 
-### 51.2 Matching e Tars
-Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. I messaggi non ancora analizzati possono entrare nel trigger di smistamento Tars. Un avatar sulla riga e una card nel lettore mostrano le proposte pendenti di collegamento.
+### 51.2 Classificazione e filtro anti-rumore
+Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. Spam e offerte sono esclusi dalla coda, dai conteggi operativi e dall'analisi automatica Tars, ma restano consultabili nella vista Escluse.
 
-### 51.3 Inbox operativa
+Il filtro locale usa header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`), mittente, linguaggio, allegati e match CRM. L'esclusione automatica richiede segnali forti; un caso ambiguo DEVE restare `da_classificare`. Il collegamento a una commessa prevale sui segnali promozionali. La direzione può memorizzare una regola esatta per mittente; ogni regola è sede-scoped e revocabile.
+
+### 51.3 Matching e gestione Tars
+Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Solo i messaggi non esclusi possono entrare nello smistamento automatico.
+
+Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`. L'approvazione di quest'ultima crea cliente, commessa in stato `preventivo` e collegamento della comunicazione tramite le mutation applicative. La chiave canonica usa `comunicazioneId`, quindi lo stesso lead non può essere proposto due volte.
+
+### 51.4 Inbox operativa
 La pagina DEVE offrire:
 
-- conteggi Tutte, Nuove, Da smistare e Gestite;
+- code Da gestire, Non collegate, Nuovi lead, Gestite ed Escluse;
 - filtro canale Email/WhatsApp, filtro casella e ricerca su mittente, oggetto e testo;
-- riga con canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
-- lettore con mittente, sorgente, data, stato, collegamento commessa, proposte Tars, allegati e corpo;
+- riga con checkbox, categoria, canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
+- azioni multiple per chiudere o escludere messaggi con conferma esplicita;
+- lettore con classificazione, motivazione, collegamento commessa con conferma, proposte Tars, allegati e corpo;
+- area Tars con istruzione libera e preset contestuali per lead, ticket, risposta, aggiornamento commessa e allegati;
 - azioni accessibili per gestita/riapri, elimina e ritorno alla lista mobile;
 - aggiornamento caselle e gestione configurazione per la direzione.
 

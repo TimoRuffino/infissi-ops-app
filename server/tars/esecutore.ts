@@ -57,6 +57,51 @@ export async function eseguiProposta(
       if (!ok) throw new Error("Comunicazione non trovata.");
       return `Comunicazione collegata a ${p.commessaCodice ?? `commessa #${p.commessaId}`}`;
     }
+    case "crea_lead": {
+      const {
+        getComunicazione,
+        setClassificazioneComunicazione,
+        setMatchComunicazione,
+      } = await import("./comunicazioni");
+      const comunicazione = await getComunicazione(
+        p.comunicazioneId,
+        ctx.sedeId ?? 1
+      );
+      if (!comunicazione || comunicazione.deletedAt) {
+        throw new Error("Comunicazione non trovata.");
+      }
+      if (comunicazione.commessaId != null) {
+        throw new Error(
+          "La comunicazione è già collegata: il nuovo lead non è stato creato."
+        );
+      }
+      const cliente = await caller.clienti.create(p.cliente);
+      const commessa = await caller.commesse.create({
+        ...p.commessa,
+        clienteId: cliente.id,
+      });
+      const ok = await setMatchComunicazione(
+        p.comunicazioneId,
+        ctx.sedeId ?? 1,
+        {
+          clienteId: cliente.id,
+          commessaId: commessa.id,
+          confidenza: "alta",
+          motivo: "Nuovo lead creato da Tars e approvato da un operatore.",
+        }
+      );
+      if (!ok) throw new Error("Comunicazione non trovata.");
+      await setClassificazioneComunicazione(
+        p.comunicazioneId,
+        ctx.sedeId ?? 1,
+        {
+          categoria: "nuovo_lead",
+          motivo: "Cliente e commessa creati da una proposta Tars approvata.",
+          fonte: "tars",
+        }
+      );
+      return `Creati cliente ${cliente.cognome} ${cliente.nome} e commessa ${commessa.codice}; comunicazione collegata`;
+    }
     case "rinomina_documento": {
       const updates: any = { id: p.documentoId };
       if (p.nome) updates.nome = p.nome;

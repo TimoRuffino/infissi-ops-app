@@ -97,6 +97,20 @@ function indirizzi(campo: any): string[] {
   return out;
 }
 
+function headerTesto(parsed: any, nome: string): string | null {
+  const valore = parsed?.headers?.get?.(nome);
+  if (valore == null) return null;
+  if (typeof valore === "string" || typeof valore === "number") {
+    return String(valore);
+  }
+  if (Array.isArray(valore)) return valore.map(String).join(", ");
+  try {
+    return JSON.stringify(valore);
+  } catch {
+    return String(valore);
+  }
+}
+
 /** Costruisce le opzioni di connessione da una casella configurata. */
 function opzioniConnessione(casella: Casella, perWatcher = false) {
   return {
@@ -240,6 +254,15 @@ async function elaboraMessaggio(params: {
     matchMotivo: match.motivo,
     stato: "nuova",
     tarsAnalizzata: èStorica(receivedAt),
+    segnaliFiltro: {
+      spamStatus: headerTesto(parsed, "x-spam-status"),
+      spamFlag: headerTesto(parsed, "x-spam-flag"),
+      spamScore:
+        headerTesto(parsed, "x-spam-score") ??
+        headerTesto(parsed, "x-spam-level"),
+      listUnsubscribe: headerTesto(parsed, "list-unsubscribe"),
+      precedence: headerTesto(parsed, "precedence"),
+    },
     receivedAt,
   });
   return inserita != null;

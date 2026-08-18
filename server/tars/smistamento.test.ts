@@ -150,7 +150,7 @@ describe("smistamento", () => {
     expect(com!.matchConfidenza).toBe("alta");
   });
 
-  it("mail irrilevante: nessuna proposta, ma esaminata e fuori dalla coda", async () => {
+  it("newsletter: filtrata prima dell'AI e fuori dalla coda", async () => {
     getTarsConfig().attivo = true;
     const spam = await insertComunicazione({
       sedeId: 1,
@@ -169,9 +169,50 @@ describe("smistamento", () => {
       matchConfidenza: "nessuna",
       matchMotivo: null,
       stato: "nuova",
+      segnaliFiltro: {
+        listUnsubscribe: "<mailto:unsubscribe@fornitore-cancelleria.it>",
+        precedence: "bulk",
+      },
       receivedAt: new Date(),
     });
     expect(spam).not.toBeNull();
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await smistaComunicazioni(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
+    const com = await getComunicazione(spam!.id, 1);
+    expect(com!.tarsAnalizzata).toBe(true);
+    expect(com!.categoria).toBe("offerta_marketing");
+    expect(com!.commessaId).toBeNull();
+  });
+
+  it("Tars può proporre e creare un lead da una mail senza commessa", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    getTarsConfig().attivo = true;
+    const mail = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "<nuovo-lead@example.com>",
+      canale: "email",
+      direzione: "in",
+      mittente: "luca.bianchi@example.com",
+      mittenteNome: "Luca Bianchi",
+      destinatari: ["info@ruffinogroup.it"],
+      oggetto: "Richiesta preventivo nuovi infissi",
+      testo: "Vorrei un sopralluogo per sostituire sei finestre a Lerici.",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date(),
+    });
+    expect(mail?.categoria).toBe("nuovo_lead");
 
     global.fetch = anthropicScript([
       {
@@ -180,19 +221,47 @@ describe("smistamento", () => {
         content: [
           {
             type: "tool_use",
-            id: "tu_1",
-            name: "nessuna_azione",
-            input: { motivo: "Solo una newsletter commerciale: nessun collegamento sensato." },
+            id: "tu_lead",
+            name: "proponi_nuovo_lead",
+            input: {
+              comunicazioneId: mail!.id,
+              nome: "Luca",
+              cognome: "Bianchi",
+              tipo: "privato",
+              email: "luca.bianchi@example.com",
+              citta: "Lerici",
+              prodotti: [{ nome: "Finestre", quantita: 6 }],
+              titolo: "Crea il lead Luca Bianchi",
+              motivazione:
+                "La mail chiede esplicitamente preventivo e sopralluogo per sei finestre.",
+              confidenza: "alta",
+            },
           },
         ],
       },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Ho preparato il nuovo lead." }],
+      },
     ]);
 
-    await smistaComunicazioni(1);
-    expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
-    const com = await getComunicazione(spam!.id, 1);
-    expect(com!.tarsAnalizzata).toBe(true);
-    expect(com!.commessaId).toBeNull();
+    const esito = await caller.tars.analizzaComunicazione({
+      comunicazioneId: mail!.id,
+      istruzione: "Se è un nuovo contatto, prepara cliente e commessa.",
+    });
+    const proposta = esito.proposte.find((p: any) => p.tipo === "crea_lead");
+    expect(proposta).toBeDefined();
+    expect(proposta.payload.comunicazioneId).toBe(mail!.id);
+
+    await caller.tars.proposte.approva({ id: proposta.id });
+    const collegata = await getComunicazione(mail!.id, 1);
+    expect(collegata?.clienteId).not.toBeNull();
+    expect(collegata?.commessaId).not.toBeNull();
+    expect(collegata?.tarsAnalizzata).toBe(true);
+    const creata = await caller.commesse.byId(collegata!.commessaId!);
+    expect(creata?.stato).toBe("preventivo");
+    expect(creata?.prodotti[0]?.quantita).toBe(6);
   });
 
   it("con Tars spento non parte e non consuma la coda", async () => {

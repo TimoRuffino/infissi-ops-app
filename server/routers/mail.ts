@@ -45,10 +45,17 @@ import {
   getComunicazione,
   listComunicazioni,
   segnaTutteViste,
+  setClassificazioneComunicazione,
   setMatchComunicazione,
   setStatoComunicazione,
   statsComunicazioni,
 } from "../tars/comunicazioni";
+import {
+  CATEGORIE_COMUNICAZIONE,
+  eliminaRegolaMittente,
+  regoleFiltroMittente,
+  salvaRegolaMittente,
+} from "../tars/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
 
 function trovaCasella(id: number, sedeId: number | null): Casella {
@@ -506,8 +513,12 @@ export const mailRouter = router({
             casellaId: z.number().optional(),
             canale: z.enum(["email", "whatsapp"]).optional(),
             stato: z.enum(["nuova", "vista", "gestita"]).optional(),
+            categoria: z.enum(CATEGORIE_COMUNICAZIONE).optional(),
             search: z.string().max(200).optional(),
             soloNonCollegate: z.boolean().optional(),
+            soloDaGestire: z.boolean().optional(),
+            soloEscluse: z.boolean().optional(),
+            includiEscluse: z.boolean().optional(),
             limit: z.number().int().min(1).max(200).optional(),
             offset: z.number().int().min(0).optional(),
           })
@@ -521,8 +532,12 @@ export const mailRouter = router({
           casellaId: input?.casellaId ?? null,
           canale: input?.canale,
           stato: input?.stato,
+          categoria: input?.categoria,
           search: input?.search,
           soloNonCollegate: input?.soloNonCollegate,
+          soloDaGestire: input?.soloDaGestire,
+          soloEscluse: input?.soloEscluse,
+          includiEscluse: input?.includiEscluse,
           limit: input?.limit,
           offset: input?.offset,
         });
@@ -564,6 +579,107 @@ export const mailRouter = router({
         }
         return { success: true as const };
       }),
+
+    setCategoria: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          categoria: z.enum(CATEGORIE_COMUNICAZIONE),
+          ricordaMittente: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        const comunicazione = await getComunicazione(input.id, sedeId);
+        if (!comunicazione || comunicazione.deletedAt) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Comunicazione non trovata.",
+          });
+        }
+        if (input.ricordaMittente) {
+          requireDirezione(ctx.user);
+          if (
+            input.categoria !== "spam" &&
+            input.categoria !== "offerta_marketing"
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "La regola mittente si può usare solo per spam e offerte.",
+            });
+          }
+          salvaRegolaMittente({
+            sedeId,
+            mittente: comunicazione.mittente,
+            categoria: input.categoria,
+            createdBy: Number((ctx.user as any).id) || null,
+            createdByNome:
+              (ctx.user as any).name ?? (ctx.user as any).nome ?? null,
+          });
+        }
+        await setClassificazioneComunicazione(input.id, sedeId, {
+          categoria: input.categoria,
+          motivo: input.ricordaMittente
+            ? "Classificata dall'operatore e memorizzata come regola per il mittente."
+            : "Classificata manualmente da un operatore.",
+          fonte: "utente",
+        });
+        return { success: true as const };
+      }),
+
+    bulkAggiorna: protectedProcedure
+      .input(
+        z
+          .object({
+            ids: z.array(z.number()).min(1).max(100),
+            stato: z.enum(["nuova", "vista", "gestita"]).optional(),
+            categoria: z.enum(CATEGORIE_COMUNICAZIONE).optional(),
+          })
+          .refine(v => v.stato != null || v.categoria != null, {
+            message: "Scegli almeno un aggiornamento.",
+          })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        let aggiornate = 0;
+        for (const id of Array.from(new Set(input.ids))) {
+          let ok = true;
+          if (input.stato) {
+            ok = await setStatoComunicazione(id, sedeId, input.stato);
+          }
+          if (ok && input.categoria) {
+            ok = await setClassificazioneComunicazione(id, sedeId, {
+              categoria: input.categoria,
+              motivo: "Classificata con un'azione multipla da un operatore.",
+              fonte: "utente",
+            });
+          }
+          if (ok) aggiornate++;
+        }
+        return { aggiornate };
+      }),
+
+    regoleFiltro: router({
+      list: protectedProcedure.query(({ ctx }) => {
+        requireDirezione(ctx.user);
+        return regoleFiltroMittente
+          .filter(r => r.sedeId === (ctx.sedeId ?? 1))
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      }),
+      delete: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(({ input, ctx }) => {
+          requireDirezione(ctx.user);
+          const ok = eliminaRegolaMittente(input.id, ctx.sedeId ?? 1);
+          if (!ok) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Regola non trovata.",
+            });
+          }
+          return { success: true as const };
+        }),
+    }),
 
     // Elimina dal CRM. La casella non viene toccata: il messaggio resta
     // visibile nel client di posta. Tombstone, quindi non riappare alla
@@ -611,6 +727,13 @@ export const mailRouter = router({
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Comunicazione non trovata.",
+          });
+        }
+        if (input.commessaId != null) {
+          await setClassificazioneComunicazione(input.id, sedeId, {
+            categoria: "operativa",
+            motivo: "Comunicazione collegata manualmente a una commessa.",
+            fonte: "utente",
           });
         }
         return { success: true as const };

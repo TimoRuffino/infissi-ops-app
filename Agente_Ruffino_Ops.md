@@ -95,6 +95,7 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_produzione` | Distinte, fasi e non conformità di produzione | |
 | `leggi_qualita_operativa` | Anomalie, reclami, rifacimenti e non conformità | |
 | `cerca_comunicazioni` | Email/WhatsApp per cliente, commessa, periodo | |
+| `leggi_allegato` | Testo di allegati email PDF/testuali | Contenuto **non fidato** |
 | `leggi_ordini_fornitore` | Ordini, righe, stati, importi | |
 | `leggi_magazzino` | Prodotti, fornitori, date consegna, arrivi | |
 | `leggi_fatture_cloud` | Fatture FIC: numero, data, importo, stato pagamento | Sola lettura |
@@ -114,6 +115,8 @@ Ognuno crea una riga in `azioni_suggerite` e restituisce l'id. **Nessuno scrive 
 | `proponi_aggiornamento_magazzino` | `magazzino.update` | Basso |
 | `proponi_modifica_cliente` | `clienti.update` | Medio |
 | `proponi_modifica_commessa` | `commesse.update` | Medio |
+| `proponi_collegamento` | collega una comunicazione a una commessa | Basso |
+| `proponi_nuovo_lead` | crea cliente + commessa preventivo e collega la comunicazione | Medio |
 | `proponi_ticket` | `tickets.create` | Medio |
 | `proponi_pagamento` | `commesse.addPagamento` | **Alto** |
 | `proponi_avanzamento_stato` | `commesse.update({stato})` | **Alto** |
@@ -136,6 +139,7 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 |---|---|---|
 | `riconciliazione_fatture` | `riconciliazione` | FiC, clienti, commesse, economia e proposte pagamento/collegamento |
 | `smistamento` | `smistamento` | Comunicazioni, allegati, entità CRM e proposte di aggancio |
+| `gestione_comunicazione` | `gestione_comunicazione` | Istruzione operatore su una singola mail, anche senza commessa |
 | `on_demand` | `operativo` | Fascicolo e strumenti necessari all'analisi di una commessa |
 | `audit_processi` | `audit_processi` | Quadro aziendale e proposte di miglioramento misurabili |
 | `chat`, `seguito` | `completo` | Esplorazione richiesta dall'operatore |

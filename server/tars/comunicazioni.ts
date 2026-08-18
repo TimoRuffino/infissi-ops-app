@@ -14,6 +14,18 @@
 // la stessa API — il dev server resta usabile senza Postgres.
 
 import { kvSql } from "../_core/persistence";
+import {
+  categoriaEsclusa,
+  classificaComunicazione,
+  type CategoriaComunicazione,
+  type SegnaliFiltro,
+} from "./filtroComunicazioni";
+
+export type FonteClassificazione =
+  | "regole"
+  | "regola_mittente"
+  | "utente"
+  | "tars";
 
 export type Allegato = {
   nome: string;
@@ -61,13 +73,33 @@ export type Comunicazione = {
   // True quando Tars l'ha già esaminata per lo smistamento: evita di
   // pagare due volte l'analisi della stessa mail.
   tarsAnalizzata: boolean;
+  categoria: CategoriaComunicazione;
+  classificazioneScore: number;
+  classificazioneMotivo: string | null;
+  classificazioneFonte: FonteClassificazione;
+  // Ultimo esito di un'analisi chiesta esplicitamente dall'operatore.
+  // Resta sulla comunicazione così il lavoro di Tars non si perde al refresh.
+  tarsRiepilogo: string | null;
+  tarsIstruzione: string | null;
+  tarsUltimaAnalisiAt: Date | null;
   receivedAt: Date;
   createdAt: Date;
 };
 
 export type NuovaComunicazione = Omit<
   Comunicazione,
-  "id" | "createdAt" | "deletedAt" | "tarsAnalizzata" | "uid"
+  | "id"
+  | "createdAt"
+  | "deletedAt"
+  | "tarsAnalizzata"
+  | "uid"
+  | "categoria"
+  | "classificazioneScore"
+  | "classificazioneMotivo"
+  | "classificazioneFonte"
+  | "tarsRiepilogo"
+  | "tarsIstruzione"
+  | "tarsUltimaAnalisiAt"
 > & {
   uid?: number | null;
   // true per la posta storica importata a posteriori: il match la aggancia,
@@ -75,6 +107,11 @@ export type NuovaComunicazione = Omit<
   // arrivo, non per l'archivio (che a 10 mail per esecuzione costerebbe
   // decine di run inutili).
   tarsAnalizzata?: boolean;
+  categoria?: CategoriaComunicazione;
+  classificazioneScore?: number;
+  classificazioneMotivo?: string | null;
+  classificazioneFonte?: FonteClassificazione;
+  segnaliFiltro?: SegnaliFiltro;
 };
 
 // Il corpo viene troncato: serve a classificare e a dare contesto, non ad
@@ -113,6 +150,13 @@ export function ensureComunicazioniSchema(): Promise<void> {
           match_confidenza TEXT NOT NULL DEFAULT 'nessuna',
           match_motivo TEXT,
           stato TEXT NOT NULL DEFAULT 'nuova',
+          categoria TEXT NOT NULL DEFAULT 'da_classificare',
+          classificazione_score INTEGER NOT NULL DEFAULT 0,
+          classificazione_motivo TEXT,
+          classificazione_fonte TEXT NOT NULL DEFAULT 'regole',
+          tars_riepilogo TEXT,
+          tars_istruzione TEXT,
+          tars_ultima_analisi_at TIMESTAMPTZ,
           received_at TIMESTAMPTZ NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
@@ -143,6 +187,30 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         ALTER TABLE comunicazioni
           ADD COLUMN IF NOT EXISTS uid INTEGER`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'da_classificare'`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS classificazione_score INTEGER NOT NULL DEFAULT 0`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS classificazione_motivo TEXT`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS classificazione_fonte TEXT NOT NULL DEFAULT 'regole'`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS tars_riepilogo TEXT`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS tars_istruzione TEXT`;
+      await kvSql!`
+        ALTER TABLE comunicazioni
+          ADD COLUMN IF NOT EXISTS tars_ultima_analisi_at TIMESTAMPTZ`;
+      await kvSql!`
+        CREATE INDEX IF NOT EXISTS comunicazioni_sede_categoria
+          ON comunicazioni (sede_id, categoria, received_at DESC)`;
     })().catch(e => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
@@ -176,6 +244,15 @@ function fromRow(r: any): Comunicazione {
     uid: r.uid ?? null,
     deletedAt: r.deleted_at ? new Date(r.deleted_at) : null,
     tarsAnalizzata: !!r.tars_analizzata,
+    categoria: r.categoria ?? "da_classificare",
+    classificazioneScore: Number(r.classificazione_score ?? 0),
+    classificazioneMotivo: r.classificazione_motivo ?? null,
+    classificazioneFonte: r.classificazione_fonte ?? "regole",
+    tarsRiepilogo: r.tars_riepilogo ?? null,
+    tarsIstruzione: r.tars_istruzione ?? null,
+    tarsUltimaAnalisiAt: r.tars_ultima_analisi_at
+      ? new Date(r.tars_ultima_analisi_at)
+      : null,
     receivedAt: new Date(r.received_at),
     createdAt: new Date(r.created_at),
   };
@@ -192,6 +269,25 @@ export async function insertComunicazione(
   c: NuovaComunicazione
 ): Promise<Comunicazione | null> {
   const testo = c.testo.slice(0, MAX_TESTO);
+  const classificazione = c.categoria
+    ? {
+        categoria: c.categoria,
+        score: c.classificazioneScore ?? 100,
+        motivo: c.classificazioneMotivo ?? "Classificazione fornita dalla fonte.",
+        fonte: c.classificazioneFonte ?? ("regole" as const),
+      }
+    : classificaComunicazione({
+        sedeId: c.sedeId,
+        mittente: c.mittente,
+        oggetto: c.oggetto,
+        testo,
+        allegati: c.allegati,
+        clienteId: c.clienteId,
+        commessaId: c.commessaId,
+        segnali: c.segnaliFiltro,
+      });
+  const tarsAnalizzata =
+    c.tarsAnalizzata ?? categoriaEsclusa(classificazione.categoria);
 
   if (!kvSql) {
     const dup = memRows.some(
@@ -201,13 +297,21 @@ export async function insertComunicazione(
         r.messageId === c.messageId
     );
     if (dup) return null;
+    const { segnaliFiltro: _segnaliFiltro, ...dati } = c;
     const row: Comunicazione = {
-      ...c,
+      ...dati,
       uid: c.uid ?? null,
       testo,
       id: memNextId++,
       deletedAt: null,
-      tarsAnalizzata: c.tarsAnalizzata ?? false,
+      tarsAnalizzata,
+      categoria: classificazione.categoria,
+      classificazioneScore: classificazione.score,
+      classificazioneMotivo: classificazione.motivo,
+      classificazioneFonte: classificazione.fonte,
+      tarsRiepilogo: null,
+      tarsIstruzione: null,
+      tarsUltimaAnalisiAt: null,
       createdAt: new Date(),
     };
     memRows.push(row);
@@ -220,13 +324,16 @@ export async function insertComunicazione(
       sede_id, casella_id, message_id, uid, canale, direzione,
       mittente, mittente_nome, destinatari, oggetto, testo, allegati,
       cliente_id, commessa_id, match_confidenza, match_motivo, stato,
-      tars_analizzata, received_at
+      tars_analizzata, categoria, classificazione_score,
+      classificazione_motivo, classificazione_fonte, received_at
     ) VALUES (
       ${c.sedeId}, ${c.casellaId}, ${c.messageId}, ${c.uid ?? null}, ${c.canale}, ${c.direzione},
       ${c.mittente}, ${c.mittenteNome}, ${kvSql.json(c.destinatari as any)},
       ${c.oggetto}, ${testo}, ${kvSql.json(c.allegati as any)},
       ${c.clienteId}, ${c.commessaId}, ${c.matchConfidenza}, ${c.matchMotivo},
-      ${c.stato}, ${c.tarsAnalizzata ?? false}, ${c.receivedAt}
+      ${c.stato}, ${tarsAnalizzata}, ${classificazione.categoria},
+      ${classificazione.score}, ${classificazione.motivo},
+      ${classificazione.fonte}, ${c.receivedAt}
     )
     ON CONFLICT (canale, casella_id, message_id) DO NOTHING
     RETURNING *`;
@@ -248,6 +355,73 @@ export async function setStatoComunicazione(
   const rows = await kvSql`
     UPDATE comunicazioni SET stato = ${stato}
     WHERE id = ${id} AND sede_id = ${sedeId}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+export async function setClassificazioneComunicazione(
+  id: number,
+  sedeId: number,
+  classificazione: {
+    categoria: CategoriaComunicazione;
+    motivo: string;
+    fonte: FonteClassificazione;
+    score?: number;
+  }
+): Promise<boolean> {
+  const esclusa = categoriaEsclusa(classificazione.categoria);
+  if (!kvSql) {
+    const r = memRows.find(x => x.id === id && x.sedeId === sedeId && !x.deletedAt);
+    if (!r) return false;
+    r.categoria = classificazione.categoria;
+    r.classificazioneScore = classificazione.score ?? 100;
+    r.classificazioneMotivo = classificazione.motivo;
+    r.classificazioneFonte = classificazione.fonte;
+    if (esclusa) r.tarsAnalizzata = true;
+    else if (classificazione.fonte === "utente") r.tarsAnalizzata = false;
+    if (esclusa) r.stato = "gestita";
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET
+      categoria = ${classificazione.categoria},
+      classificazione_score = ${classificazione.score ?? 100},
+      classificazione_motivo = ${classificazione.motivo},
+      classificazione_fonte = ${classificazione.fonte},
+      tars_analizzata = CASE
+        WHEN ${esclusa} THEN TRUE
+        WHEN ${classificazione.fonte === "utente"} THEN FALSE
+        ELSE tars_analizzata
+      END,
+      stato = CASE WHEN ${esclusa} THEN 'gestita' ELSE stato END
+    WHERE id = ${id} AND sede_id = ${sedeId} AND deleted_at IS NULL
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+export async function salvaEsitoTarsComunicazione(
+  id: number,
+  sedeId: number,
+  input: { riepilogo: string; istruzione: string }
+): Promise<boolean> {
+  if (!kvSql) {
+    const r = memRows.find(x => x.id === id && x.sedeId === sedeId && !x.deletedAt);
+    if (!r) return false;
+    r.tarsRiepilogo = input.riepilogo;
+    r.tarsIstruzione = input.istruzione;
+    r.tarsUltimaAnalisiAt = new Date();
+    r.tarsAnalizzata = true;
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET
+      tars_riepilogo = ${input.riepilogo},
+      tars_istruzione = ${input.istruzione},
+      tars_ultima_analisi_at = NOW(),
+      tars_analizzata = TRUE
+    WHERE id = ${id} AND sede_id = ${sedeId} AND deleted_at IS NULL
     RETURNING id`;
   return rows.length > 0;
 }
@@ -319,7 +493,13 @@ export async function listDaAnalizzare(
 ): Promise<Comunicazione[]> {
   if (!kvSql) {
     return memRows
-      .filter(r => r.sedeId === sedeId && !r.deletedAt && !r.tarsAnalizzata)
+      .filter(
+        r =>
+          r.sedeId === sedeId &&
+          !r.deletedAt &&
+          !r.tarsAnalizzata &&
+          !categoriaEsclusa(r.categoria)
+      )
       .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
       .slice(0, limit);
   }
@@ -329,6 +509,7 @@ export async function listDaAnalizzare(
     WHERE sede_id = ${sedeId}
       AND deleted_at IS NULL
       AND tars_analizzata = FALSE
+      AND categoria NOT IN ('offerta_marketing', 'spam')
     ORDER BY received_at ASC
     LIMIT ${limit}`;
   return rows.map(fromRow);
@@ -339,7 +520,12 @@ export async function segnaTutteViste(sedeId: number): Promise<number> {
   if (!kvSql) {
     let n = 0;
     for (const r of memRows) {
-      if (r.sedeId === sedeId && !r.deletedAt && r.stato === "nuova") {
+      if (
+        r.sedeId === sedeId &&
+        !r.deletedAt &&
+        r.stato === "nuova" &&
+        !categoriaEsclusa(r.categoria)
+      ) {
         r.stato = "vista";
         n++;
       }
@@ -349,7 +535,10 @@ export async function segnaTutteViste(sedeId: number): Promise<number> {
   await ensureComunicazioniSchema();
   const rows = await kvSql`
     UPDATE comunicazioni SET stato = 'vista'
-    WHERE sede_id = ${sedeId} AND deleted_at IS NULL AND stato = 'nuova'
+    WHERE sede_id = ${sedeId}
+      AND deleted_at IS NULL
+      AND stato = 'nuova'
+      AND categoria NOT IN ('offerta_marketing', 'spam')
     RETURNING id`;
   return rows.length;
 }
@@ -403,8 +592,14 @@ export type FiltroComunicazioni = {
   canale?: Comunicazione["canale"];
   stato?: Comunicazione["stato"];
   search?: string;
+  categoria?: CategoriaComunicazione;
   // Solo quelle senza commessa collegata — la coda "da smistare".
   soloNonCollegate?: boolean;
+  // Coda principale: nuove o viste, mai quelle già chiuse.
+  soloDaGestire?: boolean;
+  // Per impostazione predefinita il rumore resta fuori dalla posta operativa.
+  soloEscluse?: boolean;
+  includiEscluse?: boolean;
   limit?: number;
   offset?: number;
 };
@@ -425,7 +620,12 @@ export async function listComunicazioni(
       rows = rows.filter(r => r.casellaId === f.casellaId);
     if (f.canale) rows = rows.filter(r => r.canale === f.canale);
     if (f.stato) rows = rows.filter(r => r.stato === f.stato);
+    if (f.categoria) rows = rows.filter(r => r.categoria === f.categoria);
     if (f.soloNonCollegate) rows = rows.filter(r => r.commessaId == null);
+    if (f.soloDaGestire) rows = rows.filter(r => r.stato !== "gestita");
+    if (f.soloEscluse) rows = rows.filter(r => categoriaEsclusa(r.categoria));
+    else if (!f.includiEscluse)
+      rows = rows.filter(r => !categoriaEsclusa(r.categoria));
     if (f.search) {
       const q = f.search.toLowerCase();
       rows = rows.filter(
@@ -452,7 +652,13 @@ export async function listComunicazioni(
   if (f.casellaId != null) conds.push(sql`casella_id = ${f.casellaId}`);
   if (f.canale) conds.push(sql`canale = ${f.canale}`);
   if (f.stato) conds.push(sql`stato = ${f.stato}`);
+  if (f.categoria) conds.push(sql`categoria = ${f.categoria}`);
   if (f.soloNonCollegate) conds.push(sql`commessa_id IS NULL`);
+  if (f.soloDaGestire) conds.push(sql`stato <> 'gestita'`);
+  if (f.soloEscluse)
+    conds.push(sql`categoria IN ('offerta_marketing', 'spam')`);
+  else if (!f.includiEscluse)
+    conds.push(sql`categoria NOT IN ('offerta_marketing', 'spam')`);
   if (f.search) {
     const like = `%${f.search}%`;
     conds.push(
@@ -489,27 +695,37 @@ export async function statsComunicazioni(sedeId: number): Promise<{
   gestite: number;
   email: number;
   whatsapp: number;
+  escluse: number;
+  daClassificare: number;
+  nuoviLead: number;
 }> {
   if (!kvSql) {
     const mie = memRows.filter(r => r.sedeId === sedeId && !r.deletedAt);
+    const operative = mie.filter(r => !categoriaEsclusa(r.categoria));
     return {
-      nuove: mie.filter(r => r.stato === "nuova").length,
-      totali: mie.length,
-      nonCollegate: mie.filter(r => r.commessaId == null).length,
-      gestite: mie.filter(r => r.stato === "gestita").length,
-      email: mie.filter(r => r.canale === "email").length,
-      whatsapp: mie.filter(r => r.canale === "whatsapp").length,
+      nuove: operative.filter(r => r.stato === "nuova").length,
+      totali: operative.length,
+      nonCollegate: operative.filter(r => r.commessaId == null).length,
+      gestite: operative.filter(r => r.stato === "gestita").length,
+      email: operative.filter(r => r.canale === "email").length,
+      whatsapp: operative.filter(r => r.canale === "whatsapp").length,
+      escluse: mie.length - operative.length,
+      daClassificare: operative.filter(r => r.categoria === "da_classificare").length,
+      nuoviLead: operative.filter(r => r.categoria === "nuovo_lead").length,
     };
   }
   await ensureComunicazioniSchema();
   const rows = await kvSql`
     SELECT
-      COUNT(*) FILTER (WHERE stato = 'nuova') AS nuove,
-      COUNT(*) AS totali,
-      COUNT(*) FILTER (WHERE commessa_id IS NULL) AS non_collegate,
-      COUNT(*) FILTER (WHERE stato = 'gestita') AS gestite,
-      COUNT(*) FILTER (WHERE canale = 'email') AS email,
-      COUNT(*) FILTER (WHERE canale = 'whatsapp') AS whatsapp
+      COUNT(*) FILTER (WHERE stato = 'nuova' AND categoria NOT IN ('offerta_marketing', 'spam')) AS nuove,
+      COUNT(*) FILTER (WHERE categoria NOT IN ('offerta_marketing', 'spam')) AS totali,
+      COUNT(*) FILTER (WHERE commessa_id IS NULL AND categoria NOT IN ('offerta_marketing', 'spam')) AS non_collegate,
+      COUNT(*) FILTER (WHERE stato = 'gestita' AND categoria NOT IN ('offerta_marketing', 'spam')) AS gestite,
+      COUNT(*) FILTER (WHERE canale = 'email' AND categoria NOT IN ('offerta_marketing', 'spam')) AS email,
+      COUNT(*) FILTER (WHERE canale = 'whatsapp' AND categoria NOT IN ('offerta_marketing', 'spam')) AS whatsapp,
+      COUNT(*) FILTER (WHERE categoria IN ('offerta_marketing', 'spam')) AS escluse,
+      COUNT(*) FILTER (WHERE categoria = 'da_classificare') AS da_classificare,
+      COUNT(*) FILTER (WHERE categoria = 'nuovo_lead') AS nuovi_lead
     FROM comunicazioni WHERE sede_id = ${sedeId} AND deleted_at IS NULL`;
   const r = rows[0] ?? {};
   return {
@@ -519,6 +735,9 @@ export async function statsComunicazioni(sedeId: number): Promise<{
     gestite: Number(r.gestite ?? 0),
     email: Number(r.email ?? 0),
     whatsapp: Number(r.whatsapp ?? 0),
+    escluse: Number(r.escluse ?? 0),
+    daClassificare: Number(r.da_classificare ?? 0),
+    nuoviLead: Number(r.nuovi_lead ?? 0),
   };
 }
 

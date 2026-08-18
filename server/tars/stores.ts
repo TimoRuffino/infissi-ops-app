@@ -18,6 +18,7 @@ import { DEFAULT_SEDE_ID } from "../routers/sedi";
 
 export const TIPI_PROPOSTA = [
   "collega_comunicazione",
+  "crea_lead",
   "collega_fattura",
   "rinomina_documento",
   "nota_timeline",
@@ -147,6 +148,9 @@ export function chiaveAzioneProposta(p: {
 
   switch (p.tipo) {
     case "collega_comunicazione":
+      effetto = { comunicazioneId: pay.comunicazioneId };
+      break;
+    case "crea_lead":
       effetto = { comunicazioneId: pay.comunicazioneId };
       break;
     case "collega_fattura":
@@ -380,6 +384,7 @@ export type Esecuzione = {
   // a posteriori (il config può essere cambiato nel frattempo).
   modello: string | null;
   commessaId: number | null;
+  comunicazioneId: number | null;
   richiesta: string; // il messaggio utente passato al modello
   profiloStrumenti: string;
   strumentiDisponibili: number;
@@ -413,6 +418,7 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
   items => {
     nextEsecuzioneId = items.length ? Math.max(...items.map(e => e.id)) + 1 : 1;
     for (const e of items) {
+      if (e.comunicazioneId === undefined) e.comunicazioneId = null;
       if (e.modello === undefined) e.modello = null;
       if (e.profiloStrumenti === undefined) e.profiloStrumenti = "completo";
       if (e.strumentiDisponibili === undefined) e.strumentiDisponibili = 0;

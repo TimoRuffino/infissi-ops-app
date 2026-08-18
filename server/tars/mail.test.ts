@@ -287,6 +287,30 @@ describe("ingestione comunicazioni", () => {
     expect(sede1.some(c => c.oggetto === "Altra sede")).toBe(false);
   });
 
+  it("separa offerte e spam dalla coda e dai contatori operativi", async () => {
+    const offerta = await insertComunicazione({
+      ...nuova("<offerta-esclusa@example.com>", "Offerte speciali di agosto"),
+      mittente: "newsletter@promo.example.com",
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      testo: "Sconti esclusivi. Disiscriviti quando vuoi.",
+      segnaliFiltro: {
+        listUnsubscribe: "<mailto:unsubscribe@promo.example.com>",
+        precedence: "bulk",
+      },
+    });
+    expect(offerta?.categoria).toBe("offerta_marketing");
+
+    const operative = await listComunicazioni({ sedeId: 1 });
+    expect(operative.some(c => c.id === offerta!.id)).toBe(false);
+    const escluse = await listComunicazioni({ sedeId: 1, soloEscluse: true });
+    expect(escluse.some(c => c.id === offerta!.id)).toBe(true);
+    const stats = await statsComunicazioni(1);
+    expect(stats.totali).toBe(operative.length);
+    expect(stats.escluse).toBeGreaterThanOrEqual(1);
+  });
+
   it("l'eliminazione è un tombstone: sparisce dalle liste ma NON risorge alla risincronizzazione", async () => {
     const daEliminare = await insertComunicazione(
       nuova("<da-eliminare@example.com>", "Newsletter inutile")

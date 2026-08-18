@@ -7,11 +7,15 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -26,6 +30,8 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   ArrowLeft,
   CheckCheck,
+  Bot,
+  BriefcaseBusiness,
   Inbox,
   Link2,
   Mail,
@@ -36,6 +42,12 @@ import {
   Settings2,
   Trash2,
   Loader2,
+  Megaphone,
+  Send,
+  ShieldBan,
+  Sparkles,
+  Tags,
+  UserPlus,
 } from "lucide-react";
 import {
   Select,
@@ -48,6 +60,62 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+const CATEGORIE = [
+  "operativa",
+  "nuovo_lead",
+  "amministrativa",
+  "fornitore",
+  "da_classificare",
+  "offerta_marketing",
+  "spam",
+] as const;
+type Categoria = (typeof CATEGORIE)[number];
+type Filtro =
+  | "da_gestire"
+  | "non_collegate"
+  | "lead"
+  | "gestite"
+  | "escluse";
+
+const CATEGORIA_UI: Record<Categoria, { label: string; className: string }> = {
+  operativa: {
+    label: "Operativa",
+    className: "border-success/25 bg-success/10 text-success",
+  },
+  nuovo_lead: {
+    label: "Nuovo lead",
+    className: "border-primary/25 bg-primary/10 text-primary",
+  },
+  amministrativa: {
+    label: "Amministrativa",
+    className: "border-info/25 bg-info/10 text-info",
+  },
+  fornitore: {
+    label: "Fornitore",
+    className: "border-warning/30 bg-warning/10 text-warning-foreground",
+  },
+  da_classificare: {
+    label: "Da classificare",
+    className: "border-border-strong bg-surface-2 text-text-2",
+  },
+  offerta_marketing: {
+    label: "Offerta",
+    className: "border-warning/30 bg-warning/10 text-warning-foreground",
+  },
+  spam: {
+    label: "Spam",
+    className: "border-destructive/25 bg-destructive/10 text-destructive",
+  },
+};
+
+const FILTRO_LABEL: Record<Filtro, string> = {
+  da_gestire: "Da gestire",
+  non_collegate: "Non collegate",
+  lead: "Nuovi lead",
+  gestite: "Gestite",
+  escluse: "Escluse",
+};
 
 // ── Utilità ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +157,18 @@ function dimensioneFile(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function CategoriaBadge({ categoria }: { categoria: Categoria }) {
+  const meta = CATEGORIA_UI[categoria] ?? CATEGORIA_UI.da_classificare;
+  return (
+    <Badge
+      variant="outline"
+      className={cn("h-5 px-1.5 text-[10px]", meta.className)}
+    >
+      {meta.label}
+    </Badge>
+  );
+}
+
 // Indicatore del canale: verde WhatsApp, neutro email. Su una lista mista
 // serve capire a colpo d'occhio da dove arriva un messaggio.
 function IconaCanale({
@@ -120,21 +200,22 @@ function Riga({
   c,
   selezionata,
   haPropostaTars,
+  scelta,
+  onScelta,
   onClick,
 }: {
   c: any;
   selezionata: boolean;
   haPropostaTars: boolean;
+  scelta: boolean;
+  onScelta: (checked: boolean) => void;
   onClick: () => void;
 }) {
   const nuova = c.stato === "nuova";
   return (
-    <button
-      onClick={onClick}
-      aria-current={selezionata ? "true" : undefined}
+    <div
       className={cn(
-        "group relative flex min-h-[92px] w-full items-start gap-3 border-b border-border-soft px-3.5 py-3 text-left",
-        "transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "group relative flex min-h-[96px] w-full items-start border-b border-border-soft",
         selezionata
           ? "bg-accent/70"
           : nuova
@@ -148,72 +229,86 @@ function Riga({
           aria-hidden="true"
         />
       )}
-      <div
-        className={cn(
-          "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
-          nuova
-            ? "bg-primary text-primary-foreground shadow-xs"
-            : "bg-surface-2 text-text-2"
-        )}
-      >
-        {iniziali(c)}
+      <div className="relative z-[1] flex w-9 shrink-0 justify-center pt-4">
+        <Checkbox
+          checked={scelta}
+          onCheckedChange={v => onScelta(v === true)}
+          aria-label={`Seleziona ${c.oggetto || c.mittente}`}
+        />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "flex min-w-0 items-center gap-1.5 truncate text-sm",
-              nuova ? "font-bold text-foreground" : "font-semibold text-text-2"
-            )}
-          >
-            <IconaCanale canale={c.canale} />
-            <span className="truncate">{c.mittenteNome ?? c.mittente}</span>
-          </span>
-          <span
-            className={cn(
-              "shrink-0 text-[11px] tabular-nums",
-              nuova ? "font-bold text-accent-text" : "text-text-3"
-            )}
-          >
-            {oraBreve(c.receivedAt)}
-          </span>
-        </div>
+      <button
+        onClick={onClick}
+        aria-current={selezionata ? "true" : undefined}
+        className="flex min-w-0 flex-1 items-start gap-3 py-3 pr-3.5 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
         <div
           className={cn(
-            "mt-0.5 truncate text-sm",
-            nuova ? "font-semibold text-foreground" : "text-text-2"
+            "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
+            nuova
+              ? "bg-primary text-primary-foreground shadow-xs"
+              : "bg-surface-2 text-text-2"
           )}
         >
-          {c.oggetto ||
-            (c.canale === "whatsapp" ? c.testo : "") ||
-            "(senza oggetto)"}
+          {iniziali(c)}
         </div>
-        <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
-          {anteprima(c)}
-        </p>
-        <div className="mt-1 flex min-h-4 items-center gap-2 text-[11px] text-text-3">
-          {c.allegati?.length > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Paperclip className="h-3 w-3" />
-              {c.allegati.length}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={cn(
+                "flex min-w-0 items-center gap-1.5 truncate text-sm",
+                nuova ? "font-bold text-foreground" : "font-semibold text-text-2"
+              )}
+            >
+              <IconaCanale canale={c.canale} />
+              <span className="truncate">{c.mittenteNome ?? c.mittente}</span>
             </span>
-          )}
-          {c.commessaId != null && (
-            <span className="inline-flex items-center gap-1 text-success">
-              <Link2 className="h-3 w-3" />
-              Commessa
+            <span
+              className={cn(
+                "shrink-0 text-[11px] tabular-nums",
+                nuova ? "font-bold text-accent-text" : "text-text-3"
+              )}
+            >
+              {oraBreve(c.receivedAt)}
             </span>
-          )}
-          {haPropostaTars && <TarsAvatar size="sm" className="h-4 w-4" />}
-          {c.stato === "gestita" && (
-            <span className="ml-auto inline-flex items-center gap-1 text-success">
-              <CheckCheck className="h-3 w-3" />
-              Gestita
-            </span>
-          )}
+          </div>
+          <div
+            className={cn(
+              "mt-0.5 truncate text-sm",
+              nuova ? "font-semibold text-foreground" : "text-text-2"
+            )}
+          >
+            {c.oggetto ||
+              (c.canale === "whatsapp" ? c.testo : "") ||
+              "(senza oggetto)"}
+          </div>
+          <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
+            {anteprima(c)}
+          </p>
+          <div className="mt-1 flex min-h-5 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
+            <CategoriaBadge categoria={c.categoria ?? "da_classificare"} />
+            {c.allegati?.length > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Paperclip className="h-3 w-3" />
+                {c.allegati.length}
+              </span>
+            )}
+            {c.commessaId != null && (
+              <span className="inline-flex items-center gap-1 text-success">
+                <Link2 className="h-3 w-3" />
+                Collegata
+              </span>
+            )}
+            {haPropostaTars && <TarsAvatar size="sm" className="h-4 w-4" />}
+            {c.stato === "gestita" && (
+              <CheckCheck
+                className="ml-auto h-3.5 w-3.5 text-success"
+                aria-label="Gestita"
+              />
+            )}
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -224,15 +319,23 @@ function Lettura({
   proposteTars,
   onChiudi,
   mobile,
+  puoGestireRegole,
 }: {
   c: any;
   proposteTars: any[];
   onChiudi: () => void;
   mobile: boolean;
+  puoGestireRegole: boolean;
 }) {
   const utils = trpc.useUtils();
   const [collegaAperto, setCollegaAperto] = useState(false);
+  const [commessaScelta, setCommessaScelta] = useState<string | null>(null);
   const [confermaElimina, setConfermaElimina] = useState(false);
+  const [esclusione, setEsclusione] = useState<
+    "spam" | "offerta_marketing" | null
+  >(null);
+  const [istruzione, setIstruzione] = useState("");
+  const [ultimoRiepilogo, setUltimoRiepilogo] = useState<string | null>(null);
   const commesse = trpc.commesse.list.useQuery(undefined, {
     enabled: collegaAperto,
   });
@@ -249,12 +352,22 @@ function Lettura({
     onSuccess: () => {
       toast.success("Collegata");
       setCollegaAperto(false);
+      setCommessaScelta(null);
       invalidate();
     },
     onError: e => toast.error(e.message),
   });
   const setStato = trpc.mail.comunicazioni.setStato.useMutation({
     onSuccess: invalidate,
+    onError: e => toast.error(e.message),
+  });
+  const setCategoria = trpc.mail.comunicazioni.setCategoria.useMutation({
+    onSuccess: () => {
+      toast.success("Classificazione aggiornata");
+      setEsclusione(null);
+      invalidate();
+    },
+    onError: e => toast.error(e.message),
   });
   const elimina = trpc.mail.comunicazioni.delete.useMutation({
     onSuccess: () => {
@@ -265,6 +378,70 @@ function Lettura({
     },
     onError: e => toast.error(e.message),
   });
+  const affidaATars = trpc.tars.analizzaComunicazione.useMutation({
+    onSuccess: r => {
+      setUltimoRiepilogo(r.riepilogo);
+      setIstruzione("");
+      toast.success(
+        r.proposte.length > 0
+          ? `${r.proposte.length} ${r.proposte.length === 1 ? "proposta pronta" : "proposte pronte"}`
+          : "Analisi completata"
+      );
+      utils.tars.proposte.invalidate();
+      invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const scegliCategoria = (categoria: Categoria) => {
+    if (categoria === "spam" || categoria === "offerta_marketing") {
+      setEsclusione(categoria);
+      return;
+    }
+    setCategoria.mutate({ id: c.id, categoria });
+  };
+
+  const preset = c.commessaId == null
+    ? [
+        {
+          label: "Crea lead",
+          icon: UserPlus,
+          testo:
+            "Verifica che non esistano già cliente e commessa. Se è una richiesta reale, prepara la creazione del nuovo cliente e di una commessa in preventivo, poi collega questa comunicazione.",
+        },
+        {
+          label: "Apri ticket",
+          icon: BriefcaseBusiness,
+          testo:
+            "Valuta il contenuto e prepara un ticket senza commessa se serve una presa in carico, indicando priorità e contatto.",
+        },
+        {
+          label: "Prepara risposta",
+          icon: Send,
+          testo:
+            "Verifica il contesto e prepara una risposta professionale. Non inventare date, prezzi o impegni.",
+        },
+      ]
+    : [
+        {
+          label: "Aggiorna commessa",
+          icon: BriefcaseBusiness,
+          testo:
+            "Leggi la commessa collegata e proponi gli aggiornamenti operativi necessari in base a questa comunicazione.",
+        },
+        {
+          label: "Prepara risposta",
+          icon: Send,
+          testo:
+            "Controlla il fascicolo della commessa e prepara una risposta coerente con lo stato reale.",
+        },
+        {
+          label: "Analizza allegati",
+          icon: Paperclip,
+          testo:
+            "Analizza gli allegati operativi, confrontali con la commessa e proponi soltanto le azioni supportate dai documenti.",
+        },
+      ];
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
@@ -286,21 +463,12 @@ function Lettura({
             {iniziali(c)}
           </div>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <IconaCanale canale={c.canale} className="h-4 w-4 shrink-0" />
               <span className="truncate text-sm font-bold text-foreground">
                 {c.mittenteNome ?? c.mittente}
               </span>
-              <Badge
-                variant={c.stato === "gestita" ? "success" : "secondary"}
-                className="hidden sm:inline-flex"
-              >
-                {c.stato === "nuova"
-                  ? "Nuova"
-                  : c.stato === "gestita"
-                    ? "Gestita"
-                    : "Vista"}
-              </Badge>
+              <CategoriaBadge categoria={c.categoria ?? "da_classificare"} />
             </div>
             {c.mittenteNome && (
               <div className="truncate text-xs text-text-3">{c.mittente}</div>
@@ -358,65 +526,167 @@ function Lettura({
         </h2>
       </div>
 
-      <div className="shrink-0 border-b border-border-soft bg-surface-2/65 px-4 py-2.5 sm:px-5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {c.commessaId != null ? (
-            <>
-              <Link
-                href={`/commesse/${c.commessaId}`}
-                className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
-              >
-                <Link2 className="h-3.5 w-3.5" />
-                <span className="truncate">
-                  {commessa.data?.codice ?? `Commessa #${c.commessaId}`}
-                  {commessa.data?.cliente ? ` · ${commessa.data.cliente}` : ""}
-                </span>
-              </Link>
+      <div className="shrink-0 border-b border-border-soft bg-surface-2/65 px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            {c.commessaId != null ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Link
+                  href={`/commesse/${c.commessaId}`}
+                  className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  <span className="truncate">
+                    {commessa.data?.codice ?? `Commessa #${c.commessaId}`}
+                    {commessa.data?.cliente ? ` · ${commessa.data.cliente}` : ""}
+                  </span>
+                </Link>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  onClick={() => collega.mutate({ id: c.id, commessaId: null })}
+                >
+                  Scollega
+                </Button>
+              </div>
+            ) : (
               <Button
                 size="sm"
-                variant="ghost"
-                className="h-8 text-xs"
-                onClick={() => collega.mutate({ id: c.id, commessaId: null })}
+                variant="outline"
+                className="h-9"
+                onClick={() => setCollegaAperto(v => !v)}
               >
-                Scollega
+                <Link2 className="h-3.5 w-3.5" />
+                Collega a una commessa
               </Button>
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => setCollegaAperto(v => !v)}
+            )}
+          </div>
+          <Select
+            value={c.categoria ?? "da_classificare"}
+            onValueChange={v => scegliCategoria(v as Categoria)}
+          >
+            <SelectTrigger
+              className="h-9 w-full sm:w-[180px]"
+              aria-label="Classificazione"
             >
-              <Link2 className="h-3 w-3 mr-1" />
-              Collega a una commessa
-            </Button>
-          )}
-          {c.matchMotivo && (
-            <span className="min-w-0 text-xs text-text-3">{c.matchMotivo}</span>
-          )}
+              <Tags className="h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CATEGORIE.map(cat => (
+                <SelectItem key={cat} value={cat}>
+                  {CATEGORIA_UI[cat].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {collegaAperto && (
-          <div className="mt-2">
-            <SearchSelect
-              value={null}
-              onChange={(v: string) =>
-                collega.mutate({ id: c.id, commessaId: Number(v) })
+          <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
+            <div className="min-w-0 flex-1">
+              <SearchSelect
+                value={commessaScelta}
+                onChange={(v: string) => setCommessaScelta(v)}
+                options={(commesse.data ?? []).map((cm: any) => ({
+                  value: String(cm.id),
+                  label: `${cm.codice} — ${cm.cliente}`,
+                  keywords: cm.citta ?? "",
+                }))}
+                placeholder="Cerca codice, cliente o città…"
+              />
+            </div>
+            <Button
+              className="shrink-0"
+              disabled={!commessaScelta || collega.isPending}
+              onClick={() =>
+                collega.mutate({ id: c.id, commessaId: Number(commessaScelta) })
               }
-              options={(commesse.data ?? []).map((cm: any) => ({
-                value: String(cm.id),
-                label: `${cm.codice} — ${cm.cliente}`,
-                keywords: cm.citta ?? "",
-              }))}
-              placeholder="Cerca la commessa…"
-            />
+            >
+              {collega.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="h-4 w-4" />
+              )}
+              Conferma collegamento
+            </Button>
           </div>
+        )}
+        {c.classificazioneMotivo && (
+          <p className="mt-2 text-xs leading-5 text-text-3">
+            {c.classificazioneMotivo}
+          </p>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
-        <div className="mx-auto max-w-3xl space-y-5">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <section className="border-b border-primary/15 bg-[image:var(--gradient-soft)] px-4 py-4 sm:px-5">
+          <div className="mx-auto max-w-3xl">
+            <div className="flex items-center gap-2">
+              <TarsAvatar size="md" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-foreground">
+                  Affida questa comunicazione a Tars
+                </div>
+                <div className="text-xs text-text-2">
+                  Verifica i dati e prepara azioni da approvare
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {preset.map(item => (
+                <Button
+                  key={item.label}
+                  size="sm"
+                  variant="outline"
+                  className="h-8 bg-card/75 text-xs"
+                  onClick={() => setIstruzione(item.testo)}
+                >
+                  <item.icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+            <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+              <Textarea
+                value={istruzione}
+                onChange={e => setIstruzione(e.target.value)}
+                placeholder="Es. Non esiste ancora una commessa: verifica se è un nuovo lead e prepara ciò che serve."
+                className="min-h-[74px] min-w-0 flex-1 resize-none bg-card"
+              />
+              <Button
+                className="shrink-0"
+                disabled={
+                  istruzione.trim().length < 2 || affidaATars.isPending
+                }
+                onClick={() =>
+                  affidaATars.mutate({
+                    comunicazioneId: c.id,
+                    istruzione: istruzione.trim(),
+                  })
+                }
+              >
+                {affidaATars.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {affidaATars.isPending
+                  ? "Tars sta verificando…"
+                  : "Analizza e prepara"}
+              </Button>
+            </div>
+            {(ultimoRiepilogo || c.tarsRiepilogo) && (
+              <div className="mt-3 border-l-2 border-primary pl-3 text-sm leading-6 text-text-1">
+                {ultimoRiepilogo ?? c.tarsRiepilogo}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="px-4 py-5 sm:px-5">
+          <div className="mx-auto max-w-3xl space-y-5">
           {proposteTars.map(p => (
             <TarsPropostaCard key={p.id} proposta={p} />
           ))}
@@ -448,6 +718,7 @@ function Lettura({
           <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-text-1">
             {c.testo || "(messaggio vuoto)"}
           </div>
+          </div>
         </div>
       </div>
 
@@ -459,6 +730,54 @@ function Lettura({
         confirmLabel="Elimina dal CRM"
         onConfirm={() => elimina.mutate({ id: c.id })}
       />
+      <Dialog
+        open={esclusione != null}
+        onOpenChange={open => !open && setEsclusione(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {esclusione === "spam"
+                ? "Segnare come spam?"
+                : "Escludere come offerta?"}
+            </DialogTitle>
+            <DialogDescription>
+              Il messaggio uscirà dalla coda operativa e non consumerà
+              analisi automatiche di Tars.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {puoGestireRegole && (
+              <Button
+                variant="outline"
+                disabled={setCategoria.isPending}
+                onClick={() =>
+                  setCategoria.mutate({
+                    id: c.id,
+                    categoria: esclusione!,
+                    ricordaMittente: true,
+                  })
+                }
+              >
+                {esclusione === "spam" ? (
+                  <ShieldBan className="h-4 w-4" />
+                ) : (
+                  <Megaphone className="h-4 w-4" />
+                )}
+                Escludi anche i futuri
+              </Button>
+            )}
+            <Button
+              disabled={setCategoria.isPending}
+              onClick={() =>
+                setCategoria.mutate({ id: c.id, categoria: esclusione! })
+              }
+            >
+              Solo questo messaggio
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -470,31 +789,35 @@ export default function Comunicazioni() {
   const mobile = useIsMobile();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
-  const [filtro, setFiltro] = useState<
-    "tutte" | "nuove" | "da_smistare" | "gestite"
-  >("tutte");
+  const [filtro, setFiltro] = useState<Filtro>("da_gestire");
   const [canale, setCanale] = useState<"tutti" | "email" | "whatsapp">("tutti");
   const [casellaId, setCasellaId] = useState<number | null>(null);
   const [selezionataId, setSelezionataId] = useState<number | null>(null);
+  const [selezionate, setSelezionate] = useState<Set<number>>(new Set());
+  const [bulkEsclusione, setBulkEsclusione] = useState<
+    "spam" | "offerta_marketing" | null
+  >(null);
   const [caselleAperte, setCaselleAperte] = useState(false);
   const deferredSearch = useDeferredValue(search.trim());
 
   const stats = trpc.mail.comunicazioni.stats.useQuery();
   const opzioniCaselle = trpc.mail.caselle.opzioni.useQuery();
+  const regoleFiltro = trpc.mail.comunicazioni.regoleFiltro.list.useQuery(
+    undefined,
+    { enabled: isDirezione(user) }
+  );
   const rows = trpc.mail.comunicazioni.list.useQuery({
     search: deferredSearch || undefined,
     casellaId: casellaId ?? undefined,
     canale: canale === "tutti" ? undefined : canale,
-    stato:
-      filtro === "nuove"
-        ? "nuova"
-        : filtro === "gestite"
-          ? "gestita"
-          : undefined,
-    soloNonCollegate: filtro === "da_smistare" ? true : undefined,
+    soloDaGestire: filtro === "da_gestire" ? true : undefined,
+    soloNonCollegate: filtro === "non_collegate" ? true : undefined,
+    categoria: filtro === "lead" ? "nuovo_lead" : undefined,
+    stato: filtro === "gestite" ? "gestita" : undefined,
+    soloEscluse: filtro === "escluse" ? true : undefined,
     limit: 100,
   });
-  // Proposte pendenti di collegamento: avatar sulla riga, card nel pannello.
+  // Ogni proposta nata dall'analisi puntuale porta comunicazioneId.
   const pendenti = trpc.tars.proposte.list.useQuery(
     { stato: "pendente" },
     { retry: false }
@@ -502,7 +825,6 @@ export default function Comunicazioni() {
   const proposteMail = useMemo(() => {
     const map = new Map<number, any[]>();
     for (const p of pendenti.data ?? []) {
-      if (p.tipo !== "collega_comunicazione") continue;
       const id = p.payload?.comunicazioneId;
       if (id == null) continue;
       map.set(id, [...(map.get(id) ?? []), p]);
@@ -529,9 +851,38 @@ export default function Comunicazioni() {
       utils.mail.comunicazioni.invalidate();
     },
   });
+  const bulk = trpc.mail.comunicazioni.bulkAggiorna.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.aggiornate} comunicazioni aggiornate`);
+      setSelezionate(new Set());
+      setBulkEsclusione(null);
+      utils.mail.comunicazioni.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const eliminaRegola =
+    trpc.mail.comunicazioni.regoleFiltro.delete.useMutation({
+      onSuccess: () => {
+        toast.success("Regola rimossa");
+        regoleFiltro.refetch();
+      },
+      onError: e => toast.error(e.message),
+    });
 
   const lista = rows.data ?? [];
   const selezionata = lista.find((c: any) => c.id === selezionataId) ?? null;
+  const tuttiSelezionati =
+    lista.length > 0 && lista.every((c: any) => selezionate.has(c.id));
+  const alcuniSelezionati = lista.some((c: any) => selezionate.has(c.id));
+
+  const toggleScelta = (id: number, checked: boolean) => {
+    setSelezionate(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
 
   const apri = (c: any) => {
     setSelezionataId(c.id);
@@ -540,23 +891,40 @@ export default function Comunicazioni() {
 
   const mostraLista = !mobile || selezionata == null;
   const mostraLettura = selezionata != null;
+  const daGestire = Math.max(
+    0,
+    (stats.data?.totali ?? 0) - (stats.data?.gestite ?? 0)
+  );
+  const filtri: Array<{ value: Filtro; label: string; count: number }> = [
+    { value: "da_gestire", label: "Da gestire", count: daGestire },
+    {
+      value: "non_collegate",
+      label: "Non collegate",
+      count: stats.data?.nonCollegate ?? 0,
+    },
+    { value: "lead", label: "Nuovi lead", count: stats.data?.nuoviLead ?? 0 },
+    { value: "gestite", label: "Gestite", count: stats.data?.gestite ?? 0 },
+    { value: "escluse", label: "Escluse", count: stats.data?.escluse ?? 0 },
+  ];
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-h-[520px] min-w-0 flex-col gap-3">
+    <div className="flex h-[calc(100dvh-8rem)] min-h-[560px] min-w-0 flex-col gap-3 overflow-hidden">
       <div className="flex shrink-0 items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
+          <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary [background-image:var(--gradient-primary)] text-primary-foreground shadow-xs">
             <Mail className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold leading-tight">Comunicazioni</h1>
+            <h1 className="text-xl font-bold leading-tight sm:text-2xl">
+              Comunicazioni
+            </h1>
             <p className="truncate text-sm text-text-2">
-              Posta e messaggi della sede attiva
+              {daGestire} da gestire · {stats.data?.escluse ?? 0} escluse dal lavoro
             </p>
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          {(stats.data?.nuove ?? 0) > 0 && (
+          {(stats.data?.nuove ?? 0) > 0 && filtro !== "escluse" && (
             <Button
               size="sm"
               variant="ghost"
@@ -602,34 +970,49 @@ export default function Comunicazioni() {
 
       {mostraLista && (
         <div className="shrink-0 space-y-2">
-          <Tabs value={filtro} onValueChange={v => setFiltro(v as any)}>
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:w-auto sm:grid-cols-4">
-              <TabsTrigger className="min-h-9 gap-2" value="tutte">
-                Tutte
-                <span className="tabular-nums text-[11px] opacity-70">
-                  {stats.data?.totali ?? 0}
-                </span>
-              </TabsTrigger>
-              <TabsTrigger className="min-h-9 gap-2" value="nuove">
-                Nuove
-                <span className="tabular-nums text-[11px] opacity-70">
-                  {stats.data?.nuove ?? 0}
-                </span>
-              </TabsTrigger>
-              <TabsTrigger className="min-h-9 gap-2" value="da_smistare">
-                Da smistare
-                <span className="tabular-nums text-[11px] opacity-70">
-                  {stats.data?.nonCollegate ?? 0}
-                </span>
-              </TabsTrigger>
-              <TabsTrigger className="min-h-9 gap-2" value="gestite">
-                Gestite
-                <span className="tabular-nums text-[11px] opacity-70">
-                  {stats.data?.gestite ?? 0}
-                </span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {mobile ? (
+            <Select
+              value={filtro}
+              onValueChange={v => {
+                setFiltro(v as Filtro);
+                setSelezionate(new Set());
+              }}
+            >
+              <SelectTrigger className="h-10 w-full" aria-label="Coda comunicazioni">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {filtri.map(item => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label} · {item.count}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Tabs
+              value={filtro}
+              onValueChange={v => {
+                setFiltro(v as Filtro);
+                setSelezionate(new Set());
+              }}
+            >
+              <TabsList className="grid h-auto w-full grid-cols-5 gap-1 p-1">
+                {filtri.map(item => (
+                  <TabsTrigger
+                    key={item.value}
+                    className="min-h-9 gap-2"
+                    value={item.value}
+                  >
+                    {item.label}
+                    <span className="tabular-nums text-[11px] opacity-70">
+                      {item.count}
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
 
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
             <div className="relative min-w-0 flex-1">
@@ -638,7 +1021,10 @@ export default function Comunicazioni() {
                 className="h-10 pl-9"
                 placeholder="Cerca mittente, oggetto o testo"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => {
+                  setSearch(e.target.value);
+                  setSelezionate(new Set());
+                }}
               />
             </div>
             <div
@@ -653,6 +1039,7 @@ export default function Comunicazioni() {
                 value={canale}
                 onValueChange={v => {
                   setCanale(v as typeof canale);
+                  setSelezionate(new Set());
                   if (v === "whatsapp") setCasellaId(null);
                 }}
               >
@@ -677,9 +1064,10 @@ export default function Comunicazioni() {
               canale !== "whatsapp" ? (
                 <Select
                   value={casellaId != null ? String(casellaId) : "tutte"}
-                  onValueChange={v =>
-                    setCasellaId(v === "tutte" ? null : Number(v))
-                  }
+                  onValueChange={v => {
+                    setCasellaId(v === "tutte" ? null : Number(v));
+                    setSelezionate(new Set());
+                  }}
                 >
                   <SelectTrigger
                     className="h-10 w-full sm:w-[180px]"
@@ -699,7 +1087,7 @@ export default function Comunicazioni() {
               ) : null}
             </div>
           </div>
-          {(stats.data?.nuove ?? 0) > 0 && (
+          {(stats.data?.nuove ?? 0) > 0 && filtro !== "escluse" && (
             <Button
               size="sm"
               variant="ghost"
@@ -714,7 +1102,7 @@ export default function Comunicazioni() {
         </div>
       )}
 
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
         {mostraLista && (
           <div
             tabIndex={0}
@@ -724,17 +1112,82 @@ export default function Comunicazioni() {
               "min-h-0 min-w-0 overflow-y-auto",
               mobile
                 ? "w-full"
-                : "w-[clamp(320px,32vw,420px)] shrink-0 border-r border-border-soft"
+                : "w-[clamp(330px,34vw,440px)] shrink-0 border-r border-border-soft"
             )}
           >
-            <div className="sticky top-0 z-10 flex h-10 items-center justify-between border-b border-border-soft bg-card/95 px-3.5 backdrop-blur-sm">
-              <span className="text-xs font-bold uppercase text-text-3">
-                Messaggi
-              </span>
-              <span className="text-xs tabular-nums text-text-3">
-                {lista.length}
-                {rows.isFetching && !rows.isLoading ? " · aggiornamento" : ""}
-              </span>
+            <div className="sticky top-0 z-10 flex min-h-11 items-center gap-2 border-b border-border-soft bg-card/95 px-3 backdrop-blur-sm">
+              <Checkbox
+                checked={
+                  tuttiSelezionati
+                    ? true
+                    : alcuniSelezionati
+                      ? "indeterminate"
+                      : false
+                }
+                onCheckedChange={v => {
+                  const next = new Set(selezionate);
+                  for (const c of lista) {
+                    if (v === true) next.add(c.id);
+                    else next.delete(c.id);
+                  }
+                  setSelezionate(next);
+                }}
+                aria-label="Seleziona tutte le comunicazioni visibili"
+              />
+              {selezionate.size > 0 ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                  <span className="shrink-0 text-xs font-bold tabular-nums">
+                    {selezionate.size}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs"
+                    disabled={bulk.isPending}
+                    onClick={() =>
+                      bulk.mutate({
+                        ids: Array.from(selezionate),
+                        stato: "gestita",
+                      })
+                    }
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    Gestite
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 shrink-0"
+                    onClick={() => setBulkEsclusione("offerta_marketing")}
+                    aria-label="Escludi come offerte"
+                    title="Escludi come offerte"
+                  >
+                    <Megaphone className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="dangerGhost"
+                    className="size-8 shrink-0"
+                    onClick={() => setBulkEsclusione("spam")}
+                    aria-label="Segna come spam"
+                    title="Segna come spam"
+                  >
+                    <ShieldBan className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <span className="flex-1 text-xs font-bold uppercase text-text-3">
+                    {FILTRO_LABEL[filtro]}
+                  </span>
+                  <span className="text-xs tabular-nums text-text-3">
+                    {lista.length}
+                    {rows.isFetching && !rows.isLoading
+                      ? " · aggiornamento"
+                      : ""}
+                  </span>
+                </>
+              )}
             </div>
             {rows.isLoading && (
               <div className="py-12 text-center">
@@ -746,8 +1199,8 @@ export default function Comunicazioni() {
                 <div className="mx-auto mb-3 grid size-11 place-items-center rounded-lg bg-surface-2">
                   <Inbox className="h-5 w-5" />
                 </div>
-                {filtro === "tutte" && !search
-                  ? "Nessuna comunicazione"
+                {filtro === "da_gestire" && !search
+                  ? "Tutto gestito. La coda operativa è vuota."
                   : "Niente qui con questi filtri."}
               </div>
             )}
@@ -757,6 +1210,8 @@ export default function Comunicazioni() {
                 c={c}
                 selezionata={c.id === selezionataId}
                 haPropostaTars={proposteMail.has(c.id)}
+                scelta={selezionate.has(c.id)}
+                onScelta={checked => toggleScelta(c.id, checked)}
                 onClick={() => apri(c)}
               />
             ))}
@@ -766,10 +1221,12 @@ export default function Comunicazioni() {
         {mostraLettura ? (
           <div className={cn("min-h-0 min-w-0 flex-1", mobile && "w-full")}>
             <Lettura
+              key={selezionata.id}
               c={selezionata}
               proposteTars={proposteMail.get(selezionata.id) ?? []}
               onChiudi={() => setSelezionataId(null)}
               mobile={mobile}
+              puoGestireRegole={isDirezione(user)}
             />
           </div>
         ) : (
@@ -777,7 +1234,7 @@ export default function Comunicazioni() {
             <div className="flex min-w-0 flex-1 items-center justify-center bg-surface-2/35 text-sm text-text-3">
               <div className="space-y-3 text-center">
                 <div className="mx-auto grid size-12 place-items-center rounded-lg bg-accent/70 text-accent-text">
-                  <Mail className="h-5 w-5" />
+                  <Bot className="h-5 w-5" />
                 </div>
                 <p className="font-medium">Apri una comunicazione</p>
               </div>
@@ -790,11 +1247,82 @@ export default function Comunicazioni() {
       <Dialog open={caselleAperte} onOpenChange={setCaselleAperte}>
         <DialogContent className="max-w-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Caselle collegate</DialogTitle>
+            <DialogTitle>Caselle e filtri</DialogTitle>
           </DialogHeader>
           <CaselleEmailCard />
+          <section className="border-t border-border-soft pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold">Mittenti esclusi</h3>
+                <p className="mt-0.5 text-xs text-text-3">
+                  Le regole si applicano ai prossimi messaggi in arrivo.
+                </p>
+              </div>
+              <Badge variant="secondary">
+                {regoleFiltro.data?.length ?? 0}
+              </Badge>
+            </div>
+            <div className="mt-3 divide-y divide-border-soft rounded-md border border-border-soft">
+              {(regoleFiltro.data ?? []).map(regola => (
+                <div
+                  key={regola.id}
+                  className="flex min-w-0 items-center gap-3 px-3 py-2.5"
+                >
+                  {regola.categoria === "spam" ? (
+                    <ShieldBan className="h-4 w-4 shrink-0 text-destructive" />
+                  ) : (
+                    <Megaphone className="h-4 w-4 shrink-0 text-warning-foreground" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">
+                      {regola.mittente}
+                    </div>
+                    <div className="text-xs text-text-3">
+                      {regola.categoria === "spam" ? "Spam" : "Offerte"}
+                    </div>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 shrink-0"
+                    disabled={eliminaRegola.isPending}
+                    onClick={() => eliminaRegola.mutate({ id: regola.id })}
+                    aria-label={`Rimuovi regola per ${regola.mittente}`}
+                    title="Rimuovi regola"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              {!regoleFiltro.isLoading &&
+                (regoleFiltro.data?.length ?? 0) === 0 && (
+                  <div className="px-3 py-5 text-center text-sm text-text-3">
+                    Nessun mittente escluso in modo permanente.
+                  </div>
+                )}
+            </div>
+          </section>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={bulkEsclusione != null}
+        onOpenChange={open => !open && setBulkEsclusione(null)}
+        title={
+          bulkEsclusione === "spam"
+            ? "Segnare la selezione come spam?"
+            : "Escludere la selezione come offerte?"
+        }
+        description={`${selezionate.size} comunicazioni usciranno dalla coda operativa e non verranno analizzate automaticamente da Tars.`}
+        confirmLabel={
+          bulkEsclusione === "spam" ? "Segna come spam" : "Escludi offerte"
+        }
+        onConfirm={() =>
+          bulk.mutate({
+            ids: Array.from(selezionate),
+            categoria: bulkEsclusione!,
+          })
+        }
+      />
     </div>
   );
 }
