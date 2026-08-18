@@ -300,7 +300,7 @@ describe("ingestione comunicazioni", () => {
         precedence: "bulk",
       },
     });
-    expect(offerta?.categoria).toBe("offerta_marketing");
+    expect(offerta?.categoria).toBe("spam");
 
     const operative = await listComunicazioni({ sedeId: 1 });
     expect(operative.some(c => c.id === offerta!.id)).toBe(false);
