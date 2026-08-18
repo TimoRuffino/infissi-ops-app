@@ -199,12 +199,20 @@ gestite. Il contatore dei duplicati evitati è visibile nella Inbox Tars.
 ### Comunicazioni operative e filtro anti-rumore
 
 La tabella `comunicazioni` persiste categoria, score, motivo e fonte della
-classificazione. Il filtro locale usa header spam/lista, mittente, contenuto,
-allegati e match CRM. `spam` e `offerta_marketing` non entrano nei conteggi
-operativi né nello smistamento Tars; restano recuperabili nella vista Escluse.
-I casi dubbi rimangono `da_classificare` per evitare falsi positivi. Le nuove
-newsletter vengono ricondotte a `spam`; `offerta_marketing` resta come categoria
-legacy/manuale per le newsletter inutili già classificate.
+classificazione. Per ogni nuova email in ingresso il filtro locale legge header
+spam/lista, mittente, contenuto, allegati e match CRM, ma produce soltanto una
+pre-analisi: la riga nasce `da_classificare` e rimane nella coda finche Tars non
+chiama `classifica_comunicazione`. Solo Tars puo assegnare automaticamente la
+categoria definitiva; `spam` e `offerta_marketing` richiedono confidenza alta e
+assenza di dubbi. In caso contrario il tool forza `da_classificare` e salva una
+motivazione leggibile dall'operatore. Una classificazione manuale ha precedenza
+e non viene sovrascritta.
+
+Le categorie escluse non entrano nei conteggi operativi, ma restano recuperabili
+nella vista Escluse. Se Tars e spento, non configurato, oltre budget o salta una
+mail nel lotto, la comunicazione resta visibile e non analizzata. Una risposta
+incompleta viene ritentata dopo un minuto; un errore API dopo la pausa di sicurezza
+di 15 minuti. Il filtro fallisce in apertura, mai nascondendo messaggi.
 
 Una richiesta di preventivo, sopralluogo o contatto commerciale concreto ha
 precedenza su header spam, segnali newsletter e regole persistenti del mittente.
@@ -214,7 +222,9 @@ stesso indirizzo per campagne e richieste.
 
 La pagina espone cinque code, selezione multipla, classificazione manuale,
 regole esatte per mittente riservate alla direzione e collegamento commessa con
-conferma. L'operatore può inoltre istruire Tars sulla singola comunicazione. Se
+conferma. I badge distinguono `In attesa di Tars` e `Dubbio Tars`; nel lettore
+sono visibili fonte, confidenza e motivo. L'operatore può inoltre istruire Tars
+sulla singola comunicazione. Se
 non esiste una commessa, la proposta `crea_lead`, dopo approvazione, crea cliente
 e commessa in preventivo e collega la mail. Prima della proposta Tars legge gli
 utenti attivi della sede e chiede obbligatoriamente a chi assegnare il lavoro; il

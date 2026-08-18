@@ -249,8 +249,7 @@ function stessaProposta(
 ): boolean {
   if (candidata.tipo !== esistente.tipo) return false;
   const chiave = chiaveAzioneProposta(candidata);
-  const altraChiave =
-    esistente.chiaveAzione ?? chiaveAzioneProposta(esistente);
+  const altraChiave = esistente.chiaveAzione ?? chiaveAzioneProposta(esistente);
   if (chiave === altraChiave) return true;
 
   const stessoTarget =
@@ -324,7 +323,11 @@ export function propostaGiaGestita(
   sedeId: number
 ): Proposta | undefined {
   return proposte.find(p => {
-    if (p.sedeId !== sedeId || p.stato === "pendente" || p.stato === "rifiutata") {
+    if (
+      p.sedeId !== sedeId ||
+      p.stato === "pendente" ||
+      p.stato === "rifiutata"
+    ) {
       return false;
     }
     return stessaProposta(candidata, p);
@@ -390,6 +393,7 @@ export type Esecuzione = {
   strumentiDisponibili: number;
   toolCacheHits: number;
   proposteDuplicateBloccate: number;
+  comunicazioniClassificateIds: number[];
   fascicoloPrecaricato: boolean;
   strumenti: StrumentoChiamato[];
   proposteIds: number[];
@@ -425,6 +429,9 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
       if (e.toolCacheHits === undefined) e.toolCacheHits = 0;
       if (e.proposteDuplicateBloccate === undefined) {
         e.proposteDuplicateBloccate = 0;
+      }
+      if (e.comunicazioniClassificateIds === undefined) {
+        e.comunicazioniClassificateIds = [];
       }
       if (e.fascicoloPrecaricato === undefined) e.fascicoloPrecaricato = false;
       if (e.tokensCacheRead === undefined) e.tokensCacheRead = 0;

@@ -20,6 +20,7 @@ import {
   listComunicazioni,
   listDaAnalizzare,
   markAnalizzate,
+  setClassificazioneComunicazione,
   statsComunicazioni,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
@@ -300,7 +301,13 @@ describe("ingestione comunicazioni", () => {
         precedence: "bulk",
       },
     });
-    expect(offerta?.categoria).toBe("spam");
+    expect(offerta?.categoria).toBe("da_classificare");
+    await setClassificazioneComunicazione(offerta!.id, 1, {
+      categoria: "spam",
+      motivo: "Classificata come spam da Tars nel test.",
+      fonte: "tars",
+      score: 95,
+    });
 
     const operative = await listComunicazioni({ sedeId: 1 });
     expect(operative.some(c => c.id === offerta!.id)).toBe(false);

@@ -273,7 +273,8 @@ export async function insertComunicazione(
     ? {
         categoria: c.categoria,
         score: c.classificazioneScore ?? 100,
-        motivo: c.classificazioneMotivo ?? "Classificazione fornita dalla fonte.",
+        motivo:
+          c.classificazioneMotivo ?? "Classificazione fornita dalla fonte.",
         fonte: c.classificazioneFonte ?? ("regole" as const),
       }
     : classificaComunicazione({
@@ -286,8 +287,23 @@ export async function insertComunicazione(
         commessaId: c.commessaId,
         segnali: c.segnaliFiltro,
       });
-  const tarsAnalizzata =
-    c.tarsAnalizzata ?? categoriaEsclusa(classificazione.categoria);
+  const richiedeClassificazioneTars =
+    c.canale === "email" &&
+    c.direzione === "in" &&
+    c.tarsAnalizzata !== true &&
+    c.categoria === undefined;
+  const classificazioneIniziale = richiedeClassificazioneTars
+    ? {
+        categoria: "da_classificare" as const,
+        score: classificazione.score,
+        motivo: `Controllo preliminare: ${classificazione.motivo} In attesa della classificazione automatica di Tars.`,
+        fonte: "regole" as const,
+      }
+    : classificazione;
+  // Le email nuove passano sempre da Tars, comprese quelle che gli header
+  // o le regole locali sospettano essere spam. Lo storico può continuare a
+  // dichiararsi già analizzato esplicitamente in fase di importazione.
+  const tarsAnalizzata = c.tarsAnalizzata ?? false;
 
   if (!kvSql) {
     const dup = memRows.some(
@@ -305,10 +321,10 @@ export async function insertComunicazione(
       id: memNextId++,
       deletedAt: null,
       tarsAnalizzata,
-      categoria: classificazione.categoria,
-      classificazioneScore: classificazione.score,
-      classificazioneMotivo: classificazione.motivo,
-      classificazioneFonte: classificazione.fonte,
+      categoria: classificazioneIniziale.categoria,
+      classificazioneScore: classificazioneIniziale.score,
+      classificazioneMotivo: classificazioneIniziale.motivo,
+      classificazioneFonte: classificazioneIniziale.fonte,
       tarsRiepilogo: null,
       tarsIstruzione: null,
       tarsUltimaAnalisiAt: null,
@@ -331,9 +347,9 @@ export async function insertComunicazione(
       ${c.mittente}, ${c.mittenteNome}, ${kvSql.json(c.destinatari as any)},
       ${c.oggetto}, ${testo}, ${kvSql.json(c.allegati as any)},
       ${c.clienteId}, ${c.commessaId}, ${c.matchConfidenza}, ${c.matchMotivo},
-      ${c.stato}, ${tarsAnalizzata}, ${classificazione.categoria},
-      ${classificazione.score}, ${classificazione.motivo},
-      ${classificazione.fonte}, ${c.receivedAt}
+      ${c.stato}, ${tarsAnalizzata}, ${classificazioneIniziale.categoria},
+      ${classificazioneIniziale.score}, ${classificazioneIniziale.motivo},
+      ${classificazioneIniziale.fonte}, ${c.receivedAt}
     )
     ON CONFLICT (canale, casella_id, message_id) DO NOTHING
     RETURNING *`;
@@ -371,7 +387,9 @@ export async function setClassificazioneComunicazione(
 ): Promise<boolean> {
   const esclusa = categoriaEsclusa(classificazione.categoria);
   if (!kvSql) {
-    const r = memRows.find(x => x.id === id && x.sedeId === sedeId && !x.deletedAt);
+    const r = memRows.find(
+      x => x.id === id && x.sedeId === sedeId && !x.deletedAt
+    );
     if (!r) return false;
     r.categoria = classificazione.categoria;
     r.classificazioneScore = classificazione.score ?? 100;
@@ -406,7 +424,9 @@ export async function salvaEsitoTarsComunicazione(
   input: { riepilogo: string; istruzione: string }
 ): Promise<boolean> {
   if (!kvSql) {
-    const r = memRows.find(x => x.id === id && x.sedeId === sedeId && !x.deletedAt);
+    const r = memRows.find(
+      x => x.id === id && x.sedeId === sedeId && !x.deletedAt
+    );
     if (!r) return false;
     r.tarsRiepilogo = input.riepilogo;
     r.tarsIstruzione = input.istruzione;
@@ -710,7 +730,8 @@ export async function statsComunicazioni(sedeId: number): Promise<{
       email: operative.filter(r => r.canale === "email").length,
       whatsapp: operative.filter(r => r.canale === "whatsapp").length,
       escluse: mie.length - operative.length,
-      daClassificare: operative.filter(r => r.categoria === "da_classificare").length,
+      daClassificare: operative.filter(r => r.categoria === "da_classificare")
+        .length,
       nuoviLead: operative.filter(r => r.categoria === "nuovo_lead").length,
     };
   }

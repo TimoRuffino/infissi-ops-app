@@ -32,14 +32,18 @@ fi
 mkdir -p "$TMP"
 
 echo "[prd-pdf] markdown → html (marked)"
-npx --yes marked@13 -i "$MD" > "$TMP/body.html"
+if [[ -n "${MARKED_BIN:-}" ]]; then
+  "$MARKED_BIN" -i "$MD" > "$TMP/body.html"
+else
+  npx --yes marked@13 -i "$MD" > "$TMP/body.html"
+fi
 
 cat > "$TMP/head.html" <<'HEAD'
 <!doctype html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>PRD — Ruffino Flow v4.6</title>
+<title>PRD - Ruffino Flow v4.7</title>
 <style>
   @page { size: A4; margin: 1.6cm 1.4cm; }
   html, body {

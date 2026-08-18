@@ -3,7 +3,15 @@
 // comunicazione. E la mail irrilevante, una volta esaminata, non torna
 // in coda.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import { getTarsConfig } from "./stores";
@@ -60,8 +68,8 @@ describe("smistamento", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
     process.env.ANTHROPIC_API_KEY = "test-key";
-    _resetComunicazioniInMemoria();
   });
+  beforeEach(() => _resetComunicazioniInMemoria());
   afterAll(() => {
     global.fetch = realFetch;
     delete process.env.ANTHROPIC_API_KEY;
@@ -88,7 +96,8 @@ describe("smistamento", () => {
       mittenteNome: "Studio Tecnico",
       destinatari: ["ordini@ruffinogroup.it"],
       oggetto: "Infissi cantiere Ferrari",
-      testo: "Buongiorno, in merito al cantiere della sig.ra Ferrari a Sarzana…",
+      testo:
+        "Buongiorno, in merito al cantiere della sig.ra Ferrari a Sarzana…",
       allegati: [],
       clienteId: null,
       commessaId: null,
@@ -104,6 +113,18 @@ describe("smistamento", () => {
         stop_reason: "tool_use",
         usage,
         content: [
+          {
+            type: "tool_use",
+            id: "tu_classifica",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: mail!.id,
+              categoria: "operativa",
+              confidenza: "alta",
+              dubbio: false,
+              motivo: "La mail cita un cantiere e una cliente identificabili.",
+            },
+          },
           {
             type: "tool_use",
             id: "tu_1",
@@ -142,7 +163,9 @@ describe("smistamento", () => {
 
     // Proposta creata, mail marcata come esaminata.
     const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
-    const proposta = pendenti.find((p: any) => p.tipo === "collega_comunicazione");
+    const proposta = pendenti.find(
+      (p: any) => p.tipo === "collega_comunicazione"
+    );
     expect(proposta).toBeDefined();
     expect(proposta!.payload.comunicazioneId).toBe(mail!.id);
     expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
@@ -158,7 +181,7 @@ describe("smistamento", () => {
     expect(com!.matchConfidenza).toBe("alta");
   });
 
-  it("newsletter: filtrata prima dell'AI e fuori dalla coda", async () => {
+  it("newsletter: viene classificata da Tars e poi esclusa", async () => {
     getTarsConfig().attivo = true;
     const spam = await insertComunicazione({
       sedeId: 1,
@@ -185,16 +208,133 @@ describe("smistamento", () => {
     });
     expect(spam).not.toBeNull();
 
-    const fetchSpy = vi.fn();
-    global.fetch = fetchSpy as any;
+    const fetchSpy = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_spam",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: spam!.id,
+              categoria: "offerta_marketing",
+              confidenza: "alta",
+              dubbio: false,
+              motivo:
+                "Newsletter promozionale massiva con disiscrizione e nessuna richiesta operativa.",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Newsletter classificata." }],
+      },
+    ]);
+    global.fetch = fetchSpy;
 
     await smistaComunicazioni(1);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
     expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
     const com = await getComunicazione(spam!.id, 1);
     expect(com!.tarsAnalizzata).toBe(true);
-    expect(com!.categoria).toBe("spam");
+    expect(com!.categoria).toBe("offerta_marketing");
+    expect(com!.classificazioneFonte).toBe("tars");
     expect(com!.commessaId).toBeNull();
+  });
+
+  it("un dubbio di Tars resta visibile e dichiarato", async () => {
+    getTarsConfig().attivo = true;
+    const mail = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "<dubbia@example.com>",
+      canale: "email",
+      direzione: "in",
+      mittente: "portale@example.com",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "Contatto",
+      testo: "Vorrei informazioni. Disiscriviti dalle notifiche.",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date(),
+    });
+
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_dubbio",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: mail!.id,
+              categoria: "offerta_marketing",
+              confidenza: "media",
+              dubbio: true,
+              motivo:
+                "Potrebbe essere una richiesta reale inoltrata da un portale, ma il testo è incompleto.",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Serve verifica umana." }],
+      },
+    ]);
+
+    await smistaComunicazioni(1);
+    const classificata = await getComunicazione(mail!.id, 1);
+    expect(classificata?.categoria).toBe("da_classificare");
+    expect(classificata?.classificazioneFonte).toBe("tars");
+    expect(classificata?.classificazioneMotivo).toContain("Tars ha un dubbio");
+    expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
+  });
+
+  it("una mail saltata dal modello resta in coda per il tentativo successivo", async () => {
+    getTarsConfig().attivo = true;
+    const mail = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "<saltata@example.com>",
+      canale: "email",
+      direzione: "in",
+      mittente: "contatto@example.com",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "Informazioni",
+      testo: "Potete richiamarmi?",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date(),
+    });
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Analisi incompleta." }],
+      },
+    ]);
+
+    await smistaComunicazioni(1);
+    expect((await listDaAnalizzare(1, 10)).map(c => c.id)).toContain(mail!.id);
+    expect((await getComunicazione(mail!.id, 1))?.tarsAnalizzata).toBe(false);
   });
 
   it("Tars chiede l'assegnatario, poi propone e crea il lead", async () => {
@@ -220,13 +360,25 @@ describe("smistamento", () => {
       stato: "nuova",
       receivedAt: new Date(),
     });
-    expect(mail?.categoria).toBe("nuovo_lead");
+    expect(mail?.categoria).toBe("da_classificare");
 
     global.fetch = anthropicScript([
       {
         stop_reason: "tool_use",
         usage,
         content: [
+          {
+            type: "tool_use",
+            id: "tu_classifica_lead",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: mail!.id,
+              categoria: "nuovo_lead",
+              confidenza: "alta",
+              dubbio: false,
+              motivo: "Richiesta esplicita di preventivo e sopralluogo.",
+            },
+          },
           {
             type: "tool_use",
             id: "tu_assegnatari",
@@ -269,6 +421,7 @@ describe("smistamento", () => {
     expect(domanda).toBeDefined();
     expect(domanda.payload.comunicazioneId).toBe(mail!.id);
     expect(domanda.opzioni).toContain("Admin Ruffino");
+    expect((await getComunicazione(mail!.id, 1))?.categoria).toBe("nuovo_lead");
 
     global.fetch = anthropicScript([
       {
@@ -327,11 +480,11 @@ describe("smistamento", () => {
     });
     expect(risposta.seguitoAvviato).toBe(true);
     const propostaArrivata = await attendi(async () => {
-        const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
-        return pendenti.some(
-          (p: any) => p.tipo === "crea_lead" && p.origineId === domanda.id
-        );
-      });
+      const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
+      return pendenti.some(
+        (p: any) => p.tipo === "crea_lead" && p.origineId === domanda.id
+      );
+    });
     expect(propostaArrivata).toBe(true);
 
     const pendenti = await caller.tars.proposte.list({ stato: "pendente" });

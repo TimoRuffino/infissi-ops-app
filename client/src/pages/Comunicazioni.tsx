@@ -71,12 +71,7 @@ const CATEGORIE = [
   "spam",
 ] as const;
 type Categoria = (typeof CATEGORIE)[number];
-type Filtro =
-  | "da_gestire"
-  | "non_collegate"
-  | "lead"
-  | "gestite"
-  | "escluse";
+type Filtro = "da_gestire" | "non_collegate" | "lead" | "gestite" | "escluse";
 
 const CATEGORIA_UI: Record<Categoria, { label: string; className: string }> = {
   operativa: {
@@ -157,14 +152,24 @@ function dimensioneFile(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function CategoriaBadge({ categoria }: { categoria: Categoria }) {
+function CategoriaBadge({
+  categoria,
+  fonte,
+  analizzata,
+}: {
+  categoria: Categoria;
+  fonte?: string | null;
+  analizzata?: boolean;
+}) {
   const meta = CATEGORIA_UI[categoria] ?? CATEGORIA_UI.da_classificare;
+  const inAttesa = categoria === "da_classificare" && analizzata === false;
+  const dubbioTars = categoria === "da_classificare" && fonte === "tars";
   return (
     <Badge
       variant="outline"
       className={cn("h-5 px-1.5 text-[10px]", meta.className)}
     >
-      {meta.label}
+      {inAttesa ? "In attesa di Tars" : dubbioTars ? "Dubbio Tars" : meta.label}
     </Badge>
   );
 }
@@ -256,7 +261,9 @@ function Riga({
             <span
               className={cn(
                 "flex min-w-0 items-center gap-1.5 truncate text-sm",
-                nuova ? "font-bold text-foreground" : "font-semibold text-text-2"
+                nuova
+                  ? "font-bold text-foreground"
+                  : "font-semibold text-text-2"
               )}
             >
               <IconaCanale canale={c.canale} />
@@ -285,7 +292,11 @@ function Riga({
             {anteprima(c)}
           </p>
           <div className="mt-1 flex min-h-5 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
-            <CategoriaBadge categoria={c.categoria ?? "da_classificare"} />
+            <CategoriaBadge
+              categoria={c.categoria ?? "da_classificare"}
+              fonte={c.classificazioneFonte}
+              analizzata={c.tarsAnalizzata}
+            />
             {c.allegati?.length > 0 && (
               <span className="inline-flex items-center gap-1">
                 <Paperclip className="h-3 w-3" />
@@ -401,47 +412,48 @@ function Lettura({
     setCategoria.mutate({ id: c.id, categoria });
   };
 
-  const preset = c.commessaId == null
-    ? [
-        {
-          label: "Crea lead",
-          icon: UserPlus,
-          testo:
-            "Verifica che non esistano già cliente e commessa. Se è una richiesta reale, mostrami gli assegnatari e chiedimi a chi affidarla; solo dopo prepara cliente, commessa in preventivo e collegamento della comunicazione.",
-        },
-        {
-          label: "Apri ticket",
-          icon: BriefcaseBusiness,
-          testo:
-            "Valuta il contenuto e prepara un ticket senza commessa se serve una presa in carico, indicando priorità e contatto.",
-        },
-        {
-          label: "Prepara risposta",
-          icon: Send,
-          testo:
-            "Verifica il contesto e prepara una risposta professionale. Non inventare date, prezzi o impegni.",
-        },
-      ]
-    : [
-        {
-          label: "Aggiorna commessa",
-          icon: BriefcaseBusiness,
-          testo:
-            "Leggi la commessa collegata e proponi gli aggiornamenti operativi necessari in base a questa comunicazione.",
-        },
-        {
-          label: "Prepara risposta",
-          icon: Send,
-          testo:
-            "Controlla il fascicolo della commessa e prepara una risposta coerente con lo stato reale.",
-        },
-        {
-          label: "Analizza allegati",
-          icon: Paperclip,
-          testo:
-            "Analizza gli allegati operativi, confrontali con la commessa e proponi soltanto le azioni supportate dai documenti.",
-        },
-      ];
+  const preset =
+    c.commessaId == null
+      ? [
+          {
+            label: "Crea lead",
+            icon: UserPlus,
+            testo:
+              "Verifica che non esistano già cliente e commessa. Se è una richiesta reale, mostrami gli assegnatari e chiedimi a chi affidarla; solo dopo prepara cliente, commessa in preventivo e collegamento della comunicazione.",
+          },
+          {
+            label: "Apri ticket",
+            icon: BriefcaseBusiness,
+            testo:
+              "Valuta il contenuto e prepara un ticket senza commessa se serve una presa in carico, indicando priorità e contatto.",
+          },
+          {
+            label: "Prepara risposta",
+            icon: Send,
+            testo:
+              "Verifica il contesto e prepara una risposta professionale. Non inventare date, prezzi o impegni.",
+          },
+        ]
+      : [
+          {
+            label: "Aggiorna commessa",
+            icon: BriefcaseBusiness,
+            testo:
+              "Leggi la commessa collegata e proponi gli aggiornamenti operativi necessari in base a questa comunicazione.",
+          },
+          {
+            label: "Prepara risposta",
+            icon: Send,
+            testo:
+              "Controlla il fascicolo della commessa e prepara una risposta coerente con lo stato reale.",
+          },
+          {
+            label: "Analizza allegati",
+            icon: Paperclip,
+            testo:
+              "Analizza gli allegati operativi, confrontali con la commessa e proponi soltanto le azioni supportate dai documenti.",
+          },
+        ];
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
@@ -468,7 +480,11 @@ function Lettura({
               <span className="truncate text-sm font-bold text-foreground">
                 {c.mittenteNome ?? c.mittente}
               </span>
-              <CategoriaBadge categoria={c.categoria ?? "da_classificare"} />
+              <CategoriaBadge
+                categoria={c.categoria ?? "da_classificare"}
+                fonte={c.classificazioneFonte}
+                analizzata={c.tarsAnalizzata}
+              />
             </div>
             {c.mittenteNome && (
               <div className="truncate text-xs text-text-3">{c.mittente}</div>
@@ -538,7 +554,9 @@ function Lettura({
                   <Link2 className="h-3.5 w-3.5" />
                   <span className="truncate">
                     {commessa.data?.codice ?? `Commessa #${c.commessaId}`}
-                    {commessa.data?.cliente ? ` · ${commessa.data.cliente}` : ""}
+                    {commessa.data?.cliente
+                      ? ` · ${commessa.data.cliente}`
+                      : ""}
                   </span>
                 </Link>
                 <Button
@@ -614,9 +632,21 @@ function Lettura({
           </div>
         )}
         {c.classificazioneMotivo && (
-          <p className="mt-2 text-xs leading-5 text-text-3">
-            {c.classificazioneMotivo}
-          </p>
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-border-soft bg-surface-2/60 px-3 py-2">
+            <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <div className="min-w-0 text-xs leading-5 text-text-2">
+              <span className="font-semibold text-foreground">
+                {c.classificazioneFonte === "tars"
+                  ? c.categoria === "da_classificare"
+                    ? "Tars chiede una verifica"
+                    : `Classificata da Tars · ${c.classificazioneScore}%`
+                  : c.tarsAnalizzata
+                    ? "Classificazione preliminare"
+                    : "In attesa di Tars"}
+              </span>{" "}
+              {c.classificazioneMotivo}
+            </div>
+          </div>
         )}
       </div>
 
@@ -657,9 +687,7 @@ function Lettura({
               />
               <Button
                 className="shrink-0"
-                disabled={
-                  istruzione.trim().length < 2 || affidaATars.isPending
-                }
+                disabled={istruzione.trim().length < 2 || affidaATars.isPending}
                 onClick={() =>
                   affidaATars.mutate({
                     comunicazioneId: c.id,
@@ -687,37 +715,37 @@ function Lettura({
 
         <div className="px-4 py-5 sm:px-5">
           <div className="mx-auto max-w-3xl space-y-5">
-          {proposteTars.map(p => (
-            <TarsPropostaCard key={p.id} proposta={p} />
-          ))}
+            {proposteTars.map(p => (
+              <TarsPropostaCard key={p.id} proposta={p} />
+            ))}
 
-          {c.allegati?.length > 0 && (
-            <section aria-label="Allegati" className="space-y-2">
-              <div className="text-xs font-bold uppercase text-text-3">
-                Allegati
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {c.allegati.map((a: any, i: number) => (
-                  <div
-                    key={`${a.nome}-${i}`}
-                    className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
-                  >
-                    <Paperclip className="h-4 w-4 shrink-0 text-accent-text" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                      {a.nome}
-                    </span>
-                    <span className="shrink-0 text-xs text-text-3">
-                      {dimensioneFile(a.size)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+            {c.allegati?.length > 0 && (
+              <section aria-label="Allegati" className="space-y-2">
+                <div className="text-xs font-bold uppercase text-text-3">
+                  Allegati
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {c.allegati.map((a: any, i: number) => (
+                    <div
+                      key={`${a.nome}-${i}`}
+                      className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
+                    >
+                      <Paperclip className="h-4 w-4 shrink-0 text-accent-text" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {a.nome}
+                      </span>
+                      <span className="shrink-0 text-xs text-text-3">
+                        {dimensioneFile(a.size)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
-          <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-text-1">
-            {c.testo || "(messaggio vuoto)"}
-          </div>
+            <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-text-1">
+              {c.testo || "(messaggio vuoto)"}
+            </div>
           </div>
         </div>
       </div>
@@ -742,8 +770,8 @@ function Lettura({
                 : "Escludere come newsletter inutile?"}
             </DialogTitle>
             <DialogDescription>
-              Il messaggio uscirà dalla coda operativa e non consumerà
-              analisi automatiche di Tars.
+              Il messaggio uscirà dalla coda operativa e non consumerà analisi
+              automatiche di Tars.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-between">
@@ -860,14 +888,15 @@ export default function Comunicazioni() {
     },
     onError: e => toast.error(e.message),
   });
-  const eliminaRegola =
-    trpc.mail.comunicazioni.regoleFiltro.delete.useMutation({
+  const eliminaRegola = trpc.mail.comunicazioni.regoleFiltro.delete.useMutation(
+    {
       onSuccess: () => {
         toast.success("Regola rimossa");
         regoleFiltro.refetch();
       },
       onError: e => toast.error(e.message),
-    });
+    }
+  );
 
   const lista = rows.data ?? [];
   const selezionata = lista.find((c: any) => c.id === selezionataId) ?? null;
@@ -919,7 +948,8 @@ export default function Comunicazioni() {
               Comunicazioni
             </h1>
             <p className="truncate text-sm text-text-2">
-              {daGestire} da gestire · {stats.data?.escluse ?? 0} escluse dal lavoro
+              {daGestire} da gestire · {stats.data?.escluse ?? 0} escluse dal
+              lavoro
             </p>
           </div>
         </div>
@@ -978,7 +1008,10 @@ export default function Comunicazioni() {
                 setSelezionate(new Set());
               }}
             >
-              <SelectTrigger className="h-10 w-full" aria-label="Coda comunicazioni">
+              <SelectTrigger
+                className="h-10 w-full"
+                aria-label="Coda comunicazioni"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

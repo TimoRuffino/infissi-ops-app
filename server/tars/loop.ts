@@ -70,6 +70,7 @@ export async function runTars(params: {
     strumentiDisponibili: tools.length,
     toolCacheHits: 0,
     proposteDuplicateBloccate: 0,
+    comunicazioniClassificateIds: [],
     fascicoloPrecaricato: false,
     strumenti: [],
     proposteIds: [],
@@ -99,6 +100,7 @@ export async function runTars(params: {
     risultatiCache: new Map(),
     toolCacheHits: 0,
     duplicatiBloccati: 0,
+    comunicazioniClassificateIds: new Set(),
   };
 
   const system = buildSystemPrompt(params.ctx.sedeId);
@@ -239,6 +241,9 @@ ${params.richiesta}`;
   esecuzione.proposteIds = rt.proposteIds;
   esecuzione.toolCacheHits = rt.toolCacheHits ?? 0;
   esecuzione.proposteDuplicateBloccate = rt.duplicatiBloccati ?? 0;
+  esecuzione.comunicazioniClassificateIds = Array.from(
+    rt.comunicazioniClassificateIds ?? []
+  );
   esecuzione.durataMs = Date.now() - start;
   esecuzioni.push(esecuzione);
   saveEsecuzioni();

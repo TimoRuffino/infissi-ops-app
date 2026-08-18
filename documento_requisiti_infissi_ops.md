@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (18/08/2026).
-**Versione:** 4.6 — Filtro Comunicazioni orientato alle opportunità: richieste di preventivo sempre visibili, esclusione limitata a spam/newsletter senza valore operativo e creazione lead Tars con assegnatario obbligatorio. Base v4.5 — Comunicazioni come coda operativa, classificazione multilivello, regole mittente e gestione contestuale Tars. Base v4.4 — Tars con quadro aziendale, audit continuo dei processi, strumenti trasversali controllati, proposte misurabili e deduplica semantica delle decisioni. Base v4.3 — Inbox email/WhatsApp, agente Tars con approvazione umana e caching, OAuth Fatture in Cloud, backup compatibile con `storageKey`, bootstrap utenti senza credenziali fisse, design system caldo e code splitting.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
+**Versione:** 4.7 - Classificazione automatica delle email affidata a Tars, con pre-analisi locale non vincolante, dubbi sempre visibili e correzioni manuali protette. Base v4.6 - Filtro Comunicazioni orientato alle opportunita: richieste di preventivo sempre visibili, esclusione limitata a spam/newsletter senza valore operativo e creazione lead Tars con assegnatario obbligatorio.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.7 (19/08/2026)** - Ogni nuova email passa dalla classificazione strutturata di Tars; il filtro locale fornisce solo segnali, le esclusioni richiedono confidenza alta, i dubbi restano visibili e le mail saltate vengono ritentate (§50-51).
 - **v4.6 (18/08/2026)** — Richieste di preventivo e opportunità protette da header spam e regole mittente; newsletter inutili ricondotte allo spam; Tars chiede l'assegnatario prima di proporre cliente e commessa e conserva il contesto nel seguito (§50-51).
 - **v4.5 (18/08/2026)** — Comunicazioni con triage multilivello, filtro anti-spam/offerte prima dell'AI, regole mittente, azioni multiple e gestione Tars della singola mail con creazione lead approvata (§50-51).
 - **v4.4 (18/08/2026)** — Tars con quadro aziendale, lettura controllata di organizzazione/produzione/qualità/documenti, audit periodico dei processi, proposta di miglioramenti misurabili, deduplica per chiave d'azione e Inbox operativa (§50).
@@ -1248,14 +1249,16 @@ Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella
 Gli stati sono `nuova`, `vista`, `gestita`. L'eliminazione dal CRM usa `deleted_at`: il messaggio resta nella casella sorgente e il tombstone impedisce che venga importato di nuovo.
 
 ### 51.2 Classificazione e filtro anti-rumore
-Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. `spam` e la categoria legacy/manuale `offerta_marketing` sono esclusi dalla coda, dai conteggi operativi e dall'analisi automatica Tars, ma restano consultabili nella vista Escluse. Le nuove newsletter e comunicazioni promozionali massive prive di valore operativo vengono classificate come `spam`; in UI l'azione manuale legacy è presentata come "Newsletter inutile", non come generica offerta.
+Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. `spam` e `offerta_marketing` sono escluse dalla coda e dai conteggi operativi dopo la classificazione, ma restano consultabili nella vista Escluse.
 
-Il filtro locale usa header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`), mittente, linguaggio, allegati e match CRM. L'esclusione automatica richiede segnali forti; un caso ambiguo DEVE restare `da_classificare`. Il collegamento a una commessa prevale sui segnali promozionali.
+Ogni nuova email in ingresso DEVE passare dalla classificazione automatica di Tars. Il filtro locale usa header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`), mittente, linguaggio, allegati, regole persistenti e match CRM, ma il suo esito e soltanto una pre-analisi non vincolante. Prima della decisione AI la comunicazione resta `da_classificare` e visibile.
+
+Tars DEVE chiamare `classifica_comunicazione` una volta per ogni elemento del lotto, registrando categoria, confidenza, presenza di dubbi e motivazione concreta. `spam` e `offerta_marketing` possono essere applicate automaticamente soltanto con confidenza alta e `dubbio=false`; altrimenti il server forza `da_classificare`. Una classificazione manuale dell'operatore non puo essere sovrascritta dall'automazione. Se Tars salta un id, la mail resta visibile e viene ritentata dopo un minuto; dopo un errore API il retry avviene al termine della pausa di sicurezza di 15 minuti. In assenza di configurazione o budget la mail non viene nascosta.
 
 Una richiesta esplicita di preventivo, sopralluogo, appuntamento o contatto commerciale concreto DEVE essere valutata prima di header spam, segnali newsletter e regole mittente. Se può portare lavoro resta `nuovo_lead`, oppure `operativa` quando il cliente è già riconosciuto, anche se arriva da un indirizzo aziendale o da un portale usato anche per invii massivi. La direzione può memorizzare una regola esatta per mittente; ogni regola è sede-scoped e revocabile, ma non può nascondere una successiva opportunità esplicita.
 
 ### 51.3 Matching e gestione Tars
-Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Solo i messaggi non esclusi possono entrare nello smistamento automatico.
+Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Tutte le nuove email entrano nello smistamento per essere prima classificate da Tars; dopo la classificazione, solo quelle operative proseguono con proposte di collegamento o gestione.
 
 Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
 
@@ -1270,7 +1273,7 @@ La pagina DEVE offrire:
 - filtro canale Email/WhatsApp, filtro casella e ricerca su mittente, oggetto e testo;
 - riga con checkbox, categoria, canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
 - azioni multiple per chiudere o escludere messaggi con conferma esplicita;
-- lettore con classificazione, motivazione, collegamento commessa con conferma, proposte Tars, allegati e corpo;
+- lettore con stato `In attesa di Tars` o `Dubbio Tars`, fonte, confidenza, motivazione, collegamento commessa con conferma, proposte Tars, allegati e corpo;
 - area Tars con istruzione libera e preset contestuali per lead, ticket, risposta, aggiornamento commessa e allegati;
 - azioni accessibili per gestita/riapri, elimina e ritorno alla lista mobile;
 - aggiornamento caselle e gestione configurazione per la direzione.

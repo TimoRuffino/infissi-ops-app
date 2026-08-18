@@ -6,8 +6,9 @@
 //               payload sono ESATTAMENTE quelli dell'app. Nessun accesso
 //               diretto agli store altrui.
 //   proposta  — scrivono UNA riga in azioni_suggerite e nient'altro.
-//               L'agente non ha alcuno strumento che tocchi il dominio:
-//               anche compromesso, il danno massimo è una proposta stupida.
+//   triage    — classifica la comunicazione, senza modificare clienti,
+//               commesse o documenti. È l'unica scrittura automatica.
+// Ogni modifica al dominio continua a richiedere una proposta approvata.
 //
 // La sede non è mai un parametro del modello: viene da ctx.sedeId.
 
@@ -25,7 +26,15 @@ import {
   type Proposta,
   type TipoProposta,
 } from "./stores";
-import { getComunicazione, listComunicazioni } from "./comunicazioni";
+import {
+  getComunicazione,
+  listComunicazioni,
+  setClassificazioneComunicazione,
+} from "./comunicazioni";
+import {
+  CATEGORIE_COMUNICAZIONE,
+  type CategoriaComunicazione,
+} from "./filtroComunicazioni";
 import { getCommessaById } from "../routers/commesse";
 import { isDirezione } from "../_core/permissions";
 
@@ -60,6 +69,10 @@ export type ToolRuntime = {
   risultatiCache?: Map<string, Promise<ToolResult>>;
   toolCacheHits?: number;
   duplicatiBloccati?: number;
+  // Le classificazioni automatiche sono scritture a basso rischio richieste
+  // dal flusso mail. Il chiamante usa gli id per non consumare due volte la
+  // stessa comunicazione se il modello salta un elemento del lotto.
+  comunicazioniClassificateIds?: Set<number>;
 };
 
 const MAX_PENDENTI_PER_COMMESSA = 3;
@@ -138,8 +151,7 @@ function creaProposta(
     rt.comunicazioneId != null
       ? {
           ...(args.payload ?? {}),
-          comunicazioneId:
-            args.payload?.comunicazioneId ?? rt.comunicazioneId,
+          comunicazioneId: args.payload?.comunicazioneId ?? rt.comunicazioneId,
         }
       : args.payload;
   const candidata = {
@@ -249,6 +261,39 @@ const PROPOSTA_PROPS = {
 // ── Definizioni (formato Anthropic) ─────────────────────────────────────────
 
 export const TOOL_DEFS: AnthropicTool[] = [
+  {
+    name: "classifica_comunicazione",
+    description:
+      "Registra la classificazione AI di una comunicazione. Obbligatorio nello smistamento per ogni comunicazione ricevuta. Usa da_classificare quando esiste un dubbio reale; spam e offerta_marketing sono accettate solo con confidenza alta e senza dubbi. Una scelta manuale dell'operatore non viene sovrascritta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        comunicazioneId: { type: "number" },
+        categoria: {
+          type: "string",
+          enum: [...CATEGORIE_COMUNICAZIONE],
+        },
+        confidenza: CONFIDENZA_SCHEMA,
+        dubbio: {
+          type: "boolean",
+          description:
+            "True se mancano elementi o sono plausibili almeno due categorie.",
+        },
+        motivo: {
+          type: "string",
+          description:
+            "Una frase concreta e leggibile dall'operatore con i segnali decisivi e l'eventuale dubbio.",
+        },
+      },
+      required: [
+        "comunicazioneId",
+        "categoria",
+        "confidenza",
+        "dubbio",
+        "motivo",
+      ],
+    },
+  },
   // Lettura
   {
     name: "cerca_clienti",
@@ -551,10 +596,14 @@ export const TOOL_DEFS: AnthropicTool[] = [
       type: "object",
       properties: {
         comunicazioneId: { type: "number" },
-        nome: { type: "string", description: "Nome della persona o ragione sociale" },
+        nome: {
+          type: "string",
+          description: "Nome della persona o ragione sociale",
+        },
         cognome: {
           type: "string",
-          description: "Cognome; per aziende usa la parte restante della ragione sociale",
+          description:
+            "Cognome; per aziende usa la parte restante della ragione sociale",
         },
         tipo: {
           type: "string",
@@ -575,7 +624,8 @@ export const TOOL_DEFS: AnthropicTool[] = [
         },
         note: {
           type: "string",
-          description: "Contesto utile estratto dalla richiesta, senza inventare dati",
+          description:
+            "Contesto utile estratto dalla richiesta, senza inventare dati",
         },
         prodotti: {
           type: "array",
@@ -1004,6 +1054,7 @@ const PROFILI: Record<string, readonly string[]> = {
     ...TERMINAZIONE,
   ],
   smistamento: [
+    "classifica_comunicazione",
     "cerca_clienti",
     "leggi_cliente",
     "cerca_commesse",
@@ -1027,6 +1078,7 @@ const PROFILI: Record<string, readonly string[]> = {
     ...TERMINAZIONE,
   ],
   gestione_comunicazione: [
+    "classifica_comunicazione",
     "cerca_clienti",
     "leggi_cliente",
     "cerca_commesse",
@@ -1108,6 +1160,67 @@ async function eseguiStrumentoSenzaCache(
 ): Promise<ToolResult> {
   try {
     switch (nome) {
+      case "classifica_comunicazione": {
+        const comunicazioneId = Number(input.comunicazioneId);
+        const corrente = await getComunicazione(
+          comunicazioneId,
+          rt.ctx.sedeId ?? 1
+        );
+        if (!corrente || corrente.deletedAt) {
+          return err("Comunicazione non trovata o eliminata.");
+        }
+        if (corrente.classificazioneFonte === "utente") {
+          (rt.comunicazioniClassificateIds ??= new Set()).add(comunicazioneId);
+          return ok({
+            mantenuta: true,
+            categoria: corrente.categoria,
+            motivo:
+              "Classificazione manuale mantenuta: l'automazione non sovrascrive l'operatore.",
+          });
+        }
+
+        const richiesta = String(input.categoria) as CategoriaComunicazione;
+        if (!CATEGORIE_COMUNICAZIONE.includes(richiesta)) {
+          return err("Categoria di comunicazione non valida.");
+        }
+        const confidenza = String(input.confidenza);
+        const dubbio = input.dubbio === true;
+        const esclusioneRichiesta =
+          richiesta === "spam" || richiesta === "offerta_marketing";
+        const categoria =
+          dubbio ||
+          confidenza === "bassa" ||
+          (esclusioneRichiesta && confidenza !== "alta")
+            ? "da_classificare"
+            : richiesta;
+        const score =
+          categoria === "da_classificare"
+            ? confidenza === "bassa"
+              ? 35
+              : 55
+            : confidenza === "alta"
+              ? 95
+              : 75;
+        const motivoBase = String(input.motivo ?? "")
+          .trim()
+          .slice(0, 600);
+        const motivo =
+          categoria === "da_classificare" && richiesta !== "da_classificare"
+            ? `Tars ha un dubbio e chiede verifica: ${motivoBase || `classificazione ipotizzata ${richiesta}`}`
+            : motivoBase || "Classificazione automatica di Tars.";
+        const aggiornata = await setClassificazioneComunicazione(
+          comunicazioneId,
+          rt.ctx.sedeId ?? 1,
+          { categoria, motivo, fonte: "tars", score }
+        );
+        if (!aggiornata) return err("Classificazione non salvata.");
+        (rt.comunicazioniClassificateIds ??= new Set()).add(comunicazioneId);
+        return ok({
+          categoria,
+          confidenza,
+          dubbio: categoria === "da_classificare",
+        });
+      }
       // ── Lettura ──────────────────────────────────────────────────────
       case "cerca_clienti": {
         const caller = await getCaller(rt.ctx);
@@ -1340,11 +1453,7 @@ async function eseguiStrumentoSenzaCache(
           return err("Documento oltre il limite di lettura di 15 MB.");
         }
         const { estraiTestoAllegato } = await import("./allegati");
-        const testo = await estraiTestoAllegato(
-          buffer,
-          doc.mimeType,
-          doc.nome
-        );
+        const testo = await estraiTestoAllegato(buffer, doc.mimeType, doc.nome);
         return ok({
           documento: {
             id: doc.id,
@@ -1669,7 +1778,9 @@ async function eseguiStrumentoSenzaCache(
           perStato[c.stato] = (perStato[c.stato] ?? 0) + 1;
         }
         const ferme = (attive as any[])
-          .filter(c => new Date(c.updatedAt ?? c.createdAt).getTime() < sogliaFermo)
+          .filter(
+            c => new Date(c.updatedAt ?? c.createdAt).getTime() < sogliaFermo
+          )
           .sort(
             (a, b) =>
               new Date(a.updatedAt ?? a.createdAt).getTime() -
@@ -1727,7 +1838,8 @@ async function eseguiStrumentoSenzaCache(
           motiviRifiuto[motivo] = (motiviRifiuto[motivo] ?? 0) + 1;
         }
         const runRecenti = esecuzioni.filter(
-          e => e.sedeId === sedeId && new Date(e.createdAt).getTime() >= soglia30
+          e =>
+            e.sedeId === sedeId && new Date(e.createdAt).getTime() >= soglia30
         );
 
         return ok({
@@ -1946,9 +2058,7 @@ async function eseguiStrumentoSenzaCache(
         const assegnatario = utentiAssegnabili(
           await caller.utenti.list(),
           rt.ctx
-        ).find(
-          u => u.id === assegnatoA
-        );
+        ).find(u => u.id === assegnatoA);
         if (!assegnatario) {
           return err(
             "Assegnatario mancante o non valido. Usa leggi_assegnatari e chiedi all'operatore a chi assegnare cliente e commessa prima di creare la proposta."
