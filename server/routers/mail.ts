@@ -57,6 +57,7 @@ import {
   salvaRegolaMittente,
 } from "../tars/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
+import { leggiStatoSmistamento } from "../tars/smistamento";
 
 function trovaCasella(id: number, sedeId: number | null): Casella {
   const c = caselle.find((x) => x.id === id);
@@ -556,6 +557,10 @@ export const mailRouter = router({
 
     stats: protectedProcedure.query(async ({ ctx }) => {
       return statsComunicazioni(ctx.sedeId ?? 1);
+    }),
+
+    statoTars: protectedProcedure.query(async ({ ctx }) => {
+      return leggiStatoSmistamento(ctx.sedeId ?? 1);
     }),
 
     setStato: protectedProcedure

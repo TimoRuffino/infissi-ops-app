@@ -1,0 +1,17 @@
+/Users/timmy/Ruffino Group/infissi-ops-app/AGENTS.md
+/Users/timmy/Ruffino Group/infissi-ops-app/Agente_Ruffino_Ops.md
+/Users/timmy/Ruffino Group/infissi-ops-app/CLAUDE.md
+/Users/timmy/Ruffino Group/infissi-ops-app/client/index.html
+/Users/timmy/Ruffino Group/infissi-ops-app/docs/storage-r2.md
+/Users/timmy/Ruffino Group/infissi-ops-app/documento_requisiti_infissi_ops.md
+/Users/timmy/Ruffino Group/infissi-ops-app/guida_pubblicazione.md
+/Users/timmy/Ruffino Group/infissi-ops-app/handoff.md
+/Users/timmy/Ruffino Group/infissi-ops-app/scripts/audit-a11y.md
+/Users/timmy/Ruffino Group/infissi-ops-app/todo.md
+/Users/timmy/Ruffino Group/infissi-ops-app/PRD_infissi_ops_v2.pdf
+/Users/timmy/Ruffino Group/infissi-ops-app/PRD_infissi_ops_v3.pdf
+/Users/timmy/Ruffino Group/infissi-ops-app/PRD_infissi_ops_v4.pdf
+/Users/timmy/Ruffino Group/infissi-ops-app/Logo_RuffinoGroup.svg
+/Users/timmy/Ruffino Group/infissi-ops-app/Monogramma_RuffinoGroup.svg
+/Users/timmy/Ruffino Group/infissi-ops-app/client/public/favicon.svg
+/Users/timmy/Ruffino Group/infissi-ops-app/client/public/logo.svg

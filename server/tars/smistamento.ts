@@ -10,23 +10,38 @@
 //   - gira solo se Tars è attivo e la chiave è configurata
 //   - max 10 mail per esecuzione, le più vecchie prima
 //   - una sola esecuzione alla volta per sede
-//   - ogni mail viene esaminata UNA volta (tars_analizzata), qualunque
-//     sia l'esito: niente loop di analisi sulla stessa newsletter
+//   - i lotti incompleti restano in coda e vengono ripresi
 //   - dopo un errore (API giù, credito finito) pausa di 15 minuti
 
 import type { TrpcContext } from "../_core/context";
 import { anthropicConfigured } from "./anthropic";
 import { budgetMensileSuperato, getTarsConfig } from "./stores";
 import { runTars } from "./loop";
-import { listDaAnalizzare, markAnalizzate } from "./comunicazioni";
+import {
+  listDaAnalizzare,
+  markAnalizzate,
+  sediConCodaTars,
+  statoCodaTars,
+} from "./comunicazioni";
 import { getCommessaById } from "../routers/commesse";
 
 const MAX_MAIL_PER_RUN = 10;
 const PAUSA_DOPO_ERRORE_MS = 15 * 60 * 1000;
 const RETRY_INCOMPLETO_MS = 60 * 1000;
+const CONTINUA_CODA_MS = 500;
+const RECUPERO_CODA_MS = 60 * 1000;
+const AVVIO_RECUPERO_MS = 5_000;
 
 const inCorso = new Set<number>();
 const pausaFinoA = new Map<number, number>();
+const richiestoDuranteRun = new Set<number>();
+
+type TimerSmistamento = {
+  handle: NodeJS.Timeout;
+  eseguiAt: number;
+};
+
+const timers = new Map<number, TimerSmistamento>();
 
 // Contesto sintetico per le esecuzioni di sistema: nessun operatore ha
 // premuto un bottone. Serve solo a firmare il registro e a delimitare la
@@ -60,14 +75,22 @@ export async function smistaComunicazioni(sedeId: number): Promise<void> {
   // Budget mensile finito: i lavori automatici si fermano da soli. Le mail
   // restano non analizzate e verranno riprese quando il budget riapre.
   if (budgetMensileSuperato(sedeId)) return;
-  if (inCorso.has(sedeId)) return;
+  if (inCorso.has(sedeId)) {
+    richiestoDuranteRun.add(sedeId);
+    return;
+  }
   const pausa = pausaFinoA.get(sedeId);
-  if (pausa && Date.now() < pausa) return;
+  if (pausa && Date.now() < pausa) {
+    programmaSmistamento(sedeId, pausa - Date.now() + 1_000);
+    return;
+  }
+  if (pausa) pausaFinoA.delete(sedeId);
 
   const mails = await listDaAnalizzare(sedeId, MAX_MAIL_PER_RUN);
   if (mails.length === 0) return;
 
   inCorso.add(sedeId);
+  let prossimoTentativoMs: number | null = null;
   try {
     const blocchi = mails
       .map(m => {
@@ -145,7 +168,7 @@ ${blocchi}`;
     if (esecuzione.esito === "errore") {
       // API irraggiungibile o credito finito: inutile martellare.
       pausaFinoA.set(sedeId, Date.now() + PAUSA_DOPO_ERRORE_MS);
-      programmaSmistamento(sedeId, PAUSA_DOPO_ERRORE_MS + 1_000);
+      prossimoTentativoMs = PAUSA_DOPO_ERRORE_MS + 1_000;
       console.warn(
         `[tars] smistamento sede ${sedeId} fallito, pausa 15m: ${esecuzione.errore}`
       );
@@ -158,7 +181,7 @@ ${blocchi}`;
       m => !esecuzione.comunicazioniClassificateIds.includes(m.id)
     );
     if (nonClassificate.length > 0) {
-      programmaSmistamento(sedeId, RETRY_INCOMPLETO_MS);
+      prossimoTentativoMs = RETRY_INCOMPLETO_MS;
       console.warn(
         `[tars] smistamento sede ${sedeId}: ${nonClassificate.length} comunicazioni non classificate, nuovo tentativo tra 1m`
       );
@@ -168,33 +191,150 @@ ${blocchi}`;
         `[tars] smistamento sede ${sedeId}: ${mails.length} mail esaminate, ${esecuzione.proposteIds.length} proposte`
       );
     }
+  } catch (e: any) {
+    pausaFinoA.set(sedeId, Date.now() + PAUSA_DOPO_ERRORE_MS);
+    prossimoTentativoMs = PAUSA_DOPO_ERRORE_MS + 1_000;
+    console.error(
+      `[tars] smistamento sede ${sedeId} interrotto, pausa 15m:`,
+      e?.message ?? e
+    );
   } finally {
     inCorso.delete(sedeId);
+    const eraRichiesto = richiestoDuranteRun.delete(sedeId);
+    try {
+      const ancoraInCoda = (await statoCodaTars(sedeId)).inAttesa > 0;
+      if (ancoraInCoda) {
+        programmaSmistamento(
+          sedeId,
+          prossimoTentativoMs ??
+            (mails.length === MAX_MAIL_PER_RUN || eraRichiesto
+              ? CONTINUA_CODA_MS
+              : RETRY_INCOMPLETO_MS)
+        );
+      }
+    } catch (e: any) {
+      console.error(
+        `[tars] impossibile verificare la coda della sede ${sedeId}:`,
+        e?.message ?? e
+      );
+      programmaSmistamento(sedeId, RETRY_INCOMPLETO_MS);
+    }
   }
 }
 
-// Debounce per sede: la sincronizzazione può importare a raffica (watcher
-// + poller); si smista una volta, qualche secondo dopo l'ultima ondata.
-const timers = new Map<number, NodeJS.Timeout>();
+// Debounce per sede. Un nuovo trigger anticipa un timer lontano, ma non
+// posticipa mai un lavoro già programmato: così i retry non vengono persi.
 const DEBOUNCE_MS = 5_000;
 
 export function programmaSmistamento(
   sedeId: number,
   ritardoMs = DEBOUNCE_MS
 ): void {
+  if (inCorso.has(sedeId)) {
+    richiestoDuranteRun.add(sedeId);
+    return;
+  }
+  const pausa = pausaFinoA.get(sedeId);
+  const minimoPausaMs =
+    pausa && pausa > Date.now() ? pausa - Date.now() + 1_000 : 0;
+  const ritardo = Math.max(0, ritardoMs, minimoPausaMs);
+  const eseguiAt = Date.now() + ritardo;
   const prev = timers.get(sedeId);
-  if (prev) clearTimeout(prev);
-  const timer = setTimeout(() => {
+  if (prev && prev.eseguiAt <= eseguiAt) return;
+  if (prev) clearTimeout(prev.handle);
+  const handle = setTimeout(() => {
     timers.delete(sedeId);
     void smistaComunicazioni(sedeId).catch(e =>
       console.error("[tars] smistamento:", e?.message ?? e)
     );
-  }, ritardoMs);
-  timer.unref?.();
-  timers.set(
-    sedeId,
-    timer
-  );
+  }, ritardo);
+  handle.unref?.();
+  timers.set(sedeId, { handle, eseguiAt });
+}
+
+export type StatoSmistamento = {
+  stato:
+    | "vuota"
+    | "in_coda"
+    | "programmato"
+    | "in_elaborazione"
+    | "pausa_errore"
+    | "disattivato"
+    | "chiave_mancante"
+    | "budget_esaurito";
+  inAttesa: number;
+  piuVecchiaAt: Date | null;
+  ripresaAt: Date | null;
+};
+
+export async function leggiStatoSmistamento(
+  sedeId: number
+): Promise<StatoSmistamento> {
+  const coda = await statoCodaTars(sedeId);
+  const config = getTarsConfig(sedeId);
+  const pausa = pausaFinoA.get(sedeId) ?? null;
+  const programmato = timers.get(sedeId)?.eseguiAt ?? null;
+  let stato: StatoSmistamento["stato"] =
+    coda.inAttesa > 0 ? "in_coda" : "vuota";
+
+  if (coda.inAttesa > 0) {
+    if (inCorso.has(sedeId)) stato = "in_elaborazione";
+    else if (!config.attivo) stato = "disattivato";
+    else if (!anthropicConfigured()) stato = "chiave_mancante";
+    else if (budgetMensileSuperato(sedeId)) stato = "budget_esaurito";
+    else if (pausa && pausa > Date.now()) stato = "pausa_errore";
+    else if (programmato) stato = "programmato";
+  }
+
+  return {
+    stato,
+    ...coda,
+    ripresaAt:
+      stato === "pausa_errore"
+        ? new Date(pausa!)
+        : programmato
+          ? new Date(programmato)
+          : null,
+  };
+}
+
+let recuperoTimer: NodeJS.Timeout | null = null;
+let avvioRecuperoTimer: NodeJS.Timeout | null = null;
+
+export async function recuperaCodeSmistamento(): Promise<void> {
+  for (const sedeId of await sediConCodaTars()) {
+    programmaSmistamento(sedeId, 0);
+  }
+}
+
+/** Rete di sicurezza: recupera code perse dopo deploy o errori inattesi. */
+export function avviaRecuperoSmistamento(): void {
+  if (recuperoTimer) return;
+  avvioRecuperoTimer = setTimeout(() => {
+    avvioRecuperoTimer = null;
+    void recuperaCodeSmistamento().catch(e =>
+      console.error("[tars] recupero code:", e?.message ?? e)
+    );
+  }, AVVIO_RECUPERO_MS);
+  avvioRecuperoTimer.unref?.();
+  recuperoTimer = setInterval(() => {
+    void recuperaCodeSmistamento().catch(e =>
+      console.error("[tars] recupero code:", e?.message ?? e)
+    );
+  }, RECUPERO_CODA_MS);
+  recuperoTimer.unref?.();
+}
+
+export function _resetSmistamentoPerTest(): void {
+  for (const { handle } of Array.from(timers.values())) clearTimeout(handle);
+  timers.clear();
+  inCorso.clear();
+  pausaFinoA.clear();
+  richiestoDuranteRun.clear();
+  if (recuperoTimer) clearInterval(recuperoTimer);
+  if (avvioRecuperoTimer) clearTimeout(avvioRecuperoTimer);
+  recuperoTimer = null;
+  avvioRecuperoTimer = null;
 }
 
 // ── Fatture orfane ──────────────────────────────────────────────────────────

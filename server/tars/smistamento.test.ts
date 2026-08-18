@@ -15,7 +15,13 @@ import {
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import { getTarsConfig } from "./stores";
-import { smistaComunicazioni } from "./smistamento";
+import {
+  _resetSmistamentoPerTest,
+  leggiStatoSmistamento,
+  programmaSmistamento,
+  recuperaCodeSmistamento,
+  smistaComunicazioni,
+} from "./smistamento";
 import {
   getComunicazione,
   insertComunicazione,
@@ -64,13 +70,39 @@ async function attendi(check: () => Promise<boolean>): Promise<boolean> {
   return false;
 }
 
+async function inserisciMailTest(messageId: string, oggetto: string) {
+  return insertComunicazione({
+    sedeId: 1,
+    casellaId: 1,
+    messageId,
+    canale: "email",
+    direzione: "in",
+    mittente: "contatto@example.com",
+    mittenteNome: null,
+    destinatari: [],
+    oggetto,
+    testo: "Richiesta operativa da classificare.",
+    allegati: [],
+    clienteId: null,
+    commessaId: null,
+    matchConfidenza: "nessuna",
+    matchMotivo: null,
+    stato: "nuova",
+    receivedAt: new Date(),
+  });
+}
+
 describe("smistamento", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
     process.env.ANTHROPIC_API_KEY = "test-key";
   });
-  beforeEach(() => _resetComunicazioniInMemoria());
+  beforeEach(() => {
+    _resetComunicazioniInMemoria();
+    _resetSmistamentoPerTest();
+  });
   afterAll(() => {
+    _resetSmistamentoPerTest();
     global.fetch = realFetch;
     delete process.env.ANTHROPIC_API_KEY;
     getTarsConfig().attivo = false;
@@ -508,6 +540,147 @@ describe("smistamento", () => {
     expect(cliente?.assegnatoA).toBe(1);
   });
 
+  it("oltre 10 mail programma subito il lotto successivo", async () => {
+    getTarsConfig().attivo = true;
+    const mails = [];
+    for (let i = 0; i < 11; i++) {
+      mails.push(
+        (await inserisciMailTest(`<lotto-${i}@example.com>`, `Richiesta ${i}`))!
+      );
+    }
+    const classifica = (mail: (typeof mails)[number], i: number) => ({
+      type: "tool_use",
+      id: `tu_lotto_${i}`,
+      name: "classifica_comunicazione",
+      input: {
+        comunicazioneId: mail.id,
+        categoria: "operativa",
+        confidenza: "alta",
+        dubbio: false,
+        motivo: "Richiesta operativa esplicita.",
+      },
+    });
+    global.fetch = anthropicScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: mails.slice(0, 10).map(classifica),
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Primo lotto classificato." }],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [classifica(mails[10], 10)],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Secondo lotto classificato." }],
+      },
+    ]);
+
+    await smistaComunicazioni(1);
+    expect(await listDaAnalizzare(1, 20)).toHaveLength(1);
+    expect((await leggiStatoSmistamento(1)).stato).toBe("programmato");
+
+    await smistaComunicazioni(1);
+    expect(await listDaAnalizzare(1, 20)).toHaveLength(0);
+  });
+
+  it("un arrivo durante il run non perde il risveglio della coda", async () => {
+    getTarsConfig().attivo = true;
+    const prima = (await inserisciMailTest(
+      "<durante-run-1@example.com>",
+      "Prima richiesta"
+    ))!;
+    let sbloccaPrima!: (response: any) => void;
+    const primaRisposta = new Promise<any>(resolve => {
+      sbloccaPrima = resolve;
+    });
+    let chiamata = 0;
+    global.fetch = vi.fn(async () => {
+      chiamata++;
+      if (chiamata === 1) return primaRisposta;
+      return {
+        ok: true,
+        json: async () => ({
+          stop_reason: "end_turn",
+          usage,
+          content: [{ type: "text", text: "Classificata." }],
+        }),
+        text: async () => "",
+      };
+    }) as any;
+
+    const run = smistaComunicazioni(1);
+    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const seconda = (await inserisciMailTest(
+      "<durante-run-2@example.com>",
+      "Seconda richiesta"
+    ))!;
+    programmaSmistamento(1, 0);
+    sbloccaPrima({
+      ok: true,
+      json: async () => ({
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_durante_run",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: prima.id,
+              categoria: "operativa",
+              confidenza: "alta",
+              dubbio: false,
+              motivo: "Richiesta operativa esplicita.",
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    });
+    await run;
+
+    expect((await listDaAnalizzare(1, 10)).map(c => c.id)).toEqual([
+      seconda.id,
+    ]);
+    expect((await leggiStatoSmistamento(1)).stato).toBe("programmato");
+  });
+
+  it("un errore API mantiene la pausa anche se arriva un nuovo trigger", async () => {
+    getTarsConfig().attivo = true;
+    await inserisciMailTest("<api-down@example.com>", "Richiesta con API giù");
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      text: async () => "temporaneamente non disponibile",
+    })) as any;
+
+    const prima = Date.now();
+    await smistaComunicazioni(1);
+    programmaSmistamento(1, 0);
+    const stato = await leggiStatoSmistamento(1);
+
+    expect(stato.stato).toBe("pausa_errore");
+    expect(stato.ripresaAt!.getTime() - prima).toBeGreaterThan(14 * 60_000);
+  });
+
+  it("il recupero trova una coda rimasta pendente dopo il bootstrap", async () => {
+    getTarsConfig().attivo = true;
+    await inserisciMailTest("<dopo-restart@example.com>", "Richiesta pendente");
+
+    await recuperaCodeSmistamento();
+
+    expect((await leggiStatoSmistamento(1)).stato).toBe("programmato");
+  });
+
   it("con Tars spento non parte e non consuma la coda", async () => {
     getTarsConfig().attivo = false;
     const mail = await insertComunicazione({
@@ -536,5 +709,6 @@ describe("smistamento", () => {
     await smistaComunicazioni(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await listDaAnalizzare(1, 10)).toHaveLength(1);
+    expect((await leggiStatoSmistamento(1)).stato).toBe("disattivato");
   });
 });

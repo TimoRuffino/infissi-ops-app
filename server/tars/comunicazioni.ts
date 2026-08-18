@@ -535,6 +535,69 @@ export async function listDaAnalizzare(
   return rows.map(fromRow);
 }
 
+export type StatoCodaTars = {
+  inAttesa: number;
+  piuVecchiaAt: Date | null;
+};
+
+/** Stato compatto della coda AI, usato dal recupero e dalla UI operativa. */
+export async function statoCodaTars(sedeId: number): Promise<StatoCodaTars> {
+  if (!kvSql) {
+    const inCoda = memRows
+      .filter(
+        r =>
+          r.sedeId === sedeId &&
+          !r.deletedAt &&
+          !r.tarsAnalizzata &&
+          !categoriaEsclusa(r.categoria)
+      )
+      .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
+    return {
+      inAttesa: inCoda.length,
+      piuVecchiaAt: inCoda[0]?.receivedAt ?? null,
+    };
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT COUNT(*) AS in_attesa, MIN(received_at) AS piu_vecchia_at
+    FROM comunicazioni
+    WHERE sede_id = ${sedeId}
+      AND deleted_at IS NULL
+      AND tars_analizzata = FALSE
+      AND categoria NOT IN ('offerta_marketing', 'spam')`;
+  const r = rows[0] ?? {};
+  return {
+    inAttesa: Number(r.in_attesa ?? 0),
+    piuVecchiaAt: r.piu_vecchia_at ? new Date(r.piu_vecchia_at) : null,
+  };
+}
+
+/** Sedi con lavoro AI pendente: permette il recupero anche dopo un riavvio. */
+export async function sediConCodaTars(): Promise<number[]> {
+  if (!kvSql) {
+    return Array.from(
+      new Set(
+        memRows
+          .filter(
+            r =>
+              !r.deletedAt &&
+              !r.tarsAnalizzata &&
+              !categoriaEsclusa(r.categoria)
+          )
+          .map(r => r.sedeId)
+      )
+    );
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT DISTINCT sede_id
+    FROM comunicazioni
+    WHERE deleted_at IS NULL
+      AND tars_analizzata = FALSE
+      AND categoria NOT IN ('offerta_marketing', 'spam')`;
+  return rows.map(r => Number(r.sede_id)).filter(Number.isFinite);
+}
+
 /** Tutte le "nuova" di una sede → "vista". Il bottone del lunedì mattina. */
 export async function segnaTutteViste(sedeId: number): Promise<number> {
   if (!kvSql) {

@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
-**Versione:** 4.7 - Classificazione automatica delle email affidata a Tars, con pre-analisi locale non vincolante, dubbi sempre visibili e correzioni manuali protette. Base v4.6 - Filtro Comunicazioni orientato alle opportunita: richieste di preventivo sempre visibili, esclusione limitata a spam/newsletter senza valore operativo e creazione lead Tars con assegnatario obbligatorio.
+**Versione:** 4.8 - Smistamento Tars affidabile e osservabile: coda drenata per lotti, trigger concorrenti preservati, recupero dopo riavvio e stato operativo visibile. Base v4.7 - Classificazione automatica delle email affidata a Tars, con pre-analisi locale non vincolante, dubbi sempre visibili e correzioni manuali protette.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.8 (19/08/2026)** - Coda Comunicazioni Tars resa lossless: continuazione automatica oltre 10 mail, trigger concorrenti preservati, retry API non annullabile, recupero periodico e dopo bootstrap, riattivazione da config/budget e stato d'attesa spiegato nella UI (§50-51).
 - **v4.7 (19/08/2026)** - Ogni nuova email passa dalla classificazione strutturata di Tars; il filtro locale fornisce solo segnali, le esclusioni richiedono confidenza alta, i dubbi restano visibili e le mail saltate vengono ritentate (§50-51).
 - **v4.6 (18/08/2026)** — Richieste di preventivo e opportunità protette da header spam e regole mittente; newsletter inutili ricondotte allo spam; Tars chiede l'assegnatario prima di proporre cliente e commessa e conserva il contesto nel seguito (§50-51).
 - **v4.5 (18/08/2026)** — Comunicazioni con triage multilivello, filtro anti-spam/offerte prima dell'AI, regole mittente, azioni multiple e gestione Tars della singola mail con creazione lead approvata (§50-51).
@@ -1255,6 +1256,8 @@ Ogni nuova email in ingresso DEVE passare dalla classificazione automatica di Ta
 
 Tars DEVE chiamare `classifica_comunicazione` una volta per ogni elemento del lotto, registrando categoria, confidenza, presenza di dubbi e motivazione concreta. `spam` e `offerta_marketing` possono essere applicate automaticamente soltanto con confidenza alta e `dubbio=false`; altrimenti il server forza `da_classificare`. Una classificazione manuale dell'operatore non puo essere sovrascritta dall'automazione. Se Tars salta un id, la mail resta visibile e viene ritentata dopo un minuto; dopo un errore API il retry avviene al termine della pausa di sicurezza di 15 minuti. In assenza di configurazione o budget la mail non viene nascosta.
 
+Lo scheduler DEVE preservare il risveglio della coda quando un messaggio arriva durante un run o durante una pausa API. Ogni run elabora al massimo 10 messaggi; se il lotto è completo e restano elementi, il successivo parte dopo circa 500 ms. Il primo trigger è debounciato per circa 5 secondi. Un controllo di recupero ogni minuto cerca code residue di tutte le sedi e il bootstrap esegue il primo controllo dopo circa 5 secondi, quindi un deploy o un timer perso non richiedono l'arrivo di una nuova email. Riattivare Tars o modificare il budget risveglia subito la coda.
+
 Una richiesta esplicita di preventivo, sopralluogo, appuntamento o contatto commerciale concreto DEVE essere valutata prima di header spam, segnali newsletter e regole mittente. Se può portare lavoro resta `nuovo_lead`, oppure `operativa` quando il cliente è già riconosciuto, anche se arriva da un indirizzo aziendale o da un portale usato anche per invii massivi. La direzione può memorizzare una regola esatta per mittente; ogni regola è sede-scoped e revocabile, ma non può nascondere una successiva opportunità esplicita.
 
 ### 51.3 Matching e gestione Tars
@@ -1274,6 +1277,7 @@ La pagina DEVE offrire:
 - riga con checkbox, categoria, canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
 - azioni multiple per chiudere o escludere messaggi con conferma esplicita;
 - lettore con stato `In attesa di Tars` o `Dubbio Tars`, fonte, confidenza, motivazione, collegamento commessa con conferma, proposte Tars, allegati e corpo;
+- fascia di stato della coda Tars, visibile solo quando serve, con numero di messaggi, anzianità della mail più vecchia, elaborazione/ripresa e cause bloccanti (`disattivato`, chiave mancante, budget esaurito, pausa API);
 - area Tars con istruzione libera e preset contestuali per lead, ticket, risposta, aggiornamento commessa e allegati;
 - azioni accessibili per gestita/riapri, elimina e ritorno alla lista mobile;
 - aggiornamento caselle e gestione configurazione per la direzione.

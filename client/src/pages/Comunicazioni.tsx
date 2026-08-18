@@ -29,6 +29,7 @@ import { isDirezione } from "@/lib/roles";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   ArrowLeft,
+  AlertTriangle,
   CheckCheck,
   Bot,
   BriefcaseBusiness,
@@ -150,6 +151,20 @@ function dimensioneFile(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attesaBreve(d: string | Date | null | undefined): string | null {
+  if (!d) return null;
+  const minuti = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(d).getTime()) / 60_000)
+  );
+  if (minuti < 1) return "meno di un minuto";
+  if (minuti < 60) return `${minuti} min`;
+  const ore = Math.floor(minuti / 60);
+  if (ore < 24) return `${ore} ${ore === 1 ? "ora" : "ore"}`;
+  const giorni = Math.floor(ore / 24);
+  return `${giorni} ${giorni === 1 ? "giorno" : "giorni"}`;
 }
 
 function CategoriaBadge({
@@ -829,6 +844,10 @@ export default function Comunicazioni() {
   const deferredSearch = useDeferredValue(search.trim());
 
   const stats = trpc.mail.comunicazioni.stats.useQuery();
+  const statoTars = trpc.mail.comunicazioni.statoTars.useQuery(undefined, {
+    refetchInterval: query =>
+      (query.state.data?.inAttesa ?? 0) > 0 ? 15_000 : 60_000,
+  });
   const opzioniCaselle = trpc.mail.caselle.opzioni.useQuery();
   const regoleFiltro = trpc.mail.comunicazioni.regoleFiltro.list.useQuery(
     undefined,
@@ -935,6 +954,25 @@ export default function Comunicazioni() {
     { value: "gestite", label: "Gestite", count: stats.data?.gestite ?? 0 },
     { value: "escluse", label: "Escluse", count: stats.data?.escluse ?? 0 },
   ];
+  const codaTars = statoTars.data;
+  const tarsBloccato =
+    codaTars?.stato === "disattivato" ||
+    codaTars?.stato === "chiave_mancante" ||
+    codaTars?.stato === "budget_esaurito" ||
+    codaTars?.stato === "pausa_errore";
+  const titoloCodaTars =
+    codaTars?.stato === "in_elaborazione"
+      ? "Tars sta analizzando la coda"
+      : codaTars?.stato === "pausa_errore"
+        ? "Tars riproverà automaticamente"
+        : codaTars?.stato === "disattivato"
+          ? "Tars è disattivato"
+          : codaTars?.stato === "chiave_mancante"
+            ? "Chiave AI non configurata"
+            : codaTars?.stato === "budget_esaurito"
+              ? "Budget Tars esaurito"
+              : "Analisi Tars programmata";
+  const attesaCodaTars = attesaBreve(codaTars?.piuVecchiaAt);
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-[560px] min-w-0 flex-col gap-3 overflow-hidden">
@@ -997,6 +1035,58 @@ export default function Comunicazioni() {
           )}
         </div>
       </div>
+
+      {(codaTars?.inAttesa ?? 0) > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex shrink-0 items-center gap-3 rounded-lg border px-3 py-2.5",
+            tarsBloccato
+              ? "border-warning/35 bg-warning/10"
+              : "border-primary/20 bg-primary-soft/45"
+          )}
+        >
+          {tarsBloccato ? (
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-warning/15 text-warning-foreground">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+          ) : (
+            <TarsAvatar
+              size="md"
+              className={cn(
+                codaTars?.stato === "in_elaborazione" &&
+                  "motion-safe:animate-pulse"
+              )}
+            />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold text-foreground">
+              {titoloCodaTars}
+            </div>
+            <p className="text-xs leading-5 text-text-2">
+              {codaTars!.inAttesa}{" "}
+              {codaTars!.inAttesa === 1
+                ? "comunicazione in attesa"
+                : "comunicazioni in attesa"}
+              {attesaCodaTars ? ` · la più vecchia da ${attesaCodaTars}` : ""}
+              {codaTars?.stato === "pausa_errore" && codaTars.ripresaAt
+                ? ` · nuovo tentativo alle ${new Date(codaTars.ripresaAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
+                : ""}
+            </p>
+          </div>
+          {tarsBloccato && isDirezione(user) && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="hidden sm:inline-flex"
+            >
+              <Link href="/integrazioni">Controlla Tars</Link>
+            </Button>
+          )}
+        </div>
+      )}
 
       {mostraLista && (
         <div className="shrink-0 space-y-2">

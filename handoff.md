@@ -3,8 +3,8 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 14/08/2026<br>
-**Base Git descritta:** `main` a `8116310`, più le modifiche elencate in §7 non
+**Aggiornato:** 19/08/2026<br>
+**Base Git descritta:** `main` a `feeb341`, più le modifiche elencate in §7 non
 ancora pubblicate al momento dell'aggiornamento<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -220,10 +220,21 @@ Se porta lavoro rimane visibile come `nuovo_lead` (o `operativa` per un cliente
 già riconosciuto), anche quando proviene da un'azienda o da un portale che usa lo
 stesso indirizzo per campagne e richieste.
 
+Lo smistamento automatico usa lotti da 10. Il primo trigger parte dopo circa 5
+secondi; un lotto completo con altra coda prosegue dopo circa 500 ms. Se il
+modello salta un id il retry è dopo un minuto, mentre un errore API applica una
+pausa di 15 minuti. I trigger arrivati durante un run o una pausa non annullano
+più il risveglio successivo. `avviaRecuperoSmistamento()` controlla le code dopo
+5 secondi dal bootstrap e poi ogni minuto, quindi recupera anche mail rimaste
+pendenti dopo un deploy senza aspettare nuovi messaggi. Riattivazione di Tars e
+variazione del budget risvegliano subito la coda.
+
 La pagina espone cinque code, selezione multipla, classificazione manuale,
 regole esatte per mittente riservate alla direzione e collegamento commessa con
 conferma. I badge distinguono `In attesa di Tars` e `Dubbio Tars`; nel lettore
-sono visibili fonte, confidenza e motivo. L'operatore può inoltre istruire Tars
+sono visibili fonte, confidenza e motivo. Una fascia di stato mostra conteggio,
+anzianità della coda, elaborazione o ripresa e spiega se Tars è spento, senza
+chiave, oltre budget o in pausa API. L'operatore può inoltre istruire Tars
 sulla singola comunicazione. Se
 non esiste una commessa, la proposta `crea_lead`, dopo approvazione, crea cliente
 e commessa in preventivo e collega la mail. Prima della proposta Tars legge gli

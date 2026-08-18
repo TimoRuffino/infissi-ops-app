@@ -721,12 +721,16 @@ ${input.testo.trim()}`;
     }),
     setAttivo: protectedProcedure
       .input(z.object({ attivo: z.boolean() }))
-      .mutation(({ input, ctx }) => {
+      .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
         const c = getTarsConfig(ctx.sedeId);
         c.attivo = input.attivo;
         c.updatedAt = new Date();
         saveConfig();
+        if (input.attivo) {
+          const { programmaSmistamento } = await import("../tars/smistamento");
+          programmaSmistamento(ctx.sedeId ?? 1, 0);
+        }
         return { attivo: c.attivo };
       }),
     setModello: protectedProcedure
@@ -749,12 +753,14 @@ ${input.testo.trim()}`;
       }),
     setBudget: protectedProcedure
       .input(z.object({ budgetMensileUsd: z.number().min(0).max(10_000) }))
-      .mutation(({ input, ctx }) => {
+      .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
         const c = getTarsConfig(ctx.sedeId);
         c.budgetMensileUsd = input.budgetMensileUsd;
         c.updatedAt = new Date();
         saveConfig();
+        const { programmaSmistamento } = await import("../tars/smistamento");
+        programmaSmistamento(ctx.sedeId ?? 1, 0);
         return { budgetMensileUsd: c.budgetMensileUsd };
       }),
     setAuditProcessi: protectedProcedure

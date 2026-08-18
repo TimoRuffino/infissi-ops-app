@@ -45,6 +45,11 @@ async function startServer() {
   const { avviaPollerMail } = await import("../tars/imap");
   avviaPollerMail();
 
+  // Recupera le comunicazioni rimaste in coda dopo deploy, pause API o
+  // trigger sovrapposti, anche quando non arriva subito una nuova mail.
+  const { avviaRecuperoSmistamento } = await import("../tars/smistamento");
+  avviaRecuperoSmistamento();
+
   // Tars osserva gli indicatori trasversali una volta al giorno e propone
   // miglioramenti di processo alla direzione, senza applicarli da solo.
   const { avviaAuditProcessiScheduler } = await import(
