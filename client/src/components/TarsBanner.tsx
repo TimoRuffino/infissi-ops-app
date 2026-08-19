@@ -50,7 +50,9 @@ export default function TarsBanner({ commessaId }: { commessaId: number }) {
       utils.tars.proposte.invalidate();
       utils.tars.esecuzioni.invalidate();
       if (r.proposte.length === 0) {
-        toast.info("Tars non ha proposte: " + (r.riepilogo ?? "nessuna azione necessaria"));
+        // Nessuna proposta non è un fallimento: il referto sta nel banner,
+        // qui basta dire dove guardare senza farlo sembrare un buco a vuoto.
+        toast.info("Tars ha guardato la commessa: leggi l'esito qui sotto.");
       } else {
         toast.success(`Tars ha ${r.proposte.length} propost${r.proposte.length === 1 ? "a" : "e"}`);
       }

@@ -211,6 +211,7 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         CREATE INDEX IF NOT EXISTS comunicazioni_sede_categoria
           ON comunicazioni (sede_id, categoria, received_at DESC)`;
+      await backfillGestiteCollegate();
     })().catch(e => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
@@ -218,6 +219,40 @@ export function ensureComunicazioniSchema(): Promise<void> {
     });
   }
   return schemaPromise;
+}
+
+/**
+ * Recupero una tantum dello storico: prima di questa versione collegare una
+ * mail a una commessa non la marcava gestita, quindi la coda operativa ha
+ * accumulato messaggi già smistati.
+ *
+ * Tocca SOLO le righe `vista`: una `nuova` non è mai stata aperta da nessuno
+ * e nasconderla sarebbe peggio del disordine. Il marker rende la migrazione
+ * davvero una tantum — senza, ogni riavvio richiuderebbe le comunicazioni che
+ * un operatore ha riaperto a mano.
+ */
+async function backfillGestiteCollegate(): Promise<void> {
+  await kvSql!`
+    CREATE TABLE IF NOT EXISTS comunicazioni_migrazioni (
+      nome TEXT PRIMARY KEY,
+      eseguita_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+  const primaVolta = await kvSql!`
+    INSERT INTO comunicazioni_migrazioni (nome)
+    VALUES ('backfill_gestite_collegate_v1')
+    ON CONFLICT (nome) DO NOTHING
+    RETURNING nome`;
+  if (primaVolta.length === 0) return;
+
+  const aggiornate = await kvSql!`
+    UPDATE comunicazioni SET stato = 'gestita'
+    WHERE commessa_id IS NOT NULL
+      AND stato = 'vista'
+      AND deleted_at IS NULL
+    RETURNING id`;
+  console.log(
+    `[comunicazioni] backfill gestite: ${aggiornate.length} comunicazioni collegate portate in Gestite`
+  );
 }
 
 // ── Mapping riga ⇄ oggetto ──────────────────────────────────────────────────
@@ -457,6 +492,12 @@ export async function setMatchComunicazione(
     motivo: string | null;
   }
 ): Promise<boolean> {
+  // Collegare a una commessa È gestire: ci arriva solo un atto umano
+  // esplicito (collegamento manuale o approvazione di una proposta Tars),
+  // mai il match automatico dell'ingestione, che passa da insertComunicazione.
+  // Scollegare riapre la pratica, tranne per le categorie escluse: quelle
+  // sono già fuori dalla coda per classificazione, non per collegamento.
+  const collega = match.commessaId != null;
   if (!kvSql) {
     const r = memRows.find(x => x.id === id && x.sedeId === sedeId);
     if (!r) return false;
@@ -464,6 +505,10 @@ export async function setMatchComunicazione(
     r.commessaId = match.commessaId;
     r.matchConfidenza = match.confidenza;
     r.matchMotivo = match.motivo;
+    if (collega) r.stato = "gestita";
+    else if (r.stato === "gestita" && !categoriaEsclusa(r.categoria)) {
+      r.stato = "vista";
+    }
     return true;
   }
   await ensureComunicazioniSchema();
@@ -472,7 +517,13 @@ export async function setMatchComunicazione(
       cliente_id = ${match.clienteId},
       commessa_id = ${match.commessaId},
       match_confidenza = ${match.confidenza},
-      match_motivo = ${match.motivo}
+      match_motivo = ${match.motivo},
+      stato = CASE
+        WHEN ${collega} THEN 'gestita'
+        WHEN stato = 'gestita'
+          AND categoria NOT IN ('offerta_marketing', 'spam') THEN 'vista'
+        ELSE stato
+      END
     WHERE id = ${id} AND sede_id = ${sedeId}
     RETURNING id`;
   return rows.length > 0;

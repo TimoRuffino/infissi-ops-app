@@ -144,8 +144,14 @@ ${
     : "Analizza la situazione di questa commessa: stato, pagamenti, documenti, timeline, ordini e magazzino. Cerca incoerenze e passi mancanti."
 }
 
-Usa gli strumenti per verificare lo stato reale prima di proporre. Se non c'è nulla da
-fare, usa nessuna_azione.`;
+Parti da leggi_fascicolo_commessa e verifica con gli strumenti prima di concludere.
+Questa esecuzione DEVE chiudersi in uno di tre modi, mai in silenzio:
+- una o più proposte, quando i fatti le reggono;
+- chiedi_chiarimento con le opzioni possibili, se ti manca un dato per decidere;
+- nessuna_azione motivata, dicendo cosa hai verificato e perché non serve nulla.
+
+Il motivo di nessuna_azione diventa il riepilogo che l'operatore legge sulla commessa:
+deve nominare i fatti controllati, non limitarsi a dichiarare che è tutto a posto.`;
 
       const esecuzione = await runTars({
         ctx,

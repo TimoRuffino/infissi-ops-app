@@ -634,7 +634,10 @@ describe("tars — seguito dell'approvazione", () => {
             type: "tool_use",
             id: "tu_1",
             name: "nessuna_azione",
-            input: { motivo: "Tutto coerente: nessun passo mancante." },
+            input: {
+              motivo:
+                "Tutto coerente: documenti al loro posto, saldo a zero e nessun passo mancante.",
+            },
           },
         ],
       },
@@ -1299,5 +1302,64 @@ describe("tars — profili e cache operativa", () => {
         }),
       ])
     );
+  });
+});
+
+// L'analisi che l'operatore lancia dal banner della commessa deve sempre
+// restituire qualcosa di leggibile: una proposta, una domanda, oppure il
+// motivo per cui è tutto in ordine. Un nessuna_azione nudo produceva un
+// riepilogo vuoto (loop.ts usa il motivo come riepilogo) e sembrava un
+// analisi che non aveva fatto niente.
+describe("tars — l'analisi commessa non chiude a mani vuote", () => {
+  const runtime = (trigger: string): ToolRuntime => ({
+    ctx: makeCtx(),
+    esecuzioneId: 999_400,
+    trigger,
+    maxProposte: 3,
+    proposteIds: [],
+    terminato: null,
+    risultatiCache: new Map(),
+    toolCacheHits: 0,
+    duplicatiBloccati: 0,
+  });
+
+  it("on_demand: nessuna_azione senza motivo viene rifiutata", async () => {
+    const rt = runtime("on_demand");
+    const res = await eseguiStrumento(rt, "nessuna_azione", { motivo: "" });
+
+    expect(res.isError).toBe(true);
+    // Il run NON deve terminare: il modello deve motivare o chiedere.
+    expect(rt.terminato).toBeNull();
+  });
+
+  it("on_demand: un motivo generico non basta", async () => {
+    const rt = runtime("on_demand");
+    const res = await eseguiStrumento(rt, "nessuna_azione", {
+      motivo: "Tutto ok.",
+    });
+
+    expect(res.isError).toBe(true);
+    expect(rt.terminato).toBeNull();
+  });
+
+  it("on_demand: con la lettura della situazione chiude regolarmente", async () => {
+    const rt = runtime("on_demand");
+    const motivo =
+      "Commessa in attesa_posa: DDT di consegna caricato, saldo residuo zero, " +
+      "squadra assegnata e nessun ticket aperto. Niente da proporre.";
+    const res = await eseguiStrumento(rt, "nessuna_azione", { motivo });
+
+    expect(res.isError).toBeFalsy();
+    expect(rt.terminato?.motivo).toBe(motivo);
+  });
+
+  it("smistamento: nessuna_azione nuda resta valida", async () => {
+    // La coda mail chiude in lotto senza motivo: il vincolo non deve
+    // estendersi lì o lo smistamento si blocca.
+    const rt = runtime("smistamento");
+    const res = await eseguiStrumento(rt, "nessuna_azione", {});
+
+    expect(res.isError).toBeFalsy();
+    expect(rt.terminato).not.toBeNull();
   });
 });

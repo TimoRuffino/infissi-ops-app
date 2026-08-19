@@ -21,6 +21,8 @@ import {
   listDaAnalizzare,
   markAnalizzate,
   setClassificazioneComunicazione,
+  setMatchComunicazione,
+  setStatoComunicazione,
   statsComunicazioni,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
@@ -361,6 +363,94 @@ describe("ingestione comunicazioni", () => {
     // Analizzata ma ancora visibile in lista: lo smistamento non nasconde.
     const c = await getComunicazione(inCoda[0].id, 1);
     expect(c?.tarsAnalizzata).toBe(true);
+  });
+});
+
+// Collegare una mail a una commessa È gestirla: l'operatore (o la proposta
+// che ha approvato) ha deciso dove va a finire. Restava in "Da gestire" per
+// sempre perché setMatchComunicazione non toccava lo stato.
+describe("collegamento esplicito → gestita", () => {
+  beforeAll(() => _resetComunicazioniInMemoria());
+
+  const base = (messageId: string, oggetto: string) => ({
+    sedeId: 1,
+    casellaId: 1,
+    messageId,
+    canale: "email" as const,
+    direzione: "in" as const,
+    mittente: "mario.rossi@example.com",
+    mittenteNome: "Mario Rossi",
+    destinatari: ["ordini@ruffinogroup.it"],
+    oggetto,
+    testo: "corpo",
+    allegati: [],
+    clienteId: null,
+    commessaId: null,
+    matchConfidenza: "nessuna" as const,
+    matchMotivo: null,
+    stato: "nuova" as const,
+    receivedAt: new Date("2026-08-19T10:00:00Z"),
+  });
+
+  const collega = (id: number, commessaId: number | null) =>
+    setMatchComunicazione(id, 1, {
+      clienteId: commessaId == null ? null : 7,
+      commessaId,
+      confidenza: commessaId == null ? "nessuna" : "alta",
+      motivo: "collegata nel test",
+    });
+
+  it("collegare a una commessa porta la mail in Gestite", async () => {
+    const c = await insertComunicazione(base("<c1@x>", "Da collegare"));
+    expect(c!.stato).toBe("nuova");
+
+    expect(await collega(c!.id, 10)).toBe(true);
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("gestita");
+  });
+
+  it("scollegare la riporta nella coda operativa", async () => {
+    const c = await insertComunicazione(base("<c2@x>", "Collegata per errore"));
+    await collega(c!.id, 10);
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("gestita");
+
+    await collega(c!.id, null);
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("vista");
+  });
+
+  it("una esclusa che viene scollegata resta fuori dalla coda", async () => {
+    const c = await insertComunicazione(base("<c3@x>", "Newsletter"));
+    await setClassificazioneComunicazione(c!.id, 1, {
+      categoria: "offerta_marketing",
+      motivo: "newsletter",
+      fonte: "tars",
+      score: 95,
+    });
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("gestita");
+
+    await collega(c!.id, null);
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("gestita");
+  });
+
+  it("il match automatico all'arrivo NON marca gestita", async () => {
+    // Una richiesta nuova su una commessa aperta è lavoro da leggere:
+    // l'ingestione non passa da setMatchComunicazione e non deve nascondere.
+    const c = await insertComunicazione({
+      ...base("<c4@x>", "Riconosciuta all'arrivo"),
+      clienteId: 1,
+      commessaId: 10,
+      matchConfidenza: "alta",
+      matchMotivo: "codice commessa nel testo",
+    });
+    expect(c!.commessaId).toBe(10);
+    expect(c!.stato).toBe("nuova");
+  });
+
+  it("una mail già gestita a mano non regredisce quando la si collega", async () => {
+    const c = await insertComunicazione(base("<c5@x>", "Chiusa a mano"));
+    await setStatoComunicazione(c!.id, 1, "gestita");
+
+    await collega(c!.id, 10);
+    expect((await getComunicazione(c!.id, 1))?.stato).toBe("gestita");
   });
 });
 

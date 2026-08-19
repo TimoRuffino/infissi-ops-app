@@ -77,6 +77,10 @@ export type ToolRuntime = {
 
 const MAX_PENDENTI_PER_COMMESSA = 3;
 
+// Soglia sotto la quale "nessuna azione" non è una risposta ma un silenzio:
+// serve a escludere "ok", "tutto a posto", non a imporre un tema.
+const MIN_MOTIVO_ANALISI = 40;
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 // Un tool result entra nel prompt e ci RESTA per tutti i giri successivi
@@ -2348,9 +2352,21 @@ async function eseguiStrumentoSenzaCache(
               : {}),
           },
         });
-      case "nessuna_azione":
-        rt.terminato = { motivo: String(input.motivo ?? "") };
+      case "nessuna_azione": {
+        const motivo = String(input.motivo ?? "").trim();
+        // L'analisi lanciata dall'operatore sulla commessa deve sempre
+        // lasciare una lettura della situazione: loop.ts usa questo motivo
+        // come riepilogo, e un riepilogo vuoto è indistinguibile da
+        // un'analisi mai fatta. I trigger automatici — lo smistamento chiude
+        // il lotto senza nulla da dire — restano liberi.
+        if (rt.trigger === "on_demand" && motivo.length < MIN_MOTIVO_ANALISI) {
+          return err(
+            "In un'analisi commessa non puoi chiudere senza spiegare: scrivi cosa hai verificato e perché non serve alcuna azione. Se invece ti manca un dato per decidere, usa chiedi_chiarimento con le opzioni possibili."
+          );
+        }
+        rt.terminato = { motivo };
         return ok({ esito: "esecuzione terminata" });
+      }
 
       default:
         return err(`Strumento sconosciuto: ${nome}`);

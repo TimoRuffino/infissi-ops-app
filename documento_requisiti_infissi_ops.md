@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
-**Versione:** 4.10 - Smistamento Tars specializzato: prefisso ridotto del 78%, cache separata per sede, errori provider sanitizzati e registro costi/cache affidabile. Base v4.9 - Tars migrato a OpenAI Responses API con caching misurabile.
+**Versione:** 4.12 - L'analisi di una commessa chiude sempre con una proposta, una domanda o un referto motivato. Base v4.11 - Le comunicazioni collegate a una commessa escono dalla coda operativa ed entrano in Gestite, con recupero una tantum dello storico. Base v4.10 - Smistamento Tars specializzato: prefisso ridotto del 78%, cache separata per sede, errori provider sanitizzati e registro costi/cache affidabile. Base v4.9 - Tars migrato a OpenAI Responses API con caching misurabile.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,8 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.12 (19/08/2026)** - L'analisi commessa non chiude più in silenzio: proposta, domanda con opzioni oppure `nessuna_azione` motivata che nomina i fatti verificati. Il server rifiuta la chiusura muta su `on_demand`; i trigger automatici restano liberi (§50.8).
+- **v4.11 (19/08/2026)** - Collegare una comunicazione a una commessa la porta in Gestite (collegamento manuale e proposte Tars approvate); lo scollegamento la riapre; il match automatico dell'arrivo resta nella coda operativa. Backfill una tantum delle collegate già viste (§51.1).
 - **v4.10 (19/08/2026)** - Smistamento Tars ridotto a prompt specializzato e 7 strumenti (-78% token fissi), cache per sede/profilo/modello, `gpt-5.6-luna` opzionale, errori OpenAI sanitizzati e diagnostica token/cache/costi corretta (§50-51).
 - **v4.9 (19/08/2026)** - Tars migrato a OpenAI Responses API con `gpt-5.6-sol` per le richieste umane, `gpt-5.6-terra` per gli automatismi, prompt caching per profilo/modello e chiusura forzata dopo il budget strumenti (§50-51).
 - **v4.8 (19/08/2026)** - Coda Comunicazioni Tars resa lossless: continuazione automatica oltre 10 mail, trigger concorrenti preservati, retry API non annullabile, recupero periodico e dopo bootstrap, riattivazione da config/budget e stato d'attesa spiegato nella UI (§50-51).
@@ -1246,6 +1248,17 @@ Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_es
 
 La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più letta. Al raggiungimento di `maxToolCalls`, il loop concede esattamente un turno conclusivo senza strumenti e termina anche se il provider restituisce una risposta anomala: nessun trigger può restare in esecuzione indefinitamente.
 
+### 50.8 Analisi di una commessa
+Il trigger `on_demand`, avviato dall'operatore con «Analizza» sul banner della commessa, parte dal fascicolo e DEVE chiudersi in uno di tre modi, mai in silenzio:
+
+- una o più proposte, quando i fatti le reggono;
+- `chiedi_chiarimento` con le opzioni possibili, quando manca un dato per decidere;
+- `nessuna_azione` motivata, dichiarando cosa è stato verificato e perché non serve nulla.
+
+La domanda è la via d'uscita quando non ci sono basi per proporre: è preferibile sia a una proposta debole sia a una chiusura muta. La regola anti-rumore «meglio zero che tre mediocri» resta valida, ma vincola le proposte e non autorizza a non dire niente.
+
+Il motivo di `nessuna_azione` diventa il riepilogo mostrato sulla commessa, quindi DEVE nominare i fatti controllati — stato, saldo, documenti, consegne, ticket — e non limitarsi a dichiarare che è tutto a posto. Il server rifiuta una chiusura senza motivazione sostanziale su questo trigger e restituisce l'errore al modello, che deve motivare o chiedere. Il vincolo vale solo per `on_demand`: i trigger automatici, come lo smistamento che chiude un lotto, restano liberi di terminare senza motivo.
+
 ---
 
 ## 51. Comunicazioni (`/comunicazioni`)
@@ -1254,6 +1267,8 @@ La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più let
 Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. Oltre a canale, mittente, contenuto, allegati, cliente/commessa, stato e data, ogni riga persiste categoria, score, motivazione e fonte della classificazione, più l'ultimo riepilogo Tars richiesto dall'operatore.
 
 Gli stati sono `nuova`, `vista`, `gestita`. L'eliminazione dal CRM usa `deleted_at`: il messaggio resta nella casella sorgente e il tombstone impedisce che venga importato di nuovo.
+
+Il collegamento esplicito a una commessa DEVE portare la comunicazione in `gestita`: vale per il collegamento manuale dell'operatore e per l'approvazione di `collega_comunicazione` e `crea_lead`. Il match automatico dell'ingestione NON marca gestita — una richiesta nuova su una commessa aperta resta lavoro da leggere. Scollegare riapre la pratica riportandola a `vista`, tranne per le categorie escluse, che sono fuori dalla coda per classificazione e non per collegamento. Una comunicazione già `gestita` non regredisce.
 
 ### 51.2 Classificazione e filtro anti-rumore
 Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. `spam` e `offerta_marketing` sono escluse dalla coda e dai conteggi operativi dopo la classificazione, ma restano consultabili nella vista Escluse.

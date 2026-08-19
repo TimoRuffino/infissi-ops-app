@@ -217,6 +217,16 @@ del 19/08/2026 Railway vedeva la variabile ma OpenAI rispondeva `401
 invalid_api_key`: sostituire la variabile con una project API key valida, senza
 virgolette o spazi, ridistribuire e verificare una classificazione reale.
 
+L'analisi che l'operatore lancia dal banner della commessa (trigger `on_demand`)
+non può più chiudersi in silenzio: o propone, o chiede con `chiedi_chiarimento`
+e le opzioni, o chiude con `nessuna_azione` motivata. Il vincolo è esigibile,
+non solo scritto nel prompt: `nessuna_azione` con motivo sotto i 40 caratteri
+viene rifiutata e l'errore torna al modello. Serve perché `loop.ts` usa quel
+motivo come riepilogo mostrato sulla commessa, e un motivo vuoto produceva un
+referto bianco indistinguibile da un'analisi mai fatta. Il vincolo è legato al
+solo trigger `on_demand`: lo smistamento chiude i lotti senza motivo e deve
+poterlo fare.
+
 Dal 18/08/2026 Tars dispone inoltre di letture trasversali per quadro aziendale,
 organizzazione, produzione, qualità e contenuto documentale. I dati restano
 sempre sede-scoped e le informazioni di direzione sono esposte solo ai ruoli
@@ -267,6 +277,15 @@ corrispondenza è verificata, a proporre il collegamento a una commessa. Nuovo
 lead, assegnatario, ticket, pagamento, allegati e bozza risposta vengono gestiti
 nel flusso `gestione_comunicazione` avviato dall'operatore: evita di caricare 23
 schemi di strumenti su ogni lotto senza perdere le capacità operative.
+
+Collegare una comunicazione a una commessa la porta in Gestite. Il punto unico è
+`setMatchComunicazione`, quindi vale per il collegamento manuale e per le
+proposte Tars approvate (`collega_comunicazione`, `crea_lead`), mai per il match
+automatico dell'ingestione, che passa da `insertComunicazione` e deve restare
+leggibile in coda. Scollegare riporta a `vista`; le categorie escluse restano
+gestite. Al primo boot un backfill una tantum, protetto dal marker
+`comunicazioni_migrazioni`, porta in Gestite le collegate già `vista` — le
+`nuova` non vengono toccate perché nessuno le ha ancora aperte.
 
 La pagina espone cinque code, selezione multipla, classificazione manuale,
 regole esatte per mittente riservate alla direzione e collegamento commessa con
