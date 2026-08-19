@@ -1,6 +1,6 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.3 — 18/08/2026
+**Versione:** 1.4 — 19/08/2026
 **Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Ricerca semantica/pgvector resta roadmap.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
@@ -16,7 +16,8 @@
 - Chat e analisi on-demand possono interrogare documenti, organizzazione, produzione, qualità e quadro economico, sempre nei limiti di ruolo e sede dell'operatore.
 - Un audit automatico per sede confronta periodicamente i principali indicatori e può proporre fino a tre miglioramenti di processo misurabili.
 - La coda riconosce la stessa azione anche quando titolo o formulazione cambiano e blocca duplicati pendenti, approvati, rifiutati o già gestiti.
-- La cache strumenti è isolata al singolo run; prompt e tool schema usano la cache Anthropic.
+- La cache strumenti è isolata al singolo run; il prefisso stabile usa il prompt caching OpenAI con una chiave per profilo e modello.
+- `gpt-5.6-sol` gestisce le richieste umane; `gpt-5.6-terra` i trigger automatici. Raggiunto il limite strumenti, il loop concede un solo turno finale senza tool.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
 ---
@@ -152,7 +153,7 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 | `audit_processi` | `audit_processi` | Quadro aziendale e proposte di miglioramento misurabili |
 | `chat`, `seguito` | `completo` | Esplorazione richiesta dall'operatore |
 
-`leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima di Anthropic quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
+`leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima del modello quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
 
 Le letture `leggi_*`/`cerca_*` sono memorizzate per singola esecuzione con chiave JSON stabile. Due richieste uguali e contemporanee condividono anche la Promise in corso; un errore viene rimosso dalla cache. Non esiste cache cross-run: sarebbe facile mostrare dati stantii o di un altro contesto.
 
@@ -301,24 +302,27 @@ Un toggle in `/integrazioni`: **"Agente attivo"**. Off = il CRM funziona esattam
 
 | Voce | Volume/mese | Modello | Costo |
 |---|---|---|---|
-| Pipeline (riflesso) | 1.800 | Haiku 4.5 + caching | ~€6 |
-| Agente su evento | 250 esecuzioni | Sonnet 5 | ~€12 |
-| Agente notturno | 60 esecuzioni | Sonnet 5 | ~€8 |
-| Agente on-demand | 100 esecuzioni | Sonnet 5 | ~€5 |
-| Brief, bozze, RAG | — | Sonnet 5 | ~€17 |
-| **Totale** | | | **≈ €48/mese** |
+| Pipeline (riflesso) | 1.800 | GPT-5.6 Terra + caching | da misurare |
+| Agente su evento | 250 esecuzioni | GPT-5.6 Terra | da misurare |
+| Agente notturno | 60 esecuzioni | GPT-5.6 Terra | da misurare |
+| Agente on-demand | 100 esecuzioni | GPT-5.6 Sol | da misurare |
+| Brief, bozze, RAG | — | GPT-5.6 Sol | da misurare |
+| **Totale** | | | **vincolato dal budget per sede** |
 
 Il default applicativo è **$25/mese per sede**, modificabile dalla direzione. Al superamento, i trigger automatici si fermano; le richieste umane ricevono un errore esplicito. Le stime della tabella restano ipotesi iniziali: il dato da usare per decidere è l'audit reale.
 
 ### 10.1 Caching implementato
 
-La richiesta Anthropic marca con cache control:
+La richiesta OpenAI Responses mantiene stabile il prefisso formato da istruzioni,
+profilo strumenti e cronologia e invia un `prompt_cache_key` deterministico per
+profilo e modello. Su GPT-5.6 il blocco developer termina con un breakpoint
+esplicito e usa cache `explicit` con TTL 30 minuti; `gpt-5.4-mini` mantiene la
+cache implicita. Le risposte usano `store=false` e includono il reasoning
+cifrato da ripassare nei turni di function calling; i token letti e scritti
+dalla cache vengono estratti dai metadati `usage` del provider anche quando la
+risposta è incompleta o fallisce dopo avere consumato token.
 
-- il system prompt stabile con TTL 1 ora;
-- l'ultimo schema tool del profilo con TTL 1 ora;
-- il prefisso crescente della conversazione come `ephemeral`, così i tool result del giro precedente vengono riletti a prezzo cache.
-
-Le decisioni recenti, che cambiano spesso, restano in fondo al turno utente e non invalidano il prefisso stabile. Il costo distingue input pieno, cache read, write 5 minuti e write 1 ora; accorparli produrrebbe una stima errata. Insieme a profili e fascicolo, questo è il sistema principale di riduzione token.
+Le decisioni recenti, che cambiano spesso, restano in fondo al turno utente e non invalidano il prefisso stabile. Il costo distingue input pieno, cache read e cache write. I campi storici 5 minuti/1 ora sono mantenuti nello store per compatibilità; la scrittura OpenAI viene contabilizzata con moltiplicatore 1,25. Insieme a profili e fascicolo, questo è il sistema principale di riduzione token.
 
 ---
 
@@ -338,7 +342,7 @@ L'errore da evitare: costruire l'agente su tutti i flussi insieme.
 
 # 12. System prompt dell'agente
 
-**Modello:** `claude-sonnet-5` · **Version:** 1.0 · **Caching:** sì
+**Modello:** `gpt-5.6-sol` · **Version:** 1.1 · **Caching:** sì
 
 ```
 Sei l'agente operativo di Ruffino Ops, il gestionale di Ruffino Group — azienda di

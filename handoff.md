@@ -4,7 +4,7 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 19/08/2026<br>
-**Base Git descritta:** `main` a `feeb341`, più le modifiche elencate in §7 non
+**Base Git descritta:** `main` a `f5728de`, più le modifiche elencate in §7 non
 ancora pubblicate al momento dell'aggiornamento<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -30,7 +30,7 @@ pagine quando esiste già un token semantico.
 | Dati applicativi | PostgreSQL Railway, principalmente `kv_store` JSONB |
 | Comunicazioni | tabella PostgreSQL `comunicazioni`, con fallback in memoria locale |
 | File | driver `local` oppure object storage S3-compatible/R2 |
-| AI | Anthropic tool use, proposta con approvazione umana |
+| AI | OpenAI Responses API con function calling, proposta con approvazione umana |
 | PDF | jsPDF/autotable client e server |
 
 ### Persistenza
@@ -77,7 +77,7 @@ server/routers/
 
 server/tars/
   loop.ts                   ciclo agentico e preload fascicolo
-  anthropic.ts              API Anthropic e prompt caching
+  openai.ts                 OpenAI Responses API e prompt caching
   tools.ts                  profili strumenti, fascicolo e cache per run
   stores.ts                 esecuzioni, proposte, budget e audit
   comunicazioni.ts          tabella messaggi e statistiche
@@ -173,16 +173,33 @@ ordini, magazzino, ticket, interventi e garanzie. Se il run conosce già la
 commessa, il fascicolo viene precaricato nel primo messaggio, evitando un giro
 modello-strumento.
 
+Il modello principale predefinito è `gpt-5.6-sol`; i trigger automatici usano
+`gpt-5.6-terra`, più economico. La richiesta usa la Responses API con
+`store=false`, function calling e ragionamento `low` sugli automatismi e
+`medium` sulle richieste umane. Gli item `reasoning.encrypted_content` vengono
+restituiti al provider tra i turni, mantenendo stateless il loop. Raggiunto il limite strumenti, Tars riceve un
+solo turno finale senza tool: il run non può proseguire indefinitamente.
+
 La cache è su due livelli:
 
-1. Anthropic prompt caching sul system prompt stabile, sull'ultimo blocco tool e
-   sul prefisso crescente della conversazione.
+1. OpenAI prompt caching sul prefisso stabile della richiesta: i modelli
+   GPT-5.6 ricevono un breakpoint esplicito dopo le istruzioni developer,
+   modalità `explicit` con TTL 30 minuti e un `prompt_cache_key` deterministico
+   per profilo e modello. `gpt-5.4-mini` mantiene il caching implicito perché
+   non supporta i breakpoint espliciti.
 2. Cache in-run per strumenti `leggi_*` e `cerca_*`, compresa la deduplica delle
    richieste contemporanee identiche.
 
 Ogni esecuzione registra profilo, numero di strumenti esposti, cache hit e
-preload fascicolo. Questi dati sono visibili nella Inbox Tars. La cache non
+preload fascicolo, token letti dalla cache e token scritti, anche quando la
+risposta del provider è incompleta o fallisce dopo aver consumato token. I campi storici
+`cache write 5m/1h` restano per retrocompatibilità; le scritture cache OpenAI
+sono registrate nel bucket con moltiplicatore 1,25. Questi dati sono visibili
+nella Inbox Tars. La cache non
 attraversa utenti o run e non conserva risultati mutabili oltre l'esecuzione.
+
+In produzione è obbligatoria `OPENAI_API_KEY`. `ANTHROPIC_API_KEY` non viene più
+letta dal codice e può essere rimossa da Railway dopo un deploy verificato.
 
 Dal 18/08/2026 Tars dispone inoltre di letture trasversali per quadro aziendale,
 organizzazione, produzione, qualità e contenuto documentale. I dati restano
@@ -334,4 +351,5 @@ pnpm storage:dry-run
 2. Rotazione credenziali esterne e decisione sul purge Git history.
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
-5. QA su dati reali dopo il deploy e monitoraggio errori/costi Tars.
+5. Impostazione di `OPENAI_API_KEY`, QA su dati reali dopo il deploy e
+   monitoraggio errori, latenza, cache e costi Tars.

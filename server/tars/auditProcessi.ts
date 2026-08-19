@@ -7,13 +7,9 @@
 
 import type { TrpcContext } from "../_core/context";
 import { allSedeIds } from "../routers/sedi";
-import { anthropicConfigured } from "./anthropic";
+import { openaiConfigured } from "./openai";
 import { runTars } from "./loop";
-import {
-  budgetMensileSuperato,
-  getTarsConfig,
-  saveConfig,
-} from "./stores";
+import { budgetMensileSuperato, getTarsConfig, saveConfig } from "./stores";
 
 const INTERVALLO_CONTROLLO_MS = 6 * 60 * 60 * 1000;
 const FREQUENZA_AUDIT_MS = 22 * 60 * 60 * 1000;
@@ -50,7 +46,7 @@ export async function eseguiAuditProcessi(
 ) {
   const config = getTarsConfig(sedeId);
   if (!config.attivo || !config.auditProcessiAttivo) return null;
-  if (!anthropicConfigured() || budgetMensileSuperato(sedeId)) return null;
+  if (!openaiConfigured() || budgetMensileSuperato(sedeId)) return null;
   if (inCorso.has(sedeId)) return null;
 
   const ultimo = config.ultimoAuditProcessiAt
@@ -108,7 +104,10 @@ async function controllaTutteLeSedi(): Promise<void> {
 }
 
 export function avviaAuditProcessiScheduler(): void {
-  const primo = setTimeout(() => void controllaTutteLeSedi(), PRIMO_CONTROLLO_MS);
+  const primo = setTimeout(
+    () => void controllaTutteLeSedi(),
+    PRIMO_CONTROLLO_MS
+  );
   primo.unref?.();
   const timer = setInterval(
     () => void controllaTutteLeSedi(),
@@ -116,4 +115,3 @@ export function avviaAuditProcessiScheduler(): void {
   );
   timer.unref?.();
 }
-

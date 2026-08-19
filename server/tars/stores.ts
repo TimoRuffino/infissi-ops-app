@@ -449,19 +449,21 @@ export const saveEsecuzioni = () => _esecuzioniStore.save();
 export const newEsecuzioneId = () => nextEsecuzioneId++;
 
 // ── Spesa ───────────────────────────────────────────────────────────────────
-// Prezzi Anthropic per milione di token (USD). Cache read ~0.1× dell'input,
-// cache write ~1.25×. Il numero che ne esce è una STIMA da cruscotto — la
-// fattura vera la fa Anthropic — ma basta per un budget.
+// Prezzi per milione di token (USD). I modelli Claude restano qui soltanto
+// per stimare correttamente le esecuzioni storiche precedenti alla migrazione.
 
 type Prezzi = { in: number; out: number };
 const PREZZI_MTOK: Record<string, Prezzi> = {
+  "gpt-5.6-sol": { in: 5, out: 30 },
+  "gpt-5.6-terra": { in: 2, out: 12 },
+  "gpt-5.4-mini": { in: 0.75, out: 4.5 },
   "claude-opus-5": { in: 5, out: 25 },
   "claude-sonnet-5": { in: 3, out: 15 },
   "claude-haiku-4-5-20251001": { in: 1, out: 5 },
 };
 // Un modello sconosciuto (record vecchi senza modello, id futuri) si conta
 // al prezzo più alto: un budget che sbaglia deve sbagliare per eccesso.
-const PREZZI_FALLBACK: Prezzi = { in: 5, out: 25 };
+const PREZZI_FALLBACK: Prezzi = { in: 5, out: 30 };
 
 export function costoEsecuzioneUsd(e: {
   modello: string | null;
@@ -556,21 +558,20 @@ export const saveChat = () => _chatStore.save();
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-// I modelli fra cui la direzione può scegliere. Opus ragiona meglio sulle
-// contraddizioni — che è tutto il lavoro di Tars; Sonnet costa meno per le
-// analisi di massa; Haiku serve solo se i volumi esplodono.
+// Sol resta per il ragionamento profondo; Terra bilancia qualità e costo nei
+// lavori automatici; 5.4 mini è il profilo economico per volumi elevati.
 export const MODELLI_TARS = [
-  "claude-opus-5",
-  "claude-sonnet-5",
-  "claude-haiku-4-5-20251001",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.4-mini",
 ] as const;
 export type ModelloTars = (typeof MODELLI_TARS)[number];
 
 export type TarsConfig = {
   id: number;
   // Una configurazione per sede: una sede può tenere Tars spento mentre
-  // un'altra lo usa, e i modelli possono essere diversi (chi analizza poche
-  // commesse difficili vuole Opus, chi ne smista molte può stare su Sonnet).
+  // un'altra lo usa, e può separare il modello dei casi complessi da quello
+  // dei trigger automatici ad alto volume.
   sedeId: number;
   attivo: boolean;
   modello: string;
@@ -578,7 +579,7 @@ export type TarsConfig = {
   // un modello più economico: sono compiti di aggancio, non di ragionamento
   // profondo, e sono anche i più frequenti — è lì che si brucia il budget.
   modelloAutomatico: string;
-  // Tetto mensile stimato in USD (i prezzi Anthropic sono in dollari).
+  // Tetto mensile stimato in USD.
   // Superato il tetto: i trigger automatici si fermano, quelli umani
   // ricevono un errore chiaro. 0 = nessun limite.
   budgetMensileUsd: number;
@@ -593,17 +594,17 @@ export type TarsConfig = {
   ultimoAuditProcessiAt: Date | null;
   // Versione dei default applicata a questo record. Serve a far arrivare un
   // cambio di modello o di budget anche alle installazioni già avviate:
-  // senza, il record salvato resterebbe su Sonnet per sempre.
+  // senza, il record salvato resterebbe sul vecchio provider per sempre.
   versioneDefault?: number;
   updatedAt: Date;
 };
 
-const VERSIONE_DEFAULT = 3;
+const VERSIONE_DEFAULT = 4;
 
 const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   attivo: false, // spento finché la direzione non lo accende
-  modello: "claude-opus-5",
-  modelloAutomatico: "claude-sonnet-5",
+  modello: "gpt-5.6-sol",
+  modelloAutomatico: "gpt-5.6-terra",
   budgetMensileUsd: 25,
   // Con la lettura degli strumenti in parallelo un giro costa meno tempo:
   // il budget più alto serve a farlo arrivare in fondo all'indagine, non a
@@ -616,6 +617,18 @@ const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   versioneDefault: VERSIONE_DEFAULT,
   updatedAt: new Date(),
 };
+
+export function applicaMigrazioneConfigTars(config: TarsConfig): void {
+  if ((config.versioneDefault ?? 1) >= VERSIONE_DEFAULT) return;
+
+  if (!MODELLI_TARS.includes(config.modello as ModelloTars)) {
+    config.modello = DEFAULT_CONFIG.modello;
+  }
+  if (!MODELLI_TARS.includes(config.modelloAutomatico as ModelloTars)) {
+    config.modelloAutomatico = DEFAULT_CONFIG.modelloAutomatico;
+  }
+  config.versioneDefault = VERSIONE_DEFAULT;
+}
 
 let nextConfigId = 2;
 
@@ -645,13 +658,8 @@ const _configStore = persistedStore<TarsConfig>(
         c.budgetMensileUsd = DEFAULT_CONFIG.budgetMensileUsd;
       }
       // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
-      // una decisione umana, e una migrazione non la prende per nessuno.
-      if ((c.versioneDefault ?? 1) < VERSIONE_DEFAULT) {
-        c.modello = DEFAULT_CONFIG.modello;
-        c.maxToolCalls = DEFAULT_CONFIG.maxToolCalls;
-        c.timeoutMs = DEFAULT_CONFIG.timeoutMs;
-        c.versioneDefault = VERSIONE_DEFAULT;
-      }
+      // una decisione umana, e non sovrascrive limiti personalizzati.
+      applicaMigrazioneConfigTars(c);
     }
     nextConfigId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
   }

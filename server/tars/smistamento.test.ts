@@ -1,4 +1,4 @@
-// Smistamento end-to-end con API Anthropic mockata: mail non collegata →
+// Smistamento end-to-end con API OpenAI mockata: mail non collegata ->
 // Tars propone il collegamento → l'approvazione aggancia davvero la
 // comunicazione. E la mail irrilevante, una volta esaminata, non torna
 // in coda.
@@ -28,6 +28,7 @@ import {
   listDaAnalizzare,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
+import { openaiScript, toOpenAIResponse } from "./openaiTestHelpers";
 
 function makeCtx(): TrpcContext {
   return {
@@ -49,15 +50,6 @@ function makeCtx(): TrpcContext {
     sedeId: 1,
     sediIds: [1],
   };
-}
-
-function anthropicScript(responses: any[]) {
-  let i = 0;
-  return vi.fn(async () => ({
-    ok: true,
-    json: async () => responses[Math.min(i++, responses.length - 1)],
-    text: async () => "",
-  })) as any;
 }
 
 const usage = { input_tokens: 100, output_tokens: 50 };
@@ -95,7 +87,7 @@ async function inserisciMailTest(messageId: string, oggetto: string) {
 describe("smistamento", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   beforeEach(() => {
     _resetComunicazioniInMemoria();
@@ -104,7 +96,7 @@ describe("smistamento", () => {
   afterAll(() => {
     _resetSmistamentoPerTest();
     global.fetch = realFetch;
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
     getTarsConfig().attivo = false;
   });
 
@@ -140,7 +132,7 @@ describe("smistamento", () => {
     });
     expect(mail).not.toBeNull();
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -240,7 +232,7 @@ describe("smistamento", () => {
     });
     expect(spam).not.toBeNull();
 
-    const fetchSpy = anthropicScript([
+    const fetchSpy = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -300,7 +292,7 @@ describe("smistamento", () => {
       receivedAt: new Date(),
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -356,7 +348,7 @@ describe("smistamento", () => {
       stato: "nuova",
       receivedAt: new Date(),
     });
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "end_turn",
         usage,
@@ -394,7 +386,7 @@ describe("smistamento", () => {
     });
     expect(mail?.categoria).toBe("da_classificare");
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -455,7 +447,7 @@ describe("smistamento", () => {
     expect(domanda.opzioni).toContain("Admin Ruffino");
     expect((await getComunicazione(mail!.id, 1))?.categoria).toBe("nuovo_lead");
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -560,7 +552,7 @@ describe("smistamento", () => {
         motivo: "Richiesta operativa esplicita.",
       },
     });
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -607,11 +599,12 @@ describe("smistamento", () => {
       if (chiamata === 1) return primaRisposta;
       return {
         ok: true,
-        json: async () => ({
-          stop_reason: "end_turn",
-          usage,
-          content: [{ type: "text", text: "Classificata." }],
-        }),
+        json: async () =>
+          toOpenAIResponse({
+            stop_reason: "end_turn",
+            usage,
+            content: [{ type: "text", text: "Classificata." }],
+          }),
         text: async () => "",
       };
     }) as any;
@@ -625,24 +618,25 @@ describe("smistamento", () => {
     programmaSmistamento(1, 0);
     sbloccaPrima({
       ok: true,
-      json: async () => ({
-        stop_reason: "tool_use",
-        usage,
-        content: [
-          {
-            type: "tool_use",
-            id: "tu_durante_run",
-            name: "classifica_comunicazione",
-            input: {
-              comunicazioneId: prima.id,
-              categoria: "operativa",
-              confidenza: "alta",
-              dubbio: false,
-              motivo: "Richiesta operativa esplicita.",
+      json: async () =>
+        toOpenAIResponse({
+          stop_reason: "tool_use",
+          usage,
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_durante_run",
+              name: "classifica_comunicazione",
+              input: {
+                comunicazioneId: prima.id,
+                categoria: "operativa",
+                confidenza: "alta",
+                dubbio: false,
+                motivo: "Richiesta operativa esplicita.",
+              },
             },
-          },
-        ],
-      }),
+          ],
+        }),
       text: async () => "",
     });
     await run;
@@ -710,5 +704,72 @@ describe("smistamento", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await listDaAnalizzare(1, 10)).toHaveLength(1);
     expect((await leggiStatoSmistamento(1)).stato).toBe("disattivato");
+  });
+
+  it("classifica automaticamente con la sola OPENAI_API_KEY", async () => {
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    getTarsConfig().attivo = true;
+    const mail = (await inserisciMailTest(
+      "<openai-auto@example.com>",
+      "Richiesta preventivo infissi"
+    ))!;
+    let chiamata = 0;
+    global.fetch = vi.fn(async () => {
+      chiamata++;
+      return {
+        ok: true,
+        json: async () =>
+          chiamata === 1
+            ? {
+                id: "resp_auto",
+                model: "gpt-5.6-terra",
+                status: "completed",
+                output: [
+                  {
+                    id: "fc_auto",
+                    type: "function_call",
+                    call_id: "call_auto",
+                    name: "classifica_comunicazione",
+                    arguments: JSON.stringify({
+                      comunicazioneId: mail.id,
+                      categoria: "nuovo_lead",
+                      confidenza: "alta",
+                      dubbio: false,
+                      motivo: "Richiesta esplicita di preventivo per infissi.",
+                    }),
+                    status: "completed",
+                  },
+                ],
+                usage: { input_tokens: 100, output_tokens: 50 },
+              }
+            : {
+                id: "resp_auto_done",
+                model: "gpt-5.6-terra",
+                status: "completed",
+                output: [
+                  {
+                    id: "msg_auto_done",
+                    type: "message",
+                    role: "assistant",
+                    status: "completed",
+                    content: [{ type: "output_text", text: "Classificata." }],
+                  },
+                ],
+                usage: { input_tokens: 50, output_tokens: 10 },
+              },
+        text: async () => "",
+      };
+    }) as any;
+
+    try {
+      await smistaComunicazioni(1);
+      expect(await listDaAnalizzare(1, 10)).toHaveLength(0);
+      expect((await getComunicazione(mail.id, 1))?.categoria).toBe(
+        "nuovo_lead"
+      );
+    } finally {
+      delete process.env.OPENAI_API_KEY;
+      process.env.OPENAI_API_KEY = "test-key";
+    }
   });
 });

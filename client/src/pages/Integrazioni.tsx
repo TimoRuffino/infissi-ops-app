@@ -372,13 +372,12 @@ export default function Integrazioni() {
 // ── Tars — l'agente operativo ────────────────────────────────────────────────
 // L'interruttore che spegne tutto in tre secondi. Off = il CRM funziona
 // esattamente come prima; Tars legge dati e crea proposte solo quando è on.
-// Opus ragiona meglio sulle contraddizioni, che è l'unico lavoro di Tars:
-// resta il default. Gli altri due sono lì per quando i volumi contano più
-// della profondità.
+// Sol gestisce le analisi profonde; Terra i lavori automatici; 5.4 mini resta
+// disponibile quando il volume conta più della profondità.
 const ETICHETTA_MODELLO: Record<string, string> = {
-  "claude-opus-5": "Opus 5 — il più capace",
-  "claude-sonnet-5": "Sonnet 5 — equilibrato",
-  "claude-haiku-4-5-20251001": "Haiku 4.5 — il più economico",
+  "gpt-5.6-sol": "GPT-5.6 Sol — analisi profonde",
+  "gpt-5.6-terra": "GPT-5.6 Terra — equilibrato",
+  "gpt-5.4-mini": "GPT-5.4 mini — economico",
 };
 
 function TarsCard() {
@@ -462,7 +461,7 @@ function TarsCard() {
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 text-xs">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>
-              <code>ANTHROPIC_API_KEY</code> non configurata nelle variabili
+              <code>OPENAI_API_KEY</code> non configurata nelle variabili
               d'ambiente del server. Senza chiave Tars non può accendersi.
             </span>
           </div>

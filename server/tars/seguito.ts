@@ -14,7 +14,7 @@
 // e il seguito di un seguito non esiste.
 
 import type { TrpcContext } from "../_core/context";
-import { anthropicConfigured } from "./anthropic";
+import { openaiConfigured } from "./openai";
 import { getComunicazione } from "./comunicazioni";
 import { runTars } from "./loop";
 import {
@@ -81,7 +81,7 @@ Non riproporre la segnalazione: quella è già stata accolta.`;
 export function avviaSeguito(p: Proposta, ctx: TrpcContext): boolean {
   if (!meritaSeguito(p)) return false;
   const config = getTarsConfig(p.sedeId);
-  if (!config.attivo || !anthropicConfigured()) return false;
+  if (!config.attivo || !openaiConfigured()) return false;
   // Col budget finito il seguito non parte: la proposta resta decisa e
   // l'operatore può sempre chiedere l'analisi a mano quando il budget riapre.
   if (budgetMensileSuperato(p.sedeId)) return false;
@@ -126,12 +126,15 @@ la proposta di nuovo lead solo se cliente e commessa non esistono già.`;
       origineId: p.id,
     });
   })()
-    .then((e) => {
+    .then(e => {
       p.seguitoEsecuzioneId = e.id;
       saveProposte();
     })
-    .catch((e) => {
-      console.warn(`[tars] seguito della proposta #${p.id} fallito:`, e?.message ?? e);
+    .catch(e => {
+      console.warn(
+        `[tars] seguito della proposta #${p.id} fallito:`,
+        e?.message ?? e
+      );
     });
 
   return true;

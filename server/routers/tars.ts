@@ -16,7 +16,7 @@ import {
   requireDirezione,
   requireDirezioneOAmministrazione,
 } from "../_core/permissions";
-import { anthropicConfigured } from "../tars/anthropic";
+import { openaiConfigured } from "../tars/openai";
 import { runTars } from "../tars/loop";
 import { avviaSeguito } from "../tars/seguito";
 import { eseguiAuditProcessi } from "../tars/auditProcessi";
@@ -115,10 +115,10 @@ export const tarsRouter = router({
             "Tars è spento. La direzione può attivarlo da Impostazioni → Integrazioni.",
         });
       }
-      if (!anthropicConfigured()) {
+      if (!openaiConfigured()) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "ANTHROPIC_API_KEY non configurata sul server.",
+          message: "OPENAI_API_KEY non configurata sul server.",
         });
       }
       assertBudgetDisponibile(ctx.sedeId);
@@ -181,10 +181,10 @@ fare, usa nessuna_azione.`;
             "Tars è spento. La direzione può attivarlo da Impostazioni → Integrazioni.",
         });
       }
-      if (!anthropicConfigured()) {
+      if (!openaiConfigured()) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "ANTHROPIC_API_KEY non configurata sul server.",
+          message: "OPENAI_API_KEY non configurata sul server.",
         });
       }
       assertBudgetDisponibile(ctx.sedeId);
@@ -291,10 +291,10 @@ Non scrivere direttamente nel CRM: prepara soltanto proposte approvabili.`;
               "Tars è spento. La direzione può attivarlo da Impostazioni.",
           });
         }
-        if (!anthropicConfigured()) {
+        if (!openaiConfigured()) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "ANTHROPIC_API_KEY non configurata sul server.",
+            message: "OPENAI_API_KEY non configurata sul server.",
           });
         }
         assertBudgetDisponibile(ctx.sedeId);
@@ -540,10 +540,10 @@ ${input.testo.trim()}`;
           message: "L'audit processi di Tars non è attivo.",
         });
       }
-      if (!anthropicConfigured()) {
+      if (!openaiConfigured()) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "ANTHROPIC_API_KEY non configurata sul server.",
+          message: "OPENAI_API_KEY non configurata sul server.",
         });
       }
       assertBudgetDisponibile(ctx.sedeId);
@@ -715,7 +715,7 @@ ${input.testo.trim()}`;
         auditProcessiAttivo: c.auditProcessiAttivo,
         ultimoAuditProcessiAt: c.ultimoAuditProcessiAt,
         spesaMeseUsd: spesaMeseUsd(ctx.sedeId ?? 1),
-        chiaveConfigurata: anthropicConfigured(),
+        chiaveConfigurata: openaiConfigured(),
         puoModificare: isDirezione(ctx.user),
       };
     }),

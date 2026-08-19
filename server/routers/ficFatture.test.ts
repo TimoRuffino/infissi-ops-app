@@ -13,6 +13,7 @@ import {
   statoFattura,
   upsertFatture,
 } from "./ficFatture";
+import { toOpenAIResponse } from "../tars/openaiTestHelpers";
 import { proposte } from "../tars/stores";
 
 function makeCtx(): TrpcContext {
@@ -74,17 +75,18 @@ describe("riconciliazione FIC", () => {
   });
 
   it("il sync abbina il cliente per nome, comunque sia scritto", () => {
-    const r = upsertFatture([
-      fatturaBase(9001, { clienteNome: "MARIO  riconcilia" }),
-    ], 1);
+    const r = upsertFatture(
+      [fatturaBase(9001, { clienteNome: "MARIO  riconcilia" })],
+      1
+    );
     expect(r.nuove).toBe(1);
-    const f = ficFatture.find((x) => x.id === 9001)!;
+    const f = ficFatture.find(x => x.id === 9001)!;
     expect(f.clienteId).toBe(clienteId);
   });
 
   it("cliente con una sola commessa attiva → commessa individuata", async () => {
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
-    const f = ficFatture.find((x) => x.id === 9001)!;
+    const f = ficFatture.find(x => x.id === 9001)!;
     const m = commessaPerFattura(f, commesse);
     expect(m.commessa?.id).toBe(commessaId);
   });
@@ -93,7 +95,7 @@ describe("riconciliazione FIC", () => {
     const prima = generaProposteRiconciliazione(1);
     expect(prima).toBeGreaterThanOrEqual(1);
     const mie = proposte.filter(
-      (p) =>
+      p =>
         p.trigger === "riconciliazione_fic" &&
         p.commessaId === commessaId &&
         p.tipo === "pagamento"
@@ -105,7 +107,7 @@ describe("riconciliazione FIC", () => {
     // Idempotenza: il sync gira ogni 6 ore, la proposta resta una.
     const seconda = generaProposteRiconciliazione(1);
     const dopo = proposte.filter(
-      (p) =>
+      p =>
         p.trigger === "riconciliazione_fic" &&
         p.commessaId === commessaId &&
         p.tipo === "pagamento"
@@ -116,7 +118,7 @@ describe("riconciliazione FIC", () => {
 
   it("pattuito proposto solo se assente, dall'unica fattura", () => {
     const p = proposte.find(
-      (x) =>
+      x =>
         x.trigger === "riconciliazione_fic" &&
         x.commessaId === commessaId &&
         x.tipo === "modifica_commessa"
@@ -127,7 +129,7 @@ describe("riconciliazione FIC", () => {
 
   it("approvare la proposta registra la rata e la fattura risulta riconciliata", async () => {
     const p = proposte.find(
-      (x) =>
+      x =>
         x.trigger === "riconciliazione_fic" &&
         x.commessaId === commessaId &&
         x.tipo === "pagamento"
@@ -141,49 +143,66 @@ describe("riconciliazione FIC", () => {
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
     // list non porta i pagamenti: lo stato va calcolato sui dati pieni.
     const piene = [c];
-    const f = ficFatture.find((x) => x.id === 9001)!;
+    const f = ficFatture.find(x => x.id === 9001)!;
     expect(statoFattura(f, piene as any[]).stato).toBe("riconciliata");
     void commesse;
   });
 
   it("cliente con più commesse senza importo distintivo → nessuna proposta", async () => {
     await caller.commesse.create({ clienteId }); // seconda commessa attiva
-    upsertFatture([fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })], 1);
+    upsertFatture(
+      [fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })],
+      1
+    );
     const create = generaProposteRiconciliazione(1);
-    const perQuesta = proposte.filter((p) =>
+    const perQuesta = proposte.filter(p =>
       JSON.stringify(p.payload).includes("9002/A")
     );
     expect(perQuesta).toHaveLength(0);
     void create;
 
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
-    const f = ficFatture.find((x) => x.id === 9002)!;
+    const f = ficFatture.find(x => x.id === 9002)!;
     expect(statoFattura(f, commesse).stato).toBe("non_abbinabile");
   });
 
   it("cliente sconosciuto → non abbinabile, mai proposte al buio", () => {
-    upsertFatture([
-      fatturaBase(9003, { numero: "9003/A", clienteNome: "Sconosciuto Totale" }),
-    ], 1);
+    upsertFatture(
+      [
+        fatturaBase(9003, {
+          numero: "9003/A",
+          clienteNome: "Sconosciuto Totale",
+        }),
+      ],
+      1
+    );
     generaProposteRiconciliazione(1);
     expect(
-      proposte.some((p) => JSON.stringify(p.payload).includes("9003/A"))
+      proposte.some(p => JSON.stringify(p.payload).includes("9003/A"))
     ).toBe(false);
   });
 
   it("l'upsert aggiorna lo stato delle rate senza duplicare la fattura", () => {
-    const prima = ficFatture.filter((f) => f.id === 9003).length;
-    upsertFatture([
-      fatturaBase(9003, {
-        numero: "9003/A",
-        clienteNome: "Sconosciuto Totale",
-        rate: [
-          { importo: 1220, scadenza: "2026-08-31", stato: "paid", dataPagamento: "2026-08-07" },
-        ],
-      }),
-    ], 1);
-    expect(ficFatture.filter((f) => f.id === 9003)).toHaveLength(prima);
-    expect(ficFatture.find((f) => f.id === 9003)!.rate[0].stato).toBe("paid");
+    const prima = ficFatture.filter(f => f.id === 9003).length;
+    upsertFatture(
+      [
+        fatturaBase(9003, {
+          numero: "9003/A",
+          clienteNome: "Sconosciuto Totale",
+          rate: [
+            {
+              importo: 1220,
+              scadenza: "2026-08-31",
+              stato: "paid",
+              dataPagamento: "2026-08-07",
+            },
+          ],
+        }),
+      ],
+      1
+    );
+    expect(ficFatture.filter(f => f.id === 9003)).toHaveLength(prima);
+    expect(ficFatture.find(f => f.id === 9003)!.rate[0].stato).toBe("paid");
   });
 });
 
@@ -236,7 +255,7 @@ describe("fatture orfane → Tars", () => {
     const { getTarsConfig } = await import("../tars/stores");
     const { smistaFatture } = await import("../tars/smistamento");
     const realFetch = global.fetch;
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
     getTarsConfig().attivo = true;
 
     try {
@@ -249,17 +268,25 @@ describe("fatture orfane → Tars", () => {
       });
       const commessa = await caller.commesse.create({ clienteId: cliente.id });
 
-      upsertFatture([
-        fatturaBase(9100, {
-          numero: "9100/A",
-          // Grafia diversa: il match per nome fallisce, Tars deve capire.
-          clienteNome: "COND. GIRASOLE - AMM. BRUNI",
-          importoLordo: 7320,
-          rate: [
-            { importo: 7320, scadenza: "2026-07-31", stato: "paid", dataPagamento: "2026-07-25" },
-          ],
-        }),
-      ], 1);
+      upsertFatture(
+        [
+          fatturaBase(9100, {
+            numero: "9100/A",
+            // Grafia diversa: il match per nome fallisce, Tars deve capire.
+            clienteNome: "COND. GIRASOLE - AMM. BRUNI",
+            importoLordo: 7320,
+            rate: [
+              {
+                importo: 7320,
+                scadenza: "2026-07-31",
+                stato: "paid",
+                dataPagamento: "2026-07-25",
+              },
+            ],
+          }),
+        ],
+        1
+      );
 
       let i = 0;
       const risposte = [
@@ -267,7 +294,12 @@ describe("fatture orfane → Tars", () => {
           stop_reason: "tool_use",
           usage: { input_tokens: 100, output_tokens: 50 },
           content: [
-            { type: "tool_use", id: "t1", name: "cerca_clienti", input: { query: "Girasole" } },
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "cerca_clienti",
+              input: { query: "Girasole" },
+            },
           ],
         },
         {
@@ -297,19 +329,20 @@ describe("fatture orfane → Tars", () => {
       ];
       global.fetch = vi.fn(async () => ({
         ok: true,
-        json: async () => risposte[Math.min(i++, risposte.length - 1)],
+        json: async () =>
+          toOpenAIResponse(risposte[Math.min(i++, risposte.length - 1)]),
         text: async () => "",
       })) as any;
 
       await smistaFatture(1);
 
       const proposta = proposte.find(
-        (p) => p.tipo === "collega_fattura" && p.payload?.ficId === 9100
+        p => p.tipo === "collega_fattura" && p.payload?.ficId === 9100
       );
       expect(proposta).toBeDefined();
-      expect(ficFatture.find((f) => f.id === 9100)!.tarsAnalizzata).toBe(true);
+      expect(ficFatture.find(f => f.id === 9100)!.tarsAnalizzata).toBe(true);
       const elenco = await caller.ficFatture.list({ anno: 2026 });
-      expect(elenco.find((f) => f.id === 9100)).toMatchObject({
+      expect(elenco.find(f => f.id === 9100)).toMatchObject({
         stato: "proposta",
         propostaTars: {
           id: proposta!.id,
@@ -321,7 +354,7 @@ describe("fatture orfane → Tars", () => {
 
       // Approvazione (direzione) → collegata + proposte soldi in coda.
       await caller.tars.proposte.approva({ id: proposta!.id });
-      const f = ficFatture.find((x) => x.id === 9100)!;
+      const f = ficFatture.find(x => x.id === 9100)!;
       expect(f.commessaId).toBe(commessa.id);
       const docs = await caller.preventiviContratti.byCommessa(commessa.id);
       const fatture = docs.filter((d: any) => d.source === "fic");
@@ -338,7 +371,7 @@ describe("fatture orfane → Tars", () => {
       expect(docsDopo.filter((d: any) => d.source === "fic")).toHaveLength(1);
       expect(
         proposte.some(
-          (p) =>
+          p =>
             p.tipo === "pagamento" &&
             p.commessaId === commessa.id &&
             JSON.stringify(p.payload).includes("9100/A")
@@ -358,7 +391,7 @@ describe("fatture orfane → Tars", () => {
       expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(false);
     } finally {
       global.fetch = realFetch;
-      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
       getTarsConfig().attivo = false;
     }
   });

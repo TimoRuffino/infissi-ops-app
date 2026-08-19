@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
-**Versione:** 4.8 - Smistamento Tars affidabile e osservabile: coda drenata per lotti, trigger concorrenti preservati, recupero dopo riavvio e stato operativo visibile. Base v4.7 - Classificazione automatica delle email affidata a Tars, con pre-analisi locale non vincolante, dubbi sempre visibili e correzioni manuali protette.
+**Versione:** 4.9 - Tars migrato a OpenAI Responses API: function calling, modelli separati per lavoro umano e automatico, prompt caching misurabile e limite strumenti a chiusura garantita. Base v4.8 - Smistamento Tars affidabile e osservabile con coda drenata per lotti, recupero dopo riavvio e stato operativo visibile.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -34,7 +34,7 @@ Pilastri:
 - **Scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri‑armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
-- **Agente AI.** Tars usa Anthropic tool use, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
+- **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
 
 ---
 
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.9 (19/08/2026)** - Tars migrato a OpenAI Responses API con `gpt-5.6-sol` per le richieste umane, `gpt-5.6-terra` per gli automatismi, prompt caching per profilo/modello e chiusura forzata dopo il budget strumenti (§50-51).
 - **v4.8 (19/08/2026)** - Coda Comunicazioni Tars resa lossless: continuazione automatica oltre 10 mail, trigger concorrenti preservati, retry API non annullabile, recupero periodico e dopo bootstrap, riattivazione da config/budget e stato d'attesa spiegato nella UI (§50-51).
 - **v4.7 (19/08/2026)** - Ogni nuova email passa dalla classificazione strutturata di Tars; il filtro locale fornisce solo segnali, le esclusioni richiedono confidenza alta, i dubbi restano visibili e le mail saltate vengono ritentate (§50-51).
 - **v4.6 (18/08/2026)** — Richieste di preventivo e opportunità protette da header spam e regole mittente; newsletter inutili ricondotte allo spam; Tars chiede l'assegnatario prima di proporre cliente e commessa e conserva il contesto nel seguito (§50-51).
@@ -1196,7 +1197,7 @@ Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura dir
 Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e campi significativi del payload. La stessa azione non deve tornare in coda riscritta con parole diverse quando è pendente, approvata, rifiutata, risposta, fallita o già gestita. La similarità del titolo funge da controllo aggiuntivo e il motivo del rifiuto viene restituito al modello.
 
 ### 50.2 Trigger e profili strumenti
-Il catalogo tool inviato ad Anthropic dipende dal trigger:
+Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:
 
 - `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
 - `smistamento`: comunicazioni, ricerca e collegamento alle entità;
@@ -1205,7 +1206,7 @@ Il catalogo tool inviato ad Anthropic dipende dal trigger:
 - `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
 - `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
 
-L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`.
+L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`. Il default è `gpt-5.6-sol` per chat e richieste umane e `gpt-5.6-terra` per i trigger automatici; entrambi sono configurabili per sede.
 
 ### 50.3 Quadro aziendale e confini di accesso
 Tars DEVE poter incrociare anagrafiche, commesse, cantiere, economia, comunicazioni, inventario, produzione, qualità e storico delle proprie decisioni. `leggi_quadro_azienda` restituisce una sintesi compatta della sede con KPI, pratiche ferme, scadenze, anomalie e qualità decisionale dell'agente. Gli strumenti verticali permettono di approfondire contenuto documentale, produzione e qualità.
@@ -1220,12 +1221,12 @@ Quando `commessaId` è noto all'avvio, il loop precarica il fascicolo nel primo 
 ### 50.5 Riduzione token e cache
 La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
 
-1. **Prompt caching Anthropic:** system prompt stabile con TTL 1 ora; ultimo schema tool con TTL 1 ora; prefisso crescente della conversazione marcato `ephemeral`.
+1. **Prompt caching OpenAI:** prefisso stabile composto da istruzioni, profilo strumenti e cronologia; `prompt_cache_key` deterministico per profilo e modello. Su GPT-5.6 il messaggio developer termina con un breakpoint esplicito e usa modalità `explicit` con TTL 30 minuti; `gpt-5.4-mini` usa il caching implicito. `store=false` evita la conservazione della risposta applicativa; gli item `reasoning.encrypted_content` vengono ripassati nei turni di function calling stateless.
 2. **Cache strumenti per run:** ogni `leggi_*` e `cerca_*` usa una chiave JSON stabile; due richieste identiche, anche contemporanee, condividono la stessa Promise. Gli errori non restano in cache.
 3. **Profilo minimo:** i trigger automatici non pagano lo schema di strumenti irrilevanti.
 4. **Fascicolo compatto:** una lettura aggregata sostituisce numerose chiamate frammentate e output ripetuti.
 
-L'audit salva input, output, cache read, cache write 5m/1h, cache hit strumenti, costo stimato ed esito. La Inbox Tars espone profilo, preload e cache hit per diagnosticare run costosi.
+L'audit salva input, output, cache read, cache write, cache hit strumenti, costo stimato ed esito. Il consumo restituito dal provider viene contabilizzato anche per risposte incomplete o fallite. I campi storici `cache write 5m/1h` restano compatibili con le esecuzioni precedenti; le scritture OpenAI sono contabilizzate nel bucket a moltiplicatore 1,25. La Inbox Tars espone profilo, preload e cache hit per diagnosticare run costosi.
 
 ### 50.6 Audit continuo dei processi
 Quando Tars e l'audit sono abilitati, lo scheduler può eseguire una revisione per sede ogni circa 24 ore. Il run automatico usa il profilo minimo `audit_processi`, legge prima il quadro aziendale e DEVE:
@@ -1239,6 +1240,8 @@ La direzione può avviare l'audit manualmente dalla Inbox Tars e abilitarlo per 
 
 ### 50.7 Store e budget
 Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
+
+La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più letta. Al raggiungimento di `maxToolCalls`, il loop concede esattamente un turno conclusivo senza strumenti e termina anche se il provider restituisce una risposta anomala: nessun trigger può restare in esecuzione indefinitamente.
 
 ---
 

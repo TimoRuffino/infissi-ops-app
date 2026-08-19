@@ -59,10 +59,10 @@ describe("integrazioni separate per sede", () => {
     const dellaUno = await appRouter.createCaller(ctxSede(1)).ficFatture.list();
     const dellaDue = await appRouter.createCaller(ctxSede(2)).ficFatture.list();
 
-    expect(dellaUno.map((f) => f.id)).toContain(70001);
-    expect(dellaUno.map((f) => f.id)).not.toContain(70002);
-    expect(dellaDue.map((f) => f.id)).toContain(70002);
-    expect(dellaDue.map((f) => f.id)).not.toContain(70001);
+    expect(dellaUno.map(f => f.id)).toContain(70001);
+    expect(dellaUno.map(f => f.id)).not.toContain(70002);
+    expect(dellaDue.map(f => f.id)).toContain(70002);
+    expect(dellaDue.map(f => f.id)).not.toContain(70001);
   });
 
   it("una fattura di un'altra sede non si collega né si ignora", async () => {
@@ -71,7 +71,7 @@ describe("integrazioni separate per sede", () => {
     await expect(
       caller.ficFatture.ignora({ ficId: 70002, ignorata: true })
     ).rejects.toThrow(/non trovata/i);
-    expect(ficFatture.find((f) => f.id === 70002)!.ignorata).toBe(false);
+    expect(ficFatture.find(f => f.id === 70002)!.ignorata).toBe(false);
   });
 
   it("l'Economia di una sede non conta il fatturato dell'altra", async () => {
@@ -84,21 +84,23 @@ describe("integrazioni separate per sede", () => {
     // E la sede 1 non vede la fattura da 2000 della sede 2.
     expect(uno.fic.fatturato).toBeGreaterThanOrEqual(1000);
     expect(uno.fic.fatture).toBe(
-      ficFatture.filter((f) => f.sedeId === 1 && !f.ignorata).length
+      ficFatture.filter(f => f.sedeId === 1 && !f.ignorata).length
     );
   });
 
   it("Tars si accende su una sede sola", async () => {
-    await appRouter.createCaller(ctxSede(1)).tars.config.setAttivo({ attivo: true });
+    await appRouter
+      .createCaller(ctxSede(1))
+      .tars.config.setAttivo({ attivo: true });
     expect(getTarsConfig(1).attivo).toBe(true);
     expect(getTarsConfig(2).attivo).toBe(false);
 
     // E il modello è una scelta per sede.
     await appRouter
       .createCaller(ctxSede(2))
-      .tars.config.setModello({ modello: "claude-sonnet-5" });
-    expect(getTarsConfig(2).modello).toBe("claude-sonnet-5");
-    expect(getTarsConfig(1).modello).toBe("claude-opus-5");
+      .tars.config.setModello({ modello: "gpt-5.6-terra" });
+    expect(getTarsConfig(2).modello).toBe("gpt-5.6-terra");
+    expect(getTarsConfig(1).modello).toBe("gpt-5.6-sol");
   });
 
   it("ogni sede ha la sua app Meta, e il webhook accetta entrambe", () => {

@@ -14,7 +14,7 @@
 //   - dopo un errore (API giù, credito finito) pausa di 15 minuti
 
 import type { TrpcContext } from "../_core/context";
-import { anthropicConfigured } from "./anthropic";
+import { openaiConfigured } from "./openai";
 import { budgetMensileSuperato, getTarsConfig } from "./stores";
 import { runTars } from "./loop";
 import {
@@ -71,7 +71,7 @@ function ctxSistema(sedeId: number): TrpcContext {
 
 export async function smistaComunicazioni(sedeId: number): Promise<void> {
   const config = getTarsConfig(sedeId);
-  if (!config.attivo || !anthropicConfigured()) return;
+  if (!config.attivo || !openaiConfigured()) return;
   // Budget mensile finito: i lavori automatici si fermano da soli. Le mail
   // restano non analizzate e verranno riprese quando il budget riapre.
   if (budgetMensileSuperato(sedeId)) return;
@@ -280,7 +280,7 @@ export async function leggiStatoSmistamento(
   if (coda.inAttesa > 0) {
     if (inCorso.has(sedeId)) stato = "in_elaborazione";
     else if (!config.attivo) stato = "disattivato";
-    else if (!anthropicConfigured()) stato = "chiave_mancante";
+    else if (!openaiConfigured()) stato = "chiave_mancante";
     else if (budgetMensileSuperato(sedeId)) stato = "budget_esaurito";
     else if (pausa && pausa > Date.now()) stato = "pausa_errore";
     else if (programmato) stato = "programmato";
@@ -351,7 +351,7 @@ const fatturePausaFinoA = new Map<number, number>();
 
 export async function smistaFatture(sedeId: number): Promise<void> {
   const config = getTarsConfig(sedeId);
-  if (!config.attivo || !anthropicConfigured()) return;
+  if (!config.attivo || !openaiConfigured()) return;
   if (budgetMensileSuperato(sedeId)) return;
   if (fattureInCorso.has(sedeId)) return;
   const pausaFatture = fatturePausaFinoA.get(sedeId);

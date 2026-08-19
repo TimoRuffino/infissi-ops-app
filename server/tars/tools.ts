@@ -13,7 +13,7 @@
 // La sede non è mai un parametro del modello: viene da ctx.sedeId.
 
 import type { TrpcContext } from "../_core/context";
-import type { AnthropicTool } from "./anthropic";
+import type { TarsTool } from "./openai";
 import {
   proposte,
   esecuzioni,
@@ -258,9 +258,9 @@ const PROPOSTA_PROPS = {
   confidenza: CONFIDENZA_SCHEMA,
 } as const;
 
-// ── Definizioni (formato Anthropic) ─────────────────────────────────────────
+// ── Definizioni provider-neutral ────────────────────────────────────────────
 
-export const TOOL_DEFS: AnthropicTool[] = [
+export const TOOL_DEFS: TarsTool[] = [
   {
     name: "classifica_comunicazione",
     description:
@@ -1126,8 +1126,8 @@ export function toolProfileForTrigger(trigger: string): string {
   return PROFILI[trigger] ? trigger : "completo";
 }
 
-/** Stable order matters: an unchanged profile preserves Anthropic's cache. */
-export function toolDefsForTrigger(trigger: string): AnthropicTool[] {
+/** Stable order matters: an unchanged profile preserves the provider prompt cache. */
+export function toolDefsForTrigger(trigger: string): TarsTool[] {
   const names = PROFILI[trigger];
   if (!names) return TOOL_DEFS;
   const wanted = new Set(names);

@@ -1,4 +1,4 @@
-// Test end-to-end di Tars con l'API Anthropic mockata: il loop chiama gli
+// Test end-to-end di Tars con OpenAI Responses mockata: il loop chiama gli
 // strumenti veri (caller tRPC, store in memoria), solo l'LLM è scriptato.
 // Copre: analizza → tool di lettura → proposta → approvazione → mutation
 // reale, più nessuna_azione e il rifiuto con motivo.
@@ -13,6 +13,7 @@ import {
   getTarsConfig,
   budgetMensileSuperato,
   costoEsecuzioneUsd,
+  applicaMigrazioneConfigTars,
 } from "./stores";
 import {
   eseguiStrumento,
@@ -20,7 +21,8 @@ import {
   toolDefsForTrigger,
   type ToolRuntime,
 } from "./tools";
-import { callAnthropic } from "./anthropic";
+import { callOpenAI } from "./openai";
+import { openaiScript } from "./openaiTestHelpers";
 
 function makeCtx(): TrpcContext {
   return {
@@ -44,29 +46,16 @@ function makeCtx(): TrpcContext {
   };
 }
 
-// Risposte Anthropic scriptate, consumate in ordine da ogni fetch.
-function anthropicScript(responses: any[]) {
-  let i = 0;
-  return vi.fn(async () => {
-    const body = responses[Math.min(i++, responses.length - 1)];
-    return {
-      ok: true,
-      json: async () => body,
-      text: async () => JSON.stringify(body),
-    } as any;
-  });
-}
-
 const usage = { input_tokens: 100, output_tokens: 50 };
 
 describe("tars", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   afterAll(() => {
     global.fetch = realFetch;
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
   });
 
   it("analizza → legge → propone pagamento → approvazione esegue la mutation reale", async () => {
@@ -89,7 +78,7 @@ describe("tars", () => {
       citta: "Sarzana",
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -169,7 +158,7 @@ describe("tars", () => {
     const caller = appRouter.createCaller(ctx);
     const commessa = await caller.commesse.create({ cliente: "Verdi Anna" });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -198,7 +187,7 @@ describe("tars", () => {
       importoTotale: 1000,
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -261,7 +250,7 @@ describe("tars", () => {
 describe("tars.chat", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   afterAll(() => {
     global.fetch = realFetch;
@@ -276,7 +265,7 @@ describe("tars.chat", () => {
       importoTotale: 3000,
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -355,7 +344,7 @@ describe("tars.chat", () => {
 describe("tars — proposta rifiutata non torna", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   afterAll(() => {
     global.fetch = realFetch;
@@ -403,7 +392,7 @@ describe("tars — proposta rifiutata non torna", () => {
     });
     const titolo = `Registra acconto €1.000 su ${commessa.codice}`;
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(commessa.id, 1000, titolo),
       chiusura,
     ]) as any;
@@ -416,7 +405,7 @@ describe("tars — proposta rifiutata non torna", () => {
     });
 
     // Identica: payload uguale.
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(commessa.id, 1000, titolo),
       chiusura,
     ]) as any;
@@ -429,7 +418,7 @@ describe("tars — proposta rifiutata non torna", () => {
     expect(registro.strumenti[0].esito).toMatch(/azione non necessaria/);
 
     // Riscritta: payload diverso, stesso titolo → bloccata comunque.
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(commessa.id, 999, titolo),
       chiusura,
     ]) as any;
@@ -451,13 +440,13 @@ describe("tars — proposta rifiutata non torna", () => {
     });
     const titolo = `Registra acconto €2.500 su ${commessa.codice}`;
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(commessa.id, 2500, titolo),
       chiusura,
     ]) as any;
     await caller.tars.analizza({ commessaId: commessa.id });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(commessa.id, 2500, titolo),
       chiusura,
     ]) as any;
@@ -478,7 +467,7 @@ describe("tars — proposta rifiutata non torna", () => {
       importoTotale: 6000,
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(
         commessa.id,
         3000,
@@ -489,7 +478,7 @@ describe("tars — proposta rifiutata non torna", () => {
     const primo = await caller.tars.analizza({ commessaId: commessa.id });
     await caller.tars.proposte.approva({ id: primo.proposte[0].id });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       propostaPagamento(
         commessa.id,
         3000,
@@ -504,7 +493,9 @@ describe("tars — proposta rifiutata non torna", () => {
     expect(registro.proposteDuplicateBloccate).toBe(1);
     expect(registro.strumenti[0].esito).toMatch(/già stata gestita/);
     expect(
-      proposte.filter(p => p.commessaId === commessa.id && p.tipo === "pagamento")
+      proposte.filter(
+        p => p.commessaId === commessa.id && p.tipo === "pagamento"
+      )
     ).toHaveLength(1);
   });
 });
@@ -515,7 +506,7 @@ describe("tars — proposta rifiutata non torna", () => {
 describe("tars — seguito dell'approvazione", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   afterAll(() => {
     global.fetch = realFetch;
@@ -539,7 +530,7 @@ describe("tars — seguito dell'approvazione", () => {
       importoTotale: 4000,
     });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -573,7 +564,7 @@ describe("tars — seguito dell'approvazione", () => {
     expect(segnalazione.tipo).toBe("segnalazione");
 
     // Il seguito parte all'approvazione: da qui il modello propone l'azione.
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -629,7 +620,7 @@ describe("tars — seguito dell'approvazione", () => {
     const caller = appRouter.createCaller(ctx);
     const commessa = await caller.commesse.create({ cliente: "Memoria Test" });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -659,13 +650,25 @@ describe("tars — seguito dell'approvazione", () => {
 describe("tars — budget mensile", () => {
   const realFetch = global.fetch;
   beforeAll(() => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
   });
   afterAll(() => {
     global.fetch = realFetch;
   });
 
   it("costoEsecuzioneUsd: prezzi giusti per modello, cache scontata", () => {
+    // 1M token in + 1M out su Terra: 2 + 12 = 14 $.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "gpt-5.6-terra",
+        tokensIn: 1_000_000,
+        tokensOut: 1_000_000,
+        tokensCacheRead: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 0,
+      })
+    ).toBeCloseTo(14);
+    // I modelli Claude restano coperti per lo storico dei costi.
     // 1M token in + 1M out su Sonnet: 3 + 15 = 18 $.
     expect(
       costoEsecuzioneUsd({
@@ -781,7 +784,7 @@ describe("tars — budget mensile", () => {
     await caller.tars.config.setAttivo({ attivo: true });
     const commessa = await caller.commesse.create({ cliente: "Modello Test" });
 
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -802,7 +805,7 @@ describe("tars — budget mensile", () => {
     expect(e1.modello).toBe(getTarsConfig(1).modello);
 
     // trigger economico → modello automatico.
-    global.fetch = anthropicScript([
+    global.fetch = openaiScript([
       {
         stop_reason: "tool_use",
         usage,
@@ -825,6 +828,105 @@ describe("tars — budget mensile", () => {
     });
     expect(e2.modello).toBe(getTarsConfig(1).modelloAutomatico);
     expect(e2.modello).not.toBe(getTarsConfig(1).modello);
+  });
+
+  it("dopo il budget strumenti concede un solo turno finale senza tool", async () => {
+    const ctx = makeCtx();
+    const config = getTarsConfig(1);
+    const maxPrima = config.maxToolCalls;
+    config.maxToolCalls = 1;
+    let chiamate = 0;
+    const usaTool = {
+      stop_reason: "tool_use",
+      usage,
+      content: [
+        {
+          type: "tool_use",
+          id: "tu_budget",
+          name: "leggi_quadro_azienda",
+          input: {},
+        },
+      ],
+    };
+    global.fetch = openaiScript([usaTool, usaTool, usaTool, usaTool]);
+    const fetchOriginale = global.fetch;
+    const corpi: any[] = [];
+    global.fetch = vi.fn(async (...args: any[]) => {
+      chiamate++;
+      corpi.push(JSON.parse(args[1].body));
+      if (chiamate > 4) throw new Error("loop strumenti non terminato");
+      return (fetchOriginale as any)(...args);
+    }) as any;
+
+    try {
+      const { runTars } = await import("./loop");
+      const esecuzione = await runTars({
+        ctx,
+        trigger: "on_demand",
+        commessaId: null,
+        richiesta: "Controlla il quadro.",
+      });
+
+      expect(esecuzione.esito).toBe("budget_esaurito");
+      expect(chiamate).toBe(2);
+      expect(corpi[0].tools.length).toBeGreaterThan(0);
+      expect(corpi[1]).not.toHaveProperty("tools");
+    } finally {
+      config.maxToolCalls = maxPrima;
+    }
+  });
+
+  it("contabilizza i token anche quando OpenAI restituisce incomplete", async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        id: "resp_incomplete_loop",
+        model: "gpt-5.6-terra",
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        output: [],
+        usage: {
+          input_tokens: 150,
+          output_tokens: 20,
+          input_tokens_details: {
+            cached_tokens: 100,
+            cache_write_tokens: 25,
+          },
+        },
+      }),
+    })) as any;
+    const { runTars } = await import("./loop");
+    const esecuzione = await runTars({
+      ctx: makeCtx(),
+      trigger: "on_demand",
+      commessaId: null,
+      richiesta: "Analizza.",
+    });
+
+    expect(esecuzione.esito).toBe("errore");
+    expect(esecuzione.tokensIn).toBe(25);
+    expect(esecuzione.tokensOut).toBe(20);
+    expect(esecuzione.tokensCacheRead).toBe(100);
+    expect(esecuzione.tokensCacheWrite5m).toBe(25);
+  });
+
+  it("migra i modelli Claude senza sovrascrivere i guardrail della sede", () => {
+    const config = {
+      ...getTarsConfig(1),
+      modello: "claude-opus-5",
+      modelloAutomatico: "claude-sonnet-5",
+      maxToolCalls: 7,
+      timeoutMs: 45_000,
+      versioneDefault: 3,
+    };
+
+    applicaMigrazioneConfigTars(config);
+
+    expect(config.modello).toBe("gpt-5.6-sol");
+    expect(config.modelloAutomatico).toBe("gpt-5.6-terra");
+    expect(config.maxToolCalls).toBe(7);
+    expect(config.timeoutMs).toBe(45_000);
+    expect(config.versioneDefault).toBe(4);
   });
 });
 
@@ -967,11 +1069,10 @@ describe("tars — profili e cache operativa", () => {
       motivazione: "Il quadro aziendale mostra 12 commesse ferme.",
       confidenza: "alta",
     };
-    const prima = await eseguiStrumento(
-      rt,
-      "proponi_miglioramento_processo",
-      { ...base, titolo: "Rivedi ogni settimana le commesse ferme" }
-    );
+    const prima = await eseguiStrumento(rt, "proponi_miglioramento_processo", {
+      ...base,
+      titolo: "Rivedi ogni settimana le commesse ferme",
+    });
     const seconda = await eseguiStrumento(
       rt,
       "proponi_miglioramento_processo",
@@ -1021,33 +1122,134 @@ describe("tars — profili e cache operativa", () => {
   });
 
   it("abilita la cache automatica sul prefisso crescente dei messaggi", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.OPENAI_API_KEY = "test-key";
     let body: any = null;
     global.fetch = vi.fn(async (_url, init: any) => {
       body = JSON.parse(init.body);
       return {
         ok: true,
         json: async () => ({
-          id: "msg_test",
-          model: "claude-test",
-          role: "assistant",
-          stop_reason: "end_turn",
-          content: [{ type: "text", text: "ok" }],
+          id: "resp_test",
+          model: "gpt-5.6-terra",
+          status: "completed",
+          output: [
+            {
+              id: "msg_test",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [{ type: "output_text", text: "ok" }],
+            },
+          ],
           usage: { input_tokens: 1, output_tokens: 1 },
         }),
       } as any;
     }) as any;
 
-    await callAnthropic({
-      model: "claude-test",
-      system: "system stabile",
-      messages: [{ role: "user", content: "ciao" }],
+    await callOpenAI({
+      model: "gpt-5.6-terra",
+      instructions: "system stabile",
+      input: [{ role: "user", content: "ciao" }],
       tools: toolDefsForTrigger("riconciliazione_fatture"),
+      promptCacheKey: "tars:riconciliazione:gpt-5.6-terra",
     });
 
-    expect(body.cache_control).toEqual({ type: "ephemeral" });
-    expect(body.messages).toEqual([{ role: "user", content: "ciao" }]);
-    expect(body.system[0].cache_control.ttl).toBe("1h");
-    expect(body.tools.at(-1).cache_control.ttl).toBe("1h");
+    expect(body.store).toBe(false);
+    expect(body.input[0]).toEqual({
+      type: "message",
+      role: "developer",
+      content: [
+        {
+          type: "input_text",
+          text: "system stabile",
+          prompt_cache_breakpoint: { mode: "explicit" },
+        },
+      ],
+    });
+    expect(body.input[1]).toEqual({ role: "user", content: "ciao" });
+    expect(body.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+    expect(body.prompt_cache_key).toBe("tars:riconciliazione:gpt-5.6-terra");
+    expect(body.tools.at(-1)).toMatchObject({
+      type: "function",
+      strict: false,
+    });
+  });
+
+  it("ripassa reasoning e function output con lo stesso call_id", async () => {
+    const corpi: any[] = [];
+    let chiamata = 0;
+    global.fetch = vi.fn(async (_url, init: any) => {
+      corpi.push(JSON.parse(init.body));
+      chiamata++;
+      return {
+        ok: true,
+        json: async () =>
+          chiamata === 1
+            ? {
+                id: "resp_tool",
+                model: "gpt-5.6-sol",
+                status: "completed",
+                output: [
+                  {
+                    id: "rs_1",
+                    type: "reasoning",
+                    encrypted_content: "cifrato-test",
+                    summary: [],
+                  },
+                  {
+                    id: "fc_1",
+                    type: "function_call",
+                    call_id: "call_quadro",
+                    name: "leggi_quadro_azienda",
+                    arguments: "{}",
+                    status: "completed",
+                  },
+                ],
+                usage: { input_tokens: 100, output_tokens: 20 },
+              }
+            : {
+                id: "resp_finale",
+                model: "gpt-5.6-sol",
+                status: "completed",
+                output: [
+                  {
+                    id: "msg_finale",
+                    type: "message",
+                    content: [
+                      { type: "output_text", text: "Analisi conclusa." },
+                    ],
+                  },
+                ],
+                usage: { input_tokens: 120, output_tokens: 10 },
+              },
+      } as any;
+    }) as any;
+
+    const { runTars } = await import("./loop");
+    await runTars({
+      ctx: makeCtx(),
+      trigger: "on_demand",
+      commessaId: null,
+      richiesta: "Leggi il quadro.",
+    });
+
+    expect(corpi).toHaveLength(2);
+    expect(corpi[1].input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rs_1",
+          type: "reasoning",
+          encrypted_content: "cifrato-test",
+        }),
+        expect.objectContaining({
+          type: "function_call",
+          call_id: "call_quadro",
+        }),
+        expect.objectContaining({
+          type: "function_call_output",
+          call_id: "call_quadro",
+        }),
+      ])
+    );
   });
 });

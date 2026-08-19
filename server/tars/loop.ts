@@ -8,10 +8,11 @@
 
 import type { TrpcContext } from "../_core/context";
 import {
-  callAnthropic,
-  type AnthropicMessage,
-  type ContentBlock,
-} from "./anthropic";
+  callOpenAI,
+  OpenAIResponseError,
+  type OpenAIInputItem,
+  type OpenAIUsage,
+} from "./openai";
 import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
 import {
   eseguiStrumento,
@@ -36,7 +37,7 @@ export async function runTars(params: {
   richiesta: string; // messaggio utente per il modello
   // Turni precedenti (chat): vengono anteposti alla richiesta così il
   // modello mantiene il filo. Solo testo — i tool-use passati non servono.
-  storia?: AnthropicMessage[];
+  storia?: Array<{ role: "user" | "assistant"; content: string }>;
   // Proposta da cui nasce questo run (seguito di una decisione).
   origineId?: number | null;
 }): Promise<Esecuzione> {
@@ -128,7 +129,7 @@ iniziale e chiedi strumenti aggiuntivi solo per dettagli non presenti.
 ${params.richiesta}`;
     }
   }
-  const messages: AnthropicMessage[] = [
+  const input: OpenAIInputItem[] = [
     ...(params.storia ?? []),
     {
       role: "user",
@@ -138,64 +139,55 @@ ${params.richiesta}`;
 
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), config.timeoutMs);
+  const registraUsage = (usage: OpenAIUsage) => {
+    const cached = usage.cachedInputTokens;
+    const cacheWrite = usage.cacheWriteTokens;
+    esecuzione.tokensIn += Math.max(0, usage.inputTokens - cached - cacheWrite);
+    esecuzione.tokensOut += usage.outputTokens;
+    esecuzione.tokensCacheRead += cached;
+    // Campo storico: per OpenAI rappresenta le scritture cache a 30 minuti,
+    // che hanno lo stesso moltiplicatore 1,25x del vecchio bucket 5m.
+    esecuzione.tokensCacheWrite5m += cacheWrite;
+  };
 
   try {
     let toolCalls = 0;
+    let chiusuraForzata = false;
 
     while (true) {
-      const res = await callAnthropic({
+      const res = await callOpenAI({
         model: modello,
-        system,
-        messages,
-        tools,
+        instructions: system,
+        input,
+        tools: chiusuraForzata ? [] : tools,
+        promptCacheKey: `tars:${profiloStrumenti}:${modello}`,
+        reasoningEffort: TRIGGER_ECONOMICI.has(params.trigger)
+          ? "low"
+          : "medium",
         signal: abort.signal,
       });
-      esecuzione.tokensIn += res.usage.input_tokens;
-      esecuzione.tokensOut += res.usage.output_tokens;
-      esecuzione.tokensCacheRead += res.usage.cache_read_input_tokens ?? 0;
-      const scritture = res.usage.cache_creation;
-      if (scritture) {
-        esecuzione.tokensCacheWrite5m +=
-          scritture.ephemeral_5m_input_tokens ?? 0;
-        esecuzione.tokensCacheWrite1h +=
-          scritture.ephemeral_1h_input_tokens ?? 0;
-      } else {
-        // Risposta senza il dettaglio: si conta al prezzo più basso dei due,
-        // che è quello dei 5 minuti — la stima sbaglia per difetto, mai
-        // facendo scattare un budget che invece era capiente.
-        esecuzione.tokensCacheWrite5m +=
-          res.usage.cache_creation_input_tokens ?? 0;
-      }
+      registraUsage(res.usage);
 
-      const testo = res.content
-        .filter(
-          (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text"
-        )
-        .map(b => b.text)
-        .join("\n")
-        .trim();
+      const testo = res.text;
       if (testo) esecuzione.riepilogo = testo;
-
-      const toolUses = res.content.filter(
-        (b): b is Extract<ContentBlock, { type: "tool_use" }> =>
-          b.type === "tool_use"
-      );
-
-      if (res.stop_reason !== "tool_use" || toolUses.length === 0) break;
-
-      messages.push({ role: "assistant", content: res.content });
+      const toolUses = res.functionCalls;
+      // Raggiunto il budget il modello riceve un unico turno senza
+      // strumenti. Anche una risposta anomala che contenga ancora call non può
+      // riaprire il ciclo o far crescere il contesto senza limite.
+      if (chiusuraForzata) break;
+      if (toolUses.length === 0) break;
+      input.push(...res.output);
 
       // Il modello chiede più strumenti in un colpo: si eseguono insieme.
       // Sono letture indipendenti — aspettarle in fila allungava il giro
       // per niente. Il budget si conta prima, così resta deterministico
       // qualunque sia l'ordine in cui finiscono.
       const budget = toolUses.map(() => ++toolCalls <= config.maxToolCalls);
-      if (budget.some(ok => !ok)) esecuzione.esito = "budget_esaurito";
-
+      const budgetEsaurito = budget.some(ok => !ok);
       const esiti = await Promise.all(
         toolUses.map((tu, i) =>
           budget[i]
-            ? eseguiStrumento(rt, tu.name, tu.input ?? {})
+            ? eseguiStrumento(rt, tu.name, tu.arguments)
             : Promise.resolve({
                 content:
                   "Budget di chiamate a strumenti esaurito. Chiudi ora con il riepilogo di quanto raccolto.",
@@ -204,21 +196,24 @@ ${params.richiesta}`;
         )
       );
 
-      const results: ContentBlock[] = toolUses.map((tu, i) => {
+      const results: OpenAIInputItem[] = toolUses.map((tu, i) => {
         const out = esiti[i];
         esecuzione.strumenti.push({
           nome: tu.name,
-          input: tu.input ?? {},
+          input: tu.arguments,
           esito: sintesiEsito(out),
         });
         return {
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: out.content,
-          ...(out.isError ? { is_error: true } : {}),
+          type: "function_call_output",
+          call_id: tu.callId,
+          output: out.isError ? `ERRORE: ${out.content}` : out.content,
         };
       });
-      messages.push({ role: "user", content: results });
+      input.push(...results);
+      if (budgetEsaurito || toolCalls >= config.maxToolCalls) {
+        esecuzione.esito = "budget_esaurito";
+        chiusuraForzata = true;
+      }
 
       // nessuna_azione: chiediamo comunque un ultimo turno di testo? No —
       // il motivo È il riepilogo. Terminazione immediata, zero sprechi.
@@ -226,10 +221,11 @@ ${params.richiesta}`;
         if (!esecuzione.riepilogo) esecuzione.riepilogo = rt.terminato.motivo;
         break;
       }
-      // Oltre il budget lasciamo al modello UN turno finale (il prossimo
+      // Raggiunto il budget lasciamo al modello UN turno finale (il prossimo
       // giro: i tool result dicono di chiudere, stop_reason sarà end_turn).
     }
   } catch (e: any) {
+    if (e instanceof OpenAIResponseError) registraUsage(e.usage);
     esecuzione.esito = "errore";
     esecuzione.errore = abort.signal.aborted
       ? `Timeout esecuzione (${config.timeoutMs / 1000}s)`
