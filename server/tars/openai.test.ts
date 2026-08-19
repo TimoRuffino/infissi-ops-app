@@ -72,6 +72,8 @@ describe("OpenAI provider", () => {
     expect(requestBody).toMatchObject({
       model: "gpt-5.6-terra",
       store: false,
+      text: { verbosity: "low" },
+      reasoning: { effort: "medium", context: "all_turns" },
       include: ["reasoning.encrypted_content"],
       parallel_tool_calls: true,
       prompt_cache_key: "tars:smistamento:gpt-5.6-terra",
@@ -169,6 +171,7 @@ describe("OpenAI provider", () => {
     });
 
     expect(requestBody).not.toHaveProperty("prompt_cache_options");
+    expect(requestBody.reasoning).toEqual({ effort: "medium" });
     expect(requestBody.input[0].content[0]).not.toHaveProperty(
       "prompt_cache_breakpoint"
     );
@@ -252,5 +255,34 @@ describe("OpenAI provider", () => {
         promptCacheKey: "tars:test:gpt-5.6-terra",
       })
     ).rejects.toThrow(messaggio);
+  });
+
+  it("non espone chiavi o payload sensibili negli errori HTTP", async () => {
+    process.env.OPENAI_API_KEY = "sk-proj-secret-value";
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () =>
+        JSON.stringify({
+          error: {
+            message:
+              "Incorrect API key provided: sk-proj-secret-value. You can find your API key at the platform.",
+            code: "invalid_api_key",
+          },
+        }),
+    })) as any;
+
+    const errore = await callOpenAI({
+      model: "gpt-5.6-terra",
+      instructions: "Sei Tars.",
+      input: [{ role: "user", content: "Analizza." }],
+      tools: [],
+      promptCacheKey: "tars:test:gpt-5.6-terra",
+    }).catch(e => e);
+
+    expect(errore.message).toMatch(/chiave API non valida o revocata/i);
+    expect(errore.message).not.toContain("sk-proj-secret-value");
+    expect(errore.message).not.toContain("platform");
   });
 });

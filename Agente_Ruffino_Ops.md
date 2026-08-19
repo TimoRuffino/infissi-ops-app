@@ -16,7 +16,7 @@
 - Chat e analisi on-demand possono interrogare documenti, organizzazione, produzione, qualità e quadro economico, sempre nei limiti di ruolo e sede dell'operatore.
 - Un audit automatico per sede confronta periodicamente i principali indicatori e può proporre fino a tre miglioramenti di processo misurabili.
 - La coda riconosce la stessa azione anche quando titolo o formulazione cambiano e blocca duplicati pendenti, approvati, rifiutati o già gestiti.
-- La cache strumenti è isolata al singolo run; il prefisso stabile usa il prompt caching OpenAI con una chiave per profilo e modello.
+- La cache strumenti è isolata al singolo run; il prefisso stabile usa il prompt caching OpenAI con una chiave versionata per sede, profilo e modello.
 - `gpt-5.6-sol` gestisce le richieste umane; `gpt-5.6-terra` i trigger automatici. Raggiunto il limite strumenti, il loop concede un solo turno finale senza tool.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
@@ -147,7 +147,7 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 | Trigger | Profilo | Obiettivo |
 |---|---|---|
 | `riconciliazione_fatture` | `riconciliazione` | FiC, clienti, commesse, economia e proposte pagamento/collegamento |
-| `smistamento` | `smistamento` | Comunicazioni, allegati, entità CRM e proposte di aggancio |
+| `smistamento` | `smistamento` | Classificazione di ogni mail e collegamento verificato, 7 strumenti |
 | `gestione_comunicazione` | `gestione_comunicazione` | Istruzione operatore su una singola mail, anche senza commessa |
 | `on_demand` | `operativo` | Fascicolo e strumenti necessari all'analisi di una commessa |
 | `audit_processi` | `audit_processi` | Quadro aziendale e proposte di miglioramento misurabili |
@@ -156,6 +156,13 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 `leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima del modello quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
 
 Le letture `leggi_*`/`cerca_*` sono memorizzate per singola esecuzione con chiave JSON stabile. Due richieste uguali e contemporanee condividono anche la Promise in corso; un errore viene rimosso dalla cache. Non esiste cache cross-run: sarebbe facile mostrare dati stantii o di un altro contesto.
+
+Lo smistamento ha un system prompt dedicato di circa 470 token stimati e schemi
+tool per circa 909 token, contro circa 6.393 token fissi precedenti. Il run
+automatico non carica strumenti per lead, ticket, pagamenti, allegati o bozze:
+queste capacità restano nel profilo `gestione_comunicazione`, avviato sulla mail
+dall'operatore. Il classificatore continua a proteggere ogni opportunità e usa
+`da_classificare` con dubbio esplicito quando i segnali non bastano.
 
 ---
 
@@ -291,7 +298,7 @@ Il rischio sale rispetto alla pipeline, perché l'agente legge contenuti non fid
 - Budget mensile con interruttore automatico
 
 ### 9.3 Registro completo
-Ogni esecuzione salvata in `agente_esecuzioni`: trigger, modello effettivo, profilo e numero di strumenti esposti, preload fascicolo, strumenti chiamati, cache hit, proposte generate, token input/output, cache read/write 5m/1h, costo stimato, durata ed esito. Consultabile dalla direzione per debug e rendicontabilità.
+Ogni esecuzione salvata in `agente_esecuzioni`: trigger, modello effettivo, profilo e numero di strumenti esposti, preload fascicolo, strumenti chiamati, cache hit, proposte generate, token input/output, cache read/write 5m/1h, costo stimato, durata ed esito. La Inbox mostra token realmente processati, percentuale cache, scritture e costo; un errore di query è distinto da un registro vuoto. Consultabile dalla direzione per debug e rendicontabilità.
 
 ### 9.4 Interruttore
 Un toggle in `/integrazioni`: **"Agente attivo"**. Off = il CRM funziona esattamente come oggi. Deve essere una cosa che spegni in tre secondi senza chiamare nessuno.
@@ -309,20 +316,24 @@ Un toggle in `/integrazioni`: **"Agente attivo"**. Off = il CRM funziona esattam
 | Brief, bozze, RAG | — | GPT-5.6 Sol | da misurare |
 | **Totale** | | | **vincolato dal budget per sede** |
 
+`gpt-5.6-luna` è disponibile come profilo opzionale ad alto volume, ma non è il
+default automatico finché un campione reale non conferma la qualità della
+distinzione tra opportunità, operatività e rumore.
+
 Il default applicativo è **$25/mese per sede**, modificabile dalla direzione. Al superamento, i trigger automatici si fermano; le richieste umane ricevono un errore esplicito. Le stime della tabella restano ipotesi iniziali: il dato da usare per decidere è l'audit reale.
 
 ### 10.1 Caching implementato
 
 La richiesta OpenAI Responses mantiene stabile il prefisso formato da istruzioni,
 profilo strumenti e cronologia e invia un `prompt_cache_key` deterministico per
-profilo e modello. Su GPT-5.6 il blocco developer termina con un breakpoint
+sede, profilo e modello. Su GPT-5.6 il blocco developer termina con un breakpoint
 esplicito e usa cache `explicit` con TTL 30 minuti; `gpt-5.4-mini` mantiene la
-cache implicita. Le risposte usano `store=false` e includono il reasoning
+cache implicita. Le risposte usano `store=false`, verbosity bassa e includono il reasoning
 cifrato da ripassare nei turni di function calling; i token letti e scritti
 dalla cache vengono estratti dai metadati `usage` del provider anche quando la
 risposta è incompleta o fallisce dopo avere consumato token.
 
-Le decisioni recenti, che cambiano spesso, restano in fondo al turno utente e non invalidano il prefisso stabile. Il costo distingue input pieno, cache read e cache write. I campi storici 5 minuti/1 ora sono mantenuti nello store per compatibilità; la scrittura OpenAI viene contabilizzata con moltiplicatore 1,25. Insieme a profili e fascicolo, questo è il sistema principale di riduzione token.
+Le decisioni recenti, che cambiano spesso, restano in fondo al turno utente e non invalidano il prefisso stabile; lo smistamento non le invia perché non sono pertinenti alla classificazione. Il costo distingue input pieno, cache read e cache write. I campi storici 5 minuti/1 ora sono mantenuti nello store per compatibilità; la scrittura OpenAI viene contabilizzata con moltiplicatore 1,25. Insieme a profili e fascicolo, questo è il sistema principale di riduzione token.
 
 ---
 

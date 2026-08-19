@@ -33,6 +33,7 @@ import {
   getChat,
   saveChat,
   budgetMensileSuperato,
+  costoEsecuzioneUsd,
   spesaMeseUsd,
   CATEGORIE_CONOSCENZA,
   MAX_MESSAGGI_CHAT,
@@ -695,7 +696,11 @@ ${input.testo.trim()}`;
         return esecuzioni
           .filter(e => e.sedeId === ctx.sedeId)
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-          .slice(0, input?.limit ?? 30);
+          .slice(0, input?.limit ?? 30)
+          .map(e => ({
+            ...e,
+            costoStimatoUsd: costoEsecuzioneUsd(e),
+          }));
       }),
   }),
 

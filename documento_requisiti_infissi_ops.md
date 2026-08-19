@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
-**Versione:** 4.9 - Tars migrato a OpenAI Responses API: function calling, modelli separati per lavoro umano e automatico, prompt caching misurabile e limite strumenti a chiusura garantita. Base v4.8 - Smistamento Tars affidabile e osservabile con coda drenata per lotti, recupero dopo riavvio e stato operativo visibile.
+**Versione:** 4.10 - Smistamento Tars specializzato: prefisso ridotto del 78%, cache separata per sede, errori provider sanitizzati e registro costi/cache affidabile. Base v4.9 - Tars migrato a OpenAI Responses API con caching misurabile.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.10 (19/08/2026)** - Smistamento Tars ridotto a prompt specializzato e 7 strumenti (-78% token fissi), cache per sede/profilo/modello, `gpt-5.6-luna` opzionale, errori OpenAI sanitizzati e diagnostica token/cache/costi corretta (§50-51).
 - **v4.9 (19/08/2026)** - Tars migrato a OpenAI Responses API con `gpt-5.6-sol` per le richieste umane, `gpt-5.6-terra` per gli automatismi, prompt caching per profilo/modello e chiusura forzata dopo il budget strumenti (§50-51).
 - **v4.8 (19/08/2026)** - Coda Comunicazioni Tars resa lossless: continuazione automatica oltre 10 mail, trigger concorrenti preservati, retry API non annullabile, recupero periodico e dopo bootstrap, riattivazione da config/budget e stato d'attesa spiegato nella UI (§50-51).
 - **v4.7 (19/08/2026)** - Ogni nuova email passa dalla classificazione strutturata di Tars; il filtro locale fornisce solo segnali, le esclusioni richiedono confidenza alta, i dubbi restano visibili e le mail saltate vengono ritentate (§50-51).
@@ -1200,13 +1201,13 @@ Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e c
 Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:
 
 - `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
-- `smistamento`: comunicazioni, ricerca e collegamento alle entità;
+- `smistamento`: classificazione di ogni comunicazione, ricerca e proposta di collegamento verificato; 7 strumenti, senza azioni profonde automatiche;
 - `gestione_comunicazione`: analisi puntuale di un messaggio con contesto minimo, allegati, collegamento, nuovo lead, ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
 - `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
 
-L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`. Il default è `gpt-5.6-sol` per chat e richieste umane e `gpt-5.6-terra` per i trigger automatici; entrambi sono configurabili per sede.
+L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`. Il default è `gpt-5.6-sol` per chat e richieste umane e `gpt-5.6-terra` per i trigger automatici; entrambi sono configurabili per sede. `gpt-5.6-luna` è disponibile per volumi elevati dopo validazione su un campione reale.
 
 ### 50.3 Quadro aziendale e confini di accesso
 Tars DEVE poter incrociare anagrafiche, commesse, cantiere, economia, comunicazioni, inventario, produzione, qualità e storico delle proprie decisioni. `leggi_quadro_azienda` restituisce una sintesi compatta della sede con KPI, pratiche ferme, scadenze, anomalie e qualità decisionale dell'agente. Gli strumenti verticali permettono di approfondire contenuto documentale, produzione e qualità.
@@ -1221,12 +1222,14 @@ Quando `commessaId` è noto all'avvio, il loop precarica il fascicolo nel primo 
 ### 50.5 Riduzione token e cache
 La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
 
-1. **Prompt caching OpenAI:** prefisso stabile composto da istruzioni, profilo strumenti e cronologia; `prompt_cache_key` deterministico per profilo e modello. Su GPT-5.6 il messaggio developer termina con un breakpoint esplicito e usa modalità `explicit` con TTL 30 minuti; `gpt-5.4-mini` usa il caching implicito. `store=false` evita la conservazione della risposta applicativa; gli item `reasoning.encrypted_content` vengono ripassati nei turni di function calling stateless.
+1. **Prompt caching OpenAI:** prefisso stabile composto da istruzioni, profilo strumenti e cronologia; `prompt_cache_key` versionato e deterministico per sede, profilo e modello. Su GPT-5.6 il messaggio developer termina con un breakpoint esplicito e usa modalità `explicit` con TTL 30 minuti; `gpt-5.4-mini` usa il caching implicito. `store=false` evita la conservazione della risposta applicativa; verbosity bassa e contesto reasoning `all_turns` riducono output e ricostruzioni, mentre gli item `reasoning.encrypted_content` vengono ripassati nei turni di function calling stateless.
 2. **Cache strumenti per run:** ogni `leggi_*` e `cerca_*` usa una chiave JSON stabile; due richieste identiche, anche contemporanee, condividono la stessa Promise. Gli errori non restano in cache.
 3. **Profilo minimo:** i trigger automatici non pagano lo schema di strumenti irrilevanti.
 4. **Fascicolo compatto:** una lettura aggregata sostituisce numerose chiamate frammentate e output ripetuti.
 
-L'audit salva input, output, cache read, cache write, cache hit strumenti, costo stimato ed esito. Il consumo restituito dal provider viene contabilizzato anche per risposte incomplete o fallite. I campi storici `cache write 5m/1h` restano compatibili con le esecuzioni precedenti; le scritture OpenAI sono contabilizzate nel bucket a moltiplicatore 1,25. La Inbox Tars espone profilo, preload e cache hit per diagnosticare run costosi.
+Lo smistamento usa un prompt dedicato e 7 tool: il prefisso fisso stimato scende da circa 6.393 a 1.379 token per lotto (-78%). Le decisioni recenti non vengono inviate a questo trigger perché non informano la classificazione. Le azioni su lead, ticket, pagamenti, allegati e risposte restano nel profilo puntuale `gestione_comunicazione`.
+
+L'audit salva input, output, cache read, cache write, cache hit strumenti, costo stimato ed esito. Il consumo restituito dal provider viene contabilizzato anche per risposte incomplete o fallite. I campi storici `cache write 5m/1h` restano compatibili con le esecuzioni precedenti; le scritture OpenAI sono contabilizzate nel bucket a moltiplicatore 1,25. La Inbox Tars espone modello, token totali, percentuale cache, scritture, costo, profilo e preload; errori della query non vengono presentati come registro vuoto. Le risposte HTTP del provider sono sanitizzate prima del log e non possono esporre frammenti della chiave API.
 
 ### 50.6 Audit continuo dei processi
 Quando Tars e l'audit sono abilitati, lo scheduler può eseguire una revisione per sede ogni circa 24 ore. Il run automatico usa il profilo minimo `audit_processi`, legge prima il quadro aziendale e DEVE:
@@ -1266,7 +1269,7 @@ Una richiesta esplicita di preventivo, sopralluogo, appuntamento o contatto comm
 ### 51.3 Matching e gestione Tars
 Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Tutte le nuove email entrano nello smistamento per essere prima classificate da Tars; dopo la classificazione, solo quelle operative proseguono con proposte di collegamento o gestione.
 
-Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
+Il run automatico si limita a classificare e, su corrispondenza certa, proporre il collegamento a una commessa. Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
 
 Per un nuovo lead Tars DEVE prima cercare clienti e commesse esistenti e leggere `leggi_assegnatari`, che restituisce soltanto utenti attivi della sede. Se l'istruzione non indica già una persona in modo inequivocabile, Tars usa `chiedi_chiarimento` e mostra i nomi come opzioni. La risposta riapre una sola volta l'analisi mantenendo il contenuto originale della comunicazione. `proponi_nuovo_lead` rifiuta un assegnatario mancante o non valido.
 

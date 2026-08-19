@@ -97,6 +97,42 @@ function normalizzaUsage(body: OpenAIResponse): OpenAIUsage {
   };
 }
 
+function messaggioErroreHttp(
+  status: number,
+  statusText: string,
+  rawBody: string
+): string {
+  let code = "";
+  let providerMessage = "";
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      error?: { code?: string; message?: string };
+    };
+    code = parsed.error?.code ?? "";
+    providerMessage = parsed.error?.message ?? "";
+  } catch {
+    // Le risposte non JSON non vengono riportate: potrebbero contenere proxy
+    // HTML, header riflessi o altri dettagli non destinati al registro.
+  }
+
+  if (status === 401 || code === "invalid_api_key") {
+    return "OpenAI API 401 Unauthorized: chiave API non valida o revocata.";
+  }
+  if (status === 429) {
+    return "OpenAI API 429: limite di richieste o credito disponibile esaurito.";
+  }
+  if (status >= 500) {
+    return `OpenAI API ${status}: servizio temporaneamente non disponibile.`;
+  }
+
+  const safeMessage = providerMessage
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[chiave rimossa]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  return `OpenAI API ${status} ${statusText}${safeMessage ? `: ${safeMessage}` : ""}`;
+}
+
 export async function callOpenAI(params: {
   model: string;
   instructions: string;
@@ -154,7 +190,11 @@ export async function callOpenAI(params: {
           }
         : {}),
       max_output_tokens: params.maxTokens ?? 4096,
-      reasoning: { effort: params.reasoningEffort ?? "medium" },
+      text: { verbosity: "low" },
+      reasoning: {
+        effort: params.reasoningEffort ?? "medium",
+        ...(cacheEsplicita ? { context: "all_turns" } : {}),
+      },
       // Tars gestisce la cronologia in modo stateless. Gli item cifrati
       // permettono di ripassare il reasoning tra i turni di function calling.
       include: ["reasoning.encrypted_content"],
@@ -168,9 +208,7 @@ export async function callOpenAI(params: {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(
-      `OpenAI API ${res.status} ${res.statusText}: ${body.slice(0, 500)}`
-    );
+    throw new Error(messaggioErroreHttp(res.status, res.statusText, body));
   }
 
   const body = (await res.json()) as OpenAIResponse;

@@ -13,7 +13,7 @@ import {
   type OpenAIInputItem,
   type OpenAIUsage,
 } from "./openai";
-import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
+import { bloccoDecisioni, buildSystemPromptForTrigger } from "./prompt";
 import {
   eseguiStrumento,
   sintesiEsito,
@@ -28,6 +28,26 @@ import {
   getTarsConfig,
   type Esecuzione,
 } from "./stores";
+
+function shortHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+export function buildPromptCacheKey(
+  sedeId: number | null,
+  profiloStrumenti: string,
+  modello: string
+): string {
+  const raw = `tars:v2:s${sedeId ?? "all"}:${profiloStrumenti}:${modello}`;
+  return raw.length <= 64
+    ? raw
+    : `${raw.slice(0, 55)}:${shortHash(raw).slice(0, 8)}`;
+}
 
 export async function runTars(params: {
   ctx: TrpcContext;
@@ -104,11 +124,12 @@ export async function runTars(params: {
     comunicazioniClassificateIds: new Set(),
   };
 
-  const system = buildSystemPrompt(params.ctx.sedeId);
+  const system = buildSystemPromptForTrigger(params.ctx.sedeId, params.trigger);
   // Le decisioni recenti cambiano a ogni approvazione. Stanno in coda al
   // turno utente, dopo tutto il prefisso in cache: così un click su «approva»
   // non invalida più system e strumenti, che sono la parte cara e immobile.
-  const decisioni = bloccoDecisioni(params.ctx.sedeId);
+  const decisioni =
+    params.trigger === "smistamento" ? "" : bloccoDecisioni(params.ctx.sedeId);
   let richiesta = params.richiesta;
   if (
     params.commessaId != null &&
@@ -160,7 +181,11 @@ ${params.richiesta}`;
         instructions: system,
         input,
         tools: chiusuraForzata ? [] : tools,
-        promptCacheKey: `tars:${profiloStrumenti}:${modello}`,
+        promptCacheKey: buildPromptCacheKey(
+          params.ctx.sedeId,
+          profiloStrumenti,
+          modello
+        ),
         reasoningEffort: TRIGGER_ECONOMICI.has(params.trigger)
           ? "low"
           : "medium",

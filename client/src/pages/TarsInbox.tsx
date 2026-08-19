@@ -25,6 +25,22 @@ import { Link } from "wouter";
 import TarsAvatar from "@/components/TarsAvatar";
 import { TarsChatPanel } from "@/components/TarsChat";
 import { toast } from "sonner";
+import { metricheUtilizzoTars } from "@/lib/tarsUsage";
+
+const numeroCompatto = new Intl.NumberFormat("it-IT", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function costoBreve(value: number) {
+  if (value === 0) return "$0";
+  if (value < 0.01) return `<$0,01`;
+  return new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 function dataBreve(value: Date | string | null | undefined) {
   if (!value) return "Mai";
@@ -121,6 +137,37 @@ function ElencoProposte({ stato }: { stato?: "pendente" }) {
 function RegistroEsecuzioni() {
   const esecuzioni = trpc.tars.esecuzioni.list.useQuery({ limit: 30 });
   const rows = esecuzioni.data ?? [];
+  if (esecuzioni.isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Caricamento registro…
+      </div>
+    );
+  }
+  if (esecuzioni.isError) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-8 text-center">
+        <p className="text-sm font-medium text-destructive">
+          Il registro di Tars non è disponibile
+        </p>
+        <p className="max-w-lg text-xs text-muted-foreground">
+          {esecuzioni.error.message}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => esecuzioni.refetch()}
+          disabled={esecuzioni.isFetching}
+        >
+          <RefreshCw
+            className={`h-4 w-4 ${esecuzioni.isFetching ? "animate-spin" : ""}`}
+          />
+          Riprova
+        </Button>
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -130,61 +177,79 @@ function RegistroEsecuzioni() {
   }
   return (
     <div className="space-y-3">
-      {rows.map((e: any) => (
-        <Card key={e.id}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="text-sm flex items-center gap-2">
-                Esecuzione #{e.id}
-                <Badge variant={e.esito === "ok" ? "secondary" : "destructive"}>
-                  {e.esito}
-                </Badge>
-              </CardTitle>
-              <span className="text-xs text-muted-foreground">
-                {new Date(e.createdAt).toLocaleString("it-IT")} ·{" "}
-                {Math.round(e.durataMs / 1000)}s · {e.strumenti.length}{" "}
-                strumenti · {e.tokensIn + e.tokensOut} token
-                {e.profiloStrumenti ? ` · profilo ${e.profiloStrumenti}` : ""}
-                {e.fascicoloPrecaricato ? " · fascicolo pronto" : ""}
-                {e.toolCacheHits > 0
-                  ? ` · ${e.toolCacheHits} letture riusate`
-                  : ""}
-                {e.proposteDuplicateBloccate > 0
-                  ? ` · ${e.proposteDuplicateBloccate} doppioni bloccati`
-                  : ""}
-                {e.utenteNome ? ` · ${e.utenteNome}` : ""}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <LinkCommessa commessaId={e.commessaId} />
-            {e.riepilogo && (
-              <p className="whitespace-pre-wrap text-muted-foreground">
-                {e.riepilogo}
-              </p>
-            )}
-            {e.errore && <p className="text-destructive">{e.errore}</p>}
-            {e.strumenti.length > 0 && (
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer select-none">
-                  Strumenti chiamati
-                </summary>
-                <ul className="mt-1 space-y-0.5 pl-4 list-disc">
-                  {e.strumenti.map((s: any, i: number) => (
-                    <li key={i}>
-                      <span className="font-mono">{s.nome}</span>
-                      {"  "}
-                      <span className="opacity-70">
-                        {JSON.stringify(s.input)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+      {rows.map((e: any) => {
+        const uso = metricheUtilizzoTars(e);
+        return (
+          <Card key={e.id} className="overflow-hidden">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  Esecuzione #{e.id}
+                  <Badge
+                    variant={e.esito === "ok" ? "secondary" : "destructive"}
+                  >
+                    {e.esito}
+                  </Badge>
+                </CardTitle>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(e.createdAt).toLocaleString("it-IT")} ·{" "}
+                  {Math.round(e.durataMs / 1000)}s
+                  {e.fascicoloPrecaricato ? " · fascicolo pronto" : ""}
+                  {e.toolCacheHits > 0
+                    ? ` · ${e.toolCacheHits} letture riusate`
+                    : ""}
+                  {e.proposteDuplicateBloccate > 0
+                    ? ` · ${e.proposteDuplicateBloccate} doppioni bloccati`
+                    : ""}
+                  {e.utenteNome ? ` · ${e.utenteNome}` : ""}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-md bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{e.modello}</span>
+                <span>{e.strumenti.length} strumenti</span>
+                <span>{numeroCompatto.format(uso.tokenTotali)} token</span>
+                <span>{uso.cacheReadPercent}% dalla cache</span>
+                {uso.cacheWrite > 0 && (
+                  <span>
+                    {numeroCompatto.format(uso.cacheWrite)} scritti in cache
+                  </span>
+                )}
+                <span>{costoBreve(e.costoStimatoUsd)}</span>
+                {e.profiloStrumenti && (
+                  <span>profilo {e.profiloStrumenti}</span>
+                )}
+              </div>
+              <LinkCommessa commessaId={e.commessaId} />
+              {e.riepilogo && (
+                <p className="whitespace-pre-wrap text-muted-foreground">
+                  {e.riepilogo}
+                </p>
+              )}
+              {e.errore && <p className="text-destructive">{e.errore}</p>}
+              {e.strumenti.length > 0 && (
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer select-none">
+                    Strumenti chiamati
+                  </summary>
+                  <ul className="mt-1 space-y-0.5 pl-4 list-disc">
+                    {e.strumenti.map((s: any, i: number) => (
+                      <li key={i}>
+                        <span className="font-mono">{s.nome}</span>
+                        {"  "}
+                        <span className="opacity-70">
+                          {JSON.stringify(s.input)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -285,11 +350,17 @@ export default function TarsInbox() {
               : "grid w-full grid-cols-3 sm:w-fit"
           }
         >
-          <TabsTrigger value="chat" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+          <TabsTrigger
+            value="chat"
+            className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm"
+          >
             <MessageCircle className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
             Chat
           </TabsTrigger>
-          <TabsTrigger value="pendenti" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+          <TabsTrigger
+            value="pendenti"
+            className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm"
+          >
             <BrainCircuit className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
             Decisioni
             {(stats.data?.pendenti ?? 0) > 0 && (
@@ -298,12 +369,18 @@ export default function TarsInbox() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="decise" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+          <TabsTrigger
+            value="decise"
+            className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm"
+          >
             <CheckCircle2 className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
             Storico
           </TabsTrigger>
           {direzione && (
-            <TabsTrigger value="registro" className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm">
+            <TabsTrigger
+              value="registro"
+              className="min-w-0 gap-1 px-1.5 text-xs sm:px-3 sm:text-sm"
+            >
               <History className="hidden h-3.5 w-3.5 shrink-0 min-[360px]:block" />
               Registro
             </TabsTrigger>

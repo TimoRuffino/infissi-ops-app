@@ -5,7 +5,11 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
-import { bloccoDecisioni, buildSystemPrompt } from "./prompt";
+import {
+  bloccoDecisioni,
+  buildSystemPrompt,
+  buildSystemPromptForTrigger,
+} from "./prompt";
 import type { TrpcContext } from "../_core/context";
 import {
   proposte,
@@ -23,6 +27,7 @@ import {
 } from "./tools";
 import { callOpenAI } from "./openai";
 import { openaiScript } from "./openaiTestHelpers";
+import { buildPromptCacheKey } from "./loop";
 
 function makeCtx(): TrpcContext {
   return {
@@ -668,6 +673,17 @@ describe("tars — budget mensile", () => {
         tokensCacheWrite1h: 0,
       })
     ).toBeCloseTo(14);
+    // Luna è il modello ad alto volume: 0,2 + 1,2 = 1,4 $.
+    expect(
+      costoEsecuzioneUsd({
+        modello: "gpt-5.6-luna",
+        tokensIn: 1_000_000,
+        tokensOut: 1_000_000,
+        tokensCacheRead: 0,
+        tokensCacheWrite5m: 0,
+        tokensCacheWrite1h: 0,
+      })
+    ).toBeCloseTo(1.4);
     // I modelli Claude restano coperti per lo storico dei costi.
     // 1M token in + 1M out su Sonnet: 3 + 15 = 18 $.
     expect(
@@ -1004,7 +1020,18 @@ describe("tars — profili e cache operativa", () => {
     expect(nomi).toContain("proponi_collegamento_fattura");
     expect(nomi).toContain("leggi_fascicolo_commessa");
     expect(nomi).not.toContain("proponi_ticket");
-    expect(smistamento.map(t => t.name)).toContain("leggi_allegato");
+    expect(smistamento.map(t => t.name)).toEqual([
+      "classifica_comunicazione",
+      "cerca_clienti",
+      "cerca_commesse",
+      "leggi_fascicolo_commessa",
+      "proponi_collegamento",
+      "chiedi_chiarimento",
+      "nessuna_azione",
+    ]);
+    expect(JSON.stringify(smistamento).length).toBeLessThan(
+      JSON.stringify(TOOL_DEFS).length * 0.25
+    );
     expect(audit.map(t => t.name)).toEqual([
       "leggi_quadro_azienda",
       "proponi_segnalazione",
@@ -1013,6 +1040,27 @@ describe("tars — profili e cache operativa", () => {
       "nessuna_azione",
     ]);
     expect(toolDefsForTrigger("chat")).toBe(TOOL_DEFS);
+  });
+
+  it("usa per lo smistamento un prompt compatto che protegge opportunità e sicurezza", () => {
+    const completo = buildSystemPrompt(1);
+    const smistamento = buildSystemPromptForTrigger(1, "smistamento");
+
+    expect(smistamento.length).toBeLessThan(completo.length * 0.45);
+    expect(smistamento).toMatch(/non esegui nulla/i);
+    expect(smistamento).toMatch(/contenuto esterno.*non.*istruzione/is);
+    expect(smistamento).toMatch(/richiesta di preventivo/i);
+    expect(smistamento).toMatch(/da_classificare/i);
+    expect(smistamento).toMatch(/classifica.*ogni comunicazione/is);
+  });
+
+  it("segmenta la cache per sede, profilo e modello con una chiave breve", () => {
+    const sedeUno = buildPromptCacheKey(1, "smistamento", "gpt-5.6-terra");
+    const sedeDue = buildPromptCacheKey(2, "smistamento", "gpt-5.6-terra");
+
+    expect(sedeUno).toBe("tars:v2:s1:smistamento:gpt-5.6-terra");
+    expect(sedeDue).not.toBe(sedeUno);
+    expect(sedeUno.length).toBeLessThanOrEqual(64);
   });
 
   it("costruisce un quadro aziendale compatto e sede-scoped", async () => {

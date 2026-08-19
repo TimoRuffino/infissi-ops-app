@@ -161,7 +161,8 @@ Tars usa ora profili strumenti diversi per trigger, invece di inviare sempre
 l'intero catalogo:
 
 - `riconciliazione_fatture`: set minimo per FiC e pagamenti;
-- `smistamento`: strumenti per comunicazioni e collegamento;
+- `smistamento`: 7 strumenti per classificazione, ricerca e collegamento
+  verificato; le azioni profonde restano nel flusso puntuale;
 - `gestione_comunicazione`: analisi puntuale della mail, allegati, nuovo lead,
   ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
@@ -174,9 +175,11 @@ commessa, il fascicolo viene precaricato nel primo messaggio, evitando un giro
 modello-strumento.
 
 Il modello principale predefinito è `gpt-5.6-sol`; i trigger automatici usano
-`gpt-5.6-terra`, più economico. La richiesta usa la Responses API con
+`gpt-5.6-terra`, più economico. `gpt-5.6-luna` è disponibile come opzione ad
+alto volume, ma va selezionato solo dopo una verifica su un campione reale. La richiesta usa la Responses API con
 `store=false`, function calling e ragionamento `low` sugli automatismi e
-`medium` sulle richieste umane. Gli item `reasoning.encrypted_content` vengono
+`medium` sulle richieste umane, contesto reasoning `all_turns` sui modelli 5.6
+e verbosity bassa. Gli item `reasoning.encrypted_content` vengono
 restituiti al provider tra i turni, mantenendo stateless il loop. Raggiunto il limite strumenti, Tars riceve un
 solo turno finale senza tool: il run non può proseguire indefinitamente.
 
@@ -185,21 +188,34 @@ La cache è su due livelli:
 1. OpenAI prompt caching sul prefisso stabile della richiesta: i modelli
    GPT-5.6 ricevono un breakpoint esplicito dopo le istruzioni developer,
    modalità `explicit` con TTL 30 minuti e un `prompt_cache_key` deterministico
-   per profilo e modello. `gpt-5.4-mini` mantiene il caching implicito perché
+   per sede, profilo e modello. `gpt-5.4-mini` mantiene il caching implicito perché
    non supporta i breakpoint espliciti.
 2. Cache in-run per strumenti `leggi_*` e `cerca_*`, compresa la deduplica delle
    richieste contemporanee identiche.
+
+Il prompt automatico dello smistamento è separato da quello generale e contiene
+solo sicurezza, regole di classificazione e collegamento. Insieme al profilo da
+7 strumenti porta il prefisso fisso stimato da circa 6.393 a 1.379 token per
+lotto (-78%), mantenendolo sopra la soglia utile al prompt caching. Le decisioni
+recenti non vengono aggiunte ai run di smistamento perché non informano la
+classificazione e cambierebbero inutilmente il suffisso.
 
 Ogni esecuzione registra profilo, numero di strumenti esposti, cache hit e
 preload fascicolo, token letti dalla cache e token scritti, anche quando la
 risposta del provider è incompleta o fallisce dopo aver consumato token. I campi storici
 `cache write 5m/1h` restano per retrocompatibilità; le scritture cache OpenAI
 sono registrate nel bucket con moltiplicatore 1,25. Questi dati sono visibili
-nella Inbox Tars. La cache non
+nella Inbox Tars, che mostra modello, token totali processati, quota letta dalla
+cache, scritture e costo stimato. Errori di caricamento del registro hanno uno
+stato esplicito e non vengono confusi con un registro vuoto. La cache non
 attraversa utenti o run e non conserva risultati mutabili oltre l'esecuzione.
 
 In produzione è obbligatoria `OPENAI_API_KEY`. `ANTHROPIC_API_KEY` non viene più
 letta dal codice e può essere rimossa da Railway dopo un deploy verificato.
+Gli errori HTTP del provider sono sanitizzati prima di log e registro. Al check
+del 19/08/2026 Railway vedeva la variabile ma OpenAI rispondeva `401
+invalid_api_key`: sostituire la variabile con una project API key valida, senza
+virgolette o spazi, ridistribuire e verificare una classificazione reale.
 
 Dal 18/08/2026 Tars dispone inoltre di letture trasversali per quadro aziendale,
 organizzazione, produzione, qualità e contenuto documentale. I dati restano
@@ -245,6 +261,12 @@ più il risveglio successivo. `avviaRecuperoSmistamento()` controlla le code dop
 5 secondi dal bootstrap e poi ogni minuto, quindi recupera anche mail rimaste
 pendenti dopo un deploy senza aspettare nuovi messaggi. Riattivazione di Tars e
 variazione del budget risvegliano subito la coda.
+
+Il run automatico si limita a classificare tutte le mail e, quando la
+corrispondenza è verificata, a proporre il collegamento a una commessa. Nuovo
+lead, assegnatario, ticket, pagamento, allegati e bozza risposta vengono gestiti
+nel flusso `gestione_comunicazione` avviato dall'operatore: evita di caricare 23
+schemi di strumenti su ogni lotto senza perdere le capacità operative.
 
 La pagina espone cinque code, selezione multipla, classificazione manuale,
 regole esatte per mittente riservate alla direzione e collegamento commessa con
