@@ -468,6 +468,8 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     nome: string | null;
     qualita: string | null;
     stato: string | null;
+    suAppBusiness: boolean | null;
+    coesistenza: boolean;
   }>;
   chiamate: EsitoChiamata[];
 }> {
@@ -531,7 +533,7 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
   const numeri = await chiama(
     "whatsapp_business_management",
     `GET /${config.wabaId}/phone_numbers`,
-    `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type`
+    `/${config.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type,is_on_biz_app`
   );
 
   // business_management — Meta conta le chiamate sull'oggetto Business,
@@ -583,14 +585,21 @@ export async function provaConnessione(config: ConfigWhatsApp): Promise<{
     ok,
     errore,
     account: account?.name ?? (ok ? config.wabaId : null),
-    numeri: (numeri?.data ?? []).map((n: any) => ({
-      id: String(n.id),
-      numero: n.display_phone_number ?? null,
-      nome: n.verified_name ?? null,
-      qualita: n.quality_rating ?? null,
-      // "CLOUD_API" oppure "SMB_APP" — quest'ultimo conferma la coexistence.
-      stato: n.platform_type ?? null,
-    })),
+    numeri: (numeri?.data ?? []).map((n: any) => {
+      const stato = n.platform_type ?? null;
+      const suAppBusiness =
+        typeof n.is_on_biz_app === "boolean" ? n.is_on_biz_app : null;
+
+      return {
+        id: String(n.id),
+        numero: n.display_phone_number ?? null,
+        nome: n.verified_name ?? null,
+        qualita: n.quality_rating ?? null,
+        stato,
+        suAppBusiness,
+        coesistenza: stato === "CLOUD_API" && suAppBusiness === true,
+      };
+    }),
     chiamate,
   };
 }

@@ -189,7 +189,7 @@ L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa
 Implementata tramite caselle IMAP per sede. L'ingestione è idempotente, conserva il riferimento UID e accoda a Tars solo i messaggi nuovi; lo storico importato non genera una valanga di run retroattivi.
 
 ### 6.2 WhatsApp (Cloud API)
-Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
+Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. La diagnostica conferma la coesistenza con WhatsApp Business solo quando Meta restituisce insieme `platform_type = CLOUD_API` e `is_on_biz_app = true`; il solo valore `CLOUD_API` non basta a determinarla. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
 
 ### 6.3 Fatture in Cloud
 Oggi la sincronizzazione crea solo clienti mancanti (§40). L'agente la estende **in sola lettura** a:

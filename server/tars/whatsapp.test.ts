@@ -4,13 +4,15 @@
 // messaggio finisca sulla commessa giusta.
 
 import { createHmac } from "crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { matchComunicazione } from "./match";
 import { normalizzaTelefono, stessoNumero } from "@shared/telefono";
 import {
   configWhatsApp,
   getAppWhatsApp,
   ingestisciWebhook,
+  proteggiSegreto,
+  provaConnessione,
   verificaFirma,
   verifyTokenValido,
 } from "./whatsapp";
@@ -329,6 +331,66 @@ describe("configurazione parziale", () => {
     // I segreti non escono mai dal server.
     expect(JSON.stringify(accesa)).not.toContain("app-secret-lungo");
     expect(JSON.stringify(accesa)).not.toContain("token-lungo-abbastanza");
+  });
+});
+
+describe("diagnostica coexistence", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("riconosce CLOUD_API con is_on_biz_app come coexistence attiva", async () => {
+    process.env.MAIL_ENCRYPTION_KEY = "chiave-di-test";
+    const risposte = [
+      { id: "WABA_C", name: "Ruffino Group" },
+      {
+        data: [
+          {
+            id: "PHONE_C",
+            display_phone_number: "+39 0187 872687",
+            verified_name: "Ruffino Group",
+            quality_rating: "UNKNOWN",
+            platform_type: "CLOUD_API",
+            is_on_biz_app: true,
+          },
+        ],
+      },
+      { id: "WABA_C", owner_business_info: { id: "BUSINESS_C" } },
+      { id: "BUSINESS_C", name: "Ruffino Group WhatsApp" },
+      { data: [{ id: "WABA_C", name: "Ruffino Group" }] },
+    ];
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(risposte.shift()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const esito = await provaConnessione({
+      id: 99,
+      sedeId: 1,
+      nome: "Aziendale",
+      numero: "+390187872687",
+      phoneNumberId: "PHONE_C",
+      wabaId: "WABA_C",
+      tokenCifrato: proteggiSegreto("token-meta-di-test"),
+      appSecretCifrato: "",
+      verifyToken: "vt-coex",
+      attiva: true,
+      ultimoMessaggio: null,
+      messaggiRicevuti: 0,
+      ultimoErrore: null,
+      onboardingAt: new Date(),
+      storicoSincronizzato: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("is_on_biz_app");
+    expect(esito.numeri[0]).toMatchObject({
+      stato: "CLOUD_API",
+      suAppBusiness: true,
+      coesistenza: true,
+    });
   });
 });
 

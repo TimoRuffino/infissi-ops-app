@@ -614,10 +614,10 @@ export default function WhatsAppCard() {
                       {n.numero ?? n.id}
                       {n.nome ? ` · ${n.nome}` : ""}
                       {n.qualita ? ` · qualità ${n.qualita}` : ""}
-                      {n.stato === "SMB_APP"
-                        ? " · coexistence attiva"
-                        : n.stato
-                          ? ` · ${n.stato}`
+                                  {n.coesistenza
+                                    ? " · coexistence attiva"
+                                    : n.stato
+                                      ? ` · ${n.stato}`
                           : ""}
                     </p>
                   ))}
