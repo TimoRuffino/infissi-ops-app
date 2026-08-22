@@ -351,7 +351,7 @@ export default function EmailPage() {
           <Button
             size="icon"
             variant="outline"
-            className="size-10 sm:h-9 sm:w-auto sm:px-3"
+            className="size-11 sm:h-9 sm:w-auto sm:px-3"
             disabled={sync.isPending}
             onClick={() => sync.mutate({})}
             aria-label="Aggiorna email"
@@ -370,7 +370,7 @@ export default function EmailPage() {
             <Button
               size="icon"
               variant="outline"
-              className="size-10 sm:h-9 sm:w-auto sm:px-3"
+              className="size-11 sm:h-9 sm:w-auto sm:px-3"
               onClick={() => setMailboxesOpen(true)}
               aria-label="Gestisci caselle"
               title="Gestisci caselle"
@@ -495,7 +495,7 @@ export default function EmailPage() {
               value={view}
               onValueChange={value => changeView(value as EmailView)}
             >
-              <SelectTrigger className="h-10 w-full" aria-label="Vista email">
+              <SelectTrigger className="min-h-11 w-full" aria-label="Vista email">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -539,7 +539,7 @@ export default function EmailPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3" />
               <Input
                 id="email-search"
-                className="h-10 pl-9"
+                className="h-11 pl-9 sm:h-10"
                 placeholder="Cerca testo, cliente o commessa"
                 value={search}
                 onChange={event => {
@@ -555,7 +555,7 @@ export default function EmailPage() {
                 resetPage();
               }}
             >
-              <SelectTrigger className="h-10 w-full" aria-label="Casella email">
+              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Casella email">
                 <SelectValue placeholder="Casella" />
               </SelectTrigger>
               <SelectContent>
@@ -574,7 +574,7 @@ export default function EmailPage() {
                 resetPage();
               }}
             >
-              <SelectTrigger className="h-10 w-full" aria-label="Assegnatario">
+              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Assegnatario">
                 <UserRound className="size-3.5" />
                 <SelectValue placeholder="Assegnatario" />
               </SelectTrigger>
@@ -597,7 +597,7 @@ export default function EmailPage() {
               }}
               disabled={view === "lead"}
             >
-              <SelectTrigger className="h-10 w-full" aria-label="Categoria">
+              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Categoria">
                 <SelectValue placeholder="Categoria" />
               </SelectTrigger>
               <SelectContent>
@@ -614,7 +614,7 @@ export default function EmailPage() {
             <Button
               size="sm"
               variant="ghost"
-              className="w-full sm:hidden"
+              className="h-11 w-full sm:hidden"
               disabled={markAllRead.isPending}
               onClick={() => markAllRead.mutate()}
             >

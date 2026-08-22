@@ -65,7 +65,7 @@ export default function NotificheDropdown() {
               ? `Notifiche: ${unread.length} da leggere`
               : "Notifiche"
           }
-          className="relative h-9 w-9 flex items-center justify-center rounded-lg hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-9 lg:w-9"
         >
           <Bell className="h-4 w-4 text-muted-foreground" />
           {unread.length > 0 && (
