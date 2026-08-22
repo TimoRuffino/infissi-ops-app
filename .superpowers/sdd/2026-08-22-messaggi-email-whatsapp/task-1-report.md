@@ -36,3 +36,22 @@ Il RED e stato osservato prima della modifica di produzione sul test che crea un
 ## Commit
 
 Subject: `feat: separa statistiche comunicazioni per canale`
+
+## Fix round 1
+
+### Correzione
+
+La review ha rilevato che PostgreSQL non poteva inferire il tipo del parametro nullable nelle due nuove condizioni SQL. Ho aggiunto il cast esplicito `::text` a entrambe le interpolazioni in ciascun predicato:
+
+`AND (${canale ?? null}::text IS NULL OR canale = ${canale ?? null}::text)`
+
+Questo mantiene il comportamento legacy quando `canale` e assente (`NULL IS NULL`) e applica il filtro quando e valorizzato.
+
+### Regression test e risultati
+
+- RED: `pnpm test -- server/tars/mail.test.ts` — il nuovo test sui predicati SQL falliva perche trovava 0 occorrenze delle condizioni con `::text`; 149 test passavano e 1 falliva.
+- GREEN focused: `pnpm test -- server/tars/mail.test.ts` — PASS, 12 file, 150 test passati.
+- `pnpm check` — PASS.
+- Suite completa: `pnpm test` — PASS, 12 file, 150 test passati.
+
+La regressione verifica entrambe le condizioni SQL nel sorgente senza richiedere un `DATABASE_URL` di produzione o introdurre un harness PostgreSQL. Il percorso in memoria continua inoltre a coprire il comportamento channel-scoped e legacy.

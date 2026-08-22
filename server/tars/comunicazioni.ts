@@ -674,7 +674,7 @@ export async function segnaTutteViste(
   const rows = await kvSql`
     UPDATE comunicazioni SET stato = 'vista'
     WHERE sede_id = ${sedeId}
-      AND (${canale ?? null} IS NULL OR canale = ${canale ?? null})
+      AND (${canale ?? null}::text IS NULL OR canale = ${canale ?? null}::text)
       AND deleted_at IS NULL
       AND stato = 'nuova'
       AND categoria NOT IN ('offerta_marketing', 'spam')
@@ -876,7 +876,7 @@ export async function statsComunicazioni(
       COUNT(*) FILTER (WHERE categoria = 'nuovo_lead') AS nuovi_lead
     FROM comunicazioni
     WHERE sede_id = ${sedeId}
-      AND (${canale ?? null} IS NULL OR canale = ${canale ?? null})
+      AND (${canale ?? null}::text IS NULL OR canale = ${canale ?? null}::text)
       AND deleted_at IS NULL`;
   const r = rows[0] ?? {};
   return {

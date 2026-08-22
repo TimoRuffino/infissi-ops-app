@@ -6,6 +6,7 @@
 // casella non duplichi nulla.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   decryptSecret,
   encryptSecret,
@@ -513,6 +514,17 @@ describe("segnaTutteViste", () => {
 
 describe("read model comunicazioni per canale", () => {
   beforeAll(() => _resetComunicazioniInMemoria());
+
+  it("tipizza i parametri nullable dei predicati SQL per canale", () => {
+    const source = readFileSync(
+      new URL("./comunicazioni.ts", import.meta.url),
+      "utf8"
+    );
+    const predicate =
+      /AND \(\$\{canale \?\? null\}::text IS NULL OR canale = \$\{canale \?\? null\}::text\)/g;
+
+    expect(source.match(predicate)).toHaveLength(2);
+  });
 
   it("filtra statistiche e bulk view sul canale richiesto", async () => {
     const email = await insertComunicazione({
