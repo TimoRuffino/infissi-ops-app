@@ -25,9 +25,9 @@ export const DOC_TIPI = [
   "foto",
   "altro",
 ] as const;
-export type DocTipo = typeof DOC_TIPI[number];
+export type DocTipo = (typeof DOC_TIPI)[number];
 
-type Documento = {
+export type Documento = {
   id: number;
   commessaId: number;
   nome: string;
@@ -44,23 +44,26 @@ type Documento = {
   statoAtUpload: string | null; // commessa.stato at time of upload (for gates)
   createdBy: number | null;
   createdAt: Date;
-  source?: "fic";
+  source?: "fic" | "comunicazione";
   sourceRef?: string;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
 let nextId = 1;
-const _documentiStore = persistedStore<Documento>("preventivi_documenti", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-  // Backfill statoAtUpload on legacy docs: default to "preventivo" so the
-  // first transition still works for existing commesse.
-  for (const d of loaded) {
-    if ((d as any).statoAtUpload === undefined) {
-      (d as any).statoAtUpload = "preventivo";
+const _documentiStore = persistedStore<Documento>(
+  "preventivi_documenti",
+  loaded => {
+    nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+    // Backfill statoAtUpload on legacy docs: default to "preventivo" so the
+    // first transition still works for existing commesse.
+    for (const d of loaded) {
+      if ((d as any).statoAtUpload === undefined) {
+        (d as any).statoAtUpload = "preventivo";
+      }
     }
   }
-});
+);
 const documenti = _documentiStore.items;
 
 registerMigratableCollection({
@@ -117,18 +120,25 @@ function buildNomeFromTipo(
   const who = (cliente ?? "").trim();
   const stem = who ? `${label} ${who}` : label;
   // Strip characters that are awkward in filenames.
-  const safe = stem.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  const safe = stem
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return `${safe}${ext}`;
 }
 
 // If `name` already exists among the commessa's documenti, return it with a
 // numeric suffix before the extension ("foo.pdf" → "foo (2).pdf") that makes
 // it unique. Otherwise returns `name` unchanged.
-function dedupeName(name: string, commessaId: number, excludeId?: number): string {
+function dedupeName(
+  name: string,
+  commessaId: number,
+  excludeId?: number
+): string {
   const taken = new Set(
     documenti
-      .filter((d) => d.commessaId === commessaId && d.id !== excludeId)
-      .map((d) => d.nome)
+      .filter(d => d.commessaId === commessaId && d.id !== excludeId)
+      .map(d => d.nome)
   );
   if (!taken.has(name)) return name;
   const dotIdx = name.lastIndexOf(".");
@@ -192,6 +202,101 @@ function ficSourceRef(sedeId: number, ficId: number): string {
   return `${sedeId}:${ficId}`;
 }
 
+function comunicazioneSourceRef(
+  sedeId: number,
+  comunicazioneId: number,
+  allegatoIndex: number
+): string {
+  return `${sedeId}:${comunicazioneId}:${allegatoIndex}`;
+}
+
+/** Archivia un allegato email approvato dall'operatore senza duplicare i retry. */
+export async function archiviaAllegatoComunicazione(args: {
+  sedeId: number;
+  comunicazioneId: number;
+  allegatoIndex: number;
+  commessaId: number;
+  nome: string;
+  mimeType: string;
+  buffer: Buffer;
+  createdBy: number | null;
+}): Promise<Documento> {
+  if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
+    throw new Error(`Tipo di file non consentito: ${args.mimeType}`);
+  }
+  if (args.buffer.length > MAX_SIZE_BYTES) {
+    throw new Error("L'allegato supera il limite di 10MB del fascicolo.");
+  }
+  const commessa = commessaInSede(args.commessaId, args.sedeId);
+  if (!commessa) throw new Error("Commessa non trovata");
+
+  const sourceRef = comunicazioneSourceRef(
+    args.sedeId,
+    args.comunicazioneId,
+    args.allegatoIndex
+  );
+  const existing = documenti.find(
+    documento =>
+      documento.source === "comunicazione" && documento.sourceRef === sourceRef
+  );
+  if (existing?.commessaId === args.commessaId) return existing;
+
+  const id = existing?.id ?? nextId++;
+  const nome = dedupeName(args.nome, args.commessaId, existing?.id);
+  const oldStorageKey = existing?.storageKey;
+  const documento: Documento = existing ?? {
+    id,
+    commessaId: args.commessaId,
+    nome,
+    tipo: "altro",
+    mimeType: args.mimeType,
+    size: args.buffer.length,
+    note: null,
+    statoAtUpload: commessa.stato ?? null,
+    createdBy: args.createdBy,
+    createdAt: new Date(),
+  };
+
+  documento.commessaId = args.commessaId;
+  documento.nome = nome;
+  documento.tipo = "altro";
+  documento.mimeType = args.mimeType;
+  documento.size = args.buffer.length;
+  documento.note = "Archiviato manualmente da un allegato email.";
+  documento.statoAtUpload = commessa.stato ?? null;
+  documento.source = "comunicazione";
+  documento.sourceRef = sourceRef;
+
+  try {
+    const stored = await putFile(
+      "preventivi_documenti",
+      args.commessaId,
+      documento.id,
+      nome,
+      args.buffer,
+      args.mimeType
+    );
+    documento.storageKey = stored.storageKey;
+    documento.checksum = stored.checksum;
+    delete documento.dataBase64;
+  } catch (error) {
+    console.warn(
+      "[preventiviContratti] storage allegato email fallito, fallback base64 inline:",
+      error
+    );
+    documento.dataBase64 = args.buffer.toString("base64");
+    documento.storageKey = null;
+    documento.checksum = null;
+  }
+
+  if (!existing) documenti.push(documento);
+  _documentiStore.save();
+  if (oldStorageKey && oldStorageKey !== documento.storageKey) {
+    deleteFileQuiet(oldStorageKey);
+  }
+  return documento;
+}
+
 /** Crea o sposta il documento FIC senza duplicarlo nei ricollegamenti. */
 export async function upsertDocumentoFic(args: {
   sedeId: number;
@@ -210,7 +315,7 @@ export async function upsertDocumentoFic(args: {
 
   const sourceRef = ficSourceRef(args.sedeId, args.ficId);
   const existing = documenti.find(
-    (d) => d.source === "fic" && d.sourceRef === sourceRef
+    d => d.source === "fic" && d.sourceRef === sourceRef
   );
   const id = existing?.id ?? nextId++;
   const numeroSicuro = args.numero
@@ -280,7 +385,7 @@ export async function upsertDocumentoFic(args: {
 export function deleteDocumentoFic(sedeId: number, ficId: number): void {
   const sourceRef = ficSourceRef(sedeId, ficId);
   const idx = documenti.findIndex(
-    (d) => d.source === "fic" && d.sourceRef === sourceRef
+    d => d.source === "fic" && d.sourceRef === sourceRef
   );
   if (idx === -1) return;
   const [doc] = documenti.splice(idx, 1);
@@ -291,18 +396,21 @@ export function deleteDocumentoFic(sedeId: number, ficId: number): void {
 // Legacy helper kept for backward compat.
 export function hasPreventivoOrContratto(commessaId: number): boolean {
   return documenti.some(
-    (d) =>
+    d =>
       d.commessaId === commessaId &&
       (d.tipo === "preventivo" || d.tipo === "contratto")
   );
 }
 
 // Does the commessa have at least one doc satisfying the gate for `stato`?
-export function statoHasRequiredDoc(commessaId: number, stato: string): boolean {
+export function statoHasRequiredDoc(
+  commessaId: number,
+  stato: string
+): boolean {
   const required = REQUIRED_DOC_TIPI_PER_STATO[stato] ?? [];
   if (required.length === 0) return true;
   return documenti.some(
-    (d) =>
+    d =>
       d.commessaId === commessaId &&
       required.includes(d.tipo) &&
       // Only count docs uploaded WHILE the commessa was in this stato — so
@@ -327,18 +435,20 @@ export const preventiviContrattiRouter = router({
   byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
     // Don't leak another sede's documents.
     if (!commessaInSede(input, ctx.sedeId)) return [];
-    return documenti
-      .filter((d) => d.commessaId === input)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      // Strip heavy payload from list
-      .map(({ dataBase64, ...rest }) => ({
-        ...rest,
-        hasData: !!dataBase64 || !!rest.storageKey,
-      }));
+    return (
+      documenti
+        .filter(d => d.commessaId === input)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        // Strip heavy payload from list
+        .map(({ dataBase64, ...rest }) => ({
+          ...rest,
+          hasData: !!dataBase64 || !!rest.storageKey,
+        }))
+    );
   }),
 
   byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
-    const doc = documenti.find((d) => d.id === input);
+    const doc = documenti.find(d => d.id === input);
     if (!doc) return null;
     if (!commessaInSede(doc.commessaId, ctx.sedeId)) return null;
     // Legacy records: bytes still inline. New records: hydrate from storage
@@ -376,7 +486,9 @@ export const preventiviContrattiRouter = router({
       // Validate the ACTUAL payload size — not the client-supplied `size`.
       const actualBytes = base64ByteLength(input.dataBase64);
       if (actualBytes > MAX_SIZE_BYTES) {
-        throw new Error(`File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`);
+        throw new Error(
+          `File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`
+        );
       }
       const commessa = commessaInSede(input.commessaId, ctx.sedeId);
       if (!commessa) throw new Error("Commessa non trovata");
@@ -445,7 +557,7 @@ export const preventiviContrattiRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
-      const doc = documenti.find((d) => d.id === input.id);
+      const doc = documenti.find(d => d.id === input.id);
       if (!doc) throw new Error("Documento non trovato");
       if (!commessaInSede(doc.commessaId, ctx.sedeId)) {
         throw new Error("Documento non trovato");
@@ -458,28 +570,26 @@ export const preventiviContrattiRouter = router({
       return { ...rest, hasData: !!dataBase64 || !!doc.storageKey };
     }),
 
-  delete: protectedProcedure
-    .input(z.number())
-    .mutation(({ input, ctx }) => {
-      const idx = documenti.findIndex((d) => d.id === input);
-      if (idx === -1) throw new Error("Documento non trovato");
-      // Allow delete when the user is the doc uploader OR owns the parent
-      // commessa (createdBy/assegnatoA) OR is direzione. Try uploader first
-      // — it's the most common legitimate case.
-      const doc = documenti[idx];
-      const commessa = commessaInSede(doc.commessaId, ctx.sedeId);
-      if (!commessa) throw new Error("Documento non trovato");
-      const uid = ctx.user?.id ?? null;
-      if (uid != null && doc.createdBy === uid) {
-        // owner of the upload
-      } else {
-        requireOwnershipOrDirezione(commessa, ctx.user);
-      }
-      documenti.splice(idx, 1);
-      _documentiStore.save();
-      deleteFileQuiet(doc.storageKey);
-      return { success: true };
-    }),
+  delete: protectedProcedure.input(z.number()).mutation(({ input, ctx }) => {
+    const idx = documenti.findIndex(d => d.id === input);
+    if (idx === -1) throw new Error("Documento non trovato");
+    // Allow delete when the user is the doc uploader OR owns the parent
+    // commessa (createdBy/assegnatoA) OR is direzione. Try uploader first
+    // — it's the most common legitimate case.
+    const doc = documenti[idx];
+    const commessa = commessaInSede(doc.commessaId, ctx.sedeId);
+    if (!commessa) throw new Error("Documento non trovato");
+    const uid = ctx.user?.id ?? null;
+    if (uid != null && doc.createdBy === uid) {
+      // owner of the upload
+    } else {
+      requireOwnershipOrDirezione(commessa, ctx.user);
+    }
+    documenti.splice(idx, 1);
+    _documentiStore.save();
+    deleteFileQuiet(doc.storageKey);
+    return { success: true };
+  }),
 
   // UI helper: list of doc tipi + whether each is satisfied for the current
   // stato gate. Lets the CommessaDetail page render a neat required/done
@@ -489,25 +599,35 @@ export const preventiviContrattiRouter = router({
     if (!commessa) return null;
     const required = REQUIRED_DOC_TIPI_PER_STATO[commessa.stato] ?? [];
     const uploaded = documenti.filter(
-      (d) => d.commessaId === input && d.statoAtUpload === commessa.stato
+      d => d.commessaId === input && d.statoAtUpload === commessa.stato
     );
     return {
       stato: commessa.stato,
-      required: required.map((tipo) => ({
+      required: required.map(tipo => ({
         tipo,
         label: DOC_TIPO_LABEL[tipo],
-        satisfied: uploaded.some((u) => u.tipo === tipo) ||
+        satisfied:
+          uploaded.some(u => u.tipo === tipo) ||
           // Legacy fallback across all docs on this commessa
           documenti.some(
-            (d) => d.commessaId === input && d.tipo === tipo && d.statoAtUpload == null
+            d =>
+              d.commessaId === input &&
+              d.tipo === tipo &&
+              d.statoAtUpload == null
           ),
       })),
-      canAdvance: required.length === 0 || required.some((tipo) =>
-        uploaded.some((u) => u.tipo === tipo) ||
-        documenti.some(
-          (d) => d.commessaId === input && d.tipo === tipo && d.statoAtUpload == null
-        )
-      ),
+      canAdvance:
+        required.length === 0 ||
+        required.some(
+          tipo =>
+            uploaded.some(u => u.tipo === tipo) ||
+            documenti.some(
+              d =>
+                d.commessaId === input &&
+                d.tipo === tipo &&
+                d.statoAtUpload == null
+            )
+        ),
     };
   }),
 });

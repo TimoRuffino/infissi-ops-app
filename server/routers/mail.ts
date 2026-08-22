@@ -59,10 +59,13 @@ import {
   salvaRegolaMittente,
 } from "../tars/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
+import { getClientiStore } from "./clienti";
+import { archiviaAllegatoComunicazione } from "./preventiviContratti";
+import { leggiAllegatoRaw } from "../tars/allegati";
 import { leggiStatoSmistamento } from "../tars/smistamento";
 
 function trovaCasella(id: number, sedeId: number | null): Casella {
-  const c = caselle.find((x) => x.id === id);
+  const c = caselle.find(x => x.id === id);
   assertSedeScope(c ?? null, sedeId);
   return c!;
 }
@@ -86,6 +89,9 @@ const comunicazioniListInput = z.object({
   categoria: z.enum(CATEGORIE_COMUNICAZIONE).optional(),
   search: z.string().max(200).optional(),
   soloNonCollegate: z.boolean().optional(),
+  soloConAllegati: z.boolean().optional(),
+  soloCollegate: z.boolean().optional(),
+  assegnatoA: z.number().int().optional(),
   soloDaGestire: z.boolean().optional(),
   soloEscluse: z.boolean().optional(),
   includiEscluse: z.boolean().optional(),
@@ -120,7 +126,7 @@ export const mailRouter = router({
     list: protectedProcedure.query(({ ctx }) => {
       requireDirezione(ctx.user);
       return caselle
-        .filter((c) => c.sedeId === ctx.sedeId)
+        .filter(c => c.sedeId === ctx.sedeId)
         .map(casellaPubblica)
         .sort((a, b) => a.nome.localeCompare(b.nome));
     }),
@@ -130,18 +136,18 @@ export const mailRouter = router({
     // niente host, niente stato, niente diagnostica.
     opzioni: protectedProcedure.query(({ ctx }) => {
       return caselle
-        .filter((c) => c.sedeId === ctx.sedeId)
-        .map((c) => ({ id: c.id, nome: c.nome, indirizzo: c.indirizzo }))
+        .filter(c => c.sedeId === ctx.sedeId)
+        .map(c => ({ id: c.id, nome: c.nome, indirizzo: c.indirizzo }))
         .sort((a, b) => a.nome.localeCompare(b.nome));
     }),
 
     stato: protectedProcedure.query(({ ctx }) => {
-      const mie = caselle.filter((c) => c.sedeId === ctx.sedeId);
+      const mie = caselle.filter(c => c.sedeId === ctx.sedeId);
       return {
         chiaveConfigurata: secretBoxConfigured(),
         totali: mie.length,
-        attive: mie.filter((c) => c.attiva).length,
-        conErrori: mie.filter((c) => !!c.ultimoErrore).length,
+        attive: mie.filter(c => c.attiva).length,
+        conErrori: mie.filter(c => !!c.ultimoErrore).length,
       };
     }),
 
@@ -161,7 +167,7 @@ export const mailRouter = router({
         requireDirezione(ctx.user);
         assertChiaveCifratura();
         const dup = caselle.some(
-          (c) =>
+          c =>
             c.sedeId === ctx.sedeId &&
             c.indirizzo.toLowerCase() === input.indirizzo.toLowerCase()
         );
@@ -238,11 +244,16 @@ export const mailRouter = router({
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number(), cancellaComunicazioni: z.boolean().default(false) }))
+      .input(
+        z.object({
+          id: z.number(),
+          cancellaComunicazioni: z.boolean().default(false),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
         const c = trovaCasella(input.id, ctx.sedeId);
-        const idx = caselle.findIndex((x) => x.id === c.id);
+        const idx = caselle.findIndex(x => x.id === c.id);
         caselle.splice(idx, 1);
         saveCaselle();
         riavviaWatchers();
@@ -323,7 +334,7 @@ export const mailRouter = router({
     list: protectedProcedure.query(({ ctx }) => {
       requireDirezione(ctx.user);
       return configWhatsApp
-        .filter((c) => c.sedeId === ctx.sedeId)
+        .filter(c => c.sedeId === ctx.sedeId)
         .map(configPubblica);
     }),
 
@@ -394,7 +405,7 @@ export const mailRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = configWhatsApp.find((x) => x.id === input.id);
+        const c = configWhatsApp.find(x => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
         return provaConnessione(c!);
       }),
@@ -405,7 +416,7 @@ export const mailRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = configWhatsApp.find((x) => x.id === input.id);
+        const c = configWhatsApp.find(x => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
         return sincronizzaStorico(c!);
       }),
@@ -442,7 +453,7 @@ export const mailRouter = router({
         const phoneNumberId = input.phoneNumberId?.trim() ?? "";
         if (
           phoneNumberId &&
-          configWhatsApp.some((c) => c.phoneNumberId === phoneNumberId)
+          configWhatsApp.some(c => c.phoneNumberId === phoneNumberId)
         ) {
           throw new TRPCError({
             code: "CONFLICT",
@@ -495,7 +506,7 @@ export const mailRouter = router({
       )
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = configWhatsApp.find((x) => x.id === input.id);
+        const c = configWhatsApp.find(x => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
         if (input.token) {
           assertChiaveCifratura();
@@ -554,9 +565,9 @@ export const mailRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
-        const c = configWhatsApp.find((x) => x.id === input.id);
+        const c = configWhatsApp.find(x => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
-        const idx = configWhatsApp.findIndex((x) => x.id === input.id);
+        const idx = configWhatsApp.findIndex(x => x.id === input.id);
         configWhatsApp.splice(idx, 1);
         saveConfigWhatsApp();
         let cancellate = 0;
@@ -576,6 +587,21 @@ export const mailRouter = router({
       })
     ),
 
+    byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
+      const comunicazione = await getComunicazione(input, ctx.sedeId ?? 1);
+      if (
+        !comunicazione ||
+        comunicazione.deletedAt ||
+        comunicazione.canale !== "email"
+      ) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Email non trovata.",
+        });
+      }
+      return comunicazione;
+    }),
+
     stats: protectedProcedure.query(({ ctx }) =>
       statsComunicazioni(ctx.sedeId ?? 1, "email")
     ),
@@ -583,6 +609,70 @@ export const mailRouter = router({
     segnaTutteViste: protectedProcedure.mutation(async ({ ctx }) => ({
       aggiornate: await segnaTutteViste(ctx.sedeId ?? 1, "email"),
     })),
+
+    archiviaAllegato: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          allegatoIndex: z.number().int().min(0),
+          commessaId: z.number(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        const comunicazione = await getComunicazione(input.id, sedeId);
+        if (
+          !comunicazione ||
+          comunicazione.deletedAt ||
+          comunicazione.canale !== "email"
+        ) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Email non trovata.",
+          });
+        }
+        const commessa = getCommessaById(input.commessaId);
+        assertSedeScope(commessa ?? null, ctx.sedeId);
+        if (comunicazione.commessaId !== input.commessaId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Collega prima l'email alla commessa selezionata.",
+          });
+        }
+        if (!comunicazione.allegati[input.allegatoIndex]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Allegato non trovato.",
+          });
+        }
+
+        try {
+          const raw = await leggiAllegatoRaw(
+            comunicazione,
+            input.allegatoIndex
+          );
+          const documento = await archiviaAllegatoComunicazione({
+            sedeId,
+            comunicazioneId: comunicazione.id,
+            allegatoIndex: input.allegatoIndex,
+            commessaId: input.commessaId,
+            nome: raw.nome,
+            mimeType: raw.mimeType,
+            buffer: raw.buffer,
+            createdBy: Number((ctx.user as any).id) || null,
+          });
+          const { dataBase64, ...rest } = documento;
+          return { ...rest, hasData: !!dataBase64 || !!rest.storageKey };
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Impossibile archiviare l'allegato.",
+          });
+        }
+      }),
   }),
 
   // ── Comunicazioni ─────────────────────────────────────────────────────
@@ -600,6 +690,9 @@ export const mailRouter = router({
           categoria: input?.categoria,
           search: input?.search,
           soloNonCollegate: input?.soloNonCollegate,
+          soloConAllegati: input?.soloConAllegati,
+          soloCollegate: input?.soloCollegate,
+          assegnatoA: input?.assegnatoA,
           soloDaGestire: input?.soloDaGestire,
           soloEscluse: input?.soloEscluse,
           includiEscluse: input?.includiEscluse,
@@ -613,11 +706,9 @@ export const mailRouter = router({
       return { aggiornate: n };
     }),
 
-    byId: protectedProcedure
-      .input(z.number())
-      .query(async ({ input, ctx }) => {
-        return getComunicazione(input, ctx.sedeId ?? 1);
-      }),
+    byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
+      return getComunicazione(input, ctx.sedeId ?? 1);
+    }),
 
     stats: protectedProcedure.query(async ({ ctx }) => {
       return statsComunicazioni(ctx.sedeId ?? 1);
@@ -674,7 +765,8 @@ export const mailRouter = router({
           ) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "La regola mittente si può usare solo per spam e offerte.",
+              message:
+                "La regola mittente si può usare solo per spam e offerte.",
             });
           }
           salvaRegolaMittente({
@@ -770,10 +862,21 @@ export const mailRouter = router({
     // commessa giusta quando il match automatico ha sbagliato.
     collega: protectedProcedure
       .input(
-        z.object({
-          id: z.number(),
-          commessaId: z.number().nullable(),
-        })
+        z
+          .object({
+            id: z.number(),
+            commessaId: z.number().nullable().optional(),
+            clienteId: z.number().nullable().optional(),
+          })
+          .refine(
+            value =>
+              value.commessaId !== undefined || value.clienteId !== undefined,
+            { message: "Indica il collegamento da aggiornare." }
+          )
+          .refine(
+            value => !(value.commessaId != null && value.clienteId != null),
+            { message: "Collega a un cliente oppure a una commessa." }
+          )
       )
       .mutation(async ({ input, ctx }) => {
         const sedeId = ctx.sedeId ?? 1;
@@ -782,15 +885,28 @@ export const mailRouter = router({
           const commessa = getCommessaById(input.commessaId);
           assertSedeScope(commessa ?? null, ctx.sedeId);
           clienteId = (commessa as any).clienteId ?? null;
+        } else if (input.clienteId != null) {
+          const cliente = getClientiStore().find(
+            (item: any) => item.id === input.clienteId
+          );
+          assertSedeScope(cliente ?? null, ctx.sedeId);
+          clienteId = input.clienteId;
         }
         const ok = await setMatchComunicazione(input.id, sedeId, {
           clienteId,
-          commessaId: input.commessaId,
-          confidenza: input.commessaId == null ? "nessuna" : "alta",
+          commessaId: input.commessaId ?? null,
+          confidenza:
+            input.commessaId != null
+              ? "alta"
+              : input.clienteId != null
+                ? "media"
+                : "nessuna",
           motivo:
-            input.commessaId == null
-              ? null
-              : "Collegata a mano da un operatore.",
+            input.commessaId != null
+              ? "Collegata a mano da un operatore."
+              : input.clienteId != null
+                ? "Collegata a mano a un cliente da un operatore."
+                : null,
         });
         if (!ok) {
           throw new TRPCError({

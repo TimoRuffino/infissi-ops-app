@@ -6,6 +6,10 @@ import {
   getComunicazione,
   insertComunicazione,
 } from "../tars/comunicazioni";
+import { getClientiStore } from "./clienti";
+import { getCommesseStore } from "./commesse";
+import { deleteDocumentiByCommessa } from "./preventiviContratti";
+import { deleteFileQuiet, putFile } from "../_core/fileStorage";
 
 function createContext(sedeId: number): TrpcContext {
   return {
@@ -108,7 +112,9 @@ describe("mail channel APIs", () => {
     });
     expect((await getComunicazione(email!.id, 1))?.stato).toBe("vista");
 
-    const conversazioni = await caller.mail.whatsapp.conversazioni({ limit: 20 });
+    const conversazioni = await caller.mail.whatsapp.conversazioni({
+      limit: 20,
+    });
     expect(conversazioni).toEqual([
       expect.objectContaining({
         casellaId: 8,
@@ -141,5 +147,145 @@ describe("mail channel APIs", () => {
         limit: 50,
       })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("non espone un messaggio WhatsApp attraverso email.byId", async () => {
+    const email = await insertComunicazione(nuovaEmail());
+    const whatsapp = await insertComunicazione(nuovoMessaggioWhatsApp());
+    const altraSede = await insertComunicazione(
+      nuovaEmail({
+        sedeId: 2,
+        messageId: "email-by-id-sede-2",
+      })
+    );
+    const caller = appRouter.createCaller(createContext(1));
+
+    await expect(caller.mail.email.byId(email!.id)).resolves.toMatchObject({
+      id: email!.id,
+      canale: "email",
+    });
+    await expect(caller.mail.email.byId(whatsapp!.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(caller.mail.email.byId(altraSede!.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("collega una comunicazione a un cliente della sede senza inventare una commessa", async () => {
+    const clienteId = 951_101;
+    const clienti = getClientiStore();
+    clienti.push({
+      id: clienteId,
+      sedeId: 1,
+      nome: "Ada",
+      cognome: "Infissi Tirreno",
+    });
+    const email = await insertComunicazione(nuovaEmail());
+    const caller = appRouter.createCaller(createContext(1));
+
+    try {
+      await expect(
+        caller.mail.comunicazioni.collega({ id: email!.id, clienteId })
+      ).resolves.toEqual({ success: true });
+      await expect(getComunicazione(email!.id, 1)).resolves.toMatchObject({
+        clienteId,
+        commessaId: null,
+      });
+      await expect(
+        caller.mail.comunicazioni.collega({
+          id: email!.id,
+          clienteId: 951_999,
+        })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      const index = clienti.findIndex(cliente => cliente.id === clienteId);
+      if (index >= 0) clienti.splice(index, 1);
+    }
+  });
+
+  it("archivia una sola volta un allegato storage-backed nella commessa collegata", async () => {
+    const commessaId = 952_001;
+    const commesse = getCommesseStore();
+    commesse.push({
+      id: commessaId,
+      sedeId: 1,
+      codice: "COM-2026-952",
+      cliente: "Cliente Archivio",
+      clienteId: 952_101,
+      assegnatoA: 1,
+      stato: "preventivo",
+      archivedAt: null,
+    });
+    const bytes = Buffer.from("contenuto allegato email", "utf8");
+    const fixture = await putFile(
+      "mail_test",
+      commessaId,
+      1,
+      "ordine.pdf",
+      bytes,
+      "application/pdf"
+    );
+    const email = await insertComunicazione(
+      nuovaEmail({
+        messageId: "email-archivio-idempotente",
+        clienteId: 952_101,
+        commessaId,
+        allegati: [
+          {
+            nome: "ordine.pdf",
+            mimeType: "application/pdf",
+            size: bytes.length,
+            storageKey: fixture.storageKey,
+          },
+        ],
+      })
+    );
+    const whatsapp = await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-archivio-vietato",
+        clienteId: 952_101,
+        commessaId,
+        allegati: [
+          {
+            nome: "ordine.pdf",
+            mimeType: "application/pdf",
+            size: bytes.length,
+            storageKey: fixture.storageKey,
+          },
+        ],
+      })
+    );
+    const caller = appRouter.createCaller(createContext(1));
+
+    try {
+      const input = { id: email!.id, allegatoIndex: 0, commessaId };
+      const prima = await caller.mail.email.archiviaAllegato(input);
+      const seconda = await caller.mail.email.archiviaAllegato(input);
+
+      expect(seconda.id).toBe(prima.id);
+      expect(await caller.preventiviContratti.byCommessa(commessaId)).toEqual([
+        expect.objectContaining({
+          id: prima.id,
+          commessaId,
+          nome: "ordine.pdf",
+          source: "comunicazione",
+          sourceRef: `1:${email!.id}:0`,
+          storageKey: expect.any(String),
+        }),
+      ]);
+      await expect(
+        caller.mail.email.archiviaAllegato({
+          id: whatsapp!.id,
+          allegatoIndex: 0,
+          commessaId,
+        })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      deleteDocumentiByCommessa(commessaId);
+      deleteFileQuiet(fixture.storageKey);
+      const index = commesse.findIndex(commessa => commessa.id === commessaId);
+      if (index >= 0) commesse.splice(index, 1);
+    }
   });
 });

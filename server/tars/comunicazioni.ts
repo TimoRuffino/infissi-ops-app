@@ -15,6 +15,7 @@
 
 import { kvSql } from "../_core/persistence";
 import { getClientiStore } from "../routers/clienti";
+import { getCommesseStore } from "../routers/commesse";
 import { normalizzaTelefono } from "@shared/telefono";
 import {
   categoriaEsclusa,
@@ -772,8 +773,13 @@ export type FiltroComunicazioni = {
   stato?: Comunicazione["stato"];
   search?: string;
   categoria?: CategoriaComunicazione;
-  // Solo quelle senza commessa collegata — la coda "da smistare".
+  // Solo quelle senza alcun collegamento — la coda "da smistare".
   soloNonCollegate?: boolean;
+  soloConAllegati?: boolean;
+  soloCollegate?: boolean;
+  // L'id utente viene tradotto qui in commesse della sede: il client non
+  // decide mai quali commesse appartengano a un assegnatario.
+  assegnatoA?: number;
   // Coda principale: nuove o viste, mai quelle già chiuse.
   soloDaGestire?: boolean;
   // Per impostazione predefinita il rumore resta fuori dalla posta operativa.
@@ -783,11 +789,62 @@ export type FiltroComunicazioni = {
   offset?: number;
 };
 
+type AmbitoCollegamenti = {
+  clienteIds: number[];
+  commessaIds: number[];
+  commessaIdsAssegnate: number[] | null;
+};
+
+function ambitoCollegamenti(
+  sedeId: number,
+  search?: string,
+  assegnatoA?: number
+): AmbitoCollegamenti {
+  const query = search?.trim().toLowerCase();
+  const clienteIds = query
+    ? getClientiStore()
+        .filter((cliente: any) => {
+          if (cliente.sedeId !== sedeId) return false;
+          const nome = `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`;
+          const cognome = `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`;
+          return (
+            nome.toLowerCase().includes(query) ||
+            cognome.toLowerCase().includes(query)
+          );
+        })
+        .map((cliente: any) => Number(cliente.id))
+        .filter(Number.isFinite)
+    : [];
+  const commesseSede = getCommesseStore().filter(
+    (commessa: any) => commessa.sedeId === sedeId
+  );
+  const commessaIds = query
+    ? commesseSede
+        .filter((commessa: any) =>
+          [commessa.codice, commessa.cliente]
+            .filter((value): value is string => typeof value === "string")
+            .some(value => value.toLowerCase().includes(query))
+        )
+        .map((commessa: any) => Number(commessa.id))
+        .filter(Number.isFinite)
+    : [];
+  const commessaIdsAssegnate =
+    assegnatoA == null
+      ? null
+      : commesseSede
+          .filter((commessa: any) => commessa.assegnatoA === assegnatoA)
+          .map((commessa: any) => Number(commessa.id))
+          .filter(Number.isFinite);
+  return { clienteIds, commessaIds, commessaIdsAssegnate };
+}
+
 export async function listComunicazioni(
   f: FiltroComunicazioni
 ): Promise<Comunicazione[]> {
   const limit = Math.min(f.limit ?? 50, 200);
   const offset = f.offset ?? 0;
+  const search = f.search?.trim();
+  const ambito = ambitoCollegamenti(f.sedeId, search, f.assegnatoA);
 
   if (!kvSql) {
     let rows = memRows.filter(r => r.sedeId === f.sedeId && !r.deletedAt);
@@ -800,18 +857,30 @@ export async function listComunicazioni(
     if (f.canale) rows = rows.filter(r => r.canale === f.canale);
     if (f.stato) rows = rows.filter(r => r.stato === f.stato);
     if (f.categoria) rows = rows.filter(r => r.categoria === f.categoria);
-    if (f.soloNonCollegate) rows = rows.filter(r => r.commessaId == null);
+    if (f.soloNonCollegate)
+      rows = rows.filter(r => r.commessaId == null && r.clienteId == null);
+    if (f.soloConAllegati) rows = rows.filter(r => r.allegati.length > 0);
+    if (f.soloCollegate)
+      rows = rows.filter(r => r.commessaId != null || r.clienteId != null);
+    if (ambito.commessaIdsAssegnate)
+      rows = rows.filter(
+        r =>
+          r.commessaId != null &&
+          ambito.commessaIdsAssegnate!.includes(r.commessaId)
+      );
     if (f.soloDaGestire) rows = rows.filter(r => r.stato !== "gestita");
     if (f.soloEscluse) rows = rows.filter(r => categoriaEsclusa(r.categoria));
     else if (!f.includiEscluse)
       rows = rows.filter(r => !categoriaEsclusa(r.categoria));
-    if (f.search) {
-      const q = f.search.toLowerCase();
+    if (search) {
+      const q = search.toLowerCase();
       rows = rows.filter(
         r =>
           r.oggetto.toLowerCase().includes(q) ||
           r.mittente.toLowerCase().includes(q) ||
-          r.testo.toLowerCase().includes(q)
+          r.testo.toLowerCase().includes(q) ||
+          (r.clienteId != null && ambito.clienteIds.includes(r.clienteId)) ||
+          (r.commessaId != null && ambito.commessaIds.includes(r.commessaId))
       );
     }
     return [...rows]
@@ -832,16 +901,38 @@ export async function listComunicazioni(
   if (f.canale) conds.push(sql`canale = ${f.canale}`);
   if (f.stato) conds.push(sql`stato = ${f.stato}`);
   if (f.categoria) conds.push(sql`categoria = ${f.categoria}`);
-  if (f.soloNonCollegate) conds.push(sql`commessa_id IS NULL`);
+  if (f.soloNonCollegate)
+    conds.push(sql`commessa_id IS NULL AND cliente_id IS NULL`);
+  if (f.soloConAllegati)
+    conds.push(sql`jsonb_array_length(COALESCE(allegati, '[]'::jsonb)) > 0`);
+  if (f.soloCollegate)
+    conds.push(sql`(commessa_id IS NOT NULL OR cliente_id IS NOT NULL)`);
+  if (ambito.commessaIdsAssegnate) {
+    if (ambito.commessaIdsAssegnate.length === 0) conds.push(sql`FALSE`);
+    else
+      conds.push(
+        sql`commessa_id = ANY(${ambito.commessaIdsAssegnate}::integer[])`
+      );
+  }
   if (f.soloDaGestire) conds.push(sql`stato <> 'gestita'`);
   if (f.soloEscluse)
     conds.push(sql`categoria IN ('offerta_marketing', 'spam')`);
   else if (!f.includiEscluse)
     conds.push(sql`categoria NOT IN ('offerta_marketing', 'spam')`);
-  if (f.search) {
-    const like = `%${f.search}%`;
+  if (search) {
+    const like = `%${search}%`;
+    const collegamenti: any[] = [];
+    if (ambito.clienteIds.length > 0)
+      collegamenti.push(sql`cliente_id = ANY(${ambito.clienteIds}::integer[])`);
+    if (ambito.commessaIds.length > 0)
+      collegamenti.push(
+        sql`commessa_id = ANY(${ambito.commessaIds}::integer[])`
+      );
+    const matchCollegamenti = collegamenti.length
+      ? collegamenti.reduce((a, b) => sql`${a} OR ${b}`)
+      : sql`FALSE`;
     conds.push(
-      sql`(oggetto ILIKE ${like} OR mittente ILIKE ${like} OR testo ILIKE ${like})`
+      sql`(oggetto ILIKE ${like} OR mittente ILIKE ${like} OR testo ILIKE ${like} OR ${matchCollegamenti})`
     );
   }
   const where = conds.reduce((a, b) => sql`${a} AND ${b}`);
@@ -902,19 +993,14 @@ function toConversazioneWhatsApp(
 }
 
 function confrontaMessaggiRecenti(a: Comunicazione, b: Comunicazione) {
-  return (
-    b.receivedAt.getTime() - a.receivedAt.getTime() ||
-    b.id - a.id
-  );
+  return b.receivedAt.getTime() - a.receivedAt.getTime() || b.id - a.id;
 }
 
 function haCollegamentoWhatsApp(messaggio: Comunicazione) {
   return messaggio.clienteId != null || messaggio.commessaId != null;
 }
 
-function cursoreDaMessaggio(
-  messaggio: Comunicazione
-): CursoreThreadWhatsApp {
+function cursoreDaMessaggio(messaggio: Comunicazione): CursoreThreadWhatsApp {
   return { receivedAt: messaggio.receivedAt, id: messaggio.id };
 }
 
@@ -924,7 +1010,10 @@ function precedenteAlCursore(
 ) {
   const ricevutoAt = messaggio.receivedAt.getTime();
   const confine = cursore.receivedAt.getTime();
-  return ricevutoAt < confine || (ricevutoAt === confine && messaggio.id < cursore.id);
+  return (
+    ricevutoAt < confine ||
+    (ricevutoAt === confine && messaggio.id < cursore.id)
+  );
 }
 
 function raggruppaConversazioniWhatsApp(
@@ -937,8 +1026,14 @@ function raggruppaConversazioniWhatsApp(
   for (const messaggio of messaggi) {
     const controparte = normalizzaControparteWhatsApp(messaggio.mittente);
     const key = `${messaggio.casellaId}:${controparte}`;
-    const matchSearch = !query ||
-      [messaggio.mittente, messaggio.mittenteNome, messaggio.oggetto, messaggio.testo]
+    const matchSearch =
+      !query ||
+      [
+        messaggio.mittente,
+        messaggio.mittenteNome,
+        messaggio.oggetto,
+        messaggio.testo,
+      ]
         .filter((value): value is string => typeof value === "string")
         .some(value => value.toLowerCase().includes(query));
     const gruppo = gruppi.get(key);
@@ -948,7 +1043,9 @@ function raggruppaConversazioniWhatsApp(
         controparte,
         messaggioRecente: messaggio,
         messaggioProfilo: messaggio.mittenteNome?.trim() ? messaggio : null,
-        messaggioCollegato: haCollegamentoWhatsApp(messaggio) ? messaggio : null,
+        messaggioCollegato: haCollegamentoWhatsApp(messaggio)
+          ? messaggio
+          : null,
         nonLetti:
           messaggio.direzione === "in" && messaggio.stato === "nuova" ? 1 : 0,
         totaleMessaggi: 1,
@@ -993,7 +1090,10 @@ function conversazioniDaGruppi(
 ): ConversazioneWhatsApp[] {
   const query = input.search?.trim().toLowerCase();
   return gruppi
-    .map(gruppo => ({ gruppo, conversazione: toConversazioneWhatsApp(sedeId, gruppo) }))
+    .map(gruppo => ({
+      gruppo,
+      conversazione: toConversazioneWhatsApp(sedeId, gruppo),
+    }))
     .filter(({ gruppo, conversazione }) => {
       if (input.soloDaGestire && !gruppo.daGestire) return false;
       if (!query) return true;
@@ -1004,7 +1104,10 @@ function conversazioniDaGruppi(
       );
     })
     .sort((a, b) =>
-      confrontaMessaggiRecenti(a.gruppo.messaggioRecente, b.gruppo.messaggioRecente)
+      confrontaMessaggiRecenti(
+        a.gruppo.messaggioRecente,
+        b.gruppo.messaggioRecente
+      )
     )
     .map(({ conversazione }) => conversazione);
 }
@@ -1152,7 +1255,10 @@ export async function listConversazioniWhatsApp(input: {
     ? getClientiStore()
         .filter((c: any) => c.sedeId === input.sedeId)
         .filter((c: any) =>
-          `${c.cognome ?? ""} ${c.nome ?? ""}`.trim().toLowerCase().includes(query.toLowerCase())
+          `${c.cognome ?? ""} ${c.nome ?? ""}`
+            .trim()
+            .toLowerCase()
+            .includes(query.toLowerCase())
         )
         .map((c: any) => c.id)
     : [];
@@ -1312,9 +1418,7 @@ export async function getThreadWhatsApp(input: {
     messaggi = rows.map(fromRow);
   }
 
-  const piuRecenti = messaggi
-    .sort(confrontaMessaggiRecenti)
-    .slice(0, limit);
+  const piuRecenti = messaggi.sort(confrontaMessaggiRecenti).slice(0, limit);
   const hasMore = messaggi.length > limit;
   const ordinati = [...piuRecenti].reverse();
   return {
@@ -1351,19 +1455,21 @@ export async function statsComunicazioni(
   escluse: number;
   daClassificare: number;
   nuoviLead: number;
+  conAllegati: number;
+  collegate: number;
 }> {
   if (!kvSql) {
     const mie = memRows.filter(
       r =>
-        r.sedeId === sedeId &&
-        (!canale || r.canale === canale) &&
-        !r.deletedAt
+        r.sedeId === sedeId && (!canale || r.canale === canale) && !r.deletedAt
     );
     const operative = mie.filter(r => !categoriaEsclusa(r.categoria));
     return {
       nuove: operative.filter(r => r.stato === "nuova").length,
       totali: operative.length,
-      nonCollegate: operative.filter(r => r.commessaId == null).length,
+      nonCollegate: operative.filter(
+        r => r.commessaId == null && r.clienteId == null
+      ).length,
       gestite: operative.filter(r => r.stato === "gestita").length,
       email: operative.filter(r => r.canale === "email").length,
       whatsapp: operative.filter(r => r.canale === "whatsapp").length,
@@ -1371,6 +1477,10 @@ export async function statsComunicazioni(
       daClassificare: operative.filter(r => r.categoria === "da_classificare")
         .length,
       nuoviLead: operative.filter(r => r.categoria === "nuovo_lead").length,
+      conAllegati: operative.filter(r => r.allegati.length > 0).length,
+      collegate: operative.filter(
+        r => r.commessaId != null || r.clienteId != null
+      ).length,
     };
   }
   await ensureComunicazioniSchema();
@@ -1378,13 +1488,15 @@ export async function statsComunicazioni(
     SELECT
       COUNT(*) FILTER (WHERE stato = 'nuova' AND categoria NOT IN ('offerta_marketing', 'spam')) AS nuove,
       COUNT(*) FILTER (WHERE categoria NOT IN ('offerta_marketing', 'spam')) AS totali,
-      COUNT(*) FILTER (WHERE commessa_id IS NULL AND categoria NOT IN ('offerta_marketing', 'spam')) AS non_collegate,
+      COUNT(*) FILTER (WHERE commessa_id IS NULL AND cliente_id IS NULL AND categoria NOT IN ('offerta_marketing', 'spam')) AS non_collegate,
       COUNT(*) FILTER (WHERE stato = 'gestita' AND categoria NOT IN ('offerta_marketing', 'spam')) AS gestite,
       COUNT(*) FILTER (WHERE canale = 'email' AND categoria NOT IN ('offerta_marketing', 'spam')) AS email,
       COUNT(*) FILTER (WHERE canale = 'whatsapp' AND categoria NOT IN ('offerta_marketing', 'spam')) AS whatsapp,
       COUNT(*) FILTER (WHERE categoria IN ('offerta_marketing', 'spam')) AS escluse,
       COUNT(*) FILTER (WHERE categoria = 'da_classificare') AS da_classificare,
-      COUNT(*) FILTER (WHERE categoria = 'nuovo_lead') AS nuovi_lead
+      COUNT(*) FILTER (WHERE categoria = 'nuovo_lead') AS nuovi_lead,
+      COUNT(*) FILTER (WHERE jsonb_array_length(COALESCE(allegati, '[]'::jsonb)) > 0 AND categoria NOT IN ('offerta_marketing', 'spam')) AS con_allegati,
+      COUNT(*) FILTER (WHERE (commessa_id IS NOT NULL OR cliente_id IS NOT NULL) AND categoria NOT IN ('offerta_marketing', 'spam')) AS collegate
     FROM comunicazioni
     WHERE sede_id = ${sedeId}
       AND (${canale ?? null}::text IS NULL OR canale = ${canale ?? null}::text)
@@ -1400,6 +1512,8 @@ export async function statsComunicazioni(
     escluse: Number(r.escluse ?? 0),
     daClassificare: Number(r.da_classificare ?? 0),
     nuoviLead: Number(r.nuovi_lead ?? 0),
+    conAllegati: Number(r.con_allegati ?? 0),
+    collegate: Number(r.collegate ?? 0),
   };
 }
 

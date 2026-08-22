@@ -1,7 +1,9 @@
 import TarsAvatar from "@/components/TarsAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { EmailMessage, TarsProposal } from "@/lib/messaggi";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
@@ -12,8 +14,10 @@ import {
   Link2,
   Loader2,
   Mail,
+  Megaphone,
   Paperclip,
   RefreshCw,
+  ShieldBan,
 } from "lucide-react";
 
 export const EMAIL_CATEGORIES = [
@@ -105,13 +109,13 @@ function shortDate(value: string | Date): string {
     : date.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
 }
 
-function initials(message: any): string {
+function initials(message: EmailMessage): string {
   const name = (message.mittenteNome ?? message.mittente ?? "?").trim();
   const parts = name.split(/[\s@.]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-function preview(message: any): string {
+function preview(message: EmailMessage): string {
   return (
     String(message.testo ?? "")
       .replace(/\s+/g, " ")
@@ -122,23 +126,24 @@ function preview(message: any): string {
 function MessageRow({
   message,
   selected,
+  checked,
   hasTarsProposal,
   onOpen,
+  onCheckedChange,
 }: {
-  message: any;
+  message: EmailMessage;
   selected: boolean;
+  checked: boolean;
   hasTarsProposal: boolean;
   onOpen: () => void;
+  onCheckedChange: (checked: boolean) => void;
 }) {
   const unread = message.stato === "nuova";
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-current={selected ? "true" : undefined}
+    <div
       className={cn(
-        "relative flex min-h-[104px] w-full min-w-0 items-start gap-3 border-b border-border-soft px-3 py-3 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "relative flex min-h-[104px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
         selected
           ? "bg-accent/70"
           : unread
@@ -152,72 +157,171 @@ function MessageRow({
           aria-hidden="true"
         />
       )}
-      <div
-        className={cn(
-          "mt-0.5 grid size-10 shrink-0 place-items-center rounded-md text-xs font-bold",
-          unread
-            ? "bg-primary text-primary-foreground shadow-xs"
-            : "bg-surface-2 text-text-2"
-        )}
+      <label
+        htmlFor={`email-select-${message.id}`}
+        className="ml-1 mt-2 grid size-10 shrink-0 cursor-pointer place-items-center"
       >
-        {initials(message)}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <Mail className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-sm",
-              unread ? "font-bold text-foreground" : "font-semibold text-text-2"
-            )}
-          >
-            {message.mittenteNome ?? message.mittente}
-          </span>
-          <time
-            className={cn(
-              "shrink-0 text-[11px] tabular-nums",
-              unread ? "font-bold text-accent-text" : "text-text-3"
-            )}
-          >
-            {shortDate(message.receivedAt)}
-          </time>
-        </div>
+        <span className="sr-only">
+          Seleziona email {message.oggetto || "senza oggetto"}
+        </span>
+        <Checkbox
+          id={`email-select-${message.id}`}
+          checked={checked}
+          onCheckedChange={value => onCheckedChange(value === true)}
+          className="size-5"
+          aria-label={`Seleziona email ${message.oggetto || "senza oggetto"}`}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-current={selected ? "true" : undefined}
+        className="flex min-w-0 flex-1 items-start gap-3 px-1 py-3 pr-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
         <div
           className={cn(
-            "mt-0.5 truncate text-sm",
-            unread ? "font-semibold text-foreground" : "text-text-2"
+            "mt-0.5 grid size-10 shrink-0 place-items-center rounded-md text-xs font-bold",
+            unread
+              ? "bg-primary text-primary-foreground shadow-xs"
+              : "bg-surface-2 text-text-2"
           )}
         >
-          {message.oggetto || "(senza oggetto)"}
+          {initials(message)}
         </div>
-        <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
-          {preview(message)}
-        </p>
-        <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
-          <EmailCategoryBadge
-            categoria={message.categoria ?? "da_classificare"}
-            fonte={message.classificazioneFonte}
-            analizzata={message.tarsAnalizzata}
-          />
-          {(message.allegati?.length ?? 0) > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Paperclip className="size-3" />
-              {message.allegati.length}
-            </span>
-          )}
-          {message.commessaId != null && (
-            <Link2 className="size-3 text-success" aria-label="Collegata" />
-          )}
-          {hasTarsProposal && <TarsAvatar size="sm" className="size-4" />}
-          {message.stato === "gestita" && (
-            <CheckCheck
-              className="ml-auto size-3.5 text-success"
-              aria-label="Gestita"
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Mail
+              className="size-3.5 shrink-0 text-text-3"
+              aria-hidden="true"
             />
-          )}
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                unread
+                  ? "font-bold text-foreground"
+                  : "font-semibold text-text-2"
+              )}
+            >
+              {message.mittenteNome ?? message.mittente}
+            </span>
+            <time
+              className={cn(
+                "shrink-0 text-[11px] tabular-nums",
+                unread ? "font-bold text-accent-text" : "text-text-3"
+              )}
+            >
+              {shortDate(message.receivedAt)}
+            </time>
+          </div>
+          <div
+            className={cn(
+              "mt-0.5 truncate text-sm",
+              unread ? "font-semibold text-foreground" : "text-text-2"
+            )}
+          >
+            {message.oggetto || "(senza oggetto)"}
+          </div>
+          <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
+            {preview(message)}
+          </p>
+          <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
+            <EmailCategoryBadge
+              categoria={message.categoria ?? "da_classificare"}
+              fonte={message.classificazioneFonte}
+              analizzata={message.tarsAnalizzata}
+            />
+            {(message.allegati?.length ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Paperclip className="size-3" />
+                {message.allegati.length}
+              </span>
+            )}
+            {message.commessaId != null && (
+              <Link2 className="size-3 text-success" aria-label="Collegata" />
+            )}
+            {hasTarsProposal && <TarsAvatar size="sm" className="size-4" />}
+            {message.stato === "gestita" && (
+              <CheckCheck
+                className="ml-auto size-3.5 text-success"
+                aria-label="Gestita"
+              />
+            )}
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </div>
+  );
+}
+
+function BulkToolbar({
+  selectedCount,
+  allSelected,
+  disabled,
+  onToggleAll,
+  onClose,
+  onSpam,
+  onNewsletter,
+}: {
+  selectedCount: number;
+  allSelected: boolean;
+  disabled: boolean;
+  onToggleAll: (checked: boolean) => void;
+  onClose: () => void;
+  onSpam: () => void;
+  onNewsletter: () => void;
+}) {
+  return (
+    <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2/70 px-2">
+      <label className="grid size-10 shrink-0 cursor-pointer place-items-center">
+        <span className="sr-only">Seleziona tutte le email della pagina</span>
+        <Checkbox
+          checked={allSelected}
+          onCheckedChange={value => onToggleAll(value === true)}
+          className="size-5"
+          aria-label="Seleziona tutte le email della pagina"
+        />
+      </label>
+      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-2">
+        {selectedCount > 0 ? `${selectedCount} selezionate` : "Seleziona"}
+      </span>
+      {selectedCount > 0 && (
+        <>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-10"
+            disabled={disabled}
+            onClick={onClose}
+            aria-label="Chiudi email selezionate"
+            title="Chiudi"
+          >
+            <CheckCheck className="size-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-10"
+            disabled={disabled}
+            onClick={onNewsletter}
+            aria-label="Segna le email selezionate come newsletter"
+            title="Newsletter"
+          >
+            <Megaphone className="size-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="dangerGhost"
+            className="size-10"
+            disabled={disabled}
+            onClick={onSpam}
+            aria-label="Segna le email selezionate come spam"
+            title="Spam"
+          >
+            <ShieldBan className="size-4" />
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -258,13 +362,20 @@ export default function EmailMessageList({
   hasPreviousPage,
   hasNextPage,
   onOpen,
+  selectedIds,
+  bulkPending,
+  onToggleSelected,
+  onToggleAll,
+  onBulkClose,
+  onBulkSpam,
+  onBulkNewsletter,
   onRetry,
   onPreviousPage,
   onNextPage,
 }: {
-  messages: any[];
+  messages: EmailMessage[];
   selectedId: number | null;
-  proposalsByMessage: Map<number, any[]>;
+  proposalsByMessage: Map<number, TarsProposal[]>;
   viewLabel: string;
   loading: boolean;
   fetching: boolean;
@@ -273,7 +384,14 @@ export default function EmailMessageList({
   page: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
-  onOpen: (message: any) => void;
+  onOpen: (message: EmailMessage) => void;
+  selectedIds: Set<number>;
+  bulkPending: boolean;
+  onToggleSelected: (id: number, checked: boolean) => void;
+  onToggleAll: (checked: boolean) => void;
+  onBulkClose: () => void;
+  onBulkSpam: () => void;
+  onBulkNewsletter: () => void;
   onRetry: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
@@ -302,6 +420,18 @@ export default function EmailMessageList({
           </span>
         )}
       </div>
+
+      {!loading && !error && messages.length > 0 && (
+        <BulkToolbar
+          selectedCount={selectedIds.size}
+          allSelected={messages.every(message => selectedIds.has(message.id))}
+          disabled={bulkPending}
+          onToggleAll={onToggleAll}
+          onClose={onBulkClose}
+          onSpam={onBulkSpam}
+          onNewsletter={onBulkNewsletter}
+        />
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
@@ -342,8 +472,10 @@ export default function EmailMessageList({
               key={message.id}
               message={message}
               selected={message.id === selectedId}
+              checked={selectedIds.has(message.id)}
               hasTarsProposal={proposalsByMessage.has(message.id)}
               onOpen={() => onOpen(message)}
+              onCheckedChange={checked => onToggleSelected(message.id, checked)}
             />
           ))
         )}
@@ -354,7 +486,7 @@ export default function EmailMessageList({
           <Button
             size="icon"
             variant="ghost"
-            className="size-9"
+            className="size-10"
             disabled={!hasPreviousPage || fetching}
             onClick={onPreviousPage}
             aria-label="Pagina precedente"
@@ -368,7 +500,7 @@ export default function EmailMessageList({
           <Button
             size="icon"
             variant="ghost"
-            className="size-9"
+            className="size-10"
             disabled={!hasNextPage || fetching}
             onClick={onNextPage}
             aria-label="Pagina successiva"

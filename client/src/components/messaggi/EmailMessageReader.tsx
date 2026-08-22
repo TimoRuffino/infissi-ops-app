@@ -26,10 +26,12 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import type { EmailDetail, TarsProposal } from "@/lib/messaggi";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
+  Archive,
   ArrowLeft,
   Bot,
   BriefcaseBusiness,
@@ -47,11 +49,11 @@ import {
   Trash2,
   UserPlus,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 
-function initials(message: any): string {
+function initials(message: EmailDetail): string {
   const name = (message.mittenteNome ?? message.mittente ?? "?").trim();
   const parts = name.split(/[\s@.]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
@@ -110,19 +112,20 @@ export default function EmailMessageReader({
   onBack,
 }: {
   messageId: number;
-  proposals: any[];
+  proposals: TarsProposal[];
   mobile: boolean;
   selectionRemoved: boolean;
   canManageRules: boolean;
   onBack: () => void;
 }) {
   const utils = trpc.useUtils();
-  const detail = trpc.mail.comunicazioni.byId.useQuery(messageId, {
+  const detail = trpc.mail.email.byId.useQuery(messageId, {
     retry: false,
   });
   const message = detail.data;
   const [linkOpen, setLinkOpen] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [linkKind, setLinkKind] = useState<"cliente" | "commessa">("commessa");
+  const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exclusion, setExclusion] = useState<
     "spam" | "offerta_marketing" | null
@@ -131,8 +134,15 @@ export default function EmailMessageReader({
   const [latestSummary, setLatestSummary] = useState<string | null>(null);
 
   const jobs = trpc.commesse.list.useQuery(undefined, { enabled: linkOpen });
+  const clients = trpc.clienti.list.useQuery(
+    {},
+    { enabled: linkOpen && linkKind === "cliente" }
+  );
   const linkedJob = trpc.commesse.byId.useQuery(message?.commessaId ?? 0, {
     enabled: message?.commessaId != null,
+  });
+  const linkedClient = trpc.clienti.byId.useQuery(message?.clienteId ?? 0, {
+    enabled: message?.clienteId != null && message?.commessaId == null,
   });
   const mailboxes = trpc.mail.caselle.opzioni.useQuery();
   const mailbox = (mailboxes.data ?? []).find(
@@ -142,6 +152,7 @@ export default function EmailMessageReader({
   const invalidate = () => {
     void utils.mail.email.invalidate();
     void utils.mail.comunicazioni.invalidate();
+    void utils.mail.email.byId.invalidate(messageId);
     void utils.mail.comunicazioni.byId.invalidate(messageId);
   };
 
@@ -149,7 +160,7 @@ export default function EmailMessageReader({
     onSuccess: () => {
       toast.success("Email collegata");
       setLinkOpen(false);
-      setSelectedJob(null);
+      setSelectedLink(null);
       invalidate();
     },
     onError: error => toast.error(error.message),
@@ -158,6 +169,11 @@ export default function EmailMessageReader({
     onSuccess: invalidate,
     onError: error => toast.error(error.message),
   });
+  useEffect(() => {
+    if (message?.stato === "nuova" && !updateState.isPending) {
+      updateState.mutate({ id: message.id, stato: "vista" });
+    }
+  }, [message?.id, message?.stato]);
   const updateCategory = trpc.mail.comunicazioni.setCategoria.useMutation({
     onSuccess: () => {
       toast.success("Classificazione aggiornata");
@@ -186,6 +202,17 @@ export default function EmailMessageReader({
       );
       void utils.tars.proposte.invalidate();
       invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const archiveAttachment = trpc.mail.email.archiviaAllegato.useMutation({
+    onSuccess: result => {
+      toast.success(`${result.nome} archiviato nel fascicolo`);
+      if (message?.commessaId != null) {
+        void utils.preventiviContratti.byCommessa.invalidate(
+          message.commessaId
+        );
+      }
     },
     onError: error => toast.error(error.message),
   });
@@ -333,7 +360,7 @@ export default function EmailMessageReader({
             <Button
               size="icon"
               variant="ghost"
-              className="size-10 sm:size-9"
+              className="size-10"
               disabled={updateState.isPending}
               aria-label={
                 message.stato === "gestita"
@@ -366,7 +393,7 @@ export default function EmailMessageReader({
             <Button
               size="icon"
               variant="dangerGhost"
-              className="size-10 sm:size-9"
+              className="size-10"
               aria-label="Elimina dal CRM"
               title="Elimina dal CRM"
               onClick={() => setConfirmDelete(true)}
@@ -401,27 +428,63 @@ export default function EmailMessageReader({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-8 text-xs"
+                  className="h-10 text-xs"
                   disabled={linkMessage.isPending}
                   onClick={() =>
-                    linkMessage.mutate({ id: message.id, commessaId: null })
+                    linkMessage.mutate({
+                      id: message.id,
+                      commessaId: null,
+                      clienteId: null,
+                    })
+                  }
+                >
+                  Scollega
+                </Button>
+              </div>
+            ) : message.clienteId != null ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Link
+                  href={`/clienti/${message.clienteId}`}
+                  className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
+                >
+                  <Link2 className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {linkedClient.data
+                      ? `${linkedClient.data.cognome ?? ""} ${linkedClient.data.nome ?? ""}`.trim()
+                      : `Cliente #${message.clienteId}`}
+                  </span>
+                </Link>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-10 text-xs"
+                  disabled={linkMessage.isPending}
+                  onClick={() =>
+                    linkMessage.mutate({
+                      id: message.id,
+                      commessaId: null,
+                      clienteId: null,
+                    })
                   }
                 >
                   Scollega
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-9"
-                onClick={() => setLinkOpen(value => !value)}
-              >
-                <Link2 className="size-3.5" />
-                Collega a una commessa
-              </Button>
+              <span className="text-xs text-text-3">Nessun collegamento</span>
             )}
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-10 shrink-0"
+            onClick={() => setLinkOpen(value => !value)}
+          >
+            <Link2 className="size-3.5" />
+            {message.clienteId != null || message.commessaId != null
+              ? "Cambia collegamento"
+              : "Collega"}
+          </Button>
           <Select
             value={message.categoria ?? "da_classificare"}
             onValueChange={value => chooseCategory(value as EmailCategory)}
@@ -445,36 +508,82 @@ export default function EmailMessageReader({
         </div>
 
         {linkOpen && (
-          <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
-            <div className="min-w-0 flex-1">
-              <SearchSelect
-                value={selectedJob}
-                onChange={(value: string) => setSelectedJob(value)}
-                options={(jobs.data ?? []).map(job => ({
-                  value: String(job.id),
-                  label: `${job.codice} - ${job.cliente}`,
-                  keywords: job.citta ?? "",
-                }))}
-                placeholder="Cerca codice, cliente o citta..."
-              />
-            </div>
-            <Button
-              className="shrink-0"
-              disabled={!selectedJob || linkMessage.isPending}
-              onClick={() =>
-                linkMessage.mutate({
-                  id: message.id,
-                  commessaId: Number(selectedJob),
-                })
-              }
+          <div className="mt-3 space-y-2">
+            <div
+              className="inline-flex rounded-md border border-border-soft bg-card p-1"
+              aria-label="Tipo di collegamento"
             >
-              {linkMessage.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Link2 className="size-4" />
-              )}
-              Conferma collegamento
-            </Button>
+              <Button
+                size="sm"
+                variant={linkKind === "cliente" ? "secondary" : "ghost"}
+                className="h-10"
+                onClick={() => {
+                  setLinkKind("cliente");
+                  setSelectedLink(null);
+                }}
+              >
+                Cliente
+              </Button>
+              <Button
+                size="sm"
+                variant={linkKind === "commessa" ? "secondary" : "ghost"}
+                className="h-10"
+                onClick={() => {
+                  setLinkKind("commessa");
+                  setSelectedLink(null);
+                }}
+              >
+                Commessa
+              </Button>
+            </div>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+              <div className="min-w-0 flex-1">
+                <SearchSelect
+                  value={selectedLink}
+                  onChange={(value: string) => setSelectedLink(value)}
+                  options={
+                    linkKind === "commessa"
+                      ? (jobs.data ?? []).map(job => ({
+                          value: String(job.id),
+                          label: `${job.codice} - ${job.cliente}`,
+                          keywords: job.citta ?? "",
+                        }))
+                      : (clients.data ?? []).map(client => ({
+                          value: String(client.id),
+                          label:
+                            `${client.cognome ?? ""} ${client.nome ?? ""}`.trim(),
+                          keywords: [client.email, client.telefono]
+                            .filter(Boolean)
+                            .join(" "),
+                        }))
+                  }
+                  placeholder={
+                    linkKind === "commessa"
+                      ? "Cerca codice, cliente o citta..."
+                      : "Cerca cliente..."
+                  }
+                />
+              </div>
+              <Button
+                className="h-10 shrink-0"
+                disabled={!selectedLink || linkMessage.isPending}
+                onClick={() =>
+                  linkMessage.mutate({
+                    id: message.id,
+                    ...(linkKind === "commessa"
+                      ? { commessaId: Number(selectedLink) }
+                      : { clienteId: Number(selectedLink) }),
+                  })
+                }
+              >
+                {linkMessage.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Link2 className="size-4" />
+                )}
+                Conferma
+              </Button>
+            </div>
           </div>
         )}
 
@@ -526,12 +635,21 @@ export default function EmailMessageReader({
               ))}
             </div>
             <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
-              <Textarea
-                value={instruction}
-                onChange={event => setInstruction(event.target.value)}
-                placeholder="Es. Verifica se e un nuovo lead e prepara cio che serve."
-                className="min-h-[74px] min-w-0 flex-1 resize-none bg-card"
-              />
+              <div className="min-w-0 flex-1">
+                <label
+                  htmlFor={`tars-instruction-${message.id}`}
+                  className="mb-1.5 block text-xs font-semibold text-text-2"
+                >
+                  Istruzione per Tars
+                </label>
+                <Textarea
+                  id={`tars-instruction-${message.id}`}
+                  value={instruction}
+                  onChange={event => setInstruction(event.target.value)}
+                  placeholder="Es. Verifica se e un nuovo lead e prepara cio che serve."
+                  className="min-h-[74px] min-w-0 resize-none bg-card"
+                />
+              </div>
               <Button
                 className="shrink-0"
                 disabled={instruction.trim().length < 2 || analyze.isPending}
@@ -571,7 +689,7 @@ export default function EmailMessageReader({
                   Allegati
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {message.allegati.map((attachment: any, index: number) => (
+                  {message.allegati.map((attachment, index) => (
                     <div
                       key={`${attachment.nome}-${index}`}
                       className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
@@ -583,6 +701,31 @@ export default function EmailMessageReader({
                       <span className="shrink-0 text-xs text-text-3">
                         {fileSize(attachment.size)}
                       </span>
+                      {message.commessaId != null && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-10 shrink-0"
+                          disabled={archiveAttachment.isPending}
+                          onClick={() =>
+                            archiveAttachment.mutate({
+                              id: message.id,
+                              allegatoIndex: index,
+                              commessaId: message.commessaId!,
+                            })
+                          }
+                          aria-label={`Archivia ${attachment.nome} nel fascicolo della commessa`}
+                          title="Archivia nel fascicolo"
+                        >
+                          {archiveAttachment.isPending &&
+                          archiveAttachment.variables?.allegatoIndex ===
+                            index ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Archive className="size-4" />
+                          )}
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

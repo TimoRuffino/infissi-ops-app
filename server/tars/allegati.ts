@@ -14,6 +14,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { extractText, getDocumentProxy } from "unpdf";
 import { decryptSecret } from "../_core/secretBox";
+import { getFile } from "../_core/fileStorage";
 import { caselle, type Casella } from "./caselle";
 import type { Comunicazione } from "./comunicazioni";
 
@@ -38,10 +39,7 @@ export async function estraiTestoAllegato(
     return pulito.slice(0, MAX_TESTO_ALLEGATO);
   }
 
-  if (
-    mime.startsWith("text/") ||
-    ["csv", "txt", "log"].includes(estensione)
-  ) {
+  if (mime.startsWith("text/") || ["csv", "txt", "log"].includes(estensione)) {
     return buffer.toString("utf8").slice(0, MAX_TESTO_ALLEGATO);
   }
 
@@ -58,31 +56,79 @@ export async function leggiAllegato(
   comunicazione: Comunicazione,
   nomeAllegato: string
 ): Promise<{ testo: string; nome: string; mimeType: string }> {
+  const allegatoIndex = comunicazione.allegati.findIndex(
+    allegato => allegato.nome.toLowerCase() === nomeAllegato.toLowerCase()
+  );
+  if (allegatoIndex < 0) {
+    const nomi = comunicazione.allegati
+      .map(allegato => allegato.nome)
+      .join(", ");
+    throw new Error(
+      `Nessun allegato "${nomeAllegato}" su questo messaggio. Presenti: ${nomi || "nessuno"}.`
+    );
+  }
+  const raw = await leggiAllegatoRaw(comunicazione, allegatoIndex);
+  return {
+    testo: await estraiTestoAllegato(raw.buffer, raw.mimeType, raw.nome),
+    nome: raw.nome,
+    mimeType: raw.mimeType,
+  };
+}
+
+export type AllegatoRaw = {
+  buffer: Buffer;
+  nome: string;
+  mimeType: string;
+};
+
+/** Legge i byte originali, preferendo lo storage durevole quando disponibile. */
+export async function leggiAllegatoRaw(
+  comunicazione: Comunicazione,
+  allegatoIndex: number
+): Promise<AllegatoRaw> {
+  const dichiarato = comunicazione.allegati[allegatoIndex];
+  if (!dichiarato) throw new Error("Allegato non trovato nel messaggio.");
+  if ((dichiarato.size ?? 0) > MAX_BYTE) {
+    throw new Error(
+      `L'allegato pesa ${Math.round((dichiarato.size ?? 0) / 1024 / 1024)} MB: oltre il limite di lettura.`
+    );
+  }
+
+  if (dichiarato.storageKey) {
+    const buffer = await getFile(dichiarato.storageKey);
+    if (!buffer) throw new Error("Allegato non disponibile nello storage.");
+    if (buffer.length > MAX_BYTE) {
+      throw new Error("L'allegato supera il limite di lettura di 15 MB.");
+    }
+    return {
+      buffer,
+      nome: dichiarato.nome,
+      mimeType: dichiarato.mimeType,
+    };
+  }
+
   return comunicazione.canale === "whatsapp"
-    ? leggiAllegatoDaWhatsApp(comunicazione, nomeAllegato)
-    : leggiAllegatoDaCasella(comunicazione, nomeAllegato);
+    ? leggiAllegatoRawDaWhatsApp(comunicazione, allegatoIndex)
+    : leggiAllegatoRawDaCasella(comunicazione, allegatoIndex);
 }
 
 // WhatsApp: il media si scarica da Meta con l'id ricevuto nel webhook.
 // Attenzione operativa: Meta conserva i media ~30 giorni, dopodiché
 // l'allegato di una conversazione vecchia non è più recuperabile.
-async function leggiAllegatoDaWhatsApp(
+async function leggiAllegatoRawDaWhatsApp(
   comunicazione: Comunicazione,
-  nomeAllegato: string
-): Promise<{ testo: string; nome: string; mimeType: string }> {
+  allegatoIndex: number
+): Promise<AllegatoRaw> {
   const { configWhatsApp, scaricaMedia } = await import("./whatsapp");
-  const config = configWhatsApp.find((c) => c.id === comunicazione.casellaId);
+  const config = configWhatsApp.find(
+    c => c.id === comunicazione.casellaId && c.sedeId === comunicazione.sedeId
+  );
   if (!config) {
     throw new Error("Il numero WhatsApp d'origine non è più configurato.");
   }
-  const dichiarato = comunicazione.allegati.find(
-    (a) => a.nome.toLowerCase() === nomeAllegato.toLowerCase()
-  );
+  const dichiarato = comunicazione.allegati[allegatoIndex];
   if (!dichiarato?.mediaId) {
-    const nomi = comunicazione.allegati.map((a) => a.nome).join(", ");
-    throw new Error(
-      `Nessun allegato "${nomeAllegato}" su questo messaggio. Presenti: ${nomi || "nessuno"}.`
-    );
+    throw new Error("Il media WhatsApp non è più recuperabile.");
   }
   const { buffer, mimeType } = await scaricaMedia(config, dichiarato.mediaId);
   if (buffer.length > MAX_BYTE) {
@@ -90,16 +136,33 @@ async function leggiAllegatoDaWhatsApp(
       `L'allegato pesa ${Math.round(buffer.length / 1024 / 1024)} MB: oltre il limite di lettura.`
     );
   }
-  const testo = await estraiTestoAllegato(buffer, mimeType, nomeAllegato);
-  return { testo, nome: nomeAllegato, mimeType };
+  return { buffer, nome: dichiarato.nome, mimeType };
 }
 
 export async function leggiAllegatoDaCasella(
   comunicazione: Comunicazione,
   nomeAllegato: string
 ): Promise<{ testo: string; nome: string; mimeType: string }> {
+  const allegatoIndex = comunicazione.allegati.findIndex(
+    allegato => allegato.nome.toLowerCase() === nomeAllegato.toLowerCase()
+  );
+  if (allegatoIndex < 0) {
+    throw new Error(`Allegato "${nomeAllegato}" non trovato nel messaggio.`);
+  }
+  const raw = await leggiAllegatoRaw(comunicazione, allegatoIndex);
+  return {
+    testo: await estraiTestoAllegato(raw.buffer, raw.mimeType, raw.nome),
+    nome: raw.nome,
+    mimeType: raw.mimeType,
+  };
+}
+
+async function leggiAllegatoRawDaCasella(
+  comunicazione: Comunicazione,
+  allegatoIndex: number
+): Promise<AllegatoRaw> {
   const casella: Casella | undefined = caselle.find(
-    (c) => c.id === comunicazione.casellaId
+    c => c.id === comunicazione.casellaId && c.sedeId === comunicazione.sedeId
   );
   if (!casella) {
     throw new Error(
@@ -107,20 +170,7 @@ export async function leggiAllegatoDaCasella(
     );
   }
 
-  const dichiarato = comunicazione.allegati.find(
-    (a) => a.nome.toLowerCase() === nomeAllegato.toLowerCase()
-  );
-  if (!dichiarato) {
-    const nomi = comunicazione.allegati.map((a) => a.nome).join(", ");
-    throw new Error(
-      `Nessun allegato "${nomeAllegato}" su questo messaggio. Presenti: ${nomi || "nessuno"}.`
-    );
-  }
-  if ((dichiarato.size ?? 0) > MAX_BYTE) {
-    throw new Error(
-      `L'allegato pesa ${Math.round((dichiarato.size ?? 0) / 1024 / 1024)} MB: oltre il limite di lettura.`
-    );
-  }
+  const dichiarato = comunicazione.allegati[allegatoIndex]!;
 
   const client = new ImapFlow({
     host: casella.host,
@@ -156,22 +206,32 @@ export async function leggiAllegatoDaCasella(
       );
     }
 
-    const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
+    const msg = await client.fetchOne(
+      String(uid),
+      { source: true },
+      { uid: true }
+    );
     if (!msg || !msg.source) {
       throw new Error("Messaggio non recuperabile dalla casella.");
     }
 
     const parsed: any = await simpleParser(msg.source);
     const allegato = (parsed.attachments ?? []).find(
-      (a: any) => (a.filename ?? "").toLowerCase() === nomeAllegato.toLowerCase()
+      (a: any) =>
+        (a.filename ?? "").toLowerCase() === dichiarato.nome.toLowerCase()
     );
     if (!allegato) {
-      throw new Error(`Allegato "${nomeAllegato}" non trovato nel messaggio scaricato.`);
+      throw new Error(
+        `Allegato "${dichiarato.nome}" non trovato nel messaggio scaricato.`
+      );
     }
 
     const mimeType = allegato.contentType ?? dichiarato.mimeType;
-    const testo = await estraiTestoAllegato(allegato.content, mimeType, nomeAllegato);
-    return { testo, nome: nomeAllegato, mimeType };
+    const buffer = Buffer.from(allegato.content);
+    if (buffer.length > MAX_BYTE) {
+      throw new Error("L'allegato supera il limite di lettura di 15 MB.");
+    }
+    return { buffer, nome: dichiarato.nome, mimeType };
   } finally {
     await client.logout().catch(() => {
       try {

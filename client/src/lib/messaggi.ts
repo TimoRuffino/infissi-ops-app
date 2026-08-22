@@ -1,3 +1,13 @@
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
+
+type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+export type EmailMessage = RouterOutputs["mail"]["email"]["list"][number];
+export type EmailDetail = RouterOutputs["mail"]["email"]["byId"];
+export type EmailAttachment = EmailDetail["allegati"][number];
+export type TarsProposal = RouterOutputs["tars"]["proposte"]["list"][number];
+
 export const EMAIL_VIEWS = [
   "da_gestire",
   "lead",

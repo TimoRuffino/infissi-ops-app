@@ -24,20 +24,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useIsMobile } from "@/hooks/useMobile";
 import {
   EMAIL_VIEWS,
   parseEmailMessageId,
   parseEmailView,
+  type EmailMessage,
+  type TarsProposal,
   type EmailView,
 } from "@/lib/messaggi";
 import { isDirezione } from "@/lib/roles";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   AlertTriangle,
   CheckCheck,
-  FileQuestion,
   Inbox,
   Loader2,
   Mail,
@@ -68,8 +69,8 @@ const VIEW_LABELS: Record<EmailView, string> = {
 const EMPTY_MESSAGES: Record<EmailView, string> = {
   da_gestire: "Tutto gestito. La coda operativa e vuota.",
   lead: "Non ci sono nuovi lead con questi filtri.",
-  allegati: "Nessuna email con allegati in questa pagina.",
-  collegate: "Nessuna email collegata in questa pagina.",
+  allegati: "Nessuna email con allegati con questi filtri.",
+  collegate: "Nessuna email collegata con questi filtri.",
   gestite: "Non ci sono email gestite con questi filtri.",
   escluse: "Non ci sono email escluse con questi filtri.",
 };
@@ -101,9 +102,26 @@ function replaceEmailQuery(view: EmailView, messageId: number | null) {
   );
 }
 
+function useBelowLg(): boolean {
+  const query = "(max-width: 1023px)";
+  const [matches, setMatches] = useState(
+    () => window.matchMedia(query).matches
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return matches;
+}
+
 export default function EmailPage() {
   const { user } = useAuth();
-  const mobile = useIsMobile();
+  const mobile = useBelowLg();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<EmailView>(() =>
@@ -116,6 +134,7 @@ export default function EmailPage() {
   const [selectedId, setSelectedId] = useState<number | null>(() =>
     parseEmailMessageId(window.location.search)
   );
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [mailboxesOpen, setMailboxesOpen] = useState(false);
   const deferredSearch = useDeferredValue(search.trim());
 
@@ -152,6 +171,9 @@ export default function EmailPage() {
     soloDaGestire: view === "da_gestire" ? true : undefined,
     stato: view === "gestite" ? "gestita" : undefined,
     soloEscluse: view === "escluse" ? true : undefined,
+    soloConAllegati: view === "allegati" ? true : undefined,
+    soloCollegate: view === "collegate" ? true : undefined,
+    assegnatoA: assigneeId ?? undefined,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
@@ -160,10 +182,6 @@ export default function EmailPage() {
     { retry: false }
   );
 
-  const jobById = useMemo(
-    () => new Map((jobs.data ?? []).map(job => [job.id, job])),
-    [jobs.data]
-  );
   const relevantAssigneeIds = useMemo(
     () =>
       new Set(
@@ -183,7 +201,7 @@ export default function EmailPage() {
     [relevantAssigneeIds, users.data]
   );
   const proposalsByMessage = useMemo(() => {
-    const map = new Map<number, any[]>();
+    const map = new Map<number, TarsProposal[]>();
     for (const proposal of pendingProposals.data ?? []) {
       const id = proposal.payload?.comunicazioneId;
       if (id == null) continue;
@@ -193,21 +211,11 @@ export default function EmailPage() {
   }, [pendingProposals.data]);
 
   const rawMessages = rows.data ?? [];
-  const messages = useMemo(
-    () =>
-      rawMessages.filter(message => {
-        if (view === "allegati" && (message.allegati?.length ?? 0) === 0)
-          return false;
-        if (view === "collegate" && message.commessaId == null) return false;
-        if (assigneeId != null) {
-          if (message.commessaId == null) return false;
-          if (jobById.get(message.commessaId)?.assegnatoA !== assigneeId)
-            return false;
-        }
-        return true;
-      }),
-    [assigneeId, jobById, rawMessages, view]
-  );
+  const messages = rawMessages;
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [assigneeId, category, deferredSearch, mailboxId, page, view]);
 
   const sync = trpc.mail.caselle.sync.useMutation({
     onSuccess: results => {
@@ -235,6 +243,15 @@ export default function EmailPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const bulkUpdate = trpc.mail.comunicazioni.bulkAggiorna.useMutation({
+    onSuccess: result => {
+      toast.success(`${result.aggiornate} email aggiornate`);
+      setSelectedIds(new Set());
+      void utils.mail.email.invalidate();
+      void utils.mail.comunicazioni.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
   const removeRule = trpc.mail.comunicazioni.regoleFiltro.delete.useMutation({
     onSuccess: () => {
       toast.success("Regola rimossa");
@@ -248,7 +265,7 @@ export default function EmailPage() {
     setPage(0);
     replaceEmailQuery(nextView, selectedId);
   };
-  const openMessage = (message: any) => {
+  const openMessage = (message: EmailMessage) => {
     setSelectedId(message.id);
     replaceEmailQuery(view, message.id);
   };
@@ -257,6 +274,13 @@ export default function EmailPage() {
     replaceEmailQuery(view, null);
   };
   const resetPage = () => setPage(0);
+  const selectedBatch = Array.from(selectedIds);
+  const runBulk = (
+    update: { stato: "gestita" } | { categoria: "spam" | "offerta_marketing" }
+  ) => {
+    if (selectedBatch.length === 0) return;
+    bulkUpdate.mutate({ ids: selectedBatch, ...update });
+  };
 
   const showList = !mobile || selectedId == null;
   const showReader = selectedId != null;
@@ -264,25 +288,16 @@ export default function EmailPage() {
     selectedId != null &&
     !rows.isLoading &&
     !messages.some(message => message.id === selectedId);
-  const toManage = Math.max(
-    0,
-    (stats.data?.totali ?? 0) - (stats.data?.gestite ?? 0)
-  );
-  const attachmentsOnPage = rawMessages.filter(
-    message => (message.allegati?.length ?? 0) > 0
-  ).length;
-  const uncertainOnPage = rawMessages.filter(
-    message =>
-      message.categoria === "da_classificare" &&
-      message.classificazioneFonte === "tars"
-  ).length;
+  const toManage = stats.data
+    ? Math.max(0, stats.data.totali - stats.data.gestite)
+    : null;
   const viewCounts: Record<EmailView, number | null> = {
     da_gestire: toManage,
-    lead: stats.data?.nuoviLead ?? 0,
-    allegati: null,
-    collegate: null,
-    gestite: stats.data?.gestite ?? 0,
-    escluse: stats.data?.escluse ?? 0,
+    lead: stats.data?.nuoviLead ?? null,
+    allegati: stats.data?.conAllegati ?? null,
+    collegate: stats.data?.collegate ?? null,
+    gestite: stats.data?.gestite ?? null,
+    escluse: stats.data?.escluse ?? null,
   };
   const queueBlocked = [
     "disattivato",
@@ -321,7 +336,7 @@ export default function EmailPage() {
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          {(stats.data?.nuove ?? 0) > 0 && view !== "escluse" && (
+          {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
             <Button
               size="sm"
               variant="ghost"
@@ -375,26 +390,23 @@ export default function EmailPage() {
           { label: "Da gestire", value: toManage, icon: Inbox },
           {
             label: "Nuovi lead",
-            value: stats.data?.nuoviLead ?? 0,
+            value: stats.data?.nuoviLead ?? null,
             icon: Sparkles,
           },
           {
             label: "Con allegati",
-            value: attachmentsOnPage,
+            value: stats.data?.conAllegati ?? null,
             icon: Paperclip,
-            title: "Pagina corrente",
           },
           {
-            label: "Dubbie",
-            value: uncertainOnPage,
-            icon: FileQuestion,
-            title: "Pagina corrente",
+            label: "Collegate",
+            value: stats.data?.collegate ?? null,
+            icon: UserRound,
           },
         ].map(metric => (
           <div
             key={metric.label}
             className="flex min-w-0 items-center gap-2 px-3 py-2.5"
-            title={metric.title}
           >
             <metric.icon className="size-4 shrink-0 text-text-3" />
             <div className="min-w-0">
@@ -402,12 +414,34 @@ export default function EmailPage() {
                 {metric.label}
               </div>
               <div className="text-lg font-bold tabular-nums leading-5">
-                {stats.isLoading ? "-" : metric.value}
+                {stats.isLoading || stats.isError || metric.value == null
+                  ? "-"
+                  : metric.value}
               </div>
             </div>
           </div>
         ))}
       </section>
+
+      {stats.isError && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-2 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          <AlertCircle className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            Statistiche email non disponibili.
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-10 shrink-0"
+            onClick={() => stats.refetch()}
+          >
+            Riprova
+          </Button>
+        </div>
+      )}
 
       {(queue.data?.inAttesa ?? 0) > 0 && (
         <div
@@ -499,10 +533,14 @@ export default function EmailPage() {
 
           <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(9rem,auto))]">
             <div className="relative min-w-0">
+              <label htmlFor="email-search" className="sr-only">
+                Cerca nelle email
+              </label>
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3" />
               <Input
+                id="email-search"
                 className="h-10 pl-9"
-                placeholder="Cerca mittente, oggetto o testo"
+                placeholder="Cerca testo, cliente o commessa"
                 value={search}
                 onChange={event => {
                   setSearch(event.target.value);
@@ -572,7 +610,7 @@ export default function EmailPage() {
               </SelectContent>
             </Select>
           </div>
-          {(stats.data?.nuove ?? 0) > 0 && view !== "escluse" && (
+          {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
             <Button
               size="sm"
               variant="ghost"
@@ -606,6 +644,26 @@ export default function EmailPage() {
             hasPreviousPage={page > 0}
             hasNextPage={rawMessages.length === PAGE_SIZE}
             onOpen={openMessage}
+            selectedIds={selectedIds}
+            bulkPending={bulkUpdate.isPending}
+            onToggleSelected={(id, checked) =>
+              setSelectedIds(current => {
+                const next = new Set(current);
+                if (checked) next.add(id);
+                else next.delete(id);
+                return next;
+              })
+            }
+            onToggleAll={checked =>
+              setSelectedIds(
+                checked
+                  ? new Set(messages.map(message => message.id))
+                  : new Set()
+              )
+            }
+            onBulkClose={() => runBulk({ stato: "gestita" })}
+            onBulkSpam={() => runBulk({ categoria: "spam" })}
+            onBulkNewsletter={() => runBulk({ categoria: "offerta_marketing" })}
             onRetry={() => rows.refetch()}
             onPreviousPage={() => setPage(current => Math.max(0, current - 1))}
             onNextPage={() => setPage(current => current + 1)}
@@ -676,7 +734,7 @@ export default function EmailPage() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="size-8 shrink-0"
+                    className="size-10 shrink-0"
                     disabled={removeRule.isPending}
                     onClick={() => removeRule.mutate({ id: rule.id })}
                     aria-label={`Rimuovi regola per ${rule.mittente}`}

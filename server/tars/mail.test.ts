@@ -33,6 +33,7 @@ import {
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
 import { getClientiStore } from "../routers/clienti";
+import { getCommesseStore } from "../routers/commesse";
 
 const CLIENTI = [
   { id: 1, nome: "Mario", cognome: "Rossi", email: "mario.rossi@example.com" },
@@ -578,6 +579,222 @@ describe("read model comunicazioni per canale", () => {
     expect(await segnaTutteViste(1, "email")).toBe(1);
     expect((await getComunicazione(whatsapp!.id, 1))?.stato).toBe("nuova");
   });
+
+  it("applica filtri operativi prima di limit e offset", async () => {
+    const commesse = getCommesseStore();
+    const commessaId = 941_001;
+    commesse.push({
+      id: commessaId,
+      sedeId: 1,
+      codice: "COM-2026-941",
+      cliente: "Cliente Allegati",
+      clienteId: 941_101,
+      assegnatoA: 941_201,
+      archivedAt: null,
+    });
+
+    try {
+      await insertComunicazione({
+        sedeId: 1,
+        casellaId: 1,
+        messageId: "email-filtro-rumore",
+        canale: "email",
+        direzione: "in",
+        mittente: "rumore@example.com",
+        mittenteNome: null,
+        destinatari: [],
+        oggetto: "Piu recente ma senza allegati",
+        testo: "Rumore",
+        allegati: [],
+        clienteId: null,
+        commessaId: null,
+        matchConfidenza: "nessuna",
+        matchMotivo: null,
+        stato: "nuova",
+        receivedAt: new Date("2026-08-22T11:00:00Z"),
+      });
+      const attesa = await insertComunicazione({
+        sedeId: 1,
+        casellaId: 1,
+        messageId: "email-filtro-attesa",
+        canale: "email",
+        direzione: "in",
+        mittente: "documenti@example.com",
+        mittenteNome: null,
+        destinatari: [],
+        oggetto: "Documento assegnato",
+        testo: "Allegato richiesto",
+        allegati: [
+          { nome: "ordine.pdf", mimeType: "application/pdf", size: 12 },
+        ],
+        clienteId: 941_101,
+        commessaId,
+        matchConfidenza: "alta",
+        matchMotivo: "test",
+        stato: "vista",
+        receivedAt: new Date("2026-08-22T10:00:00Z"),
+      });
+      await insertComunicazione({
+        sedeId: 2,
+        casellaId: 1,
+        messageId: "email-filtro-altra-sede",
+        canale: "email",
+        direzione: "in",
+        mittente: "altra@example.com",
+        mittenteNome: null,
+        destinatari: [],
+        oggetto: "Altra sede",
+        testo: "Non deve entrare",
+        allegati: [
+          { nome: "altro.pdf", mimeType: "application/pdf", size: 12 },
+        ],
+        clienteId: null,
+        commessaId,
+        matchConfidenza: "alta",
+        matchMotivo: "test",
+        stato: "vista",
+        receivedAt: new Date("2026-08-22T12:00:00Z"),
+      });
+
+      await expect(
+        listComunicazioni({
+          sedeId: 1,
+          canale: "email",
+          soloConAllegati: true,
+          soloCollegate: true,
+          assegnatoA: 941_201,
+          limit: 1,
+        })
+      ).resolves.toEqual([expect.objectContaining({ id: attesa!.id })]);
+    } finally {
+      const index = commesse.findIndex(c => c.id === commessaId);
+      if (index >= 0) commesse.splice(index, 1);
+    }
+  });
+
+  it("cerca prima della paginazione nei clienti e nelle commesse della sede", async () => {
+    const clienti = getClientiStore();
+    const commesse = getCommesseStore();
+    const clienteId = 942_101;
+    const commessaId = 942_001;
+    clienti.push({
+      id: clienteId,
+      sedeId: 1,
+      nome: "Lucia",
+      cognome: "Vetreria Levante",
+    });
+    commesse.push({
+      id: commessaId,
+      sedeId: 1,
+      codice: "COM-2026-LEVANTE",
+      cliente: "Vetreria Levante",
+      clienteId,
+      assegnatoA: null,
+      archivedAt: null,
+    });
+
+    try {
+      await insertComunicazione({
+        sedeId: 1,
+        casellaId: 1,
+        messageId: "email-search-rumore",
+        canale: "email",
+        direzione: "in",
+        mittente: "rumore@example.com",
+        mittenteNome: null,
+        destinatari: [],
+        oggetto: "Oggetto recente",
+        testo: "Nessuna corrispondenza",
+        allegati: [],
+        clienteId: null,
+        commessaId: null,
+        matchConfidenza: "nessuna",
+        matchMotivo: null,
+        stato: "nuova",
+        receivedAt: new Date("2026-08-22T14:00:00Z"),
+      });
+      const collegata = await insertComunicazione({
+        sedeId: 1,
+        casellaId: 1,
+        messageId: "email-search-collegata",
+        canale: "email",
+        direzione: "in",
+        mittente: "anonimo@example.com",
+        mittenteNome: null,
+        destinatari: [],
+        oggetto: "Oggetto generico",
+        testo: "Corpo generico",
+        allegati: [],
+        clienteId,
+        commessaId,
+        matchConfidenza: "alta",
+        matchMotivo: "test",
+        stato: "vista",
+        receivedAt: new Date("2026-08-22T13:00:00Z"),
+      });
+
+      for (const search of ["Vetreria Levante", "COM-2026-LEVANTE"]) {
+        await expect(
+          listComunicazioni({ sedeId: 1, canale: "email", search, limit: 1 })
+        ).resolves.toEqual([expect.objectContaining({ id: collegata!.id })]);
+      }
+    } finally {
+      const clienteIndex = clienti.findIndex(c => c.id === clienteId);
+      if (clienteIndex >= 0) clienti.splice(clienteIndex, 1);
+      const commessaIndex = commesse.findIndex(c => c.id === commessaId);
+      if (commessaIndex >= 0) commesse.splice(commessaIndex, 1);
+    }
+  });
+
+  it("restituisce conteggi globali per allegati e collegamenti nel canale", async () => {
+    _resetComunicazioniInMemoria();
+    await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "email-stats-allegato",
+      canale: "email",
+      direzione: "in",
+      mittente: "stats@example.com",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "Allegato collegato",
+      testo: "Statistiche",
+      allegati: [{ nome: "stats.pdf", mimeType: "application/pdf", size: 10 }],
+      clienteId: 943_101,
+      commessaId: null,
+      matchConfidenza: "media",
+      matchMotivo: "test",
+      stato: "vista",
+      receivedAt: new Date("2026-08-22T15:00:00Z"),
+    });
+    await insertComunicazione({
+      sedeId: 1,
+      casellaId: 8,
+      messageId: "wa-stats-allegato",
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "+393331234567",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "",
+      testo: "Fuori canale",
+      allegati: [{ nome: "foto.jpg", mimeType: "image/jpeg", size: 10 }],
+      clienteId: 943_102,
+      commessaId: null,
+      matchConfidenza: "media",
+      matchMotivo: "test",
+      stato: "vista",
+      receivedAt: new Date("2026-08-22T16:00:00Z"),
+    });
+
+    await expect(statsComunicazioni(1, "email")).resolves.toMatchObject({
+      totali: 1,
+      conAllegati: 1,
+      collegate: 1,
+      email: 1,
+      whatsapp: 0,
+    });
+  });
 });
 
 describe("conversazioni WhatsApp", () => {
@@ -827,11 +1044,13 @@ describe("conversazioni WhatsApp", () => {
       "Primo messaggio",
     ]);
     expect(paginaPiuVecchia!.hasMore).toBe(false);
-    expect([
-      ...paginaPiuVecchia!.messaggi,
-      ...paginaPrecedente!.messaggi,
-      ...thread!.messaggi,
-    ].map(m => m.testo)).toEqual([
+    expect(
+      [
+        ...paginaPiuVecchia!.messaggi,
+        ...paginaPrecedente!.messaggi,
+        ...thread!.messaggi,
+      ].map(m => m.testo)
+    ).toEqual([
       "Primo messaggio",
       "Risposta ufficio",
       "Ultimo messaggio",
@@ -839,11 +1058,13 @@ describe("conversazioni WhatsApp", () => {
       "Nuovo messaggio non collegato",
     ]);
     expect(
-      (await getThreadWhatsApp({
-        sedeId: 2,
-        casellaId: 8,
-        controparte: "+393331112222",
-      }))?.messaggi.map(m => m.testo)
+      (
+        await getThreadWhatsApp({
+          sedeId: 2,
+          casellaId: 8,
+          controparte: "+393331112222",
+        })
+      )?.messaggi.map(m => m.testo)
     ).toEqual(["Sede separata"]);
     expect(
       await getThreadWhatsApp({
