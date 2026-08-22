@@ -122,3 +122,6 @@ ruffino-crm-backup-*.json
 
 # local secret/state files (oauth token mirror)
 data/
+
+# Local visual brainstorming sessions
+.superpowers/
