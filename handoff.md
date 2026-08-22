@@ -4,8 +4,8 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 22/08/2026<br>
-**Base Git descritta:** `main` a `07bec87`, più le modifiche Command Center e
-diagnostica WhatsApp non ancora pubblicate al momento dell'aggiornamento<br>
+**Base Git descritta:** `main` a `0f96acf` (Command Center Tars e diagnostica
+WhatsApp pubblicati)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
