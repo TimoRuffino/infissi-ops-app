@@ -61,6 +61,7 @@ import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
 import { hasRuolo, isDirezione } from "@/lib/roles";
+import { isPathActive, navigationItemState } from "@/lib/navigation";
 import { AnimatePresence } from "framer-motion";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
@@ -145,12 +146,6 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
-
-function isPathActive(location: string, path: string): boolean {
-  return path === "/"
-    ? location === "/"
-    : location === path || location.startsWith(`${path}/`);
-}
 
 export default function DashboardLayout({
   children,
@@ -302,32 +297,27 @@ function DashboardLayoutContent({
                 )
                 .map((item) => {
                   const figlie = item.children ?? [];
-                  const isActive =
-                    item.path === "/"
-                      ? location === "/"
-                      : figlie.length > 0
-                        ? figlie.some((c) => isPathActive(location, c.path))
-                        : isPathActive(location, item.path);
+                  const itemState = navigationItemState(
+                    location,
+                    item.path,
+                    figlie.map(c => c.path)
+                  );
 
                   // Gruppo: la voce apre/chiude; le figlie navigano. Aperto
                   // da solo quando una figlia è la pagina corrente.
                   if (figlie.length > 0) {
-                    const aperto = gruppiAperti[item.label] ?? isActive;
+                    const aperto =
+                      gruppiAperti[item.label] ?? itemState.containsActiveChild;
                     return (
                       <SidebarMenuItem key={item.label}>
                         <SidebarMenuButton
-                          isActive={isActive}
                           onClick={() =>
                             setGruppiAperti((s) => ({ ...s, [item.label]: !aperto }))
                           }
                           tooltip={item.label}
-                          className={`relative h-10 transition-all ${
-                            isActive ? "text-white font-semibold" : "font-normal"
-                          }`}
+                          className="relative h-10 font-normal transition-all"
                         >
-                          <item.icon
-                            className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
-                          />
+                          <item.icon className="h-4 w-4 transition-colors" />
                           <span className="flex-1">{item.label}</span>
                           <ChevronDown
                             className={`h-3.5 w-3.5 opacity-60 transition-transform ${aperto ? "" : "-rotate-90"}`}
@@ -369,20 +359,20 @@ function DashboardLayoutContent({
                     <SidebarMenuItem key={item.path}>
                       {/* Keep the active destination crisp against the dark rail. */}
                       <SidebarMenuButton
-                        isActive={isActive}
+                        isActive={itemState.active}
                         onClick={() => setLocation(item.path)}
                         tooltip={item.label}
                         className={`relative h-10 transition-all ${
-                          isActive
+                          itemState.active
                             ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-white font-semibold"
                             : "font-normal"
                         }`}
                       >
-                        {isActive && (
+                        {itemState.active && (
                           <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
                         )}
                         <item.icon
-                          className={`h-4 w-4 transition-colors ${isActive ? "text-white" : ""}`}
+                          className={`h-4 w-4 transition-colors ${itemState.active ? "text-white" : ""}`}
                         />
                         <span className="flex-1">{item.label}</span>
                         {item.badge && (

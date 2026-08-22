@@ -470,7 +470,7 @@ function TarsCard() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setLocation("/inbox")}
+            onClick={() => setLocation("/tars")}
           >
             Coda proposte
             <ArrowRight className="h-3.5 w-3.5 ml-1" />

@@ -26,6 +26,8 @@ import TarsAvatar from "@/components/TarsAvatar";
 import { TarsChatPanel } from "@/components/TarsChat";
 import { toast } from "sonner";
 import { metricheUtilizzoTars } from "@/lib/tarsUsage";
+import { parseTarsTab, type TarsTab } from "@/lib/navigation";
+import { useEffect, useState } from "react";
 
 const numeroCompatto = new Intl.NumberFormat("it-IT", {
   notation: "compact",
@@ -260,6 +262,9 @@ export default function TarsInbox() {
   const stats = trpc.tars.proposte.stats.useQuery();
   const config = trpc.tars.config.get.useQuery(undefined, { retry: false });
   const direzione = isDirezione(user);
+  const [tab, setTab] = useState<TarsTab>(() =>
+    parseTarsTab(window.location.search, direzione)
+  );
   const audit = trpc.tars.auditProcessi.esegui.useMutation({
     onSuccess: risultato => {
       toast.success(
@@ -273,6 +278,24 @@ export default function TarsInbox() {
   });
   const attivo = config.data?.attivo ?? false;
   const auditAttivo = config.data?.auditProcessiAttivo ?? false;
+
+  useEffect(() => {
+    const onPopState = () => {
+      setTab(parseTarsTab(window.location.search, direzione));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [direzione]);
+
+  const cambiaTab = (value: string) => {
+    const nextTab = parseTarsTab(`?tab=${value}`, direzione);
+    setTab(nextTab);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/tars?tab=${nextTab}`
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -342,7 +365,7 @@ export default function TarsInbox() {
         />
       </div>
 
-      <Tabs defaultValue="chat">
+      <Tabs value={tab} onValueChange={cambiaTab}>
         <TabsList
           className={
             direzione
