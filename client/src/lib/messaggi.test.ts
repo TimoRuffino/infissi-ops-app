@@ -4,6 +4,8 @@ import {
   parseConversationKey,
   parseEmailMessageId,
   parseEmailView,
+  parseWhatsAppConversationSelection,
+  restoredScrollTop,
   sourceHref,
   whatsappConversationHref,
 } from "./messaggi";
@@ -44,5 +46,27 @@ describe("WhatsApp conversation navigation", () => {
       controparte: "+393331112222",
     });
     expect(parseConversationKey("email:8:x")).toBeNull();
+  });
+
+  it("preserves an invalid deep link so the page can show recovery actions", () => {
+    expect(
+      parseWhatsAppConversationSelection("?conversazione=email%3A8%3Ax")
+    ).toEqual({
+      key: "email:8:x",
+      conversation: null,
+      invalid: true,
+    });
+    expect(parseWhatsAppConversationSelection("")).toEqual({
+      key: null,
+      conversation: null,
+      invalid: false,
+    });
+  });
+});
+
+describe("WhatsApp thread scroll", () => {
+  it("keeps the previous content anchored after older messages are prepended", () => {
+    expect(restoredScrollTop(120, 1_000, 1_260)).toBe(380);
+    expect(restoredScrollTop(120, 1_000, 980)).toBe(120);
   });
 });

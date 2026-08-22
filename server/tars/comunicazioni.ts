@@ -1158,6 +1158,7 @@ function conversazioniDaGruppi(
   input: FiltroConversazioniWhatsApp
 ): ConversazioneWhatsApp[] {
   const query = input.search?.trim().toLowerCase();
+  const commessaIds = query ? cercaCommessaIdsWhatsApp(sedeId, query) : [];
   return gruppi
     .map(gruppo => ({
       gruppo,
@@ -1170,7 +1171,9 @@ function conversazioniDaGruppi(
         gruppo.matchSearch ||
         conversazione.controparte.toLowerCase().includes(query) ||
         (conversazione.nomeProfilo ?? "").toLowerCase().includes(query) ||
-        (conversazione.aliasOperatore ?? "").toLowerCase().includes(query)
+        (conversazione.aliasOperatore ?? "").toLowerCase().includes(query) ||
+        (conversazione.commessaId != null &&
+          commessaIds.includes(conversazione.commessaId))
       );
     })
     .sort((a, b) =>
@@ -1214,6 +1217,19 @@ type FiltroConversazioniWhatsApp = {
   search?: string;
   soloDaGestire?: boolean;
 };
+
+function cercaCommessaIdsWhatsApp(sedeId: number, query: string): number[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+  return getCommesseStore()
+    .filter((commessa: any) => commessa.sedeId === sedeId)
+    .filter((commessa: any) =>
+      [commessa.codice, commessa.nome, commessa.cliente].some(value =>
+        String(value ?? "").toLowerCase().includes(normalizedQuery)
+      )
+    )
+    .map((commessa: any) => commessa.id);
+}
 
 async function getConversazioneWhatsApp(
   sedeId: number,
@@ -1332,6 +1348,9 @@ export async function listConversazioniWhatsApp(input: {
         )
         .map((c: any) => c.id)
     : [];
+  const commessaIds = query
+    ? cercaCommessaIdsWhatsApp(input.sedeId, query)
+    : [];
   const aliasMatch = query
     ? aliasConversazioniWhatsApp
         .filter(alias => alias.sedeId === input.sedeId)
@@ -1353,7 +1372,12 @@ export async function listConversazioniWhatsApp(input: {
     const clienteMatch = clienteIds.length
       ? sql`c.cliente_id = ANY(${clienteIds}::integer[])`
       : sql`FALSE`;
-    filtriFinali.push(sql`(a.match_search OR ${clienteMatch} OR ${aliasMatch})`);
+    const commessaMatch = commessaIds.length
+      ? sql`c.commessa_id = ANY(${commessaIds}::integer[])`
+      : sql`FALSE`;
+    filtriFinali.push(
+      sql`(a.match_search OR ${clienteMatch} OR ${commessaMatch} OR ${aliasMatch})`
+    );
   }
   if (input.soloDaGestire) filtriFinali.push(sql`a.da_gestire`);
   const whereFinale = filtriFinali.length

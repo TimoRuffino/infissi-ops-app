@@ -12,18 +12,18 @@ import {
 } from "@/components/ui/sheet";
 import {
   parseConversationKey,
+  parseWhatsAppConversationSelection,
   whatsappConversationHref,
   type WhatsAppConversation,
 } from "@/lib/messaggi";
 import { trpc } from "@/lib/trpc";
-import { MessageCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, MessageCircle, RefreshCw } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 const PAGE_SIZE = 50;
 
 function selectedFromLocation(): string | null {
-  const key = new URLSearchParams(window.location.search).get("conversazione");
-  return parseConversationKey(key) ? key : null;
+  return parseWhatsAppConversationSelection(window.location.search).key;
 }
 
 function replaceConversationQuery(key: string | null) {
@@ -83,7 +83,21 @@ export default function WhatsAppPage() {
     replaceConversationQuery(null);
     setContextOpen(false);
   };
+  const retrySelectedConversation = () => {
+    if (selectedKeyParts) {
+      void selectedThread.refetch();
+      return;
+    }
+    setSelectedKey(null);
+    window.setTimeout(() => setSelectedKey(selectedFromLocation()), 0);
+  };
   const showList = !mobile || selectedKey == null;
+  const selectionError =
+    selectedKey != null && selectedKeyParts == null
+      ? "Il link alla conversazione non è valido."
+      : selectedThread.isError
+        ? selectedThread.error.message
+        : null;
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
@@ -127,6 +141,24 @@ export default function WhatsAppPage() {
         )}
         {selectedConversation ? (
           <WhatsAppThread conversation={selectedConversation} mobile={mobile} onBack={closeConversation} onOpenContext={() => setContextOpen(true)} />
+        ) : selectionError ? (
+          <div className="grid min-w-0 place-items-center border-l border-border-soft px-5 text-center" role="alert">
+            <div className="max-w-sm">
+              <AlertCircle className="mx-auto size-6 text-destructive" aria-hidden="true" />
+              <h2 className="mt-3 text-sm font-bold">Conversazione non disponibile</h2>
+              <p className="mt-1 text-xs leading-5 text-text-3">{selectionError}</p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" className="min-h-11" onClick={retrySelectedConversation}>
+                  <RefreshCw className="size-4" />
+                  Riprova
+                </Button>
+                <Button variant="outline" className="min-h-11" onClick={closeConversation}>
+                  <ArrowLeft className="size-4" />
+                  Torna all'elenco
+                </Button>
+              </div>
+            </div>
+          </div>
         ) : selectedKey && selectedThread.isLoading ? (
           <div className="grid min-w-0 place-items-center border-l border-border-soft px-5 text-sm text-text-3">Caricamento conversazione...</div>
         ) : !mobile && (

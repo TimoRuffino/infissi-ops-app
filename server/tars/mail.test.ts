@@ -800,6 +800,8 @@ describe("read model comunicazioni per canale", () => {
 
 describe("conversazioni WhatsApp", () => {
   const clienteId = 919_001;
+  const commessaId = 919_071;
+  const commessaAltraSedeId = 919_072;
   let conTimestampCondivisoId: number;
 
   beforeAll(() => {
@@ -810,12 +812,31 @@ describe("conversazioni WhatsApp", () => {
       nome: "Lia",
       cognome: "Cliente CRM",
     });
+    getCommesseStore().push(
+      {
+        id: commessaId,
+        sedeId: 1,
+        codice: "COM-2026-071",
+        cliente: "Villa del Sole",
+      },
+      {
+        id: commessaAltraSedeId,
+        sedeId: 2,
+        codice: "COM-2026-072",
+        cliente: "Cantiere Segreto",
+      }
+    );
   });
 
   afterAll(() => {
     const clienti = getClientiStore();
     const index = clienti.findIndex(c => c.id === clienteId);
     if (index >= 0) clienti.splice(index, 1);
+    const commesse = getCommesseStore();
+    for (const id of [commessaId, commessaAltraSedeId]) {
+      const commessaIndex = commesse.findIndex(c => c.id === id);
+      if (commessaIndex >= 0) commesse.splice(commessaIndex, 1);
+    }
   });
 
   const nuovoMessaggioWhatsApp = (overrides: Record<string, unknown> = {}) => ({
@@ -845,7 +866,7 @@ describe("conversazioni WhatsApp", () => {
         messageId: "wa-8-in-1",
         mittente: "333 111 2222",
         clienteId,
-        commessaId: 71,
+        commessaId,
         matchConfidenza: "alta",
         testo: "Primo messaggio",
         receivedAt: new Date("2026-08-22T10:00:00Z"),
@@ -857,7 +878,7 @@ describe("conversazioni WhatsApp", () => {
         direzione: "out",
         mittente: "0039 3331112222",
         clienteId,
-        commessaId: 71,
+        commessaId,
         matchConfidenza: "alta",
         testo: "Risposta ufficio",
         stato: "nuova",
@@ -869,7 +890,7 @@ describe("conversazioni WhatsApp", () => {
         messageId: "wa-8-in-2",
         mittente: "+39 (333) 111-2222",
         clienteId,
-        commessaId: 71,
+        commessaId,
         matchConfidenza: "alta",
         testo: "Ultimo messaggio",
         receivedAt: new Date("2026-08-22T10:02:00Z"),
@@ -942,6 +963,7 @@ describe("conversazioni WhatsApp", () => {
       nuovoMessaggioWhatsApp({
         messageId: "wa-altra-sede",
         sedeId: 2,
+        commessaId: commessaAltraSedeId,
         testo: "Sede separata",
       })
     );
@@ -966,7 +988,7 @@ describe("conversazioni WhatsApp", () => {
       nonLetti: 4,
       totaleMessaggi: 5,
       clienteId,
-      commessaId: 71,
+      commessaId,
       matchConfidenza: "alta",
     });
     expect(conversazioni[1]).toMatchObject({
@@ -985,6 +1007,18 @@ describe("conversazioni WhatsApp", () => {
     ).toHaveLength(1);
     expect(
       await listConversazioniWhatsApp({ sedeId: 1, search: "Cliente CRM" })
+    ).toHaveLength(1);
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 1, search: "COM-2026-071" })
+    ).toHaveLength(1);
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 1, search: "Villa del Sole" })
+    ).toHaveLength(1);
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 1, search: "Cantiere Segreto" })
+    ).toHaveLength(0);
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 2, search: "Cantiere Segreto" })
     ).toHaveLength(1);
     expect(await listConversazioniWhatsApp({ sedeId: 2 })).toHaveLength(1);
   });

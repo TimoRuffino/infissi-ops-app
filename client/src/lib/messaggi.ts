@@ -56,6 +56,25 @@ export function parseConversationKey(
   return { casellaId, controparte: match[2] };
 }
 
+export function parseWhatsAppConversationSelection(search: string): {
+  key: string | null;
+  conversation: WhatsAppConversationKey | null;
+  invalid: boolean;
+} {
+  const key = new URLSearchParams(search).get("conversazione");
+  if (!key) return { key: null, conversation: null, invalid: false };
+  const conversation = parseConversationKey(key);
+  return { key, conversation, invalid: conversation == null };
+}
+
+export function restoredScrollTop(
+  previousTop: number,
+  previousHeight: number,
+  nextHeight: number
+): number {
+  return previousTop + Math.max(0, nextHeight - previousHeight);
+}
+
 export function whatsappConversationHref(key: string): string {
   const params = new URLSearchParams({ conversazione: key });
   return `/messaggi/whatsapp?${params.toString()}`;

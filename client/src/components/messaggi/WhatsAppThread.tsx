@@ -1,7 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { WhatsAppConversation, WhatsAppThread } from "@/lib/messaggi";
+import {
+  restoredScrollTop,
+  type WhatsAppConversation,
+  type WhatsAppThread,
+} from "@/lib/messaggi";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
@@ -15,7 +19,7 @@ import {
   Pencil,
   Save,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 function timestamp(value: Date | string): string {
@@ -25,6 +29,13 @@ function timestamp(value: Date | string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function fileSize(value: number): string {
+  if (value <= 0) return "Dimensione non disponibile";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default function WhatsAppThread({
@@ -40,7 +51,7 @@ export default function WhatsAppThread({
 }) {
   const utils = trpc.useUtils();
   const viewportRef = useRef<HTMLDivElement>(null);
-  const previousHeight = useRef<number | null>(null);
+  const pendingScrollRestore = useRef<{ top: number; height: number } | null>(null);
   const [before, setBefore] = useState<{ receivedAt: Date; id: number } | null>(null);
   const [nextBefore, setNextBefore] = useState<{ receivedAt: Date; id: number } | null>(null);
   const [hasOlder, setHasOlder] = useState(false);
@@ -77,6 +88,7 @@ export default function WhatsAppThread({
     setNextBefore(null);
     setHasOlder(false);
     setOlderMessages([]);
+    pendingScrollRestore.current = null;
     setEditingName(false);
     setName(conversation.aliasOperatore ?? "");
   }, [conversation.key]);
@@ -92,17 +104,28 @@ export default function WhatsAppThread({
     setOlderMessages(messages => [...older.data.messaggi, ...messages]);
     setNextBefore(older.data.nextBefore);
     setHasOlder(older.data.hasMore);
-    const viewport = viewportRef.current;
-    if (viewport && previousHeight.current != null) {
-      viewport.scrollTop += viewport.scrollHeight - previousHeight.current;
-    }
     setBefore(null);
   }, [older.data]);
+
+  useLayoutEffect(() => {
+    const snapshot = pendingScrollRestore.current;
+    const viewport = viewportRef.current;
+    if (!snapshot || !viewport) return;
+    viewport.scrollTop = restoredScrollTop(
+      snapshot.top,
+      snapshot.height,
+      viewport.scrollHeight
+    );
+    pendingScrollRestore.current = null;
+  }, [olderMessages.length]);
 
   const messages = [...olderMessages, ...(current.data?.messaggi ?? [])];
   const loadOlder = () => {
     if (!hasOlder || !nextBefore || older.isFetching) return;
-    previousHeight.current = viewportRef.current?.scrollHeight ?? null;
+    const viewport = viewportRef.current;
+    pendingScrollRestore.current = viewport
+      ? { top: viewport.scrollTop, height: viewport.scrollHeight }
+      : null;
     setBefore(nextBefore);
   };
 
@@ -181,10 +204,15 @@ export default function WhatsAppThread({
                 {message.allegati.length > 0 && (
                   <div className="mt-2 space-y-1.5 border-t border-border-soft pt-2">
                     {message.allegati.map((attachment, index) => (
-                      <button key={`${attachment.nome}-${index}`} type="button" className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-1 text-left text-xs text-text-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <div key={`${attachment.nome}-${index}`} className="flex min-h-11 w-full min-w-0 items-center gap-2 px-1 text-left text-xs text-text-2">
                         {attachment.mediaId ? <Paperclip className="size-4 shrink-0" /> : <FileText className="size-4 shrink-0" />}
-                        <span className="truncate">{attachment.nome}</span>
-                      </button>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-semibold text-foreground">{attachment.nome}</span>
+                          <span className="block truncate text-[11px] text-text-3">
+                            {attachment.mimeType || "Tipo non disponibile"} · {fileSize(attachment.size)}
+                          </span>
+                        </span>
+                      </div>
                     ))}
                   </div>
                 )}
