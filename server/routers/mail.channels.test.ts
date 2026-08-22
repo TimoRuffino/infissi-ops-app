@@ -1,4 +1,38 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const archivioStorageProbe = vi.hoisted(() => ({
+  active: false,
+  rawReads: 0,
+  storageEntries: 0,
+  releaseFirst: null as (() => void) | null,
+}));
+
+vi.mock("../_core/fileStorage", async importOriginal => {
+  const actual = await importOriginal<typeof import("../_core/fileStorage")>();
+  return {
+    ...actual,
+    getFile: async (...args: Parameters<typeof actual.getFile>) => {
+      const result = await actual.getFile(...args);
+      if (archivioStorageProbe.active) archivioStorageProbe.rawReads += 1;
+      return result;
+    },
+    putFile: async (...args: Parameters<typeof actual.putFile>) => {
+      if (
+        archivioStorageProbe.active &&
+        args[0] === "preventivi_documenti"
+      ) {
+        archivioStorageProbe.storageEntries += 1;
+        if (archivioStorageProbe.storageEntries === 1) {
+          await new Promise<void>(resolve => {
+            archivioStorageProbe.releaseFirst = resolve;
+          });
+        }
+      }
+      return actual.putFile(...args);
+    },
+  };
+});
+
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
@@ -10,6 +44,14 @@ import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
 import { deleteDocumentiByCommessa } from "./preventiviContratti";
 import { deleteFileQuiet, putFile } from "../_core/fileStorage";
+
+async function attendiProbe(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  throw new Error("Timeout in attesa del probe storage.");
+}
 
 function createContext(sedeId: number): TrpcContext {
   return {
@@ -78,8 +120,18 @@ const nuovoMessaggioWhatsApp = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("mail channel APIs", () => {
-  beforeEach(() => _resetComunicazioniInMemoria());
-  afterEach(() => _resetComunicazioniInMemoria());
+  beforeEach(() => {
+    _resetComunicazioniInMemoria();
+    archivioStorageProbe.active = false;
+    archivioStorageProbe.rawReads = 0;
+    archivioStorageProbe.storageEntries = 0;
+    archivioStorageProbe.releaseFirst = null;
+  });
+  afterEach(() => {
+    archivioStorageProbe.releaseFirst?.();
+    archivioStorageProbe.active = false;
+    _resetComunicazioniInMemoria();
+  });
 
   it("espone Email e WhatsApp limitando le letture alla sede attiva", async () => {
     const email = await insertComunicazione(nuovaEmail());
@@ -260,12 +312,34 @@ describe("mail channel APIs", () => {
 
     try {
       const input = { id: email!.id, allegatoIndex: 0, commessaId };
+      archivioStorageProbe.active = true;
+      const primaPromise = caller.mail.email.archiviaAllegato(input);
+      await attendiProbe(() => archivioStorageProbe.storageEntries === 1);
+
+      let secondaConclusa = false;
+      const secondaPromise = caller.mail.email.archiviaAllegato(input);
+      void secondaPromise.then(
+        () => {
+          secondaConclusa = true;
+        },
+        () => {
+          secondaConclusa = true;
+        }
+      );
+      await attendiProbe(() => archivioStorageProbe.rawReads === 2);
+      await Promise.resolve();
+
+      expect(archivioStorageProbe.storageEntries).toBe(1);
+      expect(secondaConclusa).toBe(false);
+
+      archivioStorageProbe.releaseFirst!();
       const [prima, seconda] = await Promise.all([
-        caller.mail.email.archiviaAllegato(input),
-        caller.mail.email.archiviaAllegato(input),
+        primaPromise,
+        secondaPromise,
       ]);
 
       expect(seconda.id).toBe(prima.id);
+      expect(archivioStorageProbe.storageEntries).toBe(1);
       expect(await caller.preventiviContratti.byCommessa(commessaId)).toEqual([
         expect.objectContaining({
           id: prima.id,
