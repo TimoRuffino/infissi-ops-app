@@ -17,10 +17,13 @@ import { estraiCodiceCommessa, matchComunicazione } from "./match";
 import {
   deleteComunicazione,
   getComunicazione,
+  getThreadWhatsApp,
   insertComunicazione,
   listComunicazioni,
+  listConversazioniWhatsApp,
   listDaAnalizzare,
   markAnalizzate,
+  normalizzaControparteWhatsApp,
   setClassificazioneComunicazione,
   setMatchComunicazione,
   setStatoComunicazione,
@@ -28,6 +31,7 @@ import {
   statsComunicazioni,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
+import { getClientiStore } from "../routers/clienti";
 
 const CLIENTI = [
   { id: 1, nome: "Mario", cognome: "Rossi", email: "mario.rossi@example.com" },
@@ -572,6 +576,224 @@ describe("read model comunicazioni per canale", () => {
     expect((await statsComunicazioni(1, "whatsapp")).email).toBe(0);
     expect(await segnaTutteViste(1, "email")).toBe(1);
     expect((await getComunicazione(whatsapp!.id, 1))?.stato).toBe("nuova");
+  });
+});
+
+describe("conversazioni WhatsApp", () => {
+  const clienteId = 919_001;
+
+  beforeAll(() => {
+    _resetComunicazioniInMemoria();
+    getClientiStore().push({
+      id: clienteId,
+      sedeId: 1,
+      nome: "Lia",
+      cognome: "Cliente CRM",
+    });
+  });
+
+  afterAll(() => {
+    const clienti = getClientiStore();
+    const index = clienti.findIndex(c => c.id === clienteId);
+    if (index >= 0) clienti.splice(index, 1);
+  });
+
+  const nuovoMessaggioWhatsApp = (overrides: Record<string, unknown> = {}) => ({
+    sedeId: 1,
+    casellaId: 8,
+    messageId: "wa-read-model-base",
+    canale: "whatsapp" as const,
+    direzione: "in" as const,
+    mittente: "+393331112222",
+    mittenteNome: "Profilo WhatsApp",
+    destinatari: [],
+    oggetto: "",
+    testo: "Messaggio WhatsApp",
+    allegati: [],
+    clienteId: null,
+    commessaId: null,
+    matchConfidenza: "nessuna" as const,
+    matchMotivo: null,
+    stato: "nuova" as const,
+    receivedAt: new Date("2026-08-22T10:00:00Z"),
+    ...overrides,
+  });
+
+  it("raggruppa per numero aziendale e controparte, mantenendo nomi e non letti corretti", async () => {
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-8-in-1",
+        mittente: "333 111 2222",
+        clienteId,
+        commessaId: 71,
+        matchConfidenza: "alta",
+        testo: "Primo messaggio",
+        receivedAt: new Date("2026-08-22T10:00:00Z"),
+      })
+    );
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-8-out-1",
+        direzione: "out",
+        mittente: "0039 3331112222",
+        clienteId,
+        commessaId: 71,
+        matchConfidenza: "alta",
+        testo: "Risposta ufficio",
+        stato: "nuova",
+        receivedAt: new Date("2026-08-22T10:01:00Z"),
+      })
+    );
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-8-in-2",
+        mittente: "+39 (333) 111-2222",
+        clienteId,
+        commessaId: 71,
+        matchConfidenza: "alta",
+        testo: "Ultimo messaggio",
+        receivedAt: new Date("2026-08-22T10:02:00Z"),
+      })
+    );
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-9-in-1",
+        casellaId: 9,
+        mittente: "+393331112222",
+        mittenteNome: "Profilo alternativo",
+        testo: "Secondo numero aziendale",
+        stato: "gestita",
+        receivedAt: new Date("2026-08-22T10:01:30Z"),
+      })
+    );
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-9-out-1",
+        casellaId: 9,
+        direzione: "out",
+        mittente: "+393331112222",
+        mittenteNome: null,
+        testo: "Ultimo secondo numero",
+        stato: "gestita",
+        receivedAt: new Date("2026-08-22T10:01:45Z"),
+      })
+    );
+    const esclusa = await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-esclusa",
+        mittente: "+393339999999",
+        testo: "Spam",
+        categoria: "spam",
+      })
+    );
+    const tombstone = await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-tombstone",
+        mittente: "+393338888888",
+        testo: "Da eliminare",
+      })
+    );
+    await deleteComunicazione(tombstone!.id, 1);
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-altra-sede",
+        sedeId: 2,
+        testo: "Sede separata",
+      })
+    );
+
+    expect(normalizzaControparteWhatsApp("0039 3331112222")).toBe(
+      "+393331112222"
+    );
+
+    const conversazioni = await listConversazioniWhatsApp({
+      sedeId: 1,
+      limit: 20,
+      offset: 0,
+    });
+    expect(conversazioni).toHaveLength(2);
+    expect(conversazioni[0]).toMatchObject({
+      key: "wa:8:+393331112222",
+      casellaId: 8,
+      controparte: "+393331112222",
+      nomeProfilo: "Cliente CRM Lia",
+      ultimoMessaggio: "Ultimo messaggio",
+      direzioneUltimoMessaggio: "in",
+      nonLetti: 2,
+      totaleMessaggi: 3,
+      clienteId,
+      commessaId: 71,
+      matchConfidenza: "alta",
+    });
+    expect(conversazioni[1]).toMatchObject({
+      key: "wa:9:+393331112222",
+      casellaId: 9,
+      controparte: "+393331112222",
+      nomeProfilo: "Profilo alternativo",
+      nonLetti: 0,
+      totaleMessaggi: 2,
+      ultimoMessaggio: "Ultimo secondo numero",
+    });
+    expect(esclusa).not.toBeNull();
+
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 1, soloDaGestire: true })
+    ).toHaveLength(1);
+    expect(
+      await listConversazioniWhatsApp({ sedeId: 1, search: "Cliente CRM" })
+    ).toHaveLength(1);
+    expect(await listConversazioniWhatsApp({ sedeId: 2 })).toHaveLength(1);
+  });
+
+  it("pagina il thread dalla data più vecchia restituita e mantiene l'ordine crescente", async () => {
+    const thread = await getThreadWhatsApp({
+      sedeId: 1,
+      casellaId: 8,
+      controparte: "+393331112222",
+      limit: 2,
+    });
+
+    expect(thread).not.toBeNull();
+    expect(thread!.messaggi.map(m => m.testo)).toEqual([
+      "Risposta ufficio",
+      "Ultimo messaggio",
+    ]);
+    expect(thread!.messaggi.map(m => m.receivedAt.getTime())).toEqual(
+      [...thread!.messaggi]
+        .map(m => m.receivedAt.getTime())
+        .sort((a, b) => a - b)
+    );
+    expect(thread!.hasMore).toBe(true);
+    expect(thread!.nextBefore).toEqual(new Date("2026-08-22T10:01:00Z"));
+
+    const paginaPrecedente = await getThreadWhatsApp({
+      sedeId: 1,
+      casellaId: 8,
+      controparte: "+393331112222",
+      before: thread!.nextBefore!,
+      limit: 2,
+    });
+    expect(paginaPrecedente!.messaggi.map(m => m.testo)).toEqual([
+      "Primo messaggio",
+    ]);
+    expect(paginaPrecedente!.hasMore).toBe(false);
+    expect(paginaPrecedente!.nextBefore).toEqual(
+      new Date("2026-08-22T10:00:00Z")
+    );
+    expect(
+      (await getThreadWhatsApp({
+        sedeId: 2,
+        casellaId: 8,
+        controparte: "+393331112222",
+      }))?.messaggi.map(m => m.testo)
+    ).toEqual(["Sede separata"]);
+    expect(
+      await getThreadWhatsApp({
+        sedeId: 3,
+        casellaId: 8,
+        controparte: "+393331112222",
+      })
+    ).toBeNull();
   });
 });
 
