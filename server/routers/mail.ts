@@ -43,7 +43,9 @@ import {
   deleteComunicazione,
   deleteComunicazioniByCasella,
   getComunicazione,
+  getThreadWhatsApp,
   listComunicazioni,
+  listConversazioniWhatsApp,
   segnaTutteViste,
   setClassificazioneComunicazione,
   setMatchComunicazione,
@@ -74,6 +76,43 @@ function assertChiaveCifratura() {
     });
   }
 }
+
+const comunicazioniListInput = z.object({
+  commessaId: z.number().optional(),
+  clienteId: z.number().optional(),
+  casellaId: z.number().optional(),
+  canale: z.enum(["email", "whatsapp"]).optional(),
+  stato: z.enum(["nuova", "vista", "gestita"]).optional(),
+  categoria: z.enum(CATEGORIE_COMUNICAZIONE).optional(),
+  search: z.string().max(200).optional(),
+  soloNonCollegate: z.boolean().optional(),
+  soloDaGestire: z.boolean().optional(),
+  soloEscluse: z.boolean().optional(),
+  includiEscluse: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+const emailListInput = comunicazioniListInput.omit({ canale: true });
+
+const whatsappListInput = z.object({
+  search: z.string().max(200).optional(),
+  soloDaGestire: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+const whatsappThreadInput = z.object({
+  casellaId: z.number(),
+  controparte: z.string().min(1).max(100),
+  before: z
+    .object({
+      receivedAt: z.date(),
+      id: z.number().int(),
+    })
+    .optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+});
 
 export const mailRouter = router({
   // ── Caselle ───────────────────────────────────────────────────────────
@@ -256,6 +295,31 @@ export const mailRouter = router({
 
   // ── WhatsApp (sola lettura) ───────────────────────────────────────────
   whatsapp: router({
+    conversazioni: protectedProcedure
+      .input(whatsappListInput)
+      .query(({ input, ctx }) =>
+        listConversazioniWhatsApp({
+          ...input,
+          sedeId: ctx.sedeId ?? 1,
+        })
+      ),
+
+    thread: protectedProcedure
+      .input(whatsappThreadInput)
+      .query(async ({ input, ctx }) => {
+        const result = await getThreadWhatsApp({
+          ...input,
+          sedeId: ctx.sedeId ?? 1,
+        });
+        if (!result) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conversazione non trovata.",
+          });
+        }
+        return result;
+      }),
+
     list: protectedProcedure.query(({ ctx }) => {
       requireDirezione(ctx.user);
       return configWhatsApp
@@ -503,28 +567,28 @@ export const mailRouter = router({
       }),
   }),
 
+  email: router({
+    list: protectedProcedure.input(emailListInput).query(({ input, ctx }) =>
+      listComunicazioni({
+        ...input,
+        sedeId: ctx.sedeId ?? 1,
+        canale: "email",
+      })
+    ),
+
+    stats: protectedProcedure.query(({ ctx }) =>
+      statsComunicazioni(ctx.sedeId ?? 1, "email")
+    ),
+
+    segnaTutteViste: protectedProcedure.mutation(async ({ ctx }) => ({
+      aggiornate: await segnaTutteViste(ctx.sedeId ?? 1, "email"),
+    })),
+  }),
+
   // ── Comunicazioni ─────────────────────────────────────────────────────
   comunicazioni: router({
     list: protectedProcedure
-      .input(
-        z
-          .object({
-            commessaId: z.number().optional(),
-            clienteId: z.number().optional(),
-            casellaId: z.number().optional(),
-            canale: z.enum(["email", "whatsapp"]).optional(),
-            stato: z.enum(["nuova", "vista", "gestita"]).optional(),
-            categoria: z.enum(CATEGORIE_COMUNICAZIONE).optional(),
-            search: z.string().max(200).optional(),
-            soloNonCollegate: z.boolean().optional(),
-            soloDaGestire: z.boolean().optional(),
-            soloEscluse: z.boolean().optional(),
-            includiEscluse: z.boolean().optional(),
-            limit: z.number().int().min(1).max(200).optional(),
-            offset: z.number().int().min(0).optional(),
-          })
-          .optional()
-      )
+      .input(comunicazioniListInput.optional())
       .query(async ({ input, ctx }) => {
         return listComunicazioni({
           sedeId: ctx.sedeId ?? 1,
