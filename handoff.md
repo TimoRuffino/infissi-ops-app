@@ -85,7 +85,8 @@ server/tars/
 client/src/
   App.tsx                   rotte lazy e boundary di caricamento
   index.css                 design tokens light/dark
-  pages/Comunicazioni.tsx   inbox operativa email/WhatsApp
+  pages/messaggi/EmailPage.tsx     inbox operativa Email
+  pages/messaggi/WhatsAppPage.tsx  workspace conversazioni WhatsApp
   pages/Integrazioni.tsx    Drive, FiC, storage e altre integrazioni
   pages/TarsInbox.tsx       proposte e diagnostica esecuzioni
 ```
@@ -300,6 +301,43 @@ utenti attivi della sede e chiede obbligatoriamente a chi assegnare il lavoro; i
 seguito conserva il contenuto della comunicazione e applica la scelta sia al
 cliente sia alla commessa. `comunicazioneId` entra nella chiave canonica, quindi
 la stessa azione non viene riproposta.
+
+### Messaggi: route, API e limiti di canale
+
+Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
+`/comunicazioni` e `/inbox` restano esclusivamente deep link legacy: usano un
+redirect `replace` rispettivamente verso Email e Tars. Il primo conserva solo
+`view` tra le viste Email riconosciute e `messaggio` numerico positivo; il
+secondo conserva solo `tab` tra `chat`, `pendenti`, `decise` e `registro`.
+
+Il router `mail` espone le API specifiche `mail.email.list`, `byId`, `stats`,
+`segnaTutteViste` e `archiviaAllegato`; tutte sono forzate sul canale Email e
+sulla sede attiva. `mail.whatsapp.conversazioni` e `thread` sono letture
+sede-scoped; `rinominaConversazione` puo cambiare solo l'alias di una chat non
+collegata a un cliente CRM. Il router storico `mail.comunicazioni.*` rimane per
+le mutation condivise e i consumatori esistenti.
+
+Una conversazione WhatsApp e una riga per account e controparte normalizzata,
+con chiave client `wa:<casellaId>:<numero-normalizzato>`; `sedeId` non entra
+nella chiave ma e sempre applicata dal server. Il nome visualizzato segue la
+priorita cliente CRM, alias dell'operatore, profilo Meta, numero normalizzato.
+L'alias e persistito per sede, account e numero e non puo sovrascrivere un nome
+CRM.
+
+Il workspace WhatsApp e di sola lettura: non invia messaggi ne media. Media e
+allegati mostrano metadati ispezionabili; l'eventuale download resta vincolato
+alla fonte e alle integrazioni future. Email mantiene invece il lettore e le
+azioni operative: dopo il collegamento alla stessa commessa, un allegato puo
+essere letto dalla casella sorgente e archiviato nel fascicolo. Eliminare una
+comunicazione dal CRM non modifica la casella: il tombstone evita la
+re-importazione.
+
+Le suite locali esercitano il fallback in memoria quando manca `DATABASE_URL`;
+non dimostrano le query PostgreSQL, le configurazioni dei canali o i dati di
+Railway. Prima del deploy verificare le route e i deep link, l'accesso
+sede-scoped, una casella Email, una configurazione WhatsApp e i relativi
+allegati nell'ambiente Railway. Nessun controllo esterno e nessuna mutation
+verso Railway e stato eseguito da questa modifica documentale.
 
 ## 7. Modifiche code-complete del 14/08/2026
 

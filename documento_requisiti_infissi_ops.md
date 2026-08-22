@@ -1261,7 +1261,7 @@ Il motivo di `nessuna_azione` diventa il riepilogo mostrato sulla commessa, quin
 
 ---
 
-## 51. Comunicazioni (`/comunicazioni`)
+## 51. Comunicazioni (Email e WhatsApp)
 
 ### 51.1 Modello e ingestione
 Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. Oltre a canale, mittente, contenuto, allegati, cliente/commessa, stato e data, ogni riga persiste categoria, score, motivazione e fonte della classificazione, più l'ultimo riepilogo Tars richiesto dall'operatore.
@@ -1290,20 +1290,59 @@ Per un nuovo lead Tars DEVE prima cercare clienti e commesse esistenti e leggere
 
 L'approvazione crea cliente e commessa in stato `preventivo`, imposta lo stesso `assegnatoA` su entrambi e collega la comunicazione tramite le mutation applicative. La card mostra il nome scelto prima dell'approvazione. La chiave canonica usa `comunicazioneId`, quindi lo stesso lead non può essere proposto due volte.
 
-### 51.4 Inbox operativa
-La pagina DEVE offrire:
+### 51.4 Route e compatibilita
+Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
+`/comunicazioni` e `/inbox` DEVONO restare redirect legacy con `replace`: il
+primo va a `/messaggi/email` e conserva solo `view` consentito e `messaggio`
+numerico positivo; il secondo va a `/tars` e conserva solo `tab` tra `chat`,
+`pendenti`, `decise` e `registro`. Parametri non riconosciuti non devono essere
+propagati.
 
-- code Da gestire, Non collegate, Nuovi lead, Gestite ed Escluse;
-- filtro canale Email/WhatsApp, filtro casella e ricerca su mittente, oggetto e testo;
-- riga con checkbox, categoria, canale, mittente, ora, oggetto, anteprima, allegati, commessa e stato;
-- azioni multiple per chiudere o escludere messaggi con conferma esplicita;
-- lettore con stato `In attesa di Tars` o `Dubbio Tars`, fonte, confidenza, motivazione, collegamento commessa con conferma, proposte Tars, allegati e corpo;
-- fascia di stato della coda Tars, visibile solo quando serve, con numero di messaggi, anzianità della mail più vecchia, elaborazione/ripresa e cause bloccanti (`disattivato`, chiave mancante, budget esaurito, pausa API);
-- area Tars con istruzione libera e preset contestuali per lead, ticket, risposta, aggiornamento commessa e allegati;
-- azioni accessibili per gestita/riapri, elimina e ritorno alla lista mobile;
-- aggiornamento caselle e gestione configurazione per la direzione.
+### 51.5 API per canale e scope
+`mail.email.list`, `mail.email.byId`, `mail.email.stats` e
+`mail.email.segnaTutteViste` DEVONO forzare il canale Email e la sede attiva.
+`mail.email.archiviaAllegato` e ammessa solo per un'email della stessa sede,
+gia collegata alla commessa indicata: legge l'allegato dalla casella sorgente e
+lo archivia nel fascicolo della commessa. Il router storico
+`mail.comunicazioni.*` resta compatibile per azioni condivise e consumatori
+esistenti.
 
-Su desktop la lista ha larghezza vincolata e il lettore usa `min-width: 0`; su mobile si mostra una vista alla volta. Nessun messaggio, filtro o allegato deve introdurre scroll orizzontale di pagina.
+`mail.whatsapp.conversazioni` e `mail.whatsapp.thread` sono API di sola lettura
+e applicano sempre `sedeId`; una conversazione o un thread fuori sede deve
+rispondere `NOT_FOUND`. `mail.whatsapp.rinominaConversazione` persiste soltanto
+l'alias locale di una chat non collegata a un cliente CRM. Non esistono API di
+invio WhatsApp o Email in questa fase.
+
+### 51.6 Workspace Email
+Email offre code Da gestire, Nuovi lead, Gestite ed Escluse, ricerca e lettore
+operativo con stato Tars, classificazione, collegamento, proposte, allegati e
+corpo. L'operatore puo richiedere a Tars istruzioni su una singola email; le
+azioni che modificano il CRM mantengono il normale flusso di proposta e
+approvazione. Eliminare dal CRM non tocca la casella IMAP: la riga diventa un
+tombstone per evitare una re-importazione.
+
+### 51.7 Workspace WhatsApp
+WhatsApp raggruppa i messaggi in una sola conversazione per account e numero
+normalizzato, identificata nel client da
+`wa:<casellaId>:<numero-normalizzato>`. La chiave non espone `sedeId`, che resta
+un vincolo obbligatorio lato server. Il nome visualizzato ha ordine vincolante:
+cliente CRM collegato, alias scelto dall'operatore, profilo Meta, numero
+normalizzato. L'alias e persistito per sede, account e numero e non puo
+sovrascrivere il cliente CRM.
+
+Il thread e cronologico e paginato; media e allegati sono metadati
+ispezionabili. Il workspace e esplicitamente di sola lettura: nessun invio di
+messaggi o media, nessuna modifica alla fonte WhatsApp. Su desktop la lista e
+il dettaglio usano colonne con `min-width: 0`; su mobile si mostra una vista
+alla volta. Nessun testo, numero o allegato deve introdurre scroll orizzontale
+di pagina.
+
+### 51.8 Verifica esterna
+Senza `DATABASE_URL` lo sviluppo locale usa il fallback in memoria: test,
+typecheck e build non dimostrano query PostgreSQL, dati o integrazioni Railway.
+Prima di pubblicare devono essere verificate su Railway le route e i redirect,
+lo scope tra sedi, la casella Email e i suoi allegati, la configurazione
+WhatsApp e l'assenza di controlli di invio.
 
 ---
 
