@@ -41,6 +41,35 @@ export function emailMessageHref(id: number): string {
   return `/messaggi/email?${params.toString()}`;
 }
 
+function redirectWithQuery(path: string, params: URLSearchParams): string {
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+export function legacyMessageRedirect(location: string): string {
+  const url = new URL(location, "https://ruffino-flow.local");
+  const params = new URLSearchParams();
+  const view = url.searchParams.get("view");
+  const messageId = parseEmailMessageId(url.search);
+
+  if (view && EMAIL_VIEW_SET.has(view)) params.set("view", view);
+  if (messageId != null) params.set("messaggio", String(messageId));
+
+  return redirectWithQuery("/messaggi/email", params);
+}
+
+const TARS_TAB_SET = new Set(["chat", "pendenti", "decise", "registro"]);
+
+export function legacyTarsRedirect(location: string): string {
+  const url = new URL(location, "https://ruffino-flow.local");
+  const params = new URLSearchParams();
+  const tab = url.searchParams.get("tab");
+
+  if (tab && TARS_TAB_SET.has(tab)) params.set("tab", tab);
+
+  return redirectWithQuery("/tars", params);
+}
+
 export type WhatsAppConversationKey = {
   casellaId: number;
   controparte: string;

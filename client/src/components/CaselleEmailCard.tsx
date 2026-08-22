@@ -244,8 +244,8 @@ export default function CaselleEmailCard() {
         ))}
 
         {rows.length > 0 && (
-          <Button size="sm" variant="outline" onClick={() => setLocation("/comunicazioni")}>
-            Vai alle comunicazioni
+          <Button size="sm" variant="outline" onClick={() => setLocation("/messaggi/email")}>
+            Vai alle email
             <ArrowRight className="h-3.5 w-3.5 ml-1" />
           </Button>
         )}

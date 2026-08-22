@@ -1,12 +1,13 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Loader2 } from "lucide-react";
-import { lazy, Suspense } from "react";
-import { Route, Switch } from "wouter";
+import { lazy, Suspense, useEffect } from "react";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
 import RequireDirezione from "./components/RequireDirezione";
+import { legacyMessageRedirect, legacyTarsRedirect } from "./lib/messaggi";
 
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -40,8 +41,9 @@ const Archivio = lazy(() => import("./pages/Archivio"));
 const SediList = lazy(() => import("./pages/SediList"));
 const TarsInbox = lazy(() => import("./pages/TarsInbox"));
 const Conoscenza = lazy(() => import("./pages/Conoscenza"));
-const Comunicazioni = lazy(() => import("./pages/Comunicazioni"));
 const Economia = lazy(() => import("./pages/Economia"));
+const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
+const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
 
 function RouteLoading() {
   return (
@@ -50,6 +52,18 @@ function RouteLoading() {
       <span className="sr-only">Caricamento</span>
     </div>
   );
+}
+
+function LegacyRedirect({ redirect }: { redirect: (location: string) => string }) {
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    setLocation(redirect(`${location}${window.location.search}`), {
+      replace: true,
+    });
+  }, [location, redirect, setLocation]);
+
+  return <RouteLoading />;
 }
 
 function Router() {
@@ -139,8 +153,15 @@ function Router() {
               </RequireDirezione>
             )}
           </Route>
-          <Route path="/inbox" component={TarsInbox} />
-          <Route path="/comunicazioni" component={Comunicazioni} />
+          <Route path="/messaggi/email" component={EmailPage} />
+          <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
+          <Route path="/tars" component={TarsInbox} />
+          <Route path="/inbox">
+            {() => <LegacyRedirect redirect={legacyTarsRedirect} />}
+          </Route>
+          <Route path="/comunicazioni">
+            {() => <LegacyRedirect redirect={legacyMessageRedirect} />}
+          </Route>
           <Route path="/conoscenza">
             {() => (
               <RequireDirezione>

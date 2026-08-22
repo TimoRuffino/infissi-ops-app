@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   AlertCircle,
+  ArrowRight,
   Check,
   Copy,
   Loader2,
@@ -31,6 +32,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLocation } from "wouter";
 
 // Carica l'SDK Facebook una volta sola. Serve solo quando la direzione
 // apre questa card: non lo si impone a ogni pagina del gestionale.
@@ -59,6 +61,7 @@ function useFacebookSdk(appId: string | undefined) {
 
 export default function WhatsAppCard() {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const lista = trpc.mail.whatsapp.list.useQuery(undefined, { retry: false });
   const webhook = trpc.mail.whatsapp.webhookUrl.useQuery(undefined, {
     retry: false,
@@ -653,6 +656,16 @@ export default function WhatsAppCard() {
             </div>
           );
         })}
+        {rows.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setLocation("/messaggi/whatsapp")}
+          >
+            Vai a WhatsApp
+            <ArrowRight className="ml-1 h-3.5 w-3.5" />
+          </Button>
+        )}
       </CardContent>
 
       {/* Passo 1 — basta il verify token: su Meta il webhook si verifica

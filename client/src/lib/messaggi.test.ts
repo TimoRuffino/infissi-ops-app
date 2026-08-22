@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   emailMessageHref,
+  legacyMessageRedirect,
+  legacyTarsRedirect,
   parseConversationKey,
   parseEmailMessageId,
   parseEmailView,
@@ -9,6 +11,20 @@ import {
   sourceHref,
   whatsappConversationHref,
 } from "./messaggi";
+
+describe("legacy navigation redirects", () => {
+  it("moves recognized Email query parameters to the canonical route", () => {
+    expect(
+      legacyMessageRedirect("/comunicazioni?view=lead&messaggio=42&debug=true")
+    ).toBe("/messaggi/email?view=lead&messaggio=42");
+  });
+
+  it("keeps only the requested Tars tab on the canonical route", () => {
+    expect(legacyTarsRedirect("/inbox?tab=registro&debug=true")).toBe(
+      "/tars?tab=registro"
+    );
+  });
+});
 
 describe("parseEmailView", () => {
   it("accepts an approved Email view", () => {

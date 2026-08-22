@@ -47,6 +47,8 @@ import {
   HardHat,
   Bot,
   Mail,
+  MessageCircle,
+  MessagesSquare,
   ChevronDown,
   Landmark,
 } from "lucide-react";
@@ -115,14 +117,15 @@ const menuItems: MenuItem[] = [
   },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
   {
-    icon: Bot,
-    label: "Tars",
-    path: "/inbox",
+    icon: MessagesSquare,
+    label: "Messaggi",
+    path: "/messaggi/email",
     children: [
-      { icon: Bot, label: "Proposte e chat", path: "/inbox" },
-      { icon: Mail, label: "Comunicazioni", path: "/comunicazioni" },
+      { icon: Mail, label: "Email", path: "/messaggi/email" },
+      { icon: MessageCircle, label: "WhatsApp", path: "/messaggi/whatsapp" },
     ],
   },
+  { icon: Bot, label: "Tars", path: "/tars" },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
   { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
@@ -142,6 +145,12 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+
+function isPathActive(location: string, path: string): boolean {
+  return path === "/"
+    ? location === "/"
+    : location === path || location.startsWith(`${path}/`);
+}
 
 export default function DashboardLayout({
   children,
@@ -202,9 +211,7 @@ function DashboardLayoutContent({
   const [gruppiAperti, setGruppiAperti] = useState<Record<string, boolean>>({});
   const sidebarRef = useRef<HTMLDivElement>(null);
   const tutteLeVoci = menuItems.flatMap((i) => (i.children ? i.children : [i]));
-  const activeMenuItem = tutteLeVoci.find(item =>
-    item.path === "/" ? location === "/" : location.startsWith(item.path)
-  );
+  const activeMenuItem = tutteLeVoci.find(item => isPathActive(location, item.path));
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -299,8 +306,8 @@ function DashboardLayoutContent({
                     item.path === "/"
                       ? location === "/"
                       : figlie.length > 0
-                        ? figlie.some((c) => location.startsWith(c.path))
-                        : location.startsWith(item.path);
+                        ? figlie.some((c) => isPathActive(location, c.path))
+                        : isPathActive(location, item.path);
 
                   // Gruppo: la voce apre/chiude; le figlie navigano. Aperto
                   // da solo quando una figlia è la pagina corrente.
@@ -329,7 +336,7 @@ function DashboardLayoutContent({
                         {aperto && (
                           <div className="ml-4 border-l border-white/10 pl-1 mt-0.5 space-y-0.5">
                             {figlie.map((c) => {
-                              const attiva = location.startsWith(c.path);
+                              const attiva = isPathActive(location, c.path);
                               return (
                                 <SidebarMenuButton
                                   key={c.path}
