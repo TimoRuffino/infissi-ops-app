@@ -67,3 +67,47 @@ Il worktree non ha `DATABASE_URL`, quindi le CTE PostgreSQL non sono state
 eseguite contro un database reale in locale. Sono state controllate tramite
 typecheck/build e progettate con gli stessi filtri del fallback; resta
 opportuna una smoke test su PostgreSQL prima del deploy Railway.
+
+## Fix round 1
+
+### Correzioni
+
+- `nextBefore` ora e `CursoreThreadWhatsApp { receivedAt, id }`. Sia il
+  fallback sia PostgreSQL applicano l'ordinamento lessicografico
+  `(received_at, id)` per le pagine precedenti, eliminando buchi e duplicati
+  quando piu messaggi hanno lo stesso timestamp.
+- Il gruppo conserva il collegamento CRM non nullo piu recente, separato dal
+  messaggio piu recente. Un messaggio nuovo non collegato non azzera quindi
+  `clienteId`, `commessaId`, confidenza o la priorita del nome CRM.
+- `escapeRicercaWhatsApp` rende letterali `\\`, `%` e `_`; il ramo SQL usa
+  `ILIKE ... ESCAPE '\\'` con parametri non nullable.
+- L'elenco PostgreSQL applica ricerca, `soloDaGestire`, `LIMIT` e `OFFSET`
+  nella query. I CTE `profili` e `collegati` selezionano una sola riga
+  rilevante per conversazione. Il thread carica il riepilogo soltanto della
+  coppia `casellaId`/controparte richiesta.
+- Tutte le query mantengono `sede_id`, tombstone e categorie escluse prima di
+  aggregazione e paginazione.
+
+### TDD e verifiche
+
+RED reale:
+
+```text
+pnpm test -- server/tars/mail.test.ts
+3 test falliti: identita CRM sovrascritta dal messaggio non collegato,
+escapeRicercaWhatsApp mancante, nextBefore Date privo di id.
+```
+
+GREEN e verifica finale:
+
+```text
+pnpm test -- server/tars/mail.test.ts  # 12 file, 153 test passati
+pnpm check                             # passato
+pnpm test                              # 12 file, 153 test passati
+pnpm build                             # passato
+git diff --check                       # passato
+```
+
+La fixture di paginazione include due messaggi con lo stesso `receivedAt` e
+verifica che le tre pagine ricostruiscano tutti e soli i cinque messaggi in
+ordine cronologico.

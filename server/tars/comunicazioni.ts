@@ -107,7 +107,12 @@ export type ThreadWhatsApp = {
   conversazione: ConversazioneWhatsApp;
   messaggi: Comunicazione[];
   hasMore: boolean;
-  nextBefore: Date | null;
+  nextBefore: CursoreThreadWhatsApp | null;
+};
+
+export type CursoreThreadWhatsApp = {
+  receivedAt: Date;
+  id: number;
 };
 
 export type NuovaComunicazione = Omit<
@@ -146,6 +151,11 @@ export const MAX_TESTO = 20_000;
 export function normalizzaControparteWhatsApp(numero: string): string {
   const normalizzato = normalizzaTelefono(numero);
   return normalizzato ? `+${normalizzato}` : numero.trim();
+}
+
+/** Rende letterali i wildcard di PostgreSQL prima di usarli in ILIKE. */
+export function escapeRicercaWhatsApp(ricerca: string): string {
+  return ricerca.replace(/[\\%_]/g, "\\$&");
 }
 
 // ── Fallback in memoria (nessun DATABASE_URL) ───────────────────────────────
@@ -849,6 +859,7 @@ type GruppoWhatsApp = {
   controparte: string;
   messaggioRecente: Comunicazione;
   messaggioProfilo: Comunicazione | null;
+  messaggioCollegato: Comunicazione | null;
   nonLetti: number;
   totaleMessaggi: number;
   daGestire: boolean;
@@ -869,8 +880,9 @@ function toConversazioneWhatsApp(
   gruppo: GruppoWhatsApp
 ): ConversazioneWhatsApp {
   const messaggio = gruppo.messaggioRecente;
+  const collegamento = gruppo.messaggioCollegato ?? messaggio;
   const nomeProfilo =
-    nomeClienteConversazione(sedeId, messaggio.clienteId) ??
+    nomeClienteConversazione(sedeId, collegamento.clienteId) ??
     gruppo.messaggioProfilo?.mittenteNome?.trim() ??
     gruppo.controparte;
   return {
@@ -883,9 +895,9 @@ function toConversazioneWhatsApp(
     direzioneUltimoMessaggio: messaggio.direzione,
     nonLetti: gruppo.nonLetti,
     totaleMessaggi: gruppo.totaleMessaggi,
-    clienteId: messaggio.clienteId,
-    commessaId: messaggio.commessaId,
-    matchConfidenza: messaggio.matchConfidenza,
+    clienteId: collegamento.clienteId,
+    commessaId: collegamento.commessaId,
+    matchConfidenza: collegamento.matchConfidenza,
   };
 }
 
@@ -896,11 +908,29 @@ function confrontaMessaggiRecenti(a: Comunicazione, b: Comunicazione) {
   );
 }
 
+function haCollegamentoWhatsApp(messaggio: Comunicazione) {
+  return messaggio.clienteId != null || messaggio.commessaId != null;
+}
+
+function cursoreDaMessaggio(
+  messaggio: Comunicazione
+): CursoreThreadWhatsApp {
+  return { receivedAt: messaggio.receivedAt, id: messaggio.id };
+}
+
+function precedenteAlCursore(
+  messaggio: Comunicazione,
+  cursore: CursoreThreadWhatsApp
+) {
+  const ricevutoAt = messaggio.receivedAt.getTime();
+  const confine = cursore.receivedAt.getTime();
+  return ricevutoAt < confine || (ricevutoAt === confine && messaggio.id < cursore.id);
+}
+
 function raggruppaConversazioniWhatsApp(
-  sedeId: number,
   messaggi: Comunicazione[],
   search?: string
-): ConversazioneWhatsApp[] {
+): GruppoWhatsApp[] {
   const gruppi = new Map<string, GruppoWhatsApp>();
   const query = search?.trim().toLowerCase();
 
@@ -918,6 +948,7 @@ function raggruppaConversazioniWhatsApp(
         controparte,
         messaggioRecente: messaggio,
         messaggioProfilo: messaggio.mittenteNome?.trim() ? messaggio : null,
+        messaggioCollegato: haCollegamentoWhatsApp(messaggio) ? messaggio : null,
         nonLetti:
           messaggio.direzione === "in" && messaggio.stato === "nuova" ? 1 : 0,
         totaleMessaggi: 1,
@@ -940,14 +971,31 @@ function raggruppaConversazioniWhatsApp(
     ) {
       gruppo.messaggioProfilo = messaggio;
     }
+    if (
+      haCollegamentoWhatsApp(messaggio) &&
+      (!gruppo.messaggioCollegato ||
+        confrontaMessaggiRecenti(messaggio, gruppo.messaggioCollegato) < 0)
+    ) {
+      gruppo.messaggioCollegato = messaggio;
+    }
     if (confrontaMessaggiRecenti(messaggio, gruppo.messaggioRecente) < 0) {
       gruppo.messaggioRecente = messaggio;
     }
   }
 
-  return Array.from(gruppi.values())
+  return Array.from(gruppi.values());
+}
+
+function conversazioniDaGruppi(
+  sedeId: number,
+  gruppi: GruppoWhatsApp[],
+  input: FiltroConversazioniWhatsApp
+): ConversazioneWhatsApp[] {
+  const query = input.search?.trim().toLowerCase();
+  return gruppi
     .map(gruppo => ({ gruppo, conversazione: toConversazioneWhatsApp(sedeId, gruppo) }))
     .filter(({ gruppo, conversazione }) => {
+      if (input.soloDaGestire && !gruppo.daGestire) return false;
       if (!query) return true;
       return (
         gruppo.matchSearch ||
@@ -961,15 +1009,127 @@ function raggruppaConversazioniWhatsApp(
     .map(({ conversazione }) => conversazione);
 }
 
+function rigaGruppoWhatsAppDaSql(r: any): GruppoWhatsApp {
+  const messaggioRecente = fromRow(r);
+  const messaggioProfilo = r.profilo_nome
+    ? { ...messaggioRecente, mittenteNome: r.profilo_nome }
+    : null;
+  const messaggioCollegato =
+    r.link_cliente_id != null || r.link_commessa_id != null
+      ? {
+          ...messaggioRecente,
+          clienteId: r.link_cliente_id,
+          commessaId: r.link_commessa_id,
+          matchConfidenza: r.link_match_confidenza,
+        }
+      : null;
+  return {
+    casellaId: Number(r.casella_id),
+    controparte: r.controparte,
+    messaggioRecente,
+    messaggioProfilo,
+    messaggioCollegato,
+    nonLetti: Number(r.non_letti),
+    totaleMessaggi: Number(r.totale_messaggi),
+    daGestire: !!r.da_gestire,
+    matchSearch: !!r.match_search,
+  };
+}
+
 type FiltroConversazioniWhatsApp = {
   sedeId: number;
   search?: string;
   soloDaGestire?: boolean;
 };
 
-async function caricaConversazioniWhatsApp(
-  input: FiltroConversazioniWhatsApp
-): Promise<ConversazioneWhatsApp[]> {
+async function getConversazioneWhatsApp(
+  sedeId: number,
+  casellaId: number,
+  controparte: string
+): Promise<ConversazioneWhatsApp | null> {
+  if (!kvSql) {
+    const messaggi = memRows.filter(
+      r =>
+        r.sedeId === sedeId &&
+        r.canale === "whatsapp" &&
+        r.casellaId === casellaId &&
+        !r.deletedAt &&
+        !categoriaEsclusa(r.categoria) &&
+        normalizzaControparteWhatsApp(r.mittente) === controparte
+    );
+    const gruppo = raggruppaConversazioniWhatsApp(messaggi).find(
+      item => item.controparte === controparte
+    );
+    return gruppo ? toConversazioneWhatsApp(sedeId, gruppo) : null;
+  }
+
+  await ensureComunicazioniSchema();
+  const sql = kvSql;
+  const rows = await sql`
+    WITH estratti AS (
+      SELECT *, regexp_replace(mittente, '[^0-9]', '', 'g') AS cifre
+      FROM comunicazioni
+      WHERE sede_id = ${sedeId}
+        AND canale = 'whatsapp'
+        AND casella_id = ${casellaId}
+        AND deleted_at IS NULL
+        AND COALESCE(categoria, 'da_classificare') NOT IN ('offerta_marketing', 'spam')
+    ), normalizzati AS (
+      SELECT *, CASE
+        WHEN cifre = '' THEN btrim(mittente)
+        WHEN char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) < 10 THEN btrim(mittente)
+        ELSE '+' || CASE
+          WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) NOT LIKE '39%'
+            OR char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) <= 10
+          THEN CASE
+            WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '3%'
+              OR (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '0%'
+            THEN '39' || (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+            ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+          END
+          ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+        END
+      END AS controparte
+      FROM estratti
+    ), target AS (
+      SELECT * FROM normalizzati WHERE controparte = ${controparte}
+    ), aggregato AS (
+      SELECT COUNT(*) AS totale_messaggi,
+        COUNT(*) FILTER (WHERE direzione = 'in' AND stato = 'nuova') AS non_letti,
+        BOOL_OR(stato <> 'gestita') AS da_gestire
+      FROM target
+    ), recente AS (
+      SELECT * FROM target ORDER BY received_at DESC, id DESC LIMIT 1
+    ), profilo AS (
+      SELECT mittente_nome FROM target
+      WHERE btrim(COALESCE(mittente_nome, '')) <> ''
+      ORDER BY received_at DESC, id DESC LIMIT 1
+    ), collegato AS (
+      SELECT cliente_id, commessa_id, match_confidenza FROM target
+      WHERE cliente_id IS NOT NULL OR commessa_id IS NOT NULL
+      ORDER BY received_at DESC, id DESC LIMIT 1
+    )
+    SELECT r.*, a.totale_messaggi, a.non_letti, a.da_gestire,
+      p.mittente_nome AS profilo_nome,
+      c.cliente_id AS link_cliente_id, c.commessa_id AS link_commessa_id,
+      c.match_confidenza AS link_match_confidenza
+    FROM recente r
+    CROSS JOIN aggregato a
+    LEFT JOIN profilo p ON TRUE
+    LEFT JOIN collegato c ON TRUE`;
+  if (!rows.length) return null;
+  return toConversazioneWhatsApp(sedeId, rigaGruppoWhatsAppDaSql(rows[0]));
+}
+
+export async function listConversazioniWhatsApp(input: {
+  sedeId: number;
+  search?: string;
+  soloDaGestire?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<ConversazioneWhatsApp[]> {
+  const limit = Math.max(0, Math.min(input.limit ?? 50, 200));
+  const offset = Math.max(0, input.offset ?? 0);
   if (!kvSql) {
     const messaggi = memRows.filter(
       r =>
@@ -978,30 +1138,40 @@ async function caricaConversazioniWhatsApp(
         !r.deletedAt &&
         !categoriaEsclusa(r.categoria)
     );
-    const conversazioni = raggruppaConversazioniWhatsApp(
+    return conversazioniDaGruppi(
       input.sedeId,
-      messaggi,
-      input.search
-    );
-    if (!input.soloDaGestire) return conversazioni;
-    return conversazioni.filter(conversazione => {
-      const chiave = `${conversazione.casellaId}:${conversazione.controparte}`;
-      return messaggi.some(
-        messaggio =>
-          `${messaggio.casellaId}:${normalizzaControparteWhatsApp(messaggio.mittente)}` ===
-            chiave && messaggio.stato !== "gestita"
-      );
-    });
+      raggruppaConversazioniWhatsApp(messaggi, input.search),
+      input
+    ).slice(offset, offset + limit);
   }
 
   await ensureComunicazioniSchema();
   const sql = kvSql;
   const query = input.search?.trim();
+  const clienteIds = query
+    ? getClientiStore()
+        .filter((c: any) => c.sedeId === input.sedeId)
+        .filter((c: any) =>
+          `${c.cognome ?? ""} ${c.nome ?? ""}`.trim().toLowerCase().includes(query.toLowerCase())
+        )
+        .map((c: any) => c.id)
+    : [];
   const searchMatch = query
     ? (() => {
-        const like = `%${query}%`;
-        return sql`(mittente ILIKE ${like} OR mittente_nome ILIKE ${like} OR oggetto ILIKE ${like} OR testo ILIKE ${like})`;
+        const like = `%${escapeRicercaWhatsApp(query)}%`;
+        return sql`(mittente ILIKE ${like} ESCAPE '\\' OR mittente_nome ILIKE ${like} ESCAPE '\\' OR oggetto ILIKE ${like} ESCAPE '\\' OR testo ILIKE ${like} ESCAPE '\\')`;
       })()
+    : sql`TRUE`;
+  const filtriFinali: any[] = [];
+  if (query) {
+    const clienteMatch = clienteIds.length
+      ? sql`c.cliente_id = ANY(${clienteIds}::integer[])`
+      : sql`FALSE`;
+    filtriFinali.push(sql`(a.match_search OR ${clienteMatch})`);
+  }
+  if (input.soloDaGestire) filtriFinali.push(sql`a.da_gestire`);
+  const whereFinale = filtriFinali.length
+    ? filtriFinali.reduce((a, b) => sql`${a} AND ${b}`)
     : sql`TRUE`;
   const rows = await sql`
     WITH estratti AS (
@@ -1029,78 +1199,58 @@ async function caricaConversazioniWhatsApp(
       END AS controparte
       FROM estratti
     ), aggregati AS (
-      SELECT *,
-        COUNT(*) OVER (PARTITION BY casella_id, controparte) AS totale_messaggi,
-        COUNT(*) FILTER (WHERE direzione = 'in' AND stato = 'nuova') OVER (PARTITION BY casella_id, controparte) AS non_letti,
-        BOOL_OR(stato <> 'gestita') OVER (PARTITION BY casella_id, controparte) AS da_gestire,
-        BOOL_OR(${searchMatch}) OVER (PARTITION BY casella_id, controparte) AS match_search,
-        ARRAY_AGG(mittente_nome) FILTER (WHERE btrim(COALESCE(mittente_nome, '')) <> '') OVER (
-          PARTITION BY casella_id, controparte
-          ORDER BY received_at DESC, id DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-        ) AS nomi_profilo,
-        ROW_NUMBER() OVER (
-          PARTITION BY casella_id, controparte
-          ORDER BY received_at DESC, id DESC
-        ) AS posizione
+      SELECT casella_id, controparte,
+        COUNT(*) AS totale_messaggi,
+        COUNT(*) FILTER (WHERE direzione = 'in' AND stato = 'nuova') AS non_letti,
+        BOOL_OR(stato <> 'gestita') AS da_gestire,
+        BOOL_OR(${searchMatch}) AS match_search
       FROM normalizzati
+      GROUP BY casella_id, controparte
+    ), recenti AS (
+      SELECT DISTINCT ON (casella_id, controparte) *
+      FROM normalizzati
+      ORDER BY casella_id, controparte, received_at DESC, id DESC
+    ), profili AS (
+      SELECT DISTINCT ON (casella_id, controparte)
+        casella_id, controparte, mittente_nome
+      FROM normalizzati
+      WHERE btrim(COALESCE(mittente_nome, '')) <> ''
+      ORDER BY casella_id, controparte, received_at DESC, id DESC
+    ), collegati AS (
+      SELECT DISTINCT ON (casella_id, controparte)
+        casella_id, controparte, cliente_id, commessa_id, match_confidenza
+      FROM normalizzati
+      WHERE cliente_id IS NOT NULL OR commessa_id IS NOT NULL
+      ORDER BY casella_id, controparte, received_at DESC, id DESC
     )
-    SELECT * FROM aggregati
-    WHERE posizione = 1
-    ORDER BY received_at DESC, id DESC`;
-
-  const gruppi: GruppoWhatsApp[] = rows.map(r => ({
-    casellaId: Number(r.casella_id),
-    controparte: r.controparte,
-    messaggioRecente: fromRow(r),
-    messaggioProfilo: r.nomi_profilo?.[0]
-      ? { ...fromRow(r), mittenteNome: r.nomi_profilo[0] }
-      : null,
-    nonLetti: Number(r.non_letti),
-    totaleMessaggi: Number(r.totale_messaggi),
-    daGestire: !!r.da_gestire,
-    matchSearch: !!r.match_search,
-  }));
-  const conversazioni = gruppi
-    .map(gruppo => ({ gruppo, conversazione: toConversazioneWhatsApp(input.sedeId, gruppo) }))
-    .filter(({ gruppo, conversazione }) => {
-      if (!query) return true;
-      const normalizzata = query.toLowerCase();
-      return (
-        gruppo.matchSearch ||
-        conversazione.controparte.toLowerCase().includes(normalizzata) ||
-        (conversazione.nomeProfilo ?? "").toLowerCase().includes(normalizzata)
-      );
-    })
-    .filter(({ gruppo }) => !input.soloDaGestire || gruppo.daGestire)
-    .map(({ conversazione }) => conversazione);
-  return conversazioni;
-}
-
-export async function listConversazioniWhatsApp(input: {
-  sedeId: number;
-  search?: string;
-  soloDaGestire?: boolean;
-  limit?: number;
-  offset?: number;
-}): Promise<ConversazioneWhatsApp[]> {
-  const limit = Math.max(0, Math.min(input.limit ?? 50, 200));
-  const offset = Math.max(0, input.offset ?? 0);
-  const conversazioni = await caricaConversazioniWhatsApp(input);
-  return conversazioni.slice(offset, offset + limit);
+    SELECT r.*, a.totale_messaggi, a.non_letti, a.da_gestire, a.match_search,
+      p.mittente_nome AS profilo_nome,
+      c.cliente_id AS link_cliente_id, c.commessa_id AS link_commessa_id,
+      c.match_confidenza AS link_match_confidenza
+    FROM aggregati a
+    JOIN recenti r USING (casella_id, controparte)
+    LEFT JOIN profili p USING (casella_id, controparte)
+    LEFT JOIN collegati c USING (casella_id, controparte)
+    WHERE ${whereFinale}
+    ORDER BY r.received_at DESC, r.id DESC
+    LIMIT ${limit} OFFSET ${offset}`;
+  const gruppi = rows.map(rigaGruppoWhatsAppDaSql);
+  return conversazioniDaGruppi(input.sedeId, gruppi, { sedeId: input.sedeId });
 }
 
 export async function getThreadWhatsApp(input: {
   sedeId: number;
   casellaId: number;
   controparte: string;
-  before?: Date;
+  before?: CursoreThreadWhatsApp;
   limit?: number;
 }): Promise<ThreadWhatsApp | null> {
   const controparte = normalizzaControparteWhatsApp(input.controparte);
   const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
-  const conversazione = (await caricaConversazioniWhatsApp({ sedeId: input.sedeId })).find(
-    item => item.casellaId === input.casellaId && item.controparte === controparte
+  const conversazione = await getConversazioneWhatsApp(
+    input.sedeId,
+    input.casellaId,
+    controparte
   );
   if (!conversazione) return null;
 
@@ -1114,7 +1264,7 @@ export async function getThreadWhatsApp(input: {
         !r.deletedAt &&
         !categoriaEsclusa(r.categoria) &&
         normalizzaControparteWhatsApp(r.mittente) === controparte &&
-        (!input.before || r.receivedAt < input.before)
+        (!input.before || precedenteAlCursore(r, input.before))
     );
   } else {
     await ensureComunicazioniSchema();
@@ -1126,7 +1276,11 @@ export async function getThreadWhatsApp(input: {
       sql`deleted_at IS NULL`,
       sql`COALESCE(categoria, 'da_classificare') NOT IN ('offerta_marketing', 'spam')`,
     ];
-    if (input.before) conds.push(sql`received_at < ${input.before}`);
+    if (input.before) {
+      conds.push(
+        sql`(received_at < ${input.before.receivedAt} OR (received_at = ${input.before.receivedAt} AND id < ${input.before.id}))`
+      );
+    }
     const where = conds.reduce((a, b) => sql`${a} AND ${b}`);
     const rows = await sql`
       WITH estratti AS (
@@ -1167,7 +1321,7 @@ export async function getThreadWhatsApp(input: {
     conversazione,
     messaggi: ordinati,
     hasMore,
-    nextBefore: ordinati[0]?.receivedAt ?? null,
+    nextBefore: ordinati[0] ? cursoreDaMessaggio(ordinati[0]) : null,
   };
 }
 

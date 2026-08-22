@@ -16,6 +16,7 @@ import {
 import { estraiCodiceCommessa, matchComunicazione } from "./match";
 import {
   deleteComunicazione,
+  escapeRicercaWhatsApp,
   getComunicazione,
   getThreadWhatsApp,
   insertComunicazione,
@@ -581,6 +582,7 @@ describe("read model comunicazioni per canale", () => {
 
 describe("conversazioni WhatsApp", () => {
   const clienteId = 919_001;
+  let conTimestampCondivisoId: number;
 
   beforeAll(() => {
     _resetComunicazioniInMemoria();
@@ -655,6 +657,30 @@ describe("conversazioni WhatsApp", () => {
         receivedAt: new Date("2026-08-22T10:02:00Z"),
       })
     );
+    const conTimestampCondiviso = await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-8-in-stesso-istante",
+        mittente: "+393331112222",
+        clienteId: null,
+        commessaId: null,
+        matchConfidenza: "nessuna",
+        testo: "Messaggio con timestamp condiviso",
+        receivedAt: new Date("2026-08-22T10:02:00Z"),
+      })
+    );
+    conTimestampCondivisoId = conTimestampCondiviso!.id;
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        messageId: "wa-8-in-nuovo-non-collegato",
+        mittente: "+393331112222",
+        mittenteNome: "Profilo WhatsApp recente",
+        clienteId: null,
+        commessaId: null,
+        matchConfidenza: "nessuna",
+        testo: "Nuovo messaggio non collegato",
+        receivedAt: new Date("2026-08-22T10:03:00Z"),
+      })
+    );
     await insertComunicazione(
       nuovoMessaggioWhatsApp({
         messageId: "wa-9-in-1",
@@ -717,10 +743,10 @@ describe("conversazioni WhatsApp", () => {
       casellaId: 8,
       controparte: "+393331112222",
       nomeProfilo: "Cliente CRM Lia",
-      ultimoMessaggio: "Ultimo messaggio",
+      ultimoMessaggio: "Nuovo messaggio non collegato",
       direzioneUltimoMessaggio: "in",
-      nonLetti: 2,
-      totaleMessaggi: 3,
+      nonLetti: 4,
+      totaleMessaggi: 5,
       clienteId,
       commessaId: 71,
       matchConfidenza: "alta",
@@ -745,7 +771,13 @@ describe("conversazioni WhatsApp", () => {
     expect(await listConversazioniWhatsApp({ sedeId: 2 })).toHaveLength(1);
   });
 
-  it("pagina il thread dalla data più vecchia restituita e mantiene l'ordine crescente", async () => {
+  it("escapa i caratteri wildcard della ricerca WhatsApp per ILIKE letterale", () => {
+    expect(escapeRicercaWhatsApp("100%_\\ pronto")).toBe(
+      "100\\%\\_\\\\ pronto"
+    );
+  });
+
+  it("pagina il thread con un cursore composto senza buchi sui timestamp uguali", async () => {
     const thread = await getThreadWhatsApp({
       sedeId: 1,
       casellaId: 8,
@@ -755,8 +787,8 @@ describe("conversazioni WhatsApp", () => {
 
     expect(thread).not.toBeNull();
     expect(thread!.messaggi.map(m => m.testo)).toEqual([
-      "Risposta ufficio",
-      "Ultimo messaggio",
+      "Messaggio con timestamp condiviso",
+      "Nuovo messaggio non collegato",
     ]);
     expect(thread!.messaggi.map(m => m.receivedAt.getTime())).toEqual(
       [...thread!.messaggi]
@@ -764,7 +796,10 @@ describe("conversazioni WhatsApp", () => {
         .sort((a, b) => a - b)
     );
     expect(thread!.hasMore).toBe(true);
-    expect(thread!.nextBefore).toEqual(new Date("2026-08-22T10:01:00Z"));
+    expect(thread!.nextBefore).toEqual({
+      receivedAt: new Date("2026-08-22T10:02:00Z"),
+      id: conTimestampCondivisoId,
+    });
 
     const paginaPrecedente = await getThreadWhatsApp({
       sedeId: 1,
@@ -774,12 +809,35 @@ describe("conversazioni WhatsApp", () => {
       limit: 2,
     });
     expect(paginaPrecedente!.messaggi.map(m => m.testo)).toEqual([
+      "Risposta ufficio",
+      "Ultimo messaggio",
+    ]);
+    expect(paginaPrecedente!.hasMore).toBe(true);
+    expect(paginaPrecedente!.nextBefore).toMatchObject({
+      receivedAt: new Date("2026-08-22T10:01:00Z"),
+    });
+    const paginaPiuVecchia = await getThreadWhatsApp({
+      sedeId: 1,
+      casellaId: 8,
+      controparte: "+393331112222",
+      before: paginaPrecedente!.nextBefore!,
+      limit: 2,
+    });
+    expect(paginaPiuVecchia!.messaggi.map(m => m.testo)).toEqual([
       "Primo messaggio",
     ]);
-    expect(paginaPrecedente!.hasMore).toBe(false);
-    expect(paginaPrecedente!.nextBefore).toEqual(
-      new Date("2026-08-22T10:00:00Z")
-    );
+    expect(paginaPiuVecchia!.hasMore).toBe(false);
+    expect([
+      ...paginaPiuVecchia!.messaggi,
+      ...paginaPrecedente!.messaggi,
+      ...thread!.messaggi,
+    ].map(m => m.testo)).toEqual([
+      "Primo messaggio",
+      "Risposta ufficio",
+      "Ultimo messaggio",
+      "Messaggio con timestamp condiviso",
+      "Nuovo messaggio non collegato",
+    ]);
     expect(
       (await getThreadWhatsApp({
         sedeId: 2,
