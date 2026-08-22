@@ -108,6 +108,13 @@ export function initialThreadScrollTop(scrollHeight: number): number {
   return scrollHeight;
 }
 
+export function communicationIdsForConversation(
+  selectedKey: string,
+  loaded: { key: string; ids: number[] }
+): number[] {
+  return loaded.key === selectedKey ? loaded.ids : [];
+}
+
 export function emailBulkExclusionCopy(
   category: "spam" | "offerta_marketing",
   count: number

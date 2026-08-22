@@ -421,7 +421,7 @@ ${input.testo.trim()}`;
               ])
               .optional(),
             commessaId: z.number().optional(),
-            comunicazioneIds: z.array(z.number().int().positive()).max(200).optional(),
+            comunicazioneIds: z.array(z.number().int().positive()).optional(),
           })
           .optional()
       )

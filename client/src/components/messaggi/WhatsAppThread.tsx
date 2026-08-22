@@ -50,7 +50,7 @@ export default function WhatsAppThread({
   mobile: boolean;
   onBack: () => void;
   onOpenContext: () => void;
-  onMessageIdsChange: (ids: number[]) => void;
+  onMessageIdsChange: (conversationKey: string, ids: number[]) => void;
 }) {
   const utils = trpc.useUtils();
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -118,7 +118,10 @@ export default function WhatsAppThread({
   const messageIdsKey = messages.map(message => message.id).join(",");
 
   useEffect(() => {
-    onMessageIdsChange(messages.map(message => message.id));
+    onMessageIdsChange(
+      conversation.key,
+      messages.map(message => message.id)
+    );
   }, [conversation.key, messageIdsKey, onMessageIdsChange]);
 
   useLayoutEffect(() => {

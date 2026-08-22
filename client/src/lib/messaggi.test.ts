@@ -10,6 +10,7 @@ import {
   restoredScrollTop,
   initialThreadScrollTop,
   emailBulkExclusionCopy,
+  communicationIdsForConversation,
   sourceHref,
   whatsappConversationHref,
 } from "./messaggi";
@@ -90,6 +91,23 @@ describe("WhatsApp thread scroll", () => {
   it("keeps the previous content anchored after older messages are prepended", () => {
     expect(restoredScrollTop(120, 1_000, 1_260)).toBe(380);
     expect(restoredScrollTop(120, 1_000, 980)).toBe(120);
+  });
+});
+
+describe("WhatsApp thread context", () => {
+  it("does not expose retained message IDs after switching conversation", () => {
+    expect(
+      communicationIdsForConversation("wa:2:+393332222222", {
+        key: "wa:1:+393331111111",
+        ids: [11, 12],
+      })
+    ).toEqual([]);
+    expect(
+      communicationIdsForConversation("wa:1:+393331111111", {
+        key: "wa:1:+393331111111",
+        ids: [11, 12],
+      })
+    ).toEqual([11, 12]);
   });
 });
 

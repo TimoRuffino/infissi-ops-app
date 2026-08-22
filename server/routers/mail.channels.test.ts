@@ -383,7 +383,10 @@ describe("mail channel APIs", () => {
         .tars.proposte.list({
           stato: "pendente",
           commessaId: 953_001,
-          comunicazioneIds: [messaggio!.id],
+          comunicazioneIds: [
+            messaggio!.id,
+            ...Array.from({ length: 249 }, (_, index) => 980_000 + index),
+          ],
         });
       expect(rows.map(row => row.id)).toEqual([collegata.id]);
     } finally {

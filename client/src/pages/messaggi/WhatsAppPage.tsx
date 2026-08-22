@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  communicationIdsForConversation,
   parseConversationKey,
   parseWhatsAppConversationSelection,
   whatsappConversationHref,
@@ -62,17 +63,14 @@ export default function WhatsAppPage() {
     { enabled: selected == null && selectedKeyParts != null, retry: false }
   );
   const selectedConversation = selected ?? selectedThread.data?.conversazione ?? null;
-  const communicationIds =
-    selectedConversation && loadedThread.key === selectedConversation.key
-      ? loadedThread.ids
-      : [];
+  const communicationIds = selectedConversation
+    ? communicationIdsForConversation(selectedConversation.key, loadedThread)
+    : [];
   const handleMessageIdsChange = useCallback(
-    (ids: number[]) => {
-      if (selectedConversation) {
-        setLoadedThread({ key: selectedConversation.key, ids });
-      }
+    (conversationKey: string, ids: number[]) => {
+      setLoadedThread({ key: conversationKey, ids });
     },
-    [selectedConversation?.key]
+    []
   );
   const markViewed = trpc.mail.whatsapp.segnaVista.useMutation({
     onSuccess: async () => {
