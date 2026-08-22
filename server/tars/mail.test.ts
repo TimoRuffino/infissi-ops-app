@@ -23,6 +23,7 @@ import {
   setClassificazioneComunicazione,
   setMatchComunicazione,
   setStatoComunicazione,
+  segnaTutteViste,
   statsComunicazioni,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
@@ -507,6 +508,58 @@ describe("segnaTutteViste", () => {
     );
     // Idempotente.
     expect(await segnaTutteViste(1)).toBe(0);
+  });
+});
+
+describe("read model comunicazioni per canale", () => {
+  beforeAll(() => _resetComunicazioniInMemoria());
+
+  it("filtra statistiche e bulk view sul canale richiesto", async () => {
+    const email = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "<canale-email@example.com>",
+      canale: "email",
+      direzione: "in",
+      mittente: "email@example.com",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "Email",
+      testo: "Email",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date("2026-08-20T10:00:00Z"),
+    });
+    const whatsapp = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 8,
+      messageId: "wa-canale-1",
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "+393331112222",
+      mittenteNome: null,
+      destinatari: [],
+      oggetto: "WhatsApp",
+      testo: "WhatsApp",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date("2026-08-20T11:00:00Z"),
+    });
+
+    expect(email).not.toBeNull();
+    expect(whatsapp).not.toBeNull();
+    expect((await statsComunicazioni(1, "email")).whatsapp).toBe(0);
+    expect((await statsComunicazioni(1, "whatsapp")).email).toBe(0);
+    expect(await segnaTutteViste(1, "email")).toBe(1);
+    expect((await getComunicazione(whatsapp!.id, 1))?.stato).toBe("nuova");
   });
 });
 

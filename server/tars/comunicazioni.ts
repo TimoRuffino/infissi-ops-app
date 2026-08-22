@@ -650,12 +650,16 @@ export async function sediConCodaTars(): Promise<number[]> {
 }
 
 /** Tutte le "nuova" di una sede → "vista". Il bottone del lunedì mattina. */
-export async function segnaTutteViste(sedeId: number): Promise<number> {
+export async function segnaTutteViste(
+  sedeId: number,
+  canale?: Comunicazione["canale"]
+): Promise<number> {
   if (!kvSql) {
     let n = 0;
     for (const r of memRows) {
       if (
         r.sedeId === sedeId &&
+        (!canale || r.canale === canale) &&
         !r.deletedAt &&
         r.stato === "nuova" &&
         !categoriaEsclusa(r.categoria)
@@ -670,6 +674,7 @@ export async function segnaTutteViste(sedeId: number): Promise<number> {
   const rows = await kvSql`
     UPDATE comunicazioni SET stato = 'vista'
     WHERE sede_id = ${sedeId}
+      AND (${canale ?? null} IS NULL OR canale = ${canale ?? null})
       AND deleted_at IS NULL
       AND stato = 'nuova'
       AND categoria NOT IN ('offerta_marketing', 'spam')
@@ -822,7 +827,10 @@ export async function getComunicazione(
   return rows.length ? fromRow(rows[0]) : null;
 }
 
-export async function statsComunicazioni(sedeId: number): Promise<{
+export async function statsComunicazioni(
+  sedeId: number,
+  canale?: Comunicazione["canale"]
+): Promise<{
   nuove: number;
   totali: number;
   nonCollegate: number;
@@ -834,7 +842,12 @@ export async function statsComunicazioni(sedeId: number): Promise<{
   nuoviLead: number;
 }> {
   if (!kvSql) {
-    const mie = memRows.filter(r => r.sedeId === sedeId && !r.deletedAt);
+    const mie = memRows.filter(
+      r =>
+        r.sedeId === sedeId &&
+        (!canale || r.canale === canale) &&
+        !r.deletedAt
+    );
     const operative = mie.filter(r => !categoriaEsclusa(r.categoria));
     return {
       nuove: operative.filter(r => r.stato === "nuova").length,
@@ -861,7 +874,10 @@ export async function statsComunicazioni(sedeId: number): Promise<{
       COUNT(*) FILTER (WHERE categoria IN ('offerta_marketing', 'spam')) AS escluse,
       COUNT(*) FILTER (WHERE categoria = 'da_classificare') AS da_classificare,
       COUNT(*) FILTER (WHERE categoria = 'nuovo_lead') AS nuovi_lead
-    FROM comunicazioni WHERE sede_id = ${sedeId} AND deleted_at IS NULL`;
+    FROM comunicazioni
+    WHERE sede_id = ${sedeId}
+      AND (${canale ?? null} IS NULL OR canale = ${canale ?? null})
+      AND deleted_at IS NULL`;
   const r = rows[0] ?? {};
   return {
     nuove: Number(r.nuove ?? 0),
