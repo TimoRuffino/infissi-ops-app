@@ -7,6 +7,9 @@ export type EmailMessage = RouterOutputs["mail"]["email"]["list"][number];
 export type EmailDetail = RouterOutputs["mail"]["email"]["byId"];
 export type EmailAttachment = EmailDetail["allegati"][number];
 export type TarsProposal = RouterOutputs["tars"]["proposte"]["list"][number];
+export type WhatsAppConversation =
+  RouterOutputs["mail"]["whatsapp"]["conversazioni"][number];
+export type WhatsAppThread = RouterOutputs["mail"]["whatsapp"]["thread"];
 
 export const EMAIL_VIEWS = [
   "da_gestire",
@@ -36,6 +39,26 @@ export function parseEmailMessageId(search: string): number | null {
 export function emailMessageHref(id: number): string {
   const params = new URLSearchParams({ messaggio: String(id) });
   return `/messaggi/email?${params.toString()}`;
+}
+
+export type WhatsAppConversationKey = {
+  casellaId: number;
+  controparte: string;
+};
+
+export function parseConversationKey(
+  value: string | null | undefined
+): WhatsAppConversationKey | null {
+  const match = /^wa:(\d+):(.+)$/.exec(value ?? "");
+  if (!match || !/^\+?[\d\s().-]+$/.test(match[2])) return null;
+  const casellaId = Number(match[1]);
+  if (!Number.isSafeInteger(casellaId) || casellaId <= 0) return null;
+  return { casellaId, controparte: match[2] };
+}
+
+export function whatsappConversationHref(key: string): string {
+  const params = new URLSearchParams({ conversazione: key });
+  return `/messaggi/whatsapp?${params.toString()}`;
 }
 
 export function sourceHref(source: { tipo: "email"; id: number }): string {

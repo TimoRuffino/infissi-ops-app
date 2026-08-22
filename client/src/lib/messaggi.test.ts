@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   emailMessageHref,
+  parseConversationKey,
   parseEmailMessageId,
   parseEmailView,
   sourceHref,
+  whatsappConversationHref,
 } from "./messaggi";
 
 describe("parseEmailView", () => {
@@ -29,5 +31,18 @@ describe("Email message navigation", () => {
     expect(parseEmailMessageId("?messaggio=-1")).toBeNull();
     expect(parseEmailMessageId("?messaggio=4.2")).toBeNull();
     expect(parseEmailMessageId("?messaggio=testo")).toBeNull();
+  });
+});
+
+describe("WhatsApp conversation navigation", () => {
+  it("builds and parses the canonical conversation deep link", () => {
+    expect(whatsappConversationHref("wa:8:+393331112222")).toBe(
+      "/messaggi/whatsapp?conversazione=wa%3A8%3A%2B393331112222"
+    );
+    expect(parseConversationKey("wa:8:+393331112222")).toEqual({
+      casellaId: 8,
+      controparte: "+393331112222",
+    });
+    expect(parseConversationKey("email:8:x")).toBeNull();
   });
 });

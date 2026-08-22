@@ -25,6 +25,7 @@ import {
   listDaAnalizzare,
   markAnalizzate,
   normalizzaControparteWhatsApp,
+  rinominaConversazioneWhatsApp,
   setClassificazioneComunicazione,
   setMatchComunicazione,
   setStatoComunicazione,
@@ -992,6 +993,64 @@ describe("conversazioni WhatsApp", () => {
     expect(escapeRicercaWhatsApp("100%_\\ pronto")).toBe(
       "100\\%\\_\\\\ pronto"
     );
+  });
+
+  it("risolve e cerca l'alias operatore senza oltrepassare cliente CRM o account", async () => {
+    await rinominaConversazioneWhatsApp({
+      sedeId: 1,
+      casellaId: 8,
+      controparte: "333 111 2222",
+      nome: "Casa Bianchi",
+    });
+
+    const perAlias = await listConversazioniWhatsApp({
+      sedeId: 1,
+      search: "Casa Bianchi",
+    });
+    expect(perAlias).toEqual([
+      expect.objectContaining({
+        casellaId: 8,
+        nomeProfilo: "Cliente CRM Lia",
+        aliasOperatore: "Casa Bianchi",
+      }),
+    ]);
+    expect(
+      (
+        await listConversazioniWhatsApp({
+          sedeId: 1,
+          search: "Casa Bianchi",
+          soloDaGestire: true,
+        })
+      ).map(conversazione => conversazione.casellaId)
+    ).toEqual([8]);
+
+    await rinominaConversazioneWhatsApp({
+      sedeId: 1,
+      casellaId: 9,
+      controparte: "+393331112222",
+      nome: "Seconda linea",
+    });
+    const perAccount = await listConversazioniWhatsApp({ sedeId: 1 });
+    expect(perAccount.find(conversazione => conversazione.casellaId === 8)).toMatchObject({
+      aliasOperatore: "Casa Bianchi",
+      nomeProfilo: "Cliente CRM Lia",
+    });
+    expect(perAccount.find(conversazione => conversazione.casellaId === 9)).toMatchObject({
+      aliasOperatore: "Seconda linea",
+      nomeProfilo: "Seconda linea",
+    });
+
+    await rinominaConversazioneWhatsApp({
+      sedeId: 1,
+      casellaId: 9,
+      controparte: "+393331112222",
+      nome: "   ",
+    });
+    expect(
+      (await listConversazioniWhatsApp({ sedeId: 1 })).find(
+        conversazione => conversazione.casellaId === 9
+      )
+    ).toMatchObject({ aliasOperatore: null, nomeProfilo: "Profilo alternativo" });
   });
 
   it("pagina il thread con un cursore composto senza buchi sui timestamp uguali", async () => {

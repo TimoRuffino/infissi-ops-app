@@ -13,7 +13,7 @@
 // Senza DATABASE_URL (sviluppo locale) si degrada a un array in memoria con
 // la stessa API — il dev server resta usabile senza Postgres.
 
-import { kvSql } from "../_core/persistence";
+import { kvSql, persistedStore } from "../_core/persistence";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
 import { normalizzaTelefono } from "@shared/telefono";
@@ -94,6 +94,7 @@ export type ConversazioneWhatsApp = {
   casellaId: number;
   controparte: string;
   nomeProfilo: string | null;
+  aliasOperatore: string | null;
   ultimoMessaggio: string;
   ultimoMessaggioAt: Date;
   direzioneUltimoMessaggio: Comunicazione["direzione"];
@@ -157,6 +158,67 @@ export function normalizzaControparteWhatsApp(numero: string): string {
 /** Rende letterali i wildcard di PostgreSQL prima di usarli in ILIKE. */
 export function escapeRicercaWhatsApp(ricerca: string): string {
   return ricerca.replace(/[\\%_]/g, "\\$&");
+}
+
+type AliasConversazioneWhatsApp = {
+  sedeId: number;
+  casellaId: number;
+  controparte: string;
+  nome: string;
+};
+
+const _aliasConversazioniWhatsApp = persistedStore<AliasConversazioneWhatsApp>(
+  "whatsapp_conversation_aliases",
+  aliases => {
+    const chiavi = new Set<string>();
+    for (let index = aliases.length - 1; index >= 0; index -= 1) {
+      const alias = aliases[index] as Partial<AliasConversazioneWhatsApp>;
+      const controparte =
+        typeof alias.controparte === "string"
+          ? normalizzaControparteWhatsApp(alias.controparte)
+          : "";
+      const nome = typeof alias.nome === "string" ? alias.nome.trim() : "";
+      if (
+        !Number.isInteger(alias.sedeId) ||
+        !Number.isInteger(alias.casellaId) ||
+        alias.sedeId! <= 0 ||
+        alias.casellaId! <= 0 ||
+        !controparte ||
+        !nome
+      ) {
+        aliases.splice(index, 1);
+        continue;
+      }
+      const chiave = `${alias.sedeId}:${alias.casellaId}:${controparte}`;
+      if (chiavi.has(chiave)) {
+        aliases.splice(index, 1);
+        continue;
+      }
+      chiavi.add(chiave);
+      aliases[index] = {
+        sedeId: alias.sedeId!,
+        casellaId: alias.casellaId!,
+        controparte,
+        nome,
+      };
+    }
+  }
+);
+const aliasConversazioniWhatsApp = _aliasConversazioniWhatsApp.items;
+
+function aliasConversazioneWhatsApp(
+  sedeId: number,
+  casellaId: number,
+  controparte: string
+): string | null {
+  return (
+    aliasConversazioniWhatsApp.find(
+      alias =>
+        alias.sedeId === sedeId &&
+        alias.casellaId === casellaId &&
+        alias.controparte === controparte
+    )?.nome ?? null
+  );
 }
 
 // ── Fallback in memoria (nessun DATABASE_URL) ───────────────────────────────
@@ -972,8 +1034,14 @@ function toConversazioneWhatsApp(
 ): ConversazioneWhatsApp {
   const messaggio = gruppo.messaggioRecente;
   const collegamento = gruppo.messaggioCollegato ?? messaggio;
+  const aliasOperatore = aliasConversazioneWhatsApp(
+    sedeId,
+    gruppo.casellaId,
+    gruppo.controparte
+  );
   const nomeProfilo =
     nomeClienteConversazione(sedeId, collegamento.clienteId) ??
+    aliasOperatore ??
     gruppo.messaggioProfilo?.mittenteNome?.trim() ??
     gruppo.controparte;
   return {
@@ -981,6 +1049,7 @@ function toConversazioneWhatsApp(
     casellaId: gruppo.casellaId,
     controparte: gruppo.controparte,
     nomeProfilo,
+    aliasOperatore,
     ultimoMessaggio: messaggio.testo || messaggio.oggetto,
     ultimoMessaggioAt: messaggio.receivedAt,
     direzioneUltimoMessaggio: messaggio.direzione,
@@ -1100,7 +1169,8 @@ function conversazioniDaGruppi(
       return (
         gruppo.matchSearch ||
         conversazione.controparte.toLowerCase().includes(query) ||
-        (conversazione.nomeProfilo ?? "").toLowerCase().includes(query)
+        (conversazione.nomeProfilo ?? "").toLowerCase().includes(query) ||
+        (conversazione.aliasOperatore ?? "").toLowerCase().includes(query)
       );
     })
     .sort((a, b) =>
@@ -1262,6 +1332,16 @@ export async function listConversazioniWhatsApp(input: {
         )
         .map((c: any) => c.id)
     : [];
+  const aliasMatch = query
+    ? aliasConversazioniWhatsApp
+        .filter(alias => alias.sedeId === input.sedeId)
+        .filter(alias => alias.nome.toLowerCase().includes(query.toLowerCase()))
+        .map(
+          alias =>
+            sql`(a.casella_id = ${alias.casellaId} AND a.controparte = ${alias.controparte})`
+        )
+        .reduce((left, right) => sql`${left} OR ${right}`, sql`FALSE`)
+    : sql`FALSE`;
   const searchMatch = query
     ? (() => {
         const like = `%${escapeRicercaWhatsApp(query)}%`;
@@ -1273,7 +1353,7 @@ export async function listConversazioniWhatsApp(input: {
     const clienteMatch = clienteIds.length
       ? sql`c.cliente_id = ANY(${clienteIds}::integer[])`
       : sql`FALSE`;
-    filtriFinali.push(sql`(a.match_search OR ${clienteMatch})`);
+    filtriFinali.push(sql`(a.match_search OR ${clienteMatch} OR ${aliasMatch})`);
   }
   if (input.soloDaGestire) filtriFinali.push(sql`a.da_gestire`);
   const whereFinale = filtriFinali.length
@@ -1429,6 +1509,44 @@ export async function getThreadWhatsApp(input: {
   };
 }
 
+export async function rinominaConversazioneWhatsApp(input: {
+  sedeId: number;
+  casellaId: number;
+  controparte: string;
+  nome: string;
+}): Promise<ConversazioneWhatsApp | null> {
+  const controparte = normalizzaControparteWhatsApp(input.controparte);
+  const conversazione = await getConversazioneWhatsApp(
+    input.sedeId,
+    input.casellaId,
+    controparte
+  );
+  if (!conversazione) return null;
+
+  const nome = input.nome.trim();
+  const indice = aliasConversazioniWhatsApp.findIndex(
+    alias =>
+      alias.sedeId === input.sedeId &&
+      alias.casellaId === input.casellaId &&
+      alias.controparte === controparte
+  );
+  if (nome) {
+    const alias = {
+      sedeId: input.sedeId,
+      casellaId: input.casellaId,
+      controparte,
+      nome,
+    };
+    if (indice >= 0) aliasConversazioniWhatsApp[indice] = alias;
+    else aliasConversazioniWhatsApp.push(alias);
+  } else if (indice >= 0) {
+    aliasConversazioniWhatsApp.splice(indice, 1);
+  }
+  _aliasConversazioniWhatsApp.save();
+
+  return getConversazioneWhatsApp(input.sedeId, input.casellaId, controparte);
+}
+
 export async function getComunicazione(
   id: number,
   sedeId: number
@@ -1521,4 +1639,5 @@ export async function statsComunicazioni(
 export function _resetComunicazioniInMemoria() {
   memRows = [];
   memNextId = 1;
+  aliasConversazioniWhatsApp.length = 0;
 }

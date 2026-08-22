@@ -324,6 +324,10 @@ git commit -m "feat: crea inbox operativa Email"
 - Create: `client/src/components/messaggi/WhatsAppContextPanel.tsx`
 - Modify: `client/src/lib/messaggi.ts`
 - Modify: `client/src/lib/messaggi.test.ts`
+- Modify: `server/tars/comunicazioni.ts`
+- Modify: `server/routers/mail.ts`
+- Modify: `server/tars/mail.test.ts`
+- Modify: `server/routers/mail.channels.test.ts`
 
 - [ ] **Step 1: Aggiungere test fallenti per deep link WhatsApp**
 
@@ -346,7 +350,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Implementare elenco conversazioni**
 
-Usare `trpc.mail.whatsapp.conversazioni` con ricerca debounced e paginazione. Mostrare nome CRM/profilo/numero, anteprima, ora, non letti e collegamento. Non mescolare badge di classificazione email.
+Usare `trpc.mail.whatsapp.conversazioni` con ricerca debounced e paginazione. Raggruppare sempre per account WhatsApp e numero normalizzato: una riga rappresenta una chat, non un singolo messaggio. Mostrare nome CRM/nome personalizzato/profilo/numero, anteprima, ora, non letti e collegamento. Se non esiste un cliente collegato, permettere di rinominare la chat e persistere il nome per sede, account e numero tramite una mutation dedicata. Non mescolare badge di classificazione email.
 
 - [ ] **Step 4: Implementare thread e caricamento progressivo**
 

@@ -46,6 +46,7 @@ import {
   getThreadWhatsApp,
   listComunicazioni,
   listConversazioniWhatsApp,
+  rinominaConversazioneWhatsApp,
   segnaTutteViste,
   setClassificazioneComunicazione,
   setMatchComunicazione,
@@ -118,6 +119,12 @@ const whatsappThreadInput = z.object({
     })
     .optional(),
   limit: z.number().int().min(1).max(200).optional(),
+});
+
+const whatsappRenameInput = z.object({
+  casellaId: z.number(),
+  controparte: z.string().min(1).max(100),
+  nome: z.string().max(100),
 });
 
 export const mailRouter = router({
@@ -319,6 +326,40 @@ export const mailRouter = router({
       .input(whatsappThreadInput)
       .query(async ({ input, ctx }) => {
         const result = await getThreadWhatsApp({
+          ...input,
+          sedeId: ctx.sedeId ?? 1,
+        });
+        if (!result) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conversazione non trovata.",
+          });
+        }
+        return result;
+      }),
+
+    rinominaConversazione: protectedProcedure
+      .input(whatsappRenameInput)
+      .mutation(async ({ input, ctx }) => {
+        const thread = await getThreadWhatsApp({
+          casellaId: input.casellaId,
+          controparte: input.controparte,
+          sedeId: ctx.sedeId ?? 1,
+          limit: 1,
+        });
+        if (!thread) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conversazione non trovata.",
+          });
+        }
+        if (thread.conversazione.clienteId != null) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "La conversazione è collegata a un cliente CRM.",
+          });
+        }
+        const result = await rinominaConversazioneWhatsApp({
           ...input,
           sedeId: ctx.sedeId ?? 1,
         });

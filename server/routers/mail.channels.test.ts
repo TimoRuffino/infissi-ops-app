@@ -224,6 +224,66 @@ describe("mail channel APIs", () => {
     });
   });
 
+  it("rinomina una conversazione WhatsApp solo nello scope sede e account", async () => {
+    await insertComunicazione(nuovoMessaggioWhatsApp());
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        casellaId: 9,
+        messageId: "wa-canali-account-9",
+      })
+    );
+    await insertComunicazione(
+      nuovoMessaggioWhatsApp({
+        sedeId: 2,
+        messageId: "wa-canali-sede-2",
+      })
+    );
+    const caller = appRouter.createCaller(createContext(1));
+
+    await expect(
+      caller.mail.whatsapp.rinominaConversazione({
+        casellaId: 8,
+        controparte: "333 111 2222",
+        nome: "Famiglia Bianchi",
+      })
+    ).resolves.toMatchObject({
+      casellaId: 8,
+      aliasOperatore: "Famiglia Bianchi",
+      nomeProfilo: "Famiglia Bianchi",
+    });
+
+    const conversazioni = await caller.mail.whatsapp.conversazioni({ limit: 20 });
+    expect(conversazioni.find(conversazione => conversazione.casellaId === 9)).toMatchObject({
+      aliasOperatore: null,
+      nomeProfilo: "Cliente WhatsApp",
+    });
+
+    await expect(
+      caller.mail.whatsapp.rinominaConversazione({
+        casellaId: 404,
+        controparte: "+393331112222",
+        nome: "Da nascondere",
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      appRouter
+        .createCaller(createContext(2))
+        .mail.whatsapp.rinominaConversazione({
+          casellaId: 9,
+          controparte: "+393331112222",
+          nome: "Da nascondere",
+        })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await expect(
+      caller.mail.whatsapp.rinominaConversazione({
+        casellaId: 8,
+        controparte: "+393331112222",
+        nome: "",
+      })
+    ).resolves.toMatchObject({ aliasOperatore: null });
+  });
+
   it("collega una comunicazione a un cliente della sede senza inventare una commessa", async () => {
     const clienteId = 951_101;
     const clienti = getClientiStore();

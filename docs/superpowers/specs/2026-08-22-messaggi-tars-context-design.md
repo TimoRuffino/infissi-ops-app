@@ -115,12 +115,19 @@ sedi o numeri aziendali diversi.
 Il nome visualizzato segue questa priorità:
 
 1. cliente CRM collegato;
-2. profilo WhatsApp ricevuto da Meta;
-3. numero normalizzato.
+2. nome conversazione scelto dall'operatore;
+3. profilo WhatsApp ricevuto da Meta;
+4. numero normalizzato.
+
+Quando il numero non e collegato a un cliente, l'operatore puo assegnare o
+modificare un nome alla conversazione. Il nome e persistito per sede, account
+WhatsApp e numero normalizzato; non deve esistere solo nello stato locale del
+browser.
 
 ### 5.2 Struttura
 
 - elenco conversazioni ordinato per ultimo messaggio;
+- una sola riga per numero e account WhatsApp, mai una riga per messaggio;
 - badge nuovi messaggi e indicatori di collegamento;
 - ricerca per contatto, numero, cliente e commessa;
 - thread cronologico con distinzione entrata/uscita e allegati;
