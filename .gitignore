@@ -125,3 +125,4 @@ data/
 
 # Local visual brainstorming sessions
 .superpowers/
+.worktrees/
