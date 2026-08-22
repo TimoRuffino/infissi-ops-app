@@ -204,7 +204,7 @@ describe("mail channel APIs", () => {
     }
   });
 
-  it("archivia una sola volta un allegato storage-backed nella commessa collegata", async () => {
+  it("serializza retry concorrenti dello stesso allegato in un solo documento", async () => {
     const commessaId = 952_001;
     const commesse = getCommesseStore();
     commesse.push({
@@ -260,8 +260,10 @@ describe("mail channel APIs", () => {
 
     try {
       const input = { id: email!.id, allegatoIndex: 0, commessaId };
-      const prima = await caller.mail.email.archiviaAllegato(input);
-      const seconda = await caller.mail.email.archiviaAllegato(input);
+      const [prima, seconda] = await Promise.all([
+        caller.mail.email.archiviaAllegato(input),
+        caller.mail.email.archiviaAllegato(input),
+      ]);
 
       expect(seconda.id).toBe(prima.id);
       expect(await caller.preventiviContratti.byCommessa(commessaId)).toEqual([

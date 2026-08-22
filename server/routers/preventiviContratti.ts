@@ -210,6 +210,32 @@ function comunicazioneSourceRef(
   return `${sedeId}:${comunicazioneId}:${allegatoIndex}`;
 }
 
+const archivioComunicazioneCode = new Map<string, Promise<void>>();
+
+async function serializzaArchivioComunicazione<T>(
+  sourceRef: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const precedente =
+    archivioComunicazioneCode.get(sourceRef) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const corrente = precedente.catch(() => undefined).then(() => gate);
+  archivioComunicazioneCode.set(sourceRef, corrente);
+
+  await precedente.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (archivioComunicazioneCode.get(sourceRef) === corrente) {
+      archivioComunicazioneCode.delete(sourceRef);
+    }
+  }
+}
+
 /** Archivia un allegato email approvato dall'operatore senza duplicare i retry. */
 export async function archiviaAllegatoComunicazione(args: {
   sedeId: number;
@@ -235,66 +261,69 @@ export async function archiviaAllegatoComunicazione(args: {
     args.comunicazioneId,
     args.allegatoIndex
   );
-  const existing = documenti.find(
-    documento =>
-      documento.source === "comunicazione" && documento.sourceRef === sourceRef
-  );
-  if (existing?.commessaId === args.commessaId) return existing;
+  return serializzaArchivioComunicazione(sourceRef, async () => {
+    const existing = documenti.find(
+      documento =>
+        documento.source === "comunicazione" &&
+        documento.sourceRef === sourceRef
+    );
+    if (existing?.commessaId === args.commessaId) return existing;
 
-  const id = existing?.id ?? nextId++;
-  const nome = dedupeName(args.nome, args.commessaId, existing?.id);
-  const oldStorageKey = existing?.storageKey;
-  const documento: Documento = existing ?? {
-    id,
-    commessaId: args.commessaId,
-    nome,
-    tipo: "altro",
-    mimeType: args.mimeType,
-    size: args.buffer.length,
-    note: null,
-    statoAtUpload: commessa.stato ?? null,
-    createdBy: args.createdBy,
-    createdAt: new Date(),
-  };
-
-  documento.commessaId = args.commessaId;
-  documento.nome = nome;
-  documento.tipo = "altro";
-  documento.mimeType = args.mimeType;
-  documento.size = args.buffer.length;
-  documento.note = "Archiviato manualmente da un allegato email.";
-  documento.statoAtUpload = commessa.stato ?? null;
-  documento.source = "comunicazione";
-  documento.sourceRef = sourceRef;
-
-  try {
-    const stored = await putFile(
-      "preventivi_documenti",
-      args.commessaId,
-      documento.id,
+    const id = existing?.id ?? nextId++;
+    const nome = dedupeName(args.nome, args.commessaId, existing?.id);
+    const oldStorageKey = existing?.storageKey;
+    const documento: Documento = existing ?? {
+      id,
+      commessaId: args.commessaId,
       nome,
-      args.buffer,
-      args.mimeType
-    );
-    documento.storageKey = stored.storageKey;
-    documento.checksum = stored.checksum;
-    delete documento.dataBase64;
-  } catch (error) {
-    console.warn(
-      "[preventiviContratti] storage allegato email fallito, fallback base64 inline:",
-      error
-    );
-    documento.dataBase64 = args.buffer.toString("base64");
-    documento.storageKey = null;
-    documento.checksum = null;
-  }
+      tipo: "altro",
+      mimeType: args.mimeType,
+      size: args.buffer.length,
+      note: null,
+      statoAtUpload: commessa.stato ?? null,
+      createdBy: args.createdBy,
+      createdAt: new Date(),
+    };
 
-  if (!existing) documenti.push(documento);
-  _documentiStore.save();
-  if (oldStorageKey && oldStorageKey !== documento.storageKey) {
-    deleteFileQuiet(oldStorageKey);
-  }
-  return documento;
+    documento.commessaId = args.commessaId;
+    documento.nome = nome;
+    documento.tipo = "altro";
+    documento.mimeType = args.mimeType;
+    documento.size = args.buffer.length;
+    documento.note = "Archiviato manualmente da un allegato email.";
+    documento.statoAtUpload = commessa.stato ?? null;
+    documento.source = "comunicazione";
+    documento.sourceRef = sourceRef;
+
+    try {
+      const stored = await putFile(
+        "preventivi_documenti",
+        args.commessaId,
+        documento.id,
+        nome,
+        args.buffer,
+        args.mimeType
+      );
+      documento.storageKey = stored.storageKey;
+      documento.checksum = stored.checksum;
+      delete documento.dataBase64;
+    } catch (error) {
+      console.warn(
+        "[preventiviContratti] storage allegato email fallito, fallback base64 inline:",
+        error
+      );
+      documento.dataBase64 = args.buffer.toString("base64");
+      documento.storageKey = null;
+      documento.checksum = null;
+    }
+
+    if (!existing) documenti.push(documento);
+    _documentiStore.save();
+    if (oldStorageKey && oldStorageKey !== documento.storageKey) {
+      deleteFileQuiet(oldStorageKey);
+    }
+    return documento;
+  });
 }
 
 /** Crea o sposta il documento FIC senza duplicarlo nei ricollegamenti. */
