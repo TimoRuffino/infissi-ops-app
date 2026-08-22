@@ -1,16 +1,18 @@
-export type TarsTab = "chat" | "pendenti" | "decise" | "registro";
+export type TarsTab = "oggi" | "proposte" | "analisi" | "chat" | "registro";
 
 const TARS_TABS = new Set<TarsTab>([
+  "oggi",
+  "proposte",
+  "analisi",
   "chat",
-  "pendenti",
-  "decise",
   "registro",
 ]);
 
 export function parseTarsTab(search: string, direzione: boolean): TarsTab {
   const value = new URLSearchParams(search).get("tab");
-  if (!value || !TARS_TABS.has(value as TarsTab)) return "chat";
-  if (value === "registro" && !direzione) return "chat";
+  if (value === "pendenti" || value === "decise") return "proposte";
+  if (!value || !TARS_TABS.has(value as TarsTab)) return "oggi";
+  if (value === "registro" && !direzione) return "oggi";
   return value as TarsTab;
 }
 

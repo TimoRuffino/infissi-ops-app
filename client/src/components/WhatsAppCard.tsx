@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import {
+  Activity,
   AlertCircle,
   ArrowRight,
   Check,
@@ -600,6 +601,39 @@ export default function WhatsAppCard() {
                   Storico richiesto il{" "}
                   {new Date(c.storicoSincronizzato).toLocaleString("it-IT")}
                 </p>
+              )}
+
+              {c.attiva && (
+                <div className="grid gap-2 rounded-md border bg-muted/35 p-2.5 text-xs sm:grid-cols-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">Webhook Meta</p>
+                      <p className="text-muted-foreground">
+                        {c.diagnosticaWebhook?.ultimoWebhookAt
+                          ? `${new Date(c.diagnosticaWebhook.ultimoWebhookAt).toLocaleString("it-IT")} · ${c.diagnosticaWebhook.ultimoCampo}`
+                          : "Nessun evento ricevuto dal collegamento"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <MessageCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">
+                        Messaggi inviati dall'app
+                      </p>
+                      {c.diagnosticaWebhook?.ultimoEchoAt ? (
+                        <p className="text-muted-foreground">
+                          Ultimo echo {new Date(c.diagnosticaWebhook.ultimoEchoAt).toLocaleString("it-IT")} · {c.diagnosticaWebhook.messaggiEchoRegistrati}/{c.diagnosticaWebhook.messaggiEchoRicevuti} registrati
+                        </p>
+                      ) : (
+                        <p className="text-amber-700 dark:text-amber-400">
+                          Meta non ha ancora consegnato eventi <code>smb_message_echoes</code>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Esito della prova: cosa Meta ci ha risposto, chiamata per

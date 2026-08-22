@@ -165,6 +165,7 @@ export default function TarsPropostaCard({
 
   const invalidate = () => {
     utils.tars.proposte.invalidate();
+    utils.tars.commandCenter.invalidate();
     utils.ficFatture.invalidate();
     utils.economia.invalidate();
     utils.mail.comunicazioni.invalidate();

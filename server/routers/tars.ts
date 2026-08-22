@@ -21,6 +21,7 @@ import { runTars } from "../tars/loop";
 import { avviaSeguito } from "../tars/seguito";
 import { eseguiAuditProcessi } from "../tars/auditProcessi";
 import { eseguiProposta } from "../tars/esecutore";
+import { buildCommandCenterSnapshot } from "../tars/commandCenter";
 import {
   proposte,
   saveProposte,
@@ -403,6 +404,44 @@ ${input.testo.trim()}`;
       saveChat();
       return { success: true } as const;
     }),
+  }),
+
+  // Cabina operativa: una lettura deterministica delle proposte già
+  // verificate. Non chiama il modello all'apertura della pagina, quindi il
+  // brief è rapido, stabile e non consuma token.
+  commandCenter: router({
+    get: protectedProcedure
+      .input(
+        z
+          .object({ limit: z.number().int().min(1).max(20).default(12) })
+          .optional()
+      )
+      .query(({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        const config = getTarsConfig(sedeId);
+        const soglia = Date.now() - 30 * 86_400_000;
+        const pending = proposte
+          .filter(p => p.sedeId === sedeId && p.stato === "pendente")
+          .map(p => {
+            const hydrated = idrataProposta(p);
+            return {
+              ...p,
+              payload: {
+                ...(p.payload ?? {}),
+                commessaCodice: hydrated.commessaCodice,
+              },
+            };
+          });
+        return buildCommandCenterSnapshot({
+          active: config.attivo,
+          openaiReady: openaiConfigured(),
+          proposals: pending,
+          executions: esecuzioni.filter(
+            e => e.sedeId === sedeId && e.createdAt.getTime() >= soglia
+          ),
+          limit: input?.limit ?? 12,
+        });
+      }),
   }),
 
   // ── Coda proposte ─────────────────────────────────────────────────────

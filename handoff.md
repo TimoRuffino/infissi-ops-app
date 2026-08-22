@@ -3,9 +3,9 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 19/08/2026<br>
-**Base Git descritta:** `main` a `f5728de`, più le modifiche elencate in §7 non
-ancora pubblicate al momento dell'aggiornamento<br>
+**Aggiornato:** 22/08/2026<br>
+**Base Git descritta:** `main` a `07bec87`, più le modifiche Command Center e
+diagnostica WhatsApp non ancora pubblicate al momento dell'aggiornamento<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -80,6 +80,7 @@ server/tars/
   openai.ts                 OpenAI Responses API e prompt caching
   tools.ts                  profili strumenti, fascicolo e cache per run
   stores.ts                 esecuzioni, proposte, budget e audit
+  commandCenter.ts          ranking e brief deterministici, senza chiamata AI
   comunicazioni.ts          tabella messaggi e statistiche
 
 client/src/
@@ -88,7 +89,8 @@ client/src/
   pages/messaggi/EmailPage.tsx     inbox operativa Email
   pages/messaggi/WhatsAppPage.tsx  workspace conversazioni WhatsApp
   pages/Integrazioni.tsx    Drive, FiC, storage e altre integrazioni
-  pages/TarsInbox.tsx       proposte e diagnostica esecuzioni
+  pages/TarsCommandCenter.tsx      cabina operativa Tars
+  pages/TarsInbox.tsx       viste legacy riusate per proposte e registro
 ```
 
 Comandi principali:
@@ -206,10 +208,21 @@ preload fascicolo, token letti dalla cache e token scritti, anche quando la
 risposta del provider è incompleta o fallisce dopo aver consumato token. I campi storici
 `cache write 5m/1h` restano per retrocompatibilità; le scritture cache OpenAI
 sono registrate nel bucket con moltiplicatore 1,25. Questi dati sono visibili
-nella Inbox Tars, che mostra modello, token totali processati, quota letta dalla
+nel Registro Tars, che mostra modello, token totali processati, quota letta dalla
 cache, scritture e costo stimato. Errori di caricamento del registro hanno uno
 stato esplicito e non vengono confusi con un registro vuoto. La cache non
 attraversa utenti o run e non conserva risultati mutabili oltre l'esecuzione.
+
+`/tars` apre ora il Command Center sulla tab `Oggi`, seguito da `Proposte`,
+`Analisi`, `Chat` e `Registro` (quest'ultimo solo direzione). L'endpoint
+`tars.commandCenter.get` combina proposte pendenti ed esecuzioni degli ultimi 30
+giorni, applica scope sede e ordina le priorità con ranking deterministico di
+urgenza, impatto e confidenza. Ogni priorità priva di una prova viene esclusa e
+la chiave d'azione canonica impedisce doppioni nella vista. Il brief viene
+costruito senza chiamare OpenAI: aprire o aggiornare la pagina non consuma token.
+Il context engine persistente e incrementale descritto nei piani resta debito
+aperto: il codice corrente aggrega fonti già correlate nelle proposte, non
+costruisce ancora fascicoli trasversali persistenti per entità.
 
 In produzione è obbligatoria `OPENAI_API_KEY`. `ANTHROPIC_API_KEY` non viene più
 letta dal codice e può essere rimossa da Railway dopo un deploy verificato.
@@ -308,7 +321,8 @@ Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
 `/comunicazioni` e `/inbox` restano esclusivamente deep link legacy: usano un
 redirect `replace` rispettivamente verso Email e Tars. Il primo conserva solo
 `view` tra le viste Email riconosciute e `messaggio` numerico positivo; il
-secondo conserva solo `tab` tra `chat`, `pendenti`, `decise` e `registro`.
+secondo conserva le tab correnti `oggi`, `proposte`, `analisi`, `chat` e
+`registro`, oltre alle legacy `pendenti` e `decise`, normalizzate a `proposte`.
 
 Il router `mail` espone le API specifiche `mail.email.list`, `byId`, `stats`,
 `segnaTutteViste` e `archiviaAllegato`; tutte sono forzate sul canale Email e
@@ -334,6 +348,13 @@ azioni operative: dopo il collegamento alla stessa commessa, un allegato puo
 essere letto dalla casella sorgente e archiviato nel fascicolo. Eliminare una
 comunicazione dal CRM non modifica la casella: il tombstone evita la
 re-importazione.
+
+La configurazione WhatsApp espone una diagnostica webhook privacy-safe:
+ultimo campo e orario ricevuti, ultimo `smb_message_echoes`, eventi echo,
+messaggi echo consegnati e registrati. Non salva corpi, numeri, nomi o message
+id. Serve a distinguere con certezza «Meta non ha consegnato l'echo» da
+«l'echo è arrivato ma era già presente». Il parser gestisce `messages`,
+`history` e `value.message_echoes` sotto il campo `smb_message_echoes`.
 
 Le suite locali esercitano il fallback in memoria quando manca `DATABASE_URL`;
 non dimostrano le query PostgreSQL, le configurazioni dei canali o i dati di
@@ -406,8 +427,11 @@ Poi verificare nel browser, desktop e mobile:
 - Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
   collegamento confermato, preventivi sempre visibili, scelta assegnatario e
   creazione lead approvata;
+- WhatsApp: conversazioni raggruppate, direzione in/out e diagnostica
+  `smb_message_echoes` dopo un invio dall'app primaria;
 - Integrazioni: stato Drive, storage e FiC;
-- una esecuzione Tars senza azioni automatiche inattese.
+- Tars: Command Center `Oggi`, fonti raggiungibili, proposta approvabile e
+  nessuna azione automatica inattesa.
 
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
@@ -435,3 +459,5 @@ pnpm storage:dry-run
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
 5. Impostazione di `OPENAI_API_KEY`, QA su dati reali dopo il deploy e
    monitoraggio errori, latenza, cache e costi Tars.
+6. Context engine Tars persistente e incrementale per cliente/commessa, con
+   fingerprint, coda eventi e fascicoli separati per visibility scope.

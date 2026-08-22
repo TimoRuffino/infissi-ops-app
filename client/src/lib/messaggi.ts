@@ -58,7 +58,15 @@ export function legacyMessageRedirect(location: string): string {
   return redirectWithQuery("/messaggi/email", params);
 }
 
-const TARS_TAB_SET = new Set(["chat", "pendenti", "decise", "registro"]);
+const TARS_TAB_SET = new Set([
+  "oggi",
+  "proposte",
+  "analisi",
+  "chat",
+  "pendenti",
+  "decise",
+  "registro",
+]);
 
 export function legacyTarsRedirect(location: string): string {
   const url = new URL(location, "https://ruffino-flow.local");

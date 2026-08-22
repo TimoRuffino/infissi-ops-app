@@ -1,7 +1,7 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.4 — 19/08/2026
-**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Ricerca semantica/pgvector resta roadmap.
+**Versione:** 1.5 — 22/08/2026
+**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, Command Center, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Context engine persistente e ricerca semantica/pgvector restano roadmap.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
 ### Stato implementativo sintetico
@@ -17,6 +17,7 @@
 - Un audit automatico per sede confronta periodicamente i principali indicatori e può proporre fino a tre miglioramenti di processo misurabili.
 - La coda riconosce la stessa azione anche quando titolo o formulazione cambiano e blocca duplicati pendenti, approvati, rifiutati o già gestiti.
 - La cache strumenti è isolata al singolo run; il prefisso stabile usa il prompt caching OpenAI con una chiave versionata per sede, profilo e modello.
+- Il Command Center costruisce brief e ranking dalle proposte persistite senza chiamare OpenAI all'apertura; ogni priorità richiede una prova e viene deduplicata per chiave d'azione.
 - `gpt-5.6-sol` gestisce le richieste umane; `gpt-5.6-terra` i trigger automatici. Raggiunto il limite strumenti, il loop concede un solo turno finale senza tool.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
@@ -175,7 +176,7 @@ dall'operatore. Il classificatore continua a proteggere ogni opportunità e usa
 2. *Fascicoli fermi*: commesse senza update da oltre 10 giorni → indaga e propone il prossimo passo, o niente
 3. *Coerenza*: commesse il cui stato non corrisponde ai fatti (in `attesa_posa` con merce non arrivata; in `produzione` senza data confermata da 15 giorni)
 
-L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa o ancora in coda. La direzione può avviarlo manualmente dalla Inbox Tars e disattivarlo per sede nelle Integrazioni.
+L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa o ancora in coda. La direzione può avviarlo manualmente dal Command Center Tars e disattivarlo per sede nelle Integrazioni.
 
 **Su richiesta** — bottone "Analizza" nella scheda commessa. L'operatore chiede all'agente di guardare una situazione specifica. È anche il modo migliore di costruire fiducia nel team: si vede lavorare, su un caso che si conosce.
 
@@ -189,7 +190,7 @@ L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa
 Implementata tramite caselle IMAP per sede. L'ingestione è idempotente, conserva il riferimento UID e accoda a Tars solo i messaggi nuovi; lo storico importato non genera una valanga di run retroattivi.
 
 ### 6.2 WhatsApp (Cloud API)
-Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. La diagnostica conferma la coesistenza con WhatsApp Business solo quando Meta restituisce insieme `platform_type = CLOUD_API` e `is_on_biz_app = true`; il solo valore `CLOUD_API` non basta a determinarla. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
+Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. La diagnostica conferma la coesistenza con WhatsApp Business solo quando Meta restituisce insieme `platform_type = CLOUD_API` e `is_on_biz_app = true`; il solo valore `CLOUD_API` non basta a determinarla. Registra inoltre, senza dati cliente, l'ultimo campo webhook e l'ultimo `smb_message_echoes`, distinguendo un echo mai consegnato da un duplicato già presente. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
 
 ### 6.3 Fatture in Cloud
 Oggi la sincronizzazione crea solo clienti mancanti (§40). L'agente la estende **in sola lettura** a:
@@ -214,10 +215,10 @@ Estrazione testo → prompt R2 → proposte. Con in più due capacità che hai c
 Qui si decide se il sistema viene usato o abbandonato. Tre principi.
 
 ### 7.1 La proposta arriva dove sei già
-Una pagina `/inbox` separata è necessaria ma non sufficiente: richiede di ricordarsi di aprirla. Le proposte compaiono in **tre punti**:
+Il Command Center `/tars` è necessario ma non sufficiente: le proposte devono comparire anche nel contesto in cui si lavora. Sono quindi visibili in **tre punti**:
 
 - **In contesto**: banner ambra nella scheda commessa — *"L'agente propone 2 modifiche"* con approvazione inline. È il punto in cui l'approvazione costa meno attenzione, perché stai già guardando quella commessa.
-- **In `/inbox`**: la vista completa, per la sessione dedicata del mattino.
+- **In `/tars`**: vista `Oggi` con priorità e prove, più `Proposte`, `Analisi`, `Chat` e `Registro`; `/inbox` resta un redirect legacy.
 - **In notifica**: solo per le proposte urgenti o ad alta confidenza pendenti da oltre 24 ore.
 
 ### 7.2 Il click deve essere davvero uno

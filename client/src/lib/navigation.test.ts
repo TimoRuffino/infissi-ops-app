@@ -4,11 +4,13 @@ import { navigationItemState, parseTarsTab } from "./navigation";
 describe("parseTarsTab", () => {
   it("restores a recognized Tars tab from the query", () => {
     expect(parseTarsTab("?tab=registro", true)).toBe("registro");
+    expect(parseTarsTab("?tab=proposte", false)).toBe("proposte");
   });
 
-  it("falls back to chat for unavailable or unknown tabs", () => {
-    expect(parseTarsTab("?tab=registro", false)).toBe("chat");
-    expect(parseTarsTab("?tab=sconosciuta", true)).toBe("chat");
+  it("falls back to oggi for unavailable or unknown tabs", () => {
+    expect(parseTarsTab("?tab=registro", false)).toBe("oggi");
+    expect(parseTarsTab("?tab=sconosciuta", true)).toBe("oggi");
+    expect(parseTarsTab("", true)).toBe("oggi");
   });
 });
 

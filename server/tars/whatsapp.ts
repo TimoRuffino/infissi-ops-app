@@ -60,9 +60,42 @@ export type ConfigWhatsApp = {
   // richiesto. Meta dà 24 ore per chiederlo, poi il numero va rifatto.
   onboardingAt: Date | null;
   storicoSincronizzato: Date | null;
+  // Telemetria tecnica del webhook. Non contiene testo, numeri, nomi o
+  // identificativi dei messaggi: serve solo a distinguere un evento mai
+  // consegnato da uno ricevuto e poi deduplicato.
+  diagnosticaWebhook?: DiagnosticaWebhookWhatsApp;
   createdAt: Date;
   updatedAt: Date;
 };
+
+export type DiagnosticaWebhookWhatsApp = {
+  ultimoWebhookAt: Date | null;
+  ultimoCampo: string | null;
+  ultimoEchoAt: Date | null;
+  eventiWebhook: number;
+  eventiEcho: number;
+  messaggiEchoRicevuti: number;
+  messaggiEchoRegistrati: number;
+  ultimoEsito: "registrato" | "duplicato" | "senza_messaggi" | null;
+};
+
+function diagnosticaWebhookVuota(): DiagnosticaWebhookWhatsApp {
+  return {
+    ultimoWebhookAt: null,
+    ultimoCampo: null,
+    ultimoEchoAt: null,
+    eventiWebhook: 0,
+    eventiEcho: 0,
+    messaggiEchoRicevuti: 0,
+    messaggiEchoRegistrati: 0,
+    ultimoEsito: null,
+  };
+}
+
+function diagnosticaWebhook(c: ConfigWhatsApp): DiagnosticaWebhookWhatsApp {
+  if (!c.diagnosticaWebhook) c.diagnosticaWebhook = diagnosticaWebhookVuota();
+  return c.diagnosticaWebhook;
+}
 
 let nextId = 1;
 const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
@@ -71,6 +104,9 @@ const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
     if (c.messaggiRicevuti === undefined) c.messaggiRicevuti = 0;
     if (c.storicoSincronizzato === undefined) c.storicoSincronizzato = null;
     if (c.onboardingAt === undefined) c.onboardingAt = null;
+    if (c.diagnosticaWebhook === undefined) {
+      c.diagnosticaWebhook = diagnosticaWebhookVuota();
+    }
     // Le configurazioni create dal collegamento col QR prima di questa
     // correzione hanno il verify token vuoto: senza, l'handshake del
     // callback non trova nulla da confrontare e Meta rifiuta l'URL.
@@ -181,6 +217,8 @@ export function configPubblica(c: ConfigWhatsApp) {
   const { tokenCifrato, appSecretCifrato, ...rest } = c;
   return {
     ...rest,
+    diagnosticaWebhook:
+      c.diagnosticaWebhook ?? diagnosticaWebhookVuota(),
     tokenConfigurato: !!tokenCifrato,
     // L'app secret può stare sul numero (configurazione a mano) o a livello
     // di app (Embedded Signup): per la UI conta che ce ne sia uno.
@@ -804,6 +842,33 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
       // errore — Meta può consegnare eventi di numeri che non seguiamo.
       if (!config) continue;
 
+      const oraWebhook = new Date();
+      const campo = String(
+        change?.field ??
+          (Array.isArray(value.message_echoes)
+            ? "smb_message_echoes"
+            : Array.isArray(value.history)
+              ? "history"
+              : Array.isArray(value.state_sync)
+                ? "smb_app_state_sync"
+                : Array.isArray(value.messages)
+                  ? "messages"
+                  : "sconosciuto")
+      );
+      const diagnostica = diagnosticaWebhook(config);
+      diagnostica.ultimoWebhookAt = oraWebhook;
+      diagnostica.ultimoCampo = campo;
+      diagnostica.eventiWebhook += 1;
+      const messaggiEchoNelCambio = Array.isArray(value.message_echoes)
+        ? value.message_echoes.length
+        : 0;
+      if (campo === "smb_message_echoes") {
+        diagnostica.ultimoEchoAt = oraWebhook;
+        diagnostica.eventiEcho += 1;
+        diagnostica.messaggiEchoRicevuti += messaggiEchoNelCambio;
+      }
+      daSalvare = true;
+
       const sedeId = config.sedeId;
       const ctx = {
         clienti: getClientiStore().filter((c: any) => c.sedeId === sedeId),
@@ -871,6 +936,9 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
             if (ok) {
               registrati++;
               nelLotto++;
+              if (!origine.storico && origine.direzione === "out") {
+                diagnostica.messaggiEchoRegistrati += 1;
+              }
               if (!origine.storico && origine.direzione === "in") {
                 sediDaSmistare.add(sedeId);
               }
@@ -883,6 +951,17 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
           }
         }
       }
+
+      const messaggiNelCambio = lotti.reduce(
+        (totale, lotto) => totale + lotto.messaggi.length,
+        0
+      );
+      diagnostica.ultimoEsito =
+        nelLotto > 0
+          ? "registrato"
+          : messaggiNelCambio > 0
+            ? "duplicato"
+            : "senza_messaggi";
 
       if (nelLotto > 0) {
         config.ultimoMessaggio = new Date();

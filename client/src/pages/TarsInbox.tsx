@@ -27,6 +27,7 @@ import { TarsChatPanel } from "@/components/TarsChat";
 import { toast } from "sonner";
 import { metricheUtilizzoTars } from "@/lib/tarsUsage";
 import { parseTarsTab, type TarsTab } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 const numeroCompatto = new Intl.NumberFormat("it-IT", {
@@ -100,13 +101,26 @@ function LinkCommessa({ commessaId }: { commessaId: number | null }) {
   );
 }
 
-function ElencoProposte({ stato }: { stato?: "pendente" }) {
+export function ElencoProposte({
+  stato,
+  tipo,
+  focusId,
+}: {
+  stato?: "pendente";
+  tipo?: string;
+  focusId?: number | null;
+}) {
   const proposte = trpc.tars.proposte.list.useQuery(
     stato ? { stato } : undefined
   );
-  const rows = (proposte.data ?? []).filter((p: any) =>
-    stato ? true : p.stato !== "pendente"
-  );
+  const rows = (proposte.data ?? [])
+    .filter(
+      (p: any) =>
+        (stato ? true : p.stato !== "pendente") && (!tipo || p.tipo === tipo)
+    )
+    .sort((a: any, b: any) =>
+      a.id === focusId ? -1 : b.id === focusId ? 1 : 0
+    );
 
   if (proposte.isLoading) {
     return (
@@ -130,13 +144,22 @@ function ElencoProposte({ stato }: { stato?: "pendente" }) {
   return (
     <div className="space-y-3">
       {rows.map((p: any) => (
-        <TarsPropostaCard key={p.id} proposta={p} />
+        <div
+          key={p.id}
+          id={`tars-proposta-${p.id}`}
+          className={cn(
+            "scroll-mt-24 rounded-lg",
+            p.id === focusId && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+          )}
+        >
+          <TarsPropostaCard proposta={p} />
+        </div>
       ))}
     </div>
   );
 }
 
-function RegistroEsecuzioni() {
+export function RegistroEsecuzioni() {
   const esecuzioni = trpc.tars.esecuzioni.list.useQuery({ limit: 30 });
   const rows = esecuzioni.data ?? [];
   if (esecuzioni.isLoading) {

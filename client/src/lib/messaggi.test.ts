@@ -26,6 +26,10 @@ describe("legacy navigation redirects", () => {
     expect(legacyTarsRedirect("/inbox?tab=registro&debug=true")).toBe(
       "/tars?tab=registro"
     );
+    expect(legacyTarsRedirect("/inbox?tab=oggi")).toBe("/tars?tab=oggi");
+    expect(legacyTarsRedirect("/inbox?tab=proposte")).toBe(
+      "/tars?tab=proposte"
+    );
   });
 });
 

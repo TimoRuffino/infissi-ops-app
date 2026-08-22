@@ -456,6 +456,51 @@ describe("coexistence: echo e storico", () => {
     expect(echo?.mittente).toBe("393401234567");
     // Mai in coda: l'ha scritto l'ufficio.
     expect(echo?.tarsAnalizzata).toBe(true);
+    expect(configWhatsApp[0].diagnosticaWebhook).toMatchObject({
+      ultimoCampo: "smb_message_echoes",
+      eventiEcho: 1,
+      messaggiEchoRicevuti: 1,
+      messaggiEchoRegistrati: 1,
+    });
+    expect(configWhatsApp[0].diagnosticaWebhook?.ultimoEchoAt).toBeInstanceOf(
+      Date
+    );
+  });
+
+  it("rende visibile un echo arrivato ma già presente", async () => {
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "smb_message_echoes",
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                message_echoes: [
+                  {
+                    id: "wamid.ECHO1",
+                    from: "390187872687",
+                    to: "393401234567",
+                    timestamp: "1786000100",
+                    type: "text",
+                    text: { body: "Le confermo giovedì mattina" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(await ingestisciWebhook(payload)).toBe(0);
+    expect(configWhatsApp[0].diagnosticaWebhook).toMatchObject({
+      ultimoCampo: "smb_message_echoes",
+      eventiEcho: 2,
+      messaggiEchoRicevuti: 2,
+      messaggiEchoRegistrati: 1,
+      ultimoEsito: "duplicato",
+    });
   });
 
   it("lo storico entra già letto, separando le due direzioni", async () => {

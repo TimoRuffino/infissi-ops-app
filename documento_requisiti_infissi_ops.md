@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (19/08/2026).
-**Versione:** 4.12 - L'analisi di una commessa chiude sempre con una proposta, una domanda o un referto motivato. Base v4.11 - Le comunicazioni collegate a una commessa escono dalla coda operativa ed entrano in Gestite, con recupero una tantum dello storico. Base v4.10 - Smistamento Tars specializzato: prefisso ridotto del 78%, cache separata per sede, errori provider sanitizzati e registro costi/cache affidabile. Base v4.9 - Tars migrato a OpenAI Responses API con caching misurabile.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (22/08/2026).
+**Versione:** 4.13 - Tars apre su un Command Center deterministico con brief, priorità, prove e metriche senza consumo token all'apertura; la configurazione WhatsApp distingue eventi echo mai consegnati da duplicati già registrati. Base v4.12 - L'analisi di una commessa chiude sempre con una proposta, una domanda o un referto motivato.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -837,6 +837,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.13 (22/08/2026)** - `/tars` diventa Command Center con vista Oggi, ranking deterministico, prove, proposte, analisi, chat e registro; il brief non chiama OpenAI e non consuma token all'apertura. La configurazione WhatsApp espone diagnostica privacy-safe per `smb_message_echoes` e duplicati (§50.9, §51.4-51.7).
 - **v4.12 (19/08/2026)** - L'analisi commessa non chiude più in silenzio: proposta, domanda con opzioni oppure `nessuna_azione` motivata che nomina i fatti verificati. Il server rifiuta la chiusura muta su `on_demand`; i trigger automatici restano liberi (§50.8).
 - **v4.11 (19/08/2026)** - Collegare una comunicazione a una commessa la porta in Gestite (collegamento manuale e proposte Tars approvate); lo scollegamento la riapre; il match automatico dell'arrivo resta nella coda operativa. Backfill una tantum delle collegate già viste (§51.1).
 - **v4.10 (19/08/2026)** - Smistamento Tars ridotto a prompt specializzato e 7 strumenti (-78% token fissi), cache per sede/profilo/modello, `gpt-5.6-luna` opzionale, errori OpenAI sanitizzati e diagnostica token/cache/costi corretta (§50-51).
@@ -1259,6 +1260,31 @@ La domanda è la via d'uscita quando non ci sono basi per proporre: è preferibi
 
 Il motivo di `nessuna_azione` diventa il riepilogo mostrato sulla commessa, quindi DEVE nominare i fatti controllati — stato, saldo, documenti, consegne, ticket — e non limitarsi a dichiarare che è tutto a posto. Il server rifiuta una chiusura senza motivazione sostanziale su questo trigger e restituisce l'errore al modello, che deve motivare o chiedere. Il vincolo vale solo per `on_demand`: i trigger automatici, come lo smistamento che chiude un lotto, restano liberi di terminare senza motivo.
 
+### 50.9 Command Center
+La route `/tars` DEVE aprire sulla vista `Oggi`; le altre viste sono
+`Proposte`, `Analisi`, `Chat` e `Registro`. `Registro` resta visibile solo alla
+direzione. La chat è uno strumento della cabina operativa e non la vista
+iniziale. Email e WhatsApp mantengono workspace separati e non vengono
+incorporati come inbox dentro Tars.
+
+`tars.commandCenter.get` DEVE applicare `sedeId`, considerare soltanto proposte
+pendenti della sede e produrre un massimo configurabile di priorità. Il ranking
+è deterministico e combina urgenza, impatto e confidenza; a parità usa scadenza
+e chiave canonica. La stessa `chiaveAzione` compare una volta sola. Una priorità
+senza almeno una prova verificabile non viene mostrata come certezza.
+
+Ogni priorità mostra conclusione, motivazione, confidenza e fino a tre prove
+verso comunicazione, cliente, commessa, fattura o esecuzione. Il brief e le
+metriche derivano da proposte ed esecuzioni persistite e NON effettuano una
+chiamata OpenAI all'apertura o all'aggiornamento della pagina. Questa scelta
+riduce latenza e token senza alterare le proposte. Le azioni continuano a
+richiedere approvazione esplicita tramite le mutation esistenti.
+
+Il Command Center corrente aggrega fonti già correlate nelle proposte. Il
+futuro context engine persistente per cliente/commessa, con coda eventi,
+fingerprint e visibility scope, non va considerato implementato finché non sono
+presenti i relativi store e worker.
+
 ---
 
 ## 51. Comunicazioni (Email e WhatsApp)
@@ -1294,9 +1320,10 @@ L'approvazione crea cliente e commessa in stato `preventivo`, imposta lo stesso 
 Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
 `/comunicazioni` e `/inbox` DEVONO restare redirect legacy con `replace`: il
 primo va a `/messaggi/email` e conserva solo `view` consentito e `messaggio`
-numerico positivo; il secondo va a `/tars` e conserva solo `tab` tra `chat`,
-`pendenti`, `decise` e `registro`. Parametri non riconosciuti non devono essere
-propagati.
+numerico positivo; il secondo va a `/tars` e conserva solo `tab` tra `oggi`,
+`proposte`, `analisi`, `chat`, `registro` e i valori legacy `pendenti`/`decise`,
+normalizzati a `proposte` dalla pagina. Parametri non riconosciuti non devono
+essere propagati.
 
 ### 51.5 API per canale e scope
 `mail.email.list`, `mail.email.byId`, `mail.email.stats` e
@@ -1336,6 +1363,14 @@ messaggi o media, nessuna modifica alla fonte WhatsApp. Su desktop la lista e
 il dettaglio usano colonne con `min-width: 0`; su mobile si mostra una vista
 alla volta. Nessun testo, numero o allegato deve introdurre scroll orizzontale
 di pagina.
+
+La configurazione WhatsApp DEVE mostrare una diagnostica webhook priva di dati
+cliente: ultimo evento/campo, ultimo `smb_message_echoes`, quantità di eventi
+echo e rapporto tra messaggi echo ricevuti e registrati. Testi, numeri, nomi e
+message id non entrano nella diagnostica. Un echo consegnato ma già presente
+deve risultare `duplicato`; l'assenza di `ultimoEchoAt` indica invece che Meta
+non ha ancora consegnato quel campo al CRM. Il payload previsto usa
+`changes[].field = smb_message_echoes` e `value.message_echoes[]`.
 
 ### 51.8 Verifica esterna
 Senza `DATABASE_URL` lo sviluppo locale usa il fallback in memoria: test,
