@@ -47,6 +47,7 @@ import {
   listComunicazioni,
   listConversazioniWhatsApp,
   rinominaConversazioneWhatsApp,
+  segnaConversazioneWhatsAppVista,
   segnaTutteViste,
   setClassificazioneComunicazione,
   setMatchComunicazione,
@@ -61,7 +62,10 @@ import {
 } from "../tars/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
 import { getClientiStore } from "./clienti";
-import { archiviaAllegatoComunicazione } from "./preventiviContratti";
+import {
+  archiviaAllegatoComunicazione,
+  StorageAllegatoTemporaneamenteNonDisponibile,
+} from "./preventiviContratti";
 import { leggiAllegatoRaw } from "../tars/allegati";
 import { leggiStatoSmistamento } from "../tars/smistamento";
 
@@ -336,6 +340,27 @@ export const mailRouter = router({
           });
         }
         return result;
+      }),
+
+    segnaVista: protectedProcedure
+      .input(
+        z.object({
+          casellaId: z.number().int().positive(),
+          controparte: z.string().min(1).max(100),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const aggiornate = await segnaConversazioneWhatsAppVista({
+          ...input,
+          sedeId: ctx.sedeId ?? 1,
+        });
+        if (aggiornate == null) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conversazione non trovata.",
+          });
+        }
+        return { aggiornate };
       }),
 
     rinominaConversazione: protectedProcedure
@@ -706,7 +731,10 @@ export const mailRouter = router({
           return { ...rest, hasData: !!dataBase64 || !!rest.storageKey };
         } catch (error) {
           throw new TRPCError({
-            code: "BAD_REQUEST",
+            code:
+              error instanceof StorageAllegatoTemporaneamenteNonDisponibile
+                ? "INTERNAL_SERVER_ERROR"
+                : "BAD_REQUEST",
             message:
               error instanceof Error
                 ? error.message

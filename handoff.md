@@ -313,9 +313,12 @@ secondo conserva solo `tab` tra `chat`, `pendenti`, `decise` e `registro`.
 Il router `mail` espone le API specifiche `mail.email.list`, `byId`, `stats`,
 `segnaTutteViste` e `archiviaAllegato`; tutte sono forzate sul canale Email e
 sulla sede attiva. `mail.whatsapp.conversazioni` e `thread` sono letture
-sede-scoped; `rinominaConversazione` puo cambiare solo l'alias di una chat non
-collegata a un cliente CRM. Il router storico `mail.comunicazioni.*` rimane per
-le mutation condivise e i consumatori esistenti.
+sede-scoped; `segnaVista` aggiorna solo i messaggi in ingresso della stessa
+sede, account e controparte, mentre `rinominaConversazione` puo cambiare solo
+l'alias di una chat non collegata a un cliente CRM. Il contesto mostra proposte
+Tars soltanto quando `comunicazioneIds` ne prova il legame con i messaggi
+caricati. Il router storico `mail.comunicazioni.*` rimane per le mutation
+condivise e i consumatori esistenti.
 
 Una conversazione WhatsApp e una riga per account e controparte normalizzata,
 con chiave client `wa:<casellaId>:<numero-normalizzato>`; `sedeId` non entra

@@ -23,8 +23,10 @@ function contextDate(value: string | null | undefined): string {
 
 export default function WhatsAppContextPanel({
   conversation,
+  communicationIds,
 }: {
   conversation: WhatsAppConversation;
+  communicationIds: number[];
 }) {
   const client = trpc.clienti.byId.useQuery(conversation.clienteId ?? 0, {
     enabled: conversation.clienteId != null,
@@ -33,8 +35,15 @@ export default function WhatsAppContextPanel({
     enabled: conversation.commessaId != null,
   });
   const proposals = trpc.tars.proposte.list.useQuery(
-    { stato: "pendente", commessaId: conversation.commessaId ?? 0 },
-    { enabled: conversation.commessaId != null, retry: false }
+    {
+      stato: "pendente",
+      commessaId: conversation.commessaId ?? 0,
+      comunicazioneIds: communicationIds,
+    },
+    {
+      enabled: conversation.commessaId != null && communicationIds.length > 0,
+      retry: false,
+    }
   );
   const appointments = trpc.interventi.list.useQuery(
     { commessaId: conversation.commessaId ?? 0 },

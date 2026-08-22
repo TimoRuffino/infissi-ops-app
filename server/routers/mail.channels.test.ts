@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const archivioStorageProbe = vi.hoisted(() => ({
   active: false,
+  failWrites: false,
   rawReads: 0,
   storageEntries: 0,
   releaseFirst: null as (() => void) | null,
@@ -17,6 +18,12 @@ vi.mock("../_core/fileStorage", async importOriginal => {
       return result;
     },
     putFile: async (...args: Parameters<typeof actual.putFile>) => {
+      if (
+        archivioStorageProbe.failWrites &&
+        args[0] === "preventivi_documenti"
+      ) {
+        throw new Error("storage non disponibile");
+      }
       if (
         archivioStorageProbe.active &&
         args[0] === "preventivi_documenti"
@@ -44,6 +51,7 @@ import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
 import { deleteDocumentiByCommessa } from "./preventiviContratti";
 import { deleteFileQuiet, putFile } from "../_core/fileStorage";
+import { proposte } from "../tars/stores";
 
 async function attendiProbe(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -123,6 +131,7 @@ describe("mail channel APIs", () => {
   beforeEach(() => {
     _resetComunicazioniInMemoria();
     archivioStorageProbe.active = false;
+    archivioStorageProbe.failWrites = false;
     archivioStorageProbe.rawReads = 0;
     archivioStorageProbe.storageEntries = 0;
     archivioStorageProbe.releaseFirst = null;
@@ -284,6 +293,107 @@ describe("mail channel APIs", () => {
     ).resolves.toMatchObject({ aliasOperatore: null });
   });
 
+  it("segna vista solo la conversazione WhatsApp di sede account e controparte", async () => {
+    const target = await insertComunicazione(nuovoMessaggioWhatsApp());
+    const altroAccount = await insertComunicazione(
+      nuovoMessaggioWhatsApp({ casellaId: 9, messageId: "wa-view-account-9" })
+    );
+    const altraSede = await insertComunicazione(
+      nuovoMessaggioWhatsApp({ sedeId: 2, messageId: "wa-view-sede-2" })
+    );
+    const caller = appRouter.createCaller(createContext(1));
+
+    await expect(
+      caller.mail.whatsapp.segnaVista({
+        casellaId: 8,
+        controparte: "333 111 2222",
+      })
+    ).resolves.toEqual({ aggiornate: 1 });
+    expect((await getComunicazione(target!.id, 1))?.stato).toBe("vista");
+    expect((await getComunicazione(altroAccount!.id, 1))?.stato).toBe("nuova");
+    expect((await getComunicazione(altraSede!.id, 2))?.stato).toBe("nuova");
+    await expect(
+      caller.mail.whatsapp.segnaVista({
+        casellaId: 404,
+        controparte: "+393331112222",
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      appRouter.createCaller(createContext(2)).mail.whatsapp.segnaVista({
+        casellaId: 9,
+        controparte: "+393331112222",
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("filtra le proposte Tars sulle comunicazioni caricate nel thread", async () => {
+    const messaggio = await insertComunicazione(
+      nuovoMessaggioWhatsApp({ commessaId: 953_001, clienteId: 953_101 })
+    );
+    const base = {
+      sedeId: 1,
+      tipo: "segnalazione" as const,
+      motivazione: "Test",
+      confidenza: "alta" as const,
+      commessaId: 953_001,
+      clienteId: 953_101,
+      opzioni: null,
+      risposta: null,
+      esito: null,
+      motivoRifiuto: null,
+      esecuzioneId: null,
+      trigger: "gestione_comunicazione",
+      createdAt: new Date("2026-08-22T16:00:00Z"),
+      decisaAt: null,
+      decisaDa: null,
+      decisaDaNome: null,
+      seguitoAt: null,
+      seguitoEsecuzioneId: null,
+      chiaveAzione: "test",
+    };
+    const origine = {
+      ...base,
+      id: 953_101,
+      titolo: "Origine thread",
+      payload: { comunicazioneId: messaggio!.id },
+      stato: "approvata" as const,
+      origineId: null,
+    };
+    const collegata = {
+      ...base,
+      id: 953_102,
+      titolo: "Collegata al thread",
+      payload: {},
+      stato: "pendente" as const,
+      origineId: origine.id,
+    };
+    const estranea = {
+      ...base,
+      id: 953_103,
+      titolo: "Altra fonte stessa commessa",
+      payload: { comunicazioneId: 999_999 },
+      stato: "pendente" as const,
+      origineId: null,
+    };
+    proposte.push(origine, collegata, estranea);
+
+    try {
+      const rows = await appRouter
+        .createCaller(createContext(1))
+        .tars.proposte.list({
+          stato: "pendente",
+          commessaId: 953_001,
+          comunicazioneIds: [messaggio!.id],
+        });
+      expect(rows.map(row => row.id)).toEqual([collegata.id]);
+    } finally {
+      for (const id of [origine.id, collegata.id, estranea.id]) {
+        const index = proposte.findIndex(proposta => proposta.id === id);
+        if (index >= 0) proposte.splice(index, 1);
+      }
+    }
+  });
+
   it("collega una comunicazione a un cliente della sede senza inventare una commessa", async () => {
     const clienteId = 951_101;
     const clienti = getClientiStore();
@@ -417,6 +527,64 @@ describe("mail channel APIs", () => {
           commessaId,
         })
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      deleteDocumentiByCommessa(commessaId);
+      deleteFileQuiet(fixture.storageKey);
+      const index = commesse.findIndex(commessa => commessa.id === commessaId);
+      if (index >= 0) commesse.splice(index, 1);
+    }
+  });
+
+  it("non crea base64 inline quando lo storage durevole fallisce", async () => {
+    const commessaId = 952_002;
+    const commesse = getCommesseStore();
+    commesse.push({
+      id: commessaId,
+      sedeId: 1,
+      codice: "COM-2026-953",
+      cliente: "Cliente Storage",
+      clienteId: 952_102,
+      assegnatoA: 1,
+      stato: "preventivo",
+      archivedAt: null,
+    });
+    const bytes = Buffer.from("allegato da ritentare", "utf8");
+    const fixture = await putFile(
+      "mail_test",
+      commessaId,
+      2,
+      "retry.pdf",
+      bytes,
+      "application/pdf"
+    );
+    const email = await insertComunicazione(
+      nuovaEmail({
+        messageId: "email-archivio-storage-fallito",
+        clienteId: 952_102,
+        commessaId,
+        allegati: [{
+          nome: "retry.pdf",
+          mimeType: "application/pdf",
+          size: bytes.length,
+          storageKey: fixture.storageKey,
+        }],
+      })
+    );
+    const caller = appRouter.createCaller(createContext(1));
+
+    try {
+      archivioStorageProbe.failWrites = true;
+      await expect(
+        caller.mail.email.archiviaAllegato({
+          id: email!.id,
+          allegatoIndex: 0,
+          commessaId,
+        })
+      ).rejects.toMatchObject({
+        code: "INTERNAL_SERVER_ERROR",
+        message: expect.stringContaining("Riprova"),
+      });
+      expect(await caller.preventiviContratti.byCommessa(commessaId)).toEqual([]);
     } finally {
       deleteDocumentiByCommessa(commessaId);
       deleteFileQuiet(fixture.storageKey);

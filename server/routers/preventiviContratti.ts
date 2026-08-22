@@ -212,6 +212,15 @@ function comunicazioneSourceRef(
 
 const archivioComunicazioneCode = new Map<string, Promise<void>>();
 
+export class StorageAllegatoTemporaneamenteNonDisponibile extends Error {
+  constructor() {
+    super(
+      "Riprova tra poco: lo storage documenti non è disponibile e nessun allegato è stato archiviato."
+    );
+    this.name = "StorageAllegatoTemporaneamenteNonDisponibile";
+  }
+}
+
 async function serializzaArchivioComunicazione<T>(
   sourceRef: string,
   operation: () => Promise<T>
@@ -272,7 +281,7 @@ export async function archiviaAllegatoComunicazione(args: {
     const id = existing?.id ?? nextId++;
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
-    const documento: Documento = existing ?? {
+    const documento: Documento = existing ? { ...existing } : {
       id,
       commessaId: args.commessaId,
       nome,
@@ -307,17 +316,12 @@ export async function archiviaAllegatoComunicazione(args: {
       documento.storageKey = stored.storageKey;
       documento.checksum = stored.checksum;
       delete documento.dataBase64;
-    } catch (error) {
-      console.warn(
-        "[preventiviContratti] storage allegato email fallito, fallback base64 inline:",
-        error
-      );
-      documento.dataBase64 = args.buffer.toString("base64");
-      documento.storageKey = null;
-      documento.checksum = null;
+    } catch {
+      throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
 
-    if (!existing) documenti.push(documento);
+    if (existing) Object.assign(existing, documento);
+    else documenti.push(documento);
     _documentiStore.save();
     if (oldStorageKey && oldStorageKey !== documento.storageKey) {
       deleteFileQuiet(oldStorageKey);

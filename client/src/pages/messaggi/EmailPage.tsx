@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import EmailMessageList, {
   EMAIL_CATEGORIES,
   EMAIL_CATEGORY_UI,
@@ -26,6 +27,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   EMAIL_VIEWS,
+  emailBulkExclusionCopy,
   parseEmailMessageId,
   parseEmailView,
   type EmailMessage,
@@ -136,6 +138,9 @@ export default function EmailPage() {
   );
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [mailboxesOpen, setMailboxesOpen] = useState(false);
+  const [bulkExclusion, setBulkExclusion] = useState<
+    "spam" | "offerta_marketing" | null
+  >(null);
   const deferredSearch = useDeferredValue(search.trim());
 
   useEffect(() => {
@@ -275,6 +280,9 @@ export default function EmailPage() {
   };
   const resetPage = () => setPage(0);
   const selectedBatch = Array.from(selectedIds);
+  const bulkExclusionCopy = bulkExclusion
+    ? emailBulkExclusionCopy(bulkExclusion, selectedBatch.length)
+    : null;
   const runBulk = (
     update: { stato: "gestita" } | { categoria: "spam" | "offerta_marketing" }
   ) => {
@@ -662,8 +670,8 @@ export default function EmailPage() {
               )
             }
             onBulkClose={() => runBulk({ stato: "gestita" })}
-            onBulkSpam={() => runBulk({ categoria: "spam" })}
-            onBulkNewsletter={() => runBulk({ categoria: "offerta_marketing" })}
+            onBulkSpam={() => setBulkExclusion("spam")}
+            onBulkNewsletter={() => setBulkExclusion("offerta_marketing")}
             onRetry={() => rows.refetch()}
             onPreviousPage={() => setPage(current => Math.max(0, current - 1))}
             onNextPage={() => setPage(current => current + 1)}
@@ -754,6 +762,19 @@ export default function EmailPage() {
           </section>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={bulkExclusion != null}
+        onOpenChange={open => {
+          if (!open) setBulkExclusion(null);
+        }}
+        title={bulkExclusionCopy?.title ?? "Confermare esclusione?"}
+        description={bulkExclusionCopy?.description ?? ""}
+        confirmLabel={bulkExclusionCopy?.confirmLabel ?? "Conferma"}
+        onConfirm={() => {
+          if (bulkExclusion) runBulk({ categoria: bulkExclusion });
+          setBulkExclusion(null);
+        }}
+      />
     </div>
   );
 }

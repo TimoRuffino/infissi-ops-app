@@ -81,6 +81,29 @@ export type AllegatoRaw = {
   mimeType: string;
 };
 
+export function allegatoImapIndicizzato<
+  T extends {
+    filename?: string | null;
+    contentType?: string | null;
+    content: Buffer | Uint8Array;
+  },
+>(
+  allegatiImap: T[],
+  allegatiDichiarati: Array<{ nome: string }>,
+  allegatoIndex: number
+): T | null {
+  const nome = allegatiDichiarati[allegatoIndex]?.nome.toLowerCase();
+  if (!nome) return null;
+  const occorrenza = allegatiDichiarati
+    .slice(0, allegatoIndex + 1)
+    .filter(allegato => allegato.nome.toLowerCase() === nome).length - 1;
+  return (
+    allegatiImap.filter(
+      allegato => (allegato.filename ?? "").toLowerCase() === nome
+    )[occorrenza] ?? null
+  );
+}
+
 /** Legge i byte originali, preferendo lo storage durevole quando disponibile. */
 export async function leggiAllegatoRaw(
   comunicazione: Comunicazione,
@@ -216,9 +239,10 @@ async function leggiAllegatoRawDaCasella(
     }
 
     const parsed: any = await simpleParser(msg.source);
-    const allegato = (parsed.attachments ?? []).find(
-      (a: any) =>
-        (a.filename ?? "").toLowerCase() === dichiarato.nome.toLowerCase()
+    const allegato = allegatoImapIndicizzato(
+      parsed.attachments ?? [],
+      comunicazione.allegati,
+      allegatoIndex
     );
     if (!allegato) {
       throw new Error(

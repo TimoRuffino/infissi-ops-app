@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   restoredScrollTop,
+  initialThreadScrollTop,
   type WhatsAppConversation,
   type WhatsAppThread,
 } from "@/lib/messaggi";
@@ -19,7 +20,7 @@ import {
   Pencil,
   Save,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 function timestamp(value: Date | string): string {
@@ -43,15 +44,18 @@ export default function WhatsAppThread({
   mobile,
   onBack,
   onOpenContext,
+  onMessageIdsChange,
 }: {
   conversation: WhatsAppConversation;
   mobile: boolean;
   onBack: () => void;
   onOpenContext: () => void;
+  onMessageIdsChange: (ids: number[]) => void;
 }) {
   const utils = trpc.useUtils();
   const viewportRef = useRef<HTMLDivElement>(null);
   const pendingScrollRestore = useRef<{ top: number; height: number } | null>(null);
+  const initiallyScrolledKey = useRef<string | null>(null);
   const [before, setBefore] = useState<{ receivedAt: Date; id: number } | null>(null);
   const [nextBefore, setNextBefore] = useState<{ receivedAt: Date; id: number } | null>(null);
   const [hasOlder, setHasOlder] = useState(false);
@@ -107,19 +111,37 @@ export default function WhatsAppThread({
     setBefore(null);
   }, [older.data]);
 
+  const messages = useMemo(
+    () => [...olderMessages, ...(current.data?.messaggi ?? [])],
+    [current.data?.messaggi, olderMessages]
+  );
+  const messageIdsKey = messages.map(message => message.id).join(",");
+
+  useEffect(() => {
+    onMessageIdsChange(messages.map(message => message.id));
+  }, [conversation.key, messageIdsKey, onMessageIdsChange]);
+
   useLayoutEffect(() => {
     const snapshot = pendingScrollRestore.current;
     const viewport = viewportRef.current;
-    if (!snapshot || !viewport) return;
-    viewport.scrollTop = restoredScrollTop(
-      snapshot.top,
-      snapshot.height,
-      viewport.scrollHeight
-    );
-    pendingScrollRestore.current = null;
-  }, [olderMessages.length]);
-
-  const messages = [...olderMessages, ...(current.data?.messaggi ?? [])];
+    if (!viewport) return;
+    if (snapshot) {
+      viewport.scrollTop = restoredScrollTop(
+        snapshot.top,
+        snapshot.height,
+        viewport.scrollHeight
+      );
+      pendingScrollRestore.current = null;
+      return;
+    }
+    if (
+      current.data &&
+      initiallyScrolledKey.current !== conversation.key
+    ) {
+      viewport.scrollTop = initialThreadScrollTop(viewport.scrollHeight);
+      initiallyScrolledKey.current = conversation.key;
+    }
+  }, [conversation.key, current.data, olderMessages.length]);
   const loadOlder = () => {
     if (!hasOlder || !nextBefore || older.isFetching) return;
     const viewport = viewportRef.current;

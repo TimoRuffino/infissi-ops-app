@@ -156,9 +156,11 @@ export function normalizzaControparteWhatsApp(numero: string): string {
 }
 
 /** Rende letterali i wildcard di PostgreSQL prima di usarli in ILIKE. */
-export function escapeRicercaWhatsApp(ricerca: string): string {
+export function escapeRicercaSql(ricerca: string): string {
   return ricerca.replace(/[\\%_]/g, "\\$&");
 }
+
+export const escapeRicercaWhatsApp = escapeRicercaSql;
 
 type AliasConversazioneWhatsApp = {
   sedeId: number;
@@ -940,6 +942,7 @@ export async function listComunicazioni(
         r =>
           r.oggetto.toLowerCase().includes(q) ||
           r.mittente.toLowerCase().includes(q) ||
+          (r.mittenteNome ?? "").toLowerCase().includes(q) ||
           r.testo.toLowerCase().includes(q) ||
           (r.clienteId != null && ambito.clienteIds.includes(r.clienteId)) ||
           (r.commessaId != null && ambito.commessaIds.includes(r.commessaId))
@@ -982,7 +985,7 @@ export async function listComunicazioni(
   else if (!f.includiEscluse)
     conds.push(sql`categoria NOT IN ('offerta_marketing', 'spam')`);
   if (search) {
-    const like = `%${search}%`;
+    const like = `%${escapeRicercaSql(search)}%`;
     const collegamenti: any[] = [];
     if (ambito.clienteIds.length > 0)
       collegamenti.push(sql`cliente_id = ANY(${ambito.clienteIds}::integer[])`);
@@ -994,7 +997,7 @@ export async function listComunicazioni(
       ? collegamenti.reduce((a, b) => sql`${a} OR ${b}`)
       : sql`FALSE`;
     conds.push(
-      sql`(oggetto ILIKE ${like} OR mittente ILIKE ${like} OR testo ILIKE ${like} OR ${matchCollegamenti})`
+      sql`(oggetto ILIKE ${like} ESCAPE '\\' OR mittente ILIKE ${like} ESCAPE '\\' OR mittente_nome ILIKE ${like} ESCAPE '\\' OR testo ILIKE ${like} ESCAPE '\\' OR ${matchCollegamenti})`
     );
   }
   const where = conds.reduce((a, b) => sql`${a} AND ${b}`);
@@ -1569,6 +1572,75 @@ export async function rinominaConversazioneWhatsApp(input: {
   _aliasConversazioniWhatsApp.save();
 
   return getConversazioneWhatsApp(input.sedeId, input.casellaId, controparte);
+}
+
+export async function segnaConversazioneWhatsAppVista(input: {
+  sedeId: number;
+  casellaId: number;
+  controparte: string;
+}): Promise<number | null> {
+  const controparte = normalizzaControparteWhatsApp(input.controparte);
+  const conversazione = await getConversazioneWhatsApp(
+    input.sedeId,
+    input.casellaId,
+    controparte
+  );
+  if (!conversazione) return null;
+
+  if (!kvSql) {
+    let aggiornate = 0;
+    for (const messaggio of memRows) {
+      if (
+        messaggio.sedeId === input.sedeId &&
+        messaggio.canale === "whatsapp" &&
+        messaggio.casellaId === input.casellaId &&
+        messaggio.direzione === "in" &&
+        messaggio.stato === "nuova" &&
+        !messaggio.deletedAt &&
+        normalizzaControparteWhatsApp(messaggio.mittente) === controparte
+      ) {
+        messaggio.stato = "vista";
+        aggiornate += 1;
+      }
+    }
+    return aggiornate;
+  }
+
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    WITH estratti AS (
+      SELECT id, mittente, regexp_replace(mittente, '[^0-9]', '', 'g') AS cifre
+      FROM comunicazioni
+      WHERE sede_id = ${input.sedeId}
+        AND canale = 'whatsapp'
+        AND casella_id = ${input.casellaId}
+        AND direzione = 'in'
+        AND stato = 'nuova'
+        AND deleted_at IS NULL
+    ), normalizzati AS (
+      SELECT id, CASE
+        WHEN cifre = '' THEN btrim(mittente)
+        WHEN char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) < 10 THEN btrim(mittente)
+        ELSE '+' || CASE
+          WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) NOT LIKE '39%'
+            OR char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) <= 10
+          THEN CASE
+            WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '3%'
+              OR (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '0%'
+            THEN '39' || (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+            ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+          END
+          ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+        END
+      END AS controparte
+      FROM estratti
+    )
+    UPDATE comunicazioni AS c
+    SET stato = 'vista'
+    FROM normalizzati AS n
+    WHERE c.id = n.id AND n.controparte = ${controparte}
+    RETURNING c.id`;
+  return rows.length;
 }
 
 export async function getComunicazione(

@@ -18,7 +18,7 @@ import {
 } from "@/lib/messaggi";
 import { trpc } from "@/lib/trpc";
 import { AlertCircle, ArrowLeft, MessageCircle, RefreshCw } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 50;
 
@@ -38,6 +38,9 @@ export default function WhatsAppPage() {
   const [page, setPage] = useState(0);
   const [mobile, setMobile] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [loadedThread, setLoadedThread] = useState<{ key: string; ids: number[] }>({ key: "", ids: [] });
+  const lastViewedKey = useRef<string | null>(null);
+  const utils = trpc.useUtils();
   const conversations = trpc.mail.whatsapp.conversazioni.useQuery({
     search: deferredSearch.trim() || undefined,
     limit: PAGE_SIZE,
@@ -59,6 +62,39 @@ export default function WhatsAppPage() {
     { enabled: selected == null && selectedKeyParts != null, retry: false }
   );
   const selectedConversation = selected ?? selectedThread.data?.conversazione ?? null;
+  const communicationIds =
+    selectedConversation && loadedThread.key === selectedConversation.key
+      ? loadedThread.ids
+      : [];
+  const handleMessageIdsChange = useCallback(
+    (ids: number[]) => {
+      if (selectedConversation) {
+        setLoadedThread({ key: selectedConversation.key, ids });
+      }
+    },
+    [selectedConversation?.key]
+  );
+  const markViewed = trpc.mail.whatsapp.segnaVista.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.mail.whatsapp.conversazioni.invalidate(),
+        utils.mail.whatsapp.thread.invalidate(),
+      ]);
+    },
+  });
+
+  useEffect(() => {
+    if (!selectedConversation) {
+      lastViewedKey.current = null;
+      return;
+    }
+    if (lastViewedKey.current === selectedConversation.key) return;
+    lastViewedKey.current = selectedConversation.key;
+    markViewed.mutate({
+      casellaId: selectedConversation.casellaId,
+      controparte: selectedConversation.controparte,
+    });
+  }, [selectedConversation?.key]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1023px)");
@@ -140,7 +176,7 @@ export default function WhatsAppPage() {
           />
         )}
         {selectedConversation ? (
-          <WhatsAppThread conversation={selectedConversation} mobile={mobile} onBack={closeConversation} onOpenContext={() => setContextOpen(true)} />
+          <WhatsAppThread conversation={selectedConversation} mobile={mobile} onBack={closeConversation} onOpenContext={() => setContextOpen(true)} onMessageIdsChange={handleMessageIdsChange} />
         ) : selectionError ? (
           <div className="grid min-w-0 place-items-center border-l border-border-soft px-5 text-center" role="alert">
             <div className="max-w-sm">
@@ -166,7 +202,7 @@ export default function WhatsAppPage() {
             Seleziona una conversazione per leggere la cronologia.
           </div>
         )}
-        {selectedConversation && <div className="hidden min-h-0 border-l border-border-soft lg:block"><WhatsAppContextPanel conversation={selectedConversation} /></div>}
+        {selectedConversation && <div className="hidden min-h-0 border-l border-border-soft lg:block"><WhatsAppContextPanel conversation={selectedConversation} communicationIds={communicationIds} /></div>}
       </section>
 
       {selectedConversation && (
@@ -176,7 +212,7 @@ export default function WhatsAppPage() {
               <SheetTitle>Contesto conversazione</SheetTitle>
               <SheetDescription>{selectedConversation.nomeProfilo ?? selectedConversation.controparte}</SheetDescription>
             </SheetHeader>
-            <WhatsAppContextPanel conversation={selectedConversation} />
+            <WhatsAppContextPanel conversation={selectedConversation} communicationIds={communicationIds} />
           </SheetContent>
         </Sheet>
       )}

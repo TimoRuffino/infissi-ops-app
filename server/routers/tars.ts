@@ -86,6 +86,34 @@ function idrataProposta(p: any) {
   };
 }
 
+function propostaRiferitaAComunicazioni(
+  proposta: (typeof proposte)[number],
+  comunicazioneIds: Set<number>,
+  visitate = new Set<number>()
+): boolean {
+  if (visitate.has(proposta.id)) return false;
+  visitate.add(proposta.id);
+  const payloadId = Number(proposta.payload?.comunicazioneId);
+  if (Number.isSafeInteger(payloadId) && comunicazioneIds.has(payloadId)) {
+    return true;
+  }
+  const esecuzione = esecuzioni.find(
+    item => item.id === proposta.esecuzioneId && item.sedeId === proposta.sedeId
+  );
+  if (
+    esecuzione?.comunicazioneId != null &&
+    comunicazioneIds.has(esecuzione.comunicazioneId)
+  ) {
+    return true;
+  }
+  const origine = proposte.find(
+    item => item.id === proposta.origineId && item.sedeId === proposta.sedeId
+  );
+  return origine
+    ? propostaRiferitaAComunicazioni(origine, comunicazioneIds, visitate)
+    : false;
+}
+
 // Un messaggio della chat con le sue proposte al seguito, nello stato
 // corrente (approvata/rifiutata compare aggiornato, non congelato).
 function idrataMessaggio(m: MessaggioChat) {
@@ -393,6 +421,7 @@ ${input.testo.trim()}`;
               ])
               .optional(),
             commessaId: z.number().optional(),
+            comunicazioneIds: z.array(z.number().int().positive()).max(200).optional(),
           })
           .optional()
       )
@@ -401,6 +430,10 @@ ${input.testo.trim()}`;
         if (input?.stato) rows = rows.filter(p => p.stato === input.stato);
         if (input?.commessaId) {
           rows = rows.filter(p => p.commessaId === input.commessaId);
+        }
+        if (input?.comunicazioneIds) {
+          const ids = new Set(input.comunicazioneIds);
+          rows = rows.filter(p => propostaRiferitaAComunicazioni(p, ids));
         }
         return [...rows]
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

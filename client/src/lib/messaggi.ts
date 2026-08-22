@@ -104,6 +104,32 @@ export function restoredScrollTop(
   return previousTop + Math.max(0, nextHeight - previousHeight);
 }
 
+export function initialThreadScrollTop(scrollHeight: number): number {
+  return scrollHeight;
+}
+
+export function emailBulkExclusionCopy(
+  category: "spam" | "offerta_marketing",
+  count: number
+): { title: string; description: string; confirmLabel: string } {
+  const emailLabel = `${count} email`;
+  const description =
+    count === 1
+      ? "L'email selezionata verrà esclusa dalla coda operativa."
+      : `Le ${emailLabel} selezionate verranno escluse dalla coda operativa.`;
+  return category === "spam"
+    ? {
+        title: `Segnare ${emailLabel} come spam?`,
+        description,
+        confirmLabel: "Segna come spam",
+      }
+    : {
+        title: `Escludere ${emailLabel} come newsletter?`,
+        description,
+        confirmLabel: "Escludi newsletter",
+      };
+}
+
 export function whatsappConversationHref(key: string): string {
   const params = new URLSearchParams({ conversazione: key });
   return `/messaggi/whatsapp?${params.toString()}`;

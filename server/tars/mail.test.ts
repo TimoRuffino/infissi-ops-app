@@ -35,6 +35,27 @@ import {
 } from "./comunicazioni";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
+import { allegatoImapIndicizzato } from "./allegati";
+
+describe("allegati IMAP", () => {
+  it("risolve l'occorrenza indicizzata quando i nomi si ripetono", () => {
+    const dichiarati = [
+      { nome: "ordine.pdf" },
+      { nome: "foto.jpg" },
+      { nome: "ordine.pdf" },
+    ];
+    const primo = { filename: "ordine.pdf", content: Buffer.from("primo") };
+    const secondo = { filename: "ordine.pdf", content: Buffer.from("secondo") };
+
+    expect(
+      allegatoImapIndicizzato(
+        [primo, { filename: "foto.jpg", content: Buffer.alloc(0) }, secondo],
+        dichiarati,
+        2
+      )
+    ).toBe(secondo);
+  });
+});
 
 const CLIENTI = [
   { id: 1, nome: "Mario", cognome: "Rossi", email: "mario.rossi@example.com" },
@@ -745,6 +766,55 @@ describe("read model comunicazioni per canale", () => {
       const commessaIndex = commesse.findIndex(c => c.id === commessaId);
       if (commessaIndex >= 0) commesse.splice(commessaIndex, 1);
     }
+  });
+
+  it("cerca il nome mittente e tratta letteralmente i wildcard SQL", async () => {
+    const attesa = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "email-search-display-name",
+      canale: "email",
+      direzione: "in",
+      mittente: "opaque@example.com",
+      mittenteNome: "Cliente 100%_\\ Speciale",
+      destinatari: [],
+      oggetto: "Oggetto neutro",
+      testo: "Corpo neutro",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date("2026-08-22T15:30:00Z"),
+    });
+    await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "email-search-wildcard-rumore",
+      canale: "email",
+      direzione: "in",
+      mittente: "rumore@example.com",
+      mittenteNome: "Cliente 100XYZ Speciale",
+      destinatari: [],
+      oggetto: "Oggetto neutro",
+      testo: "Corpo neutro",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date("2026-08-22T15:31:00Z"),
+    });
+
+    await expect(
+      listComunicazioni({
+        sedeId: 1,
+        canale: "email",
+        search: "100%_\\",
+      })
+    ).resolves.toEqual([expect.objectContaining({ id: attesa!.id })]);
   });
 
   it("restituisce conteggi globali per allegati e collegamenti nel canale", async () => {

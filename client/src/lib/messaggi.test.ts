@@ -8,6 +8,8 @@ import {
   parseEmailView,
   parseWhatsAppConversationSelection,
   restoredScrollTop,
+  initialThreadScrollTop,
+  emailBulkExclusionCopy,
   sourceHref,
   whatsappConversationHref,
 } from "./messaggi";
@@ -81,8 +83,25 @@ describe("WhatsApp conversation navigation", () => {
 });
 
 describe("WhatsApp thread scroll", () => {
+  it("positions the initial thread at the newest message", () => {
+    expect(initialThreadScrollTop(1_260)).toBe(1_260);
+  });
+
   it("keeps the previous content anchored after older messages are prepended", () => {
     expect(restoredScrollTop(120, 1_000, 1_260)).toBe(380);
     expect(restoredScrollTop(120, 1_000, 980)).toBe(120);
+  });
+});
+
+describe("Email bulk exclusion", () => {
+  it("builds counted confirmation copy for spam and newsletter", () => {
+    expect(emailBulkExclusionCopy("spam", 3)).toEqual({
+      title: "Segnare 3 email come spam?",
+      description: "Le 3 email selezionate verranno escluse dalla coda operativa.",
+      confirmLabel: "Segna come spam",
+    });
+    expect(emailBulkExclusionCopy("offerta_marketing", 1).title).toBe(
+      "Escludere 1 email come newsletter?"
+    );
   });
 });
