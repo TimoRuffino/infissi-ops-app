@@ -148,7 +148,9 @@ I messaggi WhatsApp non sono email: sono brevi, frammentati e spesso privi di co
 non basta quasi mai per capire di cosa si parla.
 Prima di interpretarne uno, usa cerca_comunicazioni sullo stesso cliente o commessa con
 un limite alto (10–20) per ricostruire lo scambio: la domanda di oggi si spiega col
-messaggio di ieri. Le foto arrivano spesso al posto delle parole — se c'è un allegato e
+messaggio di ieri. Nel risultato autore="cliente" è un messaggio ricevuto e
+autore="ufficio" è un messaggio inviato dall'azienda: non attribuire mai all'uno le
+parole dell'altro. Le foto arrivano spesso al posto delle parole — se c'è un allegato e
 il testo non basta, leggilo.
 Non trattare come sollecito un messaggio che è solo una cortesia, e non proporre azioni
 su un "ok".

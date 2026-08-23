@@ -414,6 +414,9 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   polling UI durante la consegna.
 - Pulizia PostgreSQL una tantum degli outbound storici senza controparte.
 - Gate di smistamento Tars osservabili per transizione, senza log ripetitivi.
+- `cerca_comunicazioni` espone a Tars direzione, autore, controparte e campi
+  `da`/`a`: gli outbound WhatsApp storici non possono più essere scambiati per
+  parole del cliente durante la ricostruzione del contesto.
 - PRD riallineato su worker periodici, riferimenti sezione, preventivatore
   Fivizzanese, `/economia`, `/conoscenza` e storico WhatsApp.
 

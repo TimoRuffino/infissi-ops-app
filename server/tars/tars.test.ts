@@ -28,6 +28,7 @@ import {
 import { callOpenAI } from "./openai";
 import { openaiScript } from "./openaiTestHelpers";
 import { buildPromptCacheKey } from "./loop";
+import { deleteComunicazione, insertComunicazione } from "./comunicazioni";
 
 function makeCtx(): TrpcContext {
   return {
@@ -1170,6 +1171,79 @@ describe("tars — profili e cache operativa", () => {
     });
     expect(JSON.parse(seconda.content).cacheHit).toBe(true);
     expect(rt.toolCacheHits).toBe(1);
+  });
+
+  it("distingue cliente e ufficio nel contesto WhatsApp restituito a Tars", async () => {
+    const marker = "contesto-direzione-wa-999201";
+    const base = {
+      sedeId: 1,
+      casellaId: 999_201,
+      canale: "whatsapp" as const,
+      mittente: "+393331112222",
+      mittenteNome: "Cliente Contesto",
+      destinatari: ["+390187872687"],
+      oggetto: "",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna" as const,
+      matchMotivo: null,
+      stato: "gestita" as const,
+      tarsAnalizzata: true,
+    };
+    const ricevuto = await insertComunicazione({
+      ...base,
+      messageId: `${marker}-in`,
+      direzione: "in",
+      testo: `${marker} richiesta del cliente`,
+      receivedAt: new Date("2026-08-18T09:00:00Z"),
+    });
+    const inviato = await insertComunicazione({
+      ...base,
+      messageId: `${marker}-out`,
+      direzione: "out",
+      testo: `${marker} risposta dell'ufficio`,
+      receivedAt: new Date("2026-08-18T09:01:00Z"),
+    });
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_201,
+      trigger: "on_demand",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+    };
+
+    try {
+      const result = await eseguiStrumento(rt, "cerca_comunicazioni", {
+        canale: "whatsapp",
+        query: marker,
+        limite: 10,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse(result.content)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            direzione: "in",
+            autore: "cliente",
+            da: "Cliente Contesto <+393331112222>",
+            a: "Ufficio Ruffino",
+            testo: expect.stringContaining("richiesta del cliente"),
+          }),
+          expect.objectContaining({
+            direzione: "out",
+            autore: "ufficio",
+            da: "Ufficio Ruffino",
+            a: "Cliente Contesto <+393331112222>",
+            testo: expect.stringContaining("risposta dell'ufficio"),
+          }),
+        ])
+      );
+    } finally {
+      if (ricevuto) await deleteComunicazione(ricevuto.id, 1);
+      if (inviato) await deleteComunicazione(inviato.id, 1);
+    }
   });
 
   it("abilita la cache automatica sul prefisso crescente dei messaggi", async () => {

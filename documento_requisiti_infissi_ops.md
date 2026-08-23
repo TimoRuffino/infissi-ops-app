@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/08/2026).
-**Versione:** 4.15 - Il ricollegamento WhatsApp riusa automaticamente la casella storica dello stesso numero aziendale, mantenendo unite le chat gia presenti e i messaggi futuri.
+**Versione:** 4.16 - Il contesto comunicazioni di Tars distingue esplicitamente messaggi ricevuti dal cliente e inviati dall'ufficio, compreso lo storico WhatsApp precedente al collegamento.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -835,6 +835,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.16 (23/08/2026)** - Il tool `cerca_comunicazioni` espone direzione, autore, controparte, mittente e destinatario; il prompt obbliga Tars a distinguere cliente e ufficio anche nello storico WhatsApp outbound (§50.3, §51.8).
 - **v4.15 (23/08/2026)** - Embedded Signup riconosce la casella WhatsApp storica dal numero aziendale salvato nei destinatari e ne riusa l'id interno dopo uno scollegamento, preservando conversazioni, alias e collegamenti (§51.7-51.8).
 - **v4.14 (23/08/2026)** - Corretto lo storico WhatsApp outbound usando `history[].threads[].id`; richiesta, progresso e completamento della sincronizzazione sono stati separati e resi visibili in UI. I record outbound legacy senza controparte vengono eliminati una tantum per consentire una reimportazione corretta. I gate dello smistamento Tars producono log solo sulle transizioni di blocco/ripresa (§50.7, §51.7-51.9).
 - **v4.13 (22/08/2026)** - `/tars` diventa Command Center con vista Oggi, ranking deterministico, prove, proposte, analisi, chat e registro; il brief non chiama OpenAI e non consuma token all'apertura. La configurazione WhatsApp espone diagnostica privacy-safe per `smb_message_echoes` e duplicati (§50.9, §51.4-51.7).
@@ -1231,6 +1232,12 @@ L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. O
 Tars DEVE poter incrociare anagrafiche, commesse, cantiere, economia, comunicazioni, inventario, produzione, qualità e storico delle proprie decisioni. `leggi_quadro_azienda` restituisce una sintesi compatta della sede con KPI, pratiche ferme, scadenze, anomalie e qualità decisionale dell'agente. Gli strumenti verticali permettono di approfondire contenuto documentale, produzione e qualità.
 
 L'accesso ampio non costituisce un bypass: ogni lettura usa il `ctx` applicativo, rimane sede-scoped e rispetta il ruolo. `leggi_organizzazione` e i dati economici richiedono la direzione; credenziali, token e segreti non sono mai restituiti. Il contenuto dei documenti è marcato come fonte esterna non fidata.
+
+`cerca_comunicazioni` restituisce per ogni email o messaggio WhatsApp la
+`direzione` (`in`/`out`), l'`autore` (`cliente`/`ufficio`), la controparte e i
+campi leggibili `da`/`a`. Tars DEVE usare questi attributi quando ricostruisce
+uno scambio e non può attribuire al cliente un testo scritto dall'ufficio. Lo
+stesso contratto vale per gli outbound storici importati dalla coexistence.
 
 ### 50.4 Fascicolo commessa
 `leggi_fascicolo_commessa` raccoglie in parallelo dati commessa, timeline, documenti e doc gate, ordini fornitori, magazzino, ticket, interventi e garanzie, restituendo soltanto i campi utili al ragionamento.
