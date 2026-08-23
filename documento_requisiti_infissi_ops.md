@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/08/2026).
-**Versione:** 4.14 - Lo storico WhatsApp usa `thread.id` come controparte canonica, distingue richiesta, avanzamento e completamento, rifiuta messaggi senza conversazione determinabile e ripulisce una tantum gli outbound legacy malformati. I gate automatici di Tars sono osservabili senza log ripetitivi.
+**Versione:** 4.15 - Il ricollegamento WhatsApp riusa automaticamente la casella storica dello stesso numero aziendale, mantenendo unite le chat gia presenti e i messaggi futuri.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -835,6 +835,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.15 (23/08/2026)** - Embedded Signup riconosce la casella WhatsApp storica dal numero aziendale salvato nei destinatari e ne riusa l'id interno dopo uno scollegamento, preservando conversazioni, alias e collegamenti (§51.7-51.8).
 - **v4.14 (23/08/2026)** - Corretto lo storico WhatsApp outbound usando `history[].threads[].id`; richiesta, progresso e completamento della sincronizzazione sono stati separati e resi visibili in UI. I record outbound legacy senza controparte vengono eliminati una tantum per consentire una reimportazione corretta. I gate dello smistamento Tars producono log solo sulle transizioni di blocco/ripresa (§50.7, §51.7-51.9).
 - **v4.13 (22/08/2026)** - `/tars` diventa Command Center con vista Oggi, ranking deterministico, prove, proposte, analisi, chat e registro; il brief non chiama OpenAI e non consuma token all'apertura. La configurazione WhatsApp espone diagnostica privacy-safe per `smb_message_echoes` e duplicati (§50.9, §51.4-51.7).
 - **v4.12 (19/08/2026)** - L'analisi commessa non chiude più in silenzio: proposta, domanda con opzioni oppure `nessuna_azione` motivata che nomina i fatti verificati. Il server rifiuta la chiusura muta su `on_demand`; i trigger automatici restano liberi (§50.8).
@@ -1391,6 +1392,12 @@ messaggi o media, nessuna modifica alla fonte WhatsApp. Su desktop la lista e
 il dettaglio usano colonne con `min-width: 0`; su mobile si mostra una vista
 alla volta. Nessun testo, numero o allegato deve introdurre scroll orizzontale
 di pagina.
+
+Scollegare il numero dal CRM non elimina le comunicazioni gia importate. Un
+nuovo Embedded Signup dello stesso numero aziendale DEVE recuperare la casella
+storica tramite i destinatari dei messaggi e riutilizzarne l'id interno, cosi
+che messaggi nuovi, storico, alias e collegamenti continuino nella stessa
+conversazione invece di creare una seconda chat.
 
 La configurazione WhatsApp DEVE mostrare una diagnostica webhook priva di dati
 cliente: ultimo evento/campo, ultimo `smb_message_echoes`, quantità di eventi

@@ -346,6 +346,11 @@ priorita cliente CRM, alias dell'operatore, profilo Meta, numero normalizzato.
 L'alias e persistito per sede, account e numero e non puo sovrascrivere un nome
 CRM.
 
+Scollegare una configurazione WhatsApp non elimina le chat. Quando lo stesso
+numero aziendale viene ricollegato con Embedded Signup, il server riconosce la
+vecchia casella dai destinatari dei messaggi e ne riusa l'id interno. In questo
+modo storico, alias e collegamenti non vengono separati dai nuovi messaggi.
+
 Il workspace WhatsApp e di sola lettura: non invia messaggi ne media. Media e
 allegati mostrano metadati ispezionabili; l'eventuale download resta vincolato
 alla fonte e alle integrazioni future. Email mantiene invece il lettore e le
@@ -403,6 +408,8 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 
 - Parser storico WhatsApp allineato a `thread.id`, con test su outbound senza
   `to` e rifiuto delle conversazioni non determinabili.
+- Ricollegamento WhatsApp allineato alla casella storica dello stesso numero,
+  senza duplicare o separare le conversazioni gia presenti.
 - Stato sync separato in richiesto, ultimo evento, progresso e completato;
   polling UI durante la consegna.
 - Pulizia PostgreSQL una tantum degli outbound storici senza controparte.

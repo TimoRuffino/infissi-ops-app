@@ -872,6 +872,81 @@ export async function deleteComunicazioniByCasella(
   return rows.length;
 }
 
+/**
+ * Recupera l'id della vecchia configurazione WhatsApp dal numero aziendale
+ * salvato nei destinatari. La configurazione puo essere stata eliminata,
+ * mentre le chat restano intenzionalmente nel CRM.
+ */
+export async function trovaCasellaWhatsAppStorica(input: {
+  sedeId: number;
+  numeroAccount: string;
+  escludiCasellaIds?: number[];
+}): Promise<number | null> {
+  const numeroAccount = normalizzaTelefono(input.numeroAccount);
+  if (!numeroAccount) return null;
+  const escluse = new Set(input.escludiCasellaIds ?? []);
+
+  if (!kvSql) {
+    return (
+      memRows
+        .filter(
+          r =>
+            r.sedeId === input.sedeId &&
+            r.canale === "whatsapp" &&
+            !r.deletedAt &&
+            !escluse.has(r.casellaId) &&
+            r.destinatari.some(
+              destinatario =>
+                normalizzaTelefono(destinatario) === numeroAccount
+            )
+        )
+        .sort(confrontaMessaggiRecenti)[0]?.casellaId ?? null
+    );
+  }
+
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT casella_id, destinatari, MAX(received_at) AS ultimo_messaggio_at
+    FROM comunicazioni
+    WHERE sede_id = ${input.sedeId}
+      AND canale = 'whatsapp'
+      AND deleted_at IS NULL
+    GROUP BY casella_id, destinatari
+    ORDER BY ultimo_messaggio_at DESC`;
+  for (const row of rows) {
+    const casellaId = Number(row.casella_id);
+    if (escluse.has(casellaId)) continue;
+    const destinatari = Array.isArray(row.destinatari) ? row.destinatari : [];
+    if (
+      destinatari.some(
+        (destinatario: unknown) =>
+          typeof destinatario === "string" &&
+          normalizzaTelefono(destinatario) === numeroAccount
+      )
+    ) {
+      return casellaId;
+    }
+  }
+  return null;
+}
+
+/** Evita che una nuova configurazione riusi l'id di chat ancora archiviate. */
+export async function massimoCasellaIdWhatsApp(): Promise<number> {
+  if (!kvSql) {
+    return memRows.reduce(
+      (massimo, r) =>
+        r.canale === "whatsapp" ? Math.max(massimo, r.casellaId) : massimo,
+      0
+    );
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT COALESCE(MAX(casella_id), 0) AS massimo
+    FROM comunicazioni
+    WHERE canale = 'whatsapp'`;
+  return Number(rows[0]?.massimo ?? 0);
+}
+
 // ── Lettura ─────────────────────────────────────────────────────────────────
 
 export type FiltroComunicazioni = {

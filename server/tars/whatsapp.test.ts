@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { matchComunicazione } from "./match";
 import { normalizzaTelefono, stessoNumero } from "@shared/telefono";
 import {
+  completaOnboarding,
   configWhatsApp,
   getAppWhatsApp,
   ingestisciWebhook,
@@ -20,6 +21,7 @@ import {
 import {
   insertComunicazione,
   listComunicazioni,
+  listConversazioniWhatsApp,
   pulisciWhatsappOutboundSenzaControparte,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
@@ -717,6 +719,197 @@ describe("coexistence: echo e storico", () => {
       ],
     };
     expect(await ingestisciWebhook(payload)).toBe(0);
+  });
+});
+
+describe("ricollegamento coexistence", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const preparaMeta = (dati: {
+    phoneNumberId: string;
+    numero: string;
+    wabaId?: string;
+  }) => {
+    process.env.MAIL_ENCRYPTION_KEY = "chiave-di-test";
+    const app = getAppWhatsApp(1);
+    app.appId = "APP-1";
+    app.appSecretCifrato = proteggiSegreto("app-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: string | URL, init?: RequestInit) => {
+        const url = String(request);
+        if (url.includes("/oauth/access_token")) {
+          return Response.json({ access_token: "token-ricollegato" });
+        }
+        if (url.includes("/subscribed_apps")) {
+          return Response.json({ success: true });
+        }
+        if (url.includes("/phone_numbers")) {
+          return Response.json({
+            data: [
+              {
+                id: dati.phoneNumberId,
+                display_phone_number: dati.numero,
+                verified_name: "Ruffino Group",
+              },
+            ],
+          });
+        }
+        if (url.includes("/smb_app_data") && init?.method === "POST") {
+          return Response.json({ request_id: "SYNC-1" });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    return {
+      code: "codice-embedded-signup-valido",
+      wabaId: dati.wabaId ?? "WABA-RICOLLEGATA",
+      phoneNumberId: dati.phoneNumberId,
+      sedeId: 1,
+    };
+  };
+
+  const inserisciChatStorica = () =>
+    insertComunicazione({
+      sedeId: 1,
+      casellaId: 991,
+      messageId: "wamid.PRIMA-DEL-RICOLLEGAMENTO",
+      uid: null,
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "393401234567",
+      mittenteNome: "Mario Rossi",
+      destinatari: ["+39 0187 872687"],
+      oggetto: "",
+      testo: "Messaggio gia presente nel CRM",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "vista",
+      tarsAnalizzata: true,
+      receivedAt: new Date("2026-08-22T10:00:00Z"),
+    });
+
+  it("non assegna a un numero nuovo l'id di una casella storica", async () => {
+    _resetComunicazioniInMemoria();
+    configWhatsApp.length = 0;
+    await inserisciChatStorica();
+    const params = preparaMeta({
+      phoneNumberId: "PHONE-NUOVO",
+      numero: "+39 0187 000000",
+    });
+
+    const config = await completaOnboarding(params);
+
+    expect(config.id).toBeGreaterThan(991);
+  });
+
+  it("riusa la casella storica quando il numero viene ricollegato", async () => {
+    _resetComunicazioniInMemoria();
+    configWhatsApp.length = 0;
+    await inserisciChatStorica();
+    const params = preparaMeta({
+      phoneNumberId: "PHONE-RICOLLEGATO",
+      numero: "+39 0187 872687",
+    });
+
+    const config = await completaOnboarding(params);
+
+    expect(config.id).toBe(991);
+    expect(
+      await ingestisciWebhook({
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  metadata: { phone_number_id: "PHONE-RICOLLEGATO" },
+                  messages: [
+                    {
+                      id: "wamid.DOPO-IL-RICOLLEGAMENTO",
+                      from: "393401234567",
+                      timestamp: "1786000200",
+                      type: "text",
+                      text: { body: "Nuovo messaggio dopo il QR" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      })
+    ).toBe(1);
+    const conversazioni = await listConversazioniWhatsApp({ sedeId: 1 });
+    expect(conversazioni).toHaveLength(1);
+    expect(conversazioni[0]).toMatchObject({
+      casellaId: 991,
+      totaleMessaggi: 2,
+    });
+  });
+
+  it("non modifica una configurazione appartenente a un'altra sede", async () => {
+    _resetComunicazioniInMemoria();
+    configWhatsApp.length = 0;
+    const tokenPrecedente = proteggiSegreto("token-sede-due");
+    configWhatsApp.push({
+      id: 77,
+      sedeId: 2,
+      nome: "Numero sede due",
+      numero: "+39 0187 872687",
+      phoneNumberId: "PHONE-CON-DUE-SEDI",
+      wabaId: "WABA-SEDE-DUE",
+      tokenCifrato: tokenPrecedente,
+      appSecretCifrato: "",
+      verifyToken: "verify-sede-due",
+      attiva: true,
+      ultimoMessaggio: null,
+      messaggiRicevuti: 0,
+      ultimoErrore: null,
+      onboardingAt: new Date("2026-08-20T10:00:00Z"),
+      storicoRichiestoAt: null,
+      storicoUltimoEventoAt: null,
+      storicoProgresso: null,
+      storicoCompletatoAt: null,
+      storicoSincronizzato: null,
+      createdAt: new Date("2026-08-20T10:00:00Z"),
+      updatedAt: new Date("2026-08-20T10:00:00Z"),
+    });
+    const params = preparaMeta({
+      phoneNumberId: "PHONE-CON-DUE-SEDI",
+      numero: "+39 0187 872687",
+    });
+
+    await expect(completaOnboarding(params)).rejects.toThrow(
+      "Numero WhatsApp non disponibile per questa sede."
+    );
+    expect(configWhatsApp[0].tokenCifrato).toBe(tokenPrecedente);
+    expect(configWhatsApp[0].wabaId).toBe("WABA-SEDE-DUE");
+  });
+
+  it("serializza due riconnessioni contemporanee dello stesso numero", async () => {
+    _resetComunicazioniInMemoria();
+    configWhatsApp.length = 0;
+    await inserisciChatStorica();
+    const params = preparaMeta({
+      phoneNumberId: "PHONE-CONCORRENTE",
+      numero: "+39 0187 872687",
+    });
+
+    const [prima, seconda] = await Promise.all([
+      completaOnboarding(params),
+      completaOnboarding(params),
+    ]);
+
+    expect(prima.id).toBe(991);
+    expect(seconda.id).toBe(991);
+    expect(
+      configWhatsApp.filter(c => c.phoneNumberId === "PHONE-CONCORRENTE")
+    ).toHaveLength(1);
   });
 });
 

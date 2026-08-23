@@ -19,6 +19,8 @@ import { decryptSecret, encryptSecret, isEncrypted } from "../_core/secretBox";
 import { normalizzaTelefono } from "@shared/telefono";
 import {
   insertComunicazione,
+  massimoCasellaIdWhatsApp,
+  trovaCasellaWhatsAppStorica,
   type Allegato,
   type NuovaComunicazione,
 } from "./comunicazioni";
@@ -104,6 +106,22 @@ function diagnosticaWebhook(c: ConfigWhatsApp): DiagnosticaWebhookWhatsApp {
 }
 
 let nextId = 1;
+let codaConfigurazione: Promise<void> = Promise.resolve();
+
+async function conBloccoConfigurazione<T>(fn: () => Promise<T>): Promise<T> {
+  const precedente = codaConfigurazione;
+  let sblocca!: () => void;
+  codaConfigurazione = new Promise<void>(resolve => {
+    sblocca = resolve;
+  });
+  await precedente;
+  try {
+    return await fn();
+  } finally {
+    sblocca();
+  }
+}
+
 const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
   nextId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
   for (const c of items) {
@@ -215,7 +233,20 @@ export function appPubblica(sedeId: number | null) {
 
 export const configWhatsApp = _store.items;
 export const saveConfigWhatsApp = () => _store.save();
-export const newConfigWhatsAppId = () => nextId++;
+export const newConfigWhatsAppId = (
+  preferito?: number,
+  massimoStorico = 0
+) => {
+  nextId = Math.max(nextId, massimoStorico + 1);
+  if (preferito != null && Number.isInteger(preferito) && preferito > 0) {
+    if (configWhatsApp.some(c => c.id === preferito)) {
+      throw new Error("Identificativo configurazione WhatsApp gia in uso.");
+    }
+    nextId = Math.max(nextId, preferito + 1);
+    return preferito;
+  }
+  return nextId++;
+};
 
 export function proteggiSegreto(plain: string): string {
   return isEncrypted(plain) ? plain : encryptSecret(plain);
@@ -434,53 +465,70 @@ export async function completaOnboarding(params: {
   const numero =
     numeri.find((n) => n.id === params.phoneNumberId) ?? numeri[0];
 
-  let config = configWhatsApp.find((c) => c.phoneNumberId === numero.id);
   const now = new Date();
-  if (!config) {
-    config = {
-      id: newConfigWhatsAppId(),
-      sedeId: params.sedeId,
-      nome: params.nome?.trim() || numero.verified_name || "Numero aziendale",
-      numero: numero.display_phone_number ?? "",
-      phoneNumberId: numero.id,
-      wabaId: params.wabaId,
-      tokenCifrato: encryptSecret(token),
-      // La firma dei webhook si verifica con l'app secret a livello di app.
-      appSecretCifrato: "",
-      // Il verify token serve comunque: l'handshake GET del callback lo
-      // confronta con quelli configurati, e senza nessun valore Meta non
-      // riesce a validare l'URL. Se ne genera uno da copiare sulla
-      // configurazione webhook dell'app.
-      verifyToken: nuovoVerifyToken(),
-      attiva: true,
-      ultimoMessaggio: null,
-      messaggiRicevuti: 0,
-      ultimoErrore: null,
-      onboardingAt: now,
-      storicoRichiestoAt: null,
-      storicoUltimoEventoAt: null,
-      storicoProgresso: null,
-      storicoCompletatoAt: null,
-      storicoSincronizzato: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    configWhatsApp.push(config);
-  } else {
-    config.wabaId = params.wabaId;
-    config.tokenCifrato = encryptSecret(token);
-    config.numero = numero.display_phone_number ?? config.numero;
-    config.attiva = true;
-    config.onboardingAt = now;
-    config.storicoRichiestoAt = null;
-    config.storicoUltimoEventoAt = null;
-    config.storicoProgresso = null;
-    config.storicoCompletatoAt = null;
-    config.storicoSincronizzato = null;
-    config.ultimoErrore = null;
-    config.updatedAt = now;
-  }
-  saveConfigWhatsApp();
+  const config = await conBloccoConfigurazione(async () => {
+    const configurazioneAltraSede = configWhatsApp.find(
+      c => c.phoneNumberId === numero.id && c.sedeId !== params.sedeId
+    );
+    if (configurazioneAltraSede) {
+      throw new Error("Numero WhatsApp non disponibile per questa sede.");
+    }
+
+    let corrente = configWhatsApp.find(
+      c => c.phoneNumberId === numero.id && c.sedeId === params.sedeId
+    );
+    if (!corrente) {
+      const [casellaStorica, massimoStorico] = await Promise.all([
+        trovaCasellaWhatsAppStorica({
+          sedeId: params.sedeId,
+          numeroAccount: numero.display_phone_number ?? "",
+          escludiCasellaIds: configWhatsApp.map(c => c.id),
+        }),
+        massimoCasellaIdWhatsApp(),
+      ]);
+      corrente = {
+        id: newConfigWhatsAppId(casellaStorica ?? undefined, massimoStorico),
+        sedeId: params.sedeId,
+        nome:
+          params.nome?.trim() || numero.verified_name || "Numero aziendale",
+        numero: numero.display_phone_number ?? "",
+        phoneNumberId: numero.id,
+        wabaId: params.wabaId,
+        tokenCifrato: encryptSecret(token),
+        // La firma dei webhook si verifica con l'app secret a livello di app.
+        appSecretCifrato: "",
+        verifyToken: nuovoVerifyToken(),
+        attiva: true,
+        ultimoMessaggio: null,
+        messaggiRicevuti: 0,
+        ultimoErrore: null,
+        onboardingAt: now,
+        storicoRichiestoAt: null,
+        storicoUltimoEventoAt: null,
+        storicoProgresso: null,
+        storicoCompletatoAt: null,
+        storicoSincronizzato: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      configWhatsApp.push(corrente);
+    } else {
+      corrente.wabaId = params.wabaId;
+      corrente.tokenCifrato = encryptSecret(token);
+      corrente.numero = numero.display_phone_number ?? corrente.numero;
+      corrente.attiva = true;
+      corrente.onboardingAt = now;
+      corrente.storicoRichiestoAt = null;
+      corrente.storicoUltimoEventoAt = null;
+      corrente.storicoProgresso = null;
+      corrente.storicoCompletatoAt = null;
+      corrente.storicoSincronizzato = null;
+      corrente.ultimoErrore = null;
+      corrente.updatedAt = now;
+    }
+    saveConfigWhatsApp();
+    return corrente;
+  });
 
   // Le 24 ore partono adesso: non si aspetta un'azione umana.
   void sincronizzaStorico(config).catch(() => {});

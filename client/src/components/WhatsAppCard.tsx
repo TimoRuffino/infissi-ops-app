@@ -916,7 +916,7 @@ export default function WhatsAppCard() {
         open={daEliminare !== null}
         onOpenChange={(o: boolean) => !o && setDaEliminare(null)}
         title="Scollegare il numero?"
-        description={`«${daEliminare?.nome}» non riceverà più messaggi nel CRM. Quelli già arrivati restano, e su WhatsApp non cambia nulla.`}
+        description={`«${daEliminare?.nome}» non riceverà più messaggi nel CRM. Quelli già arrivati restano e, ricollegando lo stesso numero, torneranno nella stessa chat. Su WhatsApp non cambia nulla.`}
         confirmLabel="Scollega"
         onConfirm={() =>
           daEliminare &&

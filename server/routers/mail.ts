@@ -46,6 +46,7 @@ import {
   getThreadWhatsApp,
   listComunicazioni,
   listConversazioniWhatsApp,
+  massimoCasellaIdWhatsApp,
   rinominaConversazioneWhatsApp,
   segnaConversazioneWhatsAppVista,
   segnaTutteViste,
@@ -514,7 +515,7 @@ export const mailRouter = router({
           verifyToken: z.string().min(8).max(200),
         })
       )
-      .mutation(({ input, ctx }) => {
+      .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
         const phoneNumberId = input.phoneNumberId?.trim() ?? "";
         if (
@@ -528,8 +529,9 @@ export const mailRouter = router({
         }
         if (input.token || input.appSecret) assertChiaveCifratura();
         const now = new Date();
+        const massimoStorico = await massimoCasellaIdWhatsApp();
         const config: ConfigWhatsApp = {
-          id: newConfigWhatsAppId(),
+          id: newConfigWhatsAppId(undefined, massimoStorico),
           sedeId: ctx.sedeId ?? 1,
           nome: input.nome.trim(),
           numero: input.numero?.trim() ?? "",
