@@ -3,9 +3,9 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 22/08/2026<br>
-**Base Git descritta:** `main` a `0f96acf` (Command Center Tars e diagnostica
-WhatsApp pubblicati)<br>
+**Aggiornato:** 23/08/2026<br>
+**Base Git descritta:** `main` a `b8eea4f` (correzione storico WhatsApp, stato
+sync reale e osservabilità dei gate Tars)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -271,6 +271,11 @@ mail nel lotto, la comunicazione resta visibile e non analizzata. Una risposta
 incompleta viene ritentata dopo un minuto; un errore API dopo la pausa di sicurezza
 di 15 minuti. Il filtro fallisce in apertura, mai nascondendo messaggi.
 
+I tre gate automatici (`disattivato`, chiave OpenAI mancante, budget esaurito)
+producono un warning quando cambia la causa del blocco e un log quando il
+worker riparte. Lo stesso stato non viene ripetuto a ogni recupero minuto per
+minuto; la coda resta sempre conservata.
+
 Una richiesta di preventivo, sopralluogo o contatto commerciale concreto ha
 precedenza su header spam, segnali newsletter e regole persistenti del mittente.
 Se porta lavoro rimane visibile come `nuovo_lead` (o `operativa` per un cliente
@@ -356,6 +361,22 @@ id. Serve a distinguere con certezza «Meta non ha consegnato l'echo» da
 «l'echo è arrivato ma era già presente». Il parser gestisce `messages`,
 `history` e `value.message_echoes` sotto il campo `smb_message_echoes`.
 
+Per lo storico coexistence la controparte canonica è
+`history[].threads[].id`: i messaggi outbound storici non dipendono più da un
+campo `to` che Meta riserva agli echo. Gli echo live continuano a usare
+`to`/`recipient_id`; un messaggio senza controparte normalizzabile viene
+rifiutato senza loggare id, numero o contenuto. La richiesta accettata da Meta
+imposta `storicoRichiestoAt`, i webhook aggiornano progresso e ultimo evento,
+e soltanto il progresso 100 imposta il completamento. La card aggiorna lo stato
+ogni 5 secondi mentre la consegna è in corso.
+
+Al primo boot PostgreSQL dopo il deploy, la migrazione
+`pulizia_whatsapp_outbound_senza_controparte_v1` elimina fisicamente soltanto
+gli outbound WhatsApp legacy con `mittente` vuoto. È intenzionale: libera i
+`message_id` che altrimenti bloccherebbero la reimportazione corretta. Dopo il
+deploy va verificato il conteggio nel log e solo allora rifatto l'onboarding
+coexistence per richiedere nuovamente lo storico.
+
 Le suite locali esercitano il fallback in memoria quando manca `DATABASE_URL`;
 non dimostrano le query PostgreSQL, le configurazioni dei canali o i dati di
 Railway. Prima del deploy verificare le route e i deep link, l'accesso
@@ -377,6 +398,17 @@ verso Railway e stato eseguito da questa modifica documentale.
 - `.env.example` aggiornato senza valori sensibili.
 
 Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
+
+### Correzioni code-complete del 23/08/2026
+
+- Parser storico WhatsApp allineato a `thread.id`, con test su outbound senza
+  `to` e rifiuto delle conversazioni non determinabili.
+- Stato sync separato in richiesto, ultimo evento, progresso e completato;
+  polling UI durante la consegna.
+- Pulizia PostgreSQL una tantum degli outbound storici senza controparte.
+- Gate di smistamento Tars osservabili per transizione, senza log ripetitivi.
+- PRD riallineato su worker periodici, riferimenti sezione, preventivatore
+  Fivizzanese, `/economia`, `/conoscenza` e storico WhatsApp.
 
 ## 8. Sicurezza e credenziali
 
@@ -457,7 +489,9 @@ pnpm storage:dry-run
 2. Rotazione credenziali esterne e decisione sul purge Git history.
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
-5. Impostazione di `OPENAI_API_KEY`, QA su dati reali dopo il deploy e
-   monitoraggio errori, latenza, cache e costi Tars.
+5. QA di `OPENAI_API_KEY` su dati reali dopo il deploy e monitoraggio errori,
+   latenza, cache e costi Tars.
 6. Context engine Tars persistente e incrementale per cliente/commessa, con
    fingerprint, coda eventi e fascicoli separati per visibility scope.
+7. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
+   per reimportare lo storico outbound con la controparte corretta.

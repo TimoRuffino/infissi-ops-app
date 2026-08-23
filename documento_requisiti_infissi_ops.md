@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (22/08/2026).
-**Versione:** 4.13 - Tars apre su un Command Center deterministico con brief, priorità, prove e metriche senza consumo token all'apertura; la configurazione WhatsApp distingue eventi echo mai consegnati da duplicati già registrati. Base v4.12 - L'analisi di una commessa chiude sempre con una proposta, una domanda o un referto motivato.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/08/2026).
+**Versione:** 4.14 - Lo storico WhatsApp usa `thread.id` come controparte canonica, distingue richiesta, avanzamento e completamento, rifiuta messaggi senza conversazione determinabile e ripulisce una tantum gli outbound legacy malformati. I gate automatici di Tars sono osservabili senza log ripetitivi.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri‑armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), watcher IMAP (ogni 60 s) e recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
@@ -188,7 +188,7 @@ Operativi:
 - **assegnatoA** (FK utente). Modificabile dalla scheda commessa.
 - **createdBy** (FK utente).
 - **createdAt**, **updatedAt**.
-- **archivedAt**: timestamp ISO; `null` finché la commessa non è in soft‑archive (vedi §24).
+- **archivedAt**: timestamp ISO; `null` finché la commessa non è in soft‑archive (vedi §22).
 
 ### 6.3 Consegna indicativa — selezione
 La UI offre quattro opzioni nel select **Consegna indicativa**:
@@ -219,7 +219,7 @@ Quando una commessa entra nello stato `produzione`:
 - Nell'header sono visibili pill: indirizzo, telefono, email, **Assegnata a: Nome** (lookup utente).
 
 ### 6.6 Eliminazione vs Archiviazione
-- **Archivia** — operazione consigliata se il cliente non procede. Non distrugge nulla (vedi §24).
+- **Archivia** — operazione consigliata se il cliente non procede. Non distrugge nulla (vedi §22).
 - **Elimina** — operazione distruttiva. Conferma esplicita. Dovrebbe essere usata solo per errori di inserimento.
 
 ### 6.7 Lista commesse
@@ -252,7 +252,7 @@ Ordine canonico (`STATI_COMMESSA`):
 - Stato `archiviata` raggiungibile solo dal predecessore `interventi_regolazioni`.
 
 ### 7.3 Soft‑archive (orthogonal)
-- `archivedAt` è ortogonale a `stato`. Una commessa può essere soft‑archiviata in qualsiasi stato (vedi §24).
+- `archivedAt` è ortogonale a `stato`. Una commessa può essere soft‑archiviata in qualsiasi stato (vedi §22).
 - Il soft‑archive **non** modifica lo stato corrente.
 
 ### 7.4 Avanzamento via UI
@@ -321,7 +321,7 @@ Ordine canonico (`STATI_COMMESSA`):
 - Per i documenti legacy senza `statoAtUpload`, fallback permissivo: il tipo è sufficiente.
 
 ### 9.2 Stati daily reminder
-Per gli stati `aggiornamento_contratto`, `fatture_pagamento`, `da_ordinare` viene generata anche una notifica giornaliera (vedi §27.3) anche oltre la soglia di priorità.
+Per gli stati `aggiornamento_contratto`, `fatture_pagamento`, `da_ordinare` viene generata anche una notifica giornaliera (vedi §25.2) anche oltre la soglia di priorità.
 
 ### 9.3 Bypass "Procedi comunque"
 - **Server.** `commesse.update` accetta un flag `force: boolean`. Se assente, il gate è bloccante; in caso di mancanza documenti il server lancia un errore con prefisso `DOC_GATE_BLOCKED:` e messaggio human-readable ("Non è stato caricato il file …. Procedere comunque?").
@@ -570,10 +570,10 @@ Pagina hub con cards per azienda. L'accesso è aperto a tutti gli utenti autenti
 ### 21.1 Fivizzanese — Persiane (`/preventivatori/fivizzanese/persiane`)
 Calcolo step‑by‑step:
 1. **Selezione modello** (catalogo `shared/listini/fivizzanese.ts`).
-2. **Quantità persiane standard** (con prezzo base modello).
-3. **Quantità persiane con centinatura** (prezzo extra).
-4. **Posa** (preset).
-5. **Smontaggio vecchie** (opzionale, prezzo per unità).
+2. **Dimensioni di ogni persiana** in millimetri (`larghezza × altezza`), convertite in `areaMq`.
+3. **Prezzo base** calcolato in €/m² sul totale delle aree.
+4. **Supplementi** configurati dal listino: moltiplicati per m² quando `unita = "mq"`, oppure per pezzo quando `unita = "cad"`.
+5. **Posa e smontaggio** opzionali secondo i preset del listino.
 6. **Promo** quando applicabile:
    - **Promo "RAL 6005 Opaco"**: prezzo aggiornato a **210 €** (precedentemente 200 €).
    - Quando la promo è attiva, viene aggiunto un **ricarico del 50%** sul totale persiane.
@@ -828,8 +828,6 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - **Soft‑archive.** Stato secondario, ortogonale allo stato del workflow: la commessa è nascosta dalle viste operative ma tutto è preservato.
 - **Doc gate.** Vincolo per cui un avanzamento di stato richiede l'upload di documenti previsti per lo stato corrente.
 - **Bypass.** Conferma esplicita dell'operatore tramite `force: true` per superare il doc gate.
-- **Tier (classifica).** Un gruppo di venditori con lo stesso conteggio commesse; condividono il rank.
-- **Pari merito.** Più persone con lo stesso conteggio. Condividono il rank e il gradino del podio.
 - **Indirizzo di residenza.** Indirizzo fiscale del cliente (uso amministrativo).
 - **Indirizzo di lavoro.** Indirizzo del cantiere (uso operativo per commesse, calendario, mappe).
 - **Tipo detrazione.** Modalità fiscale richiesta dal cliente: `ecobonus` o `ristrutturazione`.
@@ -837,6 +835,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.14 (23/08/2026)** - Corretto lo storico WhatsApp outbound usando `history[].threads[].id`; richiesta, progresso e completamento della sincronizzazione sono stati separati e resi visibili in UI. I record outbound legacy senza controparte vengono eliminati una tantum per consentire una reimportazione corretta. I gate dello smistamento Tars producono log solo sulle transizioni di blocco/ripresa (§50.7, §51.7-51.9).
 - **v4.13 (22/08/2026)** - `/tars` diventa Command Center con vista Oggi, ranking deterministico, prove, proposte, analisi, chat e registro; il brief non chiama OpenAI e non consuma token all'apertura. La configurazione WhatsApp espone diagnostica privacy-safe per `smb_message_echoes` e duplicati (§50.9, §51.4-51.7).
 - **v4.12 (19/08/2026)** - L'analisi commessa non chiude più in silenzio: proposta, domanda con opzioni oppure `nessuna_azione` motivata che nomina i fatti verificati. Il server rifiuta la chiusura muta su `on_demand`; i trigger automatici restano liberi (§50.8).
 - **v4.11 (19/08/2026)** - Collegare una comunicazione a una commessa la porta in Gestite (collegamento manuale e proposte Tars approvate); lo scollegamento la riapre; il match automatico dell'arrivo resta nella coda operativa. Backfill una tantum delle collegate già viste (§51.1).
@@ -964,10 +963,11 @@ Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no 
 
 ### 39.1 Contenuto e struttura
 Ogni notte alle **00:00 Europe/Rome** (o manualmente) viene generato uno snapshot datato:
-```
 
 - Per documenti e allegati il backup risolve prima `storageKey`, rilegge i byte dal driver attivo e verifica il checksum SHA‑256. Se l'oggetto manca o è corrotto il run fallisce in modo visibile: non viene prodotto un backup silenziosamente incompleto.
 - I record legacy con `dataBase64` restano supportati. Gli allegati ticket sono inclusi anche quando la commessa o il cliente collegato non sono più presenti.
+
+```
 Backup CRM YYYY-MM-DD/
   database/<store>.json            ← dump integrale di ogni raccolta (utenti SENZA password)
   Sede <nome>/
@@ -1016,6 +1016,20 @@ Store `fic_config`: modalità `oauth` o `manual`, access token e refresh token c
 - Router direzione: `status`, `oauthStartUrl`, `disconnectOAuth`, `saveConfig`, `companies`, `syncNow`.
 
 Il requisito OAuth è code-complete. L'attivazione in produzione richiede `FIC_OAUTH_CLIENT_ID`, `FIC_OAUTH_CLIENT_SECRET`, `FIC_OAUTH_REDIRECT_URI` e un `MAIL_ENCRYPTION_KEY` stabile su Railway.
+
+### 40.4 Fatture e riconciliazione (`/economia`)
+Le fatture sincronizzate sono persistite nello store `fic_fatture`, sede-scoped.
+La pagina `/economia`, visibile a direzione e amministrazione, separa
+`Panoramica` e `Fatture`: mostra KPI CRM/Fatture in Cloud, andamento mensile,
+stato di incasso e stato di riconciliazione.
+
+Una fattura può essere collegata manualmente a una commessa soltanto dopo una
+conferma esplicita. Il documento PDF, quando disponibile, viene archiviato nel
+fascicolo della commessa come file `fattura`. Il collegamento delle rate
+incassate genera proposte Tars approvabili e non scrive pagamenti in autonomia.
+Le fatture non abbinate entrano nel trigger `riconciliazione_fatture`: Tars può
+proporre un collegamento verificato oppure lasciarle non abbinate/ignorarle;
+non può applicare la scelta senza approvazione.
 
 ## 41. WhatsApp (deep link)
 
@@ -1249,6 +1263,11 @@ Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_es
 
 La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più letta. Al raggiungimento di `maxToolCalls`, il loop concede esattamente un turno conclusivo senza strumenti e termina anche se il provider restituisce una risposta anomala: nessun trigger può restare in esecuzione indefinitamente.
 
+Se uno smistamento automatico non parte perché Tars è disattivato, manca la
+chiave OpenAI o il budget mensile è esaurito, la coda resta integra. Il server
+registra soltanto le transizioni di blocco e di ripresa, senza ripetere lo
+stesso warning a ogni controllo periodico.
+
 ### 50.8 Analisi di una commessa
 Il trigger `on_demand`, avviato dall'operatore con «Analizza» sul banner della commessa, parte dal fascicolo e DEVE chiudersi in uno di tre modi, mai in silenzio:
 
@@ -1284,6 +1303,15 @@ Il Command Center corrente aggrega fonti già correlate nelle proposte. Il
 futuro context engine persistente per cliente/commessa, con coda eventi,
 fingerprint e visibility scope, non va considerato implementato finché non sono
 presenti i relativi store e worker.
+
+### 50.10 Conoscenza aziendale (`/conoscenza`)
+La pagina `/conoscenza`, riservata alla direzione, gestisce le regole persistite
+che Tars deve conoscere: fornitori, processo, clienti, terminologia,
+convenzioni e preferenze di comunicazione. Ogni voce ha titolo, contenuto,
+categoria e stato attivo; può essere creata, modificata, disattivata o rimossa.
+Solo le voci attive entrano nel prompt. La conoscenza è scritta e governata
+dall'azienda: non viene dedotta automaticamente da un singolo caso o da una
+proposta rifiutata.
 
 ---
 
@@ -1372,7 +1400,27 @@ deve risultare `duplicato`; l'assenza di `ultimoEchoAt` indica invece che Meta
 non ha ancora consegnato quel campo al CRM. Il payload previsto usa
 `changes[].field = smb_message_echoes` e `value.message_echoes[]`.
 
-### 51.8 Verifica esterna
+### 51.8 Sincronizzazione storico coexistence
+Dopo l'onboarding il server richiede automaticamente contatti e storico entro
+la finestra Meta di 24 ore. L'accettazione delle chiamate `smb_app_data` imposta
+`storicoRichiestoAt`, ma NON equivale al completamento. I webhook `history`
+aggiornano `storicoUltimoEventoAt` e `storicoProgresso`; soltanto un blocco con
+progresso 100 imposta `storicoCompletatoAt` e il campo legacy
+`storicoSincronizzato`.
+
+Per ogni `history[].threads[]`, `thread.id` è la controparte canonica della
+conversazione sia per i messaggi in ingresso sia per quelli in uscita. Gli echo
+live continuano a usare `to`/`recipient_id`. Un messaggio senza controparte
+normalizzabile viene rifiutato con log privacy-safe e non crea conversazioni
+vuote. Una migrazione PostgreSQL una tantum elimina esclusivamente gli outbound
+WhatsApp legacy con `mittente` vuoto, liberando i `message_id` per una nuova
+importazione dopo il re-onboarding.
+
+La UI mostra stati distinti `non richiesto`, `richiesto/in attesa`, progresso e
+`completato`, aggiornandosi automaticamente durante la consegna. Non deve
+presentare una richiesta accettata come storico già sincronizzato.
+
+### 51.9 Verifica esterna
 Senza `DATABASE_URL` lo sviluppo locale usa il fallback in memoria: test,
 typecheck e build non dimostrano query PostgreSQL, dati o integrazioni Railway.
 Prima di pubblicare devono essere verificate su Railway le route e i redirect,

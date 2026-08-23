@@ -190,10 +190,11 @@ L'audit non reagisce a un singolo episodio e non ripropone un'azione già decisa
 Implementata tramite caselle IMAP per sede. L'ingestione è idempotente, conserva il riferimento UID e accoda a Tars solo i messaggi nuovi; lo storico importato non genera una valanga di run retroattivi.
 
 ### 6.2 WhatsApp (Cloud API)
-Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. La diagnostica conferma la coesistenza con WhatsApp Business solo quando Meta restituisce insieme `platform_type = CLOUD_API` e `is_on_biz_app = true`; il solo valore `CLOUD_API` non basta a determinarla. Registra inoltre, senza dati cliente, l'ultimo campo webhook e l'ultimo `smb_message_echoes`, distinguendo un echo mai consegnato da un duplicato già presente. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
+Implementata con configurazione Meta per sede e ingestione nella stessa tabella Comunicazioni. La diagnostica conferma la coesistenza con WhatsApp Business solo quando Meta restituisce insieme `platform_type = CLOUD_API` e `is_on_biz_app = true`; il solo valore `CLOUD_API` non basta a determinarla. Registra inoltre, senza dati cliente, l'ultimo campo webhook e l'ultimo `smb_message_echoes`, distinguendo un echo mai consegnato da un duplicato già presente. Nello storico la controparte arriva da `history[].threads[].id`, anche per gli outbound privi di `to`; richiesta, progresso e completamento sono stati distinti e un messaggio senza controparte viene rifiutato. Attenzione a una specificità: i messaggi WhatsApp sono brevi, frammentati e privi di contesto (*"allora per giovedì?"*). Tars deve cercare messaggi precedenti quando il testo isolato non basta, invece di inventare il referente.
 
 ### 6.3 Fatture in Cloud
-Oggi la sincronizzazione crea solo clienti mancanti (§40). L'agente la estende **in sola lettura** a:
+La sincronizzazione mantiene i clienti mancanti e persiste le fatture emesse in
+`fic_fatture`. Tars usa questi dati **in sola lettura** per:
 
 - **Riconciliazione incassi.** Fattura risultante pagata su FIC ma senza acconto corrispondente nel registro commessa → `proponi_pagamento` con data, importo e riferimento fattura. Questa è probabilmente la singola automazione a più alto risparmio di tempo dell'intero progetto: elimina la doppia imputazione manuale.
 - **Collegamento fattura ↔ commessa.** Match su cliente + importo + periodo, con `chiedi_chiarimento` quando ambiguo.
@@ -322,6 +323,10 @@ default automatico finché un campione reale non conferma la qualità della
 distinzione tra opportunità, operatività e rumore.
 
 Il default applicativo è **$25/mese per sede**, modificabile dalla direzione. Al superamento, i trigger automatici si fermano; le richieste umane ricevono un errore esplicito. Le stime della tabella restano ipotesi iniziali: il dato da usare per decidere è l'audit reale.
+
+Disattivazione, chiave OpenAI mancante e budget esaurito sono gate fail-open per
+la coda: nessuna comunicazione viene nascosta. Il server registra solo il cambio
+di causa e la successiva ripresa, evitando un warning identico ogni minuto.
 
 ### 10.1 Caching implementato
 
