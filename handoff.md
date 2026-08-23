@@ -4,8 +4,8 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 23/08/2026<br>
-**Base Git descritta:** `main` a `b8eea4f` (correzione storico WhatsApp, stato
-sync reale e osservabilità dei gate Tars)<br>
+**Base Git descritta:** `main` dopo `330c609` (storico WhatsApp completo e
+contesto Tars con distinzione cliente/ufficio)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -374,6 +374,20 @@ rifiutato senza loggare id, numero o contenuto. La richiesta accettata da Meta
 imposta `storicoRichiestoAt`, i webhook aggiornano progresso e ultimo evento,
 e soltanto il progresso 100 imposta il completamento. La card aggiorna lo stato
 ogni 5 secondi mentre la consegna è in corso.
+
+Verifica produzione del 23/08/2026: configurazione `1/1` attiva, storico
+completato, `195` messaggi totali, echo live `1/1` registrato e outbound
+precedenti al ricollegamento visibili con etichetta `Tu:` (campione verificato
+del 18/08). Le chat già presenti sono rimaste nella stessa conversazione dopo
+il nuovo onboarding.
+
+Durante il ricollegamento Meta generava QR e codici validi lato web, ma
+WhatsApp Business li rifiutava sul telefono. La procedura riuscita è stata:
+backup chat verificato nell'app, disinstallazione e reinstallazione di
+WhatsApp Business, ripristino del backup, quindi nuovo Embedded Signup con
+`Collega l'app WhatsApp Business` e condivisione dello storico. Questa è una
+misura di recupero dello stato locale dell'app, non il primo tentativo: non
+eliminare WABA, numero Meta o comunicazioni CRM per risolvere lo stesso errore.
 
 Al primo boot PostgreSQL dopo il deploy, la migrazione
 `pulizia_whatsapp_outbound_senza_controparte_v1` elimina fisicamente soltanto

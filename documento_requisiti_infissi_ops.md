@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/08/2026).
-**Versione:** 4.16 - Il contesto comunicazioni di Tars distingue esplicitamente messaggi ricevuti dal cliente e inviati dall'ufficio, compreso lo storico WhatsApp precedente al collegamento.
+**Versione:** 4.17 - Ricollegamento WhatsApp verificato in produzione, con storico inviati preservato e procedura sicura di recupero dell'app dopo backup.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -835,6 +835,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.17 (23/08/2026)** - Ricollegamento WhatsApp coexistence verificato in produzione con storico completato, echo live e outbound precedenti preservati; documentata la reinstallazione sicura di WhatsApp Business soltanto dopo backup verificato (§51.9).
 - **v4.16 (23/08/2026)** - Il tool `cerca_comunicazioni` espone direzione, autore, controparte, mittente e destinatario; il prompt obbliga Tars a distinguere cliente e ufficio anche nello storico WhatsApp outbound (§50.3, §51.8).
 - **v4.15 (23/08/2026)** - Embedded Signup riconosce la casella WhatsApp storica dal numero aziendale salvato nei destinatari e ne riusa l'id interno dopo uno scollegamento, preservando conversazioni, alias e collegamenti (§51.7-51.8).
 - **v4.14 (23/08/2026)** - Corretto lo storico WhatsApp outbound usando `history[].threads[].id`; richiesta, progresso e completamento della sincronizzazione sono stati separati e resi visibili in UI. I record outbound legacy senza controparte vengono eliminati una tantum per consentire una reimportazione corretta. I gate dello smistamento Tars producono log solo sulle transizioni di blocco/ripresa (§50.7, §51.7-51.9).
@@ -1440,6 +1441,21 @@ typecheck e build non dimostrano query PostgreSQL, dati o integrazioni Railway.
 Prima di pubblicare devono essere verificate su Railway le route e i redirect,
 lo scope tra sedi, la casella Email e i suoi allegati, la configurazione
 WhatsApp e l'assenza di controlli di invio.
+
+La verifica WhatsApp è completa soltanto quando la configurazione risulta
+attiva, il webhook riceve `history`, lo storico raggiunge il completamento, un
+echo live viene registrato e almeno un outbound precedente al collegamento è
+visibile nel thread corretto. Il 23/08/2026 questi criteri sono stati verificati
+in produzione: `1/1` configurazioni attive, storico completato, `195` messaggi
+totali, echo live `1/1` e outbound del 18/08 correttamente etichettato `Tu:`.
+
+Se il percorso coexistence corretto genera un QR o codice nuovo ma WhatsApp
+Business lo rifiuta sul telefono, aggiornare e riavviare prima l'app. Come
+ultima misura è consentita la reinstallazione soltanto dopo aver verificato
+dall'app un backup chat riuscito e ripristinabile. Dopo il ripristino si ripete
+Embedded Signup scegliendo `Collega l'app WhatsApp Business` e condividendo lo
+storico. Non eliminare il numero/WABA su Meta e non cancellare le comunicazioni
+CRM come tentativo di risoluzione.
 
 ---
 
