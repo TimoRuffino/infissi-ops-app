@@ -13,11 +13,14 @@ import {
   ingestisciWebhook,
   proteggiSegreto,
   provaConnessione,
+  sincronizzaStorico,
   verificaFirma,
   verifyTokenValido,
 } from "./whatsapp";
 import {
+  insertComunicazione,
   listComunicazioni,
+  pulisciWhatsappOutboundSenzaControparte,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
 
@@ -515,6 +518,7 @@ describe("coexistence: echo e storico", () => {
                   {
                     threads: [
                       {
+                        id: "393401234567",
                         messages: [
                           {
                             id: "wamid.H1",
@@ -526,7 +530,6 @@ describe("coexistence: echo e storico", () => {
                           {
                             id: "wamid.H2",
                             from: "390187872687",
-                            to: "393401234567",
                             timestamp: "1770000100",
                             type: "text",
                             text: { body: "Sì, tutto a posto" },
@@ -549,10 +552,137 @@ describe("coexistence: echo e storico", () => {
     const inUscita = rows.find((r) => r.messageId === "wamid.H2");
     expect(inArrivo?.direzione).toBe("in");
     expect(inUscita?.direzione).toBe("out");
+    expect(inUscita?.mittente).toBe("393401234567");
     // Archivio: già visto, e mai in coda di analisi.
     expect(inArrivo?.stato).toBe("vista");
     expect(inArrivo?.tarsAnalizzata).toBe(true);
     expect(inUscita?.stato).toBe("vista");
+  });
+
+  it("rifiuta un outbound senza una controparte determinabile", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const n = await ingestisciWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              field: "smb_message_echoes",
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                message_echoes: [
+                  {
+                    id: "wamid.ECHO-SENZA-CONTROPARTE",
+                    from: "390187872687",
+                    timestamp: "1786000200",
+                    type: "text",
+                    text: { body: "Messaggio senza destinatario" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(n).toBe(0);
+    const rows = await listComunicazioni({ sedeId: 1, canale: "whatsapp" });
+    expect(
+      rows.some(r => r.messageId === "wamid.ECHO-SENZA-CONTROPARTE")
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("controparte non determinabile")
+    );
+    warn.mockRestore();
+  });
+
+  it("la migrazione elimina solo gli outbound WhatsApp senza controparte", async () => {
+    const base = {
+      sedeId: 1,
+      casellaId: 7,
+      uid: null,
+      canale: "whatsapp" as const,
+      destinatari: ["+390187872687"],
+      oggetto: "",
+      testo: "Storico precedente al fix",
+      allegati: [],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "nessuna" as const,
+      matchMotivo: null,
+      stato: "vista" as const,
+      tarsAnalizzata: true,
+      receivedAt: new Date(),
+    };
+    await insertComunicazione({
+      ...base,
+      messageId: "wamid.STORICO-MALFORMATO",
+      direzione: "out",
+      mittente: "   ",
+      mittenteNome: null,
+    });
+    await insertComunicazione({
+      ...base,
+      messageId: "wamid.STORICO-VALIDO",
+      direzione: "out",
+      mittente: "393401234567",
+      mittenteNome: null,
+    });
+
+    expect(await pulisciWhatsappOutboundSenzaControparte()).toBe(1);
+    const rows = await listComunicazioni({ sedeId: 1, canale: "whatsapp" });
+    expect(rows.some(r => r.messageId === "wamid.STORICO-MALFORMATO")).toBe(false);
+    expect(rows.some(r => r.messageId === "wamid.STORICO-VALIDO")).toBe(true);
+  });
+
+  it("una richiesta di sync accettata resta in corso fino al webhook completo", async () => {
+    process.env.MAIL_ENCRYPTION_KEY = "chiave-di-test";
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ request_id: "REQ-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const config = {
+      ...configWhatsApp[0],
+      tokenCifrato: proteggiSegreto("token-meta-di-test"),
+      storicoSincronizzato: null,
+    };
+
+    expect(await sincronizzaStorico(config)).toEqual({ ok: true, errore: null });
+    expect((config as any).storicoRichiestoAt).toBeInstanceOf(Date);
+    expect((config as any).storicoCompletatoAt).toBeNull();
+    expect(config.storicoSincronizzato).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("segna lo storico completato solo quando il webhook arriva al 100%", async () => {
+    const n = await ingestisciWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              field: "history",
+              value: {
+                metadata: { phone_number_id: "PHONE_C" },
+                history: [
+                  {
+                    metadata: { phase: 2, chunk_order: 3, progress: 100 },
+                    threads: [],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(n).toBe(0);
+    expect((configWhatsApp[0] as any).storicoProgresso).toBe(100);
+    expect((configWhatsApp[0] as any).storicoCompletatoAt).toBeInstanceOf(Date);
+    expect(configWhatsApp[0].storicoSincronizzato).toBeInstanceOf(Date);
   });
 
   it("lo storico riconsegnato non duplica nulla", async () => {

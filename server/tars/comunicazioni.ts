@@ -317,6 +317,7 @@ export function ensureComunicazioniSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS comunicazioni_sede_categoria
           ON comunicazioni (sede_id, categoria, received_at DESC)`;
       await backfillGestiteCollegate();
+      await pulisciWhatsappOutboundSenzaControparte();
     })().catch(e => {
       console.error("[comunicazioni] ensureSchema failed:", e);
       schemaPromise = null;
@@ -358,6 +359,51 @@ async function backfillGestiteCollegate(): Promise<void> {
   console.log(
     `[comunicazioni] backfill gestite: ${aggiornate.length} comunicazioni collegate portate in Gestite`
   );
+}
+
+/**
+ * Rimuove una tantum gli outbound storici importati senza `thread.id`.
+ *
+ * Queste righe non possono essere ricondotte a una conversazione e il loro
+ * message_id impedirebbe a Meta di reinserirle correttamente al prossimo
+ * onboarding. È l'unico caso in cui il delete fisico è intenzionale.
+ */
+export async function pulisciWhatsappOutboundSenzaControparte(): Promise<number> {
+  if (!kvSql) {
+    const prima = memRows.length;
+    memRows = memRows.filter(
+      r =>
+        !(
+          r.canale === "whatsapp" &&
+          r.direzione === "out" &&
+          r.mittente.trim() === ""
+        )
+    );
+    return prima - memRows.length;
+  }
+
+  await kvSql`
+    CREATE TABLE IF NOT EXISTS comunicazioni_migrazioni (
+      nome TEXT PRIMARY KEY,
+      eseguita_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+  const primaVolta = await kvSql`
+    INSERT INTO comunicazioni_migrazioni (nome)
+    VALUES ('pulizia_whatsapp_outbound_senza_controparte_v1')
+    ON CONFLICT (nome) DO NOTHING
+    RETURNING nome`;
+  if (primaVolta.length === 0) return 0;
+
+  const eliminate = await kvSql`
+    DELETE FROM comunicazioni
+    WHERE canale = 'whatsapp'
+      AND direzione = 'out'
+      AND BTRIM(mittente) = ''
+    RETURNING id`;
+  console.log(
+    `[comunicazioni] pulizia WhatsApp: ${eliminate.length} outbound senza controparte eliminati`
+  );
+  return eliminate.length;
 }
 
 // ── Mapping riga ⇄ oggetto ──────────────────────────────────────────────────

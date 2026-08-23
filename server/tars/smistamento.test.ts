@@ -676,6 +676,7 @@ describe("smistamento", () => {
   });
 
   it("con Tars spento non parte e non consuma la coda", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     getTarsConfig().attivo = false;
     const mail = await insertComunicazione({
       sedeId: 1,
@@ -701,9 +702,64 @@ describe("smistamento", () => {
     const fetchSpy = vi.fn();
     global.fetch = fetchSpy as any;
     await smistaComunicazioni(1);
+    await smistaComunicazioni(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await listDaAnalizzare(1, 10)).toHaveLength(1);
     expect((await leggiStatoSmistamento(1)).stato).toBe("disattivato");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/smistamento.*bloccato.*disattivato/i)
+    );
+    warn.mockRestore();
+  });
+
+  it("registra il cambio di gate e la ripresa senza ripetere log ogni minuto", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const chiave = process.env.OPENAI_API_KEY;
+    await inserisciMailTest("<gate-transition@example.com>", "Richiesta pendente");
+
+    getTarsConfig().attivo = false;
+    await smistaComunicazioni(1);
+    await smistaComunicazioni(1);
+    getTarsConfig().attivo = true;
+    delete process.env.OPENAI_API_KEY;
+    await smistaComunicazioni(1);
+    await smistaComunicazioni(1);
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/disattivato/i);
+    expect(warn.mock.calls[1]?.[0]).toMatch(/chiave OpenAI mancante/i);
+
+    process.env.OPENAI_API_KEY = chiave;
+    global.fetch = openaiScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_gate",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: (await listDaAnalizzare(1, 1))[0].id,
+              categoria: "operativa",
+              confidenza: "alta",
+              dubbio: false,
+              motivo: "Richiesta operativa verificata.",
+            },
+          },
+        ],
+      },
+      { stop_reason: "end_turn", usage, content: [] },
+    ]);
+    await smistaComunicazioni(1);
+
+    expect(info).toHaveBeenCalledWith(
+      expect.stringMatching(/smistamento.*ripreso/i)
+    );
+    warn.mockRestore();
+    info.mockRestore();
   });
 
   it("classifica automaticamente con la sola OPENAI_API_KEY", async () => {

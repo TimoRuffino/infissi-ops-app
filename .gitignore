@@ -126,3 +126,6 @@ data/
 # Local visual brainstorming sessions
 .superpowers/
 .worktrees/
+
+# Generated code knowledge graph (rebuild locally with /graphify)
+graphify-out/

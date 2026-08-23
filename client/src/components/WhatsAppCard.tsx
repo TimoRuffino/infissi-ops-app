@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import {
@@ -24,6 +25,7 @@ import {
   ArrowRight,
   Check,
   Copy,
+  Clock3,
   Loader2,
   MessageCircle,
   Plus,
@@ -63,7 +65,15 @@ function useFacebookSdk(appId: string | undefined) {
 export default function WhatsAppCard() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const lista = trpc.mail.whatsapp.list.useQuery(undefined, { retry: false });
+  const lista = trpc.mail.whatsapp.list.useQuery(undefined, {
+    retry: false,
+    refetchInterval: query =>
+      query.state.data?.some(
+        c => c.storicoRichiestoAt && !c.storicoCompletatoAt
+      )
+        ? 5_000
+        : false,
+  });
   const webhook = trpc.mail.whatsapp.webhookUrl.useQuery(undefined, {
     retry: false,
   });
@@ -578,29 +588,82 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
-              {/* Coexistence: lo storico va chiesto entro 24 ore. */}
-              {c.onboardingAt && !c.storicoSincronizzato && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-amber-600 dark:text-amber-500">
-                    Storico non ancora sincronizzato — Meta lo consente solo
-                    entro 24 ore dal collegamento.
-                  </span>
+              {/* Coexistence: richiesta, consegna e completamento sono tre
+                  stati distinti. Meta invia lo storico a blocchi via webhook. */}
+              {c.onboardingAt && c.storicoCompletatoAt && (
+                <div className="flex min-w-0 items-start gap-2 rounded-md border border-success/30 bg-success-soft p-3">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">
+                      Storico WhatsApp completato
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Ultimo blocco ricevuto il{" "}
+                      {new Date(c.storicoCompletatoAt).toLocaleString("it-IT")}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {c.onboardingAt &&
+                c.storicoRichiestoAt &&
+                !c.storicoCompletatoAt && (
+                  <div className="space-y-2.5 rounded-md border border-primary/25 bg-primary/5 p-3">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-foreground">
+                            Sincronizzazione storico in corso
+                          </p>
+                          <span className="shrink-0 text-xs font-medium tabular-nums text-primary">
+                            {c.storicoProgresso != null && c.storicoProgresso > 0
+                              ? `${c.storicoProgresso}%`
+                              : "In attesa"}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Richiesta accettata il{" "}
+                          {new Date(c.storicoRichiestoAt).toLocaleString("it-IT")}
+                          {c.storicoUltimoEventoAt
+                            ? ` · ultimo blocco ${new Date(c.storicoUltimoEventoAt).toLocaleString("it-IT")}`
+                            : " · in attesa del primo blocco da Meta"}
+                        </p>
+                      </div>
+                    </div>
+                    <Progress
+                      value={c.storicoProgresso ?? 0}
+                      className="h-1.5"
+                      aria-label="Avanzamento sincronizzazione storico WhatsApp"
+                    />
+                  </div>
+                )}
+              {c.onboardingAt && !c.storicoRichiestoAt && (
+                <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-warning/30 bg-warning-soft p-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        Storico non ancora richiesto
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        La richiesta è disponibile solo nelle 24 ore successive
+                        al collegamento.
+                      </p>
+                    </div>
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs"
+                    className="h-9 shrink-0"
                     disabled={syncStorico.isPending}
                     onClick={() => syncStorico.mutate({ id: c.id })}
                   >
-                    Riprova
+                    {syncStorico.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                    )}
+                    Richiedi ora
                   </Button>
                 </div>
-              )}
-              {c.storicoSincronizzato && (
-                <p className="text-xs text-muted-foreground">
-                  Storico richiesto il{" "}
-                  {new Date(c.storicoSincronizzato).toLocaleString("it-IT")}
-                </p>
               )}
 
               {c.attiva && (

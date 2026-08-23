@@ -36,6 +36,48 @@ const inCorso = new Set<number>();
 const pausaFinoA = new Map<number, number>();
 const richiestoDuranteRun = new Set<number>();
 
+type GateAutomatico =
+  | "disattivato"
+  | "chiave_mancante"
+  | "budget_esaurito";
+
+const ultimoGateSegnalato = new Map<string, GateAutomatico>();
+
+function gateAutomatico(sedeId: number): GateAutomatico | null {
+  const config = getTarsConfig(sedeId);
+  if (!config.attivo) return "disattivato";
+  if (!openaiConfigured()) return "chiave_mancante";
+  if (budgetMensileSuperato(sedeId)) return "budget_esaurito";
+  return null;
+}
+
+function segnalaGateAutomatico(
+  processo: "smistamento" | "riconciliazione fatture",
+  sedeId: number,
+  gate: GateAutomatico | null
+): void {
+  const chiave = `${processo}:${sedeId}`;
+  const precedente = ultimoGateSegnalato.get(chiave);
+  if (gate === precedente) return;
+  if (!gate) {
+    if (precedente) {
+      console.info(`[tars] ${processo} sede ${sedeId} ripreso`);
+      ultimoGateSegnalato.delete(chiave);
+    }
+    return;
+  }
+  ultimoGateSegnalato.set(chiave, gate);
+  const motivo =
+    gate === "disattivato"
+      ? "Tars disattivato"
+      : gate === "chiave_mancante"
+        ? "chiave OpenAI mancante"
+        : "budget mensile esaurito";
+  console.warn(
+    `[tars] ${processo} sede ${sedeId} bloccato: ${motivo}; coda conservata`
+  );
+}
+
 type TimerSmistamento = {
   handle: NodeJS.Timeout;
   eseguiAt: number;
@@ -70,11 +112,10 @@ function ctxSistema(sedeId: number): TrpcContext {
 }
 
 export async function smistaComunicazioni(sedeId: number): Promise<void> {
-  const config = getTarsConfig(sedeId);
-  if (!config.attivo || !openaiConfigured()) return;
-  // Budget mensile finito: i lavori automatici si fermano da soli. Le mail
-  // restano non analizzate e verranno riprese quando il budget riapre.
-  if (budgetMensileSuperato(sedeId)) return;
+  const gate = gateAutomatico(sedeId);
+  segnalaGateAutomatico("smistamento", sedeId, gate);
+  // Le mail restano non analizzate e verranno riprese quando il gate riapre.
+  if (gate) return;
   if (inCorso.has(sedeId)) {
     richiestoDuranteRun.add(sedeId);
     return;
@@ -322,6 +363,7 @@ export function _resetSmistamentoPerTest(): void {
   inCorso.clear();
   pausaFinoA.clear();
   richiestoDuranteRun.clear();
+  ultimoGateSegnalato.clear();
   if (recuperoTimer) clearInterval(recuperoTimer);
   if (avvioRecuperoTimer) clearTimeout(avvioRecuperoTimer);
   recuperoTimer = null;
@@ -341,9 +383,9 @@ const fattureInCorso = new Set<number>();
 const fatturePausaFinoA = new Map<number, number>();
 
 export async function smistaFatture(sedeId: number): Promise<void> {
-  const config = getTarsConfig(sedeId);
-  if (!config.attivo || !openaiConfigured()) return;
-  if (budgetMensileSuperato(sedeId)) return;
+  const gate = gateAutomatico(sedeId);
+  segnalaGateAutomatico("riconciliazione fatture", sedeId, gate);
+  if (gate) return;
   if (fattureInCorso.has(sedeId)) return;
   const pausaFatture = fatturePausaFinoA.get(sedeId);
   if (pausaFatture && Date.now() < pausaFatture) return;

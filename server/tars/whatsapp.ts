@@ -59,6 +59,12 @@ export type ConfigWhatsApp = {
   // Coexistence: quando l'onboarding è avvenuto e se lo storico è stato
   // richiesto. Meta dà 24 ore per chiederlo, poi il numero va rifatto.
   onboardingAt: Date | null;
+  storicoRichiestoAt: Date | null;
+  storicoUltimoEventoAt: Date | null;
+  storicoProgresso: number | null;
+  storicoCompletatoAt: Date | null;
+  // Campo legacy: resta per compatibilità con i dati esistenti, ma da ora
+  // indica una consegna completata, non la sola accettazione della richiesta.
   storicoSincronizzato: Date | null;
   // Telemetria tecnica del webhook. Non contiene testo, numeri, nomi o
   // identificativi dei messaggi: serve solo a distinguere un evento mai
@@ -103,6 +109,14 @@ const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
   for (const c of items) {
     if (c.messaggiRicevuti === undefined) c.messaggiRicevuti = 0;
     if (c.storicoSincronizzato === undefined) c.storicoSincronizzato = null;
+    if (c.storicoRichiestoAt === undefined) {
+      // Le versioni precedenti salvavano qui l'istante in cui Meta aveva
+      // accettato la richiesta, non la fine della consegna.
+      c.storicoRichiestoAt = c.storicoSincronizzato ?? null;
+    }
+    if (c.storicoUltimoEventoAt === undefined) c.storicoUltimoEventoAt = null;
+    if (c.storicoProgresso === undefined) c.storicoProgresso = null;
+    if (c.storicoCompletatoAt === undefined) c.storicoCompletatoAt = null;
     if (c.onboardingAt === undefined) c.onboardingAt = null;
     if (c.diagnosticaWebhook === undefined) {
       c.diagnosticaWebhook = diagnosticaWebhookVuota();
@@ -380,7 +394,11 @@ export async function sincronizzaStorico(
   try {
     await chiedi("smb_app_state_sync");
     await chiedi("history");
-    config.storicoSincronizzato = new Date();
+    config.storicoRichiestoAt = new Date();
+    config.storicoUltimoEventoAt = null;
+    config.storicoProgresso = 0;
+    config.storicoCompletatoAt = null;
+    config.storicoSincronizzato = null;
     config.ultimoErrore = null;
     config.updatedAt = new Date();
     saveConfigWhatsApp();
@@ -439,6 +457,10 @@ export async function completaOnboarding(params: {
       messaggiRicevuti: 0,
       ultimoErrore: null,
       onboardingAt: now,
+      storicoRichiestoAt: null,
+      storicoUltimoEventoAt: null,
+      storicoProgresso: null,
+      storicoCompletatoAt: null,
       storicoSincronizzato: null,
       createdAt: now,
       updatedAt: now,
@@ -450,6 +472,11 @@ export async function completaOnboarding(params: {
     config.numero = numero.display_phone_number ?? config.numero;
     config.attiva = true;
     config.onboardingAt = now;
+    config.storicoRichiestoAt = null;
+    config.storicoUltimoEventoAt = null;
+    config.storicoProgresso = null;
+    config.storicoCompletatoAt = null;
+    config.storicoSincronizzato = null;
     config.ultimoErrore = null;
     config.updatedAt = now;
   }
@@ -751,6 +778,9 @@ type Origine = {
   direzione: "in" | "out";
   // Lo storico non è novità: entra archiviato e fuori dalla coda di Tars.
   storico: boolean;
+  // Nei webhook history Meta identifica la conversazione con thread.id.
+  // È la fonte canonica anche quando il singolo messaggio outbound non ha `to`.
+  controparte?: string;
 };
 
 async function registraMessaggio(
@@ -763,8 +793,10 @@ async function registraMessaggio(
   // Su un echo `from` è il nostro numero e il cliente sta in `to`: per
   // agganciare la conversazione serve sempre il numero del CLIENTE.
   const controparte =
-    origine.direzione === "out" ? (m.to ?? m.recipient_id ?? "") : m.from;
-  const numero = normalizzaTelefono(controparte) ?? String(controparte ?? "");
+    origine.controparte ??
+    (origine.direzione === "out" ? (m.to ?? m.recipient_id) : m.from);
+  const numero = normalizzaTelefono(controparte);
+  if (!numero) throw new Error("controparte non determinabile");
   const testo = testoDaMessaggio(m);
   const allegati = allegatiDaMessaggio(m);
   const match = matchComunicazione({
@@ -901,9 +933,26 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
       // Lo storico arriva a blocchi, ciascuno con i propri messaggi e la
       // direzione dichiarata per messaggio.
       for (const blocco of value.history ?? []) {
+        config.storicoUltimoEventoAt = oraWebhook;
+        const progressoRaw = Number(blocco?.metadata?.progress);
+        if (Number.isFinite(progressoRaw)) {
+          const progresso = Math.max(0, Math.min(100, progressoRaw));
+          config.storicoProgresso = Math.max(
+            config.storicoProgresso ?? 0,
+            progresso
+          );
+          if (progresso >= 100) {
+            config.storicoCompletatoAt ??= oraWebhook;
+            config.storicoSincronizzato ??= config.storicoCompletatoAt;
+            config.ultimoErrore = null;
+          }
+        }
+        config.updatedAt = oraWebhook;
+        daSalvare = true;
         for (const thread of blocco?.threads ?? []) {
           const messaggi: MessaggioWa[] = thread?.messages ?? [];
           if (messaggi.length === 0) continue;
+          const controparte = normalizzaTelefono(thread?.id) ?? undefined;
           // In uno stesso thread ci sono entrambe le direzioni: si separa
           // guardando chi è il mittente rispetto al nostro numero.
           const nostro = normalizzaTelefono(config.numero);
@@ -916,13 +965,13 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
           if (inArrivo.length > 0) {
             lotti.push({
               messaggi: inArrivo,
-              origine: { direzione: "in", storico: true },
+              origine: { direzione: "in", storico: true, controparte },
             });
           }
           if (inUscita.length > 0) {
             lotti.push({
               messaggi: inUscita,
-              origine: { direzione: "out", storico: true },
+              origine: { direzione: "out", storico: true, controparte },
             });
           }
         }
@@ -944,10 +993,16 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
               }
             }
           } catch (e: any) {
-            console.warn(
-              `[whatsapp] messaggio ${m?.id} non elaborato:`,
-              e?.message ?? e
-            );
+            if (e?.message === "controparte non determinabile") {
+              console.warn(
+                "[whatsapp] messaggio ignorato: controparte non determinabile"
+              );
+            } else {
+              console.warn(
+                "[whatsapp] messaggio non elaborato:",
+                e?.message ?? "errore sconosciuto"
+              );
+            }
           }
         }
       }
