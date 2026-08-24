@@ -39,6 +39,10 @@ async function startServer() {
     "../actionCenter/repository"
   );
   await getActionCaseRepository().ensureSchema();
+  const { startActionCenterScheduler } = await import(
+    "../actionCenter/scheduler"
+  );
+  startActionCenterScheduler();
 
   // Nightly backup to Google Drive (00:00 Europe/Rome).
   const { startBackupScheduler } = await import("./driveBackup");
