@@ -491,13 +491,20 @@ function createPostgresActionCaseRepository(): ActionCaseRepository {
     },
 
     async markAnalysis(input) {
-      const rows = await sql`UPDATE azioni_operative SET
-          tars_analysis_status = ${input.status},
-          tars_analysis_fingerprint = ${input.fingerprint},
-          tars_analysis = ${input.analysis === undefined ? sql` tars_analysis ` : sql.json(input.analysis as any)},
-          updated_at = ${input.now}
-        WHERE sede_id = ${input.sedeId} AND id = ${input.id}
-        RETURNING *`;
+      const rows = input.analysis === undefined
+        ? await sql`UPDATE azioni_operative SET
+            tars_analysis_status = ${input.status},
+            tars_analysis_fingerprint = ${input.fingerprint},
+            updated_at = ${input.now}
+          WHERE sede_id = ${input.sedeId} AND id = ${input.id}
+          RETURNING *`
+        : await sql`UPDATE azioni_operative SET
+            tars_analysis_status = ${input.status},
+            tars_analysis_fingerprint = ${input.fingerprint},
+            tars_analysis = ${sql.json(input.analysis as any)},
+            updated_at = ${input.now}
+          WHERE sede_id = ${input.sedeId} AND id = ${input.id}
+          RETURNING *`;
       if (!rows[0]) throw new Error("ACTION_CASE_NOT_FOUND");
       return rowToRecord(rows[0]);
     },
