@@ -72,6 +72,7 @@ export async function runTars(params: {
     "smistamento",
     "riconciliazione_fatture",
     "audit_processi",
+    "centro_azioni",
   ]);
   const modello = TRIGGER_ECONOMICI.has(params.trigger)
     ? config.modelloAutomatico

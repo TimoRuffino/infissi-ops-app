@@ -299,6 +299,17 @@ export function buildSystemPromptForTrigger(
   sedeId: number | null,
   trigger: string
 ): string {
+  if (trigger === "centro_azioni") {
+    return `${buildSystemPrompt(sedeId)}
+
+═══ CENTRO AZIONI ═══
+Stai approfondendo un caso operativo gia rilevato da regole deterministiche. Non creare
+una seconda segnalazione dello stesso problema. Correlalo con fascicolo, comunicazioni,
+fatture e appuntamenti; proponi soltanto una modifica concreta che richieda approvazione.
+La priorita fornita dal CRM e un minimo: puoi confermarla o motivare maggiore urgenza,
+mai ridurla. Una sola azione consigliata, al massimo due alternative, oppure una domanda
+se manca un dato decisivo.`;
+  }
   return trigger === "smistamento"
     ? appendConoscenza(SYSTEM_SMISTAMENTO, sedeId)
     : buildSystemPrompt(sedeId);

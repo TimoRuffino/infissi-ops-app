@@ -1042,6 +1042,19 @@ export const TOOL_DEFS: TarsTool[] = [
 const TERMINAZIONE = ["chiedi_chiarimento", "nessuna_azione"] as const;
 
 const PROFILI: Record<string, readonly string[]> = {
+  centro_azioni: [
+    "leggi_fascicolo_commessa",
+    "leggi_fatture_cloud",
+    "leggi_qualita_operativa",
+    "cerca_comunicazioni",
+    "proponi_modifica_commessa",
+    "proponi_ticket",
+    "proponi_pagamento",
+    "proponi_avanzamento_stato",
+    "proponi_bozza_risposta",
+    "proponi_segnalazione",
+    ...TERMINAZIONE,
+  ],
   audit_processi: [
     "leggi_quadro_azienda",
     "proponi_miglioramento_processo",

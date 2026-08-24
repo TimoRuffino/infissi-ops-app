@@ -641,6 +641,25 @@ export const notificheRouter = router({
           actionServiceError(error);
         }
       }),
+
+    requestTarsAnalysis: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const context = actionContext(ctx);
+        const record = await context.repository.findById(context.sedeId, input.id);
+        if (!record) actionServiceError(new Error("NOT_FOUND"));
+        const visible = await listActionCases({
+          ...context,
+          scope: context.roles.includes("direzione") ? "site" : "mine",
+          now: new Date(),
+          limit: 100,
+        });
+        if (!visible.items.some(item => item.id === input.id)) {
+          actionServiceError(new Error("FORBIDDEN"));
+        }
+        const { scheduleCaseAnalysis } = await import("../actionCenter/tars");
+        return scheduleCaseAnalysis(context.sedeId, input.id);
+      }),
   }),
 
   brief: protectedProcedure.query(async ({ ctx }) => {
