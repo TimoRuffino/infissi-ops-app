@@ -67,6 +67,38 @@ export type ActionCaseDraft = {
   };
 };
 
+export type TarsAnalysisStatus =
+  | "non_richiesta"
+  | "in_coda"
+  | "in_corso"
+  | "completata"
+  | "errore";
+
+export type ActionCaseRecord = ActionCaseDraft & {
+  id: number;
+  status: ActionStatus;
+  reviewAt: Date | null;
+  snoozedUntil: Date | null;
+  tarsAnalysis: Record<string, unknown> | null;
+  tarsAnalysisFingerprint: string | null;
+  tarsAnalysisStatus: TarsAnalysisStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  resolvedAt: Date | null;
+};
+
+export type ActionCaseEvent = {
+  id: number;
+  actionCaseId: number;
+  sedeId: number;
+  actorUserId: number | null;
+  eventType: string;
+  fromStatus: ActionStatus | null;
+  toStatus: ActionStatus | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+};
+
 export type ActionCommessaSnapshot = {
   id: number;
   sedeId: number;

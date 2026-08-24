@@ -33,6 +33,13 @@ async function startServer() {
   // Load persisted stores before wiring routers / listening.
   await bootstrapAll();
 
+  // Action cases use dedicated relational tables. In production schema
+  // failures must stop startup instead of silently degrading to memory.
+  const { getActionCaseRepository } = await import(
+    "../actionCenter/repository"
+  );
+  await getActionCaseRepository().ensureSchema();
+
   // Nightly backup to Google Drive (00:00 Europe/Rome).
   const { startBackupScheduler } = await import("./driveBackup");
   startBackupScheduler();
