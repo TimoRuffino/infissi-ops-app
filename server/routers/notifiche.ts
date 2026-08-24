@@ -10,10 +10,12 @@ import { getClienteById } from "./clienti";
 import { getUtentiStore } from "./utenti";
 import { getActionCaseRepository } from "../actionCenter/repository";
 import {
+  canAccessActionCase,
   getActionCenterSummary,
   listActionCases,
   transitionActionCase,
 } from "../actionCenter/service";
+import { ACTION_CENTER_MODE } from "../actionCenter/scheduler";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 //
@@ -472,10 +474,11 @@ function actionContext(ctx: any) {
 
 export const notificheRouter = router({
   summary: protectedProcedure.query(async ({ ctx }) => {
-    return getActionCenterSummary({
+    const summary = await getActionCenterSummary({
       ...actionContext(ctx),
       now: new Date(),
     });
+    return { ...summary, mode: ACTION_CENTER_MODE };
   }),
 
   cases: router({
@@ -513,12 +516,8 @@ export const notificheRouter = router({
         const context = actionContext(ctx);
         const record = await context.repository.findById(context.sedeId, input.id);
         if (!record) actionServiceError(new Error("NOT_FOUND"));
-        const visible = await listActionCases({
-          ...context,
-          scope: context.roles.includes("direzione") ? "site" : "mine",
-          now: new Date(),
-        });
-        if (!visible.items.some(item => item.id === input.id)) {
+        const scope = context.roles.includes("direzione") ? "site" : "mine";
+        if (!canAccessActionCase(record, context.userId, context.roles, scope)) {
           actionServiceError(new Error("FORBIDDEN"));
         }
         return {
@@ -648,13 +647,8 @@ export const notificheRouter = router({
         const context = actionContext(ctx);
         const record = await context.repository.findById(context.sedeId, input.id);
         if (!record) actionServiceError(new Error("NOT_FOUND"));
-        const visible = await listActionCases({
-          ...context,
-          scope: context.roles.includes("direzione") ? "site" : "mine",
-          now: new Date(),
-          limit: 100,
-        });
-        if (!visible.items.some(item => item.id === input.id)) {
+        const scope = context.roles.includes("direzione") ? "site" : "mine";
+        if (!canAccessActionCase(record, context.userId, context.roles, scope)) {
           actionServiceError(new Error("FORBIDDEN"));
         }
         const { scheduleCaseAnalysis } = await import("../actionCenter/tars");

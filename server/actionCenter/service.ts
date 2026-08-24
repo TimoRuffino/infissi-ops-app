@@ -21,6 +21,15 @@ function isMine(record: ActionCaseRecord, userId: number, roles: string[]): bool
   );
 }
 
+export function canAccessActionCase(
+  record: ActionCaseRecord,
+  userId: number,
+  roles: string[],
+  scope: Scope = "mine"
+): boolean {
+  return scope === "site" ? isDirection(roles) : isMine(record, userId, roles);
+}
+
 function isVisibleNow(record: ActionCaseRecord, now: Date): boolean {
   if (record.status === "risolta") return false;
   if (
@@ -68,12 +77,11 @@ export async function listActionCases(input: {
   if (input.scope === "site" && !isDirection(input.roles)) {
     throw new Error("FORBIDDEN");
   }
-  const cursor = input.cursor ? Number(input.cursor) : 0;
+  const offset = input.cursor ? Math.max(0, Number(input.cursor) || 0) : 0;
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
   const cases = (await allCases(input.repository, input.sedeId))
     .filter(record => input.scope === "site" || isMine(record, input.userId, input.roles))
     .filter(record => !input.statuses || input.statuses.includes(record.status))
-    .filter(record => record.id > cursor)
     .sort((a, b) => {
       if (a.priorityScore !== b.priorityScore) {
         return b.priorityScore - a.priorityScore;
@@ -83,10 +91,10 @@ export async function listActionCases(input: {
       if (dueA !== dueB) return dueA - dueB;
       return a.id - b.id;
     });
-  const items = cases.slice(0, limit);
+  const items = cases.slice(offset, offset + limit);
   return {
     items,
-    nextCursor: cases.length > limit ? String(items[items.length - 1].id) : null,
+    nextCursor: cases.length > offset + limit ? String(offset + limit) : null,
   };
 }
 

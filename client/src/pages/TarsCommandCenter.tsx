@@ -30,6 +30,7 @@ import TarsAvatar from "@/components/TarsAvatar";
 import { TarsChatPanel } from "@/components/TarsChat";
 import { toast } from "sonner";
 import { ElencoProposte, RegistroEsecuzioni } from "./TarsInbox";
+import { ActionCenter } from "@/components/ActionCenter";
 
 function relativeDate(value: Date | string | null | undefined): string {
   if (!value) return "Mai";
@@ -98,19 +99,24 @@ function CommandCenterLoading() {
 function TodayView({
   snapshot,
   onOpenProposals,
+  direction,
 }: {
   snapshot: any;
   onOpenProposals: (proposalId?: number | null) => void;
+  direction: boolean;
 }) {
   if (snapshot.status === "disabled") {
     return (
-      <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-5 text-center">
-        <Bot className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-        <div>
-          <p className="font-semibold">Tars è disattivato</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            La direzione può riattivarlo dalle impostazioni delle integrazioni.
-          </p>
+      <div className="space-y-4">
+        <ActionCenter direction={direction} />
+        <div className="flex min-h-32 items-center gap-3 rounded-lg border border-dashed px-5">
+          <Bot className="h-8 w-8 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div>
+            <p className="font-semibold">Analisi Tars disattivata</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Le priorità certe restano attive. La direzione può riattivare l'analisi AI dalle integrazioni.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -118,6 +124,8 @@ function TodayView({
 
   return (
     <div className="space-y-4">
+      <ActionCenter direction={direction} />
+
       <section className="overflow-hidden rounded-lg border bg-[image:var(--gradient-soft)] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -375,7 +383,7 @@ export default function TarsCommandCenter() {
               <Button variant="outline" size="sm" onClick={() => snapshot.refetch()}>Riprova</Button>
             </div>
           ) : (
-            <TodayView snapshot={data} onOpenProposals={openProposal} />
+            <TodayView snapshot={data} onOpenProposals={openProposal} direction={direzione} />
           )}
         </TabsContent>
 

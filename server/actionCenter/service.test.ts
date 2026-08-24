@@ -99,6 +99,31 @@ describe("Action Center service", () => {
     expect(site.items).toHaveLength(3);
   });
 
+  it("pagina l'ordine per priorita senza perdere casi", async () => {
+    const first = await listActionCases({
+      repository,
+      sedeId: 1,
+      userId: 1,
+      roles: ["direzione"],
+      scope: "site",
+      now: NOW,
+      limit: 2,
+    });
+    const second = await listActionCases({
+      repository,
+      sedeId: 1,
+      userId: 1,
+      roles: ["direzione"],
+      scope: "site",
+      now: NOW,
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+
+    expect(first.nextCursor).toBe("2");
+    expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(3);
+  });
+
   it("applica transizioni con audit e non rivela casi di altre sedi", async () => {
     const record = await repository.findByCanonicalKey(1, "commessa:1");
     const taken = await transitionActionCase({
