@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommesseStore } from "./commesse";
@@ -6,6 +7,13 @@ import { getInterventiStore } from "./interventi";
 import { getTicketStore } from "./ticket";
 import { getGaranzieStore } from "./garanzie";
 import { getClienteById } from "./clienti";
+import { getUtentiStore } from "./utenti";
+import { getActionCaseRepository } from "../actionCenter/repository";
+import {
+  getActionCenterSummary,
+  listActionCases,
+  transitionActionCase,
+} from "../actionCenter/service";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 //
@@ -431,7 +439,237 @@ function ruoliOf(user: any): string[] {
     : [];
 }
 
+function actionServiceError(error: unknown): never {
+  const message = error instanceof Error ? error.message : "UNKNOWN";
+  if (message === "NOT_FOUND" || message === "ACTION_CASE_NOT_FOUND") {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Azione non trovata." });
+  }
+  if (message === "FORBIDDEN") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Operazione non consentita." });
+  }
+  if (message === "STALE_ACTION_CASE") {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "Il caso e cambiato. Aggiorna la pagina prima di continuare.",
+    });
+  }
+  throw new TRPCError({ code: "BAD_REQUEST", message });
+}
+
+const caseIdentitySchema = z.object({
+  id: z.number().int().positive(),
+  expectedFingerprint: z.string().min(1).max(4_000),
+});
+
+function actionContext(ctx: any) {
+  return {
+    repository: getActionCaseRepository(),
+    sedeId: (ctx.sedeId ?? 1) as number,
+    userId: ctx.user.id as number,
+    roles: ruoliOf(ctx.user),
+  };
+}
+
 export const notificheRouter = router({
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    return getActionCenterSummary({
+      ...actionContext(ctx),
+      now: new Date(),
+    });
+  }),
+
+  cases: router({
+    list: protectedProcedure
+      .input(z.object({
+        scope: z.enum(["mine", "site"]).default("mine"),
+        statuses: z.array(z.enum([
+          "da_valutare",
+          "in_carico",
+          "rinviata",
+          "in_attesa",
+          "risolta",
+        ])).max(5).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        cursor: z.string().nullable().optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        try {
+          return await listActionCases({
+            ...actionContext(ctx),
+            scope: input?.scope ?? "mine",
+            statuses: input?.statuses,
+            limit: input?.limit ?? 50,
+            cursor: input?.cursor,
+            now: new Date(),
+          });
+        } catch (error) {
+          actionServiceError(error);
+        }
+      }),
+
+    detail: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const context = actionContext(ctx);
+        const record = await context.repository.findById(context.sedeId, input.id);
+        if (!record) actionServiceError(new Error("NOT_FOUND"));
+        const visible = await listActionCases({
+          ...context,
+          scope: context.roles.includes("direzione") ? "site" : "mine",
+          now: new Date(),
+        });
+        if (!visible.items.some(item => item.id === input.id)) {
+          actionServiceError(new Error("FORBIDDEN"));
+        }
+        return {
+          ...record,
+          events: await context.repository.listEvents(context.sedeId, input.id),
+        };
+      }),
+
+    take: protectedProcedure.input(caseIdentitySchema).mutation(async ({ input, ctx }) => {
+      try {
+        return await transitionActionCase({
+          ...actionContext(ctx),
+          caseId: input.id,
+          expectedFingerprint: input.expectedFingerprint,
+          action: "take",
+          now: new Date(),
+        });
+      } catch (error) {
+        actionServiceError(error);
+      }
+    }),
+
+    assign: protectedProcedure
+      .input(caseIdentitySchema.extend({ assigneeUserId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const context = actionContext(ctx);
+        const user = getUtentiStore().find((candidate: any) =>
+          candidate.id === input.assigneeUserId &&
+          candidate.attivo !== false &&
+          (!Array.isArray(candidate.sediIds) || candidate.sediIds.includes(context.sedeId))
+        );
+        if (!user) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Utente non disponibile nella sede." });
+        }
+        try {
+          return await transitionActionCase({
+            ...context,
+            caseId: input.id,
+            expectedFingerprint: input.expectedFingerprint,
+            action: "assign",
+            assigneeUserId: input.assigneeUserId,
+            now: new Date(),
+          });
+        } catch (error) {
+          actionServiceError(error);
+        }
+      }),
+
+    snooze: protectedProcedure
+      .input(caseIdentitySchema.extend({
+        until: z.coerce.date(),
+        reason: z.string().trim().max(500).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await transitionActionCase({
+            ...actionContext(ctx),
+            caseId: input.id,
+            expectedFingerprint: input.expectedFingerprint,
+            action: "snooze",
+            until: input.until,
+            reason: input.reason,
+            now: new Date(),
+          });
+        } catch (error) {
+          actionServiceError(error);
+        }
+      }),
+
+    waitFor: protectedProcedure
+      .input(caseIdentitySchema.extend({
+        until: z.coerce.date(),
+        reason: z.string().trim().min(3).max(500),
+        counterpart: z.string().trim().min(2).max(120),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await transitionActionCase({
+            ...actionContext(ctx),
+            caseId: input.id,
+            expectedFingerprint: input.expectedFingerprint,
+            action: "wait",
+            until: input.until,
+            reason: input.reason,
+            counterpart: input.counterpart,
+            now: new Date(),
+          });
+        } catch (error) {
+          actionServiceError(error);
+        }
+      }),
+
+    resolve: protectedProcedure.input(caseIdentitySchema).mutation(async ({ input, ctx }) => {
+      try {
+        return await transitionActionCase({
+          ...actionContext(ctx),
+          caseId: input.id,
+          expectedFingerprint: input.expectedFingerprint,
+          action: "resolve",
+          now: new Date(),
+        });
+      } catch (error) {
+        actionServiceError(error);
+      }
+    }),
+
+    dismiss: protectedProcedure
+      .input(caseIdentitySchema.extend({ reason: z.string().trim().min(3).max(500) }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await transitionActionCase({
+            ...actionContext(ctx),
+            caseId: input.id,
+            expectedFingerprint: input.expectedFingerprint,
+            action: "dismiss",
+            reason: input.reason,
+            now: new Date(),
+          });
+        } catch (error) {
+          actionServiceError(error);
+        }
+      }),
+  }),
+
+  brief: protectedProcedure.query(async ({ ctx }) => {
+    const context = actionContext(ctx);
+    const page = await listActionCases({
+      ...context,
+      scope: "mine",
+      now: new Date(),
+      limit: 100,
+    });
+    const repeatedSnoozes = await Promise.all(
+      page.items.map(async item => {
+        const events = await context.repository.listEvents(context.sedeId, item.id);
+        return events.filter(event => event.eventType === "rinviata").length >= 2
+          ? item.id
+          : null;
+      })
+    );
+    return {
+      total: page.items.length,
+      byPriority: {
+        critical: page.items.filter(item => item.priority === "critica").length,
+        high: page.items.filter(item => item.priority === "alta").length,
+        normal: page.items.filter(item => item.priority === "normale").length,
+      },
+      repeatedSnoozeCaseIds: repeatedSnoozes.filter((id): id is number => id != null),
+    };
+  }),
+
   list: protectedProcedure.query(({ ctx }) => {
     if (!ctx.user) return [];
     const userId = ctx.user.id as number;
