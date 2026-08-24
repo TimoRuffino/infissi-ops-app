@@ -3,9 +3,9 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 23/08/2026<br>
-**Base Git descritta:** `main` dopo `330c609` (storico WhatsApp completo e
-contesto Tars con distinzione cliente/ufficio)<br>
+**Aggiornato:** 24/08/2026<br>
+**Base Git descritta:** `main` dopo `d4efb60` (Centro Azioni persistente,
+deduplica notifiche e UI Tars)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -29,6 +29,7 @@ pagine quando esiste già un token semantico.
 | Backend | Node, Express, tRPC 11, zod |
 | Dati applicativi | PostgreSQL Railway, principalmente `kv_store` JSONB |
 | Comunicazioni | tabella PostgreSQL `comunicazioni`, con fallback in memoria locale |
+| Azioni operative | tabelle PostgreSQL `azioni_operative` e `azioni_operative_eventi`, fallback in memoria locale |
 | File | driver `local` oppure object storage S3-compatible/R2 |
 | AI | OpenAI Responses API con function calling, proposta con approvazione umana |
 | PDF | jsPDF/autotable client e server |
@@ -83,6 +84,13 @@ server/tars/
   commandCenter.ts          ranking e brief deterministici, senza chiamata AI
   comunicazioni.ts          tabella messaggi e statistiche
 
+server/actionCenter/
+  signals.ts                regole pure, priorità e deduplica
+  repository.ts             PostgreSQL/memory e audit eventi
+  reconcile.ts              ciclo di vita e auto-risoluzione
+  scheduler.ts              modalità legacy/shadow/active e recupero
+  tars.ts                   coda asincrona di analisi Tars
+
 client/src/
   App.tsx                   rotte lazy e boundary di caricamento
   index.css                 design tokens light/dark
@@ -90,6 +98,7 @@ client/src/
   pages/messaggi/WhatsAppPage.tsx  workspace conversazioni WhatsApp
   pages/Integrazioni.tsx    Drive, FiC, storage e altre integrazioni
   pages/TarsCommandCenter.tsx      cabina operativa Tars
+  components/ActionCenter.tsx      coda personale/sede e transizioni
   pages/TarsInbox.tsx       viste legacy riusate per proposte e registro
 ```
 
@@ -170,6 +179,8 @@ l'intero catalogo:
   ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aggregato e miglioramenti di processo;
+- `centro_azioni`: fascicolo e sole letture/proposte necessarie per
+  approfondire un caso persistente;
 - chat/seguito: catalogo completo quando serve esplorazione libera.
 
 `leggi_fascicolo_commessa` raccoglie in parallelo commessa, timeline, documenti,
@@ -220,9 +231,22 @@ giorni, applica scope sede e ordina le priorità con ranking deterministico di
 urgenza, impatto e confidenza. Ogni priorità priva di una prova viene esclusa e
 la chiave d'azione canonica impedisce doppioni nella vista. Il brief viene
 costruito senza chiamare OpenAI: aprire o aggiornare la pagina non consuma token.
-Il context engine persistente e incrementale descritto nei piani resta debito
-aperto: il codice corrente aggrega fonti già correlate nelle proposte, non
-costruisce ancora fascicoli trasversali persistenti per entità.
+Il Centro Azioni persiste ora il contesto operativo minimo per situazione:
+fingerprint, evidenze, assegnatario, scadenza, prossima azione, analisi Tars e
+registro eventi. Non è ancora una memoria semantica generale per cliente o
+commessa: ricerca pgvector e riassunti storici incrementali restano roadmap.
+
+### Centro Azioni e rollout
+
+- `ACTION_CENTER_MODE=legacy`: solo notifiche v2 read/unread.
+- `ACTION_CENTER_MODE=shadow` o variabile assente: il nuovo motore riconcilia
+  ogni minuto e la pagina Tars mostra i casi, ma la campanella resta legacy.
+- `ACTION_CENTER_MODE=active`: campanella personale con massimo tre righe e
+  badge `9+`; la coda completa resta in Tars `Oggi`.
+- I casi alti/critici nuovi o cambiati accodano Tars in lotti da tre. La pagina,
+  il badge e le query lista non chiamano OpenAI.
+- Prima di attivare in produzione confrontare per sede `signals`, `cases`,
+  `suppressedDuplicates`, criticità mancanti ed errori schema nei log.
 
 In produzione è obbligatoria `OPENAI_API_KEY`. `ANTHROPIC_API_KEY` non viene più
 letta dal codice e può essere rimossa da Railway dopo un deploy verificato.
@@ -434,6 +458,21 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 - PRD riallineato su worker periodici, riferimenti sezione, preventivatore
   Fivizzanese, `/economia`, `/conoscenza` e storico WhatsApp.
 
+### Centro Azioni code-complete del 24/08/2026
+
+- Motore deterministico dei segnali con deduplica per situazione e conservazione
+  di tutte le evidenze correlate.
+- Persistenza PostgreSQL sede-scoped, registro eventi e workflow
+  `da_valutare`, `in_carico`, `rinviata`, `in_attesa`, `risolta`.
+- Riconciliazione al boot e ogni minuto, con auto-risoluzione e riapertura solo
+  quando cambia il fingerprint dei fatti rilevanti.
+- Analisi Tars asincrona soltanto per casi nuovi o cambiati alti/critici, in
+  lotti massimi da tre; errori del provider non nascondono il caso.
+- Nuova vista `Oggi` con scope personale/sede, presa in carico, rinvio, attesa,
+  chiusura e richiesta manuale di analisi Tars.
+- Campanella compatta in modalità `active`; notifiche legacy preservate in
+  `legacy` e `shadow` per un confronto produzione reversibile.
+
 ## 8. Sicurezza e credenziali
 
 Il seed storico con password in chiaro è stato rimosso dal codice corrente. Al
@@ -487,7 +526,9 @@ Poi verificare nel browser, desktop e mobile:
   `smb_message_echoes` dopo un invio dall'app primaria;
 - Integrazioni: stato Drive, storage e FiC;
 - Tars: Command Center `Oggi`, fonti raggiungibili, proposta approvabile e
-  nessuna azione automatica inattesa.
+  nessuna azione automatica inattesa;
+- Centro Azioni in `shadow`: confrontare conteggi aggregati, priorità,
+  dedupliche e assegnazioni; passare ad `active` solo dopo il controllo.
 
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
@@ -515,7 +556,10 @@ pnpm storage:dry-run
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
 5. QA di `OPENAI_API_KEY` su dati reali dopo il deploy e monitoraggio errori,
    latenza, cache e costi Tars.
-6. Context engine Tars persistente e incrementale per cliente/commessa, con
-   fingerprint, coda eventi e fascicoli separati per visibility scope.
+6. Memoria semantica Tars per cliente/commessa, con ricerca pgvector, riassunti
+   storici incrementali e visibility scope. Il contesto operativo persistente
+   per situazione è già coperto dal Centro Azioni.
 7. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
+8. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
+   per sede dopo confronto con le notifiche legacy.

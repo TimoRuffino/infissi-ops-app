@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (23/08/2026).
-**Versione:** 4.17 - Ricollegamento WhatsApp verificato in produzione, con storico inviati preservato e procedura sicura di recupero dell'app dopo backup.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (24/08/2026).
+**Versione:** 4.18 - Centro Azioni persistente, notifiche deduplicate e analisi asincrona Tars con rollout controllato.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), watcher IMAP (ogni 60 s) e recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
@@ -641,35 +641,48 @@ La pagina `/classifica`, l'endpoint `commesse.classificaVenditori` e la voce di 
 
 ---
 
-## 25. Notifiche proattive (dropdown header) — v2 personalizzate
+## 25. Centro Azioni e notifiche — v3
 
-### 25.1 Personalizzazione
-Le notifiche sono calcolate on‑demand **per l'utente corrente**: "owner" = `commessa.assegnatoA === userId` (fallback legacy `createdBy` quando `assegnatoA` è nullo). La `direzione` vede anche le notifiche di scope sede. Tutto è filtrato sulla sede attiva.
+### 25.1 Principio
+La campanella non misura tutto ciò che il CRM conosce. In modalità `active`
+mostra soltanto eccezioni personali critiche o alte già esigibili; massimo tre
+righe nel dropdown e badge visuale `9+`. La coda completa vive in
+`/tars?tab=oggi`. Leggere non equivale a gestire: ogni caso possiede stato,
+responsabile, scadenza o revisione, evidenze e una sola prossima azione.
 
-### 25.2 Fonti
-| # | Fonte | Destinatari | Severità | Note sull'id |
-|---|---|---|---|---|
-| 1 | **Priority aging** — commessa ferma oltre soglia (bassa 7 gg, media 5, alta 3, urgente 1) | owner | per priorità | embedde `updatedAt`: "segna letta" tace finché la commessa non si muove di nuovo |
-| 2 | **Daily reminder** su stati bottleneck (`aggiornamento_contratto`, `fatture_pagamento`, `da_ordinare`) | owner | escalation per età (≥5 urgent, ≥3 warning) | embedde la data: letta oggi, rispunta domani |
-| 3 | **Stato → ruolo** (`da_ordinare`→ordini, `misure_esecutive`→tecnico_rilievi, `fatture_pagamento`/`finiture_saldo`→amministrazione) | utenti col ruolo | info | id = (commessa, stato): letta finché lo stato non cambia |
-| 4 | **Consegna da confermare** — `produzione` senza `dataConsegnaConfermata` | owner + direzione | warning | id stabile per commessa |
-| 4b | **Saldo residuo** nelle fasi finali (`attesa_posa`, `finiture_saldo`, `interventi_regolazioni`) con `importoTotale` impostato e residuo > 0 | owner + direzione + amministrazione | warning | id embedde il residuo: un incasso parziale ri‑notifica |
-| 5 | **Garanzie** scadute (urgent) o in scadenza ≤30 gg (warning) | amministrazione + direzione | urgent/warning | id per garanzia |
-| 6 | **Ticket aperti/assegnati** su commesse possedute | owner + direzione | da priorità ticket | id ruota con lo stato: riapertura ri‑notifica |
-| 7 | **Interventi di oggi/domani senza squadra** | owner (direzione per i non collegati) | warning oggi / info domani | id per (intervento, data) |
+### 25.2 Segnali e deduplica
+Il motore puro raccoglie aging per priorità, passaggi bottleneck, routing per
+ruolo, consegna mancante, saldo residuo, garanzia, ticket e intervento senza
+squadra. Segnali della stessa commessa confluiscono in un solo caso canonico;
+ticket, garanzie e interventi senza commessa mantengono un caso autonomo. La
+priorità più alta non viene mai scartata e le altre cause restano come evidenze.
 
-### 25.3 Stato lettura persistito
-- Store `notifiche_read`: una riga per utente `{ userId, readIds[] }` (cap 800 id, FIFO).
-- `notifiche.markRead({ids})` e `notifiche.markAllRead()`.
-- `notifiche.list` ritorna `read: boolean`; ordinamento: non lette prima, poi severità (urgent→warning→info), poi recency. Cap 100.
-- `notifiche.count` = **solo non lette** (badge campanella: rosso se contiene urgenti, ambra altrimenti).
-- Ogni notifica porta un campo `link` (commessa, `/ticket`, `/garanzie`, `/planning`): il click nel dropdown segna letta e naviga.
+Le condizioni specifiche usano fingerprint dei fatti che le risolvono: data di
+consegna, residuo, stato/priorità ticket, scadenza garanzia, data e squadra
+dell'intervento. Un semplice aggiornamento generico non chiude il caso. Commesse
+archiviate o soft-archiviate e record di altre sedi sono escluse.
 
-### 25.4 Dropdown
-Header con conteggio "N da leggere — personalizzate per te" + bottone "Segna tutte lette". Icone per tipo (camion=consegna, ticket, scudo=garanzia, calendario=intervento). Le lette sono attenuate in fondo; pallino primary sulle non lette.
+### 25.3 Persistenza e ciclo di vita
+PostgreSQL usa `azioni_operative` con chiave unica `(sede_id, canonical_key)` e
+`azioni_operative_eventi` append-only. Gli stati sono `da_valutare`,
+`in_carico`, `rinviata`, `in_attesa`, `risolta`. Sono disponibili presa in
+carico, assegnazione direzione, rinvio, attesa con controparte/motivo/revisione,
+chiusura e non rilevante. Un caso scomparso dai segnali viene chiuso
+automaticamente; un fingerprint nuovo riapre un risolto o sveglia un rinviato.
 
-### 25.5 Esclusioni
-Come v3: niente notifiche per commesse `archiviata` o soft‑archiviate.
+### 25.4 Scope e API
+La vista personale include casi assegnati all'utente e casi non assegnati
+destinati a uno dei suoi ruoli. La vista `Tutta la sede` è riservata alla
+direzione. Ogni lookup applica `sedeId`; un id di altra sede restituisce
+`NOT_FOUND`. Le API sono `notifiche.summary`, `notifiche.cases.*` e
+`notifiche.brief`. Liste e apertura pagina non chiamano OpenAI.
+
+### 25.5 Rollout e fallback
+`ACTION_CENTER_MODE` accetta `legacy`, `shadow`, `active` e vale `shadow` se
+assente o non valido. In `shadow` il nuovo motore persiste casi e logga soltanto
+conteggi aggregati, mentre la campanella conserva `notifiche.list/count` e lo
+store `notifiche_read`. In `active` la campanella usa il nuovo summary. Il
+fallback legacy resta disponibile finché il confronto produzione non è chiuso.
 
 ---
 
@@ -835,6 +848,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.18 (24/08/2026)** - Centro Azioni persistente con deduplica dei segnali, workflow personale, audit, modalità legacy/shadow/active, campanella compatta e analisi Tars asincrona/cachata senza OpenAI sui percorsi di lettura (§25, §50.9).
 - **v4.17 (23/08/2026)** - Ricollegamento WhatsApp coexistence verificato in produzione con storico completato, echo live e outbound precedenti preservati; documentata la reinstallazione sicura di WhatsApp Business soltanto dopo backup verificato (§51.9).
 - **v4.16 (23/08/2026)** - Il tool `cerca_comunicazioni` espone direzione, autore, controparte, mittente e destinatario; il prompt obbliga Tars a distinguere cliente e ufficio anche nello storico WhatsApp outbound (§50.3, §51.8).
 - **v4.15 (23/08/2026)** - Embedded Signup riconosce la casella WhatsApp storica dal numero aziendale salvato nei destinatari e ne riusa l'id interno dopo uno scollegamento, preservando conversazioni, alias e collegamenti (§51.7-51.8).
@@ -1308,10 +1322,13 @@ chiamata OpenAI all'apertura o all'aggiornamento della pagina. Questa scelta
 riduce latenza e token senza alterare le proposte. Le azioni continuano a
 richiedere approvazione esplicita tramite le mutation esistenti.
 
-Il Command Center corrente aggrega fonti già correlate nelle proposte. Il
-futuro context engine persistente per cliente/commessa, con coda eventi,
-fingerprint e visibility scope, non va considerato implementato finché non sono
-presenti i relativi store e worker.
+La vista `Oggi` include il Centro Azioni persistente (§25), con casi
+deterministici, ciclo di vita ed evidenze trasversali. I casi nuovi o cambiati
+di priorità alta/critica accodano il trigger economico `centro_azioni`: massimo
+tre per lotto, profilo strumenti ridotto, fascicolo precaricato quando esiste
+`commessaId`, prompt cache separata per sede/profilo/modello. Il risultato salva
+riepilogo, esecuzione e id delle proposte. Errori OpenAI non nascondono né
+declassano il caso; le modifiche restano proposte da approvare.
 
 ### 50.10 Conoscenza aziendale (`/conoscenza`)
 La pagina `/conoscenza`, riservata alla direzione, gestisce le regole persistite

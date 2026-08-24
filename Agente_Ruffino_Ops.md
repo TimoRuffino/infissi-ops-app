@@ -1,7 +1,7 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.5 — 22/08/2026
-**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, Command Center, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Context engine persistente e ricerca semantica/pgvector restano roadmap.
+**Versione:** 1.6 — 24/08/2026
+**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, Command Center, Centro Azioni persistente, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Memoria semantica generale e ricerca pgvector restano roadmap.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
 ### Stato implementativo sintetico
@@ -18,6 +18,7 @@
 - La coda riconosce la stessa azione anche quando titolo o formulazione cambiano e blocca duplicati pendenti, approvati, rifiutati o già gestiti.
 - La cache strumenti è isolata al singolo run; il prefisso stabile usa il prompt caching OpenAI con una chiave versionata per sede, profilo e modello.
 - Il Command Center costruisce brief e ranking dalle proposte persistite senza chiamare OpenAI all'apertura; ogni priorità richiede una prova e viene deduplicata per chiave d'azione.
+- Il Centro Azioni riconcilia segnali deterministici in casi persistenti con responsabile, stato, revisione ed evidenze; Tars analizza in background soltanto i casi nuovi o cambiati alti/critici, massimo tre per lotto.
 - `gpt-5.6-sol` gestisce le richieste umane; `gpt-5.6-terra` i trigger automatici. Raggiunto il limite strumenti, il loop concede un solo turno finale senza tool.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
 
@@ -152,6 +153,7 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 | `gestione_comunicazione` | `gestione_comunicazione` | Istruzione operatore su una singola mail, anche senza commessa |
 | `on_demand` | `operativo` | Fascicolo e strumenti necessari all'analisi di una commessa |
 | `audit_processi` | `audit_processi` | Quadro aziendale e proposte di miglioramento misurabili |
+| `centro_azioni` | `centro_azioni` | Fascicolo e letture/proposte minime per approfondire un caso persistente |
 | `chat`, `seguito` | `completo` | Esplorazione richiesta dall'operatore |
 
 `leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima del modello quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
