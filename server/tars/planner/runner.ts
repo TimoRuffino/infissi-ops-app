@@ -237,6 +237,12 @@ export function startPlanWorker(
   const repository = options.repository ?? getTarsPlanRepository();
   const registry = options.registry ?? workflowRegistry;
   const executors = options.executors ?? {};
+  if (Object.keys(executors).length === 0) {
+    console.warn(
+      "[tars-planner] worker non avviato: executor di produzione assenti"
+    );
+    return { async stop() {} };
+  }
   const pollMs = Math.max(500, options.pollMs ?? 2_000);
   const staleLeaseMs = Math.max(10_000, options.staleLeaseMs ?? 5 * 60_000);
   const modeForSede =

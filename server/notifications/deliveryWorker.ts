@@ -95,6 +95,10 @@ export async function deliverStoredNotification(input: {
   sedeId: number;
   recipientUserId: number;
 }) {
+  const flags = getFeatureFlags(input.sedeId);
+  if (flags.notificationMode !== "active") {
+    return { pushSent: 0, fallback: "skipped" as const };
+  }
   const repository = getNotificationRepository();
   const notification = await repository.findById(
     input.notificationId,
@@ -119,7 +123,7 @@ export async function deliverStoredNotification(input: {
     preferences,
     subscriptions,
     repository,
-    webPushEnabled: getFeatureFlags(input.sedeId).webPushEnabled,
+    webPushEnabled: flags.webPushEnabled,
     webPushSender: createWebPushSender(),
     fallbackSender: disabledCriticalFallbackSender,
     onInvalidSubscription: async subscription => {

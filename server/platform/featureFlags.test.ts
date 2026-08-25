@@ -44,4 +44,28 @@ describe("platform feature flags", () => {
       },
     });
   });
+
+  it("rifiuta l'attivazione di percorsi non ancora operativi", () => {
+    expect(() =>
+      setFeatureFlags(
+        9301,
+        { plannerMode: "active" },
+        { actorUserId: 11, reason: "Tentativo planner" }
+      )
+    ).toThrow(/executor/i);
+    expect(() =>
+      setFeatureFlags(
+        9301,
+        { semanticSearchMode: "active" },
+        { actorUserId: 11, reason: "Tentativo ricerca" }
+      )
+    ).toThrow(/embedding/i);
+    expect(() =>
+      setFeatureFlags(
+        9301,
+        { contextEngineMode: "active" },
+        { actorUserId: 11, reason: "Tentativo contesto" }
+      )
+    ).toThrow(/producer/i);
+  });
 });

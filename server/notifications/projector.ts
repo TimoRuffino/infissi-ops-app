@@ -12,6 +12,7 @@ import {
   type NotificationHub,
 } from "./sse";
 import { deliverStoredNotification } from "./deliveryWorker";
+import { getFeatureFlags } from "../platform/featureFlags";
 
 const ASSIGNMENT_EVENT_TYPES = [
   "cliente.assigned",
@@ -102,6 +103,7 @@ export function createNotificationProjectorConsumer(
     getUsers?: () => Array<{ id: number; attivo: boolean; sediIds?: number[] }>;
     onDiagnostic?: (code: string, event: BusinessEvent, userId: number) => void;
     hub?: NotificationHub;
+    modeForSede?: (sedeId: number) => "legacy" | "shadow" | "active";
   } = {}
 ): BusinessEventConsumer {
   const repository = options.repository ?? getNotificationRepository();
@@ -119,6 +121,9 @@ export function createNotificationProjectorConsumer(
     name: "notification-projector-v1",
     eventTypes: ASSIGNMENT_EVENT_TYPES,
     async handle(event) {
+      const mode = options.modeForSede?.(event.sedeId) ??
+        getFeatureFlags(event.sedeId).notificationMode;
+      if (mode !== "active") return;
       const previousAssigneeId = numericPayload(event, "previousAssigneeId");
       if (previousAssigneeId != null) {
         await repository.resolveGroup({

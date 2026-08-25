@@ -149,6 +149,35 @@ export function createNotificationSseHandler(
         0
     );
     if (!Number.isInteger(lastSent) || lastSent < 0) lastSent = 0;
+    const pending = new Set<number>();
+    let replaying = true;
+    let delivery = Promise.resolve();
+    const flushPending = async () => {
+      const ids = Array.from(pending).sort((a, b) => a - b);
+      pending.clear();
+      for (const id of ids) {
+        if (id <= lastSent) continue;
+        const item = await repository.findById(id, recipientUserId, sedeId);
+        if (!item || item.id <= lastSent) continue;
+        res.write(eventFrame(item));
+        lastSent = item.id;
+      }
+    };
+    const scheduleFlush = () => {
+      delivery = delivery.then(flushPending).catch(error => {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? String((error as any).code)
+            : "SSE_DELIVERY_FAILED";
+        console.warn(`[notifications] sse delivery failed: ${code}`);
+      });
+    };
+    const unsubscribe = hub.subscribe({ recipientUserId, sedeId }, signal => {
+      if (signal.notificationId <= lastSent) return;
+      pending.add(signal.notificationId);
+      if (!replaying) scheduleFlush();
+    });
+
     const replay = await repository.listAfterId({
       sedeId,
       recipientUserId,
@@ -160,17 +189,8 @@ export function createNotificationSseHandler(
       res.write(eventFrame(item));
       lastSent = Math.max(lastSent, item.id);
     }
-
-    const unsubscribe = hub.subscribe({ recipientUserId, sedeId }, signal => {
-      if (signal.notificationId <= lastSent) return;
-      void repository
-        .findById(signal.notificationId, recipientUserId, sedeId)
-        .then(item => {
-          if (!item || item.id <= lastSent) return;
-          res.write(eventFrame(item));
-          lastSent = item.id;
-        });
-    });
+    replaying = false;
+    scheduleFlush();
     const heartbeat = setInterval(
       () => res.write(": heartbeat\n\n"),
       heartbeatMs

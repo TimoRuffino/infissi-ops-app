@@ -92,4 +92,47 @@ describe("notification SSE", () => {
     expect(output).not.toContain(`id: ${other.id}`);
     expect(output).not.toContain(notification.body);
   });
+
+  it("non perde segnali arrivati durante il replay e li mantiene ordinati", async () => {
+    const base = createMemoryNotificationRepository();
+    const first = await base.upsert(notification);
+    let releaseReplay!: () => void;
+    const replayGate = new Promise<void>(resolve => {
+      releaseReplay = resolve;
+    });
+    const repository = {
+      ...base,
+      async listAfterId(input: Parameters<typeof base.listAfterId>[0]) {
+        await replayGate;
+        return base.listAfterId(input);
+      },
+    };
+    const hub = createNotificationHub();
+    const handler = createNotificationSseHandler({
+      repository,
+      hub,
+      createContext: async () => ({ user: { id: 7 }, sedeId: 1 }),
+      heartbeatMs: 60_000,
+    });
+    const req = request({ "last-event-id": "0" });
+    const res = response();
+    const connected = handler(req, res);
+    await Promise.resolve();
+    const second = await base.upsert({
+      ...notification,
+      canonicalKey: "sse:2",
+      createdAt: new Date("2026-08-25T12:01:00Z"),
+    });
+    hub.publish({ notificationId: second.id, recipientUserId: 7, sedeId: 1 });
+    releaseReplay();
+    await connected;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    res.emit("close");
+
+    const ids = res.chunks
+      .join("")
+      .match(/^id: (\d+)$/gm)
+      ?.map((line: string) => Number(line.slice(4)));
+    expect(ids).toEqual([first.id, second.id]);
+  });
 });

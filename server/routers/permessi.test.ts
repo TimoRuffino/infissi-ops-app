@@ -251,6 +251,43 @@ describe("permessi", () => {
     );
   });
 
+  it("non propaga override e invalida la delega se il delegante perde il ruolo", async () => {
+    const caller = appRouter.createCaller(context(DIRECTION_ID, ["direzione"]));
+    const startsAt = new Date(Date.now() - 60_000);
+    const expiresAt = new Date(Date.now() + 86_400_000);
+    await caller.permessi.updateOverride({
+      userId: SALES_ID,
+      capability: "economia.read",
+      effect: "allow",
+      reason: "Accesso temporaneo per verifica deleghe controllate.",
+    });
+    await expect(
+      caller.permessi.createDelegation({
+        delegatorUserId: SALES_ID,
+        delegateUserId: SUPPORT_ID,
+        capability: "economia.read",
+        startsAt,
+        expiresAt,
+        reason: "Tentativo di trasferire una capacita ottenuta via override.",
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await caller.permessi.createDelegation({
+      delegatorUserId: DIRECTION_ID,
+      delegateUserId: SUPPORT_ID,
+      capability: "economia.read",
+      startsAt,
+      expiresAt,
+      reason: "Copertura amministrativa temporanea e revocabile.",
+    });
+    const delegator: any = users.find(user => user.id === DIRECTION_ID)!;
+    delegator.ruoli = ["commerciale"];
+    const preview = await caller.permessi.preview({ userId: SUPPORT_ID });
+    expect(
+      preview.capabilities.find(item => item.capability === "economia.read")
+    ).toMatchObject({ effective: false });
+  });
+
   it("non consente di gestire utenti fuori dalla sede attiva", async () => {
     const caller = appRouter.createCaller(context(DIRECTION_ID, ["direzione"]));
     await expect(

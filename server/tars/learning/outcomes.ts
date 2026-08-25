@@ -93,8 +93,7 @@ export function recordTarsOutcome(
     sedeId: input.sedeId,
     capability: input.capability.trim(),
     eventType: input.eventType,
-    successful:
-      input.eventType === "approved" || input.eventType === "verified",
+    successful: input.eventType === "verified",
     workflowId: input.workflowId,
     workflowVersion: input.workflowVersion,
     modelVersion: input.modelVersion,
@@ -111,6 +110,8 @@ export type CapabilityOutcomeReport = {
   sampleSize: number;
   successful: number;
   accuracy: number;
+  decisionCount: number;
+  approvalRate: number | null;
   incidents: number;
   observedFrom: Date;
   observedTo: Date;
@@ -137,12 +138,23 @@ export function buildCapabilityOutcomeReport(input: {
       const ordered = rows.sort(
         (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()
       );
-      const successful = rows.filter(row => row.successful).length;
+      const qualityRows = rows.filter(row =>
+        ["verified", "modified", "undo", "incident"].includes(row.eventType)
+      );
+      const decisionRows = rows.filter(row =>
+        ["approved", "rejected"].includes(row.eventType)
+      );
+      const successful = qualityRows.filter(row => row.successful).length;
       return {
         capability,
-        sampleSize: rows.length,
+        sampleSize: qualityRows.length,
         successful,
-        accuracy: rows.length ? successful / rows.length : 0,
+        accuracy: qualityRows.length ? successful / qualityRows.length : 0,
+        decisionCount: decisionRows.length,
+        approvalRate: decisionRows.length
+          ? decisionRows.filter(row => row.eventType === "approved").length /
+            decisionRows.length
+          : null,
         incidents: rows.filter(row => row.eventType === "incident").length,
         observedFrom: ordered[0].occurredAt,
         observedTo: ordered[ordered.length - 1].occurredAt,

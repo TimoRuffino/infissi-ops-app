@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.20 - Eventi, notifiche realtime, planner, ricerca ibrida e gate di autonomia Tars.
+**Versione:** 4.21 - Rollout Tars fail-closed, ACL proposte e SSE ordinato.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -848,6 +848,8 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.21 (25/08/2026)** - Il rollout Tars fallisce chiuso: shadow senza notifiche/push, active bloccato per contesto/planner/semantica incompleti, ACL proposte per ownership, deleghe rivalidate e stream SSE senza finestra replay/live (§53).
+- **v4.20 (25/08/2026)** - Introdotte le fondamenta di eventi, notifiche realtime, capability, contesto incrementale, planner persistente, indice ACL-aware, outcome e diagnostica; attivazione subordinata ai gate produzione (§53).
 - **v4.19 (25/08/2026)** - La chat Tars può proporre cliente e prima commessa anche senza una comunicazione sorgente; la creazione resta unica, deduplicata e subordinata all'approvazione (§50.2, §50.9).
 - **v4.18 (24/08/2026)** - Centro Azioni persistente con deduplica dei segnali, workflow personale, audit, modalità legacy/shadow/active, campanella compatta e analisi Tars asincrona/cachata senza OpenAI sui percorsi di lettura (§25, §50.9).
 - **v4.17 (23/08/2026)** - Ricollegamento WhatsApp coexistence verificato in produzione con storico completato, echo live e outbound precedenti preservati; documentata la reinstallazione sicura di WhatsApp Business soltanto dopo backup verificato (§51.9).
@@ -1525,6 +1527,14 @@ e idempotenti dopo riavvio. Il workflow cliente + prima commessa conserva ogni
 operazione riuscita e riparte dal primo passo incompleto senza duplicare dati.
 Le mutation restano quelle applicative e richiedono approvazione dell'utente.
 
+Stato rollout: il contesto e il planner restano in `off`/`shadow`. Il server
+rifiuta `contextEngineMode=active` finché email, WhatsApp, documenti, fatture,
+pagamenti e appuntamenti non pubblicano tutti gli eventi necessari; rifiuta
+`plannerMode=active` finché non sono registrati gli executor di produzione.
+Un valore `active` salvato da versioni precedenti viene degradato a `shadow` al
+bootstrap. Il workflow cliente + commessa approvato continua a funzionare
+attraverso la saga applicativa esistente, indipendente dal worker planner.
+
 ### 53.3 Ricerca ibrida
 `ricerca_ibrida` indicizza fonti versionate da email, WhatsApp, clienti,
 commesse, note, documenti estratti e conoscenza. Ogni chunk conserva sede,
@@ -1533,6 +1543,12 @@ identificatori e riferimenti strutturati, poi testo e vettori; la policy della
 fonte viene ricontrollata dopo il ranking. Sono restituiti al massimo otto
 frammenti con evidence ref. Se `pgvector` non e presente, nessuna estensione
 viene installata e la ricerca testuale continua con la parte semantica `off`.
+
+Stato rollout: chunking, ACL, versioni, delete e fallback lessicale sono
+implementati; producer completi ed embedding reali di indice/query non lo sono.
+Per questo `semanticSearchMode=active` e rifiutato e Tars usa i reader CRM
+strutturati. La denominazione semantica non deve essere presentata come attiva
+prima della chiusura di entrambi i requisiti.
 
 ### 53.4 Apprendimento e autonomia
 Approvazioni, modifiche, rifiuti, undo, verifiche e incidenti generano esiti

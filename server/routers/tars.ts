@@ -49,6 +49,7 @@ import {
   type MessaggioChat,
 } from "../tars/stores";
 import { getCommessaById } from "./commesse";
+import { getClienteById } from "./clienti";
 import {
   getComunicazione,
   salvaEsitoTarsComunicazione,
@@ -133,6 +134,91 @@ function trovaProposta(id: number, sedeId: number | null) {
   const p = proposte.find(x => x.id === id);
   assertSedeScope(p ?? null, sedeId);
   return p!;
+}
+
+function canViewProposal(p: any, user: any): boolean {
+  if (isDirezione(user) || isAmministrazione(user)) return true;
+  const userId = Number(user?.id ?? 0);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return false;
+  const execution = p.esecuzioneId
+    ? esecuzioni.find(item => item.id === p.esecuzioneId)
+    : null;
+  if (execution?.utenteId === userId || p.decisaDa === userId) return true;
+  const payloadAssignee = Number(
+    p.payload?.assegnatoA ?? p.payload?.assigneeId ?? p.payload?.job?.assegnatoA
+  );
+  if (payloadAssignee === userId) return true;
+  const commessa = p.commessaId != null ? getCommessaById(p.commessaId) : null;
+  if (Number((commessa as any)?.assegnatoA) === userId) return true;
+  const cliente = p.clienteId != null ? getClienteById(p.clienteId) : null;
+  return Number((cliente as any)?.assegnatoA) === userId;
+}
+
+function trovaPropostaVisibile(id: number, ctx: any) {
+  const proposal = trovaProposta(id, ctx.sedeId);
+  if (!canViewProposal(proposal, ctx.user)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Proposta non trovata." });
+  }
+  return proposal;
+}
+
+const proposalApprovalsInFlight = new Map<string, Promise<any>>();
+
+async function approveProposalOnce(id: number, ctx: any) {
+  const p = trovaPropostaVisibile(id, ctx);
+  if (p.stato === "approvata") {
+    return {
+      ...idrataProposta(p),
+      seguitoAvviato: false,
+      approvazioneRipetuta: true,
+    };
+  }
+  if (p.stato !== "pendente" && p.stato !== "errore") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `Proposta già decisa (${p.stato}).`,
+    });
+  }
+  if (TIPI_ALTO_RISCHIO.includes(p.tipo)) {
+    requireDirezioneOAmministrazione(ctx.user);
+  }
+  const user: any = ctx.user;
+  try {
+    const esito = await eseguiProposta(p, ctx);
+    p.stato = "approvata";
+    p.esito = esito;
+  } catch (e: any) {
+    p.stato = "errore";
+    p.esito = e?.message ?? String(e);
+  }
+  p.decisaAt = new Date();
+  p.decisaDa = user?.id ?? null;
+  p.decisaDaNome = user?.name ?? null;
+  saveProposte();
+  if (p.stato === "errore") {
+    recordProposalOutcomes(p, "incident", p.esito);
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Esecuzione fallita: ${p.esito}`,
+    });
+  }
+  recordProposalOutcomes(p, "approved", null);
+  const seguito = avviaSeguito(p, ctx);
+  return { ...idrataProposta(p), seguitoAvviato: seguito };
+}
+
+async function approveProposalSerialized(id: number, ctx: any) {
+  trovaPropostaVisibile(id, ctx);
+  const key = `${ctx.sedeId ?? 1}:${id}`;
+  const running = proposalApprovalsInFlight.get(key);
+  if (running) return running;
+  const execution = approveProposalOnce(id, ctx);
+  proposalApprovalsInFlight.set(key, execution);
+  try {
+    return await execution;
+  } finally {
+    proposalApprovalsInFlight.delete(key);
+  }
 }
 
 // Una proposta con la commessa leggibile al seguito: codice E cliente.
@@ -484,7 +570,12 @@ ${input.testo.trim()}`;
         const config = getTarsConfig(sedeId);
         const soglia = Date.now() - 30 * 86_400_000;
         const pending = proposte
-          .filter(p => p.sedeId === sedeId && p.stato === "pendente")
+          .filter(
+            p =>
+              p.sedeId === sedeId &&
+              p.stato === "pendente" &&
+              canViewProposal(p, ctx.user)
+          )
           .map(p => {
             const hydrated = idrataProposta(p);
             return {
@@ -587,7 +678,9 @@ ${input.testo.trim()}`;
           .optional()
       )
       .query(({ input, ctx }) => {
-        let rows = proposte.filter(p => p.sedeId === ctx.sedeId);
+        let rows = proposte.filter(
+          p => p.sedeId === ctx.sedeId && canViewProposal(p, ctx.user)
+        );
         if (input?.stato) rows = rows.filter(p => p.stato === input.stato);
         if (input?.commessaId) {
           rows = rows.filter(p => p.commessaId === input.commessaId);
@@ -603,52 +696,7 @@ ${input.testo.trim()}`;
 
     approva: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        const p = trovaProposta(input.id, ctx.sedeId);
-        if (p.stato === "approvata") {
-          return {
-            ...idrataProposta(p),
-            seguitoAvviato: false,
-            approvazioneRipetuta: true,
-          };
-        }
-        if (p.stato !== "pendente" && p.stato !== "errore") {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Proposta già decisa (${p.stato}).`,
-          });
-        }
-        // Pagamenti, cambi di stato e bozze: solo direzione/amministrazione.
-        if (TIPI_ALTO_RISCHIO.includes(p.tipo)) {
-          requireDirezioneOAmministrazione(ctx.user);
-        }
-        const user: any = ctx.user;
-        try {
-          const esito = await eseguiProposta(p, ctx);
-          p.stato = "approvata";
-          p.esito = esito;
-        } catch (e: any) {
-          p.stato = "errore";
-          p.esito = e?.message ?? String(e);
-        }
-        p.decisaAt = new Date();
-        p.decisaDa = user?.id ?? null;
-        p.decisaDaNome = user?.name ?? null;
-        saveProposte();
-        if (p.stato === "errore") {
-          recordProposalOutcomes(p, "incident", p.esito);
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Esecuzione fallita: ${p.esito}`,
-          });
-        }
-        recordProposalOutcomes(p, "approved", null);
-        // Una segnalazione approvata ha confermato un problema, non l'ha
-        // risolto: Tars riparte in background per proporre l'azione che lo
-        // chiude. Non si attende — il click deve restare istantaneo.
-        const seguito = avviaSeguito(p, ctx);
-        return { ...idrataProposta(p), seguitoAvviato: seguito };
-      }),
+      .mutation(({ input, ctx }) => approveProposalSerialized(input.id, ctx)),
 
     rifiuta: protectedProcedure
       .input(
@@ -659,7 +707,7 @@ ${input.testo.trim()}`;
         })
       )
       .mutation(({ input, ctx }) => {
-        const p = trovaProposta(input.id, ctx.sedeId);
+        const p = trovaPropostaVisibile(input.id, ctx);
         if (p.stato !== "pendente") {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -684,7 +732,7 @@ ${input.testo.trim()}`;
         z.object({ id: z.number(), risposta: z.string().min(1).max(1000) })
       )
       .mutation(({ input, ctx }) => {
-        const p = trovaProposta(input.id, ctx.sedeId);
+        const p = trovaPropostaVisibile(input.id, ctx);
         if (p.tipo !== "domanda") {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -710,7 +758,9 @@ ${input.testo.trim()}`;
       }),
 
     stats: protectedProcedure.query(({ ctx }) => {
-      const mie = proposte.filter(p => p.sedeId === ctx.sedeId);
+      const mie = proposte.filter(
+        p => p.sedeId === ctx.sedeId && canViewProposal(p, ctx.user)
+      );
       const soglia90 = Date.now() - 90 * 86_400_000;
       const decise = mie.filter(
         p => p.decisaAt && new Date(p.decisaAt).getTime() >= soglia90

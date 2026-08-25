@@ -115,6 +115,28 @@ function isEffective(
   );
 }
 
+async function delegatorRoleAllows(input: {
+  sedeId: number;
+  userId: number;
+  capability: Capability;
+}): Promise<boolean> {
+  const { getUtentiStore } = await import("../routers/utenti");
+  const user: any = getUtentiStore().find(item => item.id === input.userId);
+  if (
+    !user?.attivo ||
+    !Array.isArray(user.sediIds) ||
+    !user.sediIds.includes(input.sedeId)
+  ) {
+    return false;
+  }
+  const roles = Array.isArray(user.ruoli)
+    ? user.ruoli
+    : user.ruolo
+      ? [user.ruolo]
+      : [];
+  return capabilitiesForRoles(roles).has(input.capability);
+}
+
 export function createMemoryPolicyRepository(): PolicyRepository {
   const overrides: StoredCapabilityOverride[] = [];
   const delegations: StoredCapabilityDelegation[] = [];
@@ -197,21 +219,29 @@ export function createMemoryPolicyRepository(): PolicyRepository {
           startsAt: item.startsAt,
           expiresAt: item.expiresAt,
         }));
-      const delegated: CapabilityOverride[] = delegations
-        .filter(
-          item =>
-            item.sedeId === input.sedeId &&
-            item.delegateUserId === input.userId &&
-            isEffective(item, input.now)
-        )
-        .map(item => ({
+      const delegated: CapabilityOverride[] = [];
+      for (const item of delegations) {
+        if (
+          item.sedeId !== input.sedeId ||
+          item.delegateUserId !== input.userId ||
+          !isEffective(item, input.now) ||
+          !(await delegatorRoleAllows({
+            sedeId: item.sedeId,
+            userId: item.delegatorUserId,
+            capability: item.capability,
+          }))
+        ) {
+          continue;
+        }
+        delegated.push({
           capability: item.capability,
           effect: "allow",
           sedeId: item.sedeId,
           source: "delegation",
           startsAt: item.startsAt,
           expiresAt: item.expiresAt,
-        }));
+        });
+      }
       return [...direct, ...delegated].map(clone);
     },
     async recordAuditDiff(input) {
@@ -407,9 +437,21 @@ export function createPostgresPolicyRepository(
         FROM capability_overrides WHERE sede_id = ${input.sedeId} AND user_id = ${input.userId}
           AND revoked_at IS NULL AND (starts_at IS NULL OR starts_at <= ${input.now})
           AND (expires_at IS NULL OR expires_at > ${input.now})`;
-      const delegated = await sql`SELECT capability, sede_id, starts_at, expires_at
+      const delegatedRows = await sql`SELECT capability, sede_id, delegator_user_id, starts_at, expires_at
         FROM capability_delegations WHERE sede_id = ${input.sedeId} AND delegate_user_id = ${input.userId}
           AND revoked_at IS NULL AND starts_at <= ${input.now} AND expires_at > ${input.now}`;
+      const delegated = [];
+      for (const row of delegatedRows) {
+        if (
+          await delegatorRoleAllows({
+            sedeId: Number(row.sede_id),
+            userId: Number(row.delegator_user_id),
+            capability: row.capability as Capability,
+          })
+        ) {
+          delegated.push(row);
+        }
+      }
       return [
         ...direct.map(row => ({
           capability: row.capability as Capability,

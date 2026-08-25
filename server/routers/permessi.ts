@@ -244,26 +244,16 @@ export const permessiRouter = router({
           message: "La delega richiede utenti attivi.",
         });
       }
-      const repository = getPolicyRepository();
-      const delegatorOverrides = await repository.listEffectiveOverrides({
-        sedeId,
-        userId: delegator.id,
-        now: input.startsAt,
-      });
-      const decision = can({
-        user: delegator,
-        capability: input.capability,
-        activeSedeId: sedeId,
-        overrides: delegatorOverrides,
-        now: input.startsAt,
-      });
-      if (!decision.allowed) {
+      const inherited = capabilitiesForRoles(rolesFor(delegator));
+      if (!inherited.has(input.capability)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Il delegante non possiede questa capacita.",
+          message:
+            "Il delegante puo trasferire solo capacita ereditate dal proprio ruolo.",
         });
       }
 
+      const repository = getPolicyRepository();
       const now = new Date();
       const delegation = await repository.createDelegation({
         sedeId,

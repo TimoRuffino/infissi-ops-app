@@ -76,6 +76,7 @@ describe("notification projector", () => {
       { id: 8, attivo: true, sediIds: [1] },
     ];
     const consumer = createNotificationProjectorConsumer({
+      modeForSede: () => "active",
       repository,
       getUsers: () => users,
     });
@@ -112,5 +113,23 @@ describe("notification projector", () => {
         now: new Date(),
       })).items
     ).toHaveLength(1);
+  });
+
+  it("in shadow non crea notifiche ne consegne", async () => {
+    const repository = createMemoryNotificationRepository();
+    const consumer = createNotificationProjectorConsumer({
+      modeForSede: () => "shadow",
+      repository,
+      getUsers: () => [{ id: 7, attivo: true, sediIds: [1] }],
+    });
+    await consumer.handle(assignmentEvent());
+    expect(
+      (await repository.list({
+        sedeId: 1,
+        recipientUserId: 7,
+        limit: 10,
+        now: new Date(),
+      })).items
+    ).toEqual([]);
   });
 });

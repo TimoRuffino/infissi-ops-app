@@ -54,13 +54,17 @@ describe("Tars outcome learning", () => {
     expect(report).toEqual([
       expect.objectContaining({
         capability: "cliente.create",
-        sampleSize: 2,
-        accuracy: 0.5,
+        sampleSize: 1,
+        accuracy: 1,
+        decisionCount: 1,
+        approvalRate: 0,
       }),
       expect.objectContaining({
         capability: "commessa.create",
-        sampleSize: 1,
-        accuracy: 1,
+        sampleSize: 0,
+        accuracy: 0,
+        decisionCount: 1,
+        approvalRate: 1,
       }),
     ]);
     expect(report).not.toHaveProperty("accuracy");

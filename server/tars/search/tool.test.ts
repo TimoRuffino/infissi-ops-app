@@ -4,7 +4,7 @@ import { eseguiStrumento, TOOL_DEFS, type ToolRuntime } from "../tools";
 import { getSearchRepository } from "./repository";
 
 describe("ricerca_ibrida tool", () => {
-  it("restituisce frammenti brevi e registra le evidenze nel run", async () => {
+  it("resta bloccata finche la pipeline semantica non e attiva", async () => {
     const repository = getSearchRepository();
     await repository.upsertSource({
       sedeId: 781,
@@ -50,11 +50,8 @@ describe("ricerca_ibrida tool", () => {
     });
 
     expect(TOOL_DEFS.some(tool => tool.name === "ricerca_ibrida")).toBe(true);
-    expect(JSON.parse(result.content)).toEqual([
-      expect.objectContaining({ sourceType: "conoscenza", sourceId: "9001" }),
-    ]);
-    expect(runtime.evidenceRefs).toEqual([
-      expect.objectContaining({ sourceType: "conoscenza", sourceId: "9001" }),
-    ]);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/non attiva/i);
+    expect(runtime.evidenceRefs).toEqual([]);
   });
 });

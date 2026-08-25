@@ -4,7 +4,7 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 25/08/2026<br>
-**Base Git descritta:** `main`, milestone Tars "cervello aziendale" Tasks 1-29<br>
+**Base Git descritta:** `main`, fondamenta Tars Tasks 1-29 con gate active ancora chiusi<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -498,6 +498,26 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   prima commessa in `preventivo` tramite le mutation applicative sede-scoped.
 - I trigger automatici senza comunicazione restano bloccati; le proposte nate
   in chat usano nome, email e telefono nella chiave anti-duplicato.
+
+### Rollout piattaforma Tars del 25/08/2026
+
+- Eventi, notifiche persistenti, capability, contesto, piani e indice sono
+  disponibili per collaudo progressivo per sede.
+- `shadow` non crea notifiche né invia push. Le notifiche nuove hanno effetti
+  soltanto con `notificationMode=active`.
+- `contextEngineMode=active`, `plannerMode=active` e
+  `semanticSearchMode=active` sono rifiutati dal server finché, rispettivamente,
+  non sono completi tutti i producer dominio, gli executor di produzione e la
+  pipeline embedding. Eventuali valori legacy `active` tornano a `shadow` al
+  bootstrap.
+- L'indice corrente offre fallback lessicale ACL-aware in collaudo; Tars usa i
+  reader CRM autorizzati nel percorso operativo.
+- Le proposte sono visibili solo a direzione/amministrazione, autore del run o
+  responsabile dell'entità. Le deleghe vengono rivalidate sul ruolo corrente
+  del delegante.
+- Il lock approvazione corrente copre doppi click nello stesso processo; prima
+  di un rollout multi-istanza va aggiunto il claim PostgreSQL indicato nel
+  checklist `docs/reports/tars-brain-rollout-checklist.md`.
 
 ## 8. Sicurezza e credenziali
 

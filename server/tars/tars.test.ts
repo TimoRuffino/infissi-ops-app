@@ -35,7 +35,10 @@ import {
 } from "./loop";
 import { deleteComunicazione, insertComunicazione } from "./comunicazioni";
 import type { EntityContextSnapshot } from "./context/types";
-import { setFeatureFlags } from "../platform/featureFlags";
+import {
+  setFeatureFlags,
+  setFeatureFlagsForTesting,
+} from "../platform/featureFlags";
 
 function makeCtx(): TrpcContext {
   return {
@@ -156,8 +159,12 @@ describe("tars", () => {
     expect(c!.importoIncassato ?? 0).toBe(0);
 
     // Approvazione → passa da commesse.addPagamento con il ctx dell'operatore.
-    const approvata = await caller.tars.proposte.approva({ id: proposta.id });
+    const [approvata, concorrente] = await Promise.all([
+      caller.tars.proposte.approva({ id: proposta.id }),
+      caller.tars.proposte.approva({ id: proposta.id }),
+    ]);
     expect(approvata.stato).toBe("approvata");
+    expect(concorrente.stato).toBe("approvata");
 
     c = await caller.commesse.byId(commessa.id);
     expect(c!.importoIncassato).toBe(4320);
@@ -424,7 +431,7 @@ describe("tars — routing intent bounded", () => {
     const bodies: any[] = [];
     const realFetch = global.fetch;
     process.env.OPENAI_API_KEY = "test-key";
-    setFeatureFlags(
+    setFeatureFlagsForTesting(
       1,
       { plannerMode: "active" },
       { actorUserId: 1, reason: "Test intent router" }
@@ -1460,6 +1467,48 @@ describe("tars — profili e cache operativa", () => {
     expect(seconda.content).toMatch(/già in attesa/);
     expect(rt.proposteIds).toHaveLength(1);
     expect(rt.duplicatiBloccati).toBe(1);
+  });
+
+  it("non espone proposte senza ownership a un altro operatore", async () => {
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_170,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    const created = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      {
+        area: "privacy-test-999170",
+        problema: "Segnale sintetico riservato alla direzione",
+        proposta: "Verificare il perimetro di lettura delle proposte",
+        impatto: "Nessuna esposizione tra operatori",
+        metrica: "Zero record non autorizzati",
+        motivazione: "Test ACL della coda Tars.",
+        confidenza: "alta",
+        titolo: "Verifica ACL proposte 999170",
+      }
+    );
+    expect(created.isError).toBeFalsy();
+    const id = rt.proposteIds[0];
+    const commercialCtx = makeCtx();
+    (commercialCtx.user as any) = {
+      ...(commercialCtx.user as any),
+      id: 999_171,
+      role: "user",
+      ruolo: "commerciale",
+      ruoli: ["commerciale"],
+    };
+    const caller = appRouter.createCaller(commercialCtx);
+    expect((await caller.tars.proposte.list()).map(item => item.id)).not.toContain(
+      id
+    );
+    await expect(caller.tars.proposte.approva({ id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   it("legge il fascicolo completo una volta e riusa le richieste duplicate", async () => {

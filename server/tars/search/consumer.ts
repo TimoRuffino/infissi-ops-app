@@ -189,21 +189,36 @@ export function createSearchEventConsumer(
     options.modeForSede ??
     (sedeId => getFeatureFlags(sedeId).semanticSearchMode);
   const resolveSources = options.resolveSources ?? resolveSearchSources;
+  const deleteEventSource = async (event: BusinessEvent) => {
+    const sourceTypes = ["comunicazione", "email", "whatsapp"].includes(
+      event.source.type
+    )
+      ? ["comunicazione", "email", "whatsapp"]
+      : [event.source.type];
+    for (const sourceType of sourceTypes) {
+      await repository.deleteSource({
+        sedeId: event.sedeId,
+        sourceType,
+        sourceId: event.source.id,
+        now: event.occurredAt,
+      });
+    }
+  };
   return {
     name: "tars-search-v1",
     eventTypes: "*",
     async handle(event) {
       if (modeForSede(event.sedeId) === "off") return;
       if (/\.(?:deleted|removed|hard_deleted)$/.test(event.eventType)) {
-        await repository.deleteSource({
-          sedeId: event.sedeId,
-          sourceType: event.source.type,
-          sourceId: event.source.id,
-          now: event.occurredAt,
-        });
+        await deleteEventSource(event);
         return;
       }
-      for (const source of await resolveSources(event)) {
+      const sources = await resolveSources(event);
+      if (sources.length === 0) {
+        await deleteEventSource(event);
+        return;
+      }
+      for (const source of sources) {
         await indexSearchSource({
           repository,
           sedeId: event.sedeId,

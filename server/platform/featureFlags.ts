@@ -45,6 +45,12 @@ const _flagsStore = persistedStore<FeatureFlagRecord>("platform_feature_flags", 
         (item as any)[key] = structuredClone(value);
       }
     }
+    // Fail closed anche se un vecchio deploy aveva gia salvato `active`.
+    if (item.plannerMode === "active") item.plannerMode = "shadow";
+    if (item.semanticSearchMode === "active") {
+      item.semanticSearchMode = "shadow";
+    }
+    if (item.contextEngineMode === "active") item.contextEngineMode = "shadow";
   }
 });
 
@@ -75,7 +81,7 @@ export function getFeatureFlags(sedeId: number): FeatureFlags {
   return structuredClone(flags);
 }
 
-export function setFeatureFlags(
+function applyFeatureFlags(
   sedeId: number,
   patch: Partial<FeatureFlags>,
   audit: { actorUserId: number | null; reason: string }
@@ -106,6 +112,49 @@ export function setFeatureFlags(
     _auditStore.save();
   }
   return getFeatureFlags(sedeId);
+}
+
+export function setFeatureFlags(
+  sedeId: number,
+  patch: Partial<FeatureFlags>,
+  audit: { actorUserId: number | null; reason: string }
+): FeatureFlags {
+  if (patch.plannerMode === "active") {
+    throw Object.assign(
+      new Error(
+        "Planner non attivabile: gli executor di produzione non sono ancora registrati."
+      ),
+      { code: "PLANNER_EXECUTORS_NOT_READY" }
+    );
+  }
+  if (patch.semanticSearchMode === "active") {
+    throw Object.assign(
+      new Error(
+        "Ricerca semantica non attivabile: la pipeline embedding non e ancora disponibile."
+      ),
+      { code: "SEMANTIC_SEARCH_NOT_READY" }
+    );
+  }
+  if (patch.contextEngineMode === "active") {
+    throw Object.assign(
+      new Error(
+        "Contesto incrementale non attivabile: i producer di tutti i domini non sono ancora completi."
+      ),
+      { code: "CONTEXT_PRODUCERS_NOT_READY" }
+    );
+  }
+  return applyFeatureFlags(sedeId, patch, audit);
+}
+
+export function setFeatureFlagsForTesting(
+  sedeId: number,
+  patch: Partial<FeatureFlags>,
+  audit: { actorUserId: number | null; reason: string }
+): FeatureFlags {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("TEST_ONLY_FEATURE_FLAG_OVERRIDE");
+  }
+  return applyFeatureFlags(sedeId, patch, audit);
 }
 
 export function listFeatureFlagAudit(sedeId: number): FeatureFlagAudit[] {

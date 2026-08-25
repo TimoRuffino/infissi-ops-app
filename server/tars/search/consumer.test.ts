@@ -56,7 +56,7 @@ describe("search event consumer", () => {
     await repository.upsertSource({
       sedeId: 7,
       scope: "operativo",
-      sourceType: "comunicazione",
+      sourceType: "email",
       sourceId: "42",
       sourceVersion: "v1",
       chunks: [

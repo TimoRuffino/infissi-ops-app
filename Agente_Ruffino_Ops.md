@@ -165,6 +165,11 @@ Inviare sempre tutti gli strumenti rende il modello più lento, aumenta gli inpu
 
 `leggi_fascicolo_commessa` evita di ricostruire lo stesso contesto con molte chiamate. Il loop lo esegue prima del modello quando conosce già `commessaId` e marca `fascicoloPrecaricato` nell'audit.
 
+Il motore incrementale e l'indice semantico restano in collaudo `shadow`: nel
+percorso operativo Tars usa ancora reader CRM live e sede-scoped. L'attivazione
+e bloccata dal server finché producer dominio, executor planner ed embedding
+non sono completi e verificati su Railway.
+
 Le letture `leggi_*`/`cerca_*` sono memorizzate per singola esecuzione con chiave JSON stabile. Due richieste uguali e contemporanee condividono anche la Promise in corso; un errore viene rimosso dalla cache. Non esiste cache cross-run: sarebbe facile mostrare dati stantii o di un altro contesto.
 
 Lo smistamento ha un system prompt dedicato di circa 470 token stimati e schemi

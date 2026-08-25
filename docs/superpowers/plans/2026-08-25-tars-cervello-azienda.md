@@ -53,7 +53,7 @@ Ogni milestone e rilasciabile e reversibile da sola. Non iniziare una milestone 
 - Consumes: `Esecuzione` e `Proposta` da `server/tars/stores.ts`.
 - Produces: `EvalCase`, `EvalExpected`, `EvalObserved` e un corpus minimizzato versionato.
 
-- [ ] **Step 1: Scrivere il test fallente sul caricamento del corpus**
+- [x] **Step 1: Scrivere il test fallente sul caricamento del corpus**
 
 ```ts
 it("carica casi con ground truth e senza dati cliente reali", () => {
@@ -64,13 +64,13 @@ it("carica casi con ground truth e senza dati cliente reali", () => {
 });
 ```
 
-- [ ] **Step 2: Eseguire il test e osservare l'import mancante**
+- [x] **Step 2: Eseguire il test e osservare l'import mancante**
 
 Run: `pnpm test -- server/tars/evals/fixtures.test.ts`
 
 Expected: FAIL per `loadEvalCases` non definita.
 
-- [ ] **Step 3: Definire il contratto eval**
+- [x] **Step 3: Definire il contratto eval**
 
 ```ts
 export type EvalCase = {
@@ -93,11 +93,11 @@ export type EvalCase = {
 };
 ```
 
-- [ ] **Step 4: Popolare 24 casi sintetici rappresentativi**
+- [x] **Step 4: Popolare 24 casi sintetici rappresentativi**
 
 Includere almeno due casi per famiglia critica, un caso cross-sede, un prompt injection in email, una richiesta cliente+commessa, un duplicato e una `nessuna_azione` motivata. Usare nomi, telefoni, importi e codici inventati.
 
-- [ ] **Step 5: Aggiungere metadati di versione alle esecuzioni**
+- [x] **Step 5: Aggiungere metadati di versione alle esecuzioni**
 
 Estendere `Esecuzione` e relativo backfill con:
 
@@ -108,7 +108,7 @@ workflowVersion: string | null;
 policyVersion: string;
 ```
 
-- [ ] **Step 6: Verificare e committare**
+- [x] **Step 6: Verificare e committare**
 
 Run: `pnpm test -- server/tars/evals/fixtures.test.ts && pnpm check`
 
@@ -130,7 +130,7 @@ git commit -m "test(tars): add representative eval corpus"
 - Consumes: `EvalCase` da Task 1 e una funzione iniettata `execute(case): Promise<EvalObserved>`.
 - Produces: `runEvalSuite(options): Promise<EvalReport>` e script `pnpm tars:eval`.
 
-- [ ] **Step 1: Scrivere test fallenti sui grader deterministici**
+- [x] **Step 1: Scrivere test fallenti sui grader deterministici**
 
 ```ts
 expect(gradeToolSet(["a", "b"], ["b", "a"], ["delete"])).toEqual({
@@ -142,11 +142,11 @@ expect(gradeToolSet(["a", "b"], ["b", "a"], ["delete"])).toEqual({
 expect(gradeEvidence({ importantClaims: 4, citedClaims: 3 }).score).toBe(0.75);
 ```
 
-- [ ] **Step 2: Implementare grader esatti senza chiamate AI**
+- [x] **Step 2: Implementare grader esatti senza chiamate AI**
 
 Esportare `gradeToolSet`, `gradeProposalTypes`, `gradeEvidence`, `gradeFinalState`, `aggregateEvalReport`. Un fallimento di sicurezza rende l'intero report rosso indipendentemente dalla media.
 
-- [ ] **Step 3: Scrivere e implementare il runner con due modalita**
+- [x] **Step 3: Scrivere e implementare il runner con due modalita**
 
 ```ts
 export async function runEvalSuite(options: {
@@ -159,14 +159,14 @@ export async function runEvalSuite(options: {
 
 `recorded` e deterministico e adatto alla CI. `live` richiede `OPENAI_API_KEY`, limita concorrenza a 2 e salva soltanto metriche e output sanitizzati in una directory ignorata da Git.
 
-- [ ] **Step 4: Aggiungere comandi espliciti**
+- [x] **Step 4: Aggiungere comandi espliciti**
 
 ```json
 "tars:eval": "tsx scripts/run-tars-evals.ts --mode=recorded",
 "tars:eval:live": "tsx scripts/run-tars-evals.ts --mode=live"
 ```
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/evals/runner.test.ts && pnpm tars:eval`
 
@@ -185,7 +185,7 @@ git commit -m "feat(tars): add repeatable eval runner"
 **Interfaces:**
 - Produces: `getFeatureFlags(sedeId)`, `setFeatureFlags(sedeId, patch)` e `FeatureFlags`.
 
-- [ ] **Step 1: Scrivere test fallenti su default, patch e isolamento sede**
+- [x] **Step 1: Scrivere test fallenti su default, patch e isolamento sede**
 
 ```ts
 expect(getFeatureFlags(1).eventBusMode).toBe("off");
@@ -194,7 +194,7 @@ expect(getFeatureFlags(1).eventBusMode).toBe("shadow");
 expect(getFeatureFlags(2).eventBusMode).toBe("off");
 ```
 
-- [ ] **Step 2: Implementare store con backfill completo**
+- [x] **Step 2: Implementare store con backfill completo**
 
 ```ts
 export type FeatureFlags = {
@@ -210,11 +210,11 @@ export type FeatureFlags = {
 };
 ```
 
-- [ ] **Step 3: Esporre lettura e mutation direzione-only**
+- [x] **Step 3: Esporre lettura e mutation direzione-only**
 
 Aggiungere a `tars.config` una sezione `platformFlags`; validare array autonomia contro il registry capability e conservare audit con utente e timestamp.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/platform/featureFlags.test.ts server/tars/tars.test.ts`
 
@@ -233,7 +233,7 @@ git commit -m "feat: add staged platform feature flags"
 **Interfaces:**
 - Produces: `BusinessEventRepository`, `publish`, `claim`, `complete`, `fail`, `recoverStale`.
 
-- [ ] **Step 1: Scrivere test fallenti per deduplica e consumer indipendenti**
+- [x] **Step 1: Scrivere test fallenti per deduplica e consumer indipendenti**
 
 ```ts
 const first = await repo.publish(eventDraft);
@@ -244,7 +244,7 @@ expect(await repo.claim({ consumerName: "notifications", workerId: "a", limit: 1
 expect(await repo.claim({ consumerName: "context", workerId: "b", limit: 10, now })).toHaveLength(1);
 ```
 
-- [ ] **Step 2: Definire tipi chiusi e payload versionato**
+- [x] **Step 2: Definire tipi chiusi e payload versionato**
 
 ```ts
 export type BusinessEventDraft = {
@@ -260,15 +260,15 @@ export type BusinessEventDraft = {
 };
 ```
 
-- [ ] **Step 3: Implementare fallback memoria e PostgreSQL**
+- [x] **Step 3: Implementare fallback memoria e PostgreSQL**
 
 `ensureSchema()` crea `business_events` e `business_event_processing` come da spec. Il claim PostgreSQL inserisce le righe mancanti per il consumer, poi usa transazione e `FOR UPDATE SKIP LOCKED`; errori persistono solo `last_error_code` sanitizzato.
 
-- [ ] **Step 4: Coprire lease stale e dead-letter**
+- [x] **Step 4: Coprire lease stale e dead-letter**
 
 Dopo 5 tentativi lo stato diventa `dead_letter`; `recoverStale(cutoff)` rimette `processing` a `pending` senza modificare consumer gia completati.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/events/repository.test.ts`
 
@@ -289,11 +289,11 @@ git commit -m "feat: add durable business event ledger"
 - Consumes: `BusinessEventRepository` da Task 4.
 - Produces: `registerEventConsumer`, `runEventWorkerOnce`, `startEventWorkers`.
 
-- [ ] **Step 1: Scrivere test fallenti su isolamento, retry e stop**
+- [x] **Step 1: Scrivere test fallenti su isolamento, retry e stop**
 
 Un consumer che lancia non deve impedire il completamento di un altro; lo stop deve attendere i claim in corso; due worker non devono elaborare la stessa coppia evento/consumer.
 
-- [ ] **Step 2: Definire il contratto consumer**
+- [x] **Step 2: Definire il contratto consumer**
 
 ```ts
 export type BusinessEventConsumer = {
@@ -304,15 +304,15 @@ export type BusinessEventConsumer = {
 export function registerEventConsumer(consumer: BusinessEventConsumer): void;
 ```
 
-- [ ] **Step 3: Implementare ciclo con lease e backoff**
+- [x] **Step 3: Implementare ciclo con lease e backoff**
 
 `runEventWorkerOnce` reclama massimo 25 eventi, usa concorrenza 4, marca complete o fail con backoff `min(15m, 2^attempt * 5s)`. `startEventWorkers` non parte se `eventBusMode=off` per tutte le sedi.
 
-- [ ] **Step 4: Inizializzare schema e worker al boot**
+- [x] **Step 4: Inizializzare schema e worker al boot**
 
 In `server/_core/index.ts`, dopo `bootstrapAll`, eseguire `ensureSchema`; in produzione l'errore blocca solo l'attivazione `active`, mentre `shadow` registra diagnostica e lascia disponibile il CRM.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/events/worker.test.ts && pnpm check`
 
@@ -336,11 +336,11 @@ git commit -m "feat: process business events safely"
 **Interfaces:**
 - Produces: `publishDomainEvent(draft): Promise<PublishOutcome>` e `reconcileAssignmentEvents(sedeId)`.
 
-- [ ] **Step 1: Scrivere test fallenti sugli eventi materiali**
+- [x] **Step 1: Scrivere test fallenti sugli eventi materiali**
 
 Verificare `cliente.assigned`, `commessa.assigned`, `ticket.assigned`, `intervento.assigned` e `azione_operativa.assigned`; un update senza cambio assegnatario non pubblica l'evento.
 
-- [ ] **Step 2: Implementare helper non bloccante e osservabile**
+- [x] **Step 2: Implementare helper non bloccante e osservabile**
 
 ```ts
 export async function publishDomainEvent(draft: BusinessEventDraft): Promise<
@@ -350,15 +350,15 @@ export async function publishDomainEvent(draft: BusinessEventDraft): Promise<
 
 `failed` registra codice e metrica, non payload. In `shadow` salva l'evento ma i consumer con effetti restano in confronto.
 
-- [ ] **Step 3: Rendere async le mutation coinvolte e usare dedupe stabile**
+- [x] **Step 3: Rendere async le mutation coinvolte e usare dedupe stabile**
 
 La chiave usa entita, id, versione `updatedAt` e nuovo assegnatario, per esempio `commessa:42:assigned:7:2026-08-25T10:00:00.000Z`. Il payload include solo precedente, nuovo, link e motivo normalizzato.
 
-- [ ] **Step 4: Implementare reconciler per gli store JSONB**
+- [x] **Step 4: Implementare reconciler per gli store JSONB**
 
 Il reconciler conserva un fingerprint per `(sede, entityType, entityId)` e ripubblica soltanto cambi materiali sfuggiti al producer. Esporre `--sede`, `--limit`, `--dry-run` in `scripts/reconcile-business-events.ts`.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/events/publish.test.ts server/routers/notifiche.test.ts`
 
@@ -377,7 +377,7 @@ git commit -m "feat: emit assignment business events"
 **Interfaces:**
 - Produces: `NotificationRepository` con `upsert`, `list`, `markSeen`, `markRead`, `resolve`, `countUnread`, `recordDelivery`.
 
-- [ ] **Step 1: Scrivere test fallenti su stato e canonical key**
+- [x] **Step 1: Scrivere test fallenti su stato e canonical key**
 
 ```ts
 expect((await repo.upsert(draft)).created).toBe(true);
@@ -387,18 +387,18 @@ expect((await repo.findById(1, 7, 1))?.status).toBe("read");
 expect((await repo.findById(1, 8, 1))).toBeNull();
 ```
 
-- [ ] **Step 2: Definire stati separati**
+- [x] **Step 2: Definire stati separati**
 
 ```ts
 export type NotificationStatus = "unread" | "seen" | "read" | "acted" | "resolved" | "expired";
 export type NotificationPriority = "critical" | "high" | "normal" | "low";
 ```
 
-- [ ] **Step 3: Implementare tabelle e indici**
+- [x] **Step 3: Implementare tabelle e indici**
 
 Creare `notifications`, `notification_deliveries`, `push_subscriptions`, `notification_preferences`; unique `(sede_id, recipient_user_id, canonical_key)` e indici per coda, gruppo e fallback.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/notifications/repository.test.ts`
 
@@ -418,11 +418,11 @@ git commit -m "feat: add persistent notification repository"
 - Consumes: eventi Task 6 e `NotificationRepository` Task 7.
 - Produces: consumer `notification-projector-v1`.
 
-- [ ] **Step 1: Scrivere test fallenti per assegnazione, revoca e grouping**
+- [x] **Step 1: Scrivere test fallenti per assegnazione, revoca e grouping**
 
 Verificare destinatario nuovo, risoluzione notifica del precedente assegnatario, nessuna self-notification salvo richiesta esplicita, grouping dei messaggi nello stesso thread e zero doppioni su retry.
 
-- [ ] **Step 2: Implementare regole deterministiche**
+- [x] **Step 2: Implementare regole deterministiche**
 
 ```ts
 export function projectNotification(event: BusinessEvent): NotificationDraft[];
@@ -430,11 +430,11 @@ export function projectNotification(event: BusinessEvent): NotificationDraft[];
 
 La funzione pura restituisce zero o piu draft; titoli e link derivano dal tipo evento. Nessuna chiamata OpenAI decide se un'assegnazione deve essere consegnata.
 
-- [ ] **Step 3: Registrare il consumer**
+- [x] **Step 3: Registrare il consumer**
 
 Il consumer valida che il destinatario sia attivo e condivida la sede tramite `getUtentiStore`; utenti non validi generano diagnostica `recipient_invalid`, non notifiche orfane.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/notifications/projector.test.ts server/events/worker.test.ts`
 
@@ -453,19 +453,19 @@ git commit -m "feat: project assignments into personal notifications"
 **Interfaces:**
 - Produces: `notifiche.feed`, `notifiche.unreadCount`, `notifiche.markSeen`, `notifiche.markRead`, `notifiche.resolve`, `notifiche.preferences`.
 
-- [ ] **Step 1: Scrivere test fallenti su legacy, shadow e active**
+- [x] **Step 1: Scrivere test fallenti su legacy, shadow e active**
 
 In `legacy` le procedure correnti restano invariate; in `shadow` si confrontano conteggi senza mostrare doppioni; in `active` il feed usa il repository persistente e Action Center resta separato.
 
-- [ ] **Step 2: Implementare input sede-safe**
+- [x] **Step 2: Implementare input sede-safe**
 
 Le mutation non accettano `recipientUserId`; lo ricavano da `ctx.user.id`. `feed` usa cursore `(createdAt,id)` e limite massimo 50.
 
-- [ ] **Step 3: Implementare backfill dry-run**
+- [x] **Step 3: Implementare backfill dry-run**
 
 Il backfill crea solo responsabilita ancora materialmente aperte, non converte `notifiche_read` in `resolved`, e supporta `--sede`, `--limit`, `--dry-run`.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/routers/notifiche.test.ts`
 
@@ -488,15 +488,15 @@ git commit -m "feat: expose staged persistent notifications"
 **Interfaces:**
 - Produces: endpoint `GET /api/events/notifications`, `notificationHub.publish(userId,sedeId,cursor)` e hook `useNotificationStream()`.
 
-- [ ] **Step 1: Scrivere test server fallenti su autenticazione e replay**
+- [x] **Step 1: Scrivere test server fallenti su autenticazione e replay**
 
 Richiesta anonima: 401. Cookie valido: solo eventi del proprio utente e sede. `Last-Event-ID` non puo recuperare notifiche di altri destinatari.
 
-- [ ] **Step 2: Implementare route autenticata**
+- [x] **Step 2: Implementare route autenticata**
 
 Riutilizzare `createContext({ req, res })`; impostare `text/event-stream`, heartbeat 25 secondi, `Cache-Control: no-cache, no-transform`, cleanup su `close`. PostgreSQL `LISTEN/NOTIFY` sveglia le istanze ma il replay legge sempre il repository.
 
-- [ ] **Step 3: Scrivere e implementare hook client**
+- [x] **Step 3: Scrivere e implementare hook client**
 
 ```ts
 export function useNotificationStream(): {
@@ -511,11 +511,11 @@ Node. Il leader multi-tab usa `BroadcastChannel("ruffino-notifications")`; in
 fallback ogni tab usa EventSource. Ogni evento invalida solo `notifiche.feed`,
 `unreadCount` e, se indicato, la query dell'entita.
 
-- [ ] **Step 4: Montare una sola volta nel layout**
+- [x] **Step 4: Montare una sola volta nel layout**
 
 Il hook parte solo con utente autenticato e flag `realtimeNotifications`; dopo tre errori usa polling a 30 secondi finche SSE si riapre.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/notifications/sse.test.ts client/src/lib/notificationStream.test.ts && pnpm check`
 
@@ -538,23 +538,23 @@ git commit -m "feat: stream notifications in real time"
 - Consumes: API Task 9 e stream Task 10.
 - Produces: campanella compatta e pagina `/notifiche` con viste `Per me`, `Critiche`, `Risolte`.
 
-- [ ] **Step 1: Definire stati UI e casi di interazione**
+- [x] **Step 1: Definire stati UI e casi di interazione**
 
 Preparare fixture per loading, vuoto, offline, 1 notifica, gruppo da 8, critica scaduta e notifica gia risolta. La campanella mostra responsabilita personali, non duplica il Centro Azioni.
 
-- [ ] **Step 2: Implementare item e gruppo accessibili**
+- [x] **Step 2: Implementare item e gruppo accessibili**
 
 Icona Lucide per tipo, priorita espressa anche da testo, azioni `Apri`, `Segna letta`, `Risolvi`; target minimi 40px; focus visibile; niente card annidate.
 
-- [ ] **Step 3: Implementare la pagina completa**
+- [x] **Step 3: Implementare la pagina completa**
 
 La pagina usa lista densa, filtri, raggruppamento e pannello dettaglio desktop; su mobile il dettaglio e una route/pagina, senza pannello laterale che causi overflow.
 
-- [ ] **Step 4: Verificare visualmente**
+- [x] **Step 4: Verificare visualmente**
 
 Avviare `pnpm dev`; controllare 1440x900 e 390x844 con browser, tastiera, console e `prefers-reduced-motion`. Correggere overflow prima del commit.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm check && pnpm build`
 
@@ -577,21 +577,21 @@ git commit -m "feat: redesign personal notification center"
 **Interfaces:**
 - Produces: subscribe/unsubscribe, delivery queue e preferenze per canale.
 
-- [ ] **Step 1: Scrivere test fallenti su payload privacy-safe e fallback unico**
+- [x] **Step 1: Scrivere test fallenti su payload privacy-safe e fallback unico**
 
 Il payload push contiene `notificationId`, `title`, `genericBody`, `link`; non contiene nome cliente, telefono, importo o testo messaggio. Lo stesso fallback email non viene accodato due volte.
 
-- [ ] **Step 2: Implementare Web Push dietro flag**
+- [x] **Step 2: Implementare Web Push dietro flag**
 
 Installare `web-push` e `@types/web-push` con `pnpm add web-push` e
 `pnpm add -D @types/web-push`. Usare VAPID da env, subscription cifrata o
 minimizzata ed endpoint invalido disattivato su 404/410.
 
-- [ ] **Step 3: Implementare opt-in contestuale**
+- [x] **Step 3: Implementare opt-in contestuale**
 
 Mostrare la richiesta soltanto dopo un gesto utente nella pagina notifiche. Se browser o sistema non supportano push, mostrare lo stato reale senza loop di prompt.
 
-- [ ] **Step 4: Implementare fallback come adapter disabilitato**
+- [x] **Step 4: Implementare fallback come adapter disabilitato**
 
 ```ts
 export type CriticalFallbackSender = {
@@ -601,7 +601,7 @@ export type CriticalFallbackSender = {
 
 Finche manca un provider outbound configurato, l'adapter ritorna `skipped` con motivo `provider_not_configured`; non usare IMAP per inviare.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/notifications/deliveryWorker.test.ts && pnpm check && pnpm build`
 
@@ -621,18 +621,18 @@ git commit -m "feat: add opt-in notification delivery channels"
 **Interfaces:**
 - Produces: `Capability`, `PolicyContext`, `PolicyDecision`, `can`, `requireCapability`.
 
-- [ ] **Step 1: Scrivere test tabellari fallenti**
+- [x] **Step 1: Scrivere test tabellari fallenti**
 
 Copertura minima: create cliente/commessa/ticket, update del proprietario, assign, economia, delete, cambio stato, cross-sede, utente inattivo, direzione e amministrazione.
 
-- [ ] **Step 2: Definire registry e default ruolo**
+- [x] **Step 2: Definire registry e default ruolo**
 
 ```ts
 export const CAPABILITIES = ["cliente.read", "cliente.create", "cliente.update_operational", "cliente.assign", "cliente.archive", "cliente.delete", "commessa.read", "commessa.create", "commessa.update_operational", "commessa.assign", "commessa.change_state", "commessa.manage_documents", "ticket.create", "ticket.assign", "ticket.manage", "intervento.plan", "intervento.assign", "pagamento.read", "pagamento.record", "economia.read", "tars.use", "tars.approve_low_risk", "tars.approve_high_risk", "tars.manage_policy"] as const;
 export type Capability = typeof CAPABILITIES[number];
 ```
 
-- [ ] **Step 3: Implementare decisione pura**
+- [x] **Step 3: Implementare decisione pura**
 
 ```ts
 export function can(input: {
@@ -647,11 +647,11 @@ export function can(input: {
 
 Cross-sede restituisce decisione `not_found`; campi economici non ereditano capability operative; deleghe scadute vengono ignorate.
 
-- [ ] **Step 4: Mantenere wrapper legacy**
+- [x] **Step 4: Mantenere wrapper legacy**
 
 `requireDirezione`, `requireDirezioneOAmministrazione` e `requireOwnershipOrDirezione` restano disponibili durante la migrazione e delegano al nuovo motore solo quando il flag e attivo.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/authz/policy.test.ts server/routers/notifiche.test.ts`
 
@@ -672,15 +672,15 @@ git commit -m "feat: add capability policy engine"
 **Interfaces:**
 - Produces: override/deleghe per utente e `comparePolicyDecision`.
 
-- [ ] **Step 1: Scrivere test fallenti su scadenza, sede e ultimo direzione**
+- [x] **Step 1: Scrivere test fallenti su scadenza, sede e ultimo direzione**
 
 Un override di sede 1 non vale in sede 2; una delega scaduta non vale; nessuna modifica puo rimuovere l'ultima capacita amministrativa da tutti gli utenti direzione attivi.
 
-- [ ] **Step 2: Creare schema dedicato**
+- [x] **Step 2: Creare schema dedicato**
 
 Tabelle `capability_overrides`, `capability_delegations`, `policy_audit_diffs`, `policy_change_events`; unique e indici includono sempre `sede_id`.
 
-- [ ] **Step 3: Implementare audit senza payload business**
+- [x] **Step 3: Implementare audit senza payload business**
 
 ```ts
 comparePolicyDecision({ endpoint, legacyAllowed, proposed, userId, sedeId, resourceType }): Promise<void>;
@@ -688,11 +688,11 @@ comparePolicyDecision({ endpoint, legacyAllowed, proposed, userId, sedeId, resou
 
 Salvare endpoint, capability, esiti e codici, mai l'oggetto risorsa.
 
-- [ ] **Step 4: Inizializzare schema al boot e report diff**
+- [x] **Step 4: Inizializzare schema al boot e report diff**
 
 Esporre script `scripts/report-policy-diff.ts --sede=1 --days=7`; nessun enforcement finche diff non e revisionato.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/authz/repository.test.ts server/authz/audit.test.ts`
 
@@ -715,11 +715,11 @@ git commit -m "feat: audit capability decisions before enforcement"
 - Consumes: `requireCapability` e policy audit.
 - Produces: autorizzazione coerente per create/update/assign/archive/delete sui domini prioritari.
 
-- [ ] **Step 1: Scrivere caller test fallenti per la matrice approvata**
+- [x] **Step 1: Scrivere caller test fallenti per la matrice approvata**
 
 Verificare che un commerciale possa creare e aggiornare record propri, assegnare a utente compatibile della sede quando autorizzato e non possa vedere economia o cancellare definitivamente. Ripetere cross-sede con `NOT_FOUND`.
 
-- [ ] **Step 2: Estrarre validation dell'assegnatario**
+- [x] **Step 2: Estrarre validation dell'assegnatario**
 
 ```ts
 export function requireAssignableUser(input: {
@@ -731,11 +731,11 @@ export function requireAssignableUser(input: {
 
 Rifiutare utente inattivo o non appartenente alla sede prima della mutation e prima dell'evento.
 
-- [ ] **Step 3: Integrare modalita `legacy`, `audit`, `enforce`**
+- [x] **Step 3: Integrare modalita `legacy`, `audit`, `enforce`**
 
 In audit eseguire decisione legacy e nuova ma applicare legacy; in enforce applicare capability. Ogni endpoint dichiara una capability esplicita, senza fallback generico.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/authz/coreRouters.test.ts server/routers/notifiche.test.ts`
 
@@ -758,19 +758,19 @@ git commit -m "feat: enforce capabilities on core workflows"
 **Interfaces:**
 - Produces: `permessi.preview`, `permessi.updateOverride`, `permessi.createDelegation`, `permessi.revokeDelegation`, `permessi.auditSummary`.
 
-- [ ] **Step 1: Correggere prima lo scope della lista utenti**
+- [x] **Step 1: Correggere prima lo scope della lista utenti**
 
 Scrivere test che `utenti.list/byId/stats` mostrino soltanto utenti con almeno una sede condivisa, salvo direzione con scope esplicitamente amministrativo. Password e hash restano esclusi.
 
-- [ ] **Step 2: Implementare router direzione-only**
+- [x] **Step 2: Implementare router direzione-only**
 
 Ogni modifica richiede motivazione 10-500 caratteri; delega richiede inizio/fine; anteprima restituisce capability ereditate, override e motivazione della decisione.
 
-- [ ] **Step 3: Ridisegnare la pagina utenti**
+- [x] **Step 3: Ridisegnare la pagina utenti**
 
 Usare tabs `Profilo`, `Accessi`, `Deleghe`, `Storico`; matrice compatta con checkbox per override e badge per eredita. Non mostrare controlli che l'operatore non puo usare.
 
-- [ ] **Step 4: Verificare visualmente e committare**
+- [x] **Step 4: Verificare visualmente e committare**
 
 Run: `pnpm test -- server/routers/permessi.test.ts && pnpm check && pnpm build`
 
@@ -789,11 +789,11 @@ git commit -m "feat: manage capabilities and delegations"
 **Interfaces:**
 - Produces: eventi di rebuild, fascicoli per entita/scope, fatti ed evidenze versionate.
 
-- [ ] **Step 1: Scrivere test fallenti su scope, fingerprint e stale**
+- [x] **Step 1: Scrivere test fallenti su scope, fingerprint e stale**
 
 La stessa commessa ha contesti distinti `operativo`, `amministrazione`, `direzione`; un fingerprint invariato non crea nuova versione; un contesto scaduto resta leggibile come stale ma non definitivo.
 
-- [ ] **Step 2: Definire contratti senza `any`**
+- [x] **Step 2: Definire contratti senza `any`**
 
 ```ts
 export type EvidenceRef = { sourceType: string; sourceId: string; label: string; version: string; link?: string };
@@ -801,11 +801,11 @@ export type ContextFact = { key: string; value: unknown; confidence: "certain" |
 export type EntityContextKey = { sedeId: number; entityType: "cliente" | "commessa"; entityId: number; scope: "operativo" | "amministrazione" | "direzione" };
 ```
 
-- [ ] **Step 3: Implementare tabelle**
+- [x] **Step 3: Implementare tabelle**
 
 Creare `tars_entity_contexts`, `tars_context_versions`, `tars_context_evidence`; unique per chiave, fingerprint e versione schema. Non duplicare `business_events`.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/tars/context/repository.test.ts`
 
@@ -826,11 +826,11 @@ git commit -m "feat(tars): add scoped operational memory"
 **Interfaces:**
 - Produces: `collectEntityFacts`, `rankEntityCandidates`, `fingerprintContext`.
 
-- [ ] **Step 1: Scrivere test fallenti per fonti e visibilita**
+- [x] **Step 1: Scrivere test fallenti per fonti e visibilita**
 
 Operativo include stato, appuntamenti, ticket, documenti e riferimenti messaggi; amministrazione aggiunge fatture/pagamenti; direzione aggiunge dati consentiti. Nessuno scope include blob o conversazioni integrali.
 
-- [ ] **Step 2: Implementare collector con reader esistenti**
+- [x] **Step 2: Implementare collector con reader esistenti**
 
 ```ts
 export async function collectEntityFacts(key: EntityContextKey): Promise<{
@@ -841,15 +841,15 @@ export async function collectEntityFacts(key: EntityContextKey): Promise<{
 
 Usare get/list sede-scoped da clienti, commesse, comunicazioni, FIC, documenti, calendario, ticket, interventi e Action Center.
 
-- [ ] **Step 3: Implementare ranking deterministico**
+- [x] **Step 3: Implementare ranking deterministico**
 
 Punteggi documentati per id esplicito, codice commessa, telefono/email normalizzati, CF/PIVA, numero fattura, importo/data, assegnatario e prossimita temporale. Restituire massimo 5 candidati e motivazioni.
 
-- [ ] **Step 4: Implementare fingerprint SHA-256 canonico**
+- [x] **Step 4: Implementare fingerprint SHA-256 canonico**
 
 Ordinare fatti e chiavi, normalizzare date ISO, includere `schemaVersion`, `policyVersion`, `collectorVersion`; verificare in test che l'ordine input non cambi l'hash.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/context/collectors.test.ts server/tars/context/correlation.test.ts`
 
@@ -870,15 +870,15 @@ git commit -m "feat(tars): collect verified cross-domain facts"
 **Interfaces:**
 - Produces: `rebuildEntityContext`, `getCachedQuery`, consumer `tars-context-v1`.
 
-- [ ] **Step 1: Scrivere test fallenti su zero model call invariato**
+- [x] **Step 1: Scrivere test fallenti su zero model call invariato**
 
 Prima build chiama la sintesi una volta; secondo evento con stesso fingerprint completa senza chiamata; cambio policy invalida; errore modello preserva l'ultima versione valida.
 
-- [ ] **Step 2: Implementare builder a due fasi**
+- [x] **Step 2: Implementare builder a due fasi**
 
 Il collector crea fatti; il modello sintetizza soltanto se il fingerprint cambia e solo entro budget. La risposta e Structured Output con `summary`, `openQuestions`, `risks`, `nextActions`, ognuno legato a evidence id.
 
-- [ ] **Step 3: Implementare cache query versionata**
+- [x] **Step 3: Implementare cache query versionata**
 
 ```ts
 export async function getCachedQuery<T>(input: {
@@ -889,11 +889,11 @@ export async function getCachedQuery<T>(input: {
 
 Non memorizzare errori; invalidare per evento e versione; limite dimensionale per voce e LRU per sede.
 
-- [ ] **Step 4: Registrare consumer e rebuild manuale**
+- [x] **Step 4: Registrare consumer e rebuild manuale**
 
 Eventi rilevanti invalidano cliente/commessa referenziati. Aggiungere script `scripts/rebuild-tars-context.ts --sede --entity --id --scope --dry-run`.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/context/builder.test.ts && pnpm check`
 
@@ -916,23 +916,23 @@ git commit -m "feat(tars): build and cache incremental context"
 - Consumes: `EntityContext` Task 19 e policy Task 13.
 - Produces: preload contestuale, citazioni strutturate e metriche cache per esecuzione.
 
-- [ ] **Step 1: Scrivere test fallenti per scope ed evidenze**
+- [x] **Step 1: Scrivere test fallenti per scope ed evidenze**
 
 Un commerciale non riceve contesto amministrativo; un contesto stale viene dichiarato e verificato live prima di una proposta; conclusione importante senza evidence viene rifiutata dal server.
 
-- [ ] **Step 2: Sostituire il preload monolitico**
+- [x] **Step 2: Sostituire il preload monolitico**
 
 `runTars` risolve scope da capability, carica fascicolo sintetico e passa al modello soltanto fatti necessari. `leggi_fascicolo_commessa` resta fallback live e ritorna riferimenti, non dump indiscriminato.
 
-- [ ] **Step 3: Estendere esecuzione e proposta**
+- [x] **Step 3: Estendere esecuzione e proposta**
 
 Salvare `contextFingerprint`, `contextScope`, `contextCacheHit`, `evidenceRefs`, `factsRead`, `factsRevalidated`; backfill valori neutrali per record legacy.
 
-- [ ] **Step 4: Rendere il prompt evidence-first**
+- [x] **Step 4: Rendere il prompt evidence-first**
 
 Il prompt distingue `fatto_verificato`, `inferenza`, `domanda`; non consente di trasformare una similarita semantica in relazione business senza conferma.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/tars.test.ts server/tars/commandCenter.test.ts && pnpm tars:eval`
 
@@ -954,11 +954,11 @@ git commit -m "feat(tars): reason from scoped evidence"
 **Interfaces:**
 - Produces: `routeIntent(input): Promise<IntentDecision>`.
 
-- [ ] **Step 1: Scrivere test fallenti su intent espliciti e ambigui**
+- [x] **Step 1: Scrivere test fallenti su intent espliciti e ambigui**
 
 Contesto bottone `crea cliente e commessa` salta il modello; testo ambiguo produce `needsClarification`; richiesta economica porta capability richiesta; prompt injection resta contenuto non fidato.
 
-- [ ] **Step 2: Definire schema strict**
+- [x] **Step 2: Definire schema strict**
 
 ```ts
 export const intentDecisionSchema = z.object({
@@ -972,15 +972,15 @@ export const intentDecisionSchema = z.object({
 });
 ```
 
-- [ ] **Step 3: Implementare routing gerarchico**
+- [x] **Step 3: Implementare routing gerarchico**
 
 Ordine: hint client firmato dal server, regole deterministiche, modello economico con tool assenti. Sotto 0.70 non avvia workflow con effetti; chiede chiarimento.
 
-- [ ] **Step 4: Selezionare profilo strumenti minimo**
+- [x] **Step 4: Selezionare profilo strumenti minimo**
 
 `toolDefsForTrigger` riceve anche `workflow`; la chat completa usa catalogo pieno solo per `cross_domain_search` o quando il router non puo delimitare il dominio.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/planner/router.test.ts server/tars/tars.test.ts && pnpm tars:eval`
 
@@ -999,22 +999,22 @@ git commit -m "feat(tars): route requests to bounded workflows"
 **Interfaces:**
 - Produces: `TarsPlanRepository` e stati piano/step da spec.
 
-- [ ] **Step 1: Scrivere test fallenti su transizioni e ripresa**
+- [x] **Step 1: Scrivere test fallenti su transizioni e ripresa**
 
 Non si puo completare un piano con step pendenti; una risposta utente riapre esattamente lo step `waiting_user`; due create con stessa `operationKey` restituiscono lo stesso piano.
 
-- [ ] **Step 2: Definire state machine**
+- [x] **Step 2: Definire state machine**
 
 ```ts
 export type PlanStatus = "draft" | "running" | "waiting_user" | "waiting_approval" | "verifying" | "completed" | "partially_completed" | "failed" | "canceled";
 export type StepStatus = "pending" | "running" | "waiting_user" | "waiting_approval" | "completed" | "failed" | "skipped";
 ```
 
-- [ ] **Step 3: Implementare tabelle e optimistic concurrency**
+- [x] **Step 3: Implementare tabelle e optimistic concurrency**
 
 Creare `tars_plans`, `tars_plan_steps`, `tars_plan_events`; ogni update usa `version` attesa e incremento atomico; output e errori sono strutturati e sanitizzati.
 
-- [ ] **Step 4: Verificare e committare**
+- [x] **Step 4: Verificare e committare**
 
 Run: `pnpm test -- server/tars/planner/repository.test.ts`
 
@@ -1035,11 +1035,11 @@ git commit -m "feat(tars): persist resumable plans"
 **Interfaces:**
 - Produces: `registerWorkflow`, `runPlanOnce`, `resumePlan`, `startPlanWorker`.
 
-- [ ] **Step 1: Scrivere test fallenti su budget, attesa e crash recovery**
+- [x] **Step 1: Scrivere test fallenti su budget, attesa e crash recovery**
 
 Il runner si ferma su domanda/approvazione, riparte dallo step corretto, non supera budget e recupera step `running` stale senza duplicare side effect.
 
-- [ ] **Step 2: Definire workflow tipizzato**
+- [x] **Step 2: Definire workflow tipizzato**
 
 ```ts
 export type WorkflowDefinition = {
@@ -1055,13 +1055,20 @@ export type WorkflowDefinition = {
 
 - [ ] **Step 3: Implementare runner senza mutation del modello**
 
+Il runner e il registry sono presenti e testati con executor iniettati, ma gli
+executor di produzione non sono ancora registrati. Il worker fallisce chiuso e
+non parte senza executor.
+
 Gli step `read`, `compute`, `ask`, `propose`, `verify` hanno executor server; il modello puo compilare output schema-validi ma non seleziona endpoint arbitrari. Ogni step usa idempotency key e policy.
 
 - [ ] **Step 4: Avviare worker soltanto con planner attivo**
 
+`plannerMode=active` e temporaneamente rifiutato dal server; un valore `active`
+legacy viene degradato a `shadow` al bootstrap.
+
 Il boot registra workflow, recupera stale e avvia poller; provider AI non disponibile porta a `waiting_technical`, senza perdere piano o nascondere notifiche.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/planner/runner.test.ts && pnpm check`
 
@@ -1082,11 +1089,11 @@ git commit -m "feat(tars): execute resumable typed workflows"
 **Interfaces:**
 - Produces: workflow `create-customer-job-v1` con saga approvabile e verificabile.
 
-- [ ] **Step 1: Scrivere test end-to-end fallenti**
+- [x] **Step 1: Scrivere test end-to-end fallenti**
 
 Casi: dati completi; cliente esistente; commessa duplicata; assegnatario mancante; utente altra sede; create cliente riuscita e commessa fallita; retry dopo fallimento; approvazione ripetuta.
 
-- [ ] **Step 2: Definire input e post-condizioni**
+- [x] **Step 2: Definire input e post-condizioni**
 
 ```ts
 const createCustomerJobInput = z.object({
@@ -1104,15 +1111,15 @@ const createCustomerJobInput = z.object({
 });
 ```
 
-- [ ] **Step 3: Implementare saga persistente**
+- [x] **Step 3: Implementare saga persistente**
 
 Step: dedupe cliente, chiedi assegnatario se assente, prepara proposta composta, attendi approvazione, crea cliente, registra id, crea commessa, collega comunicazione, verifica relazioni. Mai cancellare automaticamente il cliente su errore della commessa.
 
-- [ ] **Step 4: Rendere l'esecutore idempotente**
+- [x] **Step 4: Rendere l'esecutore idempotente**
 
 Ogni step passa `operationKey`; prima della create cerca l'esito registrato e un equivalente business. Il risultato parziale produce notifica e proposta di ripresa, non una seconda coppia.
 
-- [ ] **Step 5: Aggiornare eval e verificare**
+- [x] **Step 5: Aggiornare eval e verificare**
 
 Aggiungere almeno 8 casi al corpus. Run: `pnpm test -- server/tars/workflows/createCustomerJob.test.ts server/tars/tars.test.ts && pnpm tars:eval`
 
@@ -1137,23 +1144,23 @@ git commit -m "feat(tars): complete customer and job workflow"
 **Interfaces:**
 - Produces: sei workflow versionati con chiavi canoniche e verifier deterministici.
 
-- [ ] **Step 1: Scrivere test tabellari per ogni workflow**
+- [x] **Step 1: Scrivere test tabellari per ogni workflow**
 
 Per ciascuno coprire happy path, dati mancanti, duplicato, permesso negato, altra sede, approvazione rifiutata, provider esterno non disponibile e verifica fallita.
 
-- [ ] **Step 2: Implementare lead e assegnazione**
+- [x] **Step 2: Implementare lead e assegnazione**
 
 Lead da email/WhatsApp conserva richiesta reale, chiede assegnatario, propone cliente+commessa e collegamento. Assign valida capability e produce evento/notifica.
 
-- [ ] **Step 3: Implementare fattura e documento**
+- [x] **Step 3: Implementare fattura e documento**
 
 Fattura usa match deterministico e massimo 5 candidati; documento classifica e collega, ma non promuove una similarita a legame senza approvazione.
 
-- [ ] **Step 4: Implementare intervento e ticket**
+- [x] **Step 4: Implementare intervento e ticket**
 
 Intervento propone slot/squadra usando calendario live; ticket collega cliente/commessa quando certo e mantiene ticket indipendente quando la relazione non esiste.
 
-- [ ] **Step 5: Registrare, aggiornare eval e committare**
+- [x] **Step 5: Registrare, aggiornare eval e committare**
 
 Run: `pnpm test -- server/tars/workflows/workflows.test.ts && pnpm tars:eval`
 
@@ -1177,23 +1184,26 @@ git commit -m "feat(tars): add core operational workflows"
 **Interfaces:**
 - Produces: timeline piano, domande, approvazioni, evidenze e ripresa nello stesso obiettivo.
 
-- [ ] **Step 1: Scrivere test API su ownership e visibilita**
+- [x] **Step 1: Scrivere test API su ownership e visibilita**
 
 Un utente vede i propri piani e quelli assegnati; direzione vede la sede; evidenze economiche restano filtrate; risposta a domanda riapre una volta sola.
 
-- [ ] **Step 2: Estendere snapshot Command Center**
+- [x] **Step 2: Estendere snapshot Command Center**
 
 Restituire `activePlans`, `waitingQuestions`, `waitingApprovals`, `blockedCases`, `recentOutcomes` gia filtrati e ordinati server-side.
 
-- [ ] **Step 3: Ridisegnare la chat come spazio obiettivo**
+- [x] **Step 3: Ridisegnare la chat come spazio obiettivo**
 
 Mostrare progressione compatta, step corrente, fonti, domanda o conferma primaria. Evitare bolle decorative e testo tecnico sui tool; gli errori mostrano azione di ripresa.
 
-- [ ] **Step 4: Collegare notifiche e deep link**
+- [x] **Step 4: Collegare notifiche e deep link**
 
 `tars.plan_waiting` apre direttamente piano e step; rispondere/approvare risolve la notifica associata soltanto dopo conferma server.
 
 - [ ] **Step 5: Verificare desktop/mobile e committare**
+
+Desktop verificato; il collaudo mobile resta aperto perche l'override viewport
+del browser di test non e stato applicato dalla sessione corrente.
 
 Run: `pnpm test -- server/tars/commandCenterApi.test.ts server/actionCenter/tars.test.ts && pnpm check && pnpm build`
 
@@ -1217,15 +1227,18 @@ git commit -m "feat(tars): surface plans and evidence in command center"
 **Interfaces:**
 - Produces: indicizzazione versionata e `hybridSearch` ACL-aware.
 
-- [ ] **Step 1: Scrivere test fallenti su ACL, delete e ranking**
+- [x] **Step 1: Scrivere test fallenti su ACL, delete e ranking**
 
 Risultati altra sede o scope non autorizzato sono assenti; eliminazione fonte rimuove chunk; filtri identificativi vincono sulla similarita; massimo 8 frammenti.
 
-- [ ] **Step 2: Verificare supporto `pgvector` in shadow**
+- [x] **Step 2: Verificare supporto `pgvector` in shadow**
 
 `ensureSchema` rileva estensione senza tentare installazione non autorizzata. Se assente, `semanticSearchMode` resta `off` e la ricerca testuale strutturata continua.
 
 - [ ] **Step 3: Implementare chunking e versioni**
+
+Chunking, versioni e cancellazione fonte sono implementati; mancano i producer
+evento per tutti i domini e la generazione embedding nel percorso reale.
 
 Chunk per email, WhatsApp, documenti estratti, note e conoscenza; ogni record include `sede_id`, `scope`, fonte, entity refs, checksum, versione e stato cancellato.
 
@@ -1239,6 +1252,10 @@ export async function hybridSearch(input: {
 ```
 
 Applicare filtri e testo prima del vettore, poi riapplicare policy al reader della fonte. Il tool restituisce snippet breve ed evidence ref.
+
+Il fallback lessicale ACL-aware e pronto. Finche query e indice non producono
+embedding reali, `semanticSearchMode=active` resta bloccato e il tool non viene
+esposto come ricerca semantica operativa.
 
 - [ ] **Step 5: Verificare e committare**
 
@@ -1262,15 +1279,15 @@ git commit -m "feat(tars): add scoped hybrid search"
 **Interfaces:**
 - Produces: outcome dataset, metriche per capability e `evaluateAutonomyGate`.
 
-- [ ] **Step 1: Scrivere test fallenti sui gate**
+- [x] **Step 1: Scrivere test fallenti sui gate**
 
 Meno di 6 settimane, meno di 100 esiti o accuratezza sotto 98% negano; cambio modello/prompt/workflow revoca; capability irreversibile o alta rischiosita nega sempre.
 
-- [ ] **Step 2: Registrare outcome senza auto-promuoverli a regole**
+- [x] **Step 2: Registrare outcome senza auto-promuoverli a regole**
 
 Approvazione, modifica, rifiuto, undo, verifica e incidente producono record con versioni, workflow, capability e motivazione normalizzata. Il testo libero non entra automaticamente nel prompt.
 
-- [ ] **Step 3: Implementare gate puro e kill switch**
+- [x] **Step 3: Implementare gate puro e kill switch**
 
 ```ts
 export function evaluateAutonomyGate(input: AutonomyEvidence): {
@@ -1282,11 +1299,11 @@ export function evaluateAutonomyGate(input: AutonomyEvidence): {
 
 Whitelist iniziale vuota. L'abilitazione richiede direzione, feature flag per sede e report eval allegato; ogni esecuzione automatica conserva undo e principal di sistema minimo.
 
-- [ ] **Step 4: Esporre report, non interruttore facile**
+- [x] **Step 4: Esporre report, non interruttore facile**
 
 La UI mostra `Non qualificata`, `In osservazione`, `Qualificata`, `Revocata`, con metriche per singola capability. Nessuna media generale abilita autonomia.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/tars/learning/outcomes.test.ts server/tars/autonomy/policy.test.ts && pnpm tars:eval`
 
@@ -1311,23 +1328,23 @@ git commit -m "feat(tars): gate learning and progressive autonomy"
 **Interfaces:**
 - Produces: metriche privacy-safe, diagnostica direzione-only e runbook operativi.
 
-- [ ] **Step 1: Scrivere test fallenti sulla diagnostica**
+- [x] **Step 1: Scrivere test fallenti sulla diagnostica**
 
 La risposta include coda eventi per consumer, dead-letter, notifiche pending, connessioni SSE, piani per stato, cache hit e token per workflow; non include prompt, corpi mail, telefoni o token.
 
-- [ ] **Step 2: Implementare metriche con cardinalita limitata**
+- [x] **Step 2: Implementare metriche con cardinalita limitata**
 
 Etichette ammesse: sede, consumer, workflow, versione, stato, classe rischio. Non usare entity id, email o user id come label.
 
-- [ ] **Step 3: Documentare boot, rollback e recovery**
+- [x] **Step 3: Documentare boot, rollback e recovery**
 
 Descrivere ordine feature flag, query di verifica, retry dead-letter, rebuild contesto, disattivazione SSE/push, revoca autonomia e comportamento quando OpenAI non risponde.
 
-- [ ] **Step 4: Aggiornare PRD, handoff e manuale Tars**
+- [x] **Step 4: Aggiornare PRD, handoff e manuale Tars**
 
 Rimuovere riferimenti superati ai soli polling/read-id; documentare eventi, notifiche, capability, memoria, planner, workflow e limiti di autonomia. Segnalare esplicitamente cio che resta in shadow.
 
-- [ ] **Step 5: Verificare e committare**
+- [x] **Step 5: Verificare e committare**
 
 Run: `pnpm test -- server/routers/diagnostica.test.ts && pnpm check && pnpm test && pnpm build`
 
@@ -1349,13 +1366,17 @@ git commit -m "docs: add Tars operations and recovery runbooks"
 
 - [ ] **Step 1: Scrivere scenario end-to-end**
 
+Esiste un contratto integrato deterministico tra componenti. Non viene ancora
+chiamato end-to-end: il collaudo reale deve attraversare smistamento, worker,
+planner con executor di produzione ed endpoint SSE.
+
 Scenario: email richiesta preventivo -> classificazione -> contesto -> Tars chiede assegnatario -> proposta cliente+commessa -> approvazione -> saga -> eventi -> notifica SSE al destinatario -> presa in carico -> notifica risolta -> evidenze e outcome registrati.
 
-- [ ] **Step 2: Aggiungere scenari di guasto**
+- [x] **Step 2: Aggiungere scenari di guasto**
 
 OpenAI offline, DB worker riavviato, SSE disconnessa, evento duplicato, assegnatario altra sede, approvazione doppia, commessa create fallita dopo cliente, cache stale e prompt injection.
 
-- [ ] **Step 3: Eseguire suite completa e baseline comparativa**
+- [x] **Step 3: Eseguire suite completa e baseline comparativa**
 
 Run:
 
@@ -1370,13 +1391,19 @@ Expected: tutti verdi; nessuna regressione critica; report con token, latenza, d
 
 - [ ] **Step 4: Eseguire collaudo browser**
 
+Desktop Tars/Notifiche verificato senza overflow o nuovi errori console. Mobile
+390x844 e recovery SSE con due sessioni reali restano nel checklist firmabile.
+
 Con dev server attivo verificare Chrome desktop 1440x900 e mobile 390x844: assegnazione real-time, campanella, pagina notifiche, piano Tars, perdita connessione e ripresa. Controllare console e network per errori o stream duplicati.
 
 - [ ] **Step 5: Attivare una sede per volta**
 
-Ordine obbligatorio: eventi shadow -> notifiche shadow -> notifiche active -> SSE -> policy audit -> policy enforce -> context shadow -> context active -> planner shadow -> planner active. Fermarsi e fare rollback se un gate del documento di rollout e rosso.
+Non attivato automaticamente: il primo gate richiede sette giorni di shadow in
+produzione. Ordine e criteri sono in `docs/reports/tars-brain-rollout-checklist.md`.
 
-- [ ] **Step 6: Commit finale del collaudo**
+Ordine obbligatorio: eventi shadow -> notifiche shadow -> notifiche active -> SSE -> policy audit -> policy enforce -> context shadow. Context active, planner active e ricerca semantic active restano tecnicamente bloccati finche i gate di completezza riportati nel checklist non sono chiusi. Fermarsi e fare rollback se un gate del documento di rollout e rosso.
+
+- [x] **Step 6: Commit finale del collaudo**
 
 ```bash
 git add server/integration/tarsBrain.test.ts docs/reports/tars-brain-rollout-checklist.md docs/superpowers/plans/2026-08-25-tars-cervello-azienda.md
@@ -1403,7 +1430,8 @@ git commit -m "test: verify Tars business brain rollout"
 - `policyMode=legacy`: disattiva enforcement capability ma conserva audit.
 - `contextEngineMode=off`: Tars torna ai reader live; i fascicoli restano disponibili per diagnosi.
 - `plannerMode=off`: le chat tornano al loop corrente; i piani gia avviati passano in attesa tecnica.
-- `semanticSearchMode=off`: ricerca strutturata e testuale restano operative.
+- `semanticSearchMode=off`: Tars usa i reader CRM strutturati; l'indice
+  lessicale resta disponibile soltanto per collaudo interno.
 - `autonomyCapabilities=[]`: revoca immediata ogni automazione qualificata.
 
 Nessun rollback elimina dati. Cleanup e backfill sono operazioni separate, dry-run e sede-scoped.

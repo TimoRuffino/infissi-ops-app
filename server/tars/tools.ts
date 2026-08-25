@@ -40,6 +40,7 @@ import { isAmministrazione, isDirezione } from "../_core/permissions";
 import type { EvidenceRef, EntityContextKey } from "./context/types";
 import { hybridSearch } from "./search/retriever";
 import type { SearchChunk } from "./search/types";
+import { getFeatureFlags } from "../platform/featureFlags";
 
 type ToolResult = {
   content: string;
@@ -1508,6 +1509,13 @@ async function eseguiStrumentoSenzaCache(
         );
       }
       case "ricerca_ibrida": {
+        if (
+          getFeatureFlags(rt.ctx.sedeId ?? 1).semanticSearchMode !== "active"
+        ) {
+          return err(
+            "Ricerca semantica non attiva: usa le letture CRM autorizzate."
+          );
+        }
         const hits = await hybridSearch({
           query: String(input.query ?? ""),
           sedeId: rt.ctx.sedeId ?? 1,
