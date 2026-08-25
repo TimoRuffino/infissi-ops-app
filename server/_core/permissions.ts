@@ -9,8 +9,13 @@
 // direzione user.
 
 import { TRPCError } from "@trpc/server";
+import {
+  requireCapability as requireCapabilityPolicy,
+  type PolicyInput,
+} from "../authz/policy";
+import { getFeatureFlags } from "../platform/featureFlags";
 
-type AnyUser =
+export type AnyUser =
   | {
       id?: number | null;
       role?: string | null;
@@ -28,6 +33,19 @@ type OwnedRecord =
   | undefined;
 
 type SedeScopedRecord = { sedeId?: number | null } | null | undefined;
+
+type LegacyPolicyInput = Omit<PolicyInput, "user">;
+
+function enforceCapabilityWhenEnabled(
+  user: AnyUser,
+  policy?: LegacyPolicyInput
+): boolean {
+  if (!policy || getFeatureFlags(policy.activeSedeId).policyMode !== "enforce") {
+    return false;
+  }
+  requireCapabilityPolicy({ ...policy, user });
+  return true;
+}
 
 /**
  * Enforce that a record belongs to the request's active sede.
@@ -72,7 +90,11 @@ export function isAmministrazione(user: AnyUser): boolean {
  * Economic surfaces (margini, costi fornitore): direzione or amministrazione
  * only — a commerciale or posatore must not see the company's margins.
  */
-export function requireDirezioneOAmministrazione(user: AnyUser): void {
+export function requireDirezioneOAmministrazione(
+  user: AnyUser,
+  policy?: LegacyPolicyInput
+): void {
+  if (enforceCapabilityWhenEnabled(user, policy)) return;
   if (!isDirezione(user) && !isAmministrazione(user)) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -82,7 +104,11 @@ export function requireDirezioneOAmministrazione(user: AnyUser): void {
 }
 
 /** Throws FORBIDDEN unless the user is direzione. */
-export function requireDirezione(user: AnyUser): void {
+export function requireDirezione(
+  user: AnyUser,
+  policy?: LegacyPolicyInput
+): void {
+  if (enforceCapabilityWhenEnabled(user, policy)) return;
   if (!isDirezione(user)) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -99,13 +125,23 @@ export function requireDirezione(user: AnyUser): void {
  */
 export function requireOwnershipOrDirezione(
   record: OwnedRecord,
-  user: AnyUser
+  user: AnyUser,
+  policy?: LegacyPolicyInput
 ): void {
   if (!record) {
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "Risorsa non trovata.",
     });
+  }
+  if (
+    policy &&
+    enforceCapabilityWhenEnabled(user, {
+      ...policy,
+      resource: policy.resource ?? record,
+    })
+  ) {
+    return;
   }
   if (isDirezione(user)) return;
   const uid = user?.id ?? null;
@@ -121,3 +157,11 @@ export function requireOwnershipOrDirezione(
       "Operazione non consentita: non sei il proprietario di questa risorsa.",
   });
 }
+
+export { requireCapability } from "../authz/policy";
+export type {
+  CapabilityOverride,
+  PolicyDecision,
+  PolicyResource,
+} from "../authz/policy";
+export type { Capability } from "../authz/capabilities";
