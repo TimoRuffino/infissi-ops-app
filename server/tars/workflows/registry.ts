@@ -1,4 +1,5 @@
 import type { WorkflowDefinition } from "./types";
+import { createCustomerJobWorkflow } from "./createCustomerJob";
 
 export type WorkflowRegistry = {
   register(definition: WorkflowDefinition): void;
@@ -28,4 +29,13 @@ export const workflowRegistry = createWorkflowRegistry();
 
 export function registerWorkflow(definition: WorkflowDefinition): void {
   workflowRegistry.register(definition);
+}
+
+export function registerBuiltInWorkflows(): void {
+  const definitions = [createCustomerJobWorkflow()];
+  for (const definition of definitions) {
+    if (!workflowRegistry.get(definition.id, definition.version)) {
+      workflowRegistry.register(definition);
+    }
+  }
 }

@@ -47,10 +47,7 @@ import {
   getComunicazione,
   salvaEsitoTarsComunicazione,
 } from "../tars/comunicazioni";
-import {
-  getFeatureFlags,
-  setFeatureFlags,
-} from "../platform/featureFlags";
+import { getFeatureFlags, setFeatureFlags } from "../platform/featureFlags";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -487,7 +484,14 @@ ${input.testo.trim()}`;
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const p = trovaProposta(input.id, ctx.sedeId);
-        if (p.stato !== "pendente") {
+        if (p.stato === "approvata") {
+          return {
+            ...idrataProposta(p),
+            seguitoAvviato: false,
+            approvazioneRipetuta: true,
+          };
+        }
+        if (p.stato !== "pendente" && p.stato !== "errore") {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: `Proposta già decisa (${p.stato}).`,
@@ -820,7 +824,10 @@ ${input.testo.trim()}`;
             contextEngineMode: z.enum(["off", "shadow", "active"]).optional(),
             plannerMode: z.enum(["off", "shadow", "active"]).optional(),
             semanticSearchMode: z.enum(["off", "shadow", "active"]).optional(),
-            autonomyCapabilities: z.array(z.string().min(1).max(100)).max(50).optional(),
+            autonomyCapabilities: z
+              .array(z.string().min(1).max(100))
+              .max(50)
+              .optional(),
           }),
         })
       )

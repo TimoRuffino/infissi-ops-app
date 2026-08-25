@@ -9,15 +9,181 @@
 // con il messaggio: l'operatore vede PERCHÉ, e la coda non mente mai.
 
 import type { TrpcContext } from "../_core/context";
-import type { Proposta } from "./stores";
+import {
+  getWorkflowOperation,
+  saveWorkflowOperation,
+  type Proposta,
+} from "./stores";
+import {
+  executeCreateCustomerJobSaga,
+  type CreateCustomerJobResult,
+  type CreateCustomerJobServices,
+} from "./workflows/createCustomerJob";
+
+const activeCustomerJobOperations = new Map<
+  string,
+  Promise<CreateCustomerJobResult>
+>();
 
 let _appRouterPromise: Promise<any> | null = null;
 async function getCaller(ctx: TrpcContext) {
   if (!_appRouterPromise) {
-    _appRouterPromise = import("../routers").then((m) => m.appRouter);
+    _appRouterPromise = import("../routers").then(m => m.appRouter);
   }
   const appRouter = await _appRouterPromise;
   return appRouter.createCaller(ctx);
+}
+
+function normalizza(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function soloCifre(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function prodottiKey(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  return items
+    .map(item => `${normalizza(item?.nome)}:${Number(item?.quantita) || 1}`)
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+async function createCustomerJobServices(
+  ctx: TrpcContext
+): Promise<CreateCustomerJobServices> {
+  const caller = await getCaller(ctx);
+  const sedeId = ctx.sedeId ?? 1;
+  const { getClientiStore, getClienteById } = await import(
+    "../routers/clienti"
+  );
+  const { getCommesseStore, getCommessaById } = await import(
+    "../routers/commesse"
+  );
+  const { getUtentiStore } = await import("../routers/utenti");
+  const { getComunicazione, setMatchComunicazione } = await import(
+    "./comunicazioni"
+  );
+  return {
+    async loadOperation(operationKey, operationSedeId) {
+      return getWorkflowOperation(operationKey, operationSedeId);
+    },
+    async saveOperation(operation) {
+      saveWorkflowOperation(operation);
+    },
+    async findEquivalentCustomer(customer, operationSedeId) {
+      const email = normalizza(customer.email);
+      const phone = soloCifre(customer.telefono);
+      const name = normalizza(`${customer.cognome} ${customer.nome}`);
+      const found = getClientiStore().find((item: any) => {
+        if (item.sedeId !== operationSedeId || item.archivedAt) return false;
+        if (email && normalizza(item.email) === email) return true;
+        if (phone.length >= 6 && soloCifre(item.telefono) === phone)
+          return true;
+        return (
+          !email &&
+          !phone &&
+          normalizza(`${item.cognome} ${item.nome}`) === name
+        );
+      });
+      return found ? { id: found.id, sedeId: found.sedeId } : null;
+    },
+    async findEquivalentJob(customerId, job, operationSedeId) {
+      const note = normalizza(job.note);
+      const products = prodottiKey(job.prodotti);
+      const found = getCommesseStore().find((item: any) => {
+        if (
+          item.sedeId !== operationSedeId ||
+          item.clienteId !== customerId ||
+          item.archivedAt
+        ) {
+          return false;
+        }
+        const sameNote = note && normalizza(item.note) === note;
+        const sameProducts =
+          products && prodottiKey(item.prodotti) === products;
+        return Boolean(sameNote && sameProducts);
+      });
+      return found
+        ? { id: found.id, clienteId: found.clienteId, sedeId: found.sedeId }
+        : null;
+    },
+    async validateAssignee(assigneeId, operationSedeId) {
+      const current: any = ctx.user;
+      if (Number(current?.id) === assigneeId) {
+        return { id: assigneeId, sedeId: operationSedeId, active: true };
+      }
+      const user: any = getUtentiStore().find(
+        (item: any) => item.id === assigneeId
+      );
+      if (!user || !(user.attivo ?? true)) return null;
+      const validSite =
+        !Array.isArray(user.sediIds) || user.sediIds.includes(operationSedeId);
+      return validSite
+        ? { id: assigneeId, sedeId: operationSedeId, active: true }
+        : null;
+    },
+    async createCustomer(customer) {
+      const created = await caller.clienti.create(customer);
+      return { id: created.id, sedeId: created.sedeId };
+    },
+    async createJob(customerId, job) {
+      const created = await caller.commesse.create({
+        ...job,
+        clienteId: customerId,
+      });
+      return {
+        id: created.id,
+        clienteId: created.clienteId,
+        sedeId: created.sedeId,
+      };
+    },
+    async linkCommunication(communicationId, customerId, jobId) {
+      return setMatchComunicazione(communicationId, sedeId, {
+        clienteId: customerId,
+        commessaId: jobId,
+        confidenza: "alta",
+        motivo: "Nuovo lead creato da Tars e approvato da un operatore.",
+      });
+    },
+    async verify({
+      customerId,
+      jobId,
+      communicationId,
+      sedeId: operationSedeId,
+    }) {
+      const customer: any = getClienteById(customerId);
+      const job: any = getCommessaById(jobId);
+      if (communicationId != null) {
+        const communication = await getComunicazione(
+          communicationId,
+          operationSedeId
+        );
+        if (
+          !communication ||
+          communication.clienteId !== customerId ||
+          communication.commessaId !== jobId
+        ) {
+          return { customer: null, job: null };
+        }
+      }
+      return {
+        customer: customer
+          ? { id: customer.id, sedeId: customer.sedeId }
+          : null,
+        job: job
+          ? { id: job.id, clienteId: job.clienteId, sedeId: job.sedeId }
+          : null,
+      };
+    },
+  };
 }
 
 // Esegue la mutation target della proposta. Ritorna una descrizione
@@ -58,11 +224,8 @@ export async function eseguiProposta(
       return `Comunicazione collegata a ${p.commessaCodice ?? `commessa #${p.commessaId}`}`;
     }
     case "crea_lead": {
-      const {
-        getComunicazione,
-        setClassificazioneComunicazione,
-        setMatchComunicazione,
-      } = await import("./comunicazioni");
+      const { getComunicazione, setClassificazioneComunicazione } =
+        await import("./comunicazioni");
       const parsedComunicazioneId = Number(p.comunicazioneId);
       const comunicazioneId =
         p.comunicazioneId != null &&
@@ -85,23 +248,50 @@ export async function eseguiProposta(
           "La comunicazione è già collegata: il nuovo lead non è stato creato."
         );
       }
-      const cliente = await caller.clienti.create(p.cliente);
-      const commessa = await caller.commesse.create({
-        ...p.commessa,
-        clienteId: cliente.id,
-      });
-      if (comunicazioneId != null) {
-        const ok = await setMatchComunicazione(
-          comunicazioneId,
-          ctx.sedeId ?? 1,
-          {
-            clienteId: cliente.id,
-            commessaId: commessa.id,
-            confidenza: "alta",
-            motivo: "Nuovo lead creato da Tars e approvato da un operatore.",
-          }
+      const operationKey =
+        p.operationKey ?? proposta.chiaveAzione ?? `crea_lead:${proposta.id}`;
+      const flightKey = `${ctx.sedeId ?? 1}:${operationKey}`;
+      let active = activeCustomerJobOperations.get(flightKey);
+      if (!active) {
+        active = executeCreateCustomerJobSaga({
+          sedeId: ctx.sedeId ?? 1,
+          operationKey,
+          input: {
+            customer: p.cliente,
+            job: p.commessa,
+            ...(comunicazioneId != null
+              ? { communicationId: comunicazioneId }
+              : {}),
+          },
+          services: await createCustomerJobServices(ctx),
+        });
+        activeCustomerJobOperations.set(flightKey, active);
+        void active.then(
+          () => activeCustomerJobOperations.delete(flightKey),
+          () => activeCustomerJobOperations.delete(flightKey)
         );
-        if (!ok) throw new Error("Comunicazione non trovata.");
+      }
+      const result = await active;
+      if (result.status === "waiting_user") {
+        throw Object.assign(new Error("Assegnatario mancante o non valido."), {
+          code: result.errorCode,
+        });
+      }
+      if (result.status === "failed") {
+        throw Object.assign(
+          new Error(`Creazione non avviata (${result.errorCode}).`),
+          { code: result.errorCode }
+        );
+      }
+      if (result.status === "partially_completed") {
+        throw Object.assign(
+          new Error(
+            `Creazione parziale: cliente #${result.customerId} conservato; riprovare per completare la commessa (${result.errorCode}).`
+          ),
+          { code: result.errorCode }
+        );
+      }
+      if (comunicazioneId != null) {
         await setClassificazioneComunicazione(
           comunicazioneId,
           ctx.sedeId ?? 1,
@@ -113,8 +303,8 @@ export async function eseguiProposta(
         );
       }
       return comunicazioneId != null
-        ? `Creati cliente ${cliente.cognome} ${cliente.nome} e commessa ${commessa.codice}; comunicazione collegata`
-        : `Creati cliente ${cliente.cognome} ${cliente.nome} e commessa ${commessa.codice}`;
+        ? `Cliente #${result.customerId} e commessa #${result.jobId} pronti; comunicazione collegata`
+        : `Cliente #${result.customerId} e commessa #${result.jobId} pronti`;
     }
     case "rinomina_documento": {
       const updates: any = { id: p.documentoId };

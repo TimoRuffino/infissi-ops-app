@@ -50,6 +50,10 @@ async function startServer() {
   await getPolicyRepository().ensureSchema();
   const { getTarsPlanRepository } = await import("../tars/planner/repository");
   await getTarsPlanRepository().ensureSchema();
+  const { registerBuiltInWorkflows } = await import(
+    "../tars/workflows/registry"
+  );
+  registerBuiltInWorkflows();
   const { getSediStore } = await import("../routers/sedi");
   const { getFeatureFlags } = await import("../platform/featureFlags");
   if (

@@ -19,6 +19,7 @@ import {
   TARS_TOOL_REGISTRY_VERSION,
 } from "./evals/types";
 import type { EvidenceRef, EntityContextKey } from "./context/types";
+import type { CreateCustomerJobOperation } from "./workflows/createCustomerJob";
 
 // ── Proposte ────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,44 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
 export const proposte = _proposteStore.items;
 export const saveProposte = () => _proposteStore.save();
 export const newPropostaId = () => nextPropostaId++;
+
+// Saga cliente + prima commessa. Il record vive fuori dalla proposta perché
+// deve sopravvivere a errori, retry e deploy tra i due inserimenti JSONB.
+const _workflowOperationsStore = persistedStore<CreateCustomerJobOperation>(
+  "tars_workflow_operations",
+  items => {
+    for (const item of items) {
+      if (!(item.updatedAt instanceof Date)) {
+        item.updatedAt = new Date(item.updatedAt);
+      }
+    }
+  }
+);
+export const workflowOperations = _workflowOperationsStore.items;
+
+export function getWorkflowOperation(
+  operationKey: string,
+  sedeId: number
+): CreateCustomerJobOperation | null {
+  return (
+    workflowOperations.find(
+      item => item.operationKey === operationKey && item.sedeId === sedeId
+    ) ?? null
+  );
+}
+
+export function saveWorkflowOperation(
+  operation: CreateCustomerJobOperation
+): void {
+  const index = workflowOperations.findIndex(
+    item =>
+      item.operationKey === operation.operationKey &&
+      item.sedeId === operation.sedeId
+  );
+  if (index === -1) workflowOperations.push(structuredClone(operation));
+  else workflowOperations[index] = structuredClone(operation);
+  _workflowOperationsStore.save();
+}
 
 // ── Impronta di una proposta ────────────────────────────────────────────────
 // Due proposte sono "la stessa cosa" se hanno lo stesso effetto sullo stesso

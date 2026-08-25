@@ -727,7 +727,7 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "proponi_nuovo_lead",
     description:
-      "Propone di creare insieme un nuovo cliente e la sua prima commessa in stato preventivo. Può partire da una comunicazione non riconducibile a commesse esistenti oppure da una richiesta esplicita dell'operatore in chat. Cerca prima clienti e commesse per escludere duplicati e usa leggi_assegnatari; se c'è un solo assegnatario compatibile puoi usarlo, altrimenti chiedi all'operatore. È una singola proposta: nulla viene creato prima dell'approvazione.",
+      "Propone di creare insieme un nuovo cliente e la sua prima commessa in stato preventivo. Può partire da una comunicazione non riconducibile a commesse esistenti oppure da una richiesta esplicita dell'operatore in chat. Cerca prima clienti e commesse per escludere duplicati e usa leggi_assegnatari; se c'è un solo assegnatario compatibile puoi usarlo, altrimenti chiedi all'operatore. È una singola proposta: nulla viene creato prima dell'approvazione. Dopo l'approvazione una saga idempotente conserva gli step riusciti e può riprendere senza duplicare cliente o commessa.",
     input_schema: {
       type: "object",
       properties: {
