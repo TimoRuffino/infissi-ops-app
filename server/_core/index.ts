@@ -44,6 +44,11 @@ async function startServer() {
   );
   startActionCenterScheduler();
 
+  const { getBusinessEventRepository } = await import("../events/repository");
+  await getBusinessEventRepository().ensureSchema();
+  const { startEventWorkers } = await import("../events/worker");
+  startEventWorkers();
+
   // Nightly backup to Google Drive (00:00 Europe/Rome).
   const { startBackupScheduler } = await import("./driveBackup");
   startBackupScheduler();
