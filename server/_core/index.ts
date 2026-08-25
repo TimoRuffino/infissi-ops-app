@@ -48,6 +48,18 @@ async function startServer() {
   await getBusinessEventRepository().ensureSchema();
   const { getPolicyRepository } = await import("../authz/repository");
   await getPolicyRepository().ensureSchema();
+  const { getTarsPlanRepository } = await import("../tars/planner/repository");
+  await getTarsPlanRepository().ensureSchema();
+  const { getSediStore } = await import("../routers/sedi");
+  const { getFeatureFlags } = await import("../platform/featureFlags");
+  if (
+    getSediStore().some(
+      sede => sede.attiva && getFeatureFlags(sede.id).plannerMode === "active"
+    )
+  ) {
+    const { startPlanWorker } = await import("../tars/planner/runner");
+    startPlanWorker();
+  }
   const { startNotificationPgBridge } = await import("../notifications/sse");
   await startNotificationPgBridge();
   const { startEventWorkers } = await import("../events/worker");
@@ -72,9 +84,7 @@ async function startServer() {
 
   // Tars osserva gli indicatori trasversali una volta al giorno e propone
   // miglioramenti di processo alla direzione, senza applicarli da solo.
-  const { avviaAuditProcessiScheduler } = await import(
-    "../tars/auditProcessi"
-  );
+  const { avviaAuditProcessiScheduler } = await import("../tars/auditProcessi");
   avviaAuditProcessiScheduler();
 
   const app = express();

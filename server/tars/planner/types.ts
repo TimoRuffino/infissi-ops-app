@@ -6,6 +6,7 @@ export type PlanStatus =
   | "running"
   | "waiting_user"
   | "waiting_approval"
+  | "waiting_technical"
   | "verifying"
   | "completed"
   | "partially_completed"

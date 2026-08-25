@@ -67,6 +67,8 @@ export type TarsPlanRepository = {
   updatePlan(input: UpdatePlanInput): Promise<TarsPlan>;
   updateStep(input: UpdateStepInput): Promise<TarsPlan>;
   resumeWithUserResponse(input: ResumeInput): Promise<TarsPlan>;
+  listRunnable(input: { sedeId?: number; limit: number }): Promise<TarsPlan[]>;
+  recoverStale(input: { cutoff: Date; now: Date }): Promise<number>;
   listEvents(input: {
     sedeId: number;
     planId: number;
@@ -319,6 +321,47 @@ export function createMemoryTarsPlanRepository(): TarsPlanRepository {
       plan.updatedAt = new Date(input.now);
       emit(plan, "user_response_received", { stepKey: step.key }, input.now);
       return clone(plan);
+    },
+
+    async listRunnable(input) {
+      return plans
+        .filter(
+          plan =>
+            (input.sedeId == null || plan.sedeId === input.sedeId) &&
+            ["draft", "running", "verifying"].includes(plan.status)
+        )
+        .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+        .slice(0, Math.max(1, Math.min(input.limit, 100)))
+        .map(plan => clone(plan));
+    },
+
+    async recoverStale(input) {
+      let recovered = 0;
+      for (const plan of plans) {
+        const staleSteps = plan.steps.filter(
+          step =>
+            step.status === "running" &&
+            step.startedAt != null &&
+            step.startedAt < input.cutoff
+        );
+        if (staleSteps.length === 0) continue;
+        for (const step of staleSteps) {
+          step.status = "pending";
+          step.errorCode = null;
+          step.completedAt = null;
+          recovered += 1;
+        }
+        plan.status = "running";
+        plan.version += 1;
+        plan.updatedAt = new Date(input.now);
+        emit(
+          plan,
+          "stale_steps_recovered",
+          { stepKeys: staleSteps.map(step => step.key) },
+          input.now
+        );
+      }
+      return recovered;
     },
 
     async listEvents(input) {
@@ -649,6 +692,66 @@ export function createPostgresTarsPlanRepository(sql: Sql): TarsPlanRepository {
         );
       });
       return (await loadBy("id", input))!;
+    },
+
+    async listRunnable(input) {
+      await ensureSchema();
+      const limit = Math.max(1, Math.min(input.limit, 100));
+      const rows =
+        input.sedeId == null
+          ? await sql`SELECT sede_id, id FROM tars_plans
+            WHERE status IN ('draft', 'running', 'verifying')
+            ORDER BY updated_at ASC LIMIT ${limit}`
+          : await sql`SELECT sede_id, id FROM tars_plans
+            WHERE sede_id = ${input.sedeId}
+              AND status IN ('draft', 'running', 'verifying')
+            ORDER BY updated_at ASC LIMIT ${limit}`;
+      const loaded = await Promise.all(
+        rows.map(row =>
+          loadBy("id", {
+            sedeId: Number(row.sede_id),
+            planId: Number(row.id),
+          })
+        )
+      );
+      return loaded.filter((plan): plan is TarsPlan => plan != null);
+    },
+
+    async recoverStale(input) {
+      await ensureSchema();
+      return sql.begin(async tx => {
+        const rows = await tx`SELECT id, plan_id, step_key
+          FROM tars_plan_steps
+          WHERE status = 'running' AND started_at < ${input.cutoff}
+          FOR UPDATE SKIP LOCKED`;
+        if (rows.length === 0) return 0;
+        const byPlan = new Map<number, string[]>();
+        for (const row of rows) {
+          const planId = Number(row.plan_id);
+          const keys = byPlan.get(planId) ?? [];
+          keys.push(String(row.step_key));
+          byPlan.set(planId, keys);
+          await tx`UPDATE tars_plan_steps SET status = 'pending',
+            error_code = NULL, completed_at = NULL
+            WHERE id = ${Number(row.id)}`;
+        }
+        for (const [planId, stepKeys] of Array.from(byPlan.entries())) {
+          const plans = await tx`UPDATE tars_plans SET status = 'running',
+            version = version + 1, updated_at = ${input.now}
+            WHERE id = ${planId} RETURNING version`;
+          if (plans[0]) {
+            await insertEvent(
+              tx,
+              planId,
+              Number(plans[0].version),
+              "stale_steps_recovered",
+              { stepKeys },
+              input.now
+            );
+          }
+        }
+        return rows.length;
+      });
     },
 
     async listEvents(input) {
