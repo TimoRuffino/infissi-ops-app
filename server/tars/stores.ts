@@ -18,6 +18,7 @@ import {
   TARS_PROMPT_VERSION,
   TARS_TOOL_REGISTRY_VERSION,
 } from "./evals/types";
+import type { EvidenceRef, EntityContextKey } from "./context/types";
 
 // ── Proposte ────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,9 @@ export type Proposta = {
   // Identita semantica dell'azione, indipendente da titolo e motivazione.
   // Serve a impedire che lo stesso effetto torni con parole diverse.
   chiaveAzione?: string;
+  // Fonti strutturate lette durante il run. Titolo e motivazione restano
+  // testo umano; queste refs permettono di riaprire la prova originale.
+  evidenceRefs: EvidenceRef[];
 };
 
 let nextPropostaId = 1;
@@ -103,6 +107,7 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
     if (p.seguitoEsecuzioneId === undefined) p.seguitoEsecuzioneId = null;
     if (p.origineId === undefined) p.origineId = null;
     if (!p.chiaveAzione) p.chiaveAzione = chiaveAzioneProposta(p);
+    if (p.evidenceRefs === undefined) p.evidenceRefs = [];
   }
 });
 export const proposte = _proposteStore.items;
@@ -409,6 +414,12 @@ export type Esecuzione = {
   proposteDuplicateBloccate: number;
   comunicazioniClassificateIds: number[];
   fascicoloPrecaricato: boolean;
+  contextFingerprint: string | null;
+  contextScope: EntityContextKey["scope"] | null;
+  contextCacheHit: boolean;
+  evidenceRefs: EvidenceRef[];
+  factsRead: number;
+  factsRevalidated: number;
   strumenti: StrumentoChiamato[];
   proposteIds: number[];
   riepilogo: string | null; // il testo finale del modello
@@ -443,9 +454,20 @@ export function normalizeExecutionMetadata(
   }
   if (execution.workflowVersion === undefined) execution.workflowVersion = null;
   if (execution.policyVersion === undefined) execution.policyVersion = "legacy";
+  if (execution.contextFingerprint === undefined) {
+    execution.contextFingerprint = null;
+  }
+  if (execution.contextScope === undefined) execution.contextScope = null;
+  if (execution.contextCacheHit === undefined)
+    execution.contextCacheHit = false;
+  if (execution.evidenceRefs === undefined) execution.evidenceRefs = [];
+  if (execution.factsRead === undefined) execution.factsRead = 0;
+  if (execution.factsRevalidated === undefined) execution.factsRevalidated = 0;
 }
 
-export function currentExecutionVersions(workflowVersion: string | null = null) {
+export function currentExecutionVersions(
+  workflowVersion: string | null = null
+) {
   return {
     promptVersion: TARS_PROMPT_VERSION,
     toolRegistryVersion: TARS_TOOL_REGISTRY_VERSION,

@@ -30,6 +30,12 @@ describe("Tars execution version metadata", () => {
       toolRegistryVersion: "tools-v4",
       workflowVersion: "lead-v2",
       policyVersion: "policy-v2",
+      contextFingerprint: null,
+      contextScope: null,
+      contextCacheHit: false,
+      evidenceRefs: [],
+      factsRead: 0,
+      factsRevalidated: 0,
     });
   });
 });

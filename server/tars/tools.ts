@@ -36,9 +36,16 @@ import {
   type CategoriaComunicazione,
 } from "./filtroComunicazioni";
 import { getCommessaById } from "../routers/commesse";
-import { isDirezione } from "../_core/permissions";
+import { isAmministrazione, isDirezione } from "../_core/permissions";
+import type { EvidenceRef, EntityContextKey } from "./context/types";
 
-type ToolResult = { content: string; isError?: boolean };
+type ToolResult = {
+  content: string;
+  isError?: boolean;
+  evidenceRefs?: EvidenceRef[];
+  factsRead?: number;
+  factsRevalidated?: number;
+};
 
 // Import dinamico per rompere il ciclo routers.ts → tars router → tools.
 let _appRouterPromise: Promise<any> | null = null;
@@ -73,6 +80,10 @@ export type ToolRuntime = {
   // dal flusso mail. Il chiamante usa gli id per non consumare due volte la
   // stessa comunicazione se il modello salta un elemento del lotto.
   comunicazioniClassificateIds?: Set<number>;
+  contextScope?: EntityContextKey["scope"] | null;
+  evidenceRefs?: EvidenceRef[];
+  factsRead?: number;
+  factsRevalidated?: number;
 };
 
 const MAX_PENDENTI_PER_COMMESSA = 3;
@@ -89,13 +100,19 @@ const MIN_MOTIVO_ANALISI = 40;
 // tagliato, ha strumenti più mirati per chiederlo.
 const MAX_RISULTATO_CHAR = 8_000;
 
-function ok(data: unknown): { content: string; isError?: boolean } {
+function ok(
+  data: unknown,
+  metadata: Omit<ToolResult, "content" | "isError"> = {}
+): ToolResult {
   const json = JSON.stringify(data);
-  if (json.length <= MAX_RISULTATO_CHAR) return { content: json };
+  if (json.length <= MAX_RISULTATO_CHAR) {
+    return { content: json, ...metadata };
+  }
   return {
     content:
       json.slice(0, MAX_RISULTATO_CHAR) +
       `\n…[risultato troncato: ${json.length} caratteri totali. Se ti serve il dettaglio mancante, usa uno strumento più mirato o un filtro più stretto.]`,
+    ...metadata,
   };
 }
 function err(msg: string): { content: string; isError: boolean } {
@@ -158,6 +175,28 @@ function creaProposta(
           comunicazioneId: args.payload?.comunicazioneId ?? rt.comunicazioneId,
         }
       : args.payload;
+  const evidenceRefs = dedupeEvidence(rt.evidenceRefs ?? []).slice(0, 30);
+  const richiedeProva = new Set<TipoProposta>([
+    "pagamento",
+    "avanzamento_stato",
+    "bozza_risposta",
+    "collega_fattura",
+    "modifica_cliente",
+    "modifica_commessa",
+    "ticket",
+  ]).has(args.tipo);
+  // `undefined` indica un runtime legacy/test precedente al registro delle
+  // prove. Nei run nuovi il campo esiste sempre: una conclusione ad impatto
+  // operativo senza fonte non può entrare nella coda decisionale.
+  if (
+    richiedeProva &&
+    rt.evidenceRefs !== undefined &&
+    evidenceRefs.length === 0
+  ) {
+    return err(
+      "Questa proposta richiede almeno una prova verificata. Leggi prima la fonte pertinente o chiedi un chiarimento; non trasformare un'ipotesi in azione."
+    );
+  }
   const candidata = {
     tipo: args.tipo,
     commessaId: args.commessaId ?? null,
@@ -236,11 +275,104 @@ function creaProposta(
     seguitoEsecuzioneId: null,
     origineId: args.origineId ?? rt.origineId ?? null,
     chiaveAzione: chiaveAzioneProposta(candidata),
+    evidenceRefs,
   };
   proposte.push(p);
   saveProposte();
   rt.proposteIds.push(p.id);
   return ok({ esito: `proposta #${p.id} creata` });
+}
+
+function evidenceKey(item: EvidenceRef): string {
+  return `${item.sourceType}:${item.sourceId}:${item.version}`;
+}
+
+function dedupeEvidence(items: EvidenceRef[]): EvidenceRef[] {
+  const seen = new Set<string>();
+  return [...items]
+    .sort((a, b) => {
+      const lowSignal = (item: EvidenceRef) =>
+        item.sourceType === "operatore" || item.sourceType === "registro"
+          ? 1
+          : 0;
+      return lowSignal(a) - lowSignal(b);
+    })
+    .filter(item => {
+      const key = evidenceKey(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function mergeRuntimeEvidence(rt: ToolRuntime, items: EvidenceRef[]): void {
+  if (items.length === 0) return;
+  rt.evidenceRefs = dedupeEvidence([
+    ...(rt.evidenceRefs ?? []),
+    ...items,
+  ]).slice(0, 60);
+}
+
+function genericReadEvidence(
+  rt: ToolRuntime,
+  nome: string,
+  input: any
+): EvidenceRef[] {
+  const version = `run:${rt.esecuzioneId}`;
+  const refs: EvidenceRef[] = [];
+  if (input?.commessaId != null) {
+    refs.push({
+      sourceType: "commessa",
+      sourceId: String(input.commessaId),
+      label: `Commessa #${input.commessaId} letta con ${nome}`,
+      version,
+      link: `/commesse/${input.commessaId}`,
+    });
+  }
+  if (input?.clienteId != null) {
+    refs.push({
+      sourceType: "cliente",
+      sourceId: String(input.clienteId),
+      label: `Cliente #${input.clienteId} letto con ${nome}`,
+      version,
+      link: `/clienti/${input.clienteId}`,
+    });
+  }
+  if (input?.comunicazioneId != null) {
+    refs.push({
+      sourceType: "comunicazione",
+      sourceId: String(input.comunicazioneId),
+      label: `Comunicazione #${input.comunicazioneId}`,
+      version,
+    });
+  }
+  return refs;
+}
+
+function runtimeScope(rt: ToolRuntime): EntityContextKey["scope"] {
+  return (
+    rt.contextScope ??
+    (isDirezione(rt.ctx.user)
+      ? "direzione"
+      : isAmministrazione(rt.ctx.user)
+        ? "amministrazione"
+        : "operativo")
+  );
+}
+
+function commessaForScope(value: any, scope: EntityContextKey["scope"]): any {
+  const safe = { ...value };
+  if (scope === "operativo") {
+    delete safe.importoTotale;
+    delete safe.importoIncassato;
+    delete safe.pagamenti;
+  }
+  if (scope !== "direzione") {
+    delete safe.costi;
+    delete safe.costoPosaStimato;
+    delete safe.margine;
+  }
+  return safe;
 }
 
 const CONFIDENZA_SCHEMA = {
@@ -1250,6 +1382,7 @@ async function eseguiStrumentoSenzaCache(
           clienteId: c.id,
           archived: "all",
         });
+        const scope = runtimeScope(rt);
         return ok({
           cliente: c,
           commesse: commesse.map((cm: any) => ({
@@ -1257,8 +1390,12 @@ async function eseguiStrumentoSenzaCache(
             codice: cm.codice,
             stato: cm.stato,
             archiviata: !!cm.archivedAt,
-            importoTotale: cm.importoTotale ?? null,
-            importoIncassato: cm.importoIncassato ?? 0,
+            ...(scope === "operativo"
+              ? {}
+              : {
+                  importoTotale: cm.importoTotale ?? null,
+                  importoIncassato: cm.importoIncassato ?? 0,
+                }),
           })),
         });
       }
@@ -1271,6 +1408,7 @@ async function eseguiStrumentoSenzaCache(
             input.clienteId != null ? Number(input.clienteId) : undefined,
           archived: "all",
         });
+        const scope = runtimeScope(rt);
         return ok(
           rows.slice(0, 10).map((c: any) => ({
             id: c.id,
@@ -1281,8 +1419,12 @@ async function eseguiStrumentoSenzaCache(
             citta: c.citta ?? null,
             priorita: c.priorita,
             dataApertura: c.dataApertura ?? null,
-            importoTotale: c.importoTotale ?? null,
-            nPagamenti: c.nPagamenti,
+            ...(scope === "operativo"
+              ? {}
+              : {
+                  importoTotale: c.importoTotale ?? null,
+                  nPagamenti: c.nPagamenti,
+                }),
             prodotti: c.prodottiSintesi,
           }))
         );
@@ -1291,7 +1433,7 @@ async function eseguiStrumentoSenzaCache(
         const caller = await getCaller(rt.ctx);
         const c = await caller.commesse.byId(Number(input.commessaId));
         if (!c) return err("Commessa non trovata.");
-        return ok(c);
+        return ok(commessaForScope(c, runtimeScope(rt)));
       }
       case "leggi_fascicolo_commessa": {
         const caller = await getCaller(rt.ctx);
@@ -1320,90 +1462,148 @@ async function eseguiStrumentoSenzaCache(
         if (!c) return err("Commessa non trovata.");
 
         const commessa: any = c;
-        return ok({
-          commessa: {
-            id: commessa.id,
-            codice: commessa.codice,
-            clienteId: commessa.clienteId ?? null,
-            cliente: commessa.cliente ?? null,
-            stato: commessa.stato,
-            priorita: commessa.priorita,
-            archiviata: !!commessa.archivedAt,
-            indirizzo: commessa.indirizzo ?? null,
-            citta: commessa.citta ?? null,
-            dataApertura: commessa.dataApertura ?? null,
-            dataConsegnaConfermata: commessa.dataConsegnaConfermata ?? null,
-            importoTotale: commessa.importoTotale ?? null,
-            importoIncassato: commessa.importoIncassato ?? 0,
-            residuo:
-              commessa.importoTotale != null
-                ? Number(commessa.importoTotale) -
-                  Number(commessa.importoIncassato ?? 0)
-                : null,
-            prodotti: commessa.prodottiSintesi ?? commessa.prodotti ?? null,
-            pagamenti: (commessa.pagamenti ?? []).slice(-20),
-            costi: (commessa.costi ?? []).slice(-20),
-            note: commessa.note ?? null,
+        const scope = runtimeScope(rt);
+        const refs: EvidenceRef[] = [
+          {
+            sourceType: "commessa",
+            sourceId: String(commessa.id),
+            label: commessa.codice ?? `Commessa #${commessa.id}`,
+            version: String(
+              commessa.updatedAt ??
+                commessa.createdAt ??
+                `run:${rt.esecuzioneId}`
+            ),
+            link: `/commesse/${commessa.id}`,
           },
-          timeline: timeline.map((s: any) => ({
-            id: s.id,
-            step: s.stepNumber,
-            titolo: s.titolo ?? null,
-            stato: s.stato,
-            programmata: s.dataProgrammata ?? null,
-            completata: s.dataCompletamento ?? null,
-            note: s.note ?? null,
+          ...documenti.slice(0, 40).map((d: any) => ({
+            sourceType: "documento",
+            sourceId: String(d.id),
+            label: String(d.nome),
+            version: String(
+              d.updatedAt ?? d.createdAt ?? `run:${rt.esecuzioneId}`
+            ),
+            link: `/commesse/${commessa.id}`,
           })),
-          documenti: documenti.slice(0, 40).map((d: any) => ({
-            id: d.id,
-            nome: d.nome,
-            tipo: d.tipo,
-            statoAtUpload: d.statoAtUpload ?? null,
-            createdAt: d.createdAt,
+          ...tickets.slice(0, 20).map((t: any) => ({
+            sourceType: "ticket",
+            sourceId: String(t.id),
+            label: String(t.oggetto ?? `Ticket #${t.id}`),
+            version: String(
+              t.updatedAt ?? t.createdAt ?? `run:${rt.esecuzioneId}`
+            ),
+            link: `/ticket/${t.id}`,
           })),
-          docGate,
-          ordini: ordini.slice(0, 20).map((o: any) => ({
-            id: o.id,
-            codice: o.codiceOrdine,
-            fornitore: o.fornitoreNome,
-            stato: o.stato,
-            dataOrdine: o.dataOrdine,
-            consegnaPrevista: o.dataConsegnaPrevista ?? null,
-            importo: o.importoTotale ?? null,
-          })),
-          magazzino: magazzino.slice(0, 30).map((m: any) => ({
-            id: m.id,
-            prodotto: m.prodotto ?? m.nome ?? m.descrizione ?? null,
-            fornitore: m.fornitore ?? null,
-            numeroOrdine: m.numeroOrdine ?? null,
-            consegna: m.dataConsegna ?? null,
-            arrivato: !!m.arrivato,
-            note: m.note ?? null,
-          })),
-          ticket: tickets.slice(0, 20).map((t: any) => ({
-            id: t.id,
-            oggetto: t.oggetto,
-            stato: t.stato,
-            categoria: t.categoria,
-            priorita: t.priorita,
-            createdAt: t.createdAt,
-          })),
-          interventi: interventi.slice(0, 25).map((i: any) => ({
-            id: i.id,
-            data: i.data,
-            ora: i.oraInizio ?? null,
-            tipo: i.tipo,
-            stato: i.stato,
-            squadraId: i.squadraId ?? null,
-            note: i.note ?? null,
-          })),
-          garanzie: garanzie.slice(0, 20).map((g: any) => ({
-            id: g.id,
-            descrizione: g.descrizione,
-            stato: g.stato,
-            scadenza: g.dataScadenza ?? null,
-          })),
-        });
+        ];
+        const factCount =
+          1 +
+          timeline.length +
+          documenti.length +
+          ordini.length +
+          magazzino.length +
+          tickets.length +
+          interventi.length +
+          garanzie.length;
+        return ok(
+          {
+            contesto: { scope, fonte: "live" },
+            commessa: {
+              id: commessa.id,
+              codice: commessa.codice,
+              clienteId: commessa.clienteId ?? null,
+              cliente: commessa.cliente ?? null,
+              stato: commessa.stato,
+              priorita: commessa.priorita,
+              archiviata: !!commessa.archivedAt,
+              indirizzo: commessa.indirizzo ?? null,
+              citta: commessa.citta ?? null,
+              dataApertura: commessa.dataApertura ?? null,
+              dataConsegnaConfermata: commessa.dataConsegnaConfermata ?? null,
+              prodotti: commessa.prodottiSintesi ?? commessa.prodotti ?? null,
+              note: commessa.note ?? null,
+              ...(scope === "operativo"
+                ? {}
+                : {
+                    importoTotale: commessa.importoTotale ?? null,
+                    importoIncassato: commessa.importoIncassato ?? 0,
+                    residuo:
+                      commessa.importoTotale != null
+                        ? Number(commessa.importoTotale) -
+                          Number(commessa.importoIncassato ?? 0)
+                        : null,
+                    pagamenti: (commessa.pagamenti ?? []).slice(-20),
+                  }),
+              ...(scope === "direzione"
+                ? { costi: (commessa.costi ?? []).slice(-20) }
+                : {}),
+            },
+            timeline: timeline.map((s: any) => ({
+              id: s.id,
+              step: s.stepNumber,
+              titolo: s.titolo ?? null,
+              stato: s.stato,
+              programmata: s.dataProgrammata ?? null,
+              completata: s.dataCompletamento ?? null,
+              note: s.note ?? null,
+            })),
+            documenti: documenti.slice(0, 40).map((d: any) => ({
+              id: d.id,
+              nome: d.nome,
+              tipo: d.tipo,
+              statoAtUpload: d.statoAtUpload ?? null,
+              createdAt: d.createdAt,
+            })),
+            docGate,
+            ordini: ordini.slice(0, 20).map((o: any) => ({
+              id: o.id,
+              codice: o.codiceOrdine,
+              fornitore: o.fornitoreNome,
+              stato: o.stato,
+              dataOrdine: o.dataOrdine,
+              consegnaPrevista: o.dataConsegnaPrevista ?? null,
+              ...(scope === "direzione"
+                ? { importo: o.importoTotale ?? null }
+                : {}),
+            })),
+            magazzino: magazzino.slice(0, 30).map((m: any) => ({
+              id: m.id,
+              prodotto: m.prodotto ?? m.nome ?? m.descrizione ?? null,
+              fornitore: m.fornitore ?? null,
+              numeroOrdine: m.numeroOrdine ?? null,
+              consegna: m.dataConsegna ?? null,
+              arrivato: !!m.arrivato,
+              note: m.note ?? null,
+            })),
+            ticket: tickets.slice(0, 20).map((t: any) => ({
+              id: t.id,
+              oggetto: t.oggetto,
+              stato: t.stato,
+              categoria: t.categoria,
+              priorita: t.priorita,
+              createdAt: t.createdAt,
+            })),
+            interventi: interventi.slice(0, 25).map((i: any) => ({
+              id: i.id,
+              data: i.data,
+              ora: i.oraInizio ?? null,
+              tipo: i.tipo,
+              stato: i.stato,
+              squadraId: i.squadraId ?? null,
+              note: i.note ?? null,
+            })),
+            garanzie: garanzie.slice(0, 20).map((g: any) => ({
+              id: g.id,
+              descrizione: g.descrizione,
+              stato: g.stato,
+              scadenza: g.dataScadenza ?? null,
+            })),
+            prove: dedupeEvidence(refs).slice(0, 60),
+          },
+          {
+            evidenceRefs: dedupeEvidence(refs),
+            factsRead: factCount,
+            factsRevalidated: factCount,
+          }
+        );
       }
       case "leggi_timeline": {
         const caller = await getCaller(rt.ctx);
@@ -2047,8 +2247,7 @@ async function eseguiStrumentoSenzaCache(
         });
       }
       case "proponi_nuovo_lead": {
-        const rawComunicazioneId =
-          input.comunicazioneId ?? rt.comunicazioneId;
+        const rawComunicazioneId = input.comunicazioneId ?? rt.comunicazioneId;
         const parsedComunicazioneId = Number(rawComunicazioneId);
         const comunicazioneId =
           rawComunicazioneId != null &&
@@ -2058,10 +2257,7 @@ async function eseguiStrumentoSenzaCache(
             : null;
         const comunicazione =
           comunicazioneId != null
-            ? await getComunicazione(
-                comunicazioneId,
-                rt.ctx.sedeId ?? 1
-              )
+            ? await getComunicazione(comunicazioneId, rt.ctx.sedeId ?? 1)
             : null;
         if (
           comunicazioneId != null &&
@@ -2455,6 +2651,15 @@ export async function eseguiStrumento(
   cache.set(key, pending);
   const result = await pending;
   if (result.isError) cache.delete(key);
+  else {
+    mergeRuntimeEvidence(rt, [
+      ...(result.evidenceRefs ?? []),
+      ...genericReadEvidence(rt, nome, input),
+    ]);
+    rt.factsRead = (rt.factsRead ?? 0) + (result.factsRead ?? 0);
+    rt.factsRevalidated =
+      (rt.factsRevalidated ?? 0) + (result.factsRevalidated ?? 0);
+  }
   return result;
 }
 

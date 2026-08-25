@@ -12,6 +12,14 @@ export type TarsEvidence = {
   occurredAt: Date | null;
 };
 
+type StructuredEvidenceRef = {
+  sourceType: string;
+  sourceId: string;
+  label: string;
+  version: string;
+  link?: string;
+};
+
 export type TarsPriority = {
   id: string;
   canonicalKey: string;
@@ -40,6 +48,10 @@ export type TarsCommandCenterSnapshot = {
     duplicateAvoided: number;
     toolCacheHits: number;
     cacheReadPercent: number;
+    contextCacheHits: number;
+    factsRead: number;
+    factsRevalidated: number;
+    evidenceCoveragePercent: number;
     lastRunAt: Date | null;
   };
 };
@@ -55,6 +67,7 @@ type ProposalInput = {
   clienteId: number | null;
   chiaveAzione?: string;
   esecuzioneId?: number | null;
+  evidenceRefs?: StructuredEvidenceRef[];
   createdAt: Date;
 };
 
@@ -67,6 +80,10 @@ type ExecutionInput = {
   tokensCacheRead?: number;
   tokensIn?: number;
   comunicazioneId?: number | null;
+  evidenceRefs?: StructuredEvidenceRef[];
+  contextCacheHit?: boolean;
+  factsRead?: number;
+  factsRevalidated?: number;
 };
 
 const URGENZA: Record<string, number> = {
@@ -152,6 +169,46 @@ function evidenceForProposal(
   execution: ExecutionInput | undefined
 ): TarsEvidence[] {
   const payload = proposal.payload ?? {};
+  const structured = [
+    ...(proposal.evidenceRefs ?? []),
+    ...(execution?.evidenceRefs ?? []),
+  ];
+  const structuredEvidence = structured.map(item => {
+    const source = item.sourceType.toLowerCase();
+    const type: TarsEvidence["type"] =
+      source === "fattura_fic"
+        ? "fattura_fic"
+        : source === "documento"
+          ? "documento"
+          : source === "cliente"
+            ? "cliente"
+            : source === "commessa"
+              ? "commessa"
+              : source === "comunicazione"
+                ? payload.canale === "whatsapp" ||
+                  String(item.label).toLowerCase().includes("whatsapp")
+                  ? "whatsapp"
+                  : "email"
+                : "registro";
+    const occurredAt = new Date(item.version);
+    return {
+      type,
+      id: item.sourceId,
+      label: item.label,
+      occurredAt: Number.isNaN(occurredAt.getTime()) ? null : occurredAt,
+    };
+  });
+  if (structuredEvidence.length > 0) {
+    const seen = new Set<string>();
+    return structuredEvidence
+      .filter(item => {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 3);
+  }
   const evidence: TarsEvidence[] = [];
   const comunicazioneId =
     idNumerico(payload.comunicazioneId) ?? execution?.comunicazioneId ?? null;
@@ -168,7 +225,9 @@ function evidenceForProposal(
     evidence.push({
       type: "commessa",
       id: String(proposal.commessaId),
-      label: String(payload.commessaCodice ?? `Commessa #${proposal.commessaId}`),
+      label: String(
+        payload.commessaCodice ?? `Commessa #${proposal.commessaId}`
+      ),
       occurredAt: null,
     });
   }
@@ -247,8 +306,7 @@ export function buildCommandCenterSnapshot(input: {
         confidence: proposal.confidenza,
         urgency: URGENZA[proposal.tipo] ?? 50,
         impact: IMPATTO[proposal.tipo] ?? 50,
-        dueAt:
-          dataOpzionale(payload.scadenza) ?? dataOpzionale(payload.data),
+        dueAt: dataOpzionale(payload.scadenza) ?? dataOpzionale(payload.data),
         clienteId: proposal.clienteId,
         commessaId: proposal.commessaId,
         proposalId: proposal.id,
@@ -260,8 +318,7 @@ export function buildCommandCenterSnapshot(input: {
 
   const errorCutoff = now.getTime() - 24 * 60 * 60 * 1_000;
   const failedRuns = executions.filter(
-    item =>
-      item.esito === "errore" && item.createdAt.getTime() >= errorCutoff
+    item => item.esito === "errore" && item.createdAt.getTime() >= errorCutoff
   ).length;
   const duplicateAvoided = executions.reduce(
     (total, item) => total + (item.proposteDuplicateBloccate ?? 0),
@@ -283,6 +340,28 @@ export function buildCommandCenterSnapshot(input: {
     cacheRead + uncachedInput > 0
       ? Math.round((cacheRead / (cacheRead + uncachedInput)) * 100)
       : 0;
+  const contextCacheHits = executions.filter(
+    item => item.contextCacheHit
+  ).length;
+  const factsRead = executions.reduce(
+    (total, item) => total + (item.factsRead ?? 0),
+    0
+  );
+  const factsRevalidated = executions.reduce(
+    (total, item) => total + (item.factsRevalidated ?? 0),
+    0
+  );
+  const proposalsWithEvidence = input.proposals.filter(
+    proposal =>
+      (proposal.evidenceRefs?.length ?? 0) > 0 ||
+      proposal.commessaId != null ||
+      proposal.clienteId != null ||
+      idNumerico(proposal.payload?.comunicazioneId) != null
+  ).length;
+  const evidenceCoveragePercent =
+    input.proposals.length > 0
+      ? Math.round((proposalsWithEvidence / input.proposals.length) * 100)
+      : 100;
   const pending = input.proposals.length;
   const title =
     pending === 0
@@ -311,6 +390,10 @@ export function buildCommandCenterSnapshot(input: {
       duplicateAvoided,
       toolCacheHits,
       cacheReadPercent,
+      contextCacheHits,
+      factsRead,
+      factsRevalidated,
+      evidenceCoveragePercent,
       lastRunAt: executions[0]?.createdAt ?? null,
     },
   };

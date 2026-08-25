@@ -18,7 +18,7 @@ const CONTEXT_TTL_MS = 30 * 60_000;
 
 const summaryItemSchema = z.object({
   text: z.string().min(1).max(500),
-  evidenceIds: z.array(z.string().min(1)).max(8),
+  evidenceIds: z.array(z.string().min(1)).min(1).max(8),
 });
 const summarySchema = z.object({
   summary: z.string().min(1).max(2_000),
@@ -33,7 +33,11 @@ function summaryItemJsonSchema() {
     additionalProperties: false,
     properties: {
       text: { type: "string" },
-      evidenceIds: { type: "array", items: { type: "string" } },
+      evidenceIds: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string" },
+      },
     },
     required: ["text", "evidenceIds"],
   };
@@ -98,6 +102,24 @@ function safeErrorCode(error: unknown): string {
     .toUpperCase()
     .replace(/[^A-Z0-9_.:-]/g, "_")
     .slice(0, 120);
+}
+
+function assertSummaryEvidence(
+  summary: ContextSummary,
+  allowedEvidenceIds: string[]
+): ContextSummary {
+  const parsed = summarySchema.parse(summary);
+  const allowed = new Set(allowedEvidenceIds);
+  for (const item of [
+    ...parsed.openQuestions,
+    ...parsed.risks,
+    ...parsed.nextActions,
+  ]) {
+    if (item.evidenceIds.some(id => !allowed.has(id))) {
+      throw new Error("UNKNOWN_EVIDENCE");
+    }
+  }
+  return parsed;
 }
 
 export async function rebuildEntityContext(input: {
@@ -171,11 +193,14 @@ export async function rebuildEntityContext(input: {
     const evidenceIds = Array.from(
       new Set(collected.facts.flatMap(item => item.evidence.map(evidenceId)))
     );
-    const summary = await synthesize({
-      key: input.key,
-      facts: collected.facts,
-      evidenceIds,
-    });
+    const summary = assertSummaryEvidence(
+      await synthesize({
+        key: input.key,
+        facts: collected.facts,
+        evidenceIds,
+      }),
+      evidenceIds
+    );
     const completed = await repository.completeVersion({
       key: input.key,
       version: saved.snapshot.version,

@@ -36,10 +36,7 @@ const inCorso = new Set<number>();
 const pausaFinoA = new Map<number, number>();
 const richiestoDuranteRun = new Set<number>();
 
-type GateAutomatico =
-  | "disattivato"
-  | "chiave_mancante"
-  | "budget_esaurito";
+type GateAutomatico = "disattivato" | "chiave_mancante" | "budget_esaurito";
 
 const ultimoGateSegnalato = new Map<string, GateAutomatico>();
 
@@ -442,6 +439,12 @@ ${blocchi}`;
       trigger: "riconciliazione_fatture",
       commessaId: null,
       richiesta,
+      evidenceRefs: orfane.map(f => ({
+        sourceType: "fattura_fic",
+        sourceId: String(f.id),
+        label: `Fattura ${f.numero}`,
+        version: String(f.aggiornataAt ?? f.data),
+      })),
     });
 
     if (esecuzione.esito === "errore") {

@@ -139,6 +139,38 @@ describe("rebuildEntityContext", () => {
       ])
     );
   });
+
+  it("rifiuta una sintesi che cita prove assenti dal fascicolo", async () => {
+    const repository = createMemoryContextRepository();
+    const result = await rebuildEntityContext({
+      key: KEY,
+      repository,
+      collect: async () => ({ facts: facts("v1"), sourceVersions: {} }),
+      synthesize: async () => ({
+        summary: "Sintesi",
+        openQuestions: [],
+        risks: [
+          {
+            text: "Rischio senza fonte",
+            evidenceIds: ["fattura_fic:inesistente:v9"],
+          },
+        ],
+        nextActions: [],
+      }),
+      policyVersion: "policy-1",
+    });
+
+    expect(result.failed).toBe(true);
+    expect(result.snapshot).toBeNull();
+    expect(await repository.listVersions(KEY)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: "failed",
+          errorCode: "UNKNOWN_EVIDENCE",
+        }),
+      ])
+    );
+  });
 });
 
 describe("versioned query cache", () => {

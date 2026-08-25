@@ -5,7 +5,9 @@ import { runEventWorkerOnce } from "./worker";
 
 const now = new Date("2026-08-25T11:00:00.000Z");
 
-async function publish(repo: ReturnType<typeof createMemoryBusinessEventRepository>) {
+async function publish(
+  repo: ReturnType<typeof createMemoryBusinessEventRepository>
+) {
   return repo.publish({
     sedeId: 1,
     eventType: "commessa.assigned",
@@ -21,14 +23,16 @@ async function publish(repo: ReturnType<typeof createMemoryBusinessEventReposito
 
 describe("business event worker", () => {
   it("isola il fallimento di un consumer dal successo di un altro", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     const registry = createEventConsumerRegistry();
     const handled = vi.fn();
     registry.register({
       name: "notifications",
       eventTypes: ["commessa.assigned"],
       handle: async () => {
-        throw Object.assign(new Error("private payload"), { code: "TEMPORARY" });
+        throw Object.assign(new Error("private payload"), {
+          code: "TEMPORARY",
+        });
       },
     });
     registry.register({
@@ -67,7 +71,7 @@ describe("business event worker", () => {
   });
 
   it("non consegna due volte lo stesso evento a worker concorrenti", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     const registry = createEventConsumerRegistry();
     const handled = vi.fn(async () => undefined);
     registry.register({ name: "context", eventTypes: "*", handle: handled });
@@ -95,8 +99,14 @@ describe("business event worker", () => {
 
   it("rifiuta nomi consumer duplicati", () => {
     const registry = createEventConsumerRegistry();
-    const consumer = { name: "context", eventTypes: "*" as const, handle: async () => {} };
+    const consumer = {
+      name: "context",
+      eventTypes: "*" as const,
+      handle: async () => {},
+    };
     registry.register(consumer);
-    expect(() => registry.register(consumer)).toThrow("EVENT_CONSUMER_DUPLICATE:context");
+    expect(() => registry.register(consumer)).toThrow(
+      "EVENT_CONSUMER_DUPLICATE:context"
+    );
   });
 });

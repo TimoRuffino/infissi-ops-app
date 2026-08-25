@@ -18,6 +18,7 @@ import {
   budgetMensileSuperato,
   costoEsecuzioneUsd,
   applicaMigrazioneConfigTars,
+  normalizeExecutionMetadata,
 } from "./stores";
 import {
   eseguiStrumento,
@@ -27,8 +28,13 @@ import {
 } from "./tools";
 import { callOpenAI } from "./openai";
 import { openaiScript } from "./openaiTestHelpers";
-import { buildPromptCacheKey } from "./loop";
+import {
+  buildPromptCacheKey,
+  buildContextPreload,
+  visibilityScopeForUser,
+} from "./loop";
 import { deleteComunicazione, insertComunicazione } from "./comunicazioni";
+import type { EntityContextSnapshot } from "./context/types";
 
 function makeCtx(): TrpcContext {
   return {
@@ -250,6 +256,164 @@ describe("tars", () => {
   it("le proposte restano nella coda sede-scoped", () => {
     // Tutte le proposte create nei test appartengono alla sede 1.
     expect(proposte.every(p => p.sedeId === 1)).toBe(true);
+  });
+});
+
+describe("tars — contesto scoped ed evidence-first", () => {
+  const snapshot = (
+    overrides: Partial<EntityContextSnapshot> = {}
+  ): EntityContextSnapshot => ({
+    id: 1,
+    key: {
+      sedeId: 1,
+      entityType: "commessa",
+      entityId: 44,
+      scope: "operativo",
+    },
+    version: 3,
+    schemaVersion: "1",
+    collectorVersion: "1",
+    policyVersion: "policy-enforce-v1",
+    fingerprint: "ctx-44-v3",
+    facts: [
+      {
+        key: "commessa.stato",
+        value: { stato: "produzione" },
+        confidence: "certain",
+        evidence: [
+          {
+            sourceType: "commessa",
+            sourceId: "44",
+            label: "Scheda commessa",
+            version: "2026-08-25T08:00:00.000Z",
+            link: "/commesse/44",
+          },
+        ],
+      },
+    ],
+    evidence: [],
+    summary: {
+      summary: "La commessa è in produzione.",
+      openQuestions: [],
+      risks: [],
+      nextActions: [],
+    },
+    state: "ready",
+    errorCode: null,
+    createdAt: new Date("2026-08-25T08:00:00.000Z"),
+    expiresAt: new Date("2026-08-25T09:00:00.000Z"),
+    stale: false,
+    definitive: true,
+    ...overrides,
+  });
+
+  it("deriva lo scope dalle capability e rispetta gli override di negazione", () => {
+    const commerciale = { id: 7, ruoli: ["commerciale"], sediIds: [1] };
+    const amministrazione = {
+      id: 8,
+      ruoli: ["amministrazione"],
+      sediIds: [1],
+    };
+    const direzione = { id: 9, ruoli: ["direzione"], sediIds: [1] };
+
+    expect(visibilityScopeForUser(commerciale, 1, [])).toBe("operativo");
+    expect(visibilityScopeForUser(amministrazione, 1, [])).toBe(
+      "amministrazione"
+    );
+    expect(visibilityScopeForUser(direzione, 1, [])).toBe("direzione");
+    expect(
+      visibilityScopeForUser(direzione, 1, [
+        {
+          capability: "economia.read",
+          effect: "deny",
+          sedeId: 1,
+          source: "override",
+        },
+      ])
+    ).toBe("operativo");
+  });
+
+  it("precarica soltanto fatti compatti e dichiara un contesto scaduto", () => {
+    const fresh = buildContextPreload(snapshot());
+    expect(fresh.useLiveFallback).toBe(false);
+    expect(fresh.content).toContain("fatto_verificato");
+    expect(fresh.content).toContain("ctx-44-v3");
+    expect(fresh.evidenceRefs).toHaveLength(1);
+    expect(fresh.factsRead).toBe(1);
+
+    const stale = buildContextPreload(
+      snapshot({ stale: true, definitive: false })
+    );
+    expect(stale.useLiveFallback).toBe(true);
+    expect(stale.content).toMatch(/scaduto|stale/i);
+    expect(stale.factsRead).toBe(0);
+  });
+
+  it("il fallback live non espone dati amministrativi a un commerciale", async () => {
+    const commessa = await appRouter.createCaller(makeCtx()).commesse.create({
+      cliente: "Scope Commerciale",
+      importoTotale: 12_500,
+    });
+    const ctx = makeCtx();
+    (ctx.user as any).role = "user";
+    (ctx.user as any).ruolo = "commerciale";
+    (ctx.user as any).ruoli = ["commerciale"];
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_800,
+      trigger: "on_demand",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      contextScope: "operativo",
+      evidenceRefs: [],
+    };
+
+    const result = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
+      commessaId: commessa.id,
+    });
+    const fascicolo = JSON.parse(result.content);
+    expect(fascicolo.contesto.scope).toBe("operativo");
+    expect(fascicolo.commessa).not.toHaveProperty("importoTotale");
+    expect(fascicolo.commessa).not.toHaveProperty("pagamenti");
+    expect(fascicolo.commessa).not.toHaveProperty("costi");
+    expect(rt.factsRevalidated).toBeGreaterThan(0);
+  });
+
+  it("non crea una proposta importante senza alcuna prova verificata", async () => {
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_801,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      evidenceRefs: [],
+    };
+    const result = await eseguiStrumento(rt, "proponi_bozza_risposta", {
+      destinatario: "Cliente",
+      canale: "email",
+      testo: "Testo",
+      titolo: "Invia aggiornamento al cliente",
+      motivazione: "La situazione richiede un aggiornamento.",
+      confidenza: "alta",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/prova|evidenza/i);
+  });
+
+  it("applica default neutrali ai metadati di contesto legacy", () => {
+    const legacy: Record<string, unknown> = {};
+    normalizeExecutionMetadata(legacy);
+    expect(legacy).toMatchObject({
+      contextFingerprint: null,
+      contextScope: null,
+      contextCacheHit: false,
+      evidenceRefs: [],
+      factsRead: 0,
+      factsRevalidated: 0,
+    });
   });
 });
 

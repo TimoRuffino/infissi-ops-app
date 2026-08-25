@@ -7,6 +7,9 @@
 // proposta esiste.
 
 import type { TrpcContext } from "../_core/context";
+import { can, type CapabilityOverride } from "../authz/policy";
+import { getPolicyRepository } from "../authz/repository";
+import { getFeatureFlags } from "../platform/featureFlags";
 import {
   callOpenAI,
   OpenAIResponseError,
@@ -29,6 +32,88 @@ import {
   currentExecutionVersions,
   type Esecuzione,
 } from "./stores";
+import { getContextRepository } from "./context/repository";
+import type {
+  EntityContextKey,
+  EntityContextSnapshot,
+  EvidenceRef,
+} from "./context/types";
+
+export function visibilityScopeForUser(
+  user: unknown,
+  sedeId: number,
+  overrides: CapabilityOverride[] = []
+): EntityContextKey["scope"] {
+  const policyUser = user as Parameters<typeof can>[0]["user"];
+  const economy = can({
+    user: policyUser,
+    capability: "economia.read",
+    activeSedeId: sedeId,
+    overrides,
+  });
+  if (!economy.allowed) return "operativo";
+  const managesPolicy = can({
+    user: policyUser,
+    capability: "tars.manage_policy",
+    activeSedeId: sedeId,
+    overrides,
+  });
+  return managesPolicy.allowed ? "direzione" : "amministrazione";
+}
+
+function evidenceKey(item: EvidenceRef): string {
+  return `${item.sourceType}:${item.sourceId}:${item.version}`;
+}
+
+function uniqueEvidence(items: EvidenceRef[]): EvidenceRef[] {
+  const seen = new Set<string>();
+  return items.filter(item => {
+    const key = evidenceKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function buildContextPreload(snapshot: EntityContextSnapshot): {
+  content: string;
+  useLiveFallback: boolean;
+  evidenceRefs: EvidenceRef[];
+  factsRead: number;
+} {
+  if (!snapshot.definitive || snapshot.stale || snapshot.state !== "ready") {
+    return {
+      content: `<contesto_entita_stale fingerprint="${snapshot.fingerprint}">\nIl fascicolo sintetico è scaduto e non è una fonte definitiva. Verifica i dati live prima di concludere o proporre azioni.\n</contesto_entita_stale>`,
+      useLiveFallback: true,
+      evidenceRefs: [],
+      factsRead: 0,
+    };
+  }
+
+  const facts = snapshot.facts.slice(0, 30).map(fact => ({
+    tipo: fact.confidence === "certain" ? "fatto_verificato" : "inferenza",
+    chiave: fact.key,
+    valore: fact.value,
+    evidenceIds: fact.evidence.map(evidenceKey),
+  }));
+  const evidenceRefs = uniqueEvidence(
+    snapshot.facts.flatMap(fact => fact.evidence)
+  ).slice(0, 60);
+  const compact = {
+    fingerprint: snapshot.fingerprint,
+    scope: snapshot.key.scope,
+    aggiornatoAt: snapshot.createdAt,
+    sintesi: snapshot.summary,
+    fatti: facts,
+    prove: evidenceRefs,
+  };
+  return {
+    content: `<contesto_entita_verificato fingerprint="${snapshot.fingerprint}" scope="${snapshot.key.scope}">\n${JSON.stringify(compact)}\n</contesto_entita_verificato>`,
+    useLiveFallback: false,
+    evidenceRefs,
+    factsRead: facts.length,
+  };
+}
 
 function shortHash(value: string): string {
   let hash = 2166136261;
@@ -61,6 +146,8 @@ export async function runTars(params: {
   storia?: Array<{ role: "user" | "assistant"; content: string }>;
   // Proposta da cui nasce questo run (seguito di una decisione).
   origineId?: number | null;
+  // Fonti già verificate dal trigger deterministico (es. fatture del lotto).
+  evidenceRefs?: EvidenceRef[];
 }): Promise<Esecuzione> {
   const config = getTarsConfig(params.ctx.sedeId);
   const start = Date.now();
@@ -80,6 +167,47 @@ export async function runTars(params: {
     : config.modello;
   const tools = toolDefsForTrigger(params.trigger);
   const profiloStrumenti = toolProfileForTrigger(params.trigger);
+  const sedeId = params.ctx.sedeId ?? 1;
+  const contextMode = getFeatureFlags(sedeId).contextEngineMode;
+  let contextScope: EntityContextKey["scope"] | null = null;
+  let contextSnapshot: EntityContextSnapshot | null = null;
+  if (
+    params.commessaId != null &&
+    contextMode !== "off" &&
+    tools.some(tool => tool.name === "leggi_fascicolo_commessa")
+  ) {
+    let overrides: CapabilityOverride[] = [];
+    const userId = Number((params.ctx.user as any)?.id);
+    if (Number.isSafeInteger(userId) && userId > 0) {
+      try {
+        overrides = await getPolicyRepository().listEffectiveOverrides({
+          sedeId,
+          userId,
+          now: new Date(),
+        });
+      } catch {
+        // Un guasto al registro deleghe non deve allargare la visibilità:
+        // senza override si applicano soltanto le capability del ruolo.
+        overrides = [];
+      }
+    }
+    contextScope = visibilityScopeForUser(params.ctx.user, sedeId, overrides);
+    try {
+      contextSnapshot = await getContextRepository().getLatest({
+        key: {
+          sedeId,
+          entityType: "commessa",
+          entityId: params.commessaId,
+          scope: contextScope,
+        },
+        now: new Date(),
+      });
+    } catch {
+      // Il contesto incrementale è un acceleratore, non un single point of
+      // failure: il preload live sottostante conserva il comportamento.
+      contextSnapshot = null;
+    }
+  }
 
   const esecuzione: Esecuzione = {
     id: newEsecuzioneId(),
@@ -95,6 +223,12 @@ export async function runTars(params: {
     proposteDuplicateBloccate: 0,
     comunicazioniClassificateIds: [],
     fascicoloPrecaricato: false,
+    contextFingerprint: contextSnapshot?.fingerprint ?? null,
+    contextScope,
+    contextCacheHit: false,
+    evidenceRefs: [],
+    factsRead: 0,
+    factsRevalidated: 0,
     strumenti: [],
     proposteIds: [],
     riepilogo: null,
@@ -125,6 +259,34 @@ export async function runTars(params: {
     toolCacheHits: 0,
     duplicatiBloccati: 0,
     comunicazioniClassificateIds: new Set(),
+    contextScope,
+    evidenceRefs: [
+      ...(params.evidenceRefs ?? []),
+      ...(params.comunicazioneId != null
+        ? [
+            {
+              sourceType: "comunicazione",
+              sourceId: String(params.comunicazioneId),
+              label: `Comunicazione #${params.comunicazioneId}`,
+              version: `run:${esecuzione.id}`,
+            } satisfies EvidenceRef,
+          ]
+        : []),
+      ...(["on_demand", "chat", "chat_operatore", "seguito"].includes(
+        params.trigger
+      )
+        ? [
+            {
+              sourceType: "operatore",
+              sourceId: String((params.ctx.user as any)?.id ?? "unknown"),
+              label: "Richiesta esplicita dell'operatore",
+              version: `run:${esecuzione.id}`,
+            } satisfies EvidenceRef,
+          ]
+        : []),
+    ],
+    factsRead: 0,
+    factsRevalidated: 0,
   };
 
   const system = buildSystemPromptForTrigger(params.ctx.sedeId, params.trigger);
@@ -138,19 +300,39 @@ export async function runTars(params: {
     params.commessaId != null &&
     tools.some(tool => tool.name === "leggi_fascicolo_commessa")
   ) {
-    const fascicolo = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
-      commessaId: params.commessaId,
-    });
-    if (!fascicolo.isError) {
+    const preload =
+      contextMode === "active" && contextSnapshot
+        ? buildContextPreload(contextSnapshot)
+        : null;
+    if (preload && !preload.useLiveFallback) {
       esecuzione.fascicoloPrecaricato = true;
-      richiesta = `<fascicolo_commessa_verificato id="${params.commessaId}">
-${fascicolo.content}
-</fascicolo_commessa_verificato>
+      esecuzione.contextCacheHit = true;
+      rt.evidenceRefs = uniqueEvidence([
+        ...(rt.evidenceRefs ?? []),
+        ...preload.evidenceRefs,
+      ]);
+      rt.factsRead = preload.factsRead;
+      richiesta = `${preload.content}
 
-Il fascicolo sopra è già stato letto dal CRM per questa esecuzione. Usalo come fonte
+Il fascicolo sintetico sopra è già verificato e limitato allo scope dell'operatore.
+Usa i riferimenti di prova; chiedi letture live soltanto per dettagli assenti.
+
+${params.richiesta}`;
+    } else {
+      const fascicolo = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
+        commessaId: params.commessaId,
+      });
+      if (!fascicolo.isError) {
+        esecuzione.fascicoloPrecaricato = true;
+        richiesta = `${preload?.content ? `${preload.content}\n\n` : ""}<fascicolo_commessa_live id="${params.commessaId}" scope="${contextScope ?? "ruolo"}">
+${fascicolo.content}
+</fascicolo_commessa_live>
+
+Il fascicolo live sopra sostituisce qualsiasi sintesi scaduta. Usalo come fonte
 iniziale e chiedi strumenti aggiuntivi solo per dettagli non presenti.
 
 ${params.richiesta}`;
+      }
     }
   }
   const input: OpenAIInputItem[] = [
@@ -268,6 +450,9 @@ ${params.richiesta}`;
   esecuzione.comunicazioniClassificateIds = Array.from(
     rt.comunicazioniClassificateIds ?? []
   );
+  esecuzione.evidenceRefs = uniqueEvidence(rt.evidenceRefs ?? []).slice(0, 60);
+  esecuzione.factsRead = rt.factsRead ?? 0;
+  esecuzione.factsRevalidated = rt.factsRevalidated ?? 0;
   esecuzione.durataMs = Date.now() - start;
   esecuzioni.push(esecuzione);
   saveEsecuzioni();

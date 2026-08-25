@@ -28,8 +28,20 @@ function priority(overrides: Partial<TarsPriority>): TarsPriority {
 describe("Tars command center", () => {
   it("ordina in modo stabile per urgenza, impatto e confidenza", () => {
     const ranked = rankTarsPriorities([
-      priority({ id: "ticket:9", canonicalKey: "ticket:9", urgency: 80, impact: 70, confidence: "alta" }),
-      priority({ id: "fattura:7", canonicalKey: "fattura:7", urgency: 60, impact: 95, confidence: "alta" }),
+      priority({
+        id: "ticket:9",
+        canonicalKey: "ticket:9",
+        urgency: 80,
+        impact: 70,
+        confidence: "alta",
+      }),
+      priority({
+        id: "fattura:7",
+        canonicalKey: "fattura:7",
+        urgency: 60,
+        impact: 95,
+        confidence: "alta",
+      }),
     ]);
 
     expect(ranked.map(item => item.id)).toEqual(["ticket:9", "fattura:7"]);
@@ -61,6 +73,14 @@ describe("Tars command center", () => {
           commessaId: null,
           clienteId: null,
           chiaveAzione: "domanda:assegnatario:44",
+          evidenceRefs: [
+            {
+              sourceType: "comunicazione",
+              sourceId: "44",
+              label: "Richiesta preventivo Rossi",
+              version: "2026-08-22T09:25:00.000Z",
+            },
+          ],
           createdAt: new Date("2026-08-22T09:30:00Z"),
         },
       ],
@@ -74,6 +94,9 @@ describe("Tars command center", () => {
           tokensCacheRead: 800,
           tokensIn: 200,
           comunicazioneId: 44,
+          contextCacheHit: true,
+          factsRead: 8,
+          factsRevalidated: 2,
         },
       ],
     });
@@ -82,13 +105,23 @@ describe("Tars command center", () => {
     expect(snapshot.brief.title).toBe("1 decisione richiede attenzione");
     expect(snapshot.priorities[0]).toMatchObject({
       proposalId: 12,
-      evidence: [{ type: "email", id: "44" }],
+      evidence: [
+        {
+          type: "email",
+          id: "44",
+          label: "Richiesta preventivo Rossi",
+        },
+      ],
     });
     expect(snapshot.metrics).toMatchObject({
       pending: 1,
       duplicateAvoided: 2,
       toolCacheHits: 3,
       cacheReadPercent: 80,
+      contextCacheHits: 1,
+      factsRead: 8,
+      factsRevalidated: 2,
+      evidenceCoveragePercent: 100,
     });
   });
 });
