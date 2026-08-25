@@ -3,6 +3,11 @@ import type { BusinessEvent } from "../events/types";
 import { getUtentiStore } from "../routers/utenti";
 import { getNotificationRepository, type NotificationRepository } from "./repository";
 import type { NotificationDraft } from "./types";
+import {
+  notificationHub,
+  publishNotificationSignal,
+  type NotificationHub,
+} from "./sse";
 
 const ASSIGNMENT_EVENT_TYPES = [
   "cliente.assigned",
@@ -60,9 +65,11 @@ export function createNotificationProjectorConsumer(options: {
   repository?: NotificationRepository;
   getUsers?: () => Array<{ id: number; attivo: boolean; sediIds?: number[] }>;
   onDiagnostic?: (code: string, event: BusinessEvent, userId: number) => void;
+  hub?: NotificationHub;
 } = {}): BusinessEventConsumer {
   const repository = options.repository ?? getNotificationRepository();
   const getUsers = options.getUsers ?? getUtentiStore;
+  const hub = options.hub ?? notificationHub;
   const diagnostic =
     options.onDiagnostic ??
     ((code, event, userId) => {
@@ -93,7 +100,16 @@ export function createNotificationProjectorConsumer(options: {
           diagnostic("recipient_invalid", event, draft.recipientUserId);
           continue;
         }
-        await repository.upsert(draft);
+        const result = await repository.upsert(draft);
+        if (result.created) {
+          const signal = {
+            notificationId: result.id,
+            recipientUserId: draft.recipientUserId,
+            sedeId: draft.sedeId,
+          };
+          if (options.hub) hub.publish(signal);
+          else await publishNotificationSignal(signal);
+        }
       }
     },
   };

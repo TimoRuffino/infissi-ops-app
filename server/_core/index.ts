@@ -46,6 +46,8 @@ async function startServer() {
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();
+  const { startNotificationPgBridge } = await import("../notifications/sse");
+  await startNotificationPgBridge();
   const { startEventWorkers } = await import("../events/worker");
   startEventWorkers();
 
@@ -181,6 +183,8 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  const { createNotificationSseHandler } = await import("../notifications/sse");
+  app.get("/api/events/notifications", createNotificationSseHandler());
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 

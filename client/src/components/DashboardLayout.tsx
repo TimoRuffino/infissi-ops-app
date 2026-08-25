@@ -63,6 +63,7 @@ import SedeSwitcher from "./SedeSwitcher";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { isPathActive, navigationItemState } from "@/lib/navigation";
 import { AnimatePresence } from "framer-motion";
+import { useNotificationStream } from "@/hooks/useNotificationStream";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
 // for users without the `direzione` role. Garanzie, Produzione e Fornitori
@@ -208,6 +209,7 @@ function DashboardLayoutContent({
   const tutteLeVoci = menuItems.flatMap((i) => (i.children ? i.children : [i]));
   const activeMenuItem = tutteLeVoci.find(item => isPathActive(location, item.path));
   const isMobile = useIsMobile();
+  useNotificationStream();
 
   useEffect(() => {
     if (isCollapsed) {

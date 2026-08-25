@@ -126,4 +126,21 @@ describe("notification repository", () => {
     expect((await repo.getPreferences({ sedeId: 1, recipientUserId: 8 })).pushEnabled).toBe(false);
     expect((await repo.getPreferences({ sedeId: 2, recipientUserId: 7 })).pushEnabled).toBe(false);
   });
+
+  it("recupera dopo un cursore solo notifiche dello stesso utente e sede", async () => {
+    const repo = createMemoryNotificationRepository();
+    const first = await repo.upsert(draft({ canonicalKey: "replay:1" }));
+    const second = await repo.upsert(draft({ canonicalKey: "replay:2" }));
+    await repo.upsert(draft({ canonicalKey: "replay:other", recipientUserId: 8 }));
+
+    expect(
+      (await repo.listAfterId({
+        sedeId: 1,
+        recipientUserId: 7,
+        afterId: first.id,
+        limit: 10,
+        now,
+      })).map(item => item.id)
+    ).toEqual([second.id]);
+  });
 });

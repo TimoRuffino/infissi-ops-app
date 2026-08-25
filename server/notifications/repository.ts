@@ -24,6 +24,7 @@ export type NotificationRepository = {
     limit: number;
     now: Date;
   }): Promise<{ items: Notification[]; nextCursor: NotificationCursor | null }>;
+  listAfterId(input: Scope & { afterId: number; limit: number; now: Date }): Promise<Notification[]>;
   markSeen(input: MutationInput): Promise<number>;
   markRead(input: MutationInput): Promise<number>;
   resolve(input: MutationInput): Promise<number>;
@@ -130,6 +131,16 @@ export function createMemoryNotificationRepository(): NotificationRepository {
         items: page,
         nextCursor: last ? { createdAt: new Date(last.createdAt), id: last.id } : null,
       };
+    },
+
+    async listAfterId(input) {
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
+      return notifications
+        .filter(item => scoped(input, item))
+        .filter(item => item.id > input.afterId && !isExpired(item, input.now))
+        .sort((a, b) => a.id - b.id)
+        .slice(0, limit)
+        .map(cloneNotification);
     },
 
     async markSeen(input) {
@@ -399,6 +410,17 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
       const items = rows.slice(0, limit).map(rowToNotification);
       const last = hasMore ? items.at(-1) : null;
       return { items, nextCursor: last ? { createdAt: last.createdAt, id: last.id } : null };
+    },
+    async listAfterId(input) {
+      await ensureSchema();
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
+      const rows = await sql`
+        SELECT * FROM notifications
+        WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId}
+          AND id > ${input.afterId} AND (expires_at IS NULL OR expires_at > ${input.now})
+        ORDER BY id ASC LIMIT ${limit}
+      `;
+      return rows.map(rowToNotification);
     },
     markSeen(input) {
       return updateStatus(input, "seen");
