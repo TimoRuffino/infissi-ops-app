@@ -1,0 +1,384 @@
+import { kvSql } from "../_core/persistence";
+import type {
+  Notification,
+  NotificationDelivery,
+  NotificationDeliveryDraft,
+  NotificationDraft,
+  NotificationStatus,
+} from "./types";
+
+type Scope = { sedeId: number; recipientUserId: number };
+type MutationInput = Scope & { ids: number[]; now: Date };
+type NotificationCursor = { createdAt: Date; id: number };
+
+export type NotificationRepository = {
+  ensureSchema(): Promise<void>;
+  upsert(draft: NotificationDraft): Promise<{ id: number; created: boolean }>;
+  findById(id: number, recipientUserId: number, sedeId: number): Promise<Notification | null>;
+  list(input: Scope & {
+    statuses?: NotificationStatus[];
+    priorities?: Notification["priority"][];
+    cursor?: NotificationCursor;
+    limit: number;
+    now: Date;
+  }): Promise<{ items: Notification[]; nextCursor: NotificationCursor | null }>;
+  markSeen(input: MutationInput): Promise<number>;
+  markRead(input: MutationInput): Promise<number>;
+  resolve(input: MutationInput): Promise<number>;
+  countUnread(input: Scope & { now: Date }): Promise<number>;
+  recordDelivery(draft: NotificationDeliveryDraft): Promise<{ id: number; created: boolean }>;
+};
+
+function cloneNotification(item: Notification): Notification {
+  return structuredClone(item);
+}
+
+function isExpired(item: Notification, now: Date) {
+  return item.expiresAt != null && item.expiresAt <= now;
+}
+
+export function createMemoryNotificationRepository(): NotificationRepository {
+  const notifications: Notification[] = [];
+  const deliveries: NotificationDelivery[] = [];
+  let nextNotificationId = 1;
+  let nextDeliveryId = 1;
+
+  function scoped(input: Scope, item: Notification) {
+    return item.sedeId === input.sedeId && item.recipientUserId === input.recipientUserId;
+  }
+
+  function transition(input: MutationInput, mutate: (item: Notification) => boolean) {
+    const ids = new Set(input.ids);
+    let changed = 0;
+    for (const item of notifications) {
+      if (!ids.has(item.id) || !scoped(input, item)) continue;
+      if (mutate(item)) {
+        item.updatedAt = new Date(input.now);
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  return {
+    async ensureSchema() {},
+
+    async upsert(draft) {
+      const existing = notifications.find(
+        item =>
+          item.sedeId === draft.sedeId &&
+          item.recipientUserId === draft.recipientUserId &&
+          item.canonicalKey === draft.canonicalKey
+      );
+      if (existing) {
+        Object.assign(existing, structuredClone(draft), { updatedAt: new Date() });
+        return { id: existing.id, created: false };
+      }
+      const item: Notification = {
+        ...structuredClone(draft),
+        id: nextNotificationId++,
+        status: "unread",
+        seenAt: null,
+        readAt: null,
+        actedAt: null,
+        resolvedAt: null,
+        updatedAt: new Date(draft.createdAt),
+      };
+      notifications.push(item);
+      return { id: item.id, created: true };
+    },
+
+    async findById(id, recipientUserId, sedeId) {
+      const item = notifications.find(
+        candidate =>
+          candidate.id === id &&
+          candidate.recipientUserId === recipientUserId &&
+          candidate.sedeId === sedeId
+      );
+      return item ? cloneNotification(item) : null;
+    },
+
+    async list(input) {
+      const explicitStatuses = input.statuses?.length ? new Set(input.statuses) : null;
+      const priorities = input.priorities?.length ? new Set(input.priorities) : null;
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 50);
+      const items = notifications
+        .filter(item => scoped(input, item))
+        .filter(item =>
+          explicitStatuses
+            ? explicitStatuses.has(isExpired(item, input.now) ? "expired" : item.status)
+            : item.status !== "resolved" && item.status !== "expired" && !isExpired(item, input.now)
+        )
+        .filter(item => !priorities || priorities.has(item.priority))
+        .filter(item =>
+          !input.cursor ||
+          item.createdAt < input.cursor.createdAt ||
+          (item.createdAt.getTime() === input.cursor.createdAt.getTime() && item.id < input.cursor.id)
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id)
+        .slice(0, limit + 1);
+      const hasMore = items.length > limit;
+      const page = items.slice(0, limit).map(cloneNotification);
+      const last = hasMore ? page.at(-1) : null;
+      return {
+        items: page,
+        nextCursor: last ? { createdAt: new Date(last.createdAt), id: last.id } : null,
+      };
+    },
+
+    async markSeen(input) {
+      return transition(input, item => {
+        if (item.status !== "unread") return false;
+        item.status = "seen";
+        item.seenAt = new Date(input.now);
+        return true;
+      });
+    },
+
+    async markRead(input) {
+      return transition(input, item => {
+        if (item.status !== "unread" && item.status !== "seen") return false;
+        item.status = "read";
+        item.seenAt ??= new Date(input.now);
+        item.readAt = new Date(input.now);
+        return true;
+      });
+    },
+
+    async resolve(input) {
+      return transition(input, item => {
+        if (item.status === "resolved" || item.status === "expired") return false;
+        item.status = "resolved";
+        item.resolvedAt = new Date(input.now);
+        return true;
+      });
+    },
+
+    async countUnread(input) {
+      return notifications.filter(
+        item => scoped(input, item) && item.status === "unread" && !isExpired(item, input.now)
+      ).length;
+    },
+
+    async recordDelivery(draft) {
+      const existing = deliveries.find(
+        item =>
+          item.notificationId === draft.notificationId &&
+          item.channel === draft.channel &&
+          item.canonicalKey === draft.canonicalKey
+      );
+      if (existing) return { id: existing.id, created: false };
+      const item = { ...structuredClone(draft), id: nextDeliveryId++ };
+      deliveries.push(item);
+      return { id: item.id, created: true };
+    },
+  };
+}
+
+function rowToNotification(row: any): Notification {
+  return {
+    id: Number(row.id),
+    sedeId: Number(row.sede_id),
+    recipientUserId: Number(row.recipient_user_id),
+    canonicalKey: row.canonical_key,
+    type: row.type,
+    priority: row.priority,
+    title: row.title,
+    body: row.body,
+    link: row.link,
+    groupKey: row.group_key ?? null,
+    sourceEventId: row.source_event_id == null ? null : Number(row.source_event_id),
+    entityRefs: Array.isArray(row.entity_refs) ? row.entity_refs : [],
+    status: row.status,
+    seenAt: row.seen_at ? new Date(row.seen_at) : null,
+    readAt: row.read_at ? new Date(row.read_at) : null,
+    actedAt: row.acted_at ? new Date(row.acted_at) : null,
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+  };
+}
+
+export function createPostgresNotificationRepository(sql: NonNullable<typeof kvSql>): NotificationRepository {
+  let schemaPromise: Promise<void> | null = null;
+  const ensureSchema = () => {
+    schemaPromise ??= sql.begin(async tx => {
+      await tx`CREATE TABLE IF NOT EXISTS notifications (
+        id BIGSERIAL PRIMARY KEY,
+        sede_id INTEGER NOT NULL,
+        recipient_user_id INTEGER NOT NULL,
+        canonical_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        priority TEXT NOT NULL CHECK (priority IN ('critical','high','normal','low')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        link TEXT NOT NULL,
+        group_key TEXT,
+        source_event_id BIGINT,
+        entity_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'unread' CHECK (status IN ('unread','seen','read','acted','resolved','expired')),
+        seen_at TIMESTAMPTZ,
+        read_at TIMESTAMPTZ,
+        acted_at TIMESTAMPTZ,
+        resolved_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (sede_id, recipient_user_id, canonical_key)
+      )`;
+      await tx`CREATE INDEX IF NOT EXISTS notifications_feed_idx ON notifications (sede_id, recipient_user_id, status, created_at DESC, id DESC)`;
+      await tx`CREATE INDEX IF NOT EXISTS notifications_group_idx ON notifications (sede_id, recipient_user_id, group_key, created_at DESC)`;
+      await tx`CREATE TABLE IF NOT EXISTS notification_deliveries (
+        id BIGSERIAL PRIMARY KEY,
+        notification_id BIGINT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        channel TEXT NOT NULL CHECK (channel IN ('in_app','push','email')),
+        canonical_key TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued','sent','skipped','failed')),
+        attempted_at TIMESTAMPTZ NOT NULL,
+        error_code TEXT,
+        UNIQUE (notification_id, channel, canonical_key)
+      )`;
+      await tx`CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id BIGSERIAL PRIMARY KEY,
+        sede_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        endpoint_hash TEXT NOT NULL,
+        subscription JSONB NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (sede_id, user_id, endpoint_hash)
+      )`;
+      await tx`CREATE TABLE IF NOT EXISTS notification_preferences (
+        sede_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (sede_id, user_id)
+      )`;
+    }).then(() => undefined);
+    return schemaPromise;
+  };
+
+  async function updateStatus(input: MutationInput, status: NotificationStatus) {
+    if (!input.ids.length) return 0;
+    await ensureSchema();
+    const allowedCurrentStatuses =
+      status === "seen"
+        ? ["unread"]
+        : status === "read"
+          ? ["unread", "seen"]
+          : ["unread", "seen", "read", "acted"];
+    const rows = await sql`
+      UPDATE notifications
+      SET status = ${status},
+          seen_at = CASE WHEN ${status} IN ('seen','read') THEN COALESCE(seen_at, ${input.now}) ELSE seen_at END,
+          read_at = CASE WHEN ${status} = 'read' THEN ${input.now} ELSE read_at END,
+          resolved_at = CASE WHEN ${status} = 'resolved' THEN ${input.now} ELSE resolved_at END,
+          updated_at = ${input.now}
+      WHERE sede_id = ${input.sedeId}
+        AND recipient_user_id = ${input.recipientUserId}
+        AND id IN ${sql(input.ids)}
+        AND status IN ${sql(allowedCurrentStatuses)}
+      RETURNING id
+    `;
+    return rows.length;
+  }
+
+  return {
+    ensureSchema,
+    async upsert(draft) {
+      await ensureSchema();
+      const refs = sql.json(draft.entityRefs as any);
+      const inserted = await sql`
+        INSERT INTO notifications (
+          sede_id, recipient_user_id, canonical_key, type, priority, title, body,
+          link, group_key, source_event_id, entity_refs, created_at, expires_at
+        ) VALUES (
+          ${draft.sedeId}, ${draft.recipientUserId}, ${draft.canonicalKey}, ${draft.type},
+          ${draft.priority}, ${draft.title}, ${draft.body}, ${draft.link}, ${draft.groupKey},
+          ${draft.sourceEventId}, ${refs}, ${draft.createdAt}, ${draft.expiresAt}
+        ) ON CONFLICT (sede_id, recipient_user_id, canonical_key) DO NOTHING
+        RETURNING id
+      `;
+      if (inserted.length) return { id: Number(inserted[0].id), created: true };
+      const updated = await sql`
+        UPDATE notifications SET
+          type = ${draft.type}, priority = ${draft.priority}, title = ${draft.title},
+          body = ${draft.body}, link = ${draft.link}, group_key = ${draft.groupKey},
+          source_event_id = ${draft.sourceEventId}, entity_refs = ${refs},
+          expires_at = ${draft.expiresAt}, updated_at = NOW()
+        WHERE sede_id = ${draft.sedeId} AND recipient_user_id = ${draft.recipientUserId}
+          AND canonical_key = ${draft.canonicalKey}
+        RETURNING id
+      `;
+      return { id: Number(updated[0].id), created: false };
+    },
+    async findById(id, recipientUserId, sedeId) {
+      await ensureSchema();
+      const rows = await sql`SELECT * FROM notifications WHERE id = ${id} AND recipient_user_id = ${recipientUserId} AND sede_id = ${sedeId} LIMIT 1`;
+      return rows.length ? rowToNotification(rows[0]) : null;
+    },
+    async list(input) {
+      await ensureSchema();
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 50);
+      const statuses = input.statuses?.length ? input.statuses : ["unread", "seen", "read", "acted"];
+      const priorities = input.priorities?.length ? input.priorities : ["critical", "high", "normal", "low"];
+      const includeExpired = statuses.includes("expired");
+      const activeStatuses = statuses.filter(status => status !== "expired");
+      if (!activeStatuses.length) activeStatuses.push("expired");
+      const cursorAt = input.cursor?.createdAt ?? new Date("9999-12-31T23:59:59.999Z");
+      const cursorId = input.cursor?.id ?? Number.MAX_SAFE_INTEGER;
+      const rows = await sql`
+        SELECT * FROM notifications
+        WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId}
+          AND priority IN ${sql(priorities)}
+          AND (
+            (${includeExpired} AND expires_at IS NOT NULL AND expires_at <= ${input.now})
+            OR ((expires_at IS NULL OR expires_at > ${input.now}) AND status IN ${sql(activeStatuses)})
+          )
+          AND (created_at < ${cursorAt} OR (created_at = ${cursorAt} AND id < ${cursorId}))
+        ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}
+      `;
+      const hasMore = rows.length > limit;
+      const items = rows.slice(0, limit).map(rowToNotification);
+      const last = hasMore ? items.at(-1) : null;
+      return { items, nextCursor: last ? { createdAt: last.createdAt, id: last.id } : null };
+    },
+    markSeen(input) {
+      return updateStatus(input, "seen");
+    },
+    markRead(input) {
+      return updateStatus(input, "read");
+    },
+    resolve(input) {
+      return updateStatus(input, "resolved");
+    },
+    async countUnread(input) {
+      await ensureSchema();
+      const rows = await sql`SELECT COUNT(*)::int AS count FROM notifications WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId} AND status = 'unread' AND (expires_at IS NULL OR expires_at > ${input.now})`;
+      return Number(rows[0]?.count ?? 0);
+    },
+    async recordDelivery(draft) {
+      await ensureSchema();
+      const inserted = await sql`
+        INSERT INTO notification_deliveries (notification_id, channel, canonical_key, status, attempted_at, error_code)
+        VALUES (${draft.notificationId}, ${draft.channel}, ${draft.canonicalKey}, ${draft.status}, ${draft.attemptedAt}, ${draft.errorCode})
+        ON CONFLICT (notification_id, channel, canonical_key) DO NOTHING RETURNING id
+      `;
+      if (inserted.length) return { id: Number(inserted[0].id), created: true };
+      const rows = await sql`SELECT id FROM notification_deliveries WHERE notification_id = ${draft.notificationId} AND channel = ${draft.channel} AND canonical_key = ${draft.canonicalKey} LIMIT 1`;
+      return { id: Number(rows[0].id), created: false };
+    },
+  };
+}
+
+let repository: NotificationRepository | null = null;
+
+export function getNotificationRepository(): NotificationRepository {
+  repository ??= kvSql
+    ? createPostgresNotificationRepository(kvSql)
+    : createMemoryNotificationRepository();
+  return repository;
+}
