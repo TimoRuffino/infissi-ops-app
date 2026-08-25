@@ -13,6 +13,11 @@
 
 import { persistedStore } from "../_core/persistence";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
+import {
+  TARS_POLICY_VERSION,
+  TARS_PROMPT_VERSION,
+  TARS_TOOL_REGISTRY_VERSION,
+} from "./evals/types";
 
 // ── Proposte ────────────────────────────────────────────────────────────────
 
@@ -422,8 +427,32 @@ export type Esecuzione = {
   errore: string | null;
   utenteId: number | null;
   utenteNome: string | null;
+  promptVersion: string;
+  toolRegistryVersion: string;
+  workflowVersion: string | null;
+  policyVersion: string;
   createdAt: Date;
 };
+
+export function normalizeExecutionMetadata(
+  execution: Record<string, unknown>
+): void {
+  if (execution.promptVersion === undefined) execution.promptVersion = "legacy";
+  if (execution.toolRegistryVersion === undefined) {
+    execution.toolRegistryVersion = "legacy";
+  }
+  if (execution.workflowVersion === undefined) execution.workflowVersion = null;
+  if (execution.policyVersion === undefined) execution.policyVersion = "legacy";
+}
+
+export function currentExecutionVersions(workflowVersion: string | null = null) {
+  return {
+    promptVersion: TARS_PROMPT_VERSION,
+    toolRegistryVersion: TARS_TOOL_REGISTRY_VERSION,
+    workflowVersion,
+    policyVersion: TARS_POLICY_VERSION,
+  };
+}
 
 let nextEsecuzioneId = 1;
 const _esecuzioniStore = persistedStore<Esecuzione>(
@@ -431,6 +460,7 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
   items => {
     nextEsecuzioneId = items.length ? Math.max(...items.map(e => e.id)) + 1 : 1;
     for (const e of items) {
+      normalizeExecutionMetadata(e as unknown as Record<string, unknown>);
       if (e.comunicazioneId === undefined) e.comunicazioneId = null;
       if (e.modello === undefined) e.modello = null;
       if (e.profiloStrumenti === undefined) e.profiloStrumenti = "completo";

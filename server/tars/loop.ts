@@ -26,6 +26,7 @@ import {
   saveEsecuzioni,
   newEsecuzioneId,
   getTarsConfig,
+  currentExecutionVersions,
   type Esecuzione,
 } from "./stores";
 
@@ -107,6 +108,7 @@ export async function runTars(params: {
     errore: null,
     utenteId: (params.ctx.user as any)?.id ?? null,
     utenteNome: (params.ctx.user as any)?.name ?? null,
+    ...currentExecutionVersions(),
     createdAt: new Date(),
   };
 
