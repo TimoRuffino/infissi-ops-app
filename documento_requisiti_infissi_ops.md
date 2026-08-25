@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.24 - Tars operativo: allegati email, obiettivi chat ed esperimenti misurabili.
+**Versione:** 4.25 - Esperimenti Tars correggibili con feedback umano tracciato.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -1311,6 +1311,17 @@ Azioni. Alla scadenza un worker rilegge gli indicatori senza chiamare OpenAI,
 classifica l'esito come `migliorato`, `invariato` o `peggiorato` e risolve il
 presidio conservando baseline, target e valore misurato nel registro eventi.
 
+Finché la proposta è pendente, l'operatore può correggere direttamente nella
+card azione, target, responsabile e data di verifica, indicando obbligatoriamente
+cosa Tars ha valutato male. Metrica e baseline non sono modificabili. La mutation
+server rivalida baseline corrente, direzione migliorativa del target, utente
+attivo della sede e scadenza tra 7 e 90 giorni; conserva prima/dopo, autore, data
+e feedback in `azioni_suggerite`. L'approvazione successiva usa esclusivamente i
+valori corretti e assegna il caso al nuovo responsabile. Le correzioni recenti
+sono mostrate a Tars nel blocco decisionale dinamico, escluso dallo smistamento e
+dal prefisso cache stabile, senza trasformarle automaticamente in regole
+aziendali.
+
 ### 50.7 Store e budget
 Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config`, `tars_chat`, `tars_process_snapshots` e `tars_process_experiments`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
 
@@ -1600,7 +1611,11 @@ prima della chiusura di entrambi i requisiti.
 ### 53.4 Apprendimento e autonomia
 Approvazioni, modifiche, rifiuti, undo, verifiche e incidenti generano esiti
 strutturati per capability e versione. Il testo libero non viene promosso a
-regola o reiniettato nel prompt. Non esiste una media generale abilitante.
+regola aziendale. Fa eccezione il feedback esplicito con cui un operatore
+corregge una proposta di esperimento: entra, con limite e audit, nel solo blocco
+dinamico delle decisioni recenti per evitare che Tars ripeta lo stesso errore;
+non modifica prompt di sistema, conoscenza aziendale o gate di autonomia. Non
+esiste una media generale abilitante.
 
 Autonomia e negata per default e la whitelist iniziale e vuota. La singola
 capability richiede almeno sei settimane, cento esiti, accuratezza >=98%, zero

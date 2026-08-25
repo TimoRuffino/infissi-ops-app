@@ -62,6 +62,8 @@ import {
 } from "../tars/learning/outcomes";
 import { evaluateAutonomyGate } from "../tars/autonomy/policy";
 import { collectProposalTree } from "../tars/proposalTree";
+import { getUtentiStore } from "./utenti";
+import { processExperimentRepository } from "../tars/processExperiments";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -160,12 +162,19 @@ function canViewProposal(p: any, user: any): boolean {
 function trovaPropostaVisibile(id: number, ctx: any) {
   const proposal = trovaProposta(id, ctx.sedeId);
   if (!canViewProposal(proposal, ctx.user)) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Proposta non trovata." });
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Proposta non trovata.",
+    });
   }
   return proposal;
 }
 
 const proposalApprovalsInFlight = new Map<string, Promise<any>>();
+
+function proposalDecisionKey(sedeId: number | null, proposalId: number) {
+  return `${sedeId ?? 1}:${proposalId}`;
+}
 
 async function approveProposalOnce(id: number, ctx: any) {
   const p = trovaPropostaVisibile(id, ctx);
@@ -212,7 +221,7 @@ async function approveProposalOnce(id: number, ctx: any) {
 
 async function approveProposalSerialized(id: number, ctx: any) {
   trovaPropostaVisibile(id, ctx);
-  const key = `${ctx.sedeId ?? 1}:${id}`;
+  const key = proposalDecisionKey(ctx.sedeId, id);
   const running = proposalApprovalsInFlight.get(key);
   if (running) return running;
   const execution = approveProposalOnce(id, ctx);
@@ -462,7 +471,9 @@ Non scrivere direttamente nel CRM: prepara soltanto proposte approvabili.`;
     get: protectedProcedure.query(({ ctx }) => {
       const user: any = ctx.user;
       const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
-      return rec.messaggi.map(message => idrataMessaggio(message, ctx.sedeId ?? 1));
+      return rec.messaggi.map(message =>
+        idrataMessaggio(message, ctx.sedeId ?? 1)
+      );
     }),
 
     invia: protectedProcedure
@@ -699,6 +710,151 @@ ${input.testo.trim()}`;
     approva: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input, ctx }) => approveProposalSerialized(input.id, ctx)),
+
+    correggiEsperimento: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          feedback: z.string().trim().min(10).max(500),
+          azione: z.string().trim().min(8).max(500),
+          targetValue: z.number().finite(),
+          responsibleId: z.number().int().positive(),
+          reviewDate: z.iso.date(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        const p = trovaPropostaVisibile(input.id, ctx);
+        if (
+          proposalApprovalsInFlight.has(
+            proposalDecisionKey(ctx.sedeId, input.id)
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Approvazione in corso: attendi il completamento prima di correggere la proposta.",
+          });
+        }
+        if (p.tipo !== "miglioramento_processo") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Si possono correggere solo gli esperimenti di processo.",
+          });
+        }
+        if (p.stato !== "pendente") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Proposta già decisa (${p.stato}).`,
+          });
+        }
+        const sedeId = ctx.sedeId ?? 1;
+        const snapshot = processExperimentRepository.latestSnapshot(sedeId);
+        const metric = snapshot?.metrics.find(
+          item => item.key === p.payload?.metricKey
+        );
+        if (
+          !metric ||
+          metric.value !== Number(p.payload?.baselineValue) ||
+          metric.denominator !== Number(p.payload?.baselineDenominator)
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "La baseline è cambiata. Chiedi a Tars una nuova analisi prima di correggere l'esperimento.",
+          });
+        }
+        if (input.targetValue < 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Obiettivo non valido: il valore non può essere negativo.",
+          });
+        }
+        if (metric.unit === "count" && !Number.isInteger(input.targetValue)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Per questa metrica l'obiettivo deve essere un numero intero.",
+          });
+        }
+        const targetImproves =
+          metric.desiredDirection === "lower"
+            ? input.targetValue < metric.value
+            : input.targetValue > metric.value;
+        if (!targetImproves) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Obiettivo non migliorativo: deve ${metric.desiredDirection === "lower" ? "scendere" : "salire"} rispetto a ${metric.value}.`,
+          });
+        }
+        const dueAt = new Date(`${input.reviewDate}T12:00:00.000Z`);
+        const todayAtNoon = new Date(
+          `${new Date().toISOString().slice(0, 10)}T12:00:00.000Z`
+        );
+        const days = (dueAt.getTime() - todayAtNoon.getTime()) / 86_400_000;
+        if (!Number.isFinite(dueAt.getTime()) || days < 7 || days > 90) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "La data di verifica deve essere compresa tra 7 e 90 giorni.",
+          });
+        }
+        const responsible = getUtentiStore().find(
+          user =>
+            Number(user.id) === input.responsibleId &&
+            (user.attivo ?? true) &&
+            (!Array.isArray(user.sediIds) || user.sediIds.includes(sedeId))
+        );
+        const currentUser: any = ctx.user;
+        const currentUserFallback =
+          Number(currentUser?.id) === input.responsibleId
+            ? {
+                id: input.responsibleId,
+                nome: String(
+                  currentUser?.name ?? currentUser?.email ?? "Operatore"
+                ),
+                cognome: "",
+              }
+            : null;
+        const assignee = responsible ?? currentUserFallback;
+        if (!assignee) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Il responsabile non è attivo o non appartiene a questa sede.",
+          });
+        }
+        const responsibleName =
+          `${assignee.nome ?? ""} ${assignee.cognome ?? ""}`.trim() ||
+          `Utente ${input.responsibleId}`;
+        const before = {
+          azione: String(p.payload.azione),
+          targetValue: Number(p.payload.targetValue),
+          responsibleId: Number(p.payload.responsibleId),
+          responsibleName: String(p.payload.responsibleName),
+          reviewDate: String(p.payload.reviewDate),
+        };
+        const after = {
+          azione: input.azione,
+          targetValue: input.targetValue,
+          responsibleId: input.responsibleId,
+          responsibleName,
+          reviewDate: input.reviewDate,
+        };
+        p.payload = { ...p.payload, ...after };
+        p.correzioni = [
+          ...(p.correzioni ?? []),
+          {
+            at: new Date(),
+            userId: Number(currentUser?.id ?? 0),
+            userName: currentUser?.name ?? null,
+            feedback: input.feedback,
+            before,
+            after,
+          },
+        ];
+        saveProposte();
+        recordProposalOutcomes(p, "modified", input.feedback);
+        return idrataProposta(p);
+      }),
 
     rifiuta: protectedProcedure
       .input(

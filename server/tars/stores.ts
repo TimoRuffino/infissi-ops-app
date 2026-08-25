@@ -63,6 +63,27 @@ export type StatoProposta =
   | "errore" // approvata ma la mutation è fallita (es. doc gate)
   | "risposta"; // solo tipo "domanda": l'operatore ha risposto
 
+export type CorrezioneEsperimento = {
+  at: Date;
+  userId: number;
+  userName: string | null;
+  feedback: string;
+  before: {
+    azione: string;
+    targetValue: number;
+    responsibleId: number;
+    responsibleName: string;
+    reviewDate: string;
+  };
+  after: {
+    azione: string;
+    targetValue: number;
+    responsibleId: number;
+    responsibleName: string;
+    reviewDate: string;
+  };
+};
+
 export type Proposta = {
   id: number;
   sedeId: number;
@@ -102,6 +123,9 @@ export type Proposta = {
   // Fonti strutturate lette durante il run. Titolo e motivazione restano
   // testo umano; queste refs permettono di riaprire la prova originale.
   evidenceRefs: EvidenceRef[];
+  // Correzioni umane alle proposte di miglioramento. Restano separate dal
+  // payload eseguibile: sono audit e feedback esplicito per i run successivi.
+  correzioni: CorrezioneEsperimento[];
 };
 
 let nextPropostaId = 1;
@@ -113,6 +137,12 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
     if (p.origineId === undefined) p.origineId = null;
     if (!p.chiaveAzione) p.chiaveAzione = chiaveAzioneProposta(p);
     if (p.evidenceRefs === undefined) p.evidenceRefs = [];
+    if (p.correzioni === undefined) p.correzioni = [];
+    for (const correzione of p.correzioni) {
+      if (!(correzione.at instanceof Date)) {
+        correzione.at = new Date(correzione.at);
+      }
+    }
   }
 });
 export const proposte = _proposteStore.items;

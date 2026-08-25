@@ -315,6 +315,7 @@ function creaPropostaDiretta(args: {
         version: String(args.payload?.data ?? new Date().toISOString()),
       },
     ],
+    correzioni: [],
   };
   proposte.push(p);
   return p;

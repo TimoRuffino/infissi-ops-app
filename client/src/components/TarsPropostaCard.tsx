@@ -6,6 +6,15 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { statoLabel } from "@/lib/stato";
 import {
@@ -17,7 +26,9 @@ import {
   Link2,
   Loader2,
   MessageCircleQuestion,
+  PencilLine,
   Reply,
+  Save,
   X,
   XCircle,
 } from "lucide-react";
@@ -108,7 +119,9 @@ function describePayload(p: any): string[] {
     case "archivia_allegato":
       out.push(`File: ${pay.attachmentName ?? "Allegato"}`);
       out.push(`Archivia come: ${pay.nomeSuggerito ?? pay.attachmentName}`);
-      out.push(`Tipo: ${String(pay.tipoDocumento ?? "altro").replace(/_/g, " ")}`);
+      out.push(
+        `Tipo: ${String(pay.tipoDocumento ?? "altro").replace(/_/g, " ")}`
+      );
       out.push(
         `Commessa: ${pay.commessaCodice ?? `#${pay.commessaId ?? p.commessaId}`}`
       );
@@ -183,6 +196,17 @@ export default function TarsPropostaCard({
   const utils = trpc.useUtils();
   const [rifiutoAperto, setRifiutoAperto] = useState(false);
   const [rispostaLibera, setRispostaLibera] = useState("");
+  const [correzioneAperta, setCorrezioneAperta] = useState(false);
+  const [feedbackCorrezione, setFeedbackCorrezione] = useState("");
+  const [azioneCorretta, setAzioneCorretta] = useState("");
+  const [targetCorretto, setTargetCorretto] = useState("");
+  const [responsabileCorretto, setResponsabileCorretto] = useState("");
+  const [dataCorretta, setDataCorretta] = useState("");
+  const pendente = proposta.stato === "pendente";
+  const processo = proposta.tipo === "miglioramento_processo";
+  const utenti = trpc.utenti.list.useQuery(undefined, {
+    enabled: processo && pendente,
+  });
 
   const invalidate = () => {
     utils.tars.proposte.invalidate();
@@ -235,11 +259,60 @@ export default function TarsPropostaCard({
     },
     onError: e => toast.error(e.message),
   });
+  const correggiEsperimento =
+    trpc.tars.proposte.correggiEsperimento.useMutation({
+      onSuccess: () => {
+        toast.success("Esperimento corretto. Tars terrà conto del feedback.");
+        setCorrezioneAperta(false);
+        setFeedbackCorrezione("");
+        invalidate();
+      },
+      onError: e => toast.error(e.message),
+    });
 
-  const pendente = proposta.stato === "pendente";
   const righe = describePayload(proposta);
-  const busy = approva.isPending || rifiuta.isPending || rispondi.isPending;
-  const processo = proposta.tipo === "miglioramento_processo";
+  const busy =
+    approva.isPending ||
+    rifiuta.isPending ||
+    rispondi.isPending ||
+    correggiEsperimento.isPending;
+  const utentiAssegnabili = (utenti.data ?? []).filter(
+    (utente: any) => utente.attivo ?? true
+  );
+  const oggi = new Date();
+  const minData = new Date(oggi.getTime() + 7 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const maxData = new Date(oggi.getTime() + 90 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+  const apriCorrezione = () => {
+    setAzioneCorretta(String(proposta.payload.azione ?? ""));
+    setTargetCorretto(String(proposta.payload.targetValue ?? ""));
+    setResponsabileCorretto(String(proposta.payload.responsibleId ?? ""));
+    setDataCorretta(String(proposta.payload.reviewDate ?? ""));
+    setFeedbackCorrezione("");
+    setRifiutoAperto(false);
+    setCorrezioneAperta(true);
+  };
+
+  const salvaCorrezione = () => {
+    const targetValue = Number(targetCorretto);
+    const responsibleId = Number(responsabileCorretto);
+    if (!Number.isFinite(targetValue) || !Number.isSafeInteger(responsibleId)) {
+      toast.error("Controlla obiettivo e responsabile.");
+      return;
+    }
+    correggiEsperimento.mutate({
+      id: proposta.id,
+      feedback: feedbackCorrezione.trim(),
+      azione: azioneCorretta.trim(),
+      targetValue,
+      responsibleId,
+      reviewDate: dataCorretta,
+    });
+  };
 
   return (
     <div
@@ -293,40 +366,186 @@ export default function TarsPropostaCard({
       {processo && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border/70 py-3 text-sm sm:grid-cols-4">
           <div className="min-w-0">
-            <span className="block text-xs text-muted-foreground">Baseline</span>
+            <span className="block text-xs text-muted-foreground">
+              Baseline
+            </span>
             <strong className="block truncate text-base font-semibold">
-              {proposta.payload.baselineValue} su {proposta.payload.baselineDenominator}
+              {proposta.payload.baselineValue} su{" "}
+              {proposta.payload.baselineDenominator}
             </strong>
           </div>
           <div className="min-w-0">
-            <span className="block text-xs text-muted-foreground">Obiettivo</span>
+            <span className="block text-xs text-muted-foreground">
+              Obiettivo
+            </span>
             <strong className="block truncate text-base font-semibold text-primary">
               {proposta.payload.targetValue}
             </strong>
           </div>
           <div className="min-w-0">
-            <span className="block text-xs text-muted-foreground">Responsabile</span>
+            <span className="block text-xs text-muted-foreground">
+              Responsabile
+            </span>
             <strong className="block truncate font-medium">
               {proposta.payload.responsibleName}
             </strong>
           </div>
           <div className="min-w-0">
-            <span className="block text-xs text-muted-foreground">Verifica</span>
+            <span className="block text-xs text-muted-foreground">
+              Verifica
+            </span>
             <strong className="block truncate font-medium">
               {proposta.payload.reviewDate
                 ? new Intl.DateTimeFormat("it-IT", {
                     day: "2-digit",
                     month: "short",
                     year: "numeric",
-                  }).format(
-                    new Date(`${proposta.payload.reviewDate}T12:00:00`)
-                  )
+                  }).format(new Date(`${proposta.payload.reviewDate}T12:00:00`))
                 : "—"}
             </strong>
           </div>
           <div className="col-span-2 min-w-0 sm:col-span-4">
-            <span className="block text-xs text-muted-foreground">Azione da provare</span>
-            <strong className="block font-medium">{proposta.payload.azione}</strong>
+            <span className="block text-xs text-muted-foreground">
+              Azione da provare
+            </span>
+            <strong className="block font-medium">
+              {proposta.payload.azione}
+            </strong>
+          </div>
+        </div>
+      )}
+
+      {processo && (proposta.correzioni?.length ?? 0) > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-success/25 bg-success-soft px-3 py-2 text-xs text-success">
+          <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
+          <span>
+            Corretto con feedback umano
+            {proposta.correzioni.at(-1)?.userName
+              ? ` da ${proposta.correzioni.at(-1).userName}`
+              : ""}
+          </span>
+        </div>
+      )}
+
+      {processo && pendente && correzioneAperta && (
+        <div className="space-y-4 border-t border-border/70 pt-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <PencilLine className="h-4 w-4 text-primary" />
+              Correggi l’esperimento
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              La metrica e la baseline restano quelle verificate sui dati del
+              CRM.
+            </p>
+          </div>
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor={`tars-owner-${proposta.id}`}>Responsabile</Label>
+              <Select
+                value={responsabileCorretto}
+                onValueChange={setResponsabileCorretto}
+              >
+                <SelectTrigger
+                  id={`tars-owner-${proposta.id}`}
+                  className="w-full"
+                >
+                  <SelectValue placeholder="Seleziona un utente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {utentiAssegnabili.map((utente: any) => (
+                    <SelectItem key={utente.id} value={String(utente.id)}>
+                      {`${utente.nome ?? ""} ${utente.cognome ?? ""}`.trim() ||
+                        utente.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor={`tars-target-${proposta.id}`}>Obiettivo</Label>
+                <Input
+                  id={`tars-target-${proposta.id}`}
+                  type="number"
+                  min={0}
+                  step={proposta.payload.unit === "count" ? 1 : 0.1}
+                  value={targetCorretto}
+                  onChange={event => setTargetCorretto(event.target.value)}
+                />
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor={`tars-date-${proposta.id}`}>Verifica</Label>
+                <Input
+                  id={`tars-date-${proposta.id}`}
+                  type="date"
+                  min={minData}
+                  max={maxData}
+                  value={dataCorretta}
+                  onChange={event => setDataCorretta(event.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`tars-action-${proposta.id}`}>
+              Azione da provare
+            </Label>
+            <Textarea
+              id={`tars-action-${proposta.id}`}
+              rows={2}
+              value={azioneCorretta}
+              onChange={event => setAzioneCorretta(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`tars-feedback-${proposta.id}`}>
+              Cosa ha sbagliato Tars?
+            </Label>
+            <Textarea
+              id={`tars-feedback-${proposta.id}`}
+              aria-describedby={`tars-feedback-help-${proposta.id}`}
+              rows={2}
+              maxLength={500}
+              placeholder="Es. Questo controllo va assegnato a Stefano, che segue già questa fase."
+              value={feedbackCorrezione}
+              onChange={event => setFeedbackCorrezione(event.target.value)}
+            />
+            <p
+              id={`tars-feedback-help-${proposta.id}`}
+              className="flex justify-between gap-3 text-xs text-muted-foreground"
+            >
+              <span>Spiega il motivo in almeno 10 caratteri.</span>
+              <span>{feedbackCorrezione.length}/500</span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={
+                busy ||
+                feedbackCorrezione.trim().length < 10 ||
+                azioneCorretta.trim().length < 8 ||
+                !responsabileCorretto ||
+                !dataCorretta
+              }
+              onClick={salvaCorrezione}
+            >
+              {correggiEsperimento.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Salva correzione
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setCorrezioneAperta(false)}
+            >
+              Annulla
+            </Button>
           </div>
         </div>
       )}
@@ -442,31 +661,45 @@ export default function TarsPropostaCard({
         </div>
       )}
 
-      {pendente && proposta.tipo !== "domanda" && !rifiutoAperto && (
-        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => approva.mutate({ id: proposta.id })}
-          >
-            {approva.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <Check className="h-3.5 w-3.5 mr-1" />
+      {pendente &&
+        proposta.tipo !== "domanda" &&
+        !rifiutoAperto &&
+        !correzioneAperta && (
+          <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => approva.mutate({ id: proposta.id })}
+            >
+              {approva.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5 mr-1" />
+              )}
+              Approva
+            </Button>
+            {processo && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={apriCorrezione}
+              >
+                <PencilLine className="h-3.5 w-3.5 mr-1" />
+                Correggi
+              </Button>
             )}
-            Approva
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => setRifiutoAperto(true)}
-          >
-            <X className="h-3.5 w-3.5 mr-1" />
-            Rifiuta
-          </Button>
-        </div>
-      )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setRifiutoAperto(true)}
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Rifiuta
+            </Button>
+          </div>
+        )}
 
       {pendente && rifiutoAperto && (
         <div className="flex flex-wrap gap-1.5 items-center">

@@ -71,7 +71,11 @@ function normalizeReason(
   const value = reason?.toLowerCase() ?? "";
   if (/duplic|esiste gi|gia present/.test(value)) return "duplicate";
   if (/dato|informazion.*sbagliat/.test(value)) return "wrong_data";
-  if (/commessa|cliente.*sbagliat|destinazion/.test(value))
+  if (
+    /commessa|cliente.*sbagliat|destinazion|assegnat|responsabil|utente/.test(
+      value
+    )
+  )
     return "wrong_target";
   if (/non necess|inutile/.test(value)) return "not_needed";
   if (/faccio io|manual/.test(value)) return "manual_preference";

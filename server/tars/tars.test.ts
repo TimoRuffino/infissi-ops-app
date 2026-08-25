@@ -19,6 +19,7 @@ import {
   costoEsecuzioneUsd,
   applicaMigrazioneConfigTars,
   normalizeExecutionMetadata,
+  tarsOutcomes,
 } from "./stores";
 import {
   eseguiStrumento,
@@ -1496,12 +1497,14 @@ describe("tars — profili e cache operativa", () => {
       destinatari: ["ufficio@example.test"],
       oggetto: "Misure Picchia",
       testo: "In allegato le misure esecutive.",
-      allegati: [{
-        nome: "Misure Picchia.pdf",
-        mimeType: "application/pdf",
-        size: bytes.length,
-        storageKey: stored.storageKey,
-      }],
+      allegati: [
+        {
+          nome: "Misure Picchia.pdf",
+          mimeType: "application/pdf",
+          size: bytes.length,
+          storageKey: stored.storageKey,
+        },
+      ],
       clienteId: cliente.id,
       commessaId: null,
       matchConfidenza: "media",
@@ -1518,32 +1521,32 @@ describe("tars — profili e cache operativa", () => {
       maxProposte: 3,
       proposteIds: [],
       terminato: null,
-      evidenceRefs: [{
-        type: "email",
-        id: String(comunicazione!.id),
-        label: "Misure Picchia",
-      }],
+      evidenceRefs: [
+        {
+          type: "email",
+          id: String(comunicazione!.id),
+          label: "Misure Picchia",
+        },
+      ],
     };
 
     try {
-      const result = await eseguiStrumento(
-        rt,
-        "proponi_archivia_allegato",
-        {
-          comunicazioneId: comunicazione!.id,
-          allegatoIndex: 0,
-          commessaId: commessa.id,
-          tipoDocumento: "misure",
-          nomeSuggerito: "Misure esecutive Picchia Marco.pdf",
-          evidenze: ["Nome file", "Mittente collegato al cliente"],
-          titolo: "Archivia le misure di Picchia",
-          motivazione: "La mail contiene le misure esecutive della commessa.",
-          confidenza: "alta",
-        }
-      );
+      const result = await eseguiStrumento(rt, "proponi_archivia_allegato", {
+        comunicazioneId: comunicazione!.id,
+        allegatoIndex: 0,
+        commessaId: commessa.id,
+        tipoDocumento: "misure",
+        nomeSuggerito: "Misure esecutive Picchia Marco.pdf",
+        evidenze: ["Nome file", "Mittente collegato al cliente"],
+        titolo: "Archivia le misure di Picchia",
+        motivazione: "La mail contiene le misure esecutive della commessa.",
+        confidenza: "alta",
+      });
 
       expect(result.isError).toBeFalsy();
-      expect(proposte.find(item => item.id === rt.proposteIds[0])).toMatchObject({
+      expect(
+        proposte.find(item => item.id === rt.proposteIds[0])
+      ).toMatchObject({
         tipo: "archivia_allegato",
         commessaId: commessa.id,
         clienteId: cliente.id,
@@ -1622,12 +1625,14 @@ describe("tars — profili e cache operativa", () => {
       maxProposte: 3,
       proposteIds: [],
       terminato: null,
-      evidenceRefs: [{
-        sourceType: "commessa",
-        sourceId: String(commessa.id),
-        label: commessa.codice,
-        version: "test-ready",
-      }],
+      evidenceRefs: [
+        {
+          sourceType: "commessa",
+          sourceId: String(commessa.id),
+          label: commessa.codice,
+          version: "test-ready",
+        },
+      ],
     };
 
     try {
@@ -1639,18 +1644,14 @@ describe("tars — profili e cache operativa", () => {
       expect(JSON.parse(readinessTool.content).ready).toBe(true);
       const fingerprint = JSON.parse(readinessTool.content).fingerprint;
 
-      const proposed = await eseguiStrumento(
-        rt,
-        "proponi_chiusura_commessa",
-        {
-          commessaId: commessa.id,
-          readinessFingerprint: fingerprint,
-          titolo: `Chiudi ${commessa.codice} - Chiusura Verificata`,
-          motivazione:
-            "Saldo, fascicolo documentale e pratiche operative risultano completi.",
-          confidenza: "alta",
-        }
-      );
+      const proposed = await eseguiStrumento(rt, "proponi_chiusura_commessa", {
+        commessaId: commessa.id,
+        readinessFingerprint: fingerprint,
+        titolo: `Chiudi ${commessa.codice} - Chiusura Verificata`,
+        motivazione:
+          "Saldo, fascicolo documentale e pratiche operative risultano completi.",
+        confidenza: "alta",
+      });
       expect(proposed.isError).toBeFalsy();
       const proposalId = rt.proposteIds[0];
       expect(proposte.find(item => item.id === proposalId)).toMatchObject({
@@ -1826,6 +1827,261 @@ describe("tars — profili e cache operativa", () => {
     });
   });
 
+  it("corregge un esperimento, insegna l'errore a Tars e approva i valori modificati", async () => {
+    const sedeId = 999_163;
+    seedProcessSnapshot(sedeId);
+    const ctx = makeCtx();
+    ctx.sedeId = sedeId;
+    ctx.sediIds = [sedeId];
+    const caller = appRouter.createCaller(ctx);
+    const responsabile = await caller.utenti.create({
+      nome: "Stefano",
+      cognome: "Esperimenti",
+      email: "stefano.esperimenti.999163@ruffinogroup.test",
+      ruoli: ["commerciale"],
+      sediIds: [sedeId],
+      password: "Test-password-999163!",
+    });
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_163,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    const proposed = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      {
+        area: "organizzazione",
+        problema: "Dodici commesse ferme oltre dieci giorni",
+        azione: "Farle controllare ogni mattina alla direzione",
+        impatto: "Ridurre le commesse ferme",
+        metricKey: "commesse_ferme_10g",
+        sampleSize: 40,
+        baselineValue: 12,
+        baselineDenominator: 40,
+        targetValue: 8,
+        responsabileId: 1,
+        dataVerifica: new Date(Date.now() + 14 * 86_400_000)
+          .toISOString()
+          .slice(0, 10),
+        titolo: "Presidia le commesse ferme",
+        motivazione: "La baseline mostra un arretrato ricorrente.",
+        confidenza: "alta",
+      }
+    );
+    expect(proposed.isError).toBeFalsy();
+    const proposalId = rt.proposteIds[0];
+    const reviewDate = new Date(Date.now() + 21 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    const corrected = await caller.tars.proposte.correggiEsperimento({
+      id: proposalId,
+      feedback:
+        "L'assegnatario e sbagliato: il controllo operativo spetta a Stefano.",
+      azione:
+        "Stefano controlla ogni lunedi le commesse ferme e assegna le priorita",
+      targetValue: 5,
+      responsibleId: responsabile.id,
+      reviewDate,
+    });
+
+    expect(corrected).toMatchObject({
+      stato: "pendente",
+      payload: {
+        targetValue: 5,
+        responsibleId: responsabile.id,
+        responsibleName: "Stefano Esperimenti",
+        reviewDate,
+      },
+    });
+    expect(corrected.payload.azione).toMatch(/Stefano controlla/);
+    expect(corrected.correzioni).toHaveLength(1);
+    expect(corrected.correzioni[0]).toMatchObject({
+      userId: 1,
+      feedback:
+        "L'assegnatario e sbagliato: il controllo operativo spetta a Stefano.",
+      before: { responsibleId: 1, targetValue: 8 },
+      after: { responsibleId: responsabile.id, targetValue: 5 },
+    });
+    expect(bloccoDecisioni(sedeId)).toContain(
+      "L'assegnatario e sbagliato: il controllo operativo spetta a Stefano."
+    );
+    expect(
+      tarsOutcomes.some(
+        outcome =>
+          outcome.sedeId === sedeId &&
+          outcome.capability === "processo.propose" &&
+          outcome.eventType === "modified"
+      )
+    ).toBe(true);
+
+    await caller.tars.proposte.approva({ id: proposalId });
+    const canonicalKey = `processo:${sedeId}:commesse_ferme_10g`;
+    const experiment = processExperimentRepository.findOpenExperiment(
+      sedeId,
+      canonicalKey
+    );
+    const actionCase = await getActionCaseRepository().findByCanonicalKey(
+      sedeId,
+      canonicalKey
+    );
+    expect(experiment).toMatchObject({
+      responsibleUserId: responsabile.id,
+      targetValue: 5,
+      action:
+        "Stefano controlla ogni lunedi le commesse ferme e assegna le priorita",
+    });
+    expect(actionCase?.assigneeUserId).toBe(responsabile.id);
+  });
+
+  it("rifiuta correzioni di esperimenti non migliorative o fuori sede", async () => {
+    const sedeId = 999_164;
+    seedProcessSnapshot(sedeId);
+    const ctx = makeCtx();
+    ctx.sedeId = sedeId;
+    ctx.sediIds = [sedeId];
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_164,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    await eseguiStrumento(rt, "proponi_miglioramento_processo", {
+      area: "organizzazione",
+      problema: "Dodici commesse ferme oltre dieci giorni",
+      azione: "Controllare le commesse ferme ogni lunedi",
+      impatto: "Ridurre le commesse ferme",
+      metricKey: "commesse_ferme_10g",
+      sampleSize: 40,
+      baselineValue: 12,
+      baselineDenominator: 40,
+      targetValue: 6,
+      responsabileId: 1,
+      dataVerifica: new Date(Date.now() + 14 * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      titolo: "Riduci le commesse ferme",
+      motivazione: "La baseline mostra un pattern operativo.",
+      confidenza: "alta",
+    });
+    const caller = appRouter.createCaller(ctx);
+    const base = {
+      id: rt.proposteIds[0],
+      feedback: "L'obiettivo o il responsabile proposto non sono corretti.",
+      azione:
+        "Controllare ogni lunedi le commesse ferme e assegnare le priorita",
+      targetValue: 6,
+      responsibleId: 1,
+      reviewDate: new Date(Date.now() + 21 * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+    };
+
+    await expect(
+      caller.tars.proposte.correggiEsperimento({
+        ...base,
+        targetValue: 13,
+      })
+    ).rejects.toThrow(/obiettivo/i);
+    await expect(
+      caller.tars.proposte.correggiEsperimento({
+        ...base,
+        targetValue: -1,
+      })
+    ).rejects.toThrow(/obiettivo/i);
+    await expect(
+      caller.tars.proposte.correggiEsperimento({
+        ...base,
+        targetValue: 5.5,
+      })
+    ).rejects.toThrow(/intero/i);
+    await expect(
+      caller.tars.proposte.correggiEsperimento({
+        ...base,
+        responsibleId: 999_999,
+      })
+    ).rejects.toThrow(/responsabile/i);
+  });
+
+  it("non corregge un esperimento mentre un'altra sessione lo sta approvando", async () => {
+    const sedeId = 999_165;
+    seedProcessSnapshot(sedeId);
+    const ctx = makeCtx();
+    ctx.sedeId = sedeId;
+    ctx.sediIds = [sedeId];
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_165,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    const reviewDate = new Date(Date.now() + 21 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    await eseguiStrumento(rt, "proponi_miglioramento_processo", {
+      area: "organizzazione",
+      problema: "Dodici commesse ferme oltre dieci giorni",
+      azione: "Controllare ogni lunedi le commesse ferme",
+      impatto: "Ridurre le commesse ferme",
+      metricKey: "commesse_ferme_10g",
+      sampleSize: 40,
+      baselineValue: 12,
+      baselineDenominator: 40,
+      targetValue: 6,
+      responsabileId: 1,
+      dataVerifica: reviewDate,
+      titolo: "Presidia le commesse ferme senza conflitti",
+      motivazione: "La baseline mostra un pattern operativo.",
+      confidenza: "alta",
+    });
+    const proposalId = rt.proposteIds[0];
+    const caller = appRouter.createCaller(ctx);
+    const repository = getActionCaseRepository();
+    const originalEnsureSchema = repository.ensureSchema.bind(repository);
+    let releaseApproval!: () => void;
+    let approvalReachedRepository!: () => void;
+    const approvalGate = new Promise<void>(resolve => {
+      releaseApproval = resolve;
+    });
+    const repositoryReached = new Promise<void>(resolve => {
+      approvalReachedRepository = resolve;
+    });
+    repository.ensureSchema = async () => {
+      approvalReachedRepository();
+      await approvalGate;
+      return originalEnsureSchema();
+    };
+
+    try {
+      const approval = caller.tars.proposte.approva({ id: proposalId });
+      await repositoryReached;
+      await expect(
+        caller.tars.proposte.correggiEsperimento({
+          id: proposalId,
+          feedback:
+            "Non modificare la proposta mentre un altro operatore la approva.",
+          azione: "Controllare ogni venerdi le commesse ferme",
+          targetValue: 5,
+          responsibleId: 1,
+          reviewDate,
+        })
+      ).rejects.toThrow(/approvazione in corso/i);
+      releaseApproval();
+      await approval;
+    } finally {
+      releaseApproval();
+      repository.ensureSchema = originalEnsureSchema;
+    }
+  });
+
   it("non espone proposte senza ownership a un altro operatore", async () => {
     const privateSedeId = 999_170;
     seedProcessSnapshot(privateSedeId);
@@ -1875,9 +2131,9 @@ describe("tars — profili e cache operativa", () => {
       ruoli: ["commerciale"],
     };
     const caller = appRouter.createCaller(commercialCtx);
-    expect((await caller.tars.proposte.list()).map(item => item.id)).not.toContain(
-      id
-    );
+    expect(
+      (await caller.tars.proposte.list()).map(item => item.id)
+    ).not.toContain(id);
     await expect(caller.tars.proposte.approva({ id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });

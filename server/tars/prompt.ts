@@ -244,7 +244,14 @@ export function bloccoDecisioni(sedeId: number | null): string {
         p.decisaAt != null
     )
     .sort((a, b) => (b.decisaAt as any) - (a.decisaAt as any));
-  if (decise.length === 0) return "";
+  const correzioni = proposte
+    .filter(p => sedeId == null || p.sedeId === sedeId)
+    .flatMap(p =>
+      (p.correzioni ?? []).map(correzione => ({ proposta: p, correzione }))
+    )
+    .sort((a, b) => b.correzione.at.getTime() - a.correzione.at.getTime())
+    .slice(0, 10);
+  if (decise.length === 0 && correzioni.length === 0) return "";
 
   // Tutti i rifiuti recenti (il segnale), più qualche approvazione (la
   // conferma), dentro il tetto.
@@ -281,13 +288,36 @@ export function bloccoDecisioni(sedeId: number | null): string {
       return `- ${tipo}: ${Math.round((v.approvate / totale) * 100)}% approvate (${totale} decisioni)`;
     });
 
+  const feedbackCorrezioni = correzioni.map(({ proposta, correzione }) => {
+    const modifiche: string[] = [];
+    if (correzione.before.responsibleId !== correzione.after.responsibleId) {
+      modifiche.push(
+        `responsabile: ${correzione.before.responsibleName} → ${correzione.after.responsibleName}`
+      );
+    }
+    if (correzione.before.targetValue !== correzione.after.targetValue) {
+      modifiche.push(
+        `obiettivo: ${correzione.before.targetValue} → ${correzione.after.targetValue}`
+      );
+    }
+    if (correzione.before.azione !== correzione.after.azione) {
+      modifiche.push("azione corretta");
+    }
+    if (correzione.before.reviewDate !== correzione.after.reviewDate) {
+      modifiche.push(
+        `verifica: ${correzione.before.reviewDate} → ${correzione.after.reviewDate}`
+      );
+    }
+    return `- [${proposta.tipo}] "${proposta.titolo}" → CORRETTA (${modifiche.join(", ") || "feedback operativo"}): ${correzione.feedback}`;
+  });
+
   return `═══ DECISIONI RECENTI DEGLI OPERATORI ═══
 Come sono state accolte le tue ultime proposte. I rifiuti indicano dove stai
 sbagliando: non riproporre la stessa cosa nello stesso modo, e alza l'asticella su
 quel tipo di proposta. "azione non necessaria" e "lo faccio io" significano che stai
 facendo rumore; "dato sbagliato" e "commessa sbagliata" che devi verificare meglio.
 
-${righe.join("\n")}${
+${righe.join("\n")}${feedbackCorrezioni.length ? `${righe.length ? "\n" : ""}${feedbackCorrezioni.join("\n")}` : ""}${
     andamento.length
       ? `\n\nAndamento per tipo (segnale aggregato, non garanzia):\n${andamento.join("\n")}`
       : ""

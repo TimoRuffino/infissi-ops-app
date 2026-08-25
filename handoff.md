@@ -205,6 +205,15 @@ responsabile e data tra 7 e 90 giorni. L'approvazione crea
 orario rilegge il quadro alla scadenza e registra `migliorato`, `invariato` o
 `peggiorato`. La misurazione non chiama OpenAI e non modifica workflow o regole.
 
+Le proposte `miglioramento_processo` pendenti sono correggibili nella stessa
+card. L'operatore può cambiare azione, target, responsabile e data, ma deve
+spiegare cosa Tars ha sbagliato; metrica e baseline restano bloccate. La route
+`tars.proposte.correggiEsperimento` rivalida dati, sede e scadenza, registra un
+audit prima/dopo in `Proposta.correzioni` e produce un outcome `modified`.
+L'approvazione crea esperimento e caso Centro Azioni con i valori corretti. Le
+ultime correzioni entrano nel blocco decisionale dinamico dei run Tars, mai nel
+prefisso cache o nello smistamento, e non diventano regole aziendali.
+
 La chat e il suo seguito possono usare `proponi_nuovo_lead` senza
 `comunicazioneId` quando l'operatore chiede esplicitamente di creare cliente e
 prima commessa. Il tool cerca il contesto, valida l'assegnatario e crea una sola
@@ -632,7 +641,8 @@ Poi verificare nel browser, desktop e mobile:
 - Integrazioni: stato Drive, storage e FiC;
 - Tars: Command Center `Oggi`, fonti raggiungibili, proposta approvabile e
   nessuna azione automatica inattesa; verificare anche una proposta esperimento
-  con baseline/target/responsabile e il caso corrispondente nel Centro Azioni;
+  con baseline/target/responsabile, correggere assegnatario e feedback nella
+  card, quindi verificare il caso corrispondente nel Centro Azioni;
 - Email: archiviare un allegato approvato da Tars e riaprirlo/scaricarlo dal
   fascicolo commessa;
 - Chat Tars: approvare una proposta figlia senza lasciare la conversazione e

@@ -291,6 +291,7 @@ function creaProposta(
     origineId: args.origineId ?? rt.origineId ?? null,
     chiaveAzione: chiaveAzioneProposta(candidata),
     evidenceRefs,
+    correzioni: [],
   };
   proposte.push(p);
   saveProposte();
