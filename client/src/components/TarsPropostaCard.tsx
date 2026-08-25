@@ -32,6 +32,7 @@ const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
   crea_lead: "Nuovo lead",
   collega_fattura: "Fattura",
+  archivia_allegato: "Allegato",
   rinomina_documento: "Documento",
   nota_timeline: "Timeline",
   aggiornamento_magazzino: "Magazzino",
@@ -102,6 +103,17 @@ function describePayload(p: any): string[] {
       out.push(
         `Collega la fattura ${pay.fatturaNumero} (${formatEuroSimbolo(pay.fatturaImporto)}) a ${pay.commessaCodice ?? `commessa #${pay.commessaId}`}`
       );
+      break;
+    case "archivia_allegato":
+      out.push(`File: ${pay.attachmentName ?? "Allegato"}`);
+      out.push(`Archivia come: ${pay.nomeSuggerito ?? pay.attachmentName}`);
+      out.push(`Tipo: ${String(pay.tipoDocumento ?? "altro").replace(/_/g, " ")}`);
+      out.push(
+        `Commessa: ${pay.commessaCodice ?? `#${pay.commessaId ?? p.commessaId}`}`
+      );
+      if (Array.isArray(pay.evidenze) && pay.evidenze.length > 0) {
+        out.push(`Verifiche: ${pay.evidenze.join("; ")}`);
+      }
       break;
     case "rinomina_documento":
       if (pay.nome) out.push(`Nuovo nome: ${pay.nome}`);

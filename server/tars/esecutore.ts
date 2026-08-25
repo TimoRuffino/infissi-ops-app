@@ -223,6 +223,95 @@ export async function eseguiProposta(
       if (!ok) throw new Error("Comunicazione non trovata.");
       return `Comunicazione collegata a ${p.commessaCodice ?? `commessa #${p.commessaId}`}`;
     }
+    case "archivia_allegato": {
+      const sedeId = ctx.sedeId ?? 1;
+      const { getComunicazione, setMatchComunicazione } = await import(
+        "./comunicazioni"
+      );
+      const { leggiAllegatoRaw } = await import("./allegati");
+      const {
+        archiviaAllegatoComunicazione,
+        DOC_TIPI,
+      } = await import("../routers/preventiviContratti");
+      const { getCommessaById } = await import("../routers/commesse");
+
+      const comunicazione = await getComunicazione(
+        Number(p.comunicazioneId),
+        sedeId
+      );
+      if (
+        !comunicazione ||
+        comunicazione.deletedAt ||
+        comunicazione.canale !== "email"
+      ) {
+        throw new Error("Email non trovata.");
+      }
+      const allegatoIndex = Number(p.allegatoIndex);
+      const allegato = comunicazione.allegati[allegatoIndex];
+      if (!allegato) throw new Error("Allegato non trovato.");
+      if (
+        allegato.nome !== p.attachmentName ||
+        allegato.mimeType !== p.expectedMimeType
+      ) {
+        throw new Error(
+          "L'allegato e cambiato dopo la proposta: serve una nuova verifica."
+        );
+      }
+      const commessa: any = getCommessaById(Number(p.commessaId));
+      if (!commessa || Number(commessa.sedeId) !== sedeId) {
+        throw new Error("Commessa non trovata.");
+      }
+      if (
+        comunicazione.commessaId != null &&
+        comunicazione.commessaId !== commessa.id
+      ) {
+        throw new Error(
+          "L'email e stata collegata a un'altra commessa dopo la proposta."
+        );
+      }
+      if (!(DOC_TIPI as readonly string[]).includes(String(p.tipoDocumento))) {
+        throw new Error("Tipo documento non valido.");
+      }
+
+      if (comunicazione.commessaId == null) {
+        const linked = await setMatchComunicazione(
+          comunicazione.id,
+          sedeId,
+          {
+            clienteId: Number(commessa.clienteId) || null,
+            commessaId: commessa.id,
+            confidenza: "alta",
+            motivo:
+              "Allegato operativo verificato da Tars e approvato da un operatore.",
+          }
+        );
+        if (!linked) throw new Error("Email non trovata.");
+      }
+
+      const raw = await leggiAllegatoRaw(comunicazione, allegatoIndex);
+      const documento = await archiviaAllegatoComunicazione({
+        sedeId,
+        comunicazioneId: comunicazione.id,
+        allegatoIndex,
+        commessaId: commessa.id,
+        nome: String(p.nomeSuggerito),
+        tipo: p.tipoDocumento,
+        note: "Classificato da Tars e approvato da un operatore.",
+        mimeType: raw.mimeType,
+        buffer: raw.buffer,
+        createdBy: Number((ctx.user as any)?.id) || null,
+      });
+      if (
+        documento.commessaId !== commessa.id ||
+        documento.tipo !== p.tipoDocumento ||
+        (!documento.storageKey && !documento.dataBase64)
+      ) {
+        throw new Error(
+          "Il documento non risulta disponibile nel fascicolo dopo l'archiviazione."
+        );
+      }
+      return `${documento.nome} archiviato nella commessa ${commessa.codice ?? `#${commessa.id}`} (documento #${documento.id})`;
+    }
     case "crea_lead": {
       const { getComunicazione, setClassificazioneComunicazione } =
         await import("./comunicazioni");

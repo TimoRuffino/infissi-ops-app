@@ -49,7 +49,10 @@ import {
 } from "../tars/comunicazioni";
 import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
-import { deleteDocumentiByCommessa } from "./preventiviContratti";
+import {
+  archiviaAllegatoComunicazione,
+  deleteDocumentiByCommessa,
+} from "./preventiviContratti";
 import { deleteFileQuiet, putFile } from "../_core/fileStorage";
 import { proposte } from "../tars/stores";
 
@@ -591,6 +594,49 @@ describe("mail channel APIs", () => {
     } finally {
       deleteDocumentiByCommessa(commessaId);
       deleteFileQuiet(fixture.storageKey);
+      const index = commesse.findIndex(commessa => commessa.id === commessaId);
+      if (index >= 0) commesse.splice(index, 1);
+    }
+  });
+
+  it("archivia un allegato Tars col tipo documento approvato", async () => {
+    const commessaId = 952_003;
+    const commesse = getCommesseStore();
+    commesse.push({
+      id: commessaId,
+      sedeId: 1,
+      codice: "COM-2026-954",
+      cliente: "Picchia Marco",
+      clienteId: 952_103,
+      assegnatoA: 1,
+      stato: "misure_esecutive",
+      archivedAt: null,
+    });
+
+    try {
+      const documento = await archiviaAllegatoComunicazione({
+        sedeId: 1,
+        comunicazioneId: 98_001,
+        allegatoIndex: 0,
+        commessaId,
+        nome: "Misure esecutive Picchia Marco.pdf",
+        tipo: "misure",
+        note: "Classificato da Tars e approvato da un operatore.",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("misure", "utf8"),
+        createdBy: 1,
+      });
+
+      expect(documento).toMatchObject({
+        commessaId,
+        tipo: "misure",
+        nome: "Misure esecutive Picchia Marco.pdf",
+        note: "Classificato da Tars e approvato da un operatore.",
+        source: "comunicazione",
+        sourceRef: "1:98001:0",
+      });
+    } finally {
+      deleteDocumentiByCommessa(commessaId);
       const index = commesse.findIndex(commessa => commessa.id === commessaId);
       if (index >= 0) commesse.splice(index, 1);
     }

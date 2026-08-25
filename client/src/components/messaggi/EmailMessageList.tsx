@@ -143,7 +143,7 @@ function MessageRow({
   return (
     <div
       className={cn(
-        "relative flex min-h-[104px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
+        "relative flex min-h-[120px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
         selected
           ? "bg-accent/70"
           : unread
@@ -221,7 +221,7 @@ function MessageRow({
           >
             {message.oggetto || "(senza oggetto)"}
           </div>
-          <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-text-3">
+          <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-text-3">
             {preview(message)}
           </p>
           <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
@@ -231,15 +231,23 @@ function MessageRow({
               analizzata={message.tarsAnalizzata}
             />
             {(message.allegati?.length ?? 0) > 0 && (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5">
                 <Paperclip className="size-3" />
-                {message.allegati.length}
+                Allegati {message.allegati.length}
               </span>
             )}
             {message.commessaId != null && (
-              <Link2 className="size-3 text-success" aria-label="Collegata" />
+              <span className="inline-flex items-center gap-1 rounded-sm bg-success/10 px-1.5 py-0.5 text-success">
+                <Link2 className="size-3" />
+                Collegata
+              </span>
             )}
-            {hasTarsProposal && <TarsAvatar size="sm" className="size-4" />}
+            {hasTarsProposal && (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 py-0.5 text-primary">
+                <TarsAvatar size="sm" className="size-4" />
+                Tars
+              </span>
+            )}
             {message.stato === "gestita" && (
               <CheckCheck
                 className="ml-auto size-3.5 text-success"

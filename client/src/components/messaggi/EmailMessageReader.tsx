@@ -606,8 +606,8 @@ export default function EmailMessageReader({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <section className="border-b border-primary/15 bg-primary-soft/35 px-4 py-4 sm:px-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <section className="order-2 border-t border-primary/15 bg-primary-soft/35 px-4 py-4 sm:px-5">
           <div className="mx-auto max-w-3xl">
             <div className="flex items-center gap-2">
               <TarsAvatar size="md" />
@@ -678,11 +678,11 @@ export default function EmailMessageReader({
           </div>
         </section>
 
-        <div className="px-4 py-5 sm:px-5">
+        <div className="order-1 px-4 py-5 sm:px-5">
           <div className="mx-auto max-w-3xl space-y-5">
-            {proposals.map(proposal => (
-              <TarsPropostaCard key={proposal.id} proposta={proposal} />
-            ))}
+            <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
+              {message.testo || "(messaggio vuoto)"}
+            </div>
             {(message.allegati?.length ?? 0) > 0 && (
               <section aria-label="Allegati" className="space-y-2">
                 <div className="text-xs font-bold uppercase text-text-3">
@@ -731,9 +731,16 @@ export default function EmailMessageReader({
                 </div>
               </section>
             )}
-            <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-text-1">
-              {message.testo || "(messaggio vuoto)"}
-            </div>
+            {proposals.length > 0 && (
+              <section aria-label="Proposte Tars" className="space-y-3">
+                <div className="text-xs font-bold uppercase text-text-3">
+                  Azioni preparate da Tars
+                </div>
+                {proposals.map(proposal => (
+                  <TarsPropostaCard key={proposal.id} proposta={proposal} />
+                ))}
+              </section>
+            )}
           </div>
         </div>
       </div>

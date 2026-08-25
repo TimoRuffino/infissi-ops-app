@@ -28,6 +28,7 @@ export const TIPI_PROPOSTA = [
   "collega_comunicazione",
   "crea_lead",
   "collega_fattura",
+  "archivia_allegato",
   "rinomina_documento",
   "nota_timeline",
   "aggiornamento_magazzino",
@@ -214,6 +215,12 @@ export function chiaveAzioneProposta(p: {
       break;
     case "collega_fattura":
       effetto = { ficId: pay.ficId };
+      break;
+    case "archivia_allegato":
+      effetto = {
+        comunicazioneId: pay.comunicazioneId,
+        allegatoIndex: pay.allegatoIndex,
+      };
       break;
     case "rinomina_documento":
       effetto = {

@@ -33,7 +33,13 @@ import {
   buildContextPreload,
   visibilityScopeForUser,
 } from "./loop";
-import { deleteComunicazione, insertComunicazione } from "./comunicazioni";
+import {
+  deleteComunicazione,
+  getComunicazione,
+  insertComunicazione,
+} from "./comunicazioni";
+import { deleteFileQuiet, putFile } from "../_core/fileStorage";
+import { deleteDocumentiByCommessa } from "../routers/preventiviContratti";
 import type { EntityContextSnapshot } from "./context/types";
 import {
   setFeatureFlags,
@@ -1360,7 +1366,9 @@ describe("tars — profili e cache operativa", () => {
       "cerca_clienti",
       "cerca_commesse",
       "leggi_fascicolo_commessa",
+      "leggi_allegato",
       "proponi_collegamento",
+      "proponi_archivia_allegato",
       "chiedi_chiarimento",
       "nessuna_azione",
     ]);
@@ -1429,6 +1437,130 @@ describe("tars — profili e cache operativa", () => {
     expect(quadro).toHaveProperty("qualita");
     expect(quadro).toHaveProperty("produzioneAcquisti");
     expect(quadro).toHaveProperty("tars.duplicatiBloccati30Giorni");
+  });
+
+  it("propone di archiviare un allegato operativo nella commessa verificata", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const cliente = await caller.clienti.create({
+      nome: "Marco",
+      cognome: "Picchia",
+      email: "picchia-documenti@example.test",
+    });
+    const commessa = await caller.commesse.create({
+      clienteId: cliente.id,
+      cliente: "Picchia Marco",
+    });
+    const bytes = Buffer.from("misure esecutive", "utf8");
+    const stored = await putFile(
+      "tars_test",
+      commessa.id,
+      1,
+      "Misure Picchia.pdf",
+      bytes,
+      "application/pdf"
+    );
+    const comunicazione = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 1,
+      messageId: "tars-document-intake-1",
+      canale: "email",
+      direzione: "in",
+      mittente: "picchia-documenti@example.test",
+      mittenteNome: "Marco Picchia",
+      destinatari: ["ufficio@example.test"],
+      oggetto: "Misure Picchia",
+      testo: "In allegato le misure esecutive.",
+      allegati: [{
+        nome: "Misure Picchia.pdf",
+        mimeType: "application/pdf",
+        size: bytes.length,
+        storageKey: stored.storageKey,
+      }],
+      clienteId: cliente.id,
+      commessaId: null,
+      matchConfidenza: "media",
+      matchMotivo: "Mittente cliente riconosciuto",
+      stato: "nuova",
+      receivedAt: new Date("2026-08-25T12:00:00Z"),
+      categoria: "operativa",
+    });
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_155,
+      trigger: "gestione_comunicazione",
+      comunicazioneId: comunicazione!.id,
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      evidenceRefs: [{
+        type: "email",
+        id: String(comunicazione!.id),
+        label: "Misure Picchia",
+      }],
+    };
+
+    try {
+      const result = await eseguiStrumento(
+        rt,
+        "proponi_archivia_allegato",
+        {
+          comunicazioneId: comunicazione!.id,
+          allegatoIndex: 0,
+          commessaId: commessa.id,
+          tipoDocumento: "misure",
+          nomeSuggerito: "Misure esecutive Picchia Marco.pdf",
+          evidenze: ["Nome file", "Mittente collegato al cliente"],
+          titolo: "Archivia le misure di Picchia",
+          motivazione: "La mail contiene le misure esecutive della commessa.",
+          confidenza: "alta",
+        }
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(proposte.find(item => item.id === rt.proposteIds[0])).toMatchObject({
+        tipo: "archivia_allegato",
+        commessaId: commessa.id,
+        clienteId: cliente.id,
+        payload: {
+          comunicazioneId: comunicazione!.id,
+          allegatoIndex: 0,
+          attachmentName: "Misure Picchia.pdf",
+          expectedMimeType: "application/pdf",
+          tipoDocumento: "misure",
+          nomeSuggerito: "Misure esecutive Picchia Marco.pdf",
+        },
+      });
+
+      const approvata = await caller.tars.proposte.approva({
+        id: rt.proposteIds[0],
+      });
+      expect(approvata.stato).toBe("approvata");
+      expect(approvata.esito).toMatch(/Misure esecutive Picchia Marco\.pdf/);
+      expect(await getComunicazione(comunicazione!.id, 1)).toMatchObject({
+        clienteId: cliente.id,
+        commessaId: commessa.id,
+        stato: "gestita",
+      });
+      const documenti = await caller.preventiviContratti.byCommessa(
+        commessa.id
+      );
+      expect(documenti).toEqual([
+        expect.objectContaining({
+          nome: "Misure esecutive Picchia Marco.pdf",
+          tipo: "misure",
+          source: "comunicazione",
+          sourceRef: `1:${comunicazione!.id}:0`,
+          hasData: true,
+        }),
+      ]);
+      const dettaglio = await caller.preventiviContratti.byId(documenti[0].id);
+      expect(Buffer.from(dettaglio!.dataBase64, "base64")).toEqual(bytes);
+    } finally {
+      deleteDocumentiByCommessa(commessa.id);
+      await deleteComunicazione(comunicazione!.id, 1);
+      deleteFileQuiet(stored.storageKey);
+    }
   });
 
   it("non duplica lo stesso miglioramento di processo riformulato", async () => {

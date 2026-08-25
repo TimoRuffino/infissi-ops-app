@@ -729,6 +729,7 @@ export const mailRouter = router({
             allegatoIndex: input.allegatoIndex,
             commessaId: input.commessaId,
             nome: raw.nome,
+            tipo: "altro",
             mimeType: raw.mimeType,
             buffer: raw.buffer,
             createdBy: Number((ctx.user as any).id) || null,

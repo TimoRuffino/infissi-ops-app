@@ -252,6 +252,8 @@ export async function archiviaAllegatoComunicazione(args: {
   allegatoIndex: number;
   commessaId: number;
   nome: string;
+  tipo: DocTipo;
+  note?: string;
   mimeType: string;
   buffer: Buffer;
   createdBy: number | null;
@@ -285,7 +287,7 @@ export async function archiviaAllegatoComunicazione(args: {
       id,
       commessaId: args.commessaId,
       nome,
-      tipo: "altro",
+      tipo: args.tipo,
       mimeType: args.mimeType,
       size: args.buffer.length,
       note: null,
@@ -296,10 +298,11 @@ export async function archiviaAllegatoComunicazione(args: {
 
     documento.commessaId = args.commessaId;
     documento.nome = nome;
-    documento.tipo = "altro";
+    documento.tipo = args.tipo;
     documento.mimeType = args.mimeType;
     documento.size = args.buffer.length;
-    documento.note = "Archiviato manualmente da un allegato email.";
+    documento.note =
+      args.note ?? "Archiviato manualmente da un allegato email.";
     documento.statoAtUpload = commessa.stato ?? null;
     documento.source = "comunicazione";
     documento.sourceRef = sourceRef;

@@ -78,6 +78,7 @@ const CAPABILITIES_PER_PROPOSAL: Record<string, string[]> = {
   collega_comunicazione: ["comunicazione.link"],
   crea_lead: ["cliente.create", "commessa.create"],
   collega_fattura: ["fattura.link"],
+  archivia_allegato: ["documento.create"],
   rinomina_documento: ["documento.rename"],
   nota_timeline: ["timeline.note"],
   aggiornamento_magazzino: ["magazzino.update"],
