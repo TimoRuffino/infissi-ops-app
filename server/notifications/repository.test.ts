@@ -107,4 +107,23 @@ describe("notification repository", () => {
     expect((await repo.findById(own.id, 7, 1))?.status).toBe("resolved");
     expect(await repo.countUnread({ sedeId: 1, recipientUserId: 8, now })).toBe(1);
   });
+
+  it("mantiene preferenze isolate per utente e sede", async () => {
+    const repo = createMemoryNotificationRepository();
+    await repo.setPreferences({
+      sedeId: 1,
+      recipientUserId: 7,
+      preferences: {
+        pushEnabled: true,
+        criticalFallbackEnabled: false,
+        mutedTypes: ["daily_reminder"],
+        quietHours: null,
+      },
+      now,
+    });
+
+    expect((await repo.getPreferences({ sedeId: 1, recipientUserId: 7 })).pushEnabled).toBe(true);
+    expect((await repo.getPreferences({ sedeId: 1, recipientUserId: 8 })).pushEnabled).toBe(false);
+    expect((await repo.getPreferences({ sedeId: 2, recipientUserId: 7 })).pushEnabled).toBe(false);
+  });
 });

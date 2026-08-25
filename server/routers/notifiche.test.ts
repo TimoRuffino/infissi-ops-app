@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { getActionCaseRepository } from "../actionCenter/repository";
+import { getNotificationRepository } from "../notifications/repository";
+import { setFeatureFlags } from "../platform/featureFlags";
 import { appRouter } from "../routers";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
@@ -64,5 +66,82 @@ describe("notifiche Action Center API", () => {
         id: record!.id,
       })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("espone il feed persistente in active senza accettare un destinatario esterno", async () => {
+    const sedeId = 990003;
+    setFeatureFlags(
+      sedeId,
+      { notificationMode: "active" },
+      { actorUserId: 990007, reason: "Test feed notifiche persistenti" }
+    );
+    const repository = getNotificationRepository();
+    const created = await repository.upsert({
+      sedeId,
+      recipientUserId: 990007,
+      canonicalKey: "test:feed:active",
+      type: "assignment",
+      priority: "high",
+      title: "Nuova assegnazione",
+      body: "Responsabilita da gestire",
+      link: "/commesse/1",
+      groupKey: "commessa:1",
+      sourceEventId: null,
+      entityRefs: [{ type: "commessa", id: "1" }],
+      createdAt: NOW,
+      expiresAt: null,
+    });
+    await repository.upsert({
+      sedeId,
+      recipientUserId: 990008,
+      canonicalKey: "test:feed:other",
+      type: "assignment",
+      priority: "high",
+      title: "Altra notifica",
+      body: "Non visibile",
+      link: "/commesse/2",
+      groupKey: "commessa:2",
+      sourceEventId: null,
+      entityRefs: [],
+      createdAt: NOW,
+      expiresAt: null,
+    });
+
+    const caller = appRouter.createCaller(context(sedeId));
+    const feed = await caller.notifiche.feed({ limit: 10 });
+    expect(feed.mode).toBe("active");
+    expect(feed.items.map(item => item.canonicalKey)).toContain("test:feed:active");
+    expect(feed.items.map(item => item.canonicalKey)).not.toContain("test:feed:other");
+    await caller.notifiche.markSeen({ ids: [created.id] });
+    await caller.notifiche.markRead({ ids: [created.id] });
+    expect((await repository.findById(created.id, 990007, sedeId))?.status).toBe("read");
+  });
+
+  it("mantiene le procedure legacy quando il flag non e attivo", async () => {
+    const caller = appRouter.createCaller(context(990004));
+    const list = await caller.notifiche.list();
+    const count = await caller.notifiche.count();
+    expect(Array.isArray(list)).toBe(true);
+    expect(typeof count).toBe("number");
+  });
+
+  it("salva preferenze soltanto per l'utente autenticato", async () => {
+    const sedeId = 990005;
+    const caller = appRouter.createCaller(context(sedeId));
+    await caller.notifiche.preferences.set({
+      pushEnabled: true,
+      criticalFallbackEnabled: false,
+      mutedTypes: ["daily_reminder"],
+      quietHours: { from: "19:00", to: "07:30" },
+    });
+
+    expect(await caller.notifiche.preferences.get()).toMatchObject({
+      pushEnabled: true,
+      quietHours: { from: "19:00", to: "07:30" },
+    });
+    expect(
+      await appRouter.createCaller({ ...context(sedeId), user: { ...context(sedeId).user, id: 990008 } } as any)
+        .notifiche.preferences.get()
+    ).toMatchObject({ pushEnabled: false });
   });
 });

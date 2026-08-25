@@ -16,6 +16,9 @@ import {
   transitionActionCase,
 } from "../actionCenter/service";
 import { ACTION_CENTER_MODE } from "../actionCenter/scheduler";
+import { getNotificationRepository } from "../notifications/repository";
+import type { Notification } from "../notifications/types";
+import { getFeatureFlags } from "../platform/featureFlags";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 //
@@ -98,7 +101,7 @@ function toDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-type Notifica = {
+export type Notifica = {
   id: string;
   commessaId: number | null;
   commessaCodice: string | null;
@@ -161,7 +164,7 @@ const SEVERITY_RANK: Record<Notifica["severity"], number> = {
   info: 2,
 };
 
-function buildNotifichePerUtente(
+export function buildNotifichePerUtente(
   userId: number,
   ruoli: string[],
   sedeId: number | null
@@ -472,7 +475,189 @@ function actionContext(ctx: any) {
   };
 }
 
+const persistentFeedInput = z.object({
+  statuses: z.array(z.enum(["unread", "seen", "read", "acted", "resolved", "expired"])).max(6).optional(),
+  priorities: z.array(z.enum(["critical", "high", "normal", "low"])).max(4).optional(),
+  limit: z.number().int().min(1).max(50).default(30),
+  cursor: z.string().max(300).nullable().optional(),
+}).optional();
+
+function encodeNotificationCursor(cursor: { createdAt: Date; id: number } | null) {
+  return cursor
+    ? Buffer.from(JSON.stringify([cursor.createdAt.toISOString(), cursor.id])).toString("base64url")
+    : null;
+}
+
+function decodeNotificationCursor(value: string | null | undefined) {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!Array.isArray(parsed) || parsed.length !== 2) return undefined;
+    const createdAt = new Date(parsed[0]);
+    const id = Number(parsed[1]);
+    if (Number.isNaN(createdAt.getTime()) || !Number.isInteger(id) || id <= 0) return undefined;
+    return { createdAt, id };
+  } catch {
+    return undefined;
+  }
+}
+
+function persistentDto(item: Notification) {
+  return {
+    id: String(item.id),
+    canonicalKey: item.canonicalKey,
+    type: item.type,
+    priority: item.priority,
+    title: item.title,
+    body: item.body,
+    link: item.link,
+    groupKey: item.groupKey,
+    status: item.status,
+    createdAt: item.createdAt,
+    entityRefs: item.entityRefs,
+    legacy: false as const,
+  };
+}
+
+function legacyDto(item: Notifica & { read: boolean }) {
+  return {
+    id: item.id,
+    canonicalKey: `legacy:${item.id}`,
+    type: item.type,
+    priority: item.severity === "urgent" ? "critical" as const : item.severity === "warning" ? "high" as const : "normal" as const,
+    title: item.commessaCodice ? `${item.commessaCodice} - ${item.cliente}` : item.cliente,
+    body: item.message,
+    link: item.link,
+    groupKey: item.commessaId == null ? null : `commessa:${item.commessaId}`,
+    status: item.read ? "read" as const : "unread" as const,
+    createdAt: item.createdAt,
+    entityRefs: item.commessaId == null ? [] : [{ type: "commessa", id: String(item.commessaId) }],
+    legacy: true as const,
+  };
+}
+
 export const notificheRouter = router({
+  preferences: router({
+    get: protectedProcedure.query(({ ctx }) =>
+      getNotificationRepository().getPreferences({
+        sedeId: (ctx.sedeId ?? 1) as number,
+        recipientUserId: ctx.user.id as number,
+      })
+    ),
+    set: protectedProcedure
+      .input(z.object({
+        pushEnabled: z.boolean(),
+        criticalFallbackEnabled: z.boolean(),
+        mutedTypes: z.array(z.string().trim().min(1).max(80)).max(50),
+        quietHours: z.object({
+          from: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+          to: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        }).nullable(),
+      }))
+      .mutation(({ input, ctx }) =>
+        getNotificationRepository().setPreferences({
+          sedeId: (ctx.sedeId ?? 1) as number,
+          recipientUserId: ctx.user.id as number,
+          preferences: input,
+          now: new Date(),
+        })
+      ),
+  }),
+
+  feed: protectedProcedure.input(persistentFeedInput).query(async ({ input, ctx }) => {
+    const sedeId = (ctx.sedeId ?? 1) as number;
+    const userId = ctx.user.id as number;
+    const mode = getFeatureFlags(sedeId).notificationMode;
+    if (mode !== "active") {
+      const readSet = readSetFor(userId);
+      const legacy = sortNotifiche(
+        buildNotifichePerUtente(userId, ruoliOf(ctx.user), sedeId).map(item => ({
+          ...item,
+          read: readSet.has(item.id),
+        }))
+      ).slice(0, input?.limit ?? 30);
+      if (mode === "shadow") {
+        const persistentUnread = await getNotificationRepository().countUnread({
+          sedeId,
+          recipientUserId: userId,
+          now: new Date(),
+        });
+        const legacyUnread = legacy.filter(item => !item.read).length;
+        if (persistentUnread !== legacyUnread) {
+          console.info(
+            `[notifications] shadow count delta sede=${sedeId} user=${userId} legacy=${legacyUnread} persistent=${persistentUnread}`
+          );
+        }
+      }
+      return { mode, items: legacy.map(legacyDto), nextCursor: null };
+    }
+    const page = await getNotificationRepository().list({
+      sedeId,
+      recipientUserId: userId,
+      statuses: input?.statuses,
+      priorities: input?.priorities,
+      cursor: decodeNotificationCursor(input?.cursor),
+      limit: input?.limit ?? 30,
+      now: new Date(),
+    });
+    return {
+      mode,
+      items: page.items.map(persistentDto),
+      nextCursor: encodeNotificationCursor(page.nextCursor),
+    };
+  }),
+
+  unreadCount: protectedProcedure.query(async ({ ctx }) => {
+    const sedeId = (ctx.sedeId ?? 1) as number;
+    const userId = ctx.user.id as number;
+    const mode = getFeatureFlags(sedeId).notificationMode;
+    const legacy = () => {
+      const readSet = readSetFor(userId);
+      return buildNotifichePerUtente(userId, ruoliOf(ctx.user), sedeId)
+        .filter(item => !readSet.has(item.id)).length;
+    };
+    if (mode === "legacy") return { mode, count: legacy() };
+    const persistent = await getNotificationRepository().countUnread({
+      sedeId,
+      recipientUserId: userId,
+      now: new Date(),
+    });
+    if (mode === "shadow") {
+      const legacyCount = legacy();
+      if (legacyCount !== persistent) {
+        console.info(
+          `[notifications] shadow unread delta sede=${sedeId} user=${userId} legacy=${legacyCount} persistent=${persistent}`
+        );
+      }
+      return { mode, count: legacyCount };
+    }
+    return { mode, count: persistent };
+  }),
+
+  markSeen: protectedProcedure
+    .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(200) }))
+    .mutation(async ({ input, ctx }) => ({
+      success: true as const,
+      count: await getNotificationRepository().markSeen({
+        sedeId: (ctx.sedeId ?? 1) as number,
+        recipientUserId: ctx.user.id as number,
+        ids: input.ids,
+        now: new Date(),
+      }),
+    })),
+
+  resolve: protectedProcedure
+    .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(200) }))
+    .mutation(async ({ input, ctx }) => ({
+      success: true as const,
+      count: await getNotificationRepository().resolve({
+        sedeId: (ctx.sedeId ?? 1) as number,
+        recipientUserId: ctx.user.id as number,
+        ids: input.ids,
+        now: new Date(),
+      }),
+    })),
+
   summary: protectedProcedure.query(async ({ ctx }) => {
     const summary = await getActionCenterSummary({
       ...actionContext(ctx),
@@ -703,10 +888,20 @@ export const notificheRouter = router({
   }),
 
   markRead: protectedProcedure
-    .input(z.object({ ids: z.array(z.string()).min(1).max(200) }))
-    .mutation(({ input, ctx }) => {
-      markIdsRead(ctx.user.id as number, input.ids);
-      return { success: true } as const;
+    .input(z.object({ ids: z.array(z.union([z.string(), z.number().int().positive()])).min(1).max(200) }))
+    .mutation(async ({ input, ctx }) => {
+      const legacyIds = input.ids.filter((id): id is string => typeof id === "string");
+      if (legacyIds.length) markIdsRead(ctx.user.id as number, legacyIds);
+      const persistentIds = input.ids.filter((id): id is number => typeof id === "number");
+      const count = persistentIds.length
+        ? await getNotificationRepository().markRead({
+            sedeId: (ctx.sedeId ?? 1) as number,
+            recipientUserId: ctx.user.id as number,
+            ids: persistentIds,
+            now: new Date(),
+          })
+        : 0;
+      return { success: true, count } as const;
     }),
 
   markAllRead: protectedProcedure.mutation(({ ctx }) => {

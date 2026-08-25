@@ -4,8 +4,10 @@ import type {
   NotificationDelivery,
   NotificationDeliveryDraft,
   NotificationDraft,
+  NotificationPreferences,
   NotificationStatus,
 } from "./types";
+import { DEFAULT_NOTIFICATION_PREFERENCES } from "./types";
 
 type Scope = { sedeId: number; recipientUserId: number };
 type MutationInput = Scope & { ids: number[]; now: Date };
@@ -28,6 +30,8 @@ export type NotificationRepository = {
   resolveGroup(input: Scope & { groupKey: string; now: Date }): Promise<number>;
   countUnread(input: Scope & { now: Date }): Promise<number>;
   recordDelivery(draft: NotificationDeliveryDraft): Promise<{ id: number; created: boolean }>;
+  getPreferences(input: Scope): Promise<NotificationPreferences>;
+  setPreferences(input: Scope & { preferences: NotificationPreferences; now: Date }): Promise<NotificationPreferences>;
 };
 
 function cloneNotification(item: Notification): Notification {
@@ -41,6 +45,7 @@ function isExpired(item: Notification, now: Date) {
 export function createMemoryNotificationRepository(): NotificationRepository {
   const notifications: Notification[] = [];
   const deliveries: NotificationDelivery[] = [];
+  const preferences = new Map<string, NotificationPreferences>();
   let nextNotificationId = 1;
   let nextDeliveryId = 1;
 
@@ -192,6 +197,35 @@ export function createMemoryNotificationRepository(): NotificationRepository {
       deliveries.push(item);
       return { id: item.id, created: true };
     },
+
+    async getPreferences(input) {
+      return structuredClone(
+        preferences.get(`${input.sedeId}:${input.recipientUserId}`) ??
+          DEFAULT_NOTIFICATION_PREFERENCES
+      );
+    },
+
+    async setPreferences(input) {
+      const value = structuredClone(input.preferences);
+      preferences.set(`${input.sedeId}:${input.recipientUserId}`, value);
+      return structuredClone(value);
+    },
+  };
+}
+
+function normalizePreferences(value: unknown): NotificationPreferences {
+  const source = value && typeof value === "object" ? value as any : {};
+  const quiet = source.quietHours;
+  return {
+    pushEnabled: source.pushEnabled === true,
+    criticalFallbackEnabled: source.criticalFallbackEnabled === true,
+    mutedTypes: Array.isArray(source.mutedTypes)
+      ? source.mutedTypes.filter((item: unknown): item is string => typeof item === "string").slice(0, 50)
+      : [],
+    quietHours:
+      quiet && typeof quiet.from === "string" && typeof quiet.to === "string"
+        ? { from: quiet.from, to: quiet.to }
+        : null,
   };
 }
 
@@ -400,6 +434,25 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
       if (inserted.length) return { id: Number(inserted[0].id), created: true };
       const rows = await sql`SELECT id FROM notification_deliveries WHERE notification_id = ${draft.notificationId} AND channel = ${draft.channel} AND canonical_key = ${draft.canonicalKey} LIMIT 1`;
       return { id: Number(rows[0].id), created: false };
+    },
+    async getPreferences(input) {
+      await ensureSchema();
+      const rows = await sql`SELECT preferences FROM notification_preferences WHERE sede_id = ${input.sedeId} AND user_id = ${input.recipientUserId} LIMIT 1`;
+      return rows.length
+        ? normalizePreferences(rows[0].preferences)
+        : structuredClone(DEFAULT_NOTIFICATION_PREFERENCES);
+    },
+    async setPreferences(input) {
+      await ensureSchema();
+      const value = normalizePreferences(input.preferences);
+      const json = sql.json(value as any);
+      await sql`
+        INSERT INTO notification_preferences (sede_id, user_id, preferences, updated_at)
+        VALUES (${input.sedeId}, ${input.recipientUserId}, ${json}, ${input.now})
+        ON CONFLICT (sede_id, user_id) DO UPDATE
+          SET preferences = EXCLUDED.preferences, updated_at = EXCLUDED.updated_at
+      `;
+      return value;
     },
   };
 }

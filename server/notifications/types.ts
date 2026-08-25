@@ -55,3 +55,17 @@ export type NotificationDeliveryDraft = {
 export type NotificationDelivery = NotificationDeliveryDraft & {
   id: number;
 };
+
+export type NotificationPreferences = {
+  pushEnabled: boolean;
+  criticalFallbackEnabled: boolean;
+  mutedTypes: string[];
+  quietHours: { from: string; to: string } | null;
+};
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  pushEnabled: false,
+  criticalFallbackEnabled: false,
+  mutedTypes: [],
+  quietHours: null,
+};
