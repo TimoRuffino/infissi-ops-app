@@ -33,6 +33,17 @@ async function startServer() {
   // Load persisted stores before wiring routers / listening.
   await bootstrapAll();
 
+  // Historical timeline rows predate automatic board synchronization. This
+  // forward-only reconciliation is idempotent and keeps every existing
+  // commessa at least at its most advanced completed milestone.
+  const { reconcileTimelineBoardStates } = await import("../routers/timeline");
+  const timelineSync = reconcileTimelineBoardStates();
+  if (timelineSync.aggiornate > 0) {
+    console.log(
+      `[timeline] board riallineato: ${timelineSync.aggiornate}/${timelineSync.analizzate} commesse avanzate`
+    );
+  }
+
   // Action cases use dedicated relational tables. In production schema
   // failures must stop startup instead of silently degrading to memory.
   const { getActionCaseRepository } = await import(

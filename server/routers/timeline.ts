@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { getCommessaById, STATI_COMMESSA } from "./commesse";
+import {
+  advanceCommesseFromTimeline,
+  getCommessaById,
+  STATI_COMMESSA,
+  type StatoCommessa,
+} from "./commesse";
 
 // Cross-sede guard: timeline steps belong to a commessa; only visible/mutable
 // when that commessa is in the active sede.
@@ -94,6 +99,31 @@ const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;
+
+export function reconcileTimelineBoardStates(): {
+  analizzate: number;
+  aggiornate: number;
+} {
+  const targets = new Map<number, StatoCommessa>();
+
+  for (const step of steps) {
+    if (step.stato !== "completato") continue;
+    const target = STATO_PER_MILESTONE[step.stepNumber];
+    if (!target) continue;
+    const previous = targets.get(step.commessaId);
+    if (
+      !previous ||
+      STATI_COMMESSA.indexOf(target) > STATI_COMMESSA.indexOf(previous)
+    ) {
+      targets.set(step.commessaId, target);
+    }
+  }
+
+  return {
+    analizzate: targets.size,
+    aggiornate: advanceCommesseFromTimeline(targets),
+  };
+}
 
 function createStepsForCommessa(commessaId: number): TimelineStep[] {
   const newSteps: TimelineStep[] = STEP_LABELS.map((label, idx) => ({

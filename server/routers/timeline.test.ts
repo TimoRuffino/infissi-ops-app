@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import { getCommesseStore } from "./commesse";
+import { reconcileTimelineBoardStates } from "./timeline";
 
 function context(sedeId: number): TrpcContext {
   return {
@@ -115,5 +117,48 @@ describe("timeline ordine e stato commessa", () => {
       });
       expect(await caller.commesse.byId(commessa.id)).toMatchObject({ stato });
     }
+  });
+
+  it("riallinea le commesse storiche alla milestone completata piu avanzata", async () => {
+    const caller = appRouter.createCaller(context(97105));
+    const commessa = await caller.commesse.create({ cliente: "Timeline Storica" });
+    const steps = await caller.timeline.byCommessa(commessa.id);
+
+    for (const stepNumber of [1, 2, 3, 5, 6]) {
+      const step = steps.find((item) => item.stepNumber === stepNumber)!;
+      await caller.timeline.updateStep({
+        id: step.id,
+        stato: "completato",
+        force: true,
+      });
+    }
+
+    const stored = getCommesseStore().find((item) => item.id === commessa.id)!;
+    stored.stato = "misure_esecutive";
+
+    expect(reconcileTimelineBoardStates().aggiornate).toBeGreaterThanOrEqual(1);
+    expect(await caller.commesse.byId(commessa.id)).toMatchObject({
+      stato: "produzione",
+    });
+    expect(reconcileTimelineBoardStates()).toMatchObject({ aggiornate: 0 });
+  });
+
+  it("la riconciliazione non arretra commesse gia piu avanti", async () => {
+    const caller = appRouter.createCaller(context(97106));
+    const commessa = await caller.commesse.create({ cliente: "Timeline Avanti" });
+    const [rilievo] = await caller.timeline.byCommessa(commessa.id);
+    const stored = getCommesseStore().find((item) => item.id === commessa.id)!;
+    stored.stato = "finiture_saldo";
+
+    await caller.timeline.updateStep({
+      id: rilievo.id,
+      stato: "completato",
+      force: true,
+    });
+
+    expect(reconcileTimelineBoardStates()).toMatchObject({ aggiornate: 0 });
+    expect(await caller.commesse.byId(commessa.id)).toMatchObject({
+      stato: "finiture_saldo",
+    });
   });
 });

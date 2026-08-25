@@ -565,6 +565,10 @@ state machine a passo singolo e lo stesso doc gate del Board. La mappa è
 Se il doc gate blocca il passaggio, lo step non viene salvato come completato e
 il client propone "Procedi comunque". Date, note, step intermedi e riaperture
 non cambiano la colonna; una commessa già più avanti non viene mai arretrata.
+Subito dopo `bootstrapAll`, `reconcileTimelineBoardStates` corregge anche gli
+arretrati storici usando la milestone completata più avanzata. È idempotente,
+solo forward e scrive lo store commesse soltanto quando trova differenze; il
+log `[timeline] board riallineato` riporta analizzate e aggiornate.
 
 ## 10. Checklist prima del deploy
 

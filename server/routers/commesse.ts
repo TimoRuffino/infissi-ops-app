@@ -59,7 +59,7 @@ export const STATI_COMMESSA = [
   "interventi_regolazioni",
   "archiviata",
 ] as const;
-type StatoCommessa = typeof STATI_COMMESSA[number];
+export type StatoCommessa = typeof STATI_COMMESSA[number];
 
 // Forward + backward (prev step) transitions allowed
 const TRANSIZIONI_VALIDE: Record<StatoCommessa, StatoCommessa[]> = {
@@ -155,6 +155,36 @@ export function getCommesseStore() {
 
 export function getCommessaById(id: number) {
   return commesse.find((c) => c.id === id) ?? null;
+}
+
+/**
+ * Reconciles historical timeline progress with the board in one persisted
+ * write. This is forward-only: the timeline can raise the minimum workflow
+ * state, but can never pull a commessa backwards.
+ */
+export function advanceCommesseFromTimeline(
+  targets: ReadonlyMap<number, StatoCommessa>
+): number {
+  const now = new Date();
+  let updated = 0;
+
+  for (const commessa of commesse) {
+    const target = targets.get(commessa.id);
+    if (!target) continue;
+    const currentIdx = STATI_COMMESSA.indexOf(commessa.stato as StatoCommessa);
+    const targetIdx = STATI_COMMESSA.indexOf(target);
+    if (currentIdx < 0 || targetIdx <= currentIdx) continue;
+
+    commessa.stato = target;
+    commessa.updatedAt = now;
+    if (target === "archiviata" && !commessa.dataChiusura) {
+      commessa.dataChiusura = now.toISOString().split("T")[0];
+    }
+    updated++;
+  }
+
+  if (updated > 0) _store.save();
+  return updated;
 }
 
 // Cascade archive/restore: when a cliente is (un)archived, its commesse follow.
