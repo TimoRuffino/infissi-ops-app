@@ -38,6 +38,8 @@ import {
 import { getCommessaById } from "../routers/commesse";
 import { isAmministrazione, isDirezione } from "../_core/permissions";
 import type { EvidenceRef, EntityContextKey } from "./context/types";
+import { hybridSearch } from "./search/retriever";
+import type { SearchChunk } from "./search/types";
 
 type ToolResult = {
   content: string;
@@ -448,6 +450,30 @@ export const TOOL_DEFS: TarsTool[] = [
       type: "object",
       properties: { clienteId: { type: "number" } },
       required: ["clienteId"],
+    },
+  },
+  {
+    name: "ricerca_ibrida",
+    description:
+      "Cerca in modo trasversale e sede-scoped tra email, WhatsApp, clienti, commesse, note, documenti e conoscenza. Restituisce al massimo 8 frammenti con fonte verificabile; una somiglianza non prova una relazione business.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        entityRefs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string" },
+              id: { type: "string" },
+            },
+            required: ["type", "id"],
+          },
+        },
+        limite: { type: "number", minimum: 1, maximum: 8 },
+      },
+      required: ["query"],
     },
   },
   {
@@ -1341,9 +1367,47 @@ export function toolDefsForTrigger(
 
 const READ_TOOLS = new Set(
   TOOL_DEFS.filter(
-    tool => tool.name.startsWith("leggi_") || tool.name.startsWith("cerca_")
+    tool =>
+      tool.name.startsWith("leggi_") ||
+      tool.name.startsWith("cerca_") ||
+      tool.name === "ricerca_ibrida"
   ).map(tool => tool.name)
 );
+
+async function canReadSearchSource(
+  rt: ToolRuntime,
+  chunk: SearchChunk
+): Promise<boolean> {
+  const sedeId = rt.ctx.sedeId ?? 1;
+  if (chunk.sedeId !== sedeId) return false;
+  if (chunk.sourceType === "conoscenza") return true;
+  if (chunk.sourceType === "email" || chunk.sourceType === "whatsapp") {
+    return Boolean(await getComunicazione(Number(chunk.sourceId), sedeId));
+  }
+  if (chunk.sourceType === "cliente") {
+    const { getClientiStore } = await import("../routers/clienti");
+    return getClientiStore().some(
+      (item: any) =>
+        item.id === Number(chunk.sourceId) &&
+        item.sedeId === sedeId &&
+        !item.archivedAt
+    );
+  }
+  const commessaRef =
+    chunk.sourceType === "commessa"
+      ? chunk.sourceId
+      : chunk.entityRefs.find(ref => ref.type === "commessa")?.id;
+  if (commessaRef) {
+    const { getCommesseStore } = await import("../routers/commesse");
+    return getCommesseStore().some(
+      (item: any) =>
+        item.id === Number(commessaRef) &&
+        item.sedeId === sedeId &&
+        !item.archivedAt
+    );
+  }
+  return false;
+}
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -1441,6 +1505,38 @@ async function eseguiStrumentoSenzaCache(
             telefono: c.telefono ?? null,
             email: c.email ?? null,
           }))
+        );
+      }
+      case "ricerca_ibrida": {
+        const hits = await hybridSearch({
+          query: String(input.query ?? ""),
+          sedeId: rt.ctx.sedeId ?? 1,
+          userId: Number(rt.ctx.user?.id ?? 0),
+          scope: runtimeScope(rt),
+          entityRefs: Array.isArray(input.entityRefs)
+            ? input.entityRefs
+                .filter((ref: any) => ref?.type && ref?.id != null)
+                .map((ref: any) => ({
+                  type: String(ref.type),
+                  id: String(ref.id),
+                }))
+            : [],
+          limit: Math.min(Math.max(Number(input.limite) || 8, 1), 8),
+          canReadSource: chunk => canReadSearchSource(rt, chunk),
+        });
+        return ok(
+          hits.map(hit => ({
+            sourceType: hit.sourceType,
+            sourceId: hit.sourceId,
+            snippet: hit.snippet,
+            score: hit.score,
+            entityRefs: hit.entityRefs,
+          })),
+          {
+            evidenceRefs: hits.map(hit => hit.evidenceRef),
+            factsRead: hits.length,
+            factsRevalidated: hits.length,
+          }
         );
       }
       case "leggi_cliente": {
