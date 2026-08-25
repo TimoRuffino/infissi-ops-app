@@ -1,0 +1,100 @@
+import type { BusinessEventConsumer } from "../events/registry";
+import type { BusinessEvent } from "../events/types";
+import { getUtentiStore } from "../routers/utenti";
+import { getNotificationRepository, type NotificationRepository } from "./repository";
+import type { NotificationDraft } from "./types";
+
+const ASSIGNMENT_EVENT_TYPES = [
+  "cliente.assigned",
+  "commessa.assigned",
+  "ticket.assigned",
+  "intervento.assigned",
+  "azione_operativa.assigned",
+] as const;
+
+const ENTITY_LABELS: Record<string, string> = {
+  cliente: "Cliente",
+  commessa: "Commessa",
+  ticket: "Ticket post-vendita",
+  intervento: "Intervento",
+  azione_operativa: "Azione operativa",
+};
+
+function numericPayload(event: BusinessEvent, key: string): number | null {
+  const value = event.payload[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function assignmentGroupKey(event: BusinessEvent) {
+  return `${event.source.type}:${event.source.id}`;
+}
+
+export function projectNotification(event: BusinessEvent): NotificationDraft[] {
+  if (!ASSIGNMENT_EVENT_TYPES.includes(event.eventType as any)) return [];
+  const assigneeId = numericPayload(event, "assigneeId");
+  if (assigneeId == null) return [];
+  const notifyActor = event.payload.notifyActor === true;
+  if (!notifyActor && event.actorUserId === assigneeId) return [];
+  const label = ENTITY_LABELS[event.source.type] ?? "Attivita";
+  const link = typeof event.payload.link === "string" ? event.payload.link : "/";
+  return [
+    {
+      sedeId: event.sedeId,
+      recipientUserId: assigneeId,
+      canonicalKey: `event:${event.id}:assignment:${assigneeId}`,
+      type: "assignment",
+      priority: event.source.type === "cliente" ? "normal" : "high",
+      title: `${label} assegnata a te`,
+      body: "Hai una nuova responsabilita da prendere in carico.",
+      link,
+      groupKey: assignmentGroupKey(event),
+      sourceEventId: event.id,
+      entityRefs: event.subjectRefs,
+      createdAt: new Date(event.occurredAt),
+      expiresAt: null,
+    },
+  ];
+}
+
+export function createNotificationProjectorConsumer(options: {
+  repository?: NotificationRepository;
+  getUsers?: () => Array<{ id: number; attivo: boolean; sediIds?: number[] }>;
+  onDiagnostic?: (code: string, event: BusinessEvent, userId: number) => void;
+} = {}): BusinessEventConsumer {
+  const repository = options.repository ?? getNotificationRepository();
+  const getUsers = options.getUsers ?? getUtentiStore;
+  const diagnostic =
+    options.onDiagnostic ??
+    ((code, event, userId) => {
+      console.warn(`[notifications] ${code} event=${event.id} recipient=${userId}`);
+    });
+
+  return {
+    name: "notification-projector-v1",
+    eventTypes: ASSIGNMENT_EVENT_TYPES,
+    async handle(event) {
+      const previousAssigneeId = numericPayload(event, "previousAssigneeId");
+      if (previousAssigneeId != null) {
+        await repository.resolveGroup({
+          sedeId: event.sedeId,
+          recipientUserId: previousAssigneeId,
+          groupKey: assignmentGroupKey(event),
+          now: new Date(event.occurredAt),
+        });
+      }
+      const users = getUsers();
+      for (const draft of projectNotification(event)) {
+        const recipient = users.find(user => user.id === draft.recipientUserId);
+        if (
+          !recipient?.attivo ||
+          !Array.isArray(recipient.sediIds) ||
+          !recipient.sediIds.includes(event.sedeId)
+        ) {
+          diagnostic("recipient_invalid", event, draft.recipientUserId);
+          continue;
+        }
+        await repository.upsert(draft);
+      }
+    },
+  };
+}

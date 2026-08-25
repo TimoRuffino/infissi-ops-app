@@ -90,4 +90,21 @@ describe("notification repository", () => {
     expect(first.created).toBe(true);
     expect(duplicate).toEqual({ id: first.id, created: false });
   });
+
+  it("risolve tutte le notifiche attive di un gruppo per il solo destinatario", async () => {
+    const repo = createMemoryNotificationRepository();
+    const own = await repo.upsert(draft({ canonicalKey: "own", groupKey: "commessa:42" }));
+    await repo.upsert(draft({ canonicalKey: "other", recipientUserId: 8, groupKey: "commessa:42" }));
+
+    expect(
+      await repo.resolveGroup({
+        sedeId: 1,
+        recipientUserId: 7,
+        groupKey: "commessa:42",
+        now,
+      })
+    ).toBe(1);
+    expect((await repo.findById(own.id, 7, 1))?.status).toBe("resolved");
+    expect(await repo.countUnread({ sedeId: 1, recipientUserId: 8, now })).toBe(1);
+  });
 });

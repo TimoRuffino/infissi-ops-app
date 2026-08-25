@@ -25,6 +25,7 @@ export type NotificationRepository = {
   markSeen(input: MutationInput): Promise<number>;
   markRead(input: MutationInput): Promise<number>;
   resolve(input: MutationInput): Promise<number>;
+  resolveGroup(input: Scope & { groupKey: string; now: Date }): Promise<number>;
   countUnread(input: Scope & { now: Date }): Promise<number>;
   recordDelivery(draft: NotificationDeliveryDraft): Promise<{ id: number; created: boolean }>;
 };
@@ -152,6 +153,25 @@ export function createMemoryNotificationRepository(): NotificationRepository {
         item.resolvedAt = new Date(input.now);
         return true;
       });
+    },
+
+    async resolveGroup(input) {
+      let changed = 0;
+      for (const item of notifications) {
+        if (
+          !scoped(input, item) ||
+          item.groupKey !== input.groupKey ||
+          item.status === "resolved" ||
+          item.status === "expired"
+        ) {
+          continue;
+        }
+        item.status = "resolved";
+        item.resolvedAt = new Date(input.now);
+        item.updatedAt = new Date(input.now);
+        changed += 1;
+      }
+      return changed;
     },
 
     async countUnread(input) {
@@ -354,6 +374,16 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
     },
     resolve(input) {
       return updateStatus(input, "resolved");
+    },
+    async resolveGroup(input) {
+      await ensureSchema();
+      const rows = await sql`
+        UPDATE notifications SET status = 'resolved', resolved_at = ${input.now}, updated_at = ${input.now}
+        WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId}
+          AND group_key = ${input.groupKey} AND status IN ('unread','seen','read','acted')
+        RETURNING id
+      `;
+      return rows.length;
     },
     async countUnread(input) {
       await ensureSchema();

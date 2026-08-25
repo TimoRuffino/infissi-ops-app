@@ -1,4 +1,5 @@
 import type { BusinessEvent } from "./types";
+import { createNotificationProjectorConsumer } from "../notifications/projector";
 
 export type BusinessEventConsumer = {
   name: string;
@@ -35,3 +36,5 @@ export const eventConsumerRegistry = createEventConsumerRegistry();
 export function registerEventConsumer(consumer: BusinessEventConsumer): void {
   eventConsumerRegistry.register(consumer);
 }
+
+registerEventConsumer(createNotificationProjectorConsumer());
