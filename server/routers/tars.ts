@@ -45,6 +45,7 @@ import {
   MAX_MESSAGGI_CHAT,
   MODELLI_TARS,
   TIPI_ALTO_RISCHIO,
+  currentExecutionVersions,
   type MessaggioChat,
 } from "../tars/stores";
 import { getCommessaById } from "./commesse";
@@ -53,6 +54,12 @@ import {
   salvaEsitoTarsComunicazione,
 } from "../tars/comunicazioni";
 import { getFeatureFlags, setFeatureFlags } from "../platform/featureFlags";
+import {
+  buildCapabilityOutcomeReport,
+  recordTarsOutcome,
+  type TarsOutcomeEvent,
+} from "../tars/learning/outcomes";
+import { evaluateAutonomyGate } from "../tars/autonomy/policy";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -61,6 +68,54 @@ const MOTIVI_RIFIUTO = [
   "lo_faccio_io",
   "altro",
 ] as const;
+
+// Deliberatamente vuota: una capability entra qui solo dopo revisione tecnica,
+// eval allegato e decisione esplicita della direzione.
+const AUTONOMY_WHITELIST: string[] = [];
+
+const CAPABILITIES_PER_PROPOSAL: Record<string, string[]> = {
+  collega_comunicazione: ["comunicazione.link"],
+  crea_lead: ["cliente.create", "commessa.create"],
+  collega_fattura: ["fattura.link"],
+  rinomina_documento: ["documento.rename"],
+  nota_timeline: ["timeline.note"],
+  aggiornamento_magazzino: ["magazzino.update"],
+  modifica_cliente: ["cliente.update"],
+  modifica_commessa: ["commessa.update"],
+  ticket: ["ticket.create"],
+  pagamento: ["pagamento.create"],
+  avanzamento_stato: ["commessa.transition"],
+  bozza_risposta: ["comunicazione.draft"],
+  segnalazione: ["segnalazione.create"],
+  miglioramento_processo: ["processo.propose"],
+  domanda: ["clarification.ask"],
+};
+
+function recordProposalOutcomes(
+  proposal: any,
+  eventType: TarsOutcomeEvent,
+  reason: string | null
+) {
+  const execution = proposal.esecuzioneId
+    ? esecuzioni.find(item => item.id === proposal.esecuzioneId)
+    : null;
+  const versions = currentExecutionVersions(`proposal:${proposal.tipo}:v1`);
+  for (const capability of CAPABILITIES_PER_PROPOSAL[proposal.tipo] ?? []) {
+    recordTarsOutcome({
+      sedeId: proposal.sedeId,
+      capability,
+      eventType,
+      workflowId: `proposal:${proposal.tipo}`,
+      workflowVersion:
+        execution?.workflowVersion ?? versions.workflowVersion ?? "v1",
+      modelVersion:
+        execution?.modello ?? getTarsConfig(proposal.sedeId).modello,
+      promptVersion: execution?.promptVersion ?? versions.promptVersion,
+      reason,
+      occurredAt: proposal.decisaAt ?? new Date(),
+    });
+  }
+}
 
 // Trigger umani oltre il budget: errore chiaro con il numero, non un
 // silenzio. La direzione può alzare il tetto da Impostazioni.
@@ -581,11 +636,13 @@ ${input.testo.trim()}`;
         p.decisaDaNome = user?.name ?? null;
         saveProposte();
         if (p.stato === "errore") {
+          recordProposalOutcomes(p, "incident", p.esito);
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: `Esecuzione fallita: ${p.esito}`,
           });
         }
+        recordProposalOutcomes(p, "approved", null);
         // Una segnalazione approvata ha confermato un problema, non l'ha
         // risolto: Tars riparte in background per proporre l'azione che lo
         // chiude. Non si attende — il click deve restare istantaneo.
@@ -617,6 +674,7 @@ ${input.testo.trim()}`;
         p.decisaDa = user?.id ?? null;
         p.decisaDaNome = user?.name ?? null;
         saveProposte();
+        recordProposalOutcomes(p, "rejected", p.motivoRifiuto);
         return p;
       }),
 
@@ -679,6 +737,47 @@ ${input.testo.trim()}`;
         ),
         ultimaEsecuzioneAt: ultimeEsecuzioni[0]?.createdAt ?? null,
       };
+    }),
+  }),
+
+  autonomy: router({
+    report: protectedProcedure.query(({ ctx }) => {
+      requireDirezione(ctx.user);
+      const sedeId = ctx.sedeId ?? 1;
+      const flags = getFeatureFlags(sedeId);
+      const config = getTarsConfig(sedeId);
+      const current = currentExecutionVersions();
+      return buildCapabilityOutcomeReport({ sedeId }).map(metric => {
+        const modelVersion = metric.modelVersions.at(-1) ?? "none";
+        const promptVersion = metric.promptVersions.at(-1) ?? "none";
+        const workflowVersion = metric.workflowVersions.at(-1) ?? "none";
+        const enabled = flags.autonomyCapabilities.includes(metric.capability);
+        const gate = evaluateAutonomyGate({
+          capability: metric.capability,
+          whitelistedCapabilities: AUTONOMY_WHITELIST,
+          enabledByDirection: enabled,
+          featureEnabled: enabled,
+          evalReportId: null,
+          sampleSize: metric.sampleSize,
+          accuracy: metric.accuracy,
+          observedFrom: metric.observedFrom,
+          observedTo: metric.observedTo,
+          modelVersion,
+          promptVersion,
+          workflowVersion,
+          currentModelVersion: config.modello,
+          currentPromptVersion: current.promptVersion,
+          currentWorkflowVersion: workflowVersion,
+          riskClass: "medium",
+          irreversible: false,
+          undoAvailable: false,
+          systemPrincipalMinimal: false,
+          incidents: metric.incidents,
+          killSwitchActive: false,
+          now: new Date(),
+        });
+        return { ...metric, ...gate };
+      });
     }),
   }),
 

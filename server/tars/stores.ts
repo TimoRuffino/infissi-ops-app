@@ -20,6 +20,7 @@ import {
 } from "./evals/types";
 import type { EvidenceRef, EntityContextKey } from "./context/types";
 import type { CreateCustomerJobOperation } from "./workflows/createCustomerJob";
+import type { TarsOutcome } from "./learning/outcomes";
 
 // ── Proposte ────────────────────────────────────────────────────────────────
 
@@ -547,6 +548,22 @@ const _esecuzioniStore = persistedStore<Esecuzione>(
 export const esecuzioni = _esecuzioniStore.items;
 export const saveEsecuzioni = () => _esecuzioniStore.save();
 export const newEsecuzioneId = () => nextEsecuzioneId++;
+
+// Esiti strutturati usati solo per metriche e gate. Nessun testo libero viene
+// reiniettato nei prompt o promosso automaticamente a regola aziendale.
+let nextTarsOutcomeIdValue = 1;
+const _tarsOutcomesStore = persistedStore<TarsOutcome>(
+  "tars_learning_outcomes",
+  items => {
+    nextTarsOutcomeIdValue = items.length
+      ? Math.max(...items.map(item => item.id)) + 1
+      : 1;
+    for (const item of items) item.occurredAt = new Date(item.occurredAt);
+  }
+);
+export const tarsOutcomes = _tarsOutcomesStore.items;
+export const saveTarsOutcomes = () => _tarsOutcomesStore.save();
+export const newTarsOutcomeId = () => nextTarsOutcomeIdValue++;
 
 // ── Spesa ───────────────────────────────────────────────────────────────────
 // Prezzi per milione di token (USD). I modelli Claude restano qui soltanto
