@@ -595,11 +595,15 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "proponi_nuovo_lead",
     description:
-      "Propone di creare cliente e commessa in stato preventivo partendo da una comunicazione non riconducibile a commesse esistenti, poi collega la comunicazione. Usalo solo dopo aver cercato clienti e commesse, escluso duplicati e ottenuto dall'operatore l'assegnatario. È una singola proposta: nulla viene creato prima dell'approvazione.",
+      "Propone di creare insieme un nuovo cliente e la sua prima commessa in stato preventivo. Può partire da una comunicazione non riconducibile a commesse esistenti oppure da una richiesta esplicita dell'operatore in chat. Cerca prima clienti e commesse per escludere duplicati e usa leggi_assegnatari; se c'è un solo assegnatario compatibile puoi usarlo, altrimenti chiedi all'operatore. È una singola proposta: nulla viene creato prima dell'approvazione.",
     input_schema: {
       type: "object",
       properties: {
-        comunicazioneId: { type: "number" },
+        comunicazioneId: {
+          type: "number",
+          description:
+            "Obbligatorio solo quando la richiesta nasce da email o WhatsApp; omettilo per una richiesta diretta in chat.",
+        },
         nome: {
           type: "string",
           description: "Nome della persona o ragione sociale",
@@ -646,7 +650,6 @@ export const TOOL_DEFS: TarsTool[] = [
         ...PROPOSTA_PROPS,
       },
       required: [
-        "comunicazioneId",
         "nome",
         "cognome",
         "tipo",
@@ -2044,17 +2047,38 @@ async function eseguiStrumentoSenzaCache(
         });
       }
       case "proponi_nuovo_lead": {
-        const comunicazioneId = Number(
-          input.comunicazioneId ?? rt.comunicazioneId
-        );
-        const comunicazione = await getComunicazione(
-          comunicazioneId,
-          rt.ctx.sedeId ?? 1
-        );
-        if (!comunicazione || comunicazione.deletedAt) {
+        const rawComunicazioneId =
+          input.comunicazioneId ?? rt.comunicazioneId;
+        const parsedComunicazioneId = Number(rawComunicazioneId);
+        const comunicazioneId =
+          rawComunicazioneId != null &&
+          Number.isSafeInteger(parsedComunicazioneId) &&
+          parsedComunicazioneId > 0
+            ? parsedComunicazioneId
+            : null;
+        const comunicazione =
+          comunicazioneId != null
+            ? await getComunicazione(
+                comunicazioneId,
+                rt.ctx.sedeId ?? 1
+              )
+            : null;
+        if (
+          comunicazioneId != null &&
+          (!comunicazione || comunicazione.deletedAt)
+        ) {
           return err("Comunicazione inesistente.");
         }
-        if (comunicazione.commessaId != null) {
+        if (
+          comunicazioneId == null &&
+          rt.trigger !== "chat" &&
+          rt.trigger !== "seguito"
+        ) {
+          return err(
+            "Senza una comunicazione, cliente e commessa possono essere proposti solo su richiesta esplicita dell'operatore in chat."
+          );
+        }
+        if (comunicazione?.commessaId != null) {
           return err("La comunicazione è già collegata a una commessa.");
         }
         const nome = String(input.nome ?? "").trim();
@@ -2074,7 +2098,9 @@ async function eseguiStrumentoSenzaCache(
           );
         }
         const assegnatoNome = assegnatario.nome;
-        const emailGrezz = String(input.email ?? comunicazione.mittente).trim();
+        const emailGrezz = String(
+          input.email ?? comunicazione?.mittente ?? ""
+        ).trim();
         const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailGrezz)
           ? emailGrezz.toLowerCase()
           : undefined;
@@ -2093,7 +2119,7 @@ async function eseguiStrumentoSenzaCache(
           motivazione: String(input.motivazione),
           confidenza: input.confidenza,
           payload: {
-            comunicazioneId,
+            ...(comunicazioneId != null ? { comunicazioneId } : {}),
             assegnatoA,
             assegnatoNome,
             cliente: {
@@ -2109,7 +2135,10 @@ async function eseguiStrumentoSenzaCache(
                 : {}),
               ...(input.citta ? { citta: String(input.citta).trim() } : {}),
               assegnatoA,
-              note: `Lead proposto da Tars dalla comunicazione #${comunicazioneId}.`,
+              note:
+                comunicazioneId != null
+                  ? `Lead proposto da Tars dalla comunicazione #${comunicazioneId}.`
+                  : "Cliente proposto da Tars su richiesta dell'operatore in chat.",
             },
             commessa: {
               ...(email ? { email } : {}),
@@ -2124,7 +2153,9 @@ async function eseguiStrumentoSenzaCache(
               priorita: input.priorita ?? "media",
               note: String(
                 input.note ??
-                  `Richiesta ricevuta via ${comunicazione.canale}: ${comunicazione.oggetto}`
+                  (comunicazione
+                    ? `Richiesta ricevuta via ${comunicazione.canale}: ${comunicazione.oggetto}`
+                    : "Commessa creata su richiesta dell'operatore in chat.")
               ).slice(0, 2000),
               prodotti,
             },

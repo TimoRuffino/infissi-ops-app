@@ -342,6 +342,98 @@ describe("tars.chat", () => {
     await caller.tars.chat.pulisci();
     expect(await caller.tars.chat.get()).toHaveLength(0);
   });
+
+  it("crea cliente e commessa da chat senza richiedere una comunicazione", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+
+    global.fetch = openaiScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_cerca_cliente_chat",
+            name: "cerca_clienti",
+            input: { query: "Giulia Ferri" },
+          },
+          {
+            type: "tool_use",
+            id: "tu_assegnatari_chat",
+            name: "leggi_assegnatari",
+            input: {},
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_crea_cliente_commessa_chat",
+            name: "proponi_nuovo_lead",
+            input: {
+              nome: "Giulia",
+              cognome: "Ferri",
+              tipo: "privato",
+              email: "giulia.ferri@example.com",
+              citta: "Sarzana",
+              assegnatoA: 1,
+              prodotti: [{ nome: "Finestre", quantita: 4 }],
+              titolo: "Crea cliente e commessa per Giulia Ferri",
+              motivazione:
+                "L'operatore ha richiesto esplicitamente in chat una nuova anagrafica con commessa preventivo.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [
+          {
+            type: "text",
+            text: "Ho preparato la creazione: approva la proposta.",
+          },
+        ],
+      },
+    ]) as any;
+
+    const risposta = await caller.tars.chat.invia({
+      testo:
+        "Crea il cliente Giulia Ferri e una commessa per 4 finestre a Sarzana, assegnata a me.",
+    });
+    expect(risposta.proposte).toHaveLength(1);
+    expect((risposta.proposte[0] as any).tipo).toBe("crea_lead");
+    expect(
+      await caller.clienti.list({ search: "giulia.ferri@example.com" })
+    ).toHaveLength(0);
+
+    await caller.tars.proposte.approva({
+      id: (risposta.proposte[0] as any).id,
+    });
+
+    const clientiCreati = await caller.clienti.list({
+      search: "giulia.ferri@example.com",
+    });
+    expect(clientiCreati).toHaveLength(1);
+    expect(clientiCreati[0].assegnatoA).toBe(1);
+    const commesseCreate = await caller.commesse.list({
+      clienteId: clientiCreati[0].id,
+    });
+    expect(commesseCreate).toHaveLength(1);
+    expect(commesseCreate[0].stato).toBe("preventivo");
+    expect(commesseCreate[0].prodottiSintesi).toEqual([
+      { nome: "Finestre", quantita: 4 },
+    ]);
+    expect(commesseCreate[0].assegnatoA).toBe(1);
+
+    await caller.tars.chat.pulisci();
+  });
 });
 
 // ── Un rifiuto è definitivo ────────────────────────────────────────────────

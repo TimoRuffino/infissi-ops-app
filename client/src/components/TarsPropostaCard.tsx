@@ -88,7 +88,11 @@ function describePayload(p: any): string[] {
       out.push(
         `Crea cliente: ${pay.cliente?.cognome ?? ""} ${pay.cliente?.nome ?? ""}`.trim()
       );
-      out.push("Apre una commessa in preventivo e collega la comunicazione");
+      out.push(
+        pay.comunicazioneId != null
+          ? "Apre una commessa in preventivo e collega la comunicazione"
+          : "Apre una commessa in preventivo"
+      );
       if (pay.assegnatoNome) out.push(`Assegnato a: ${pay.assegnatoNome}`);
       if (pay.cliente?.email) out.push(`Email: ${pay.cliente.email}`);
       if (pay.commessa?.citta) out.push(`Città: ${pay.commessa.citta}`);

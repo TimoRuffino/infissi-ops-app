@@ -151,7 +151,16 @@ export function chiaveAzioneProposta(p: {
       effetto = { comunicazioneId: pay.comunicazioneId };
       break;
     case "crea_lead":
-      effetto = { comunicazioneId: pay.comunicazioneId };
+      effetto =
+        pay.comunicazioneId != null
+          ? { comunicazioneId: pay.comunicazioneId }
+          : {
+              nome: normalizzaTesto(
+                `${pay.cliente?.nome ?? ""} ${pay.cliente?.cognome ?? ""}`
+              ),
+              email: normalizzaTesto(pay.cliente?.email),
+              telefono: normalizzaTesto(pay.cliente?.telefono),
+            };
       break;
     case "collega_fattura":
       effetto = { ficId: pay.ficId };

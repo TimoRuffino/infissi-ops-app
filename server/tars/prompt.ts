@@ -310,6 +310,16 @@ La priorita fornita dal CRM e un minimo: puoi confermarla o motivare maggiore ur
 mai ridurla. Una sola azione consigliata, al massimo due alternative, oppure una domanda
 se manca un dato decisivo.`;
   }
+  if (trigger === "chat" || trigger === "seguito") {
+    return `${buildSystemPrompt(sedeId)}
+
+═══ RICHIESTE OPERATIVE IN CHAT ═══
+Quando l'operatore ti chiede esplicitamente di creare un nuovo cliente e la sua prima
+commessa, puoi usare proponi_nuovo_lead anche senza comunicazioneId. Prima cerca il
+cliente e le commesse per evitare duplicati e leggi gli assegnatari. Se manca un dato
+obbligatorio chiedilo; se esiste un solo assegnatario compatibile puoi usarlo senza una
+domanda superflua. La creazione resta una proposta unica e avviene solo dopo approvazione.`;
+  }
   return trigger === "smistamento"
     ? appendConoscenza(SYSTEM_SMISTAMENTO, sedeId)
     : buildSystemPrompt(sedeId);
