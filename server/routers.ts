@@ -18,6 +18,7 @@ import { produzioneRouter } from "./routers/produzione";
 import { timelineRouter } from "./routers/timeline";
 import { reclamiRifacimentiRouter } from "./routers/reclamiRifacimenti";
 import { utentiRouter, getUtentiStore } from "./routers/utenti";
+import { permessiRouter } from "./routers/permessi";
 import { preventiviContrattiRouter } from "./routers/preventiviContratti";
 import { notificheRouter } from "./routers/notifiche";
 import { sediRouter } from "./routers/sedi";
@@ -31,7 +32,11 @@ import { tarsRouter } from "./routers/tars";
 import { mailRouter } from "./routers/mail";
 import { ficFattureRouter } from "./routers/ficFatture";
 import { economiaRouter } from "./routers/economia";
-import { createLocalToken, clearLocalSessionFromRequest, type LocalUser } from "./localAuth";
+import {
+  createLocalToken,
+  clearLocalSessionFromRequest,
+  type LocalUser,
+} from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
 
@@ -114,9 +119,10 @@ export const appRouter = router({
         // Success — reset the failure counter for this account.
         clearLoginAttempts(input.email);
 
-        const ruoli: string[] = Array.isArray(utente.ruoli) && utente.ruoli.length > 0
-          ? utente.ruoli
-          : [utente.ruolo ?? "direzione"];
+        const ruoli: string[] =
+          Array.isArray(utente.ruoli) && utente.ruoli.length > 0
+            ? utente.ruoli
+            : [utente.ruolo ?? "direzione"];
         const primaryRuolo = ruoli[0];
         const localUser: LocalUser = {
           id: utente.id,
@@ -166,6 +172,7 @@ export const appRouter = router({
   timeline: timelineRouter,
   reclamiRifacimenti: reclamiRifacimentiRouter,
   utenti: utentiRouter,
+  permessi: permessiRouter,
   preventiviContratti: preventiviContrattiRouter,
   notifiche: notificheRouter,
   sedi: sediRouter,

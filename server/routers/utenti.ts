@@ -1,8 +1,10 @@
 import { z } from "zod";
 import crypto from "crypto";
+import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { hashPassword, isHashed } from "../_core/password";
+import { isDirezione } from "../_core/permissions";
 
 // ── Roles (PRD Section 14) ────────────────────────────────────────────────────
 const RUOLI = [
@@ -115,6 +117,35 @@ export function getUtentiStore() {
   return utenti;
 }
 
+const scopeInputSchema = z.object({ adminScope: z.boolean().optional() });
+
+function scopedUtenti(
+  ctx: {
+    user: any;
+    sedeId: number | null;
+  },
+  adminScope = false
+) {
+  if (adminScope) {
+    if (!isDirezione(ctx.user)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Solo la direzione puo consultare tutte le sedi.",
+      });
+    }
+    return [...utenti];
+  }
+  if (ctx.sedeId == null) return [];
+  return utenti.filter(
+    user => Array.isArray(user.sediIds) && user.sediIds.includes(ctx.sedeId)
+  );
+}
+
+function publicUtente(user: any) {
+  const { password, ...rest } = user;
+  return { ...rest, hasPassword: !!password };
+}
+
 export const utentiRouter = router({
   list: protectedProcedure
     .input(
@@ -122,11 +153,12 @@ export const utentiRouter = router({
         .object({
           ruolo: z.enum(RUOLI).optional(),
           search: z.string().optional(),
+          adminScope: z.boolean().optional(),
         })
         .optional()
     )
-    .query(({ input }) => {
-      let result = [...utenti];
+    .query(({ input, ctx }) => {
+      let result = scopedUtenti(ctx, input?.adminScope);
       if (input?.ruolo) {
         result = result.filter(u => (u.ruoli ?? []).includes(input.ruolo));
       }
@@ -142,15 +174,18 @@ export const utentiRouter = router({
       // Strip password from response, add hasPassword flag
       return result
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .map(({ password, ...rest }) => ({ ...rest, hasPassword: !!password }));
+        .map(publicUtente);
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input }) => {
-    const u = utenti.find(u => u.id === input);
-    if (!u) return null;
-    const { password, ...rest } = u;
-    return { ...rest, hasPassword: !!password };
-  }),
+  byId: protectedProcedure
+    .input(z.union([z.number(), scopeInputSchema.extend({ id: z.number() })]))
+    .query(({ input, ctx }) => {
+      const id = typeof input === "number" ? input : input.id;
+      const adminScope = typeof input === "number" ? false : input.adminScope;
+      const u = scopedUtenti(ctx, adminScope).find(user => user.id === id);
+      if (!u) return null;
+      return publicUtente(u);
+    }),
 
   create: adminProcedure
     .input(
@@ -252,16 +287,21 @@ export const utentiRouter = router({
     return { success: true };
   }),
 
-  stats: protectedProcedure.query(() => {
-    const total = utenti.length;
-    const attivi = utenti.filter(u => u.attivo).length;
-    const perRuolo = RUOLI.reduce(
-      (acc, ruolo) => {
-        acc[ruolo] = utenti.filter(u => (u.ruoli ?? []).includes(ruolo)).length;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-    return { total, attivi, perRuolo };
-  }),
+  stats: protectedProcedure
+    .input(scopeInputSchema.optional())
+    .query(({ input, ctx }) => {
+      const visible = scopedUtenti(ctx, input?.adminScope);
+      const total = visible.length;
+      const attivi = visible.filter(u => u.attivo).length;
+      const perRuolo = RUOLI.reduce(
+        (acc, ruolo) => {
+          acc[ruolo] = visible.filter(u =>
+            (u.ruoli ?? []).includes(ruolo)
+          ).length;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
+      return { total, attivi, perRuolo };
+    }),
 });

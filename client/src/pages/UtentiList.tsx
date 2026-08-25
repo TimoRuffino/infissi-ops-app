@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { UserPermissionsDialog } from "@/components/users/UserPermissionsDialog";
 import {
   Plus,
   Pencil,
@@ -26,6 +27,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -74,6 +76,7 @@ export default function UtentiList() {
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [permissionsTarget, setPermissionsTarget] = useState<any | null>(null);
 
   const utenti = trpc.utenti.list.useQuery({
     ruolo: (filtroRuolo || undefined) as any,
@@ -251,7 +254,19 @@ export default function UtentiList() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
+                      className="h-8 w-8"
+                      aria-label={`Gestisci accessi di ${u.nome} ${u.cognome}`}
+                      title="Gestisci accessi"
+                      onClick={() => setPermissionsTarget(u)}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label={`Modifica ${u.nome} ${u.cognome}`}
+                      title="Modifica profilo"
                       onClick={() => openEdit(u)}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -259,7 +274,9 @@ export default function UtentiList() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-destructive"
+                      className="h-8 w-8 text-destructive"
+                      aria-label={`Elimina ${u.nome} ${u.cognome}`}
+                      title="Elimina utente"
                       onClick={() =>
                         setDeleteTarget({
                           id: u.id,
@@ -597,6 +614,12 @@ export default function UtentiList() {
         title="Elimina utente"
         description={`Confermi l'eliminazione di "${deleteTarget?.label}"?`}
         onConfirm={() => deleteTarget && deleteUtente.mutate(deleteTarget.id)}
+      />
+      <UserPermissionsDialog
+        user={permissionsTarget}
+        open={permissionsTarget != null}
+        onOpenChange={open => !open && setPermissionsTarget(null)}
+        onEdit={openEdit}
       />
     </div>
   );
