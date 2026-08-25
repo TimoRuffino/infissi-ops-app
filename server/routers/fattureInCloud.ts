@@ -12,10 +12,16 @@ import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   ficFatture,
+  finalizzaSnapshotDocumentiEmessi,
   generaProposteRiconciliazione,
-  upsertFatture,
+  upsertDocumentiEmessi,
   type RataFic,
 } from "./ficFatture";
+import {
+  finalizzaSnapshotCosti,
+  upsertCostiFic,
+  type CostoFicInput,
+} from "./ficCosti";
 
 // ── Fatture in Cloud → CRM sync ──────────────────────────────────────────────
 // Polls the FiC API (v2) for the current year's issued invoices and creates
@@ -23,7 +29,8 @@ import {
 // OAuth Authorization Code is the primary mode, with automatic refresh.
 
 const FIC = "https://api-v2.fattureincloud.it";
-const FIC_SCOPES = "entity.clients:r issued_documents.invoices:r";
+const FIC_SCOPES =
+  "entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r";
 const FIC_CALLBACK_PATH = "/api/oauth/fic/callback";
 
 type FicAuthMode = "manual" | "oauth";
@@ -45,6 +52,7 @@ type FicConfig = {
   enabled: boolean;
   lastSyncAt: Date | null;
   lastResult: string | null;
+  economicScopesReady: boolean;
 };
 
 let nextCfgId = 2;
@@ -70,6 +78,7 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
     if (c.accessTokenExpiresAt === undefined) c.accessTokenExpiresAt = null;
     if (c.oauthConnectedAt === undefined) c.oauthConnectedAt = null;
     if (c.authMode !== "oauth") c.authMode = "manual";
+    if (c.economicScopesReady === undefined) c.economicScopesReady = false;
   }
   nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
@@ -91,6 +100,7 @@ function getCfg(sedeId: number | null): FicConfig {
       enabled: false,
       lastSyncAt: null,
       lastResult: null,
+      economicScopesReady: false,
     };
     cfgRows.push(c);
     _cfgStore.save();
@@ -202,7 +212,11 @@ async function requestFicToken(
   return (await res.json()) as FicTokenResponse;
 }
 
-function salvaTokenOAuth(cfg: FicConfig, token: FicTokenResponse): void {
+function salvaTokenOAuth(
+  cfg: FicConfig,
+  token: FicTokenResponse,
+  resetEconomicScopes = true
+): void {
   if (!token.access_token || !tokenSembraValido(token.access_token)) {
     throw new Error(
       "Fatture in Cloud non ha restituito un access token valido"
@@ -217,6 +231,7 @@ function salvaTokenOAuth(cfg: FicConfig, token: FicTokenResponse): void {
   );
   cfg.oauthConnectedAt ??= new Date();
   cfg.authMode = "oauth";
+  if (resetEconomicScopes) cfg.economicScopesReady = false;
   delete (cfg as any).accessToken;
   _cfgStore.save();
 }
@@ -276,7 +291,7 @@ async function refreshFicToken(cfg: FicConfig): Promise<string> {
       client_secret: client.clientSecret,
       refresh_token: refreshToken,
     });
-    salvaTokenOAuth(cfg, token);
+    salvaTokenOAuth(cfg, token, false);
     return token.access_token!;
   })().finally(() => refreshInFlight.delete(cfg.sedeId));
   refreshInFlight.set(cfg.sedeId, promise);
@@ -308,7 +323,7 @@ function messaggioErroreFic(status: number, corpo: string): string {
     return "Token rifiutato da Fatture in Cloud: è scaduto, è stato revocato, oppure non è un token (controlla di non aver incollato il Client ID).";
   }
   if (status === 403) {
-    return "Token valido ma senza i permessi necessari: nelle Applicazioni connesse abilita la lettura di «Fatture emesse» e «Anagrafica», poi rigenera il token.";
+    return "Token valido ma senza i permessi necessari: ricollega Fatture in Cloud autorizzando clienti, fatture emesse, note di credito e documenti ricevuti.";
   }
   if (status === 404) {
     return "Azienda non trovata con questo token: ripremi «Trova azienda» e riseleziona quella giusta.";
@@ -385,7 +400,11 @@ async function archiviaPdfFattureCollegate(
     "./preventiviContratti"
   );
   const collegate = ficFatture.filter(
-    fattura => fattura.sedeId === sedeId && fattura.commessaId != null
+    fattura =>
+      fattura.sedeId === sedeId &&
+      fattura.tipo === "invoice" &&
+      fattura.presenteInFic &&
+      fattura.commessaId != null
   );
   let archiviate = 0;
   let fallite = 0;
@@ -471,6 +490,98 @@ function splitPersona(
 // ── Sync ─────────────────────────────────────────────────────────────────────
 // Un lucchetto per sede: la sede 2 non deve aspettare il giro della sede 1.
 const syncing = new Set<number>();
+const MAX_FIC_SYNC_PAGES = 100;
+
+type FicPageResult = { rows: any[]; complete: boolean };
+
+async function ficListAll(
+  path: string,
+  token: string,
+  params: Record<string, string>
+): Promise<FicPageResult> {
+  const rows: any[] = [];
+  for (let page = 1; page <= MAX_FIC_SYNC_PAGES; page++) {
+    const query = new URLSearchParams({
+      ...params,
+      per_page: "100",
+      page: String(page),
+    });
+    const response = await ficGet(`${path}?${query.toString()}`, token);
+    const chunk: any[] = Array.isArray(response?.data) ? response.data : [];
+    rows.push(...chunk);
+    const lastPage = Number(
+      response?.last_page ?? response?.pagination?.last_page ?? 0
+    );
+    if (lastPage > 0 ? page >= lastPage : chunk.length < 100) {
+      return { rows, complete: true };
+    }
+  }
+  return { rows, complete: false };
+}
+
+function normalizzaRate(value: unknown): RataFic[] {
+  return (Array.isArray(value) ? value : []).map((p: any) => ({
+    importo: Number(p.amount ?? 0),
+    scadenza: p.due_date ? String(p.due_date) : null,
+    stato: String(p.status ?? "not_paid"),
+    dataPagamento: p.paid_date ? String(p.paid_date) : null,
+  }));
+}
+
+function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
+  const entity = row?.entity ?? {};
+  if (!row?.id || !row?.date || !entity?.name) return null;
+  const importoNetto = Number(row.amount_net ?? 0);
+  const importoLordo = Number(row.amount_gross ?? 0);
+  return {
+    id: Number(row.id),
+    tipo,
+    numero: `${row.number ?? "?"}${row.numeration ?? ""}`,
+    data: String(row.date),
+    clienteNome: String(entity.name).trim(),
+    clienteVat: entity.vat_number ? String(entity.vat_number) : null,
+    clienteCf: entity.tax_code ? String(entity.tax_code) : null,
+    importoNetto,
+    importoIva: Number(row.amount_vat ?? importoLordo - importoNetto),
+    importoLordo,
+    rate: normalizzaRate(row.payments_list),
+  };
+}
+
+function normalizzaCostoRicevuto(
+  row: any,
+  tipo: "expense" | "passive_credit_note"
+): CostoFicInput | null {
+  if (!row?.id || !row?.date) return null;
+  const entity = row.entity ?? {};
+  const importoNetto = Number(row.amount_net ?? 0);
+  const importoLordo = Number(row.amount_gross ?? 0);
+  return {
+    id: Number(row.id),
+    tipo,
+    data: String(row.date),
+    fornitoreId: entity.id != null ? Number(entity.id) : null,
+    fornitoreNome: String(entity.name ?? "Fornitore non indicato").trim(),
+    categoriaFic:
+      typeof row.category === "string"
+        ? row.category
+        : row.category?.name
+          ? String(row.category.name)
+          : null,
+    descrizione: row.description ? String(row.description) : null,
+    centro:
+      typeof row.rc_center === "string"
+        ? row.rc_center
+        : row.rc_center?.name
+          ? String(row.rc_center.name)
+          : null,
+    numeroDocumento: row.invoice_number ? String(row.invoice_number) : null,
+    importoNetto,
+    importoIva: Number(row.amount_vat ?? importoLordo - importoNetto),
+    importoLordo,
+    rate: normalizzaRate(row.payments_list),
+  };
+}
 
 export async function runFicSync(sedeId: number): Promise<string> {
   const cfg = getCfg(sedeId);
@@ -482,58 +593,120 @@ export async function runFicSync(sedeId: number): Promise<string> {
   syncing.add(sedeId);
   try {
     const year = new Date().getFullYear();
+    const periodoDa = `${year - 1}-01-01`;
+    const periodoA = `${year}-12-31`;
+    const syncId = crypto.randomUUID();
+    const fieldsEmessi =
+      "id,number,numeration,date,entity,amount_net,amount_vat,amount_gross,payments_list";
+    const fieldsRicevuti =
+      "id,date,entity,category,description,amount_net,amount_vat,amount_gross,rc_center,invoice_number,payments_list";
+    const baseParams = {
+      q: `date >= '${periodoDa}' and date <= '${periodoA}'`,
+    };
+
+    const [fattureResult, noteResult, speseResult, notePassiveResult] =
+      await Promise.allSettled([
+        ficListAll(`/c/${cfg.companyId}/issued_documents`, token, {
+          ...baseParams,
+          type: "invoice",
+          fields: fieldsEmessi,
+        }),
+        ficListAll(`/c/${cfg.companyId}/issued_documents`, token, {
+          ...baseParams,
+          type: "credit_note",
+          fields: fieldsEmessi,
+        }),
+        ficListAll(`/c/${cfg.companyId}/received_documents`, token, {
+          ...baseParams,
+          type: "expense",
+          fields: fieldsRicevuti,
+        }),
+        ficListAll(`/c/${cfg.companyId}/received_documents`, token, {
+          ...baseParams,
+          type: "passive_credit_note",
+          fields: fieldsRicevuti,
+        }),
+      ]);
+
     const entities: Array<{
       name: string;
       vat: string | null;
       cf: string | null;
     }> = [];
-    const fatture: Array<{
-      id: number;
-      numero: string;
-      data: string;
-      clienteNome: string;
-      clienteVat: string | null;
-      clienteCf: string | null;
-      importoNetto: number;
-      importoLordo: number;
-      rate: RataFic[];
-    }> = [];
-    for (let page = 1; page <= 10; page++) {
-      const j = await ficGet(
-        `/c/${cfg.companyId}/issued_documents?type=invoice&per_page=100&page=${page}&fields=id,number,numeration,date,entity,amount_net,amount_gross,payments_list`,
-        token
-      );
-      const rows: any[] = j?.data ?? [];
-      for (const r of rows) {
-        if (!r?.date || !String(r.date).startsWith(String(year))) continue;
-        const e = r.entity ?? {};
-        if (!e.name) continue;
-        entities.push({
-          name: String(e.name).trim(),
-          vat: e.vat_number ? String(e.vat_number) : null,
-          cf: e.tax_code ? String(e.tax_code) : null,
-        });
-        fatture.push({
-          id: Number(r.id),
-          numero: `${r.number ?? "?"}${r.numeration ?? ""}`,
-          data: String(r.date),
-          clienteNome: String(e.name).trim(),
-          clienteVat: e.vat_number ? String(e.vat_number) : null,
-          clienteCf: e.tax_code ? String(e.tax_code) : null,
-          importoNetto: Number(r.amount_net ?? 0),
-          importoLordo: Number(r.amount_gross ?? 0),
-          rate: (Array.isArray(r.payments_list) ? r.payments_list : []).map(
-            (p: any) => ({
-              importo: Number(p.amount ?? 0),
-              scadenza: p.due_date ? String(p.due_date) : null,
-              stato: String(p.status ?? "not_paid"),
-              dataPagamento: p.paid_date ? String(p.paid_date) : null,
-            })
-          ),
-        });
+    let nuove = 0;
+    let aggiornate = 0;
+    let rimossi = 0;
+    let costiNuovi = 0;
+    let costiAggiornati = 0;
+    let costiRimossi = 0;
+    const idsCostiDaClassificare: number[] = [];
+
+    const processaEmessi = (
+      result: PromiseSettledResult<FicPageResult>,
+      tipo: "invoice" | "credit_note"
+    ) => {
+      if (result.status !== "fulfilled") return;
+      const rows = result.value.rows
+        .map(row => normalizzaDocumentoEmesso(row, tipo))
+        .filter((row): row is NonNullable<typeof row> => row != null);
+      if (tipo === "invoice") {
+        for (const row of rows) {
+          entities.push({
+            name: row.clienteNome,
+            vat: row.clienteVat,
+            cf: row.clienteCf,
+          });
+        }
       }
-      if (rows.length < 100) break;
-    }
+      const upsert = upsertDocumentiEmessi(rows, sedeId, syncId);
+      nuove += upsert.nuove;
+      aggiornate += upsert.aggiornate;
+      rimossi += finalizzaSnapshotDocumentiEmessi({
+        sedeId,
+        tipo,
+        periodoDa,
+        periodoA,
+        syncId,
+        completo: result.value.complete,
+      });
+    };
+    processaEmessi(fattureResult, "invoice");
+    processaEmessi(noteResult, "credit_note");
+
+    const processaCosti = (
+      result: PromiseSettledResult<FicPageResult>,
+      tipo: "expense" | "passive_credit_note"
+    ) => {
+      if (result.status !== "fulfilled") return;
+      const rows = result.value.rows
+        .map(row => normalizzaCostoRicevuto(row, tipo))
+        .filter((row): row is NonNullable<typeof row> => row != null);
+      const upsert = upsertCostiFic(rows, sedeId, syncId);
+      costiNuovi += upsert.nuovi;
+      costiAggiornati += upsert.aggiornati;
+      idsCostiDaClassificare.push(...upsert.idsDaClassificare);
+      costiRimossi += finalizzaSnapshotCosti({
+        sedeId,
+        tipo,
+        periodoDa,
+        periodoA,
+        syncId,
+        completo: result.value.complete,
+      });
+    };
+    processaCosti(speseResult, "expense");
+    processaCosti(notePassiveResult, "passive_credit_note");
+
+    const risultati = [
+      fattureResult,
+      noteResult,
+      speseResult,
+      notePassiveResult,
+    ];
+    const completo = risultati.every(
+      result => result.status === "fulfilled" && result.value.complete
+    );
+    cfg.economicScopesReady = completo;
 
     // L'anagrafica di questa sede: un omonimo in un'altra sede non deve
     // impedire la creazione del cliente qui, e viceversa.
@@ -576,11 +749,21 @@ export async function runFicSync(sedeId: number): Promise<string> {
       created++;
     }
 
-    // Fatture nello store locale + riconciliazione: le rate incassate su
-    // FIC diventano PROPOSTE di registrazione, mai scritture dirette.
-    const { nuove, aggiornate } = upsertFatture(fatture, sedeId);
     const pdf = await archiviaPdfFattureCollegate(sedeId);
     const proposteCreate = generaProposteRiconciliazione(sedeId);
+
+    let classificazione = {
+      classificati: 0,
+      dubbi: 0,
+      errore: null as string | null,
+    };
+    if (idsCostiDaClassificare.length > 0) {
+      const { classificaCostiFic } = await import("../tars/classificaCostiFic");
+      classificazione = await classificaCostiFic(
+        sedeId,
+        idsCostiDaClassificare
+      );
+    }
 
     // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
     // propone il collegamento. Fire-and-forget col suo debounce: il sync
@@ -594,13 +777,20 @@ export async function runFicSync(sedeId: number): Promise<string> {
         : pdf.archiviate > 0
           ? `, ${pdf.archiviate} PDF archiviati`
           : "";
-    const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione${esitoPdf}`;
+    const errori = risultati.filter(
+      result => result.status === "rejected"
+    ).length;
+    const stato = completo
+      ? "COMPLETO"
+      : `INCOMPLETO (${errori} flussi falliti)`;
+    const result = `${new Date().toLocaleString("it-IT")}: ${stato}, ${entities.length} fatture lette (${nuove} documenti nuovi, ${aggiornate} aggiornati, ${rimossi} non piu presenti), ${costiNuovi} costi nuovi, ${costiAggiornati} costi aggiornati, ${costiRimossi} costi non piu presenti, ${classificazione.classificati} classificati e ${classificazione.dubbi} dubbi, ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione${esitoPdf}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     _cfgStore.save();
     return result;
   } catch (e: any) {
     const cfg2 = getCfg(sedeId);
+    cfg2.economicScopesReady = false;
     cfg2.lastSyncAt = new Date();
     cfg2.lastResult = `ERRORE: ${e?.message ?? "sconosciuto"}`;
     _cfgStore.save();
@@ -659,6 +849,8 @@ export const fattureInCloudRouter = router({
       enabled: cfg.enabled,
       lastSyncAt: cfg.lastSyncAt,
       lastResult: cfg.lastResult,
+      permessiEconomiciDaAggiornare:
+        (!!token || !!cfg.refreshTokenCifrato) && !cfg.economicScopesReady,
     };
   }),
 
@@ -687,6 +879,7 @@ export const fattureInCloudRouter = router({
         cfg.accessTokenExpiresAt = null;
         cfg.oauthConnectedAt = null;
         cfg.authMode = "manual";
+        cfg.economicScopesReady = false;
         // Il campo in chiaro della versione precedente non deve sopravvivere.
         delete (cfg as any).accessToken;
       }
@@ -731,6 +924,7 @@ export const fattureInCloudRouter = router({
     cfg.authMode = "manual";
     cfg.companyId = null;
     cfg.enabled = false;
+    cfg.economicScopesReady = false;
     delete (cfg as any).accessToken;
     _cfgStore.save();
     return { success: true } as const;

@@ -31,6 +31,7 @@ import { fileStorageAdminRouter } from "./routers/fileStorageAdmin";
 import { tarsRouter } from "./routers/tars";
 import { mailRouter } from "./routers/mail";
 import { ficFattureRouter } from "./routers/ficFatture";
+import { ficCostiRouter } from "./routers/ficCosti";
 import { economiaRouter } from "./routers/economia";
 import { diagnosticaRouter } from "./routers/diagnostica";
 import {
@@ -186,6 +187,7 @@ export const appRouter = router({
   tars: tarsRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
+  ficCosti: ficCostiRouter,
   economia: economiaRouter,
   diagnostica: diagnosticaRouter,
 });

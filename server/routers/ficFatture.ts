@@ -45,12 +45,14 @@ export type FatturaFic = {
   // fatturare da due aziende diverse: senza questo campo le fatture di una
   // comparirebbero nell'Economia dell'altra.
   sedeId: number;
+  tipo: "invoice" | "credit_note";
   numero: string; // "12/A"
   data: string; // "YYYY-MM-DD"
   clienteNome: string;
   clienteVat: string | null;
   clienteCf: string | null;
   importoNetto: number;
+  importoIva: number;
   importoLordo: number;
   rate: RataFic[];
   // Aggancio nel CRM. clienteId dal match sul nome; commessaId quando il
@@ -62,6 +64,9 @@ export type FatturaFic = {
   // Già esaminata da Tars per il collegamento: una fattura ambigua si paga
   // una volta sola, come le mail.
   tarsAnalizzata: boolean;
+  presenteInFic: boolean;
+  ultimoSyncId: string | null;
+  ultimoVistoAt: Date | null;
   aggiornataAt: Date;
 };
 
@@ -70,6 +75,13 @@ const _fattureStore = persistedStore<FatturaFic>("fic_fatture", items => {
     if (f.tarsAnalizzata === undefined) f.tarsAnalizzata = false;
     // Tutto lo storico è stato letto col token dell'unica sede esistente.
     if (f.sedeId === undefined) f.sedeId = DEFAULT_SEDE_ID;
+    if (f.tipo === undefined) f.tipo = "invoice";
+    if (f.importoIva === undefined) {
+      f.importoIva = Math.max(0, f.importoLordo - f.importoNetto);
+    }
+    if (f.presenteInFic === undefined) f.presenteInFic = true;
+    if (f.ultimoSyncId === undefined) f.ultimoSyncId = null;
+    if (f.ultimoVistoAt === undefined) f.ultimoVistoAt = null;
   }
 });
 export const ficFatture = _fattureStore.items;
@@ -107,20 +119,26 @@ export function normKey(s: string): string {
  * cliente si rifà a ogni giro (l'anagrafica nel frattempo può essere
  * cresciuta); il commessaId collegato A MANO non si tocca mai.
  */
-export function upsertFatture(
-  rows: Array<{
-    id: number;
-    numero: string;
-    data: string;
-    clienteNome: string;
-    clienteVat: string | null;
-    clienteCf: string | null;
-    importoNetto: number;
-    importoLordo: number;
-    rate: RataFic[];
-  }>,
-  sedeId: number
-): { nuove: number; aggiornate: number } {
+export type DocumentoEmessoFicInput = Pick<
+  FatturaFic,
+  | "id"
+  | "tipo"
+  | "numero"
+  | "data"
+  | "clienteNome"
+  | "clienteVat"
+  | "clienteCf"
+  | "importoNetto"
+  | "importoIva"
+  | "importoLordo"
+  | "rate"
+>;
+
+export function upsertDocumentiEmessi(
+  rows: DocumentoEmessoFicInput[],
+  sedeId: number,
+  syncId: string | null = null
+): { nuove: number; aggiornate: number; idsVariati: number[] } {
   // Il match del cliente resta dentro la sede: un omonimo altrove non deve
   // agganciare la fattura al cliente sbagliato.
   const clienti = getClientiStore().filter(
@@ -135,6 +153,7 @@ export function upsertFatture(
 
   let nuove = 0;
   let aggiornate = 0;
+  const idsVariati: number[] = [];
   for (const r of rows) {
     const k = normKey(r.clienteNome);
     const match = perNome.get(k);
@@ -144,18 +163,40 @@ export function upsertFatture(
       f => f.id === r.id && f.sedeId === sedeId
     );
     if (esistente) {
+      const firmaPrima = JSON.stringify({
+        tipo: esistente.tipo,
+        data: esistente.data,
+        netto: esistente.importoNetto,
+        iva: esistente.importoIva,
+        lordo: esistente.importoLordo,
+        rate: esistente.rate,
+      });
+      esistente.tipo = r.tipo;
       esistente.numero = r.numero;
       esistente.data = r.data;
       esistente.clienteNome = r.clienteNome;
       esistente.clienteVat = r.clienteVat;
       esistente.clienteCf = r.clienteCf;
       esistente.importoNetto = r.importoNetto;
+      esistente.importoIva = r.importoIva;
       esistente.importoLordo = r.importoLordo;
       esistente.rate = r.rate;
       if (!esistente.collegataAMano) {
         esistente.clienteId = clienteId ?? esistente.clienteId;
       }
+      esistente.presenteInFic = true;
+      esistente.ultimoSyncId = syncId;
+      esistente.ultimoVistoAt = new Date();
       esistente.aggiornataAt = new Date();
+      const firmaDopo = JSON.stringify({
+        tipo: esistente.tipo,
+        data: esistente.data,
+        netto: esistente.importoNetto,
+        iva: esistente.importoIva,
+        lordo: esistente.importoLordo,
+        rate: esistente.rate,
+      });
+      if (firmaPrima !== firmaDopo) idsVariati.push(r.id);
       aggiornate++;
     } else {
       ficFatture.push({
@@ -166,13 +207,66 @@ export function upsertFatture(
         collegataAMano: false,
         ignorata: false,
         tarsAnalizzata: false,
+        presenteInFic: true,
+        ultimoSyncId: syncId,
+        ultimoVistoAt: new Date(),
         aggiornataAt: new Date(),
       });
+      idsVariati.push(r.id);
       nuove++;
     }
   }
   if (rows.length > 0) saveFicFatture();
+  return { nuove, aggiornate, idsVariati };
+}
+
+export function upsertFatture(
+  rows: Array<
+    Omit<DocumentoEmessoFicInput, "tipo" | "importoIva"> & {
+      importoIva?: number;
+    }
+  >,
+  sedeId: number
+): { nuove: number; aggiornate: number } {
+  const { nuove, aggiornate } = upsertDocumentiEmessi(
+    rows.map(row => ({
+      ...row,
+      tipo: "invoice" as const,
+      importoIva:
+        row.importoIva ?? Math.max(0, row.importoLordo - row.importoNetto),
+    })),
+    sedeId
+  );
   return { nuove, aggiornate };
+}
+
+export function finalizzaSnapshotDocumentiEmessi(args: {
+  sedeId: number;
+  tipo: FatturaFic["tipo"];
+  periodoDa: string;
+  periodoA: string;
+  syncId: string;
+  completo: boolean;
+}): number {
+  if (!args.completo) return 0;
+  let rimossi = 0;
+  for (const documento of ficFatture) {
+    if (
+      documento.sedeId !== args.sedeId ||
+      documento.tipo !== args.tipo ||
+      documento.data < args.periodoDa ||
+      documento.data > args.periodoA ||
+      documento.ultimoSyncId === args.syncId ||
+      !documento.presenteInFic
+    ) {
+      continue;
+    }
+    documento.presenteInFic = false;
+    documento.aggiornataAt = new Date();
+    rimossi++;
+  }
+  if (rimossi > 0) saveFicFatture();
+  return rimossi;
 }
 
 // ── Riconciliazione ─────────────────────────────────────────────────────────
@@ -330,7 +424,9 @@ export function generaProposteRiconciliazione(sedeId: number): number {
   const commesse = getCommesseStore().filter(
     (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
   );
-  const fatture = ficFatture.filter(f => f.sedeId === sedeId);
+  const fatture = ficFatture.filter(
+    f => f.sedeId === sedeId && f.tipo === "invoice" && f.presenteInFic
+  );
   let create = 0;
 
   for (const f of fatture) {
@@ -480,7 +576,13 @@ export const ficFattureRouter = router({
           .map(p => [p.payload.ficId as number, p])
       );
       return ficFatture
-        .filter(f => f.sedeId === sede && f.data.startsWith(String(anno)))
+        .filter(
+          f =>
+            f.sedeId === sede &&
+            f.tipo === "invoice" &&
+            f.presenteInFic &&
+            f.data.startsWith(String(anno))
+        )
         .map(f => {
           const s = statoFattura(f, commesse);
           const propostaCollegamento = proposteCollegamento.get(f.id);

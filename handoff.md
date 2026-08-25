@@ -163,7 +163,7 @@ Il flusso OAuth Authorization Code è implementato:
 - cifratura di access token e refresh token;
 - refresh automatico con deduplica per sede;
 - selezione automatica quando l'account ha una sola azienda;
-- scopes read-only `entity.clients:r issued_documents.invoices:r`;
+- scopes read-only `entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r`;
 - token manuale mantenuto solo come fallback di emergenza.
 
 Variabili richieste:
@@ -178,6 +178,31 @@ MAIL_ENCRYPTION_KEY
 La roadmap OAuth è quindi **chiusa lato codice**. Resta l'attivazione operativa:
 impostare le variabili Railway, registrare lo stesso redirect nella app FiC e
 collegare ogni sede dalla pagina Integrazioni.
+
+Dal 25/08/2026 il sync importa anno corrente e precedente in quattro flussi
+indipendenti: fatture, note di credito emesse, spese e note di credito passive.
+Ogni flusso usa paginazione completa e snapshot non distruttivo; i record non
+più restituiti diventano `presenteInFic=false` e smettono di alimentare i KPI.
+Una risposta incompleta non marca nulla come rimosso.
+
+`/economia` separa ora Contratti CRM, Vendite FiC e Acquisti FiC. Fatturato e
+costi canonici sono imponibili al netto delle rispettive note di credito; IVA,
+lordo, rate pagate e rate aperte sono valori distinti. `/pagamenti` mostra
+Copertura costi fissi: obiettivo netto mensile calcolato dal margine di
+contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi dubbi sono
+esclusi e si revisionano nel tab Acquisti.
+
+Tars classifica in batch i nuovi costi FiC con output strutturato e cache key
+per sede/modello. Le correzioni utente e le regole esplicite prevalgono. Errori
+OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.
+`leggi_economia` usa gli stessi totali FiC e restituisce a Tars soltanto fonte,
+periodo, aggregati mensili e affidabilità, senza documenti contabili completi.
+
+**Azione produzione obbligatoria dopo il deploy:** ogni sede deve premere
+`Ricollega e aggiorna permessi` in Integrazioni, completare OAuth e poi
+`Sincronizza ora`. I token esistenti non acquisiscono automaticamente i nuovi
+scope. Prima di considerare affidabile il pareggio, confrontare due mesi chiusi
+e revisionare tutti i costi dubbi.
 
 Il collegamento esplicito o approvato da Tars scarica il PDF ufficiale e lo
 archivia come documento `fattura` della commessa. Dal 25/08/2026 anche ogni

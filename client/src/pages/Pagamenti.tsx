@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import StatoChip from "@/components/StatoChip";
 import { TIPO_PAGAMENTO_LABEL, tipoPagamentoSuggerito } from "./CommessaDetail";
 import { formatEuro, parseEuroPositivo } from "@/lib/euro";
+import BreakEvenPanel from "@/components/economia/BreakEvenPanel";
 
 const METODO_LABEL: Record<string, string> = {
   bonifico: "Bonifico",
@@ -183,6 +184,8 @@ export default function Pagamenti() {
           )}
         </div>
       </div>
+
+      <BreakEvenPanel onReview={() => setLocation("/economia?tab=acquisti")} />
 
       {/* Ultimi incassi */}
       {(recenti.data?.length ?? 0) > 0 && (

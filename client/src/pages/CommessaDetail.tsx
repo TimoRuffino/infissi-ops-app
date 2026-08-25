@@ -2849,7 +2849,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
             <span className="grid h-9 w-9 place-items-center rounded-lg bg-info-soft text-info">
               <TrendingUp className="h-5 w-5" />
             </span>
-            <span className="font-semibold text-sm">Economia</span>
+            <span className="font-semibold text-sm">Stima economia CRM</span>
           </div>
 
           <div className="space-y-0.5">
@@ -2860,7 +2860,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
           </div>
 
           <div className="space-y-0.5">
-            <div className="eyebrow">Costi fornitore</div>
+            <div className="eyebrow">Costi manuali stimati</div>
             <div className="tabular-nums font-medium">
               € {fmt(m.costiFornitore)}
               <span className="text-text-3 text-xs ml-1">({costi.length})</span>
@@ -2900,7 +2900,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
           </div>
 
           <div className="ml-auto text-right space-y-0.5">
-            <div className="eyebrow">Margine lordo</div>
+            <div className="eyebrow">Margine stimato</div>
             {m.datiIncompleti ? (
               <div className="text-sm text-text-3">
                 Dati incompleti

@@ -169,11 +169,11 @@ Run: `pnpm vitest run server/tars/classificaCostiFic.test.ts server/tars/openai.
 
 - [ ] **Step 1: Scrivere test fallenti per scope e paginazione completa**
 
-Verificare `issued_documents.credit_notes:r`, `received_documents:r`, due anni, tre flussi e nessuna finalizzazione al superamento del limite.
+Verificare `issued_documents.credit_notes:r`, `received_documents:r`, due anni, quattro flussi e nessuna finalizzazione al superamento del limite.
 
 - [ ] **Step 2: Estrarre helper di fetch paginato**
 
-Usare filtri `date_from`/`date_to`, `fields` espliciti e un risultato `{ rows, complete }`.
+Usare il filtro FiC `q` sul campo `date`, `fields` espliciti e un risultato `{ rows, complete }`.
 
 - [ ] **Step 3: Normalizzare fatture, note e costi**
 

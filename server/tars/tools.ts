@@ -128,6 +128,40 @@ function ok(
     ...metadata,
   };
 }
+
+async function leggiEconomiaCompatta(caller: any, anno: number) {
+  const overview = await caller.economia.overview({ anno });
+  const ora = new Date();
+  const coperturaCostiFissi =
+    anno === ora.getFullYear()
+      ? await caller.economia.breakEven({
+          anno,
+          mese: ora.getMonth() + 1,
+        })
+      : null;
+  return {
+    fonteEffettivi: "Fatture in Cloud",
+    periodo: { anno, criterio: "competenza documento" },
+    contrattiCrm: {
+      fonte: "CRM",
+      pattuitoLordo: overview.crm.pattuito,
+      incassato: overview.crm.incassato,
+      daIncassare: overview.crm.residuo,
+      costiManualiStimati: overview.crm.costiManualiStimati,
+      nota: "Valori gestionali stimati, separati dai totali FiC.",
+    },
+    venditeFiC: overview.vendite,
+    acquistiFiC: overview.acquisti,
+    andamentoMensile: overview.mesi.map((mese: any) => ({
+      mese: mese.mese,
+      venditeNette: mese.venditeNetto,
+      incassi: mese.incassi,
+      acquistiNetti: mese.acquistiNetto,
+      uscite: mese.uscite,
+    })),
+    coperturaCostiFissi,
+  };
+}
 function err(msg: string): { content: string; isError: boolean } {
   return { content: msg, isError: true };
 }
@@ -672,7 +706,7 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "leggi_economia",
     description:
-      "La situazione contabile aggregata: pattuito, incassato, residuo, costi, margine (lato commesse) e fatturato/incassato (lato Fatture in Cloud), con l'andamento mensile. Riservato a direzione e amministrazione: per gli altri operatori risponde che il dato non è consultabile.",
+      "Situazione economica compatta e verificabile: contratti CRM separati da vendite e acquisti FiC netti, IVA/lordo, rate, periodo, costi dubbi e copertura dei costi fissi. Riservato a direzione e amministrazione.",
     input_schema: {
       type: "object",
       properties: {
@@ -2223,10 +2257,9 @@ async function eseguiStrumentoSenzaCache(
         // con Tars è un commerciale, l'errore FORBIDDEN arriva qui e viene
         // riportato al modello come limite, non aggirato.
         const caller = await getCaller(rt.ctx);
-        const overview = await caller.economia.overview({
-          anno: input.anno != null ? Number(input.anno) : undefined,
-        });
-        return ok(overview);
+        const anno =
+          input.anno != null ? Number(input.anno) : new Date().getFullYear();
+        return ok(await leggiEconomiaCompatta(caller, anno));
       }
       case "leggi_quadro_azienda": {
         const caller = await getCaller(rt.ctx);
@@ -2277,7 +2310,7 @@ async function eseguiStrumentoSenzaCache(
         try {
           economia = {
             disponibile: true,
-            dati: await caller.economia.overview({ anno: ora.getFullYear() }),
+            dati: await leggiEconomiaCompatta(caller, ora.getFullYear()),
           };
         } catch {
           economia = {

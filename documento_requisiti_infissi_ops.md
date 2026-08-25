@@ -974,6 +974,13 @@ Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no 
 - **Righe ordinate per residuo decrescente** (i soldi più grossi in cima): codice, cliente, StatoChip, pattuito, barra percentuale con incassato (nascosta sotto `md`), **Residuo** in ambra oppure «Saldata» in verde.
 - **Bottone «Acconto»** su ogni riga con residuo: apre un dialog rapido con chips **50/40/10%** + **«Salda tutto»**, data (default oggi), metodo e nota — registra senza dover aprire la commessa (riusa `addPagamento`).
 - **Filtri**: Con residuo *(default)* / Saldate / Senza importo / Tutte, più ricerca per codice o cliente.
+- **Copertura costi fissi**: pannello full-width sopra gli ultimi incassi, alimentato
+  esclusivamente dai documenti FiC. Mostra obiettivo di fatturato netto del mese,
+  netto già emesso, importo ancora da fatturare, costi fissi medi, margine di
+  contribuzione, avanzamento e affidabilità. La formula usa i 12 mesi precedenti;
+  tra 3 e 11 mesi usa il periodo disponibile e segnala affidabilità media, sotto
+  i 3 mesi non inventa un risultato. I costi `dubbio` restano esclusi e la CTA
+  apre direttamente la revisione Acquisti in Contabilità.
 
 ## 38. Sincronizzazione Google Calendar
 
@@ -1025,10 +1032,13 @@ Backup CRM YYYY-MM-DD/
 - Card in Impostazioni: stato ("Drive collegato" + email account), ultimo backup (esito/file/MB), countdown prossimo run, "Esegui ora", collega/scollega, istruzioni una‑tantum.
 - Single‑flight guard (un backup alla volta); log persistito.
 
-## 40. Fatture in Cloud → Clienti
+## 40. Fatture in Cloud → Registro economico e clienti
 
 ### 40.1 Funzione
-Ogni 6 ore (se abilitato) o su "Sincronizza ora", il CRM legge le **fatture emesse dell'anno corrente** e **crea i clienti mancanti** (mai tocca le fatture, mai aggiorna clienti esistenti).
+Ogni 6 ore (se abilitato) o su "Sincronizza ora", il CRM legge anno corrente
+e precedente di **fatture emesse, note di credito emesse, spese e note di
+credito passive**. Le sole fatture creano i clienti mancanti; i clienti
+esistenti non vengono modificati.
 
 ### 40.2 Logica di creazione
 - Dedup su denominazione normalizzata contro i clienti esistenti.
@@ -1039,7 +1049,7 @@ Ogni 6 ore (se abilitato) o su "Sincronizza ora", il CRM legge le **fatture emes
 ### 40.3 Config & stato
 Store `fic_config`: modalità `oauth` o `manual`, access token e refresh token cifrati, scadenza, `companyId`, abilitazione, data collegamento e ultimo esito. Lo status non restituisce mai segreti in chiaro.
 
-- OAuth Authorization Code: `oauthStartUrl` crea uno state monouso valido 10 minuti; callback `/api/oauth/fic/callback`; scopes read‑only `entity.clients:r issued_documents.invoices:r`.
+- OAuth Authorization Code: `oauthStartUrl` crea uno state monouso valido 10 minuti; callback `/api/oauth/fic/callback`; scopes read-only `entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r`.
 - L'access token viene rinnovato prima della scadenza con refresh deduplicato per sede. Il refresh token aggiornato viene persistito cifrato.
 - Se l'account espone una sola azienda, questa viene selezionata automaticamente; altrimenti resta il picker `/user/companies`.
 - La disconnessione rimuove i token OAuth. Il token manuale resta disponibile soltanto come fallback di emergenza.
@@ -1050,8 +1060,9 @@ Il requisito OAuth è code-complete. L'attivazione in produzione richiede `FIC_O
 ### 40.4 Fatture e riconciliazione (`/economia`)
 Le fatture sincronizzate sono persistite nello store `fic_fatture`, sede-scoped.
 La pagina `/economia`, visibile a direzione e amministrazione, separa
-`Panoramica` e `Fatture`: mostra KPI CRM/Fatture in Cloud, andamento mensile,
-stato di incasso e stato di riconciliazione.
+`Panoramica`, `Fatture` e `Acquisti`. La panoramica divide Contratti CRM,
+Vendite FiC e Acquisti FiC: imponibile, IVA e lordo non vengono confusi e
+l'andamento mensile confronta grandezze dello stesso periodo.
 
 Una fattura può essere collegata manualmente a una commessa soltanto dopo una
 conferma esplicita. Il documento PDF, quando disponibile, viene archiviato nel
@@ -1067,6 +1078,30 @@ espliciti (`commessaId`), deduplica per sorgente e id FiC e isola gli errori per
 singola fattura: un download fallito non interrompe il lotto e viene ritentato
 alla sincronizzazione successiva. Le sole corrispondenze ipotetiche non generano
 documenti.
+
+### 40.5 Snapshot, costi e classificazione Tars
+`fic_fatture` mantiene documenti emessi, tipo, imponibile, IVA, lordo e stato
+di presenza. `fic_costi` mantiene documenti ricevuti e classificazione
+`fisso | variabile_commessa | straordinario | dubbio`. Ogni flusso ha uno
+snapshot indipendente: soltanto una paginazione completa può marcare
+`presenteInFic = false`; il record non viene cancellato e conserva audit e
+collegamenti. Questo impedisce che documenti rimossi da FiC continuino a
+gonfiare i KPI.
+
+Tars classifica in lotto soltanto costi nuovi o variati, con output JSON
+strutturato e cache key stabile per sede/modello. Le regole confermate da un
+operatore prevalgono sul modello. Confidenza sotto soglia, risposta mancante o
+errore provider lasciano il costo `dubbio`, escluso dal pareggio e visibile
+nella revisione. La checkbox `Ricorda regola` è sempre una scelta esplicita.
+
+Il fatturato canonico è imponibile fatture meno imponibile note di credito. I
+costi canonici sono imponibile spese meno imponibile note passive. Solo rate
+`paid` alimentano incassi/uscite e solo `not_paid` alimentano aperti; altri
+stati sono esclusi finché non mappati esplicitamente.
+
+Lo strumento Tars `leggi_economia` riceve lo stesso contratto in forma compatta:
+fonte, periodo, contratti CRM separati, vendite/acquisti FiC, andamento mensile
+e affidabilità della copertura costi fissi, senza dump dei singoli documenti.
 
 ## 41. WhatsApp (deep link)
 
@@ -1117,14 +1152,16 @@ Le mutation `addProdotto` / `updateProdotto` / `removeProdotto` **DEVONO** inval
 
 ---
 
-## 45. Marginalità
+## 45. Marginalità stimata CRM
 
-### 45.1 Formula
+### 45.1 Formula della stima legacy
 ```
 margine lordo = importoTotale − Σ costi[] − costoPosaStimato
 margine %     = margine lordo / importoTotale
 ```
-Il calcolo vive in `server/_core/margine.ts` come **funzione pura** (`calcolaMargine`), senza dipendenze dagli store.
+Il calcolo vive in `server/_core/margine.ts` come funzione pura
+(`calcolaMargine`) ed è esplicitamente una **stima CRM**, non il totale
+effettivo aziendale. I totali effettivi e il punto di pareggio usano solo FiC.
 
 Il flag `datiIncompleti` è vero quando manca il pattuito **oppure** non è registrato alcun costo: senza costi il margine risulterebbe un finto 100 %.
 

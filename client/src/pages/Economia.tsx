@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import SearchSelect from "@/components/SearchSelect";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
+import CostiFicReview from "@/components/economia/CostiFicReview";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { formatEuroSimbolo } from "@/lib/euro";
@@ -37,11 +38,30 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const MESI = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
+const MESI = [
+  "Gen",
+  "Feb",
+  "Mar",
+  "Apr",
+  "Mag",
+  "Giu",
+  "Lug",
+  "Ago",
+  "Set",
+  "Ott",
+  "Nov",
+  "Dic",
+];
 
 const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
-  riconciliata: { label: "Riconciliata", classe: "bg-green-600 hover:bg-green-600" },
-  proposta: { label: "Proposta in attesa", classe: "bg-amber-500 hover:bg-amber-500" },
+  riconciliata: {
+    label: "Riconciliata",
+    classe: "bg-success hover:bg-success",
+  },
+  proposta: {
+    label: "Proposta in attesa",
+    classe: "bg-warning hover:bg-warning",
+  },
   da_riconciliare: { label: "Da riconciliare", classe: "" },
   non_abbinabile: { label: "Non abbinabile", classe: "" },
   ignorata: { label: "Ignorata", classe: "" },
@@ -65,14 +85,16 @@ function Kpi({
         <div
           className={cn(
             "text-xl font-semibold tabular-nums",
-            accent === "verde" && "text-green-600 dark:text-green-500",
-            accent === "rosso" && "text-red-600 dark:text-red-500",
-            accent === "ambra" && "text-amber-600 dark:text-amber-500"
+            accent === "verde" && "text-success",
+            accent === "rosso" && "text-danger",
+            accent === "ambra" && "text-warning"
           )}
         >
           {value}
         </div>
-        {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+        {hint && (
+          <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>
+        )}
       </CardContent>
     </Card>
   );
@@ -92,21 +114,28 @@ function Panoramica({ anno }: { anno: number }) {
 
   const maxRiga = Math.max(
     1,
-    ...d.mesi.map((m) => Math.max(m.fatturato, m.incassi, m.costi))
+    ...d.mesi.map(m => Math.max(m.venditeNetto, m.incassi, m.acquistiNetto))
   );
 
   return (
-    <div className="space-y-4">
-      {/* Commesse (CRM) */}
-      <div>
-        <h3 className="text-sm font-medium mb-2">
-          Commesse attive ({d.crm.commesseAttive}, con pattuito{" "}
-          {d.crm.commesseConPattuito})
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-          <Kpi label="Pattuito" value={formatEuroSimbolo(d.crm.pattuito)} />
+    <div className="space-y-6">
+      <section>
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Contratti CRM</h2>
+            <p className="text-xs text-text-3">
+              Fotografia lorda di {d.crm.commesseAttive} commesse attive
+            </p>
+          </div>
+          <Badge variant="outline">Fonte CRM</Badge>
+        </div>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Kpi
-            label="Incassato"
+            label="Pattuito lordo"
+            value={formatEuroSimbolo(d.crm.pattuito)}
+          />
+          <Kpi
+            label="Incassato CRM"
             value={formatEuroSimbolo(d.crm.incassato)}
             accent="verde"
           />
@@ -116,71 +145,111 @@ function Panoramica({ anno }: { anno: number }) {
             accent="ambra"
           />
           <Kpi
-            label="Costi fornitore"
-            value={formatEuroSimbolo(d.crm.costiFornitore)}
-            accent="rosso"
-          />
-          <Kpi
-            label="Costo posa"
-            value={formatEuroSimbolo(d.crm.costoPosa)}
-            accent="rosso"
-          />
-          <Kpi
-            label="Margine lordo"
-            value={formatEuroSimbolo(d.crm.margineLordo)}
-            hint={
-              d.crm.marginePerc != null
-                ? `${Math.round(d.crm.marginePerc * 100)}% del pattuito`
-                : undefined
-            }
-            accent={d.crm.margineLordo >= 0 ? "verde" : "rosso"}
+            label="Stime costi CRM"
+            value={formatEuroSimbolo(
+              d.crm.costiManualiStimati + d.crm.costoPosaStimato
+            )}
+            hint="Non entrano nei totali effettivi FiC"
           />
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Margine calcolato solo sulle commesse col pattuito: se i costi non
-          sono registrati, i numeri sono ottimisti. Il dettaglio per commessa è
-          in Marginalità.
-        </p>
-      </div>
+      </section>
 
-      {/* Fatturazione (FIC) */}
-      <div>
-        <h3 className="text-sm font-medium mb-2">
-          Fatturazione {anno} ({d.fic.fatture} fatture)
-        </h3>
-        {d.fic.disponibile ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Kpi label="Fatturato" value={formatEuroSimbolo(d.fic.fatturato)} />
+      <section>
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Vendite FiC · {anno}</h2>
+            <p className="text-xs text-text-3">
+              {d.vendite.fatture} fatture e {d.vendite.noteCredito} note di
+              credito
+            </p>
+          </div>
+          <Badge variant="outline">Competenza FiC</Badge>
+        </div>
+        {d.vendite.disponibile ? (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
             <Kpi
-              label="Incassato (FIC)"
-              value={formatEuroSimbolo(d.fic.incassato)}
+              label="Fatturato netto"
+              value={formatEuroSimbolo(d.vendite.netto)}
+            />
+            <Kpi label="IVA" value={formatEuroSimbolo(d.vendite.iva)} />
+            <Kpi label="Lordo" value={formatEuroSimbolo(d.vendite.lordo)} />
+            <Kpi
+              label="Incassato FiC"
+              value={formatEuroSimbolo(d.vendite.incassato)}
               accent="verde"
             />
             <Kpi
-              label="Da incassare (FIC)"
-              value={formatEuroSimbolo(d.fic.daIncassare)}
+              label="Da incassare FiC"
+              value={formatEuroSimbolo(d.vendite.daIncassare)}
               accent="ambra"
             />
             <Kpi
               label="Da riconciliare"
-              value={String(d.fic.daRiconciliare)}
-              hint="fatture senza riscontro nel CRM"
-              accent={d.fic.daRiconciliare > 0 ? "ambra" : undefined}
+              value={String(d.vendite.daRiconciliare)}
+              hint="Fatture senza riscontro CRM"
+              accent={d.vendite.daRiconciliare > 0 ? "ambra" : undefined}
             />
           </div>
         ) : (
           <Card>
             <CardContent className="py-6 text-sm text-muted-foreground text-center">
-              Nessuna fattura sincronizzata. Configura Fatture in Cloud in
-              Impostazioni e premi «Sincronizza ora».
+              Nessun documento emesso sincronizzato per questo anno.
             </CardContent>
           </Card>
         )}
-      </div>
+      </section>
 
-      {/* Andamento mensile */}
-      <div>
-        <h3 className="text-sm font-medium mb-2">Andamento {anno}</h3>
+      <section>
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Acquisti FiC · {anno}</h2>
+            <p className="text-xs text-text-3">
+              {d.acquisti.documenti} documenti ricevuti, al netto delle
+              rettifiche
+            </p>
+          </div>
+          <Badge variant={d.acquisti.dubbi > 0 ? "warning" : "outline"}>
+            {d.acquisti.dubbi} dubbi
+          </Badge>
+        </div>
+        {d.acquisti.disponibile ? (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+            <Kpi
+              label="Costi netti"
+              value={formatEuroSimbolo(d.acquisti.netto)}
+              accent="rosso"
+            />
+            <Kpi label="IVA" value={formatEuroSimbolo(d.acquisti.iva)} />
+            <Kpi label="Lordo" value={formatEuroSimbolo(d.acquisti.lordo)} />
+            <Kpi
+              label="Uscite pagate"
+              value={formatEuroSimbolo(d.acquisti.pagato)}
+              accent="rosso"
+            />
+            <Kpi
+              label="Da pagare"
+              value={formatEuroSimbolo(d.acquisti.daPagare)}
+              accent="ambra"
+            />
+            <Kpi
+              label="Valore da rivedere"
+              value={formatEuroSimbolo(d.acquisti.importoDubbio)}
+              hint="Escluso dal pareggio"
+              accent={d.acquisti.dubbi > 0 ? "ambra" : undefined}
+            />
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-text-3">
+              Nessun documento ricevuto sincronizzato. Ricollega FiC con i nuovi
+              permessi e avvia una sincronizzazione.
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold">Andamento netto · {anno}</h2>
         <Card>
           {/* tabIndex: una regione che scorre dev'essere raggiungibile da
               tastiera, altrimenti chi non usa il mouse non vede le colonne
@@ -195,38 +264,44 @@ function Panoramica({ anno }: { anno: number }) {
               <thead>
                 <tr className="text-xs text-muted-foreground">
                   <th className="text-left font-normal py-1">Mese</th>
-                  <th className="text-right font-normal">Fatturato</th>
-                  <th className="text-right font-normal">Incassi</th>
-                  <th className="text-right font-normal">Costi</th>
+                  <th className="text-right font-normal">Vendite nette</th>
+                  <th className="text-right font-normal">Incassi FiC</th>
+                  <th className="text-right font-normal">Acquisti netti</th>
                   <th className="w-1/3"></th>
                 </tr>
               </thead>
               <tbody>
-                {d.mesi.map((m) => (
+                {d.mesi.map(m => (
                   <tr key={m.mese} className="border-t">
                     <td className="py-1.5">{MESI[m.mese - 1]}</td>
                     <td className="text-right tabular-nums">
-                      {m.fatturato ? formatEuroSimbolo(m.fatturato) : "—"}
+                      {m.venditeNetto ? formatEuroSimbolo(m.venditeNetto) : "—"}
                     </td>
-                    <td className="text-right tabular-nums text-green-600 dark:text-green-500">
+                    <td className="text-right tabular-nums text-success">
                       {m.incassi ? formatEuroSimbolo(m.incassi) : "—"}
                     </td>
-                    <td className="text-right tabular-nums text-red-600 dark:text-red-500">
-                      {m.costi ? formatEuroSimbolo(m.costi) : "—"}
+                    <td className="text-right tabular-nums text-danger">
+                      {m.acquistiNetto
+                        ? formatEuroSimbolo(m.acquistiNetto)
+                        : "—"}
                     </td>
                     <td className="pl-3">
                       <div className="flex gap-0.5 h-3 items-end">
                         <div
                           className="bg-primary/60 w-1/3 rounded-sm"
-                          style={{ height: `${(m.fatturato / maxRiga) * 100}%` }}
+                          style={{
+                            height: `${(m.venditeNetto / maxRiga) * 100}%`,
+                          }}
                         />
                         <div
-                          className="bg-green-500/70 w-1/3 rounded-sm"
+                          className="bg-success/70 w-1/3 rounded-sm"
                           style={{ height: `${(m.incassi / maxRiga) * 100}%` }}
                         />
                         <div
-                          className="bg-red-500/70 w-1/3 rounded-sm"
-                          style={{ height: `${(m.costi / maxRiga) * 100}%` }}
+                          className="bg-danger/70 w-1/3 rounded-sm"
+                          style={{
+                            height: `${(m.acquistiNetto / maxRiga) * 100}%`,
+                          }}
                         />
                       </div>
                     </td>
@@ -236,7 +311,7 @@ function Panoramica({ anno }: { anno: number }) {
             </table>
           </CardContent>
         </Card>
-      </div>
+      </section>
     </div>
   );
 }
@@ -254,7 +329,7 @@ function RigaFattura({ f }: { f: any }) {
     keywords: `${cm.citta ?? ""} ${cm.cliente ?? ""}`,
   }));
   const destinazione = opzioniCommesse.find(
-    (cm) => cm.value === commessaSelezionata
+    cm => cm.value === commessaSelezionata
   );
 
   const chiudiCollegamento = () => {
@@ -263,7 +338,7 @@ function RigaFattura({ f }: { f: any }) {
   };
 
   const collegaMut = trpc.ficFatture.collega.useMutation({
-    onSuccess: (r) => {
+    onSuccess: r => {
       toast.success(
         r.proposteCreate > 0
           ? `Collegata e PDF allegato — ${r.proposteCreate} proposte da approvare in Tars`
@@ -275,14 +350,14 @@ function RigaFattura({ f }: { f: any }) {
       utils.preventiviContratti.invalidate();
       utils.tars.proposte.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const ignoraMut = trpc.ficFatture.ignora.useMutation({
     onSuccess: () => {
       utils.ficFatture.invalidate();
       utils.economia.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const s = STATO_FATTURA[f.stato] ?? { label: f.stato, classe: "" };
@@ -327,7 +402,9 @@ function RigaFattura({ f }: { f: any }) {
             </Link>
           ) : (
             f.motivo && (
-              <span className="text-xs text-muted-foreground italic">{f.motivo}</span>
+              <span className="text-xs text-muted-foreground italic">
+                {f.motivo}
+              </span>
             )
           )}
           <div className="ml-auto flex gap-1">
@@ -350,7 +427,10 @@ function RigaFattura({ f }: { f: any }) {
               className="h-7 text-xs"
               disabled={ignoraMut.isPending}
               onClick={() =>
-                ignoraMut.mutate({ ficId: f.id, ignorata: f.stato !== "ignorata" })
+                ignoraMut.mutate({
+                  ficId: f.id,
+                  ignorata: f.stato !== "ignorata",
+                })
               }
               title="Le fatture ignorate escono da riconciliazione e totali"
             >
@@ -389,7 +469,9 @@ function RigaFattura({ f }: { f: any }) {
               options={opzioniCommesse}
               disabled={commesse.isLoading || collegaMut.isPending}
               placeholder={
-                commesse.isLoading ? "Caricamento commesse…" : "Cerca la commessa…"
+                commesse.isLoading
+                  ? "Caricamento commesse…"
+                  : "Cerca la commessa…"
               }
               searchPlaceholder="Cerca per codice, cliente o città…"
               emptyText="Nessuna commessa trovata"
@@ -398,7 +480,9 @@ function RigaFattura({ f }: { f: any }) {
             {destinazione && (
               <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2.5 text-sm">
                 <Check className="h-4 w-4 text-primary shrink-0" />
-                <span className="font-medium truncate">{destinazione.label}</span>
+                <span className="font-medium truncate">
+                  {destinazione.label}
+                </span>
               </div>
             )}
 
@@ -436,9 +520,7 @@ function RigaFattura({ f }: { f: any }) {
           </div>
         )}
 
-        {f.propostaTars && (
-          <TarsPropostaCard proposta={f.propostaTars} />
-        )}
+        {f.propostaTars && <TarsPropostaCard proposta={f.propostaTars} />}
       </CardContent>
     </Card>
   );
@@ -446,7 +528,9 @@ function RigaFattura({ f }: { f: any }) {
 
 function Fatture({ anno }: { anno: number }) {
   const q = trpc.ficFatture.list.useQuery({ anno });
-  const [filtro, setFiltro] = useState<"tutte" | "da_sistemare">("da_sistemare");
+  const [filtro, setFiltro] = useState<"tutte" | "da_sistemare">(
+    "da_sistemare"
+  );
   if (q.isLoading) {
     return (
       <div className="py-12 text-center">
@@ -457,11 +541,13 @@ function Fatture({ anno }: { anno: number }) {
   const rows = (q.data ?? []).filter((f: any) =>
     filtro === "tutte"
       ? true
-      : f.stato === "da_riconciliare" || f.stato === "non_abbinabile" || f.stato === "proposta"
+      : f.stato === "da_riconciliare" ||
+        f.stato === "non_abbinabile" ||
+        f.stato === "proposta"
   );
   return (
     <div className="space-y-3">
-      <Tabs value={filtro} onValueChange={(v) => setFiltro(v as any)}>
+      <Tabs value={filtro} onValueChange={v => setFiltro(v as any)}>
         <TabsList>
           <TabsTrigger value="da_sistemare">Da sistemare</TabsTrigger>
           <TabsTrigger value="tutte">Tutte ({q.data?.length ?? 0})</TabsTrigger>
@@ -486,7 +572,12 @@ function Fatture({ anno }: { anno: number }) {
 export default function Economia() {
   const { user } = useAuth();
   const [anno, setAnno] = useState(new Date().getFullYear());
-  const [tab, setTab] = useState<"panoramica" | "fatture">("panoramica");
+  const [tab, setTab] = useState<"panoramica" | "fatture" | "acquisti">(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    return requested === "fatture" || requested === "acquisti"
+      ? requested
+      : "panoramica";
+  });
 
   // Dati economici: direzione e amministrazione, come da regola server.
   if (user && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
@@ -500,39 +591,43 @@ export default function Economia() {
     );
   }
 
-  const anni = [anno, anno - 1, anno - 2].filter(
-    (a, i, arr) => arr.indexOf(a) === i
-  );
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <Landmark className="h-5 w-5" />
         <h1 className="text-xl font-semibold">Contabilità</h1>
         <div className="ml-auto flex gap-2 items-center">
-          <Select value={String(anno)} onValueChange={(v) => setAnno(Number(v))}>
-            <SelectTrigger className="h-9 w-[110px]" aria-label="Anno contabile">
+          <Select value={String(anno)} onValueChange={v => setAnno(Number(v))}>
+            <SelectTrigger
+              className="h-9 w-[110px]"
+              aria-label="Anno contabile"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[new Date().getFullYear(), new Date().getFullYear() - 1].map((a) => (
-                <SelectItem key={a} value={String(a)}>
-                  {a}
-                </SelectItem>
-              ))}
+              {[new Date().getFullYear(), new Date().getFullYear() - 1].map(
+                a => (
+                  <SelectItem key={a} value={String(a)}>
+                    {a}
+                  </SelectItem>
+                )
+              )}
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+      <Tabs value={tab} onValueChange={v => setTab(v as any)}>
         <TabsList>
           <TabsTrigger value="panoramica">Panoramica</TabsTrigger>
           <TabsTrigger value="fatture">Fatture</TabsTrigger>
+          <TabsTrigger value="acquisti">Acquisti</TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {tab === "panoramica" ? <Panoramica anno={anno} /> : <Fatture anno={anno} />}
+      {tab === "panoramica" && <Panoramica anno={anno} />}
+      {tab === "fatture" && <Fatture anno={anno} />}
+      {tab === "acquisti" && <CostiFicReview anno={anno} />}
     </div>
   );
 }

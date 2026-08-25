@@ -76,7 +76,7 @@ describe("OAuth Fatture in Cloud", () => {
     expect(parsed.searchParams.get("client_id")).toBe("client-test");
     expect(parsed.searchParams.get("state")).toBe("state-123");
     expect(parsed.searchParams.get("scope")).toBe(
-      "entity.clients:r issued_documents.invoices:r"
+      "entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r"
     );
   });
 

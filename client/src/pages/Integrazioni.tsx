@@ -658,6 +658,9 @@ function FattureInCloudCard() {
     onSuccess: ({ result }) => {
       utils.fattureInCloud.invalidate();
       utils.clienti.invalidate();
+      utils.ficFatture.invalidate();
+      utils.ficCosti.invalidate();
+      utils.economia.invalidate();
       toast.success(result);
     },
     onError: e => toast.error(e.message),
@@ -691,11 +694,11 @@ function FattureInCloudCard() {
             </div>
             <div>
               <CardTitle className="text-base">
-                Fatture in Cloud → Clienti
+                Fatture in Cloud · Contabilita
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Ogni 6 ore legge le fatture emesse dell'anno e crea da solo i
-                clienti che mancano nel CRM
+                Sincronizza vendite, note di credito, acquisti, pagamenti e
+                clienti della sede
               </p>
             </div>
           </div>
@@ -740,6 +743,30 @@ function FattureInCloudCard() {
             </span>
           )}
         </div>
+
+        {st.permessiEconomiciDaAggiornare && (
+          <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-3">
+            <p className="text-sm font-semibold text-text-1">
+              Aggiorna i permessi economici
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-text-2">
+              Il collegamento attuale non ha ancora confermato la lettura di
+              note di credito e documenti ricevuti. Ricollega FiC una volta, poi
+              avvia una sincronizzazione completa.
+            </p>
+            {st.oauthClientReady && (
+              <Button
+                size="sm"
+                className="mt-3 min-h-10"
+                onClick={() => oauthStart.mutate()}
+                disabled={oauthStart.isPending}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Ricollega e aggiorna permessi
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 flex-wrap">
           {st.oauthClientReady ? (

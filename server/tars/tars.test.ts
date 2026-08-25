@@ -49,6 +49,8 @@ import {
 import { processExperimentRepository } from "./processExperiments";
 import { extractProcessMetrics, type CompanyFrame } from "./processMetrics";
 import { getActionCaseRepository } from "../actionCenter/repository";
+import { upsertDocumentiEmessi } from "../routers/ficFatture";
+import { upsertCostiFic } from "../routers/ficCosti";
 
 function seedProcessSnapshot(sedeId = 1) {
   const frame: CompanyFrame = {
@@ -1463,6 +1465,77 @@ describe("tars — profili e cache operativa", () => {
     expect(quadro).toHaveProperty("qualita");
     expect(quadro).toHaveProperty("produzioneAcquisti");
     expect(quadro).toHaveProperty("tars.duplicatiBloccati30Giorni");
+  });
+
+  it("legge l'economia con fonti e valori FiC compatti", async () => {
+    const sedeId = 98;
+    const ctx = { ...makeCtx(), sedeId, sediIds: [sedeId] };
+    const anno = new Date().getFullYear();
+    upsertDocumentiEmessi(
+      [
+        {
+          id: 99801,
+          tipo: "invoice",
+          numero: "TARS-98",
+          data: `${anno}-02-10`,
+          clienteNome: "Cliente Tars Economia",
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 1_000,
+          importoIva: 220,
+          importoLordo: 1_220,
+          rate: [],
+        },
+      ],
+      sedeId,
+      "tars-economia"
+    );
+    upsertCostiFic(
+      [
+        {
+          id: 99802,
+          tipo: "expense",
+          data: `${anno}-02-11`,
+          fornitoreId: null,
+          fornitoreNome: "Fornitore Tars Economia",
+          categoriaFic: "Materiali",
+          descrizione: "Materiali",
+          centro: null,
+          numeroDocumento: "CT-98",
+          importoNetto: 400,
+          importoIva: 88,
+          importoLordo: 488,
+          rate: [],
+        },
+      ],
+      sedeId,
+      "tars-economia"
+    );
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_151,
+      trigger: "on_demand",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+      toolCacheHits: 0,
+      duplicatiBloccati: 0,
+    };
+
+    const result = await eseguiStrumento(rt, "leggi_economia", { anno });
+    const economia = JSON.parse(result.content);
+
+    expect(result.isError).toBeFalsy();
+    expect(economia.fonteEffettivi).toBe("Fatture in Cloud");
+    expect(economia.periodo).toEqual({
+      anno,
+      criterio: "competenza documento",
+    });
+    expect(economia.venditeFiC.netto).toBe(1_000);
+    expect(economia.acquistiFiC.netto).toBe(400);
+    expect(economia).not.toHaveProperty("fic");
+    expect(economia).toHaveProperty("coperturaCostiFissi.affidabilita");
   });
 
   it("propone di archiviare un allegato operativo nella commessa verificata", async () => {

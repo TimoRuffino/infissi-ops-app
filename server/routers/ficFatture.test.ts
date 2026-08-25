@@ -10,7 +10,9 @@ import {
   _setScaricaFatturaPdfForTests,
   ficFatture,
   generaProposteRiconciliazione,
+  finalizzaSnapshotDocumentiEmessi,
   statoFattura,
+  upsertDocumentiEmessi,
   upsertFatture,
 } from "./ficFatture";
 import { toOpenAIResponse } from "../tars/openaiTestHelpers";
@@ -208,6 +210,86 @@ describe("riconciliazione FIC", () => {
   });
 });
 
+describe("snapshot documenti emessi FIC", () => {
+  const baseSnapshot = (id: number) => ({
+    id,
+    tipo: "invoice" as const,
+    numero: `${id}/S`,
+    data: "2026-06-15",
+    clienteNome: `Cliente snapshot ${id}`,
+    clienteVat: null,
+    clienteCf: null,
+    importoNetto: 100,
+    importoIva: 22,
+    importoLordo: 122,
+    rate: [],
+  });
+
+  it("marca assenti i record non visti soltanto dopo uno snapshot completo", () => {
+    const ids = [98001, 98002, 98003, 98004];
+    upsertDocumentiEmessi(ids.map(baseSnapshot), 1, "sync-iniziale");
+
+    upsertDocumentiEmessi(
+      ids.slice(0, 2).map(baseSnapshot),
+      1,
+      "sync-52-su-54"
+    );
+    finalizzaSnapshotDocumentiEmessi({
+      sedeId: 1,
+      tipo: "invoice",
+      periodoDa: "2026-01-01",
+      periodoA: "2026-12-31",
+      syncId: "sync-52-su-54",
+      completo: false,
+    });
+    expect(
+      ids.map(id => ficFatture.find(f => f.id === id)!.presenteInFic)
+    ).toEqual([true, true, true, true]);
+
+    finalizzaSnapshotDocumentiEmessi({
+      sedeId: 1,
+      tipo: "invoice",
+      periodoDa: "2026-01-01",
+      periodoA: "2026-12-31",
+      syncId: "sync-52-su-54",
+      completo: true,
+    });
+    expect(
+      ids.map(id => ficFatture.find(f => f.id === id)!.presenteInFic)
+    ).toEqual([true, true, false, false]);
+  });
+
+  it("mantiene collegamenti e preferenze quando aggiorna una fattura", () => {
+    const id = 98005;
+    upsertDocumentiEmessi([baseSnapshot(id)], 1, "sync-a");
+    const record = ficFatture.find(f => f.id === id)!;
+    record.commessaId = 1234;
+    record.collegataAMano = true;
+    record.ignorata = true;
+
+    upsertDocumentiEmessi(
+      [
+        {
+          ...baseSnapshot(id),
+          importoNetto: 200,
+          importoIva: 44,
+          importoLordo: 244,
+        },
+      ],
+      1,
+      "sync-b"
+    );
+
+    const aggiornato = ficFatture.find(f => f.id === id)!;
+    expect(aggiornato.importoNetto).toBe(200);
+    expect(aggiornato.commessaId).toBe(1234);
+    expect(aggiornato.collegataAMano).toBe(true);
+    expect(aggiornato.ignorata).toBe(true);
+    expect(aggiornato.tipo).toBe("invoice");
+    expect(aggiornato.importoIva).toBe(44);
+  });
+});
+
 describe("archivio PDF FIC", () => {
   it("la sincronizzazione recupera il PDF di una fattura gia collegata", async () => {
     const caller = appRouter.createCaller(makeCtx());
@@ -264,6 +346,14 @@ describe("archivio PDF FIC", () => {
           text: async () => "",
         } as any;
       }
+      if (!url.includes("type=invoice")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+          text: async () => "",
+        } as any;
+      }
       return {
         ok: true,
         status: 200,
@@ -287,6 +377,19 @@ describe("archivio PDF FIC", () => {
 
     try {
       await runFicSync(1);
+      const listUrls = (global.fetch as any).mock.calls
+        .map((call: any[]) => String(call[0]))
+        .filter((url: string) => /\/(issued|received)_documents\?/.test(url));
+      expect(listUrls).toHaveLength(4);
+      for (const url of listUrls) {
+        const query = new URL(url).searchParams;
+        const year = new Date().getFullYear();
+        expect(query.get("q")).toBe(
+          `date >= '${year - 1}-01-01' and date <= '${year}-12-31'`
+        );
+        expect(query.has("date_from")).toBe(false);
+        expect(query.has("date_to")).toBe(false);
+      }
       const documenti = await caller.preventiviContratti.byCommessa(
         commessa.id
       );

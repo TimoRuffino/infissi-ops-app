@@ -134,15 +134,15 @@ export default function Marginalita() {
         <div>
           <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
             <TrendingUp className="h-6 w-6 text-primary" />
-            Marginalità
+            Marginalità stimata
           </h1>
           <p className="text-text-2 text-sm mt-1">
-            Margine lordo per commessa: pattuito − costi fornitore − costo posa
+            Stima CRM: pattuito lordo meno costi manuali e posa stimata
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Card className="px-3 py-2 gap-0 border-success/30">
-            <div className="eyebrow !text-success">Margine totale</div>
+            <div className="eyebrow !text-success">Margine stimato</div>
             <div className="text-xl font-bold leading-none mt-1 tabular-nums text-success">
               € {fmt(kpi.margineTot)}
             </div>

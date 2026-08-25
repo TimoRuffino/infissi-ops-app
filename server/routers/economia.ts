@@ -1,24 +1,99 @@
-// Economia — la situazione contabile in una pagina.
-//
-// Aggrega ciò che il CRM già sa, senza inventare nulla:
-//   fatturato    dalle fatture FIC sincronizzate
-//   incassato    dal registro acconti delle commesse (fonte di verità CRM)
-//   da incassare pattuito − incassato, mai negativo PER COMMESSA (il bug
-//                del «max sugli aggregati» è già stato pagato una volta)
-//   costi        registro costi[] + costo posa stimato
-//   margine      stessa formula pura di calcolaMargine
-//
-// Solo direzione e amministrazione: sono i dati economici dell'azienda.
-
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import {
+  calcolaAggregatiFic,
+  calcolaBreakEven,
+  type DocumentoEconomico,
+} from "../_core/economiaFic";
 import { requireDirezioneOAmministrazione } from "../_core/permissions";
+import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
+import { ficCosti } from "./ficCosti";
 import { ficFatture, statoFattura } from "./ficFatture";
 
-function mese(data: string | null | undefined): number | null {
-  if (!data || !/^\d{4}-\d{2}/.test(data)) return null;
-  return Number(data.slice(5, 7));
+function documentiEmessi(sedeId: number): DocumentoEconomico[] {
+  return ficFatture
+    .filter(documento => documento.sedeId === sedeId)
+    .map(documento => ({
+      tipo: documento.tipo,
+      data: documento.data,
+      importoNetto: documento.importoNetto,
+      importoIva: documento.importoIva,
+      importoLordo: documento.importoLordo,
+      rate: documento.rate,
+      presenteInFic: documento.presenteInFic,
+      ignorato: documento.ignorata,
+    }));
+}
+
+function documentiRicevuti(sedeId: number): DocumentoEconomico[] {
+  return ficCosti
+    .filter(documento => documento.sedeId === sedeId)
+    .map(documento => ({
+      tipo: documento.tipo,
+      data: documento.data,
+      importoNetto: documento.importoNetto,
+      importoIva: documento.importoIva,
+      importoLordo: documento.importoLordo,
+      rate: documento.rate,
+      presenteInFic: documento.presenteInFic,
+      classificazione: documento.classificazione,
+    }));
+}
+
+function riepilogoCrm(sedeId: number) {
+  const commesse = getCommesseStore().filter(
+    (commessa: any) => commessa.sedeId === sedeId
+  );
+  const attive = commesse.filter(
+    (commessa: any) => !commessa.archivedAt && commessa.stato !== "archiviata"
+  );
+  let pattuito = 0;
+  let incassato = 0;
+  let residuo = 0;
+  let costiManualiStimati = 0;
+  let costoPosaStimato = 0;
+  let commesseConPattuito = 0;
+
+  for (const commessa of attive as any[]) {
+    const pagamenti: any[] = Array.isArray(commessa.pagamenti)
+      ? commessa.pagamenti
+      : [];
+    const costi: any[] = Array.isArray(commessa.costi) ? commessa.costi : [];
+    const incassoCommessa = pagamenti.reduce(
+      (somma, pagamento) => somma + Number(pagamento.importo ?? 0),
+      0
+    );
+    if (Number(commessa.importoTotale) > 0) {
+      const importo = Number(commessa.importoTotale);
+      pattuito += importo;
+      incassato += incassoCommessa;
+      residuo += Math.max(0, importo - incassoCommessa);
+      commesseConPattuito++;
+    }
+    costiManualiStimati += costi.reduce(
+      (somma, costo) => somma + Number(costo.importo ?? 0),
+      0
+    );
+    costoPosaStimato += Number(commessa.costoPosaStimato ?? 0);
+  }
+  const margineStimato = pattuito - costiManualiStimati - costoPosaStimato;
+  return {
+    pattuito,
+    incassato,
+    residuo,
+    commesseAttive: attive.length,
+    commesseConPattuito,
+    costiManualiStimati,
+    costoPosaStimato,
+    margineStimato,
+    margineStimatoPerc: pattuito > 0 ? margineStimato / pattuito : null,
+    // Alias temporanei per le viste ancora in migrazione.
+    costiFornitore: costiManualiStimati,
+    costoPosa: costoPosaStimato,
+    margineLordo: margineStimato,
+    marginePerc: pattuito > 0 ? margineStimato / pattuito : null,
+  };
 }
 
 export const economiaRouter = router({
@@ -27,113 +102,111 @@ export const economiaRouter = router({
     .query(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const anno = input?.anno ?? new Date().getFullYear();
-      const annoStr = String(anno);
+      const sedeId = ctx.sedeId ?? 1;
+      const emessi = documentiEmessi(sedeId);
+      const ricevuti = documentiRicevuti(sedeId);
+      const aggregati = calcolaAggregatiFic([...emessi, ...ricevuti], anno);
       const commesse = getCommesseStore().filter(
-        (c: any) => c.sedeId === ctx.sedeId
+        (commessa: any) => commessa.sedeId === sedeId
       );
-
-      // ── Lato CRM: pattuito, incassato, residuo, costi ────────────────
-      let pattuito = 0;
-      let incassato = 0;
-      let residuo = 0;
-      let costiFornitore = 0;
-      let costoPosa = 0;
-      let commesseConPattuito = 0;
-      const incassiMese = new Array(12).fill(0);
-      const costiMese = new Array(12).fill(0);
-
-      for (const c of commesse as any[]) {
-        if (c.archivedAt && !String(c.dataChiusura ?? "").startsWith(annoStr)) {
-          // Le archiviate contano solo per i movimenti dell'anno.
-        }
-        const pag: any[] = Array.isArray(c.pagamenti) ? c.pagamenti : [];
-        const cst: any[] = Array.isArray(c.costi) ? c.costi : [];
-
-        // Movimenti dell'anno, per mese.
-        for (const p of pag) {
-          if (String(p.data ?? "").startsWith(annoStr)) {
-            const m = mese(p.data);
-            if (m) incassiMese[m - 1] += p.importo ?? 0;
-          }
-        }
-        for (const k of cst) {
-          if (String(k.data ?? "").startsWith(annoStr)) {
-            const m = mese(k.data);
-            if (m) costiMese[m - 1] += k.importo ?? 0;
-          }
-        }
-
-        // Fotografia sulle attive: pattuito, incassato, residuo, costi.
-        if (c.archivedAt) continue;
-        if (c.importoTotale != null && c.importoTotale > 0) {
-          pattuito += c.importoTotale;
-          commesseConPattuito++;
-          const inc = pag.reduce((s, p) => s + (p.importo ?? 0), 0);
-          incassato += inc;
-          // Per commessa, mai negativo: un sovrapagamento non deve
-          // cancellare il credito di un'altra.
-          residuo += Math.max(0, c.importoTotale - inc);
-        }
-        costiFornitore += cst.reduce((s, k) => s + (k.importo ?? 0), 0);
-        costoPosa += c.costoPosaStimato ?? 0;
-      }
-
-      // ── Lato FIC: fatturato e incassi da fattura ─────────────────────
-      // Le fatture della sede: quelle di un'altra azienda del gruppo non
-      // entrano in questo bilancio.
       const fattureAnno = ficFatture.filter(
-        (f) => f.sedeId === ctx.sedeId && f.data.startsWith(annoStr)
+        fattura =>
+          fattura.sedeId === sedeId &&
+          fattura.tipo === "invoice" &&
+          fattura.presenteInFic &&
+          !fattura.ignorata &&
+          fattura.data.startsWith(String(anno))
       );
-      let fatturato = 0;
-      let incassatoFic = 0;
-      let daIncassareFic = 0;
-      const fatturatoMese = new Array(12).fill(0);
-      let daRiconciliare = 0;
-      for (const f of fattureAnno) {
-        if (f.ignorata) continue;
-        fatturato += f.importoLordo;
-        const m = mese(f.data);
-        if (m) fatturatoMese[m - 1] += f.importoLordo;
-        for (const r of f.rate) {
-          if (r.stato === "paid") incassatoFic += r.importo;
-          else daIncassareFic += r.importo;
-        }
-        const s = statoFattura(f, commesse);
-        if (s.stato === "da_riconciliare" || s.stato === "non_abbinabile") {
-          daRiconciliare++;
-        }
-      }
+      const daRiconciliare = fattureAnno.filter(fattura => {
+        const stato = statoFattura(fattura, commesse).stato;
+        return stato === "da_riconciliare" || stato === "non_abbinabile";
+      }).length;
+      const costiAnno = ficCosti.filter(
+        costo =>
+          costo.sedeId === sedeId &&
+          costo.presenteInFic &&
+          costo.data.startsWith(String(anno))
+      );
+      const documentiDubbi = costiAnno.filter(
+        costo => costo.classificazione === "dubbio"
+      );
+      const importoDubbio = documentiDubbi.reduce(
+        (somma, costo) =>
+          somma +
+          (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto,
+        0
+      );
 
-      const margineLordo = pattuito - costiFornitore - costoPosa;
+      const vendite = {
+        disponibile: aggregati.vendite.documenti > 0,
+        fatture: fattureAnno.length,
+        noteCredito: aggregati.vendite.noteCredito,
+        documenti: aggregati.vendite.documenti,
+        netto: aggregati.vendite.netto,
+        iva: aggregati.vendite.iva,
+        lordo: aggregati.vendite.lordo,
+        incassato: aggregati.vendite.pagato,
+        daIncassare: aggregati.vendite.aperto,
+        daRiconciliare,
+      };
+      const acquisti = {
+        disponibile: aggregati.acquisti.documenti > 0,
+        documenti: aggregati.acquisti.documenti,
+        noteCredito: aggregati.acquisti.noteCredito,
+        netto: aggregati.acquisti.netto,
+        iva: aggregati.acquisti.iva,
+        lordo: aggregati.acquisti.lordo,
+        pagato: aggregati.acquisti.pagato,
+        daPagare: aggregati.acquisti.aperto,
+        dubbi: documentiDubbi.length,
+        importoDubbio,
+      };
 
       return {
         anno,
-        crm: {
-          pattuito,
-          incassato,
-          residuo,
-          costiFornitore,
-          costoPosa,
-          margineLordo,
-          marginePerc: pattuito > 0 ? margineLordo / pattuito : null,
-          commesseAttive: commesse.filter((c: any) => !c.archivedAt).length,
-          commesseConPattuito,
-        },
+        crm: riepilogoCrm(sedeId),
+        vendite,
+        acquisti,
+        // Alias compatibile: ora il fatturato è correttamente netto IVA.
         fic: {
-          disponibile: fattureAnno.length > 0,
-          fatture: fattureAnno.filter((f) => !f.ignorata).length,
-          fatturato,
-          incassato: incassatoFic,
-          daIncassare: daIncassareFic,
-          daRiconciliare,
+          disponibile: vendite.disponibile,
+          fatture: vendite.fatture,
+          fatturato: vendite.netto,
+          incassato: vendite.incassato,
+          daIncassare: vendite.daIncassare,
+          daRiconciliare: vendite.daRiconciliare,
         },
-        // Andamento per mese: fatturato (FIC), incassi e costi (CRM).
-        mesi: Array.from({ length: 12 }, (_, i) => ({
-          mese: i + 1,
-          fatturato: fatturatoMese[i],
-          incassi: incassiMese[i],
-          costi: costiMese[i],
+        mesi: aggregati.mesi.map(mese => ({
+          ...mese,
+          fatturato: mese.venditeNetto,
+          incassi: mese.incassi,
+          costi: mese.acquistiNetto,
         })),
       };
+    }),
+
+  breakEven: protectedProcedure
+    .input(
+      z.object({
+        anno: z.number().int(),
+        mese: z.number().int().min(1).max(12),
+      })
+    )
+    .query(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const annoCorrente = new Date().getFullYear();
+      if (input.anno !== annoCorrente) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Il punto di pareggio è disponibile per l'anno corrente.",
+        });
+      }
+      const sedeId = ctx.sedeId ?? 1;
+      return calcolaBreakEven({
+        anno: input.anno,
+        mese: input.mese,
+        documentiEmessi: documentiEmessi(sedeId),
+        costi: documentiRicevuti(sedeId),
+      });
     }),
 });
