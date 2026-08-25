@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
-// The 19 PRD steps grouped under the 4 board phases (redesign §4.3).
+// The 18 PRD steps grouped under the 4 board phases (redesign §4.3).
 // Ranges are by stepNumber (1-based, inclusive).
 const FASI = [
   { id: "vendita", label: "Vendita", dot: "bg-st-preventivo", from: 1, to: 5 },
@@ -38,10 +39,32 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
   const stats = trpc.timeline.stats.useQuery(commessaId);
   const utenti = trpc.utenti.list.useQuery(undefined);
   const utils = trpc.useUtils();
+  const [forceStepTarget, setForceStepTarget] = useState<{
+    variables: {
+      id: number;
+      stato?: "da_fare" | "in_corso" | "completato";
+      dataCompletamento?: string | null;
+      utente?: string | null;
+      note?: string | null;
+      allegato?: string | null;
+    };
+    message: string;
+  } | null>(null);
 
   const updateStep = trpc.timeline.updateStep.useMutation({
     onSuccess: () => {
       utils.timeline.invalidate();
+      utils.commesse.invalidate();
+      setForceStepTarget(null);
+    },
+    onError: (error, variables) => {
+      const prefix = "DOC_GATE_BLOCKED:";
+      if (error.message.startsWith(prefix) && variables.stato === "completato") {
+        setForceStepTarget({
+          variables,
+          message: error.message.slice(prefix.length).trim(),
+        });
+      }
     },
   });
 
@@ -141,7 +164,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
 
   const pct = stats.data?.percentuale ?? 0;
   const done = stats.data?.completati ?? 0;
-  const total = stats.data?.totale ?? steps.data?.length ?? 19;
+  const total = stats.data?.totale ?? steps.data?.length ?? 18;
 
   // Auto-open the phase that contains the current step (others collapsed).
   const currentFaseId = currentStep ? faseOf(currentStep.stepNumber).id : null;
@@ -411,6 +434,19 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!forceStepTarget}
+        onOpenChange={(open) => !open && setForceStepTarget(null)}
+        title="File richiesto non caricato"
+        description={forceStepTarget?.message ?? ""}
+        destructive={false}
+        confirmLabel="Procedi comunque"
+        onConfirm={() => {
+          if (!forceStepTarget) return;
+          updateStep.mutate({ ...forceStepTarget.variables, force: true });
+        }}
+      />
     </Card>
   );
 }

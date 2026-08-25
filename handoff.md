@@ -553,6 +553,19 @@ Azioni operative da completare:
 - Umami viene installato soltanto quando `import.meta.env.PROD` è vero e sono
   presenti endpoint e website id validi.
 
+### Timeline ordine e Board
+
+Dal 25/08/2026 il completamento delle milestone della timeline avanza la
+commessa usando `commesse.update`, quindi applica gli stessi permessi, la stessa
+state machine a passo singolo e lo stesso doc gate del Board. La mappa è
+1→`misure_esecutive`, 2→`aggiornamento_contratto`, 3→`fatture_pagamento`,
+5→`da_ordinare`, 6→`produzione`, 10→`ordini_ultimazione`, 11→`attesa_posa`,
+15→`finiture_saldo`, 17→`interventi_regolazioni`, 18→`archiviata`.
+
+Se il doc gate blocca il passaggio, lo step non viene salvato come completato e
+il client propone "Procedi comunque". Date, note, step intermedi e riaperture
+non cambiano la colonna; una commessa già più avanti non viene mai arretrata.
+
 ## 10. Checklist prima del deploy
 
 ```bash

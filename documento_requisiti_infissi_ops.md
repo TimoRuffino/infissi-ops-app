@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.21 - Rollout Tars fail-closed, ACL proposte e SSE ordinato.
+**Versione:** 4.22 - Timeline ordine sincronizzata con il Board commesse.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -258,6 +258,7 @@ Ordine canonico (`STATI_COMMESSA`):
 ### 7.4 Avanzamento via UI
 - **Scheda commessa**: pulsante "Avanza" che propone lo stato successivo. Disabilitato se manca un documento richiesto (vedi §9), eccetto bypass con "Procedi comunque".
 - **Board Kanban**: ogni card ha frecce **Indietro** / **Avanza**. Le frecce attraversano sempre la stessa state machine (controlli server identici).
+- **Timeline ordine**: completare una milestone operativa avanza automaticamente la commessa nella relativa colonna del Board (§35.2). Salvataggio di data/note e riapertura di uno step non cambiano lo stato della commessa.
 
 ### 7.5 Stati e gate documentale (vedi anche §9)
 - `preventivo` → necessita `preventivo` o `contratto`.
@@ -848,6 +849,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.22 (25/08/2026)** - Le milestone della Timeline ordine avanzano automaticamente la commessa nel Board usando la state machine e il doc gate canonici; date/note e riaperture non spostano la commessa (§7.4, §35.2).
 - **v4.21 (25/08/2026)** - Il rollout Tars fallisce chiuso: shadow senza notifiche/push, active bloccato per contesto/planner/semantica incompleti, ACL proposte per ownership, deleghe rivalidate e stream SSE senza finestra replay/live (§53).
 - **v4.20 (25/08/2026)** - Introdotte le fondamenta di eventi, notifiche realtime, capability, contesto incrementale, planner persistente, indice ACL-aware, outcome e diagnostica; attivazione subordinata ai gate produzione (§53).
 - **v4.19 (25/08/2026)** - La chat Tars può proporre cliente e prima commessa anche senza una comunicazione sorgente; la creazione resta unica, deduplicata e subordinata all'approvazione (§50.2, §50.9).
@@ -904,6 +906,9 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - Barra avanzamento (N/18 + %). Fasi collassabili; **la fase con lo step corrente e quelle contenenti note si aprono da sole**.
 - Step corrente evidenziato (sfondo primary tenue) con bottone **Completa** one‑click. Dialog di modifica per data, utente esecutore (SearchSelect) e note; step completato riapribile.
 - Campi step: `stato (da_fare|in_corso|completato), dataCompletamento, utente, note, allegato?`.
+- Il primo completamento delle milestone sincronizza lo stato della commessa: **1 Rilievo Misure** → `misure_esecutive`; **2 Firma Contratto** → `aggiornamento_contratto`; **3 Fatturazione** → `fatture_pagamento`; **5 Primo Acconto** → `da_ordinare`; **6 Ordine Merce** → `produzione`; **10 Merce pronta** → `ordini_ultimazione`; **11 Secondo Acconto** → `attesa_posa`; **15 DDT Posa** → `finiture_saldo`; **17 Saldo** → `interventi_regolazioni`; **18 Recensione** → `archiviata`.
+- La sincronizzazione usa la mutation canonica `commesse.update`: permessi, transizioni singole e doc gate sono identici al Board. Se manca un file, lo step resta incompleto e la UI offre **Procedi comunque**; confermando ripete entrambe le operazioni con `force: true`.
+- Uno step intermedio non sposta il Board. Completare di nuovo una milestone già registrata o riaprirla non arretra la commessa; una timeline rimasta indietro rispetto al Board può quindi essere riallineata senza regressioni.
 
 ### 35.2‑bis Date programmate (appuntamenti futuri)
 Il dialog dello step espone un campo **«Data (appuntamento o completamento)»** e due azioni distinte:

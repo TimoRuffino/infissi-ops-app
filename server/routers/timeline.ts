@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { getCommessaById } from "./commesse";
+import { getCommessaById, STATI_COMMESSA } from "./commesse";
 
 // Cross-sede guard: timeline steps belong to a commessa; only visible/mutable
 // when that commessa is in the active sede.
@@ -12,7 +12,7 @@ function commessaInSede(commessaId: number, sedeId: number | null) {
   return c;
 }
 
-// ── 19-step order timeline ────────────────────────────────────────────────────
+// ── 18-step order timeline ────────────────────────────────────────────────────
 const STEP_LABELS: string[] = [
   "Rilievo Misure",
   "Firma Contratto (allegato)",
@@ -34,6 +34,22 @@ const STEP_LABELS: string[] = [
   // "Fine Lavori \u2014 DDT Finale" rimosso su richiesta.
   "Recensione del Cliente",
 ];
+
+// Completing these operational milestones advances the commessa by one board
+// column. Intermediate timeline steps remain useful as a checklist but do not
+// alter the workflow state.
+const STATO_PER_MILESTONE: Partial<Record<number, (typeof STATI_COMMESSA)[number]>> = {
+  1: "misure_esecutive",
+  2: "aggiornamento_contratto",
+  3: "fatture_pagamento",
+  5: "da_ordinare",
+  6: "produzione",
+  10: "ordini_ultimazione",
+  11: "attesa_posa",
+  15: "finiture_saldo",
+  17: "interventi_regolazioni",
+  18: "archiviata",
+};
 
 type Stato = "da_fare" | "in_corso" | "completato";
 
@@ -137,15 +153,40 @@ export const timelineRouter = router({
         utente: z.string().nullable().optional(),
         note: z.string().nullable().optional(),
         allegato: z.string().nullable().optional(),
+        force: z.boolean().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = steps.findIndex((s) => s.id === input.id);
       if (idx === -1) throw new Error("Step non trovato");
-      if (!commessaInSede(steps[idx].commessaId, ctx.sedeId)) {
+      const commessa = commessaInSede(steps[idx].commessaId, ctx.sedeId);
+      if (!commessa) {
         throw new Error("Step non trovato");
       }
-      const { id, ...updates } = input;
+
+      const targetStato = STATO_PER_MILESTONE[steps[idx].stepNumber];
+      const isNewCompletion =
+        input.stato === "completato" && steps[idx].stato !== "completato";
+
+      if (isNewCompletion && targetStato) {
+        const currentIdx = STATI_COMMESSA.indexOf(commessa.stato as any);
+        const targetIdx = STATI_COMMESSA.indexOf(targetStato);
+
+        // A timeline reopened after the board has already advanced must not
+        // pull the commessa backwards. If the board is behind, its own update
+        // mutation enforces one-step transitions, permissions and file gates.
+        if (currentIdx < targetIdx) {
+          const { appRouter } = await import("../routers");
+          await appRouter.createCaller(ctx).commesse.update({
+            id: commessa.id,
+            stato: targetStato,
+            force: input.force,
+          });
+        }
+      }
+
+      const { id, force: _force, ...updates } = input;
+      void _force;
       steps[idx] = { ...steps[idx], ...updates } as TimelineStep;
       _stepsStore.save();
       return steps[idx];
