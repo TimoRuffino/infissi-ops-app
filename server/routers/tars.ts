@@ -47,6 +47,10 @@ import {
   getComunicazione,
   salvaEsitoTarsComunicazione,
 } from "../tars/comunicazioni";
+import {
+  getFeatureFlags,
+  setFeatureFlags,
+} from "../platform/featureFlags";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -800,8 +804,33 @@ ${input.testo.trim()}`;
         spesaMeseUsd: spesaMeseUsd(ctx.sedeId ?? 1),
         chiaveConfigurata: openaiConfigured(),
         puoModificare: isDirezione(ctx.user),
+        platformFlags: getFeatureFlags(ctx.sedeId ?? 1),
       };
     }),
+    setPlatformFlags: protectedProcedure
+      .input(
+        z.object({
+          reason: z.string().trim().min(10).max(500),
+          patch: z.object({
+            eventBusMode: z.enum(["off", "shadow", "active"]).optional(),
+            notificationMode: z.enum(["legacy", "shadow", "active"]).optional(),
+            realtimeNotifications: z.boolean().optional(),
+            webPushEnabled: z.boolean().optional(),
+            policyMode: z.enum(["legacy", "audit", "enforce"]).optional(),
+            contextEngineMode: z.enum(["off", "shadow", "active"]).optional(),
+            plannerMode: z.enum(["off", "shadow", "active"]).optional(),
+            semanticSearchMode: z.enum(["off", "shadow", "active"]).optional(),
+            autonomyCapabilities: z.array(z.string().min(1).max(100)).max(50).optional(),
+          }),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        return setFeatureFlags(ctx.sedeId ?? 1, input.patch, {
+          actorUserId: (ctx.user as any)?.id ?? null,
+          reason: input.reason,
+        });
+      }),
     setAttivo: protectedProcedure
       .input(z.object({ attivo: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
