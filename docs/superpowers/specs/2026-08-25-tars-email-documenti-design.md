@@ -99,6 +99,36 @@ l'approvazione resta in uso la saga idempotente esistente, che crea cliente,
 prima commessa in `preventivo`, relazioni e collegamento comunicazione senza
 duplicare gli step riusciti.
 
+### Approvazioni interamente nella chat
+
+Una domanda preliminare e la proposta che nasce dalla risposta formano una
+sola catena conversazionale. Oggi il seguito usa `origineId`, ma la nuova
+proposta non viene aggiunta al messaggio chat originario: per questo puo
+comparire soltanto nel tab Proposte.
+
+La lettura della chat deve idratare anche tutte le proposte discendenti delle
+proposte gia collegate al messaggio. Dopo la scelta dell'assegnatario, la card
+`Crea cliente e commessa` compare quindi nello stesso punto della chat. La sua
+approvazione avvia direttamente la saga; la stessa card mostra esecuzione,
+successo, errore riprovabile e identificativi creati. Il tab Proposte resta una
+vista globale, mai un passaggio obbligatorio del flusso iniziato in chat.
+
+Il client aggiorna chat e discendenti mentre un seguito e in corso, poi
+interrompe il polling quando la nuova proposta o l'esito sono visibili.
+
+## Interpretazione per obiettivi
+
+Tars distingue un obiettivo da una singola mutation. Frasi come `il lavoro e
+finito` non producono una sequenza di proposte `avanza di uno stato`: Tars legge
+il fascicolo e verifica saldo, documenti obbligatori, timeline, ticket e
+interventi aperti. Se la chiusura non e consentita, presenta soltanto i blocchi
+reali e le azioni necessarie. Se tutti i prerequisiti sono soddisfatti, puo
+preparare un'unica proposta di chiusura verificabile. Non forza mai
+l'archiviazione quando saldo o documenti risultano mancanti.
+
+Domande informative non generano proposte. Una proposta nasce soltanto quando
+esiste una mutation necessaria, fondata e non gia pendente o decisa.
+
 ## Pagina Email
 
 Il lettore adotta un ordine simile a un client di posta:

@@ -136,6 +136,24 @@ risultato di dominio atteso sia realmente presente e coerente.
 Ogni nuovo livello e attivabile per sede in `off`, `shadow` o `active`. Spegnere
 Tars non interrompe le funzioni normali del CRM.
 
+### 4.8 Miglioramenti di processo come esperimenti
+
+`Tars migliora il processo` non produce consigli generici ne semplici prese
+d'atto. Ogni proposta deve diventare un esperimento operativo con almeno due
+casi o una metrica aggregata, responsabile suggerito, baseline, obiettivo,
+azione concreta e data di verifica. Se uno di questi elementi manca, non viene
+creata alcuna proposta.
+
+L'approvazione crea un piano assegnato nel Centro Azioni. Alla scadenza Tars
+rilegge la metrica e classifica l'esito come migliorato, invariato o peggiorato.
+La chiave canonica impedisce nuove proposte sullo stesso processo finche
+l'esperimento precedente e aperto. Il confronto usa snapshot storici, non una
+singola fotografia del quadro aziendale.
+
+Esempio accettabile: `8 commesse su 23 ferme oltre 10 giorni in attesa misure;
+controllo settimanale assegnato a X, obiettivo massimo 3 entro 30 giorni`.
+`Migliorare il monitoraggio delle commesse` non e una proposta valida.
+
 ## 5. Architettura generale
 
 ```text
