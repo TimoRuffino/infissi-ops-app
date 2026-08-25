@@ -28,6 +28,11 @@ export type ContextRepository = {
     version: number;
     errorCode: string;
   }): Promise<EntityContextSnapshot | null>;
+  activateVersion(input: {
+    key: EntityContextKey;
+    version: number;
+    now: Date;
+  }): Promise<EntityContextSnapshot | null>;
   getLatest(input: {
     key: EntityContextKey;
     now: Date;
@@ -158,6 +163,16 @@ export function createMemoryContextRepository(): ContextRepository {
       stored.state = "failed";
       stored.errorCode = input.errorCode;
       return withFreshness(stored, new Date());
+    },
+
+    async activateVersion(input) {
+      const stored = findStored(input.key, input.version);
+      if (!stored) return null;
+      const mapKey = contextKey(input.key);
+      const context = contexts.get(mapKey);
+      if (!context) return null;
+      contexts.set(mapKey, { ...context, currentVersion: input.version });
+      return withFreshness(stored, input.now);
     },
 
     async getLatest(input) {
@@ -426,6 +441,23 @@ export function createPostgresContextRepository(
         key: input.key,
         version: input.version,
         now: new Date(),
+      });
+    },
+
+    async activateVersion(input) {
+      await ensureSchema();
+      const rows = await sql`UPDATE tars_entity_contexts c SET
+        current_version_id = v.id, updated_at = ${input.now}
+        FROM tars_context_versions v
+        WHERE v.context_id = c.id AND c.sede_id = ${input.key.sedeId}
+          AND c.entity_type = ${input.key.entityType} AND c.entity_id = ${input.key.entityId}
+          AND c.scope = ${input.key.scope} AND v.version_number = ${input.version}
+        RETURNING v.id`;
+      if (rows.length === 0) return null;
+      return loadVersion({
+        key: input.key,
+        version: input.version,
+        now: input.now,
       });
     },
 

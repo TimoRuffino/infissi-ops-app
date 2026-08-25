@@ -141,6 +141,10 @@ export async function callOpenAI(params: {
   maxTokens?: number;
   reasoningEffort?: "none" | "low" | "medium" | "high";
   promptCacheKey: string;
+  responseFormat?: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
   signal?: AbortSignal;
 }): Promise<OpenAITarsResponse> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -190,7 +194,19 @@ export async function callOpenAI(params: {
           }
         : {}),
       max_output_tokens: params.maxTokens ?? 4096,
-      text: { verbosity: "low" },
+      text: {
+        verbosity: "low",
+        ...(params.responseFormat
+          ? {
+              format: {
+                type: "json_schema",
+                name: params.responseFormat.name,
+                strict: true,
+                schema: params.responseFormat.schema,
+              },
+            }
+          : {}),
+      },
       reasoning: {
         effort: params.reasoningEffort ?? "medium",
         ...(cacheEsplicita ? { context: "all_turns" } : {}),

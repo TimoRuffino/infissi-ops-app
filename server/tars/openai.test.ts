@@ -67,12 +67,34 @@ describe("OpenAI provider", () => {
         },
       ],
       promptCacheKey: "tars:smistamento:gpt-5.6-terra",
+      responseFormat: {
+        name: "classificazione",
+        schema: {
+          type: "object",
+          properties: { categoria: { type: "string" } },
+          required: ["categoria"],
+          additionalProperties: false,
+        },
+      },
     });
 
     expect(requestBody).toMatchObject({
       model: "gpt-5.6-terra",
       store: false,
-      text: { verbosity: "low" },
+      text: {
+        verbosity: "low",
+        format: {
+          type: "json_schema",
+          name: "classificazione",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { categoria: { type: "string" } },
+            required: ["categoria"],
+            additionalProperties: false,
+          },
+        },
+      },
       reasoning: { effort: "medium", context: "all_turns" },
       include: ["reasoning.encrypted_content"],
       parallel_tool_calls: true,
