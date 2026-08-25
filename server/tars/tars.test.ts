@@ -1563,6 +1563,87 @@ describe("tars — profili e cache operativa", () => {
     }
   });
 
+  it("chiude una commessa con una sola proposta solo quando tutti i vincoli sono soddisfatti", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({
+      cliente: "Chiusura Verificata",
+      importoTotale: 0,
+    });
+    const documentTypes = [
+      "preventivo",
+      "misure",
+      "contratto",
+      "fattura",
+      "ordine",
+      "ddt_consegna",
+      "ddt_posa",
+      "ddt_finale",
+    ] as const;
+    for (const tipo of documentTypes) {
+      await caller.preventiviContratti.upload({
+        commessaId: commessa.id,
+        nome: `${tipo}.pdf`,
+        tipo,
+        mimeType: "application/pdf",
+        size: 3,
+        dataBase64: Buffer.from(tipo).toString("base64"),
+      });
+    }
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_156,
+      trigger: "chat",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      evidenceRefs: [{
+        sourceType: "commessa",
+        sourceId: String(commessa.id),
+        label: commessa.codice,
+        version: "test-ready",
+      }],
+    };
+
+    try {
+      const readinessTool = await eseguiStrumento(
+        rt,
+        "verifica_chiusura_commessa",
+        { commessaId: commessa.id }
+      );
+      expect(JSON.parse(readinessTool.content).ready).toBe(true);
+      const fingerprint = JSON.parse(readinessTool.content).fingerprint;
+
+      const proposed = await eseguiStrumento(
+        rt,
+        "proponi_chiusura_commessa",
+        {
+          commessaId: commessa.id,
+          readinessFingerprint: fingerprint,
+          titolo: `Chiudi ${commessa.codice} - Chiusura Verificata`,
+          motivazione:
+            "Saldo, fascicolo documentale e pratiche operative risultano completi.",
+          confidenza: "alta",
+        }
+      );
+      expect(proposed.isError).toBeFalsy();
+      const proposalId = rt.proposteIds[0];
+      expect(proposte.find(item => item.id === proposalId)).toMatchObject({
+        tipo: "chiudi_commessa",
+        commessaId: commessa.id,
+        payload: { readinessFingerprint: fingerprint },
+      });
+
+      const approved = await caller.tars.proposte.approva({ id: proposalId });
+      expect(approved.stato).toBe("approvata");
+      expect(await caller.commesse.byId(commessa.id)).toMatchObject({
+        stato: "archiviata",
+      });
+    } finally {
+      deleteDocumentiByCommessa(commessa.id);
+    }
+  });
+
   it("non duplica lo stesso miglioramento di processo riformulato", async () => {
     const rt: ToolRuntime = {
       ctx: makeCtx(),

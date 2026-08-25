@@ -37,6 +37,7 @@ export const TIPI_PROPOSTA = [
   "ticket",
   "pagamento",
   "avanzamento_stato",
+  "chiudi_commessa",
   "bozza_risposta",
   "segnalazione",
   "miglioramento_processo",
@@ -50,6 +51,7 @@ export type TipoProposta = (typeof TIPI_PROPOSTA)[number];
 export const TIPI_ALTO_RISCHIO: TipoProposta[] = [
   "pagamento",
   "avanzamento_stato",
+  "chiudi_commessa",
   "bozza_risposta",
   "collega_fattura",
 ];
@@ -258,6 +260,9 @@ export function chiaveAzioneProposta(p: {
       break;
     case "avanzamento_stato":
       effetto = { nuovoStato: pay.nuovoStato };
+      break;
+    case "chiudi_commessa":
+      effetto = { commessaId: pay.commessaId ?? p.commessaId };
       break;
     case "bozza_risposta":
       effetto = {

@@ -61,6 +61,7 @@ import {
   type TarsOutcomeEvent,
 } from "../tars/learning/outcomes";
 import { evaluateAutonomyGate } from "../tars/autonomy/policy";
+import { collectProposalTree } from "../tars/proposalTree";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -87,6 +88,7 @@ const CAPABILITIES_PER_PROPOSAL: Record<string, string[]> = {
   ticket: ["ticket.create"],
   pagamento: ["pagamento.create"],
   avanzamento_stato: ["commessa.transition"],
+  chiudi_commessa: ["commessa.transition"],
   bozza_risposta: ["comunicazione.draft"],
   segnalazione: ["segnalazione.create"],
   miglioramento_processo: ["processo.propose"],
@@ -265,13 +267,12 @@ function propostaRiferitaAComunicazioni(
 
 // Un messaggio della chat con le sue proposte al seguito, nello stato
 // corrente (approvata/rifiutata compare aggiornato, non congelato).
-function idrataMessaggio(m: MessaggioChat) {
+function idrataMessaggio(m: MessaggioChat, sedeId: number) {
   return {
     ...m,
-    proposte: m.proposteIds
-      .map(id => proposte.find(p => p.id === id))
-      .filter(Boolean)
-      .map(idrataProposta),
+    proposte: collectProposalTree(m.proposteIds, proposte, sedeId).map(
+      idrataProposta
+    ),
   };
 }
 
@@ -461,7 +462,7 @@ Non scrivere direttamente nel CRM: prepara soltanto proposte approvabili.`;
     get: protectedProcedure.query(({ ctx }) => {
       const user: any = ctx.user;
       const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
-      return rec.messaggi.map(idrataMessaggio);
+      return rec.messaggi.map(message => idrataMessaggio(message, ctx.sedeId ?? 1));
     }),
 
     invia: protectedProcedure
@@ -541,7 +542,7 @@ ${input.testo.trim()}`;
         rec.updatedAt = new Date();
         saveChat();
 
-        return idrataMessaggio(suoMsg);
+        return idrataMessaggio(suoMsg, ctx.sedeId ?? 1);
       }),
 
     pulisci: protectedProcedure.mutation(({ ctx }) => {

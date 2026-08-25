@@ -41,6 +41,7 @@ const TIPO_LABEL: Record<string, string> = {
   ticket: "Ticket",
   pagamento: "Pagamento",
   avanzamento_stato: "Stato",
+  chiudi_commessa: "Chiusura",
   bozza_risposta: "Bozza",
   segnalazione: "Segnalazione",
   miglioramento_processo: "Processo",
@@ -151,6 +152,12 @@ function describePayload(p: any): string[] {
     case "avanzamento_stato":
       out.push(`Nuovo stato: ${statoLabel(pay.nuovoStato)}`);
       break;
+    case "chiudi_commessa":
+      out.push("Saldo verificato");
+      out.push("Documenti obbligatori verificati");
+      out.push("Nessun ticket o intervento aperto");
+      out.push("Risultato: chiusura completa della commessa");
+      break;
     case "bozza_risposta":
       out.push(`A: ${pay.destinatario} (${pay.canale})`);
       if (pay.testo) out.push(pay.testo);
@@ -200,13 +207,9 @@ export default function TarsPropostaCard({
     onDecisa?.();
   };
 
-  // Il seguito gira sul server dopo la risposta: quando finisce nessuno ce
-  // lo dice, quindi si ripassa a chiedere. Due colpi, poi basta — se Tars è
-  // più lento di così la proposta comparirà al prossimo caricamento.
   const attendiSeguito = () => {
     toast.info("Tars sta cercando l'azione che chiude la situazione…");
-    setTimeout(invalidate, 10_000);
-    setTimeout(invalidate, 30_000);
+    invalidate();
   };
 
   const approva = trpc.tars.proposte.approva.useMutation({

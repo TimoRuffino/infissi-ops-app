@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { PlanProgress } from "@/components/tars/PlanProgress";
+import { chatNeedsRefresh } from "@/lib/tarsChat";
 
 export function TarsChatPanel({ className }: { className?: string }) {
   const utils = trpc.useUtils();
@@ -58,6 +59,18 @@ export function TarsChatPanel({ className }: { className?: string }) {
   });
 
   const rows = messaggi.data ?? [];
+  const chatProposals = rows.flatMap((message: any) => message.proposte ?? []);
+  const refreshSignature = chatProposals
+    .map((proposal: any) =>
+      [
+        proposal.id,
+        proposal.origineId,
+        proposal.stato,
+        proposal.seguitoAt,
+        proposal.esito,
+      ].join(":")
+    )
+    .join("|");
   const currentPlans = [
     ...(commandCenter.data?.waitingQuestions ?? []),
     ...(commandCenter.data?.activePlans ?? []),
@@ -79,6 +92,17 @@ export function TarsChatPanel({ className }: { className?: string }) {
     );
     return () => window.clearInterval(timer);
   }, [invia.isPending]);
+
+  useEffect(() => {
+    if (!chatNeedsRefresh(chatProposals)) return;
+    const timers = [1_000, 2_000, 4_000, 8_000, 15_000].map(delay =>
+      window.setTimeout(() => {
+        void utils.tars.chat.get.invalidate();
+        void utils.tars.proposte.list.invalidate();
+      }, delay)
+    );
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [refreshSignature]);
 
   const inviaTesto = (valore: string) => {
     const t = valore.trim();

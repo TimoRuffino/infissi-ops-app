@@ -210,6 +210,20 @@ function deterministic(input: RouteIntentInput): IntentDecision | null {
       needsClarification: false,
     });
   }
+  if (
+    /\b(lavoro|commessa|posa)\b.*\b(finit[oa]|conclus[oa]|terminat[oa]|chiud[ei])\b|\b(chiud[ei]|archivia)\b.*\b(commessa|lavoro)\b/.test(
+      text
+    )
+  ) {
+    return decision(input, {
+      intent: "analyze_job",
+      workflow: "analyze_job",
+      riskClass: "high",
+      requiredCapabilities: ["tars.use", "commessa.change_state"],
+      confidence: 0.97,
+      needsClarification: false,
+    });
+  }
   if (input.commessaId != null && input.trigger === "on_demand") {
     return decision(input, {
       intent: "analyze_job",

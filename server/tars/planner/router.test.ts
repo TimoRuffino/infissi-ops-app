@@ -58,6 +58,33 @@ describe("Tars intent router", () => {
     expect(decision.entityRefs).toContainEqual({ type: "commessa", id: "42" });
   });
 
+  it("instrada in modo deterministico cliente con prima commessa", async () => {
+    const decision = await routeIntent({
+      request:
+        "Crea il cliente Mario Rossi e apri la commessa per quattro finestre",
+      trigger: "chat",
+    });
+    expect(decision).toMatchObject({
+      intent: "create_customer_job",
+      workflow: "create_customer_job",
+      requiredCapabilities: ["cliente.create", "commessa.create"],
+      needsClarification: false,
+    });
+  });
+
+  it("tratta il lavoro finito come obiettivo di chiusura", async () => {
+    const decision = await routeIntent({
+      request: "Il lavoro della commessa 42 e finito, chiudilo",
+      trigger: "chat",
+    });
+    expect(decision).toMatchObject({
+      intent: "analyze_job",
+      workflow: "analyze_job",
+      riskClass: "high",
+    });
+    expect(decision.requiredCapabilities).toContain("commessa.change_state");
+  });
+
   it("un prompt injection in una mail resta contenuto non fidato", async () => {
     const classify = vi.fn();
     const decision = await routeIntent(

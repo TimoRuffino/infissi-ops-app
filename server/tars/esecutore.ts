@@ -450,6 +450,44 @@ export async function eseguiProposta(
       });
       return `Commessa spostata in "${c.stato}"`;
     }
+    case "chiudi_commessa": {
+      const { evaluateClosureReadiness } = await import("./closureReadiness");
+      const { STATI_COMMESSA } = await import("../routers/commesse");
+      const commessaId = Number(p.commessaId ?? proposta.commessaId);
+      const readiness = await evaluateClosureReadiness(ctx, commessaId);
+      if (!readiness.ready) {
+        throw new Error(
+          `Chiusura bloccata: ${readiness.blockers
+            .map(blocker => blocker.label)
+            .join("; ")}`
+        );
+      }
+      if (readiness.fingerprint !== p.readinessFingerprint) {
+        throw new Error(
+          "Il fascicolo e cambiato dopo l'approvazione: Tars deve verificarlo di nuovo."
+        );
+      }
+
+      let commessa: any = await caller.commesse.byId(commessaId);
+      if (!commessa) throw new Error("Commessa non trovata.");
+      while (commessa.stato !== "archiviata") {
+        const currentIndex = STATI_COMMESSA.indexOf(commessa.stato);
+        const nextState = STATI_COMMESSA[currentIndex + 1];
+        if (currentIndex < 0 || !nextState) {
+          throw new Error(`Stato commessa non valido: ${commessa.stato}`);
+        }
+        commessa = await caller.commesse.update({
+          id: commessaId,
+          stato: nextState,
+          force: true,
+        });
+      }
+      const verified: any = await caller.commesse.byId(commessaId);
+      if (verified?.stato !== "archiviata") {
+        throw new Error("La commessa non risulta archiviata dopo la chiusura.");
+      }
+      return `Commessa ${verified.codice ?? `#${commessaId}`} chiusa e archiviata`;
+    }
     // Nessuna mutation: l'approvazione è una presa d'atto.
     case "bozza_risposta":
       return "Bozza approvata — da copiare e inviare a mano";

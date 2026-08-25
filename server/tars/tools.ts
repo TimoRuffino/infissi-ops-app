@@ -193,6 +193,7 @@ function creaProposta(
     "modifica_commessa",
     "ticket",
     "archivia_allegato",
+    "chiudi_commessa",
   ]).has(args.tipo);
   // `undefined` indica un runtime legacy/test precedente al registro delle
   // prove. Nei run nuovi il campo esiste sempre: una conclusione ad impatto
@@ -510,6 +511,16 @@ export const TOOL_DEFS: TarsTool[] = [
     name: "leggi_fascicolo_commessa",
     description:
       "Vista operativa compatta di una commessa in una sola lettura: dati economici, timeline, doc gate e documenti, ordini, magazzino, ticket, interventi e garanzie. Usalo come prima lettura quando analizzi una commessa; passa agli strumenti specifici solo se serve altro dettaglio.",
+    input_schema: {
+      type: "object",
+      properties: { commessaId: { type: "number" } },
+      required: ["commessaId"],
+    },
+  },
+  {
+    name: "verifica_chiusura_commessa",
+    description:
+      "Verifica in una sola lettura se una commessa puo essere chiusa: saldo, documenti obbligatori, timeline in corso, ticket e interventi. Usalo prima di qualsiasi proposta quando l'operatore dice che il lavoro e finito.",
     input_schema: {
       type: "object",
       properties: { commessaId: { type: "number" } },
@@ -1134,6 +1145,26 @@ export const TOOL_DEFS: TarsTool[] = [
     },
   },
   {
+    name: "proponi_chiusura_commessa",
+    description:
+      "Propone la chiusura completa di una commessa gia verificata con verifica_chiusura_commessa. E l'unica azione orientata all'obiettivo: non creare avanzamenti intermedi. Il tool rifiuta la proposta se esiste anche un solo blocco.",
+    input_schema: {
+      type: "object",
+      properties: {
+        commessaId: { type: "number" },
+        readinessFingerprint: { type: "string" },
+        ...PROPOSTA_PROPS,
+      },
+      required: [
+        "commessaId",
+        "readinessFingerprint",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
+    },
+  },
+  {
     name: "proponi_bozza_risposta",
     description:
       "Propone una bozza di messaggio al cliente o al fornitore. Non viene mai inviata automaticamente: l'operatore la copia e la invia a mano.",
@@ -1315,7 +1346,9 @@ const PROFILI: Record<string, readonly string[]> = {
     ...TERMINAZIONE,
   ],
   on_demand: [
+    "cerca_commesse",
     "leggi_fascicolo_commessa",
+    "verifica_chiusura_commessa",
     "leggi_contenuto_documento",
     "leggi_cliente",
     "leggi_fatture_cloud",
@@ -1335,6 +1368,7 @@ const PROFILI: Record<string, readonly string[]> = {
     "proponi_ticket",
     "proponi_pagamento",
     "proponi_avanzamento_stato",
+    "proponi_chiusura_commessa",
     "proponi_bozza_risposta",
     "proponi_segnalazione",
     ...TERMINAZIONE,
@@ -1833,6 +1867,34 @@ async function eseguiStrumentoSenzaCache(
             factsRevalidated: factCount,
           }
         );
+      }
+      case "verifica_chiusura_commessa": {
+        const { evaluateClosureReadiness } = await import(
+          "./closureReadiness"
+        );
+        const readiness = await evaluateClosureReadiness(
+          rt.ctx,
+          Number(input.commessaId)
+        );
+        const commessa: any = getCommessaById(readiness.commessaId);
+        return ok(readiness, {
+          evidenceRefs: [
+            {
+              sourceType: "commessa",
+              sourceId: String(readiness.commessaId),
+              label:
+                commessa?.codice ?? `Commessa #${readiness.commessaId}`,
+              version: readiness.fingerprint,
+              link: `/commesse/${readiness.commessaId}`,
+            },
+          ],
+          factsRead:
+            1 +
+            readiness.incompleteTimelineSteps.length +
+            readiness.openTicketIds.length +
+            readiness.openInterventionIds.length,
+          factsRevalidated: 1,
+        });
       }
       case "leggi_timeline": {
         const caller = await getCaller(rt.ctx);
@@ -2863,6 +2925,49 @@ async function eseguiStrumentoSenzaCache(
             nuovoStato: String(input.nuovoStato),
           },
         });
+      case "proponi_chiusura_commessa": {
+        const commessaId = Number(input.commessaId);
+        const { evaluateClosureReadiness } = await import(
+          "./closureReadiness"
+        );
+        const readiness = await evaluateClosureReadiness(rt.ctx, commessaId);
+        if (!readiness.ready) {
+          return err(
+            `La commessa non puo essere chiusa: ${readiness.blockers
+              .map(blocker => blocker.label)
+              .join("; ")}. Presenta questi blocchi senza proporre avanzamenti intermedi.`
+          );
+        }
+        if (String(input.readinessFingerprint) !== readiness.fingerprint) {
+          return err(
+            "Il fascicolo e cambiato dopo la verifica. Ripeti verifica_chiusura_commessa prima di proporre."
+          );
+        }
+        const commessa: any = getCommessaById(commessaId);
+        return creaProposta(rt, {
+          tipo: "chiudi_commessa",
+          titolo: String(input.titolo),
+          motivazione: String(input.motivazione),
+          confidenza: input.confidenza,
+          commessaId,
+          clienteId: Number(commessa?.clienteId) || null,
+          payload: {
+            commessaId,
+            commessaCodice: commessa?.codice ?? null,
+            readinessFingerprint: readiness.fingerprint,
+            verifiche: {
+              saldoResiduo: readiness.saldoResiduo,
+              documentiCompleti:
+                readiness.missingDocumentGroups.length === 0,
+              timelineInCorso: readiness.incompleteTimelineSteps.filter(
+                step => step.stato === "in_corso"
+              ).length,
+              ticketAperti: readiness.openTicketIds.length,
+              interventiAperti: readiness.openInterventionIds.length,
+            },
+          },
+        });
+      }
       case "proponi_bozza_risposta":
         return creaProposta(rt, {
           tipo: "bozza_risposta",
