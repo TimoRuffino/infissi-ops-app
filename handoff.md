@@ -3,9 +3,9 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 24/08/2026<br>
-**Base Git descritta:** `main` dopo `d4efb60` (Centro Azioni persistente,
-deduplica notifiche e UI Tars)<br>
+**Aggiornato:** 25/08/2026<br>
+**Base Git descritta:** `main` dopo `9f168a1` (Centro Azioni e creazione
+approvata cliente/commessa dalla chat Tars)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -182,6 +182,12 @@ l'intero catalogo:
 - `centro_azioni`: fascicolo e sole letture/proposte necessarie per
   approfondire un caso persistente;
 - chat/seguito: catalogo completo quando serve esplorazione libera.
+
+La chat e il suo seguito possono usare `proponi_nuovo_lead` senza
+`comunicazioneId` quando l'operatore chiede esplicitamente di creare cliente e
+prima commessa. Il tool cerca il contesto, valida l'assegnatario e crea una sola
+proposta; l'esecutore chiama le mutation reali soltanto dopo approvazione. I
+trigger automatici senza comunicazione vengono rifiutati lato server.
 
 `leggi_fascicolo_commessa` raccoglie in parallelo commessa, timeline, documenti,
 ordini, magazzino, ticket, interventi e garanzie. Se il run conosce già la
@@ -472,6 +478,17 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   chiusura e richiesta manuale di analisi Tars.
 - Campanella compatta in modalità `active`; notifiche legacy preservate in
   `legacy` e `shadow` per un confronto produzione reversibile.
+
+### Creazione cliente e commessa da Tars del 25/08/2026
+
+- `proponi_nuovo_lead` accetta una richiesta esplicita in chat anche senza
+  email o WhatsApp sorgente.
+- Tars cerca prima anagrafiche e commesse, legge gli assegnatari e chiede solo
+  i dati obbligatori mancanti; con un solo assegnatario evita domande inutili.
+- La proposta non scrive dati. Dopo approvazione l'esecutore crea cliente e
+  prima commessa in `preventivo` tramite le mutation applicative sede-scoped.
+- I trigger automatici senza comunicazione restano bloccati; le proposte nate
+  in chat usano nome, email e telefono nella chiave anti-duplicato.
 
 ## 8. Sicurezza e credenziali
 

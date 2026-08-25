@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (24/08/2026).
-**Versione:** 4.18 - Centro Azioni persistente, notifiche deduplicate e analisi asincrona Tars con rollout controllato.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
+**Versione:** 4.19 - Creazione approvata di cliente e prima commessa direttamente dalla chat Tars.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -848,6 +848,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.19 (25/08/2026)** - La chat Tars può proporre cliente e prima commessa anche senza una comunicazione sorgente; la creazione resta unica, deduplicata e subordinata all'approvazione (§50.2, §50.9).
 - **v4.18 (24/08/2026)** - Centro Azioni persistente con deduplica dei segnali, workflow personale, audit, modalità legacy/shadow/active, campanella compatta e analisi Tars asincrona/cachata senza OpenAI sui percorsi di lettura (§25, §50.9).
 - **v4.17 (23/08/2026)** - Ricollegamento WhatsApp coexistence verificato in produzione con storico completato, echo live e outbound precedenti preservati; documentata la reinstallazione sicura di WhatsApp Business soltanto dopo backup verificato (§51.9).
 - **v4.16 (23/08/2026)** - Il tool `cerca_comunicazioni` espone direzione, autore, controparte, mittente e destinatario; il prompt obbliga Tars a distinguere cliente e ufficio anche nello storico WhatsApp outbound (§50.3, §51.8).
@@ -1241,6 +1242,12 @@ Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:
 - `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
 - `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
 
+Su richiesta esplicita dell'operatore, `chat` e il relativo `seguito` possono
+usare `proponi_nuovo_lead` senza `comunicazioneId`: Tars cerca prima clienti e
+commesse, legge gli assegnatari e prepara una sola proposta che crea cliente e
+prima commessa in `preventivo`. Nei trigger automatici l'assenza della
+comunicazione resta bloccante.
+
 L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`. Il default è `gpt-5.6-sol` per chat e richieste umane e `gpt-5.6-terra` per i trigger automatici; entrambi sono configurabili per sede. `gpt-5.6-luna` è disponibile per volumi elevati dopo validazione su un campione reale.
 
 ### 50.3 Quadro aziendale e confini di accesso
@@ -1308,6 +1315,12 @@ La route `/tars` DEVE aprire sulla vista `Oggi`; le altre viste sono
 direzione. La chat è uno strumento della cabina operativa e non la vista
 iniziale. Email e WhatsApp mantengono workspace separati e non vengono
 incorporati come inbox dentro Tars.
+
+Una richiesta diretta di creazione anagrafica non autorizza una scrittura
+immediata. Se i dati obbligatori non bastano, Tars usa `chiedi_chiarimento`; se
+la proposta è completa, la card mostra cliente, assegnatario e dati della prima
+commessa. Solo l'approvazione chiama `clienti.create` e `commesse.create` con il
+contesto sede e ruolo dell'operatore.
 
 `tars.commandCenter.get` DEVE applicare `sedeId`, considerare soltanto proposte
 pendenti della sede e produrre un massimo configurabile di priorità. Il ranking
