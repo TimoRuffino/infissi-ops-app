@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachmentIntakeAllowed,
   canonicalAttachmentName,
   normalizeDocumentType,
   validateAttachmentMatch,
@@ -59,5 +60,44 @@ describe("Tars document intake", () => {
         sedeId: 1,
       })
     ).toEqual({ ok: false, reason: "missing" });
+  });
+
+  it("accetta da WhatsApp soltanto allegati in ingresso gia classificati come lavoro", () => {
+    expect(
+      attachmentIntakeAllowed({
+        canale: "whatsapp",
+        direzione: "in",
+        categoria: "operativa",
+      })
+    ).toBe(true);
+    expect(
+      attachmentIntakeAllowed({
+        canale: "whatsapp",
+        direzione: "out",
+        categoria: "operativa",
+      })
+    ).toBe(false);
+    expect(
+      attachmentIntakeAllowed({
+        canale: "whatsapp",
+        direzione: "in",
+        categoria: "da_classificare",
+      })
+    ).toBe(false);
+    expect(
+      attachmentIntakeAllowed({
+        canale: "whatsapp",
+        direzione: "in",
+        categoria: "spam",
+      })
+    ).toBe(false);
+    // Retrocompatibilita: il flusso Email gia esistente non cambia.
+    expect(
+      attachmentIntakeAllowed({
+        canale: "email",
+        direzione: "out",
+        categoria: "operativa",
+      })
+    ).toBe(true);
   });
 });

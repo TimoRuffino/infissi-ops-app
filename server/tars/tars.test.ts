@@ -706,6 +706,168 @@ describe("tars.chat", () => {
 
     await caller.tars.chat.pulisci();
   });
+
+  it("da chat trova per numero un allegato WhatsApp e lo propone alla commessa nominata", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    await caller.tars.config.setAttivo({ attivo: true });
+    const cliente = await caller.clienti.create({
+      nome: "Mario",
+      cognome: "Rossi Chat",
+      telefono: "+39 340 222 3344",
+    });
+    const commessa = await caller.commesse.create({
+      clienteId: cliente.id,
+      cliente: "Rossi Chat Mario",
+    });
+    const bytes = Buffer.from("foto whatsapp da chat", "utf8");
+    const stored = await putFile(
+      "tars_chat_test",
+      commessa.id,
+      999_157,
+      "foto-cantiere.jpg",
+      bytes,
+      "image/jpeg"
+    );
+    const comunicazione = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 999_157,
+      messageId: "wamid.tars-chat-document-1",
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "393402223344",
+      mittenteNome: "Mario Rossi Chat",
+      destinatari: ["Ufficio Ruffino"],
+      oggetto: "WhatsApp",
+      testo: "Foto del cantiere da mettere in commessa.",
+      allegati: [
+        {
+          nome: "foto-cantiere.jpg",
+          mimeType: "image/jpeg",
+          size: bytes.length,
+          storageKey: stored.storageKey,
+          mediaId: "MEDIA_TARS_CHAT_DOCUMENT_1",
+        },
+      ],
+      clienteId: cliente.id,
+      commessaId: null,
+      matchConfidenza: "alta",
+      matchMotivo: "Numero del cliente riconosciuto",
+      stato: "nuova",
+      receivedAt: new Date("2026-08-25T14:00:00Z"),
+    });
+    expect(comunicazione?.categoria).toBe("da_classificare");
+
+    global.fetch = openaiScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_cerca_wa_chat",
+            name: "cerca_comunicazioni",
+            input: {
+              canale: "whatsapp",
+              query: "+39 340 222 3344",
+              limite: 10,
+            },
+          },
+          {
+            type: "tool_use",
+            id: "tu_cerca_commessa_chat",
+            name: "cerca_commesse",
+            input: { query: "Mario Rossi Chat" },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_classifica_wa_chat",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: comunicazione!.id,
+              categoria: "operativa",
+              confidenza: "alta",
+              dubbio: false,
+              motivo:
+                "L'operatore identifica il file come foto della commessa Mario Rossi Chat.",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_archivia_wa_chat",
+            name: "proponi_archivia_allegato",
+            input: {
+              comunicazioneId: comunicazione!.id,
+              allegatoIndex: 0,
+              commessaId: commessa.id,
+              tipoDocumento: "foto",
+              evidenze: [
+                "Numero WhatsApp indicato dall'operatore",
+                "Una sola commessa Mario Rossi Chat",
+              ],
+              titolo: "Archivia la foto WhatsApp di Mario Rossi Chat",
+              motivazione:
+                "Il numero, il mittente e la commessa nominata dall'operatore corrispondono.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [
+          {
+            type: "text",
+            text: "Ho trovato una sola foto: approva la proposta per archiviarla.",
+          },
+        ],
+      },
+    ]) as any;
+
+    try {
+      const risposta = await caller.tars.chat.invia({
+        testo:
+          "Allega il file inviato dal numero +39 340 222 3344 alla commessa Mario Rossi Chat.",
+      });
+      expect(risposta.proposte).toEqual([
+        expect.objectContaining({
+          tipo: "archivia_allegato",
+          commessaId: commessa.id,
+        }),
+      ]);
+
+      await caller.tars.proposte.approva({
+        id: (risposta.proposte[0] as any).id,
+      });
+      expect(await caller.preventiviContratti.byCommessa(commessa.id)).toEqual(
+        [
+          expect.objectContaining({
+            nome: "Foto Rossi Chat Mario.jpg",
+            sourceRef: `1:${comunicazione!.id}:0`,
+          }),
+        ]
+      );
+    } finally {
+      await caller.tars.chat.pulisci();
+      deleteDocumentiByCommessa(commessa.id);
+      await deleteComunicazione(comunicazione!.id, 1);
+      deleteFileQuiet(stored.storageKey);
+      global.fetch = realFetch;
+    }
+  });
 });
 
 // ── Un rifiuto è definitivo ────────────────────────────────────────────────
@@ -1410,6 +1572,13 @@ describe("tars — profili e cache operativa", () => {
       "chiedi_chiarimento",
       "nessuna_azione",
     ]);
+    const gestioneDocumento = toolDefsForTrigger(
+      "chat",
+      "manage_document"
+    ).map(t => t.name);
+    expect(gestioneDocumento).toContain("cerca_comunicazioni");
+    expect(gestioneDocumento).toContain("cerca_commesse");
+    expect(gestioneDocumento).toContain("proponi_archivia_allegato");
     expect(toolDefsForTrigger("chat")).toBe(TOOL_DEFS);
   });
 
@@ -1423,6 +1592,14 @@ describe("tars — profili e cache operativa", () => {
     expect(smistamento).toMatch(/richiesta di preventivo/i);
     expect(smistamento).toMatch(/da_classificare/i);
     expect(smistamento).toMatch(/classifica.*ogni comunicazione/is);
+    expect(smistamento).toMatch(/allegat.*proponi_archivia_allegato/is);
+    expect(smistamento).not.toContain("cerca_comunicazioni");
+    expect(completo).toMatch(
+      /numero.*indirizzo email.*cerca_comunicazioni.*cerca_commesse/is
+    );
+    expect(completo).toMatch(
+      /WhatsApp.*da_classificare.*classifica_comunicazione/is
+    );
   });
 
   it("segmenta la cache per sede, profilo e modello con una chiave breve", () => {
@@ -1604,6 +1781,25 @@ describe("tars — profili e cache operativa", () => {
     };
 
     try {
+      const ricerca = await eseguiStrumento(rt, "cerca_comunicazioni", {
+        canale: "email",
+        query: "picchia-documenti@example.test",
+      });
+      expect(JSON.parse(ricerca.content)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: comunicazione!.id,
+            categoria: "operativa",
+            allegati: [
+              expect.objectContaining({
+                indice: 0,
+                nome: "Misure Picchia.pdf",
+              }),
+            ],
+          }),
+        ])
+      );
+
       const result = await eseguiStrumento(rt, "proponi_archivia_allegato", {
         comunicazioneId: comunicazione!.id,
         allegatoIndex: 0,
@@ -1661,6 +1857,254 @@ describe("tars — profili e cache operativa", () => {
       deleteDocumentiByCommessa(commessa.id);
       await deleteComunicazione(comunicazione!.id, 1);
       deleteFileQuiet(stored.storageKey);
+    }
+  });
+
+  it("smista e archivia un allegato WhatsApp nella commessa verificata", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const cliente = await caller.clienti.create({
+      nome: "Allegati",
+      cognome: "WhatsApp",
+      telefono: "+39 340 000 1111",
+    });
+    const commessa = await caller.commesse.create({
+      clienteId: cliente.id,
+      cliente: "WhatsApp Allegati",
+    });
+    const bytes = Buffer.from("foto difetto whatsapp", "utf8");
+    const encryptionKeyBefore = process.env.MAIL_ENCRYPTION_KEY;
+    process.env.MAIL_ENCRYPTION_KEY = "chiave-whatsapp-test";
+    const { configWhatsApp, proteggiSegreto } = await import("./whatsapp");
+    const whatsappConfigId = 999_156;
+    configWhatsApp.push({
+      id: whatsappConfigId,
+      sedeId: 1,
+      nome: "WhatsApp test allegati",
+      numero: "+39 0187 000000",
+      phoneNumberId: "PHONE_TARS_DOCUMENT_INTAKE_1",
+      wabaId: "WABA_TARS_DOCUMENT_INTAKE_1",
+      tokenCifrato: proteggiSegreto("token-whatsapp-test"),
+      appSecretCifrato: proteggiSegreto("app-secret-whatsapp-test"),
+      verifyToken: "verify-token-whatsapp-test",
+      attiva: true,
+      ultimoMessaggio: null,
+      messaggiRicevuti: 0,
+      ultimoErrore: null,
+      onboardingAt: null,
+      storicoRichiestoAt: null,
+      storicoUltimoEventoAt: null,
+      storicoProgresso: null,
+      storicoCompletatoAt: null,
+      storicoSincronizzato: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    let esitoMedia: "troppo_grande" | "scaduto" | "disponibile" =
+      "troppo_grande";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/MEDIA_TARS_DOCUMENT_INTAKE_1")) {
+          return new Response(
+            JSON.stringify({
+              url: "https://media.example.test/difetto.jpg",
+              mime_type: "image/jpeg",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (url === "https://media.example.test/difetto.jpg") {
+          if (esitoMedia === "scaduto") {
+            return new Response("Media scaduto", { status: 410 });
+          }
+          if (esitoMedia === "troppo_grande") {
+            return new Response(Buffer.alloc(10 * 1024 * 1024 + 1), {
+              status: 200,
+              headers: { "content-type": "image/jpeg" },
+            });
+          }
+          return new Response(bytes, {
+            status: 200,
+            headers: { "content-type": "image/jpeg" },
+          });
+        }
+        throw new Error(`URL inatteso nel test WhatsApp: ${url}`);
+      })
+    );
+    const comunicazione = await insertComunicazione({
+      sedeId: 1,
+      casellaId: whatsappConfigId,
+      messageId: "wamid.tars-document-intake-1",
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "+393400001111",
+      mittenteNome: "WhatsApp Allegati",
+      destinatari: ["Ufficio Ruffino"],
+      oggetto: "WhatsApp",
+      testo: "Questa e la foto del difetto.",
+      allegati: [
+        {
+          nome: "difetto.jpg",
+          mimeType: "image/jpeg",
+          size: bytes.length,
+          storageKey: null,
+          mediaId: "MEDIA_TARS_DOCUMENT_INTAKE_1",
+        },
+      ],
+      clienteId: cliente.id,
+      commessaId: null,
+      matchConfidenza: "alta",
+      matchMotivo: "Numero WhatsApp del cliente con una sola commessa attiva",
+      stato: "nuova",
+      receivedAt: new Date("2026-08-25T13:00:00Z"),
+      categoria: "operativa",
+    });
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_156,
+      trigger: "smistamento",
+      comunicazioneId: comunicazione!.id,
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      evidenceRefs: [
+        {
+          type: "whatsapp",
+          id: String(comunicazione!.id),
+          label: "Foto difetto WhatsApp",
+        },
+      ],
+    };
+
+    let restorePutFile: (() => void) | null = null;
+    try {
+      const ricerca = await eseguiStrumento(rt, "cerca_comunicazioni", {
+        canale: "whatsapp",
+        query: "+39 340 000 1111",
+      });
+      expect(JSON.parse(ricerca.content)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: comunicazione!.id,
+            categoria: "operativa",
+            allegati: [
+              expect.objectContaining({
+                indice: 0,
+                nome: "difetto.jpg",
+              }),
+            ],
+          }),
+        ])
+      );
+
+      const result = await eseguiStrumento(rt, "proponi_archivia_allegato", {
+        comunicazioneId: comunicazione!.id,
+        allegatoIndex: 0,
+        commessaId: commessa.id,
+        tipoDocumento: "foto",
+        evidenze: ["Numero cliente", "Una sola commessa attiva"],
+        titolo: "Archivia la foto ricevuta su WhatsApp",
+        motivazione:
+          "Il messaggio WhatsApp contiene una foto operativa della commessa.",
+        confidenza: "alta",
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(
+        proposte.find(item => item.id === rt.proposteIds[0])
+      ).toMatchObject({
+        tipo: "archivia_allegato",
+        commessaId: commessa.id,
+        clienteId: cliente.id,
+        payload: {
+          comunicazioneId: comunicazione!.id,
+          allegatoIndex: 0,
+          attachmentName: "difetto.jpg",
+          expectedMimeType: "image/jpeg",
+          tipoDocumento: "foto",
+          nomeSuggerito: "Foto WhatsApp Allegati.jpg",
+        },
+      });
+
+      await expect(
+        caller.tars.proposte.approva({ id: rt.proposteIds[0] })
+      ).rejects.toThrow(/10MB/);
+      expect(await getComunicazione(comunicazione!.id, 1)).toMatchObject({
+        commessaId: null,
+        stato: "nuova",
+      });
+      expect(
+        await caller.preventiviContratti.byCommessa(commessa.id)
+      ).toHaveLength(0);
+
+      esitoMedia = "scaduto";
+      await expect(
+        caller.tars.proposte.approva({ id: rt.proposteIds[0] })
+      ).rejects.toThrow(/media WhatsApp.*non pi[uù] disponibile/i);
+      expect(await getComunicazione(comunicazione!.id, 1)).toMatchObject({
+        commessaId: null,
+        stato: "nuova",
+      });
+
+      esitoMedia = "disponibile";
+      const fileStorageModule = await import("../_core/fileStorage");
+      const putFileSpy = vi
+        .spyOn(fileStorageModule, "putFile")
+        .mockRejectedValueOnce(new Error("storage test non disponibile"));
+      restorePutFile = () => putFileSpy.mockRestore();
+      await expect(
+        caller.tars.proposte.approva({ id: rt.proposteIds[0] })
+      ).rejects.toThrow(/storage documenti non.*disponibile/i);
+      expect(await getComunicazione(comunicazione!.id, 1)).toMatchObject({
+        commessaId: null,
+        stato: "nuova",
+      });
+      expect(
+        await caller.preventiviContratti.byCommessa(commessa.id)
+      ).toHaveLength(0);
+      putFileSpy.mockRestore();
+      restorePutFile = null;
+
+      const approvata = await caller.tars.proposte.approva({
+        id: rt.proposteIds[0],
+      });
+      expect(approvata.stato).toBe("approvata");
+      expect(approvata.esito).toMatch(/Foto WhatsApp Allegati\.jpg/);
+      expect(await getComunicazione(comunicazione!.id, 1)).toMatchObject({
+        clienteId: cliente.id,
+        commessaId: commessa.id,
+        stato: "gestita",
+      });
+      const documenti = await caller.preventiviContratti.byCommessa(
+        commessa.id
+      );
+      expect(documenti).toEqual([
+        expect.objectContaining({
+          nome: "Foto WhatsApp Allegati.jpg",
+          tipo: "foto",
+          source: "comunicazione",
+          sourceRef: `1:${comunicazione!.id}:0`,
+          hasData: true,
+        }),
+      ]);
+      const dettaglio = await caller.preventiviContratti.byId(documenti[0].id);
+      expect(Buffer.from(dettaglio!.dataBase64, "base64")).toEqual(bytes);
+    } finally {
+      deleteDocumentiByCommessa(commessa.id);
+      await deleteComunicazione(comunicazione!.id, 1);
+      const configIndex = configWhatsApp.findIndex(
+        config => config.id === whatsappConfigId
+      );
+      if (configIndex >= 0) configWhatsApp.splice(configIndex, 1);
+      restorePutFile?.();
+      vi.unstubAllGlobals();
+      if (encryptionKeyBefore === undefined) {
+        delete process.env.MAIL_ENCRYPTION_KEY;
+      } else {
+        process.env.MAIL_ENCRYPTION_KEY = encryptionKeyBefore;
+      }
     }
   });
 

@@ -95,6 +95,18 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
+export function validaAllegatoFascicolo(
+  buffer: Buffer,
+  mimeType: string
+): void {
+  if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+    throw new Error(`Tipo di file non consentito: ${mimeType}`);
+  }
+  if (buffer.length > MAX_SIZE_BYTES) {
+    throw new Error("L'allegato supera il limite di 10MB del fascicolo.");
+  }
+}
+
 // Actual decoded byte length of a base64 payload. Used to validate file
 // size against MAX_SIZE_BYTES — the client-supplied `size` field is NOT
 // trusted (an attacker can send size:0 with a huge payload to bypass the cap).
@@ -245,7 +257,7 @@ async function serializzaArchivioComunicazione<T>(
   }
 }
 
-/** Archivia un allegato email approvato dall'operatore senza duplicare i retry. */
+/** Archivia un allegato di comunicazione approvato senza duplicare i retry. */
 export async function archiviaAllegatoComunicazione(args: {
   sedeId: number;
   comunicazioneId: number;
@@ -258,12 +270,7 @@ export async function archiviaAllegatoComunicazione(args: {
   buffer: Buffer;
   createdBy: number | null;
 }): Promise<Documento> {
-  if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
-    throw new Error(`Tipo di file non consentito: ${args.mimeType}`);
-  }
-  if (args.buffer.length > MAX_SIZE_BYTES) {
-    throw new Error("L'allegato supera il limite di 10MB del fascicolo.");
-  }
+  validaAllegatoFascicolo(args.buffer, args.mimeType);
   const commessa = commessaInSede(args.commessaId, args.sedeId);
   if (!commessa) throw new Error("Commessa non trovata");
 
@@ -304,7 +311,7 @@ export async function archiviaAllegatoComunicazione(args: {
     documento.mimeType = args.mimeType;
     documento.size = args.buffer.length;
     documento.note =
-      args.note ?? "Archiviato manualmente da un allegato email.";
+      args.note ?? "Archiviato manualmente da un allegato di comunicazione.";
     documento.statoAtUpload = commessa.stato ?? null;
     documento.source = "comunicazione";
     documento.sourceRef = sourceRef;

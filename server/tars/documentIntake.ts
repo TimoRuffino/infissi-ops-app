@@ -4,6 +4,29 @@ import {
   type DocTipo,
 } from "../routers/preventiviContratti";
 
+const WHATSAPP_DOCUMENT_CATEGORIES = new Set([
+  "operativa",
+  "amministrativa",
+  "fornitore",
+  "nuovo_lead",
+]);
+
+export function attachmentIntakeAllowed(input: {
+  canale: string;
+  direzione: string;
+  categoria: string;
+}): boolean {
+  // Il percorso Email esisteva gia e resta retrocompatibile. Per WhatsApp
+  // accettiamo solo messaggi reali in ingresso che Tars ha gia classificato
+  // come lavoro: storico, echo, spam e casi ancora dubbi non sono archiviabili.
+  if (input.canale === "email") return true;
+  return (
+    input.canale === "whatsapp" &&
+    input.direzione === "in" &&
+    WHATSAPP_DOCUMENT_CATEGORIES.has(input.categoria)
+  );
+}
+
 const TYPE_ALIASES: Record<string, DocTipo> = {
   preventivo: "preventivo",
   offerta: "preventivo",

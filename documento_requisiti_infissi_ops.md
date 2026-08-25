@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.27 - Sincronizzazione FiC osservabile e interrompibile.
+**Versione:** 4.28 - Allegati WhatsApp smistati e archiviati da Tars con approvazione.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -849,6 +849,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.28 (25/08/2026)** - Gli allegati WhatsApp in ingresso partecipano allo smistamento Tars e possono essere proposti per l'archiviazione nel fascicolo con gli stessi controlli, storage e deduplica degli allegati Email; dalla chat la sorgente può essere indicata per numero o indirizzo Email e la destinazione per cliente/commessa (§50.2, §51.2-51.7).
 - **v4.27 (25/08/2026)** - La sincronizzazione FiC espone stato e orario di avvio per sede, può essere fermata dalla pagina Integrazioni e applica timeout alle richieste e al giro completo (§40.3).
 - **v4.26 (25/08/2026)** - La sincronizzazione FiC recupera in modo idempotente i PDF mancanti delle fatture già collegate; il workspace Email guadagna un lettore più ampio, modalità focus e vista singola sotto 1280 px (§40.4, §51.6).
 - **v4.25 (25/08/2026)** - Gli esperimenti Tars accettano feedback umano tracciato e correzioni prima dell'approvazione (§50.6, §53.4).
@@ -1295,7 +1296,7 @@ Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e c
 Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:
 
 - `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
-- `smistamento`: classificazione di ogni comunicazione, ricerca e proposta di collegamento verificato; 7 strumenti, senza azioni profonde automatiche;
+- `smistamento`: classificazione di ogni comunicazione, ricerca, collegamento verificato e proposta di archiviazione degli allegati operativi; 9 strumenti, senza scritture automatiche;
 - `gestione_comunicazione`: analisi puntuale di un messaggio con contesto minimo, allegati, collegamento, nuovo lead, ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
@@ -1333,7 +1334,7 @@ La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
 3. **Profilo minimo:** i trigger automatici non pagano lo schema di strumenti irrilevanti.
 4. **Fascicolo compatto:** una lettura aggregata sostituisce numerose chiamate frammentate e output ripetuti.
 
-Lo smistamento usa un prompt dedicato e 7 tool: il prefisso fisso stimato scende da circa 6.393 a 1.379 token per lotto (-78%). Le decisioni recenti non vengono inviate a questo trigger perché non informano la classificazione. Le azioni su lead, ticket, pagamenti, allegati e risposte restano nel profilo puntuale `gestione_comunicazione`.
+Lo smistamento usa un prompt dedicato e 9 tool: il prefisso fisso resta molto più compatto del catalogo completo. Le decisioni recenti non vengono inviate a questo trigger perché non informano la classificazione. Nel lotto automatico Tars può soltanto classificare, cercare il contesto, proporre il collegamento e proporre l'archiviazione di un allegato con commessa e tipo verificati; lead, ticket, pagamenti e risposte restano nel profilo puntuale `gestione_comunicazione`.
 
 L'audit salva input, output, cache read, cache write, cache hit strumenti, costo stimato ed esito. Il consumo restituito dal provider viene contabilizzato anche per risposte incomplete o fallite. I campi storici `cache write 5m/1h` restano compatibili con le esecuzioni precedenti; le scritture OpenAI sono contabilizzate nel bucket a moltiplicatore 1,25. La Inbox Tars espone modello, token totali, percentuale cache, scritture, costo, profilo e preload; errori della query non vengono presentati come registro vuoto. Le risposte HTTP del provider sono sanitizzate prima del log e non possono esporre frammenti della chiave API.
 
@@ -1465,18 +1466,18 @@ Il collegamento esplicito a una commessa DEVE portare la comunicazione in `gesti
 ### 51.2 Classificazione e filtro anti-rumore
 Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. `spam` e `offerta_marketing` sono escluse dalla coda e dai conteggi operativi dopo la classificazione, ma restano consultabili nella vista Escluse.
 
-Ogni nuova email in ingresso DEVE passare dalla classificazione automatica di Tars. Il filtro locale usa header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`), mittente, linguaggio, allegati, regole persistenti e match CRM, ma il suo esito e soltanto una pre-analisi non vincolante. Prima della decisione AI la comunicazione resta `da_classificare` e visibile.
+Ogni nuova Email e ogni WhatsApp in ingresso non triviale DEVE passare dalla classificazione automatica di Tars. Per Email il filtro locale usa anche gli header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`); per entrambi i canali considera mittente, linguaggio, allegati, regole persistenti e match CRM. Il suo esito e soltanto una pre-analisi non vincolante. Prima della decisione AI la comunicazione resta `da_classificare` e visibile. L'unica eccezione WhatsApp è un testo breve di cortesia, già collegato con certezza a una commessa e senza allegati: può nascere già analizzato per non consumare un run inutile. La presenza di qualunque allegato disattiva sempre questa eccezione.
 
-Tars DEVE chiamare `classifica_comunicazione` una volta per ogni elemento del lotto, registrando categoria, confidenza, presenza di dubbi e motivazione concreta. `spam` e `offerta_marketing` possono essere applicate automaticamente soltanto con confidenza alta e `dubbio=false`; altrimenti il server forza `da_classificare`. Una classificazione manuale dell'operatore non puo essere sovrascritta dall'automazione. Se Tars salta un id, la mail resta visibile e viene ritentata dopo un minuto; dopo un errore API il retry avviene al termine della pausa di sicurezza di 15 minuti. In assenza di configurazione o budget la mail non viene nascosta.
+Tars DEVE chiamare `classifica_comunicazione` una volta per ogni elemento del lotto, registrando categoria, confidenza, presenza di dubbi e motivazione concreta. `spam` e `offerta_marketing` possono essere applicate automaticamente soltanto con confidenza alta e `dubbio=false`; altrimenti il server forza `da_classificare`. Una classificazione manuale dell'operatore non puo essere sovrascritta dall'automazione. Se Tars salta un id, la comunicazione resta visibile e viene ritentata dopo un minuto; dopo un errore API il retry avviene al termine della pausa di sicurezza di 15 minuti. In assenza di configurazione o budget la comunicazione non viene nascosta.
 
 Lo scheduler DEVE preservare il risveglio della coda quando un messaggio arriva durante un run o durante una pausa API. Ogni run elabora al massimo 10 messaggi; se il lotto è completo e restano elementi, il successivo parte dopo circa 500 ms. Il primo trigger è debounciato per circa 5 secondi. Un controllo di recupero ogni minuto cerca code residue di tutte le sedi e il bootstrap esegue il primo controllo dopo circa 5 secondi, quindi un deploy o un timer perso non richiedono l'arrivo di una nuova email. Riattivare Tars o modificare il budget risveglia subito la coda.
 
 Una richiesta esplicita di preventivo, sopralluogo, appuntamento o contatto commerciale concreto DEVE essere valutata prima di header spam, segnali newsletter e regole mittente. Se può portare lavoro resta `nuovo_lead`, oppure `operativa` quando il cliente è già riconosciuto, anche se arriva da un indirizzo aziendale o da un portale usato anche per invii massivi. La direzione può memorizzare una regola esatta per mittente; ogni regola è sede-scoped e revocabile, ma non può nascondere una successiva opportunità esplicita.
 
 ### 51.3 Matching e gestione Tars
-Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Tutte le nuove email entrano nello smistamento per essere prima classificate da Tars; dopo la classificazione, solo quelle operative proseguono con proposte di collegamento o gestione.
+Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Tutte le nuove Email e i WhatsApp in ingresso non triviali entrano nello smistamento per essere prima classificati da Tars; dopo la classificazione, solo quelli operativi proseguono con proposte di collegamento, archiviazione allegato o gestione.
 
-Il run automatico si limita a classificare e, su corrispondenza certa, proporre il collegamento a una commessa. Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
+Il run automatico si limita a classificare e, su corrispondenza certa, proporre il collegamento a una commessa e l'eventuale archiviazione degli allegati operativi. Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
 
 Per un nuovo lead Tars DEVE prima cercare clienti e commesse esistenti e leggere `leggi_assegnatari`, che restituisce soltanto utenti attivi della sede. Se l'istruzione non indica già una persona in modo inequivocabile, Tars usa `chiedi_chiarimento` e mostra i nomi come opzioni. La risposta riapre una sola volta l'analisi mantenendo il contenuto originale della comunicazione. `proponi_nuovo_lead` rifiuta un assegnatario mancante o non valido.
 
@@ -1485,11 +1486,24 @@ L'approvazione crea cliente e commessa in stato `preventivo`, imposta lo stesso 
 Un allegato operativo puo generare `archivia_allegato` soltanto dopo aver
 verificato comunicazione, indice, nome/MIME atteso, tipo documento e una sola
 commessa plausibile nella stessa sede. Nomi file e contenuti restano fonti
-esterne non fidate. Dopo approvazione il server rivalida tutto, collega la mail
-alla commessa, legge i byte dalla sorgente e crea un documento normale del
+esterne non fidate. Dopo approvazione il server rivalida tutto, collega la
+comunicazione alla commessa, legge i byte da IMAP o Meta e crea un documento normale del
 fascicolo con storage e checksum standard. La chiave
 `sedeId:comunicazioneId:allegatoIndex` rende l'operazione idempotente; il file
 risultante DEVE essere apribile e scaricabile come un upload manuale.
+Per WhatsApp il download avviene usando il `mediaId` ricevuto dal webhook. Se
+Meta non rende più disponibile il media, l'approvazione fallisce in modo
+esplicito e non crea documenti parziali o record duplicati.
+
+In chat l'operatore PUÒ indicare la sorgente e la destinazione in linguaggio
+naturale, per esempio “allega il file inviato dal numero +39 … alla commessa
+Mario Rossi” oppure la stessa richiesta con un indirizzo Email. Tars DEVE
+cercare la comunicazione per identificativo esatto, restituire gli indici reali
+degli allegati e la categoria corrente, cercare la commessa per cliente e
+preparare una sola proposta. Se un WhatsApp è ancora `da_classificare`, Tars
+DEVE classificarlo prima della proposta.
+Se più messaggi, file o commesse sono plausibili, DEVE usare
+`chiedi_chiarimento` senza scegliere il primo risultato.
 
 ### 51.4 Route e compatibilita
 Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
@@ -1508,6 +1522,15 @@ gia collegata alla commessa indicata: legge l'allegato dalla casella sorgente e
 lo archivia nel fascicolo della commessa. Il router storico
 `mail.comunicazioni.*` resta compatibile per azioni condivise e consumatori
 esistenti.
+
+Il tool Tars `proponi_archivia_allegato` e il relativo esecutore approvato
+accettano comunicazioni Email e WhatsApp della sede attiva. WhatsApp non espone
+una mutation manuale equivalente: il percorso passa dalla proposta Tars e
+dall'approvazione umana. Per WhatsApp sono ammessi soltanto messaggi in ingresso
+già classificati in una categoria di lavoro; echo, storico, spam e casi ancora
+`da_classificare` vengono rifiutati. MIME e limite reale di 10 MB sono validati
+prima di collegare la comunicazione; un errore di storage ripristina il
+collegamento precedente.
 
 `mail.whatsapp.conversazioni` e `mail.whatsapp.thread` sono API di sola lettura
 e applicano sempre `sedeId`; una conversazione o un thread fuori sede deve
@@ -1545,7 +1568,10 @@ sovrascrivere il cliente CRM.
 
 Il thread e cronologico e paginato; media e allegati sono metadati
 ispezionabili. Il workspace e esplicitamente di sola lettura: nessun invio di
-messaggi o media, nessuna modifica alla fonte WhatsApp. Su desktop la lista e
+messaggi o media, nessuna modifica alla fonte WhatsApp. Questa limitazione non
+impedisce a Tars di proporre l'archiviazione di un allegato in ingresso nel
+fascicolo CRM; il download da Meta e la scrittura nello storage avvengono solo
+dopo approvazione. Su desktop la lista e
 il dettaglio usano colonne con `min-width: 0`; su mobile si mostra una vista
 alla volta. Nessun testo, numero o allegato deve introdurre scroll orizzontale
 di pagina.

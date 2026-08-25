@@ -1,10 +1,9 @@
 // Lettura degli allegati per Tars.
 //
-// Gli allegati non sono salvati nel CRM (lo storage documenti è ancora
-// `local`): la casella IMAP è la fonte di verità, e da lì si ripescano al
-// momento del bisogno. Il messaggio si ritrova per UID (colonna nuova) o,
-// sui record vecchi, per Message-ID. Poi mailparser estrae l'allegato e
-// qui se ne tira fuori il testo.
+// Prima dell'archiviazione, gli allegati vengono riletti dal canale d'origine:
+// casella IMAP per le email e Graph API per WhatsApp. Le email si ritrovano
+// per UID (o Message-ID sui record legacy); i media WhatsApp per mediaId.
+// Dopo l'approvazione, i byte vengono salvati nello storage documentale.
 //
 // Formati: PDF (unpdf → testo), text/* e csv (così come sono). Il resto
 // viene dichiarato non leggibile, con nome e peso — meglio un limite
@@ -50,7 +49,7 @@ export async function estraiTestoAllegato(
 
 /**
  * Ripesca un allegato dal canale d'origine e ne restituisce il testo.
- * Nulla è archiviato nel CRM: la casella (o Meta) resta la fonte.
+ * Se il file non è già nello storage, il canale d'origine resta la fonte.
  */
 export async function leggiAllegato(
   comunicazione: Comunicazione,

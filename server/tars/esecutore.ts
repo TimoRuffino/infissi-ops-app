@@ -226,14 +226,18 @@ export async function eseguiProposta(
     }
     case "archivia_allegato": {
       const sedeId = ctx.sedeId ?? 1;
-      const { getComunicazione, setMatchComunicazione } = await import(
-        "./comunicazioni"
-      );
+      const {
+        getComunicazione,
+        ripristinaMatchComunicazione,
+        setMatchComunicazione,
+      } = await import("./comunicazioni");
       const { leggiAllegatoRaw } = await import("./allegati");
       const {
         archiviaAllegatoComunicazione,
         DOC_TIPI,
+        validaAllegatoFascicolo,
       } = await import("../routers/preventiviContratti");
+      const { attachmentIntakeAllowed } = await import("./documentIntake");
       const { getCommessaById } = await import("../routers/commesse");
 
       const comunicazione = await getComunicazione(
@@ -243,9 +247,14 @@ export async function eseguiProposta(
       if (
         !comunicazione ||
         comunicazione.deletedAt ||
-        comunicazione.canale !== "email"
+        !["email", "whatsapp"].includes(comunicazione.canale)
       ) {
-        throw new Error("Email non trovata.");
+        throw new Error("Comunicazione non trovata.");
+      }
+      if (!attachmentIntakeAllowed(comunicazione)) {
+        throw new Error(
+          "Gli allegati WhatsApp sono archiviabili solo da messaggi in ingresso gia classificati come lavoro."
+        );
       }
       const allegatoIndex = Number(p.allegatoIndex);
       const allegato = comunicazione.allegati[allegatoIndex];
@@ -267,13 +276,27 @@ export async function eseguiProposta(
         comunicazione.commessaId !== commessa.id
       ) {
         throw new Error(
-          "L'email e stata collegata a un'altra commessa dopo la proposta."
+          "La comunicazione e stata collegata a un'altra commessa dopo la proposta."
         );
       }
       if (!(DOC_TIPI as readonly string[]).includes(String(p.tipoDocumento))) {
         throw new Error("Tipo documento non valido.");
       }
 
+      // Recupera e valida il file prima di mutare la comunicazione: un media
+      // WhatsApp scaduto (o una casella temporaneamente irraggiungibile) non
+      // deve lasciare un collegamento parziale senza documento.
+      const raw = await leggiAllegatoRaw(comunicazione, allegatoIndex);
+      validaAllegatoFascicolo(raw.buffer, raw.mimeType);
+
+      const matchPrecedente = {
+        clienteId: comunicazione.clienteId,
+        commessaId: comunicazione.commessaId,
+        matchConfidenza: comunicazione.matchConfidenza,
+        matchMotivo: comunicazione.matchMotivo,
+        stato: comunicazione.stato,
+      };
+      let collegataDaQuestaEsecuzione = false;
       if (comunicazione.commessaId == null) {
         const linked = await setMatchComunicazione(
           comunicazione.id,
@@ -286,22 +309,40 @@ export async function eseguiProposta(
               "Allegato operativo verificato da Tars e approvato da un operatore.",
           }
         );
-        if (!linked) throw new Error("Email non trovata.");
+        if (!linked) throw new Error("Comunicazione non trovata.");
+        collegataDaQuestaEsecuzione = true;
       }
 
-      const raw = await leggiAllegatoRaw(comunicazione, allegatoIndex);
-      const documento = await archiviaAllegatoComunicazione({
-        sedeId,
-        comunicazioneId: comunicazione.id,
-        allegatoIndex,
-        commessaId: commessa.id,
-        nome: String(p.nomeSuggerito),
-        tipo: p.tipoDocumento,
-        note: "Classificato da Tars e approvato da un operatore.",
-        mimeType: raw.mimeType,
-        buffer: raw.buffer,
-        createdBy: Number((ctx.user as any)?.id) || null,
-      });
+      let documento;
+      try {
+        documento = await archiviaAllegatoComunicazione({
+          sedeId,
+          comunicazioneId: comunicazione.id,
+          allegatoIndex,
+          commessaId: commessa.id,
+          nome: String(p.nomeSuggerito),
+          tipo: p.tipoDocumento,
+          note: "Classificato da Tars e approvato da un operatore.",
+          mimeType: raw.mimeType,
+          buffer: raw.buffer,
+          createdBy: Number((ctx.user as any)?.id) || null,
+        });
+      } catch (error) {
+        if (collegataDaQuestaEsecuzione) {
+          const restored = await ripristinaMatchComunicazione(
+            comunicazione.id,
+            sedeId,
+            commessa.id,
+            matchPrecedente
+          );
+          if (!restored) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Il collegamento non e stato ripristinato perche la comunicazione e cambiata nel frattempo.`
+            );
+          }
+        }
+        throw error;
+      }
       if (
         documento.commessaId !== commessa.id ||
         documento.tipo !== p.tipoDocumento ||

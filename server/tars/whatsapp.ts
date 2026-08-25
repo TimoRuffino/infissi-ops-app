@@ -744,6 +744,11 @@ export async function scaricaMedia(
     headers: { authorization: `Bearer ${token}` },
   });
   if (!fileRes.ok) {
+    if (fileRes.status === 404 || fileRes.status === 410) {
+      throw new Error(
+        `Il media WhatsApp è scaduto o non più disponibile (${fileRes.status}).`
+      );
+    }
     throw new Error(`Download del media fallito (${fileRes.status}).`);
   }
   const buffer = Buffer.from(await fileRes.arrayBuffer());

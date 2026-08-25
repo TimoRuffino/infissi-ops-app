@@ -269,6 +269,28 @@ describe("ingestione webhook", () => {
     const foto = rows.find((r) => r.messageId === "wamid.FOTO");
     expect(foto?.testo).toBe("il difetto");
     expect(foto?.allegati[0]?.mediaId).toBe("MEDIA_1");
+    expect(foto?.categoria).toBe("da_classificare");
+    expect(foto?.tarsAnalizzata).toBe(false);
+  });
+
+  it("non esclude un WhatsApp sospetto prima della classificazione Tars", async () => {
+    expect(
+      await ingestisciWebhook(
+        payload(
+          "wamid.SOSPETTO",
+          "Password scaduta: bitcoin giveaway e premio garantito"
+        )
+      )
+    ).toBe(1);
+
+    const rows = await listComunicazioni({
+      sedeId: 1,
+      canale: "whatsapp",
+      includiEscluse: true,
+    });
+    const sospetto = rows.find(r => r.messageId === "wamid.SOSPETTO");
+    expect(sospetto?.categoria).toBe("da_classificare");
+    expect(sospetto?.tarsAnalizzata).toBe(false);
   });
 });
 

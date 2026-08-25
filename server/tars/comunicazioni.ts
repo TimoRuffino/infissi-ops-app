@@ -474,7 +474,7 @@ export async function insertComunicazione(
         segnali: c.segnaliFiltro,
       });
   const richiedeClassificazioneTars =
-    c.canale === "email" &&
+    (c.canale === "email" || c.canale === "whatsapp") &&
     c.direzione === "in" &&
     c.tarsAnalizzata !== true &&
     c.categoria === undefined;
@@ -486,9 +486,9 @@ export async function insertComunicazione(
         fonte: "regole" as const,
       }
     : classificazione;
-  // Le email nuove passano sempre da Tars, comprese quelle che gli header
-  // o le regole locali sospettano essere spam. Lo storico può continuare a
-  // dichiararsi già analizzato esplicitamente in fase di importazione.
+  // Email e WhatsApp nuovi passano sempre da Tars, compresi quelli che le
+  // regole locali sospettano essere spam. Storico ed echo possono continuare
+  // a dichiararsi già analizzati esplicitamente in fase di importazione.
   const tarsAnalizzata = c.tarsAnalizzata ?? false;
 
   if (!kvSql) {
@@ -676,6 +676,54 @@ export async function setMatchComunicazione(
         ELSE stato
       END
     WHERE id = ${id} AND sede_id = ${sedeId}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+/**
+ * Compensazione stretta per una saga che ha appena collegato una comunicazione.
+ * Ripristina lo snapshot solo se il record punta ancora alla commessa attesa,
+ * così non sovrascrive una modifica concorrente dell'operatore.
+ */
+export async function ripristinaMatchComunicazione(
+  id: number,
+  sedeId: number,
+  expectedCommessaId: number,
+  precedente: Pick<
+    Comunicazione,
+    | "clienteId"
+    | "commessaId"
+    | "matchConfidenza"
+    | "matchMotivo"
+    | "stato"
+  >
+): Promise<boolean> {
+  if (!kvSql) {
+    const r = memRows.find(
+      row =>
+        row.id === id &&
+        row.sedeId === sedeId &&
+        row.commessaId === expectedCommessaId
+    );
+    if (!r) return false;
+    r.clienteId = precedente.clienteId;
+    r.commessaId = precedente.commessaId;
+    r.matchConfidenza = precedente.matchConfidenza;
+    r.matchMotivo = precedente.matchMotivo;
+    r.stato = precedente.stato;
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET
+      cliente_id = ${precedente.clienteId},
+      commessa_id = ${precedente.commessaId},
+      match_confidenza = ${precedente.matchConfidenza},
+      match_motivo = ${precedente.matchMotivo},
+      stato = ${precedente.stato}
+    WHERE id = ${id}
+      AND sede_id = ${sedeId}
+      AND commessa_id = ${expectedCommessaId}
     RETURNING id`;
   return rows.length > 0;
 }

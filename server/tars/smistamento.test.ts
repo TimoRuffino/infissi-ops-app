@@ -205,6 +205,119 @@ describe("smistamento", () => {
     expect(com!.matchConfidenza).toBe("alta");
   });
 
+  it("WhatsApp con allegato operativo entra nel lotto e genera la proposta documento", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    getTarsConfig().attivo = true;
+    const commessa = await caller.commesse.create({
+      cliente: "Rossi Mario Smistamento WhatsApp",
+    });
+    const messaggio = await insertComunicazione({
+      sedeId: 1,
+      casellaId: 999_301,
+      messageId: "wamid.smistamento-allegato-301",
+      canale: "whatsapp",
+      direzione: "in",
+      mittente: "393409993301",
+      mittenteNome: "Mario Rossi",
+      destinatari: ["Ufficio Ruffino"],
+      oggetto: "WhatsApp",
+      testo: "Allego la foto del difetto per la mia commessa.",
+      allegati: [
+        {
+          nome: "difetto-serramento.jpg",
+          mimeType: "image/jpeg",
+          size: 1_024,
+          storageKey: null,
+          mediaId: "MEDIA_SMISTAMENTO_301",
+        },
+      ],
+      clienteId: null,
+      commessaId: null,
+      matchConfidenza: "media",
+      matchMotivo: "Nome cliente e contenuto del messaggio",
+      stato: "nuova",
+      receivedAt: new Date("2026-08-25T15:00:00Z"),
+    });
+    expect(messaggio?.categoria).toBe("da_classificare");
+
+    global.fetch = openaiScript([
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_classifica_wa_allegato",
+            name: "classifica_comunicazione",
+            input: {
+              comunicazioneId: messaggio!.id,
+              categoria: "operativa",
+              confidenza: "alta",
+              dubbio: false,
+              motivo: "Il cliente invia una foto riferita a una commessa.",
+            },
+          },
+          {
+            type: "tool_use",
+            id: "tu_cerca_commessa_wa_allegato",
+            name: "cerca_commesse",
+            input: { query: "Rossi Mario Smistamento WhatsApp" },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        usage,
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_proponi_wa_allegato",
+            name: "proponi_archivia_allegato",
+            input: {
+              comunicazioneId: messaggio!.id,
+              allegatoIndex: 0,
+              commessaId: commessa.id,
+              tipoDocumento: "foto",
+              evidenze: ["Nome cliente", "Foto del difetto"],
+              titolo: "Archivia la foto WhatsApp di Mario Rossi",
+              motivazione:
+                "Il mittente e il contenuto identificano una sola commessa.",
+              confidenza: "alta",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        usage,
+        content: [{ type: "text", text: "Proposta pronta." }],
+      },
+    ]);
+
+    expect(await listDaAnalizzare(1, 10)).toEqual([
+      expect.objectContaining({ id: messaggio!.id }),
+    ]);
+    await smistaComunicazioni(1);
+
+    expect((await getComunicazione(messaggio!.id, 1))?.categoria).toBe(
+      "operativa"
+    );
+    const pendenti = await caller.tars.proposte.list({ stato: "pendente" });
+    expect(pendenti).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tipo: "archivia_allegato",
+          commessaId: commessa.id,
+          payload: expect.objectContaining({
+            comunicazioneId: messaggio!.id,
+            allegatoIndex: 0,
+          }),
+        }),
+      ])
+    );
+  });
+
   it("newsletter: viene classificata da Tars e poi esclusa", async () => {
     getTarsConfig().attivo = true;
     const spam = await insertComunicazione({

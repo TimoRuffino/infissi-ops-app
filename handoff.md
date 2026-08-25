@@ -225,9 +225,9 @@ Tars usa ora profili strumenti diversi per trigger, invece di inviare sempre
 l'intero catalogo:
 
 - `riconciliazione_fatture`: set minimo per FiC e pagamenti;
-- `smistamento`: 7 strumenti per classificazione, ricerca e collegamento
-  verificato; le azioni profonde restano nel flusso puntuale;
-- `gestione_comunicazione`: analisi puntuale della mail, allegati, nuovo lead,
+- `smistamento`: 9 strumenti per classificazione, ricerca, collegamento
+  verificato e proposta di archiviazione degli allegati operativi;
+- `gestione_comunicazione`: analisi puntuale della comunicazione, allegati, nuovo lead,
   ticket e bozza risposta;
 - `on_demand`: profilo operativo mirato;
 - `audit_processi`: quadro aggregato e miglioramenti di processo;
@@ -298,9 +298,9 @@ La cache è su due livelli:
    richieste contemporanee identiche.
 
 Il prompt automatico dello smistamento è separato da quello generale e contiene
-solo sicurezza, regole di classificazione e collegamento. Insieme al profilo da
-7 strumenti porta il prefisso fisso stimato da circa 6.393 a 1.379 token per
-lotto (-78%), mantenendolo sopra la soglia utile al prompt caching. Le decisioni
+solo sicurezza, regole di classificazione, collegamento e allegati operativi.
+Il profilo da 9 strumenti resta molto più compatto del catalogo completo e
+mantiene il prefisso sopra la soglia utile al prompt caching. Le decisioni
 recenti non vengono aggiunte ai run di smistamento perché non informano la
 classificazione e cambierebbero inutilmente il suffisso.
 
@@ -372,14 +372,19 @@ gestite. Il contatore dei duplicati evitati è visibile nella Inbox Tars.
 ### Comunicazioni operative e filtro anti-rumore
 
 La tabella `comunicazioni` persiste categoria, score, motivo e fonte della
-classificazione. Per ogni nuova email in ingresso il filtro locale legge header
-spam/lista, mittente, contenuto, allegati e match CRM, ma produce soltanto una
+classificazione. Per ogni nuova Email e ogni WhatsApp in ingresso non triviale il filtro locale legge
+mittente, contenuto, allegati e match CRM — e per Email anche gli header
+spam/lista — ma produce soltanto una
 pre-analisi: la riga nasce `da_classificare` e rimane nella coda finche Tars non
 chiama `classifica_comunicazione`. Solo Tars puo assegnare automaticamente la
 categoria definitiva; `spam` e `offerta_marketing` richiedono confidenza alta e
 assenza di dubbi. In caso contrario il tool forza `da_classificare` e salva una
 motivazione leggibile dall'operatore. Una classificazione manuale ha precedenza
 e non viene sovrascritta.
+
+Un breve WhatsApp di cortesia già collegato con certezza e privo di allegati
+può essere marcato analizzato senza un run; è l'unica eccezione anti-rumore. Un
+messaggio con almeno un allegato non è mai triviale e passa sempre da Tars.
 
 Le categorie escluse non entrano nei conteggi operativi, ma restano recuperabili
 nella vista Escluse. Se Tars e spento, non configurato, oltre budget o salta una
@@ -407,11 +412,10 @@ più il risveglio successivo. `avviaRecuperoSmistamento()` controlla le code dop
 pendenti dopo un deploy senza aspettare nuovi messaggi. Riattivazione di Tars e
 variazione del budget risvegliano subito la coda.
 
-Il run automatico si limita a classificare tutte le mail e, quando la
-corrispondenza è verificata, a proporre il collegamento a una commessa. Nuovo
-lead, assegnatario, ticket, pagamento, allegati e bozza risposta vengono gestiti
-nel flusso `gestione_comunicazione` avviato dall'operatore: evita di caricare 23
-schemi di strumenti su ogni lotto senza perdere le capacità operative.
+Il run automatico classifica tutte le comunicazioni e, quando la corrispondenza
+è verificata, può proporre il collegamento a una commessa e l'archiviazione di
+un allegato operativo. Nuovo lead, assegnatario, ticket, pagamento e bozza
+risposta restano nel flusso `gestione_comunicazione` avviato dall'operatore.
 
 Collegare una comunicazione a una commessa la porta in Gestite. Il punto unico è
 `setMatchComunicazione`, quindi vale per il collegamento manuale e per le
@@ -467,11 +471,11 @@ numero aziendale viene ricollegato con Embedded Signup, il server riconosce la
 vecchia casella dai destinatari dei messaggi e ne riusa l'id interno. In questo
 modo storico, alias e collegamenti non vengono separati dai nuovi messaggi.
 
-Il workspace WhatsApp e di sola lettura: non invia messaggi ne media. Media e
-allegati mostrano metadati ispezionabili; l'eventuale download resta vincolato
-alla fonte e alle integrazioni future. Email mantiene invece il lettore e le
-azioni operative: dopo il collegamento alla stessa commessa, un allegato puo
-essere letto dalla casella sorgente e archiviato nel fascicolo. Eliminare una
+Il workspace WhatsApp e di sola lettura: non invia messaggi ne media e non
+modifica la fonte. Tars può però proporre l'archiviazione di un allegato in
+ingresso: dopo approvazione lo legge da Meta e lo salva nel fascicolo con gli
+stessi controlli usati per Email. Se il media non è più disponibile su Meta,
+l'operazione fallisce esplicitamente senza creare documenti parziali. Eliminare una
 comunicazione dal CRM non modifica la casella: il tombstone evita la
 re-importazione.
 
@@ -583,17 +587,30 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 - I trigger automatici senza comunicazione restano bloccati; le proposte nate
   in chat usano nome, email e telefono nella chiave anti-duplicato.
 
-### Allegati email operativi del 25/08/2026
+### Allegati Email e WhatsApp operativi del 25/08/2026
 
 - `proponi_archivia_allegato` riconosce un allegato operativo e propone tipo,
   nome canonico e commessa soltanto con un match univoco; contenuto e nome file
   restano dati esterni non fidati.
-- L'approvazione rivalida comunicazione, indice allegato, MIME, sede e commessa,
-  poi legge i byte dalla casella e crea un documento normale del fascicolo.
+- L'approvazione rivalida comunicazione, canale, indice allegato, MIME, sede e
+  commessa, poi legge i byte dalla casella IMAP o da Meta e crea un documento
+  normale del fascicolo.
 - `sourceRef = sedeId:comunicazioneId:allegatoIndex` e la chiave idempotente:
   retry e doppio click non duplicano il file.
 - Il documento risultante usa lo storage standard ed e visibile, apribile e
   scaricabile dalla commessa come un upload manuale.
+- Gli allegati WhatsApp in ingresso entrano nello smistamento automatico; Tars
+  può proporne l'archiviazione solo con tipo e commessa verificati. Il percorso
+  resta subordinato all'approvazione e non invia né modifica messaggi WhatsApp.
+- Dalla chat si può chiedere “allega il file inviato dal numero/indirizzo …
+  alla commessa …”: `cerca_comunicazioni` normalizza i numeri e restituisce
+  categoria e indice reale di ogni allegato, `cerca_commesse` verifica il cliente
+  e Tars classifica prima un WhatsApp ancora `da_classificare`, quindi
+  chiede una scelta quando messaggio, file o commessa non sono univoci. Lo
+  stesso percorso vale per Email.
+- Per WhatsApp il server accetta solo messaggi in ingresso già classificati
+  come lavoro. MIME e 10 MB vengono controllati prima del collegamento; media
+  scaduto, storage non disponibile e retry non lasciano collegamenti parziali.
 - Nel lettore Email il corpo precede allegati, proposte e istruzioni Tars; la
   lista mostra anteprima su due righe e badge testuali leggibili.
 
@@ -683,8 +700,9 @@ Poi verificare nel browser, desktop e mobile:
 - Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
   collegamento confermato, preventivi sempre visibili, scelta assegnatario e
   creazione lead approvata;
-- WhatsApp: conversazioni raggruppate, direzione in/out e diagnostica
-  `smb_message_echoes` dopo un invio dall'app primaria;
+- WhatsApp: conversazioni raggruppate, direzione in/out, diagnostica
+  `smb_message_echoes` dopo un invio dall'app primaria e archiviazione di un
+  allegato in ingresso approvato da Tars nel fascicolo commessa;
 - Integrazioni: stato Drive, storage e FiC;
 - Tars: Command Center `Oggi`, fonti raggiungibili, proposta approvabile e
   nessuna azione automatica inattesa; verificare anche una proposta esperimento
