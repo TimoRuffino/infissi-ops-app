@@ -35,6 +35,7 @@ import {
 } from "./loop";
 import { deleteComunicazione, insertComunicazione } from "./comunicazioni";
 import type { EntityContextSnapshot } from "./context/types";
+import { setFeatureFlags } from "../platform/featureFlags";
 
 function makeCtx(): TrpcContext {
   return {
@@ -414,6 +415,73 @@ describe("tars — contesto scoped ed evidence-first", () => {
       factsRead: 0,
       factsRevalidated: 0,
     });
+  });
+});
+
+describe("tars — routing intent bounded", () => {
+  it("usa il workflow minimo per un comando esplicito senza una chiamata di routing", async () => {
+    const ctx = makeCtx();
+    const bodies: any[] = [];
+    const realFetch = global.fetch;
+    process.env.OPENAI_API_KEY = "test-key";
+    setFeatureFlags(
+      1,
+      { plannerMode: "active" },
+      { actorUserId: 1, reason: "Test intent router" }
+    );
+    global.fetch = vi.fn(async (_url, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          id: "resp_intent_bounded",
+          model: "gpt-5.6-sol",
+          status: "completed",
+          output: [
+            {
+              id: "msg_intent_bounded",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [{ type: "output_text", text: "Mi manca il telefono." }],
+            },
+          ],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+      } as any;
+    }) as any;
+
+    try {
+      const { runTars } = await import("./loop");
+      await runTars({
+        ctx,
+        trigger: "chat",
+        commessaId: null,
+        richiesta: "Crea cliente e commessa per Mario Rossi",
+      });
+
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0].tools.map((tool: any) => tool.name)).toEqual([
+        "cerca_clienti",
+        "leggi_cliente",
+        "cerca_commesse",
+        "leggi_assegnatari",
+        "proponi_nuovo_lead",
+        "chiedi_chiarimento",
+        "nessuna_azione",
+      ]);
+      expect(bodies[0].input.at(-1).content).toContain(
+        'intent="create_customer_job"'
+      );
+    } finally {
+      global.fetch = realFetch;
+      delete process.env.OPENAI_API_KEY;
+      setFeatureFlags(
+        1,
+        { plannerMode: "off" },
+        { actorUserId: 1, reason: "Ripristino test intent router" }
+      );
+    }
   });
 });
 

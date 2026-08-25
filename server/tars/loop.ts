@@ -38,6 +38,8 @@ import type {
   EntityContextSnapshot,
   EvidenceRef,
 } from "./context/types";
+import { routeIntent } from "./planner/router";
+import type { IntentDecision, TrustedIntentHint } from "./planner/intents";
 
 export function visibilityScopeForUser(
   user: unknown,
@@ -148,6 +150,8 @@ export async function runTars(params: {
   origineId?: number | null;
   // Fonti già verificate dal trigger deterministico (es. fatture del lotto).
   evidenceRefs?: EvidenceRef[];
+  // Hint costruito da un controllo UI/server noto, mai da testo esterno.
+  intentHint?: TrustedIntentHint;
 }): Promise<Esecuzione> {
   const config = getTarsConfig(params.ctx.sedeId);
   const start = Date.now();
@@ -165,10 +169,27 @@ export async function runTars(params: {
   const modello = TRIGGER_ECONOMICI.has(params.trigger)
     ? config.modelloAutomatico
     : config.modello;
-  const tools = toolDefsForTrigger(params.trigger);
-  const profiloStrumenti = toolProfileForTrigger(params.trigger);
   const sedeId = params.ctx.sedeId ?? 1;
-  const contextMode = getFeatureFlags(sedeId).contextEngineMode;
+  const featureFlags = getFeatureFlags(sedeId);
+  let routedIntent: IntentDecision | null = null;
+  if (
+    featureFlags.plannerMode === "active" &&
+    ["chat", "chat_operatore", "on_demand"].includes(params.trigger)
+  ) {
+    routedIntent = await routeIntent({
+      request: params.richiesta,
+      trigger: params.trigger,
+      sedeId,
+      commessaId: params.commessaId,
+      comunicazioneId: params.comunicazioneId,
+      source: "operator",
+      serverHint: params.intentHint,
+    });
+  }
+  const workflow = routedIntent?.workflow ?? null;
+  const tools = toolDefsForTrigger(params.trigger, workflow);
+  const profiloStrumenti = toolProfileForTrigger(params.trigger, workflow);
+  const contextMode = featureFlags.contextEngineMode;
   let contextScope: EntityContextKey["scope"] | null = null;
   let contextSnapshot: EntityContextSnapshot | null = null;
   if (
@@ -296,6 +317,18 @@ export async function runTars(params: {
   const decisioni =
     params.trigger === "smistamento" ? "" : bloccoDecisioni(params.ctx.sedeId);
   let richiesta = params.richiesta;
+  if (routedIntent) {
+    richiesta = `<intent_router intent="${routedIntent.intent}" workflow="${routedIntent.workflow ?? "none"}" confidence="${routedIntent.confidence.toFixed(2)}" needs_clarification="${routedIntent.needsClarification}">
+Profilo strumenti già limitato dal server. Capability richieste: ${routedIntent.requiredCapabilities.join(", ") || "nessuna"}.
+${
+  routedIntent.needsClarification
+    ? "La richiesta è ambigua: non proporre effetti. Usa chiedi_chiarimento per ottenere il dato mancante."
+    : "Resta nel workflow indicato; amplia la ricerca solo se i dati dimostrano che il dominio è errato."
+}
+</intent_router>
+
+${richiesta}`;
+  }
   if (
     params.commessaId != null &&
     tools.some(tool => tool.name === "leggi_fascicolo_commessa")
@@ -317,7 +350,7 @@ export async function runTars(params: {
 Il fascicolo sintetico sopra è già verificato e limitato allo scope dell'operatore.
 Usa i riferimenti di prova; chiedi letture live soltanto per dettagli assenti.
 
-${params.richiesta}`;
+${richiesta}`;
     } else {
       const fascicolo = await eseguiStrumento(rt, "leggi_fascicolo_commessa", {
         commessaId: params.commessaId,
@@ -331,7 +364,7 @@ ${fascicolo.content}
 Il fascicolo live sopra sostituisce qualsiasi sintesi scaduta. Usalo come fonte
 iniziale e chiedi strumenti aggiuntivi solo per dettagli non presenti.
 
-${params.richiesta}`;
+${richiesta}`;
       }
     }
   }

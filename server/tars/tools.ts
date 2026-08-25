@@ -1258,13 +1258,82 @@ const PROFILI: Record<string, readonly string[]> = {
   ],
 };
 
-export function toolProfileForTrigger(trigger: string): string {
+const WORKFLOW_PROFILI: Record<string, readonly string[] | "completo"> = {
+  cross_domain_search: "completo",
+  needs_clarification: [...TERMINAZIONE],
+  create_customer_job: [
+    "cerca_clienti",
+    "leggi_cliente",
+    "cerca_commesse",
+    "leggi_assegnatari",
+    "proponi_nuovo_lead",
+    ...TERMINAZIONE,
+  ],
+  manage_communication: PROFILI.gestione_comunicazione,
+  reconcile_invoice: PROFILI.riconciliazione_fatture,
+  manage_document: [
+    "leggi_fascicolo_commessa",
+    "leggi_documenti",
+    "leggi_contenuto_documento",
+    "leggi_allegato",
+    "proponi_rinomina_documento",
+    "proponi_nota_timeline",
+    ...TERMINAZIONE,
+  ],
+  plan_intervention: [
+    "leggi_fascicolo_commessa",
+    "leggi_interventi",
+    "leggi_squadre",
+    "proponi_nota_timeline",
+    "proponi_modifica_commessa",
+    ...TERMINAZIONE,
+  ],
+  manage_ticket: [
+    "cerca_clienti",
+    "cerca_commesse",
+    "leggi_fascicolo_commessa",
+    "leggi_ticket",
+    "cerca_comunicazioni",
+    "proponi_ticket",
+    "proponi_bozza_risposta",
+    ...TERMINAZIONE,
+  ],
+  analyze_job: PROFILI.on_demand,
+  audit_process: PROFILI.audit_processi,
+  informational_query: [
+    "cerca_clienti",
+    "leggi_cliente",
+    "cerca_commesse",
+    "leggi_fascicolo_commessa",
+    "leggi_documenti",
+    "leggi_ticket",
+    "leggi_interventi",
+    "leggi_produzione",
+    "leggi_qualita_operativa",
+    "leggi_economia",
+    "leggi_quadro_azienda",
+    "leggi_fatture_cloud",
+    "cerca_comunicazioni",
+    ...TERMINAZIONE,
+  ],
+};
+
+export function toolProfileForTrigger(
+  trigger: string,
+  workflow?: string | null
+): string {
+  if (workflow && WORKFLOW_PROFILI[workflow]) return `workflow:${workflow}`;
   return PROFILI[trigger] ? trigger : "completo";
 }
 
 /** Stable order matters: an unchanged profile preserves the provider prompt cache. */
-export function toolDefsForTrigger(trigger: string): TarsTool[] {
-  const names = PROFILI[trigger];
+export function toolDefsForTrigger(
+  trigger: string,
+  workflow?: string | null
+): TarsTool[] {
+  const workflowNames = workflow ? WORKFLOW_PROFILI[workflow] : undefined;
+  if (workflowNames === "completo") return TOOL_DEFS;
+  const names = workflowNames ?? PROFILI[trigger];
   if (!names) return TOOL_DEFS;
   const wanted = new Set(names);
   return TOOL_DEFS.filter(tool => wanted.has(tool.name));
