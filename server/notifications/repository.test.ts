@@ -143,4 +143,32 @@ describe("notification repository", () => {
       })).map(item => item.id)
     ).toEqual([second.id]);
   });
+
+  it("isola e disattiva le sottoscrizioni push per endpoint", async () => {
+    const repo = createMemoryNotificationRepository();
+    await repo.upsertPushSubscription({
+      sedeId: 1,
+      recipientUserId: 7,
+      endpointHash: "hash-a",
+      encryptedSubscription: "cipher-a",
+      now,
+    });
+    await repo.upsertPushSubscription({
+      sedeId: 1,
+      recipientUserId: 8,
+      endpointHash: "hash-b",
+      encryptedSubscription: "cipher-b",
+      now,
+    });
+    expect(await repo.listPushSubscriptions({ sedeId: 1, recipientUserId: 7 })).toHaveLength(1);
+    expect(
+      await repo.deactivatePushSubscription({
+        sedeId: 1,
+        recipientUserId: 7,
+        endpointHash: "hash-a",
+        now,
+      })
+    ).toBe(true);
+    expect(await repo.listPushSubscriptions({ sedeId: 1, recipientUserId: 7 })).toEqual([]);
+  });
 });

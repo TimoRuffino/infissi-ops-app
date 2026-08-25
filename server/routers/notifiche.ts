@@ -19,6 +19,9 @@ import { ACTION_CENTER_MODE } from "../actionCenter/scheduler";
 import { getNotificationRepository } from "../notifications/repository";
 import type { Notification } from "../notifications/types";
 import { getFeatureFlags } from "../platform/featureFlags";
+import { createHash } from "node:crypto";
+import { encryptSecret, secretBoxConfigured } from "../_core/secretBox";
+import { webPushConfigured } from "../notifications/push";
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 //
@@ -537,6 +540,66 @@ function legacyDto(item: Notifica & { read: boolean }) {
 }
 
 export const notificheRouter = router({
+  push: router({
+    status: protectedProcedure.query(async ({ ctx }) => {
+      const sedeId = (ctx.sedeId ?? 1) as number;
+      const repository = getNotificationRepository();
+      return {
+        enabled:
+          getFeatureFlags(sedeId).webPushEnabled &&
+          webPushConfigured() &&
+          secretBoxConfigured(),
+        publicKey: webPushConfigured() ? process.env.VAPID_PUBLIC_KEY ?? null : null,
+        subscriptions: (
+          await repository.listPushSubscriptions({
+            sedeId,
+            recipientUserId: ctx.user.id as number,
+          })
+        ).length,
+      };
+    }),
+    subscribe: protectedProcedure
+      .input(z.object({
+        endpoint: z.string().url().max(4_000),
+        expirationTime: z.number().nullable().optional(),
+        keys: z.object({
+          p256dh: z.string().min(20).max(500),
+          auth: z.string().min(10).max(500),
+        }),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = (ctx.sedeId ?? 1) as number;
+        if (
+          !getFeatureFlags(sedeId).webPushEnabled ||
+          !webPushConfigured() ||
+          !secretBoxConfigured()
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Le notifiche push non sono ancora configurate.",
+          });
+        }
+        const endpointHash = createHash("sha256").update(input.endpoint).digest("hex");
+        return getNotificationRepository().upsertPushSubscription({
+          sedeId,
+          recipientUserId: ctx.user.id as number,
+          endpointHash,
+          encryptedSubscription: encryptSecret(JSON.stringify(input)),
+          now: new Date(),
+        });
+      }),
+    unsubscribe: protectedProcedure
+      .input(z.object({ endpoint: z.string().url().max(4_000) }))
+      .mutation(({ input, ctx }) =>
+        getNotificationRepository().deactivatePushSubscription({
+          sedeId: (ctx.sedeId ?? 1) as number,
+          recipientUserId: ctx.user.id as number,
+          endpointHash: createHash("sha256").update(input.endpoint).digest("hex"),
+          now: new Date(),
+        })
+      ),
+  }),
+
   preferences: router({
     get: protectedProcedure.query(({ ctx }) =>
       getNotificationRepository().getPreferences({

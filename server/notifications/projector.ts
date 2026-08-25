@@ -8,6 +8,7 @@ import {
   publishNotificationSignal,
   type NotificationHub,
 } from "./sse";
+import { deliverStoredNotification } from "./deliveryWorker";
 
 const ASSIGNMENT_EVENT_TYPES = [
   "cliente.assigned",
@@ -109,6 +110,13 @@ export function createNotificationProjectorConsumer(options: {
           };
           if (options.hub) hub.publish(signal);
           else await publishNotificationSignal(signal);
+          if (!options.repository) {
+            await deliverStoredNotification({
+              notificationId: result.id,
+              recipientUserId: draft.recipientUserId,
+              sedeId: draft.sedeId,
+            });
+          }
         }
       }
     },

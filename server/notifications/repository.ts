@@ -12,6 +12,11 @@ import { DEFAULT_NOTIFICATION_PREFERENCES } from "./types";
 type Scope = { sedeId: number; recipientUserId: number };
 type MutationInput = Scope & { ids: number[]; now: Date };
 type NotificationCursor = { createdAt: Date; id: number };
+export type StoredPushSubscription = Scope & {
+  id: number;
+  endpointHash: string;
+  encryptedSubscription: string;
+};
 
 export type NotificationRepository = {
   ensureSchema(): Promise<void>;
@@ -33,6 +38,9 @@ export type NotificationRepository = {
   recordDelivery(draft: NotificationDeliveryDraft): Promise<{ id: number; created: boolean }>;
   getPreferences(input: Scope): Promise<NotificationPreferences>;
   setPreferences(input: Scope & { preferences: NotificationPreferences; now: Date }): Promise<NotificationPreferences>;
+  upsertPushSubscription(input: Scope & { endpointHash: string; encryptedSubscription: string; now: Date }): Promise<{ id: number; created: boolean }>;
+  listPushSubscriptions(input: Scope): Promise<StoredPushSubscription[]>;
+  deactivatePushSubscription(input: Scope & { endpointHash: string; now: Date }): Promise<boolean>;
 };
 
 function cloneNotification(item: Notification): Notification {
@@ -47,8 +55,10 @@ export function createMemoryNotificationRepository(): NotificationRepository {
   const notifications: Notification[] = [];
   const deliveries: NotificationDelivery[] = [];
   const preferences = new Map<string, NotificationPreferences>();
+  const pushSubscriptions: Array<StoredPushSubscription & { active: boolean }> = [];
   let nextNotificationId = 1;
   let nextDeliveryId = 1;
+  let nextPushSubscriptionId = 1;
 
   function scoped(input: Scope, item: Notification) {
     return item.sedeId === input.sedeId && item.recipientUserId === input.recipientUserId;
@@ -220,6 +230,49 @@ export function createMemoryNotificationRepository(): NotificationRepository {
       const value = structuredClone(input.preferences);
       preferences.set(`${input.sedeId}:${input.recipientUserId}`, value);
       return structuredClone(value);
+    },
+
+    async upsertPushSubscription(input) {
+      const existing = pushSubscriptions.find(
+        item =>
+          item.sedeId === input.sedeId &&
+          item.recipientUserId === input.recipientUserId &&
+          item.endpointHash === input.endpointHash
+      );
+      if (existing) {
+        existing.encryptedSubscription = input.encryptedSubscription;
+        existing.active = true;
+        return { id: existing.id, created: false };
+      }
+      const item = {
+        id: nextPushSubscriptionId++,
+        sedeId: input.sedeId,
+        recipientUserId: input.recipientUserId,
+        endpointHash: input.endpointHash,
+        encryptedSubscription: input.encryptedSubscription,
+        active: true,
+      };
+      pushSubscriptions.push(item);
+      return { id: item.id, created: true };
+    },
+
+    async listPushSubscriptions(input) {
+      return pushSubscriptions
+        .filter(item => item.active && item.sedeId === input.sedeId && item.recipientUserId === input.recipientUserId)
+        .map(({ active: _active, ...item }) => structuredClone(item));
+    },
+
+    async deactivatePushSubscription(input) {
+      const item = pushSubscriptions.find(
+        candidate =>
+          candidate.active &&
+          candidate.sedeId === input.sedeId &&
+          candidate.recipientUserId === input.recipientUserId &&
+          candidate.endpointHash === input.endpointHash
+      );
+      if (!item) return false;
+      item.active = false;
+      return true;
     },
   };
 }
@@ -475,6 +528,51 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
           SET preferences = EXCLUDED.preferences, updated_at = EXCLUDED.updated_at
       `;
       return value;
+    },
+    async upsertPushSubscription(input) {
+      await ensureSchema();
+      const subscription = sql.json({ encrypted: input.encryptedSubscription } as any);
+      const rows = await sql`
+        INSERT INTO push_subscriptions (
+          sede_id, user_id, endpoint_hash, subscription, active, created_at, updated_at
+        ) VALUES (
+          ${input.sedeId}, ${input.recipientUserId}, ${input.endpointHash}, ${subscription}, TRUE, ${input.now}, ${input.now}
+        )
+        ON CONFLICT (sede_id, user_id, endpoint_hash) DO UPDATE SET
+          subscription = EXCLUDED.subscription, active = TRUE, updated_at = EXCLUDED.updated_at
+        RETURNING id, (xmax = 0) AS created
+      `;
+      return { id: Number(rows[0].id), created: Boolean(rows[0].created) };
+    },
+    async listPushSubscriptions(input) {
+      await ensureSchema();
+      const rows = await sql`
+        SELECT id, sede_id, user_id, endpoint_hash, subscription
+        FROM push_subscriptions
+        WHERE sede_id = ${input.sedeId} AND user_id = ${input.recipientUserId} AND active = TRUE
+      `;
+      return rows.flatMap(row => {
+        const encrypted = row.subscription?.encrypted;
+        return typeof encrypted === "string"
+          ? [{
+              id: Number(row.id),
+              sedeId: Number(row.sede_id),
+              recipientUserId: Number(row.user_id),
+              endpointHash: row.endpoint_hash,
+              encryptedSubscription: encrypted,
+            }]
+          : [];
+      });
+    },
+    async deactivatePushSubscription(input) {
+      await ensureSchema();
+      const rows = await sql`
+        UPDATE push_subscriptions SET active = FALSE, updated_at = ${input.now}
+        WHERE sede_id = ${input.sedeId} AND user_id = ${input.recipientUserId}
+          AND endpoint_hash = ${input.endpointHash} AND active = TRUE
+        RETURNING id
+      `;
+      return rows.length > 0;
     },
   };
 }

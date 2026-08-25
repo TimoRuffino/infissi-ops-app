@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NotificationGroup } from "@/components/notifications/NotificationGroup";
 import type { NotificationItemData } from "@/components/notifications/NotificationItem";
+import { PushPreference } from "@/components/notifications/PushPreference";
 
 type View = "mine" | "critical" | "resolved";
 
 export default function Notifiche() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [view, setView] = useState<View>("mine");
   const utils = trpc.useUtils();
   const query = trpc.notifiche.feed.useQuery({
@@ -32,6 +33,7 @@ export default function Notifiche() {
     return Array.from(grouped.entries());
   }, [items]);
   const readId = (item: NotificationItemData) => item.legacy ? item.id : Number(item.id);
+  const settingsView = location.includes("view=impostazioni") || window.location.search.includes("view=impostazioni");
 
   return (
     <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5">
@@ -57,7 +59,9 @@ export default function Notifiche() {
         </div>
       </header>
 
-      <div className="flex flex-col gap-3 border-y bg-card/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:rounded-lg sm:border">
+      {settingsView && <PushPreference />}
+
+      <div className={`flex flex-col gap-3 border-y bg-card/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:rounded-lg sm:border ${settingsView ? "opacity-70" : ""}`}>
         <Tabs value={view} onValueChange={value => setView(value as View)}>
           <TabsList className="grid w-full grid-cols-3 sm:w-auto">
             <TabsTrigger value="mine"><Bell className="h-4 w-4" /> Per me</TabsTrigger>
