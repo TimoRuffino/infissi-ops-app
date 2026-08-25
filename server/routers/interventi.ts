@@ -2,7 +2,8 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
+import { assertSedeScope, isDirezione } from "../_core/permissions";
+import { authorizeCoreOperation } from "../authz/enforcement";
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
@@ -71,7 +72,24 @@ export const interventiRouter = router({
       reclamoId: z.number().nullable().optional(),
       rifacimentoId: z.number().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "interventi.create",
+        capability: "intervento.plan",
+        resourceType: "intervento",
+      });
+      if (input.squadraId !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "interventi.assign",
+          capability: "intervento.assign",
+          resourceType: "intervento",
+        });
+      }
+      if (input.commessaId != null) {
+        assertSedeScope(getCommessaById(input.commessaId), ctx.sedeId);
+      }
       const now = new Date();
       const intervento = {
         id: nextId++,
@@ -87,6 +105,7 @@ export const interventiRouter = router({
         stato: "pianificato" as const,
         dataInizio: null,
         dataFine: null,
+        createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -109,10 +128,34 @@ export const interventiRouter = router({
       reclamoId: z.number().nullable().optional(),
       rifacimentoId: z.number().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
       if (idx === -1) throw new Error("Intervento non trovato");
       assertSedeScope(interventi[idx], ctx.sedeId);
+      const parent = interventi[idx].commessaId == null
+        ? null
+        : getCommessaById(interventi[idx].commessaId);
+      const policyResource = {
+        ...interventi[idx],
+        createdBy: interventi[idx].createdBy ?? parent?.createdBy ?? null,
+        assegnatoA: parent?.assegnatoA ?? null,
+      };
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "interventi.update",
+        capability: "intervento.plan",
+        resourceType: "intervento",
+        resource: policyResource,
+      });
+      if (input.squadraId !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "interventi.assign",
+          capability: "intervento.assign",
+          resourceType: "intervento",
+          resource: policyResource,
+        });
+      }
       const { id, ...updates } = input;
       interventi[idx] = { ...interventi[idx], ...updates, updatedAt: new Date() };
       _interventiStore.save();
@@ -121,18 +164,29 @@ export const interventiRouter = router({
 
   delete: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input);
       if (idx === -1) throw new Error("Intervento non trovato");
       assertSedeScope(interventi[idx], ctx.sedeId);
-      // Ownership inherited from the parent commessa (when present);
-      // direzione can always delete.
-      if (interventi[idx].commessaId != null) {
-        requireOwnershipOrDirezione(
-          getCommessaById(interventi[idx].commessaId),
-          ctx.user
-        );
-      }
+      const parent = interventi[idx].commessaId == null
+        ? null
+        : getCommessaById(interventi[idx].commessaId);
+      const uid = ctx.user?.id ?? null;
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "interventi.delete",
+        capability: "intervento.delete",
+        resourceType: "intervento",
+        resource: {
+          ...interventi[idx],
+          createdBy: interventi[idx].createdBy ?? parent?.createdBy ?? null,
+          assegnatoA: parent?.assegnatoA ?? null,
+        },
+        legacyAllowed:
+          parent == null ||
+          isDirezione(ctx.user) ||
+          (uid != null && (parent.createdBy === uid || parent.assegnatoA === uid)),
+      });
       interventi.splice(idx, 1);
       _interventiStore.save();
       return { success: true };
@@ -146,10 +200,24 @@ export const interventiRouter = router({
       // load (see _interventiStore.onLoad above) and the UI hides them.
       stato: z.enum(["pianificato", "in_corso", "completato", "sospeso"]),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
       if (idx === -1) throw new Error("Intervento non trovato");
       assertSedeScope(interventi[idx], ctx.sedeId);
+      const parent = interventi[idx].commessaId == null
+        ? null
+        : getCommessaById(interventi[idx].commessaId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "interventi.updateState",
+        capability: "intervento.plan",
+        resourceType: "intervento",
+        resource: {
+          ...interventi[idx],
+          createdBy: interventi[idx].createdBy ?? parent?.createdBy ?? null,
+          assegnatoA: parent?.assegnatoA ?? null,
+        },
+      });
       interventi[idx].stato = input.stato;
       if (input.stato === "in_corso") interventi[idx].dataInizio = new Date();
       if (input.stato === "completato") interventi[idx].dataFine = new Date();

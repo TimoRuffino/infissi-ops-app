@@ -93,6 +93,11 @@ describe("capability policy", () => {
     ["amministrazione registra pagamenti", user(["amministrazione"]), "pagamento.record", true],
     ["commerciale non elimina clienti", user(["commerciale"]), "cliente.delete", false],
     ["direzione elimina clienti", user(["direzione"]), "cliente.delete", true],
+    ["commerciale non elimina commesse", user(["commerciale"]), "commessa.delete", false],
+    ["direzione elimina commesse", user(["direzione"]), "commessa.delete", true],
+    ["post vendita non elimina ticket", user(["post_vendita"]), "ticket.delete", false],
+    ["direzione elimina ticket", user(["direzione"]), "ticket.delete", true],
+    ["direzione elimina interventi", user(["direzione"]), "intervento.delete", true],
     ["direzione cambia stato", user(["direzione"]), "commessa.change_state", true],
   ])("applica il profilo ruolo: %s", (_label, actor, capability, allowed) => {
     expect(can({ user: actor, capability, activeSedeId }).allowed).toBe(allowed);

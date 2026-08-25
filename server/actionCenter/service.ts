@@ -144,6 +144,7 @@ export async function transitionActionCase(input: {
   until?: Date | null;
   reason?: string;
   counterpart?: string;
+  validateAssignee?: (userId: number) => void;
   now: Date;
 }): Promise<ActionCaseRecord> {
   const record = await input.repository.findById(input.sedeId, input.caseId);
@@ -168,6 +169,7 @@ export async function transitionActionCase(input: {
       break;
     case "assign":
       if (input.assigneeUserId == null) throw new Error("ASSIGNEE_REQUIRED");
+      input.validateAssignee?.(input.assigneeUserId);
       status = "in_carico";
       assignee = input.assigneeUserId;
       eventType = "assegnata";

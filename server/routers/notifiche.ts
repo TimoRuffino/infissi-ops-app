@@ -7,7 +7,7 @@ import { getInterventiStore } from "./interventi";
 import { getTicketStore } from "./ticket";
 import { getGaranzieStore } from "./garanzie";
 import { getClienteById } from "./clienti";
-import { getUtentiStore } from "./utenti";
+import { requireAssignableUser } from "../authz/assignments";
 import { getActionCaseRepository } from "../actionCenter/repository";
 import {
   canAccessActionCase,
@@ -804,14 +804,6 @@ export const notificheRouter = router({
       .input(caseIdentitySchema.extend({ assigneeUserId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
         const context = actionContext(ctx);
-        const user = getUtentiStore().find((candidate: any) =>
-          candidate.id === input.assigneeUserId &&
-          candidate.attivo !== false &&
-          (!Array.isArray(candidate.sediIds) || candidate.sediIds.includes(context.sedeId))
-        );
-        if (!user) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Utente non disponibile nella sede." });
-        }
         try {
           return await transitionActionCase({
             ...context,
@@ -819,6 +811,12 @@ export const notificheRouter = router({
             expectedFingerprint: input.expectedFingerprint,
             action: "assign",
             assigneeUserId: input.assigneeUserId,
+            validateAssignee: userId =>
+              requireAssignableUser({
+                assigneeUserId: userId,
+                sedeId: context.sedeId,
+                requiredCapability: "tars.use",
+              }),
             now: new Date(),
           });
         } catch (error) {

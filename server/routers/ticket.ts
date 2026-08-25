@@ -3,12 +3,10 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
 import { getCommessaById } from "./commesse";
-import {
-  requireOwnershipOrDirezione,
-  requireDirezione,
-  assertSedeScope,
-} from "../_core/permissions";
+import { assertSedeScope, isDirezione } from "../_core/permissions";
 import { publishAssignmentEvent } from "../events/publish";
+import { requireAssignableUser } from "../authz/assignments";
+import { authorizeCoreOperation } from "../authz/enforcement";
 
 // Linear workflow. Used for both forward advance and rollback.
 // "risolto" was retired: between risolto and chiuso nothing actually
@@ -85,6 +83,19 @@ export const ticketRouter = router({
       assegnatoA: z.number().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.create",
+        capability: "ticket.create",
+        resourceType: "ticket",
+      });
+      if (input.assegnatoA !== undefined && input.assegnatoA !== ctx.user?.id) {
+        requireAssignableUser({
+          assigneeUserId: input.assegnatoA,
+          sedeId: ctx.sedeId ?? 1,
+          requiredCapability: "ticket.manage",
+        });
+      }
       const now = new Date();
       const t = {
         id: nextId++,
@@ -137,6 +148,33 @@ export const ticketRouter = router({
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
+      const policyResource = {
+        ...tickets[idx],
+        createdBy: tickets[idx].apertoBy ?? null,
+      };
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.update",
+        capability: "ticket.manage",
+        resourceType: "ticket",
+        resource: policyResource,
+      });
+      if (input.assegnatoA !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "ticket.assign",
+          capability: "ticket.assign",
+          resourceType: "ticket",
+          resource: policyResource,
+        });
+        if (input.assegnatoA !== ctx.user?.id) {
+          requireAssignableUser({
+            assigneeUserId: input.assegnatoA,
+            sedeId: ctx.sedeId ?? 1,
+            requiredCapability: "ticket.manage",
+          });
+        }
+      }
       const previousAssigneeId = tickets[idx].assegnatoA ?? null;
       const { id, ...updates } = input;
       tickets[idx] = { ...tickets[idx], ...updates, updatedAt: new Date() };
@@ -161,27 +199,34 @@ export const ticketRouter = router({
 
   delete: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
-      // Chi può eliminare: direzione, chi ha aperto il ticket, o chi possiede
-      // la commessa collegata. Se la commessa non esiste più (cancellata), il
-      // ticket resta comunque eliminabile da direzione o dall'autore —
-      // altrimenti requireOwnershipOrDirezione(null) lanciava NOT_FOUND e il
-      // ticket diventava indistruttibile.
+      // La decisione legacy resta autore/direzione/proprietario commessa;
+      // in enforce la cancellazione richiede la capability dedicata.
       const uid = ctx.user?.id ?? null;
       const commessa = tickets[idx].commessaId
         ? getCommessaById(tickets[idx].commessaId)
         : null;
       const isAutore = uid != null && tickets[idx].apertoBy === uid;
-      if (!isAutore) {
-        if (commessa) {
-          requireOwnershipOrDirezione(commessa, ctx.user);
-        } else {
-          requireDirezione(ctx.user);
-        }
-      }
+      const legacyAllowed =
+        isAutore ||
+        isDirezione(ctx.user) ||
+        (uid != null &&
+          commessa != null &&
+          (commessa.createdBy === uid || commessa.assegnatoA === uid));
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.delete",
+        capability: "ticket.delete",
+        resourceType: "ticket",
+        resource: {
+          ...tickets[idx],
+          createdBy: tickets[idx].apertoBy ?? null,
+        },
+        legacyAllowed,
+      });
       tickets.splice(idx, 1);
       // Cascade: also drop any attachments bound to the ticket, otherwise they
       // leak in the store with no parent.
@@ -197,10 +242,17 @@ export const ticketRouter = router({
       stato: z.enum([...TICKET_STATI, "risolto"] as const),
       esitoIntervento: z.string().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.updateState",
+        capability: "ticket.manage",
+        resourceType: "ticket",
+        resource: { ...tickets[idx], createdBy: tickets[idx].apertoBy ?? null },
+      });
       const stato = input.stato === "risolto" ? "chiuso" : input.stato;
       tickets[idx].stato = stato;
       if (input.esitoIntervento) tickets[idx].esitoIntervento = input.esitoIntervento;
@@ -217,10 +269,17 @@ export const ticketRouter = router({
   // for reporting. If already at "aperto" (first state) throws.
   rollbackStato: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.rollbackState",
+        capability: "ticket.manage",
+        resourceType: "ticket",
+        resource: { ...tickets[idx], createdBy: tickets[idx].apertoBy ?? null },
+      });
       const currentIdx = TICKET_STATI.indexOf(tickets[idx].stato as TicketStato);
       if (currentIdx <= 0) {
         throw new Error("Il ticket è già al primo stato");
@@ -244,10 +303,17 @@ export const ticketRouter = router({
       id: z.number(),
       nota: z.string().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "ticket.remind",
+        capability: "ticket.manage",
+        resourceType: "ticket",
+        resource: { ...tickets[idx], createdBy: tickets[idx].apertoBy ?? null },
+      });
       if (tickets[idx].stato === "chiuso") {
         throw new Error("Il ticket è chiuso: riaprilo prima di sollecitare.");
       }

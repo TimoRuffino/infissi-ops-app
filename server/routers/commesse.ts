@@ -7,10 +7,11 @@ import {
 } from "./clienti";
 import { getUtentiStore } from "./utenti";
 import {
-  requireOwnershipOrDirezione,
   assertSedeScope,
   requireDirezione,
   requireDirezioneOAmministrazione,
+  isAmministrazione,
+  isDirezione,
 } from "../_core/permissions";
 import { calcolaMargine } from "../_core/margine";
 import { getOrdiniPerMargine } from "./fornitori";
@@ -22,6 +23,8 @@ import {
 } from "./preventiviContratti";
 import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
+import { requireAssignableUser } from "../authz/assignments";
+import { authorizeCoreOperation } from "../authz/enforcement";
 
 // Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
 // per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
@@ -348,6 +351,28 @@ export const commesseRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.create",
+        capability: "commessa.create",
+        resourceType: "commessa",
+      });
+      if (input.importoTotale !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "commesse.create.economia",
+          capability: "economia.read",
+          resourceType: "commessa",
+          resource: { sedeId: ctx.sedeId, sensitivity: "economic" },
+        });
+      }
+      if (input.assegnatoA !== undefined && input.assegnatoA !== ctx.user?.id) {
+        requireAssignableUser({
+          assigneeUserId: input.assegnatoA,
+          sedeId: ctx.sedeId ?? 1,
+          requiredCapability: "commessa.update_operational",
+        });
+      }
       const now = new Date();
       const id = nextId++;
       const {
@@ -363,6 +388,7 @@ export const commesseRouter = router({
       if (inputClienteId) {
         const c = getClienteById(inputClienteId);
         if (c) {
+          assertSedeScope(c, ctx.sedeId);
           clienteDisplay = `${c.cognome} ${c.nome}`.trim();
           inheritedAssegnatoA = c.assegnatoA ?? null;
         }
@@ -467,11 +493,55 @@ export const commesseRouter = router({
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
-      const previousAssigneeId = commesse[idx].assegnatoA ?? null;
-      // Il costo posa alimenta il margine: scrivibile solo da chi lo vede.
-      if (input.costoPosaStimato !== undefined) {
-        requireDirezioneOAmministrazione(ctx.user);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.update",
+        capability: "commessa.update_operational",
+        resourceType: "commessa",
+        resource: commesse[idx],
+      });
+      if (
+        input.importoTotale !== undefined ||
+        input.costoPosaStimato !== undefined
+      ) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "commesse.update.economia",
+          capability: "economia.read",
+          resourceType: "commessa",
+          resource: { ...commesse[idx], sensitivity: "economic" },
+          legacyAllowed:
+            input.costoPosaStimato === undefined ||
+            isDirezione(ctx.user) ||
+            isAmministrazione(ctx.user),
+        });
       }
+      if (input.stato && input.stato !== commesse[idx].stato) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "commesse.changeState",
+          capability: "commessa.change_state",
+          resourceType: "commessa",
+          resource: commesse[idx],
+        });
+      }
+      if (input.assegnatoA !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "commesse.assign",
+          capability: "commessa.assign",
+          resourceType: "commessa",
+          resource: commesse[idx],
+        });
+        if (input.assegnatoA !== ctx.user?.id) {
+          requireAssignableUser({
+            assigneeUserId: input.assegnatoA,
+            sedeId: ctx.sedeId ?? 1,
+            requiredCapability: "commessa.update_operational",
+          });
+        }
+      }
+      const previousAssigneeId = commesse[idx].assegnatoA ?? null;
       // Enforce state machine on stato transitions
       if (input.stato && input.stato !== commesse[idx].stato) {
         validateTransizione(commesse[idx].stato, input.stato);
@@ -588,8 +658,18 @@ export const commesseRouter = router({
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
-      // Only the creator/owner or a direzione user can hard-delete.
-      requireOwnershipOrDirezione(commesse[idx], ctx.user);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.delete",
+        capability: "commessa.delete",
+        resourceType: "commessa",
+        resource: commesse[idx],
+        legacyAllowed:
+          isDirezione(ctx.user) ||
+          (ctx.user?.id != null &&
+            (commesse[idx].createdBy === ctx.user.id ||
+              commesse[idx].assegnatoA === ctx.user.id)),
+      });
       // Detach the commessa id from the cliente's index so it doesn't
       // linger as a stale reference.
       const clienteId: number | null = commesse[idx].clienteId ?? null;

@@ -3,6 +3,7 @@ import type { TrpcContext } from "../_core/context";
 import { setFeatureFlags } from "../platform/featureFlags";
 import { appRouter } from "../routers";
 import { getBusinessEventRepository } from "./repository";
+import { getUtentiStore } from "../routers/utenti";
 
 function context(sedeId: number): TrpcContext {
   return {
@@ -23,6 +24,12 @@ function context(sedeId: number): TrpcContext {
 describe("domain assignment event hooks", () => {
   it("pubblica creazione e riassegnazione di cliente e commessa", async () => {
     const sedeId = 940101;
+    const users = getUtentiStore();
+    const initialUsers = users.length;
+    users.push(
+      { id: 940002, attivo: true, ruoli: ["commerciale"], sediIds: [sedeId] },
+      { id: 940003, attivo: true, ruoli: ["commerciale"], sediIds: [sedeId] }
+    );
     setFeatureFlags(
       sedeId,
       { eventBusMode: "shadow" },
@@ -74,5 +81,6 @@ describe("domain assignment event hooks", () => {
       940002,
       940003,
     ]);
+    users.splice(initialUsers);
   });
 });

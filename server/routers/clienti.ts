@@ -3,6 +3,8 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { assertSedeScope } from "../_core/permissions";
+import { requireAssignableUser } from "../authz/assignments";
+import { authorizeCoreOperation } from "../authz/enforcement";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
 
@@ -180,8 +182,21 @@ export const clientiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "clienti.create",
+        capability: "cliente.create",
+        resourceType: "cliente",
+      });
       const now = new Date();
       const { assegnatoA: inputAssegnato, ...rest } = input;
+      if (inputAssegnato !== undefined && inputAssegnato !== ctx.user?.id) {
+        requireAssignableUser({
+          assigneeUserId: inputAssegnato,
+          sedeId: ctx.sedeId ?? 1,
+          requiredCapability: "cliente.update_operational",
+        });
+      }
       const cliente = {
         id: nextId++,
         ...rest,
@@ -251,6 +266,29 @@ export const clientiRouter = router({
       const idx = clienti.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Cliente non trovato");
       assertSedeScope(clienti[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "clienti.update",
+        capability: "cliente.update_operational",
+        resourceType: "cliente",
+        resource: clienti[idx],
+      });
+      if (input.assegnatoA !== undefined) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "clienti.assign",
+          capability: "cliente.assign",
+          resourceType: "cliente",
+          resource: clienti[idx],
+        });
+        if (input.assegnatoA !== ctx.user?.id) {
+          requireAssignableUser({
+            assigneeUserId: input.assegnatoA,
+            sedeId: ctx.sedeId ?? 1,
+            requiredCapability: "cliente.update_operational",
+          });
+        }
+      }
       const prev = { ...clienti[idx] };
       const { id, ...updates } = input;
       clienti[idx] = { ...clienti[idx], ...updates, updatedAt: new Date() };
@@ -298,11 +336,17 @@ export const clientiRouter = router({
 
   delete: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Cliente non trovato");
       assertSedeScope(clienti[idx], ctx.sedeId);
-      // Anyone in the sede can delete a cliente (not just the assignee/owner).
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "clienti.delete",
+        capability: "cliente.delete",
+        resourceType: "cliente",
+        resource: clienti[idx],
+      });
       clienti.splice(idx, 1);
       _store.save();
       return { success: true };
@@ -327,6 +371,13 @@ export const clientiRouter = router({
     const idx = clienti.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Cliente non trovato");
     assertSedeScope(clienti[idx], ctx.sedeId);
+    await authorizeCoreOperation({
+      ctx,
+      endpoint: "clienti.archive",
+      capability: "cliente.archive",
+      resourceType: "cliente",
+      resource: clienti[idx],
+    });
     if (!clienti[idx].archivedAt) {
       clienti[idx] = {
         ...clienti[idx],
@@ -344,6 +395,13 @@ export const clientiRouter = router({
     const idx = clienti.findIndex((c) => c.id === input);
     if (idx === -1) throw new Error("Cliente non trovato");
     assertSedeScope(clienti[idx], ctx.sedeId);
+    await authorizeCoreOperation({
+      ctx,
+      endpoint: "clienti.restore",
+      capability: "cliente.archive",
+      resourceType: "cliente",
+      resource: clienti[idx],
+    });
     if (clienti[idx].archivedAt) {
       clienti[idx] = { ...clienti[idx], archivedAt: null, updatedAt: new Date() };
       _store.save();
