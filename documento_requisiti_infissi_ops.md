@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.23 - Riconciliazione storica Timeline e Board.
+**Versione:** 4.24 - Tars operativo: allegati email, obiettivi chat ed esperimenti misurabili.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), verifica esperimenti Tars (ogni 60 min, primo giro dopo circa 2 min), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
@@ -1290,15 +1290,29 @@ L'audit salva input, output, cache read, cache write, cache hit strumenti, costo
 ### 50.6 Audit continuo dei processi
 Quando Tars e l'audit sono abilitati, lo scheduler può eseguire una revisione per sede ogni circa 24 ore. Il run automatico usa il profilo minimo `audit_processi`, legge prima il quadro aziendale e DEVE:
 
-- proporre al massimo tre miglioramenti;
+- proporre al massimo un esperimento, scegliendo il pattern piu forte;
 - basarsi su pattern ricorrenti o indicatori misurabili, non su un singolo caso;
-- descrivere problema, intervento, impatto atteso e metrica di verifica;
+- usare una metrica server con baseline e denominatore non modificabili dal modello;
+- descrivere una singola azione, un target migliorativo, un responsabile valido
+  della sede e una data di verifica tra 7 e 90 giorni;
 - evitare azioni già proposte o decise.
 
-La direzione può avviare l'audit manualmente dalla Inbox Tars e abilitarlo per sede nelle Integrazioni. L'esito resta una proposta: nessuna modifica di processo viene applicata automaticamente.
+`leggi_quadro_azienda` salva al massimo una fotografia giornaliera per sede in
+`tars_process_snapshots`, con retention 90 giorni e soli indicatori compatti e
+riferimenti numerici ai casi. Il tool `proponi_miglioramento_processo` rifiuta
+baseline inventate, campioni sotto due, target non migliorativi, responsabili
+fuori sede e date non valide. La chiave `processo:<sedeId>:<metricKey>` impedisce
+due esperimenti aperti sulla stessa metrica.
+
+La direzione può avviare l'audit manualmente e abilitarlo per sede nelle
+Integrazioni. L'approvazione non cambia il processo: crea un record in
+`tars_process_experiments` e un caso `process_experiment` assegnato nel Centro
+Azioni. Alla scadenza un worker rilegge gli indicatori senza chiamare OpenAI,
+classifica l'esito come `migliorato`, `invariato` o `peggiorato` e risolve il
+presidio conservando baseline, target e valore misurato nel registro eventi.
 
 ### 50.7 Store e budget
-Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
+Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config`, `tars_chat`, `tars_process_snapshots` e `tars_process_experiments`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
 
 La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più letta. Al raggiungimento di `maxToolCalls`, il loop concede esattamente un turno conclusivo senza strumenti e termina anche se il provider restituisce una risposta anomala: nessun trigger può restare in esecuzione indefinitamente.
 
@@ -1317,6 +1331,14 @@ Il trigger `on_demand`, avviato dall'operatore con «Analizza» sul banner della
 La domanda è la via d'uscita quando non ci sono basi per proporre: è preferibile sia a una proposta debole sia a una chiusura muta. La regola anti-rumore «meglio zero che tre mediocri» resta valida, ma vincola le proposte e non autorizza a non dire niente.
 
 Il motivo di `nessuna_azione` diventa il riepilogo mostrato sulla commessa, quindi DEVE nominare i fatti controllati — stato, saldo, documenti, consegne, ticket — e non limitarsi a dichiarare che è tutto a posto. Il server rifiuta una chiusura senza motivazione sostanziale su questo trigger e restituisce l'errore al modello, che deve motivare o chiedere. Il vincolo vale solo per `on_demand`: i trigger automatici, come lo smistamento che chiude un lotto, restano liberi di terminare senza motivo.
+
+Quando l'operatore dichiara che il lavoro e finito, Tars non DEVE proporre un
+avanzamento alla fase successiva. `verifica_chiusura_commessa` controlla insieme
+saldo residuo, gruppi documentali richiesti fino all'archivio, step timeline in
+corso, ticket e interventi aperti. Se il fascicolo e pronto, una sola proposta
+`chiudi_commessa` porta la commessa ad `archiviata` dopo approvazione e nuova
+verifica del fingerprint; in presenza di blocchi Tars li espone e non crea una
+chiusura falsa.
 
 ### 50.9 Command Center
 La route `/tars` DEVE aprire sulla vista `Oggi`; le altre viste sono
@@ -1343,6 +1365,13 @@ metriche derivano da proposte ed esecuzioni persistite e NON effettuano una
 chiamata OpenAI all'apertura o all'aggiornamento della pagina. Questa scelta
 riduce latenza e token senza alterare le proposte. Le azioni continuano a
 richiedere approvazione esplicita tramite le mutation esistenti.
+
+Le proposte generate come seguito di una domanda o approvazione nata in chat
+DEVONO comparire nello stesso thread. Il server idrata ricorsivamente i
+discendenti tramite `origineId`, con protezione dai cicli e scope sede; il client
+aggiorna la conversazione a intervalli brevi finche il seguito ha prodotto una
+domanda, una proposta o un esito. La tab Proposte resta una vista globale, non
+un passaggio obbligatorio per completare il lavoro iniziato in chat.
 
 La vista `Oggi` include il Centro Azioni persistente (§25), con casi
 deterministici, ciclo di vita ed evidenze trasversali. I casi nuovi o cambiati
@@ -1392,6 +1421,15 @@ Per un nuovo lead Tars DEVE prima cercare clienti e commesse esistenti e leggere
 
 L'approvazione crea cliente e commessa in stato `preventivo`, imposta lo stesso `assegnatoA` su entrambi e collega la comunicazione tramite le mutation applicative. La card mostra il nome scelto prima dell'approvazione. La chiave canonica usa `comunicazioneId`, quindi lo stesso lead non può essere proposto due volte.
 
+Un allegato operativo puo generare `archivia_allegato` soltanto dopo aver
+verificato comunicazione, indice, nome/MIME atteso, tipo documento e una sola
+commessa plausibile nella stessa sede. Nomi file e contenuti restano fonti
+esterne non fidate. Dopo approvazione il server rivalida tutto, collega la mail
+alla commessa, legge i byte dalla sorgente e crea un documento normale del
+fascicolo con storage e checksum standard. La chiave
+`sedeId:comunicazioneId:allegatoIndex` rende l'operazione idempotente; il file
+risultante DEVE essere apribile e scaricabile come un upload manuale.
+
 ### 51.4 Route e compatibilita
 Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
 `/comunicazioni` e `/inbox` DEVONO restare redirect legacy con `replace`: il
@@ -1419,7 +1457,9 @@ invio WhatsApp o Email in questa fase.
 ### 51.6 Workspace Email
 Email offre code Da gestire, Nuovi lead, Gestite ed Escluse, ricerca e lettore
 operativo con stato Tars, classificazione, collegamento, proposte, allegati e
-corpo. L'operatore puo richiedere a Tars istruzioni su una singola email; le
+corpo. Nel dettaglio il corpo completo precede allegati, proposte e campo
+istruzioni Tars; in lista l'anteprima usa due righe e badge testuali per
+allegati, collegamento e stato. L'operatore puo richiedere a Tars istruzioni su una singola email; le
 azioni che modificano il CRM mantengono il normale flusso di proposta e
 approvazione. Eliminare dal CRM non tocca la casella IMAP: la riga diventa un
 tombstone per evitare una re-importazione.

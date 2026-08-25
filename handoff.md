@@ -4,7 +4,7 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 25/08/2026<br>
-**Base Git descritta:** `main`, fondamenta Tars Tasks 1-29 con gate active ancora chiusi<br>
+**Base Git descritta:** `main`, inclusi i flussi Tars operativi del 25/08/2026 e gate active ancora chiusi<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -88,6 +88,9 @@ server/tars/
   search/                   indice testuale/semantico ACL-aware
   learning/                 esiti strutturati per capability
   autonomy/                 gate puro; autonomia negata per default
+  processMetrics.ts         indicatori compatti e direzione del miglioramento
+  processExperiments.ts     baseline ed esperimenti persistiti per sede
+  processExperimentReview.ts verifica automatica alla scadenza
 
 server/events/              registro eventi, consumer e recovery lease
 server/notifications/       repository, proiettore, SSE e Web Push
@@ -192,11 +195,34 @@ l'intero catalogo:
   approfondire un caso persistente;
 - chat/seguito: catalogo completo quando serve esplorazione libera.
 
+L'audit processi non genera piu consigli liberi. Salva una fotografia giornaliera
+compatta in `tars_process_snapshots` e puo proporre al massimo un esperimento
+fondato su una delle metriche server (`commesse_ferme_10g`, non assegnate,
+clienti senza contatti, interventi senza squadra, merce in ritardo o tasso
+errori Tars). Il tool verifica baseline, denominatore, campione, target,
+responsabile e data tra 7 e 90 giorni. L'approvazione crea
+`tars_process_experiments` e un caso assegnato nel Centro Azioni; uno scheduler
+orario rilegge il quadro alla scadenza e registra `migliorato`, `invariato` o
+`peggiorato`. La misurazione non chiama OpenAI e non modifica workflow o regole.
+
 La chat e il suo seguito possono usare `proponi_nuovo_lead` senza
 `comunicazioneId` quando l'operatore chiede esplicitamente di creare cliente e
 prima commessa. Il tool cerca il contesto, valida l'assegnatario e crea una sola
 proposta; l'esecutore chiama le mutation reali soltanto dopo approvazione. I
 trigger automatici senza comunicazione vengono rifiutati lato server.
+
+Le proposte figlie e gli esiti di un seguito vengono idratati ricorsivamente
+nello stesso messaggio chat che ha originato la richiesta. Il client aggiorna
+la conversazione a 1, 2, 4, 8 e 15 secondi finche una domanda risposta o una
+proposta approvata ha ricevuto il proprio seguito: non e piu necessario aprire
+la tab Proposte per completare un flusso iniziato in chat.
+
+Per richieste come "il lavoro e finito", Tars usa
+`verifica_chiusura_commessa`: saldo, gruppi documentali obbligatori, step in
+corso, ticket e interventi aperti vengono controllati insieme. Se non esistono
+blocchi propone una sola `chiudi_commessa`; dopo approvazione l'esecutore
+rivalida il fingerprint e porta la commessa fino ad `archiviata` rispettando la
+state machine. Non propone avanzamenti intermedi.
 
 `leggi_fascicolo_commessa` raccoglie in parallelo commessa, timeline, documenti,
 ordini, magazzino, ticket, interventi e garanzie. Se il run conosce già la
@@ -284,8 +310,10 @@ Dal 18/08/2026 Tars dispone inoltre di letture trasversali per quadro aziendale,
 organizzazione, produzione, qualità e contenuto documentale. I dati restano
 sempre sede-scoped e le informazioni di direzione sono esposte solo ai ruoli
 autorizzati. L'audit processi viene controllato ogni sei ore e, per ogni sede,
-può essere eseguito al massimo una volta ogni circa 24 ore; produce solo
-proposte misurabili e mai modifiche autonome.
+può essere eseguito al massimo una volta ogni circa 24 ore; produce al massimo
+un esperimento misurabile e mai modifiche autonome. La card mostra baseline,
+obiettivo, responsabile, data e azione da provare invece del testo generico
+"Tars migliora il processo".
 
 La deduplica delle proposte usa una chiave d'azione canonica per tipo e target,
 con un controllo di similarità sul titolo come rete aggiuntiva. Sono bloccate
@@ -499,6 +527,20 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 - I trigger automatici senza comunicazione restano bloccati; le proposte nate
   in chat usano nome, email e telefono nella chiave anti-duplicato.
 
+### Allegati email operativi del 25/08/2026
+
+- `proponi_archivia_allegato` riconosce un allegato operativo e propone tipo,
+  nome canonico e commessa soltanto con un match univoco; contenuto e nome file
+  restano dati esterni non fidati.
+- L'approvazione rivalida comunicazione, indice allegato, MIME, sede e commessa,
+  poi legge i byte dalla casella e crea un documento normale del fascicolo.
+- `sourceRef = sedeId:comunicazioneId:allegatoIndex` e la chiave idempotente:
+  retry e doppio click non duplicano il file.
+- Il documento risultante usa lo storage standard ed e visibile, apribile e
+  scaricabile dalla commessa come un upload manuale.
+- Nel lettore Email il corpo precede allegati, proposte e istruzioni Tars; la
+  lista mostra anteprima su due righe e badge testuali leggibili.
+
 ### Rollout piattaforma Tars del 25/08/2026
 
 - Eventi, notifiche persistenti, capability, contesto, piani e indice sono
@@ -589,7 +631,12 @@ Poi verificare nel browser, desktop e mobile:
   `smb_message_echoes` dopo un invio dall'app primaria;
 - Integrazioni: stato Drive, storage e FiC;
 - Tars: Command Center `Oggi`, fonti raggiungibili, proposta approvabile e
-  nessuna azione automatica inattesa;
+  nessuna azione automatica inattesa; verificare anche una proposta esperimento
+  con baseline/target/responsabile e il caso corrispondente nel Centro Azioni;
+- Email: archiviare un allegato approvato da Tars e riaprirlo/scaricarlo dal
+  fascicolo commessa;
+- Chat Tars: approvare una proposta figlia senza lasciare la conversazione e
+  verificare che il relativo esito compaia nello stesso thread;
 - Centro Azioni in `shadow`: confrontare conteggi aggregati, priorità,
   dedupliche e assegnazioni; passare ad `active` solo dopo il controllo.
 
