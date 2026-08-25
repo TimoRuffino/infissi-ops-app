@@ -6,6 +6,8 @@ import {
   transitionActionCase,
 } from "./service";
 import type { ActionCaseDraft } from "./types";
+import { createMemoryBusinessEventRepository } from "../events/repository";
+import { setFeatureFlags } from "../platform/featureFlags";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 
@@ -148,5 +150,41 @@ describe("Action Center service", () => {
       action: "resolve",
       now: NOW,
     })).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("pubblica l'assegnazione personale del caso operativo", async () => {
+    const eventRepository = createMemoryBusinessEventRepository();
+    setFeatureFlags(
+      1,
+      { eventBusMode: "shadow" },
+      { actorUserId: 1, reason: "Test eventi Action Center" }
+    );
+    const record = await repository.findByCanonicalKey(1, "commessa:1");
+
+    await transitionActionCase({
+      repository,
+      businessEventRepository: eventRepository,
+      sedeId: 1,
+      caseId: record!.id,
+      expectedFingerprint: record!.signalFingerprint,
+      userId: 1,
+      roles: ["direzione"],
+      action: "assign",
+      assigneeUserId: 8,
+      now: NOW,
+    });
+
+    const events = await eventRepository.claim({
+      consumerName: "test",
+      workerId: "test",
+      eventTypes: ["azione_operativa.assigned"],
+      limit: 10,
+      now: new Date(Date.now() + 1_000),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      recipientHints: [8],
+      payload: { previousAssigneeId: 7, assigneeId: 8 },
+    });
   });
 });

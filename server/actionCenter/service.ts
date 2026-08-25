@@ -1,5 +1,7 @@
 import type { ActionCaseRepository } from "./repository";
 import type { ActionCaseRecord, ActionStatus } from "./types";
+import type { BusinessEventRepository } from "../events/repository";
+import { publishAssignmentEvent } from "../events/publish";
 
 type Scope = "mine" | "site";
 
@@ -131,6 +133,7 @@ export type ActionTransition =
 
 export async function transitionActionCase(input: {
   repository: ActionCaseRepository;
+  businessEventRepository?: BusinessEventRepository;
   sedeId: number;
   caseId: number;
   expectedFingerprint: string;
@@ -203,7 +206,7 @@ export async function transitionActionCase(input: {
       break;
   }
 
-  return input.repository.transition({
+  const updated = await input.repository.transition({
     sedeId: input.sedeId,
     id: input.caseId,
     expectedFingerprint: input.expectedFingerprint,
@@ -216,4 +219,20 @@ export async function transitionActionCase(input: {
     metadata,
     now: input.now,
   });
+  if (updated.assigneeUserId !== record.assigneeUserId) {
+    await publishAssignmentEvent(
+      {
+        sedeId: updated.sedeId,
+        entityType: "azione_operativa",
+        entityId: updated.id,
+        previousAssigneeId: record.assigneeUserId,
+        assigneeId: updated.assigneeUserId,
+        actorUserId: input.userId,
+        updatedAt: updated.updatedAt,
+        link: updated.link,
+      },
+      { repository: input.businessEventRepository }
+    );
+  }
+  return updated;
 }

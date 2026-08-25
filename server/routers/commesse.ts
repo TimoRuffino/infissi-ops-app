@@ -21,6 +21,7 @@ import {
   DOC_TIPO_LABEL,
 } from "./preventiviContratti";
 import { persistedStore } from "../_core/persistence";
+import { publishAssignmentEvent } from "../events/publish";
 
 // Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
 // per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
@@ -346,7 +347,7 @@ export const commesseRouter = router({
           .optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const now = new Date();
       const id = nextId++;
       const {
@@ -417,6 +418,16 @@ export const commesseRouter = router({
         addCommessaToCliente(inputClienteId, id);
       }
       _store.save();
+      await publishAssignmentEvent({
+        sedeId: commessa.sedeId,
+        entityType: "commessa",
+        entityId: commessa.id,
+        previousAssigneeId: null,
+        assigneeId: commessa.assegnatoA,
+        actorUserId: ctx.user?.id ?? null,
+        updatedAt: now,
+        link: `/commesse/${commessa.id}`,
+      });
       return commessa;
     }),
 
@@ -452,10 +463,11 @@ export const commesseRouter = router({
         force: z.boolean().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      const previousAssigneeId = commesse[idx].assegnatoA ?? null;
       // Il costo posa alimenta il margine: scrivibile solo da chi lo vede.
       if (input.costoPosaStimato !== undefined) {
         requireDirezioneOAmministrazione(ctx.user);
@@ -539,6 +551,18 @@ export const commesseRouter = router({
         commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
       }
       _store.save();
+      if (input.assegnatoA !== undefined) {
+        await publishAssignmentEvent({
+          sedeId: commesse[idx].sedeId,
+          entityType: "commessa",
+          entityId: commesse[idx].id,
+          previousAssigneeId,
+          assigneeId: commesse[idx].assegnatoA ?? null,
+          actorUserId: ctx.user?.id ?? null,
+          updatedAt: commesse[idx].updatedAt,
+          link: `/commesse/${commesse[idx].id}`,
+        });
+      }
       return commesse[idx];
     }),
 

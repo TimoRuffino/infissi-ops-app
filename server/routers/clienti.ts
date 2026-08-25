@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { publishAssignmentEvent } from "../events/publish";
 import { assertSedeScope } from "../_core/permissions";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
@@ -178,7 +179,7 @@ export const clientiRouter = router({
         assegnatoA: z.number().nullable().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const now = new Date();
       const { assegnatoA: inputAssegnato, ...rest } = input;
       const cliente = {
@@ -202,6 +203,16 @@ export const clientiRouter = router({
       };
       clienti.push(cliente);
       _store.save();
+      await publishAssignmentEvent({
+        sedeId: cliente.sedeId,
+        entityType: "cliente",
+        entityId: cliente.id,
+        previousAssigneeId: null,
+        assigneeId: cliente.assegnatoA,
+        actorUserId: ctx.user?.id ?? null,
+        updatedAt: now,
+        link: `/clienti/${cliente.id}`,
+      });
       return cliente;
     }),
 
@@ -268,6 +279,19 @@ export const clientiRouter = router({
           citta: prev.citta,
         }
       );
+
+      if (input.assegnatoA !== undefined) {
+        await publishAssignmentEvent({
+          sedeId: clienti[idx].sedeId,
+          entityType: "cliente",
+          entityId: clienti[idx].id,
+          previousAssigneeId: prev.assegnatoA ?? null,
+          assigneeId: clienti[idx].assegnatoA ?? null,
+          actorUserId: ctx.user?.id ?? null,
+          updatedAt: clienti[idx].updatedAt,
+          link: `/clienti/${clienti[idx].id}`,
+        });
+      }
 
       return clienti[idx];
     }),

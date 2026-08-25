@@ -8,6 +8,7 @@ import {
   requireDirezione,
   assertSedeScope,
 } from "../_core/permissions";
+import { publishAssignmentEvent } from "../events/publish";
 
 // Linear workflow. Used for both forward advance and rollback.
 // "risolto" was retired: between risolto and chiuso nothing actually
@@ -81,8 +82,9 @@ export const ticketRouter = router({
       descrizione: z.string().optional(),
       categoria: z.enum(["difetto_prodotto", "difetto_posa", "regolazione", "sostituzione", "garanzia", "altro"]),
       priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
+      assegnatoA: z.number().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const now = new Date();
       const t = {
         id: nextId++,
@@ -93,8 +95,8 @@ export const ticketRouter = router({
         contatto: input.contatto?.trim() || null,
         aperturaId: input.aperturaId ?? null,
         priorita: input.priorita ?? "media",
-        stato: "aperto" as const,
-        assegnatoA: null,
+        stato: input.assegnatoA != null ? ("assegnato" as const) : ("aperto" as const),
+        assegnatoA: input.assegnatoA ?? null,
         dataRisoluzione: null,
         esitoIntervento: null,
         solleciti: [],
@@ -104,6 +106,16 @@ export const ticketRouter = router({
       };
       tickets.push(t);
       _store.save();
+      await publishAssignmentEvent({
+        sedeId: t.sedeId,
+        entityType: "ticket",
+        entityId: t.id,
+        previousAssigneeId: null,
+        assigneeId: t.assegnatoA,
+        actorUserId: ctx.user?.id ?? null,
+        updatedAt: now,
+        link: `/post-vendita?ticket=${t.id}`,
+      });
       return t;
     }),
 
@@ -119,14 +131,31 @@ export const ticketRouter = router({
       commessaId: z.number().nullable().optional(),
       clienteId: z.number().nullable().optional(),
       contatto: z.string().nullable().optional(),
+      assegnatoA: z.number().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
       if (idx === -1) throw new Error("Ticket non trovato");
       assertSedeScope(tickets[idx], ctx.sedeId);
+      const previousAssigneeId = tickets[idx].assegnatoA ?? null;
       const { id, ...updates } = input;
       tickets[idx] = { ...tickets[idx], ...updates, updatedAt: new Date() };
+      if (input.assegnatoA != null && tickets[idx].stato === "aperto") {
+        tickets[idx].stato = "assegnato";
+      }
       _store.save();
+      if (input.assegnatoA !== undefined) {
+        await publishAssignmentEvent({
+          sedeId: tickets[idx].sedeId,
+          entityType: "ticket",
+          entityId: tickets[idx].id,
+          previousAssigneeId,
+          assigneeId: tickets[idx].assegnatoA ?? null,
+          actorUserId: ctx.user?.id ?? null,
+          updatedAt: tickets[idx].updatedAt,
+          link: `/post-vendita?ticket=${tickets[idx].id}`,
+        });
+      }
       return tickets[idx];
     }),
 
