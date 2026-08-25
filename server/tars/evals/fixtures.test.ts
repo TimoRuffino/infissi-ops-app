@@ -17,6 +17,7 @@ describe("Tars eval corpus", () => {
         "assignment",
         "invoice",
         "document",
+        "intervention",
         "ticket",
         "stalled_job",
         "no_action",

@@ -1,5 +1,11 @@
 import type { WorkflowDefinition } from "./types";
 import { createCustomerJobWorkflow } from "./createCustomerJob";
+import { manageLeadWorkflow } from "./manageLead";
+import { assignWorkWorkflow } from "./assignWork";
+import { reconcileInvoiceWorkflow } from "./reconcileInvoice";
+import { manageDocumentWorkflow } from "./manageDocument";
+import { planInterventionWorkflow } from "./planIntervention";
+import { manageTicketWorkflow } from "./manageTicket";
 
 export type WorkflowRegistry = {
   register(definition: WorkflowDefinition): void;
@@ -32,7 +38,15 @@ export function registerWorkflow(definition: WorkflowDefinition): void {
 }
 
 export function registerBuiltInWorkflows(): void {
-  const definitions = [createCustomerJobWorkflow()];
+  const definitions = [
+    createCustomerJobWorkflow(),
+    manageLeadWorkflow.definition,
+    assignWorkWorkflow.definition,
+    reconcileInvoiceWorkflow.definition,
+    manageDocumentWorkflow.definition,
+    planInterventionWorkflow.definition,
+    manageTicketWorkflow.definition,
+  ];
   for (const definition of definitions) {
     if (!workflowRegistry.get(definition.id, definition.version)) {
       workflowRegistry.register(definition);

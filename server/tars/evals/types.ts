@@ -6,6 +6,7 @@ export const EVAL_FAMILIES = [
   "assignment",
   "invoice",
   "document",
+  "intervention",
   "ticket",
   "stalled_job",
   "no_action",
