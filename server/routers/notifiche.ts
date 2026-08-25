@@ -570,12 +570,24 @@ export const notificheRouter = router({
     const mode = getFeatureFlags(sedeId).notificationMode;
     if (mode !== "active") {
       const readSet = readSetFor(userId);
-      const legacy = sortNotifiche(
+      let legacy = sortNotifiche(
         buildNotifichePerUtente(userId, ruoliOf(ctx.user), sedeId).map(item => ({
           ...item,
           read: readSet.has(item.id),
         }))
-      ).slice(0, input?.limit ?? 30);
+      );
+      if (input?.statuses?.length) {
+        legacy = legacy.filter(item =>
+          input.statuses!.includes(item.read ? "read" : "unread")
+        );
+      }
+      if (input?.priorities?.length) {
+        legacy = legacy.filter(item => {
+          const mapped = item.severity === "urgent" ? "critical" : item.severity === "warning" ? "high" : "normal";
+          return input.priorities!.includes(mapped);
+        });
+      }
+      legacy = legacy.slice(0, input?.limit ?? 30);
       if (mode === "shadow") {
         const persistentUnread = await getNotificationRepository().countUnread({
           sedeId,

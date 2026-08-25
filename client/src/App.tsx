@@ -44,6 +44,7 @@ const Conoscenza = lazy(() => import("./pages/Conoscenza"));
 const Economia = lazy(() => import("./pages/Economia"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
 const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
+const Notifiche = lazy(() => import("./pages/Notifiche"));
 
 function RouteLoading() {
   return (
@@ -156,6 +157,7 @@ function Router() {
           <Route path="/messaggi/email" component={EmailPage} />
           <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
           <Route path="/tars" component={TarsCommandCenter} />
+          <Route path="/notifiche" component={Notifiche} />
           <Route path="/inbox">
             {() => <LegacyRedirect redirect={legacyTarsRedirect} />}
           </Route>

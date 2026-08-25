@@ -379,6 +379,21 @@
   }
 }
 
+@keyframes notification-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.notification-row-enter {
+  animation: notification-row-enter var(--duration-base) var(--ease-out-quart) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
