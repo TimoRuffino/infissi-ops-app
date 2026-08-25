@@ -40,6 +40,8 @@ import {
   Loader2,
   Mail,
   Megaphone,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   RefreshCw,
   Send,
@@ -107,6 +109,9 @@ export default function EmailMessageReader({
   messageId,
   proposals,
   mobile,
+  focus,
+  canFocus,
+  onToggleFocus,
   selectionRemoved,
   canManageRules,
   onBack,
@@ -114,6 +119,9 @@ export default function EmailMessageReader({
   messageId: number;
   proposals: TarsProposal[];
   mobile: boolean;
+  focus: boolean;
+  canFocus: boolean;
+  onToggleFocus: () => void;
   selectionRemoved: boolean;
   canManageRules: boolean;
   onBack: () => void;
@@ -357,6 +365,22 @@ export default function EmailMessageReader({
             </div>
           </div>
           <div className="flex shrink-0 gap-1">
+            {canFocus && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-10"
+                onClick={onToggleFocus}
+                aria-label={focus ? "Mostra elenco email" : "Espandi email"}
+                title={focus ? "Mostra elenco email" : "Espandi email"}
+              >
+                {focus ? (
+                  <PanelLeftOpen className="size-4" />
+                ) : (
+                  <PanelLeftClose className="size-4" />
+                )}
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -608,7 +632,7 @@ export default function EmailMessageReader({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <section className="order-2 border-t border-primary/15 bg-primary-soft/35 px-4 py-4 sm:px-5">
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto w-full max-w-5xl">
             <div className="flex items-center gap-2">
               <TarsAvatar size="md" />
               <div className="min-w-0 flex-1">
@@ -679,8 +703,8 @@ export default function EmailMessageReader({
         </section>
 
         <div className="order-1 px-4 py-5 sm:px-5">
-          <div className="mx-auto max-w-3xl space-y-5">
-            <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
+          <div className="mx-auto w-full max-w-5xl space-y-5">
+            <div className="max-w-[78ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
               {message.testo || "(messaggio vuoto)"}
             </div>
             {(message.allegati?.length ?? 0) > 0 && (

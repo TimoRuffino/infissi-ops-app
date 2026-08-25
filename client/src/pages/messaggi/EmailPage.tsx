@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { emailPaneVisibility } from "@/lib/emailLayout";
 import {
   EMAIL_VIEWS,
   emailBulkExclusionCopy,
@@ -104,8 +105,8 @@ function replaceEmailQuery(view: EmailView, messageId: number | null) {
   );
 }
 
-function useBelowLg(): boolean {
-  const query = "(max-width: 1023px)";
+function useCompactEmailLayout(): boolean {
+  const query = "(max-width: 1279px)";
   const [matches, setMatches] = useState(
     () => window.matchMedia(query).matches
   );
@@ -123,7 +124,7 @@ function useBelowLg(): boolean {
 
 export default function EmailPage() {
   const { user } = useAuth();
-  const mobile = useBelowLg();
+  const compact = useCompactEmailLayout();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<EmailView>(() =>
@@ -136,6 +137,7 @@ export default function EmailPage() {
   const [selectedId, setSelectedId] = useState<number | null>(() =>
     parseEmailMessageId(window.location.search)
   );
+  const [focusMode, setFocusMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [mailboxesOpen, setMailboxesOpen] = useState(false);
   const [bulkExclusion, setBulkExclusion] = useState<
@@ -151,6 +153,10 @@ export default function EmailPage() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (compact) setFocusMode(false);
+  }, [compact]);
 
   const stats = trpc.mail.email.stats.useQuery();
   const queue = trpc.mail.comunicazioni.statoTars.useQuery(undefined, {
@@ -276,6 +282,7 @@ export default function EmailPage() {
   };
   const closeMessage = () => {
     setSelectedId(null);
+    setFocusMode(false);
     replaceEmailQuery(view, null);
   };
   const resetPage = () => setPage(0);
@@ -290,8 +297,11 @@ export default function EmailPage() {
     bulkUpdate.mutate({ ids: selectedBatch, ...update });
   };
 
-  const showList = !mobile || selectedId == null;
-  const showReader = selectedId != null;
+  const { showList, showReader, canFocus } = emailPaneVisibility({
+    compact,
+    selectedId,
+    focus: focusMode,
+  });
   const selectionRemoved =
     selectedId != null &&
     !rows.isLoading &&
@@ -498,12 +508,15 @@ export default function EmailPage() {
 
       {showList && (
         <div className="shrink-0 space-y-2">
-          {mobile ? (
+          {compact ? (
             <Select
               value={view}
               onValueChange={value => changeView(value as EmailView)}
             >
-              <SelectTrigger className="min-h-11 w-full" aria-label="Vista email">
+              <SelectTrigger
+                className="min-h-11 w-full"
+                aria-label="Vista email"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -563,7 +576,10 @@ export default function EmailPage() {
                 resetPage();
               }}
             >
-              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Casella email">
+              <SelectTrigger
+                className="min-h-11 w-full sm:min-h-10"
+                aria-label="Casella email"
+              >
                 <SelectValue placeholder="Casella" />
               </SelectTrigger>
               <SelectContent>
@@ -582,7 +598,10 @@ export default function EmailPage() {
                 resetPage();
               }}
             >
-              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Assegnatario">
+              <SelectTrigger
+                className="min-h-11 w-full sm:min-h-10"
+                aria-label="Assegnatario"
+              >
                 <UserRound className="size-3.5" />
                 <SelectValue placeholder="Assegnatario" />
               </SelectTrigger>
@@ -605,7 +624,10 @@ export default function EmailPage() {
               }}
               disabled={view === "lead"}
             >
-              <SelectTrigger className="min-h-11 w-full sm:min-h-10" aria-label="Categoria">
+              <SelectTrigger
+                className="min-h-11 w-full sm:min-h-10"
+                aria-label="Categoria"
+              >
                 <SelectValue placeholder="Categoria" />
               </SelectTrigger>
               <SelectContent>
@@ -633,7 +655,14 @@ export default function EmailPage() {
         </div>
       )}
 
-      <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-card shadow-xs lg:grid-cols-[minmax(18rem,0.9fr)_minmax(0,1.6fr)]">
+      <div
+        className={cn(
+          "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-card shadow-xs",
+          showList &&
+            showReader &&
+            "xl:grid-cols-[minmax(20rem,23rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(22rem,25rem)_minmax(0,1fr)]"
+        )}
+      >
         {showList && (
           <EmailMessageList
             messages={messages}
@@ -677,26 +706,30 @@ export default function EmailPage() {
             onNextPage={() => setPage(current => current + 1)}
           />
         )}
-        {showReader ? (
+        {showReader && selectedId != null ? (
           <div
             className={cn(
-              "min-h-0 min-w-0 border-border-soft lg:border-l",
-              mobile && "w-full"
+              "min-h-0 min-w-0 border-border-soft",
+              showList && "xl:border-l",
+              compact && "w-full"
             )}
           >
             <EmailMessageReader
               key={selectedId}
               messageId={selectedId}
               proposals={proposalsByMessage.get(selectedId) ?? []}
-              mobile={mobile}
+              mobile={compact}
+              focus={focusMode}
+              canFocus={canFocus}
+              onToggleFocus={() => setFocusMode(value => !value)}
               selectionRemoved={selectionRemoved}
               canManageRules={isDirezione(user)}
               onBack={closeMessage}
             />
           </div>
         ) : (
-          !mobile && (
-            <div className="hidden min-w-0 place-items-center bg-surface-2/35 text-sm text-text-3 lg:grid">
+          !compact && (
+            <div className="hidden min-w-0 place-items-center bg-surface-2/35 text-sm text-text-3 xl:grid">
               <div className="space-y-3 text-center">
                 <div className="mx-auto grid size-12 place-items-center rounded-md bg-accent/70 text-accent-text">
                   <Mail className="size-5" />

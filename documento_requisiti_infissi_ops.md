@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.25 - Esperimenti Tars correggibili con feedback umano tracciato.
+**Versione:** 4.26 - PDF FiC auto-riparanti e workspace Email più ampio.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -849,6 +849,9 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.26 (25/08/2026)** - La sincronizzazione FiC recupera in modo idempotente i PDF mancanti delle fatture già collegate; il workspace Email guadagna un lettore più ampio, modalità focus e vista singola sotto 1280 px (§40.4, §51.6).
+- **v4.25 (25/08/2026)** - Gli esperimenti Tars accettano feedback umano tracciato e correzioni prima dell'approvazione (§50.6, §53.4).
+- **v4.24 (25/08/2026)** - Gli allegati Email operativi possono essere proposti da Tars e archiviati nel fascicolo commessa con storage, checksum e deduplica canonici (§51.3, §51.5).
 - **v4.23 (25/08/2026)** - Il bootstrap riallinea automaticamente le commesse storiche rimaste indietro rispetto alla Timeline, con riconciliazione idempotente e solo in avanti (§35.2).
 - **v4.22 (25/08/2026)** - Le milestone della Timeline ordine avanzano automaticamente la commessa nel Board usando la state machine e il doc gate canonici; date/note e riaperture non spostano la commessa (§7.4, §35.2).
 - **v4.21 (25/08/2026)** - Il rollout Tars fallisce chiuso: shadow senza notifiche/push, active bloccato per contesto/planner/semantica incompleti, ACL proposte per ownership, deleghe rivalidate e stream SSE senza finestra replay/live (§53).
@@ -1057,6 +1060,13 @@ incassate genera proposte Tars approvabili e non scrive pagamenti in autonomia.
 Le fatture non abbinate entrano nel trigger `riconciliazione_fatture`: Tars può
 proporre un collegamento verificato oppure lasciarle non abbinate/ignorarle;
 non può applicare la scelta senza approvazione.
+
+Ogni sincronizzazione FiC ripara inoltre le fatture già collegate che non hanno
+ancora il PDF nel fascicolo. Il recupero considera soltanto collegamenti
+espliciti (`commessaId`), deduplica per sorgente e id FiC e isola gli errori per
+singola fattura: un download fallito non interrompe il lotto e viene ritentato
+alla sincronizzazione successiva. Le sole corrispondenze ipotetiche non generano
+documenti.
 
 ## 41. WhatsApp (deep link)
 
@@ -1474,6 +1484,15 @@ allegati, collegamento e stato. L'operatore puo richiedere a Tars istruzioni su 
 azioni che modificano il CRM mantengono il normale flusso di proposta e
 approvazione. Eliminare dal CRM non tocca la casella IMAP: la riga diventa un
 tombstone per evitare una re-importazione.
+
+Su desktop da 1280 px la lista ha una larghezza stabile e il lettore occupa
+tutto lo spazio residuo. Il comando `Espandi email` nasconde temporaneamente la
+lista senza cambiare messaggio, filtri o URL; `Mostra elenco email` ripristina
+la vista affiancata. Sotto 1280 px elenco e lettore non vengono compressi in due
+colonne: si mostra una vista alla volta con ritorno esplicito all'elenco. Corpo,
+allegati e azioni Tars usano contenitori distinti: il testo resta entro una
+misura leggibile, mentre gli strumenti operativi possono sfruttare il pannello
+più ampio. Nessuna delle tre modalità introduce scroll orizzontale globale.
 
 ### 51.7 Workspace WhatsApp
 WhatsApp raggruppa i messaggi in una sola conversazione per account e numero

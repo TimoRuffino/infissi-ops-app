@@ -2,7 +2,7 @@
 // prevedibili — sono soldi. E il dedupe deve reggere ai rilanci: il sync
 // gira ogni 6 ore, le proposte no.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
@@ -15,6 +15,8 @@ import {
 } from "./ficFatture";
 import { toOpenAIResponse } from "../tars/openaiTestHelpers";
 import { proposte } from "../tars/stores";
+import { runFicSync } from "./fattureInCloud";
+import { deleteDocumentoFic } from "./preventiviContratti";
 
 function makeCtx(): TrpcContext {
   return {
@@ -203,6 +205,105 @@ describe("riconciliazione FIC", () => {
     );
     expect(ficFatture.filter(f => f.id === 9003)).toHaveLength(prima);
     expect(ficFatture.find(f => f.id === 9003)!.rate[0].stato).toBe("paid");
+  });
+});
+
+describe("archivio PDF FIC", () => {
+  it("la sincronizzazione recupera il PDF di una fattura gia collegata", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    const cliente = await caller.clienti.create({
+      nome: "Giulia",
+      cognome: "Archivio FIC",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    const ficId = 9200;
+    const previousKey = process.env.MAIL_ENCRYPTION_KEY;
+    const realFetch = global.fetch;
+
+    upsertFatture(
+      [
+        fatturaBase(ficId, {
+          numero: "9200-B",
+          clienteNome: "Archivio FIC Giulia",
+        }),
+      ],
+      1
+    );
+    const collegata = ficFatture.find(f => f.id === ficId && f.sedeId === 1)!;
+    collegata.commessaId = commessa.id;
+    collegata.collegataAMano = true;
+
+    process.env.MAIL_ENCRYPTION_KEY = "test-only-fic-archive-key";
+    await caller.fattureInCloud.saveConfig({
+      accessToken: "a/test-token-fatture-archive-9200",
+      companyId: 77,
+      enabled: true,
+    });
+
+    const pdf = Buffer.from("%PDF-1.4\narchivio-fic\n%%EOF");
+    global.fetch = vi.fn(async input => {
+      const url = String(input);
+      if (url === "https://files.example.test/fattura-9200.pdf") {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-length": String(pdf.length) }),
+          arrayBuffer: async () => pdf,
+        } as any;
+      }
+      if (url.includes(`/issued_documents/${ficId}?fields=id,url`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              id: ficId,
+              url: "https://files.example.test/fattura-9200.pdf",
+            },
+          }),
+          text: async () => "",
+        } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            {
+              id: ficId,
+              number: 9200,
+              numeration: "-B",
+              date: `${new Date().getFullYear()}-08-25`,
+              entity: { name: "Archivio FIC Giulia" },
+              amount_net: 1000,
+              amount_gross: 1220,
+              payments_list: [],
+            },
+          ],
+        }),
+        text: async () => "",
+      } as any;
+    }) as any;
+
+    try {
+      await runFicSync(1);
+      const documenti = await caller.preventiviContratti.byCommessa(
+        commessa.id
+      );
+      expect(documenti.filter((doc: any) => doc.source === "fic")).toEqual([
+        expect.objectContaining({
+          nome: "Fattura 9200-B.pdf",
+          tipo: "fattura",
+          mimeType: "application/pdf",
+          hasData: true,
+        }),
+      ]);
+    } finally {
+      global.fetch = realFetch;
+      deleteDocumentoFic(1, ficId);
+      if (previousKey === undefined) delete process.env.MAIL_ENCRYPTION_KEY;
+      else process.env.MAIL_ENCRYPTION_KEY = previousKey;
+    }
   });
 });
 

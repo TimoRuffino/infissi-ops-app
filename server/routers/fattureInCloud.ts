@@ -11,6 +11,7 @@ import {
 import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
+  ficFatture,
   generaProposteRiconciliazione,
   upsertFatture,
   type RataFic,
@@ -346,9 +347,8 @@ export async function scaricaFatturaPdf(
     `/c/${cfg.companyId}/issued_documents/${ficId}?fields=id,url`,
     token
   );
-  const pdfUrl = typeof response?.data?.url === "string"
-    ? response.data.url.trim()
-    : "";
+  const pdfUrl =
+    typeof response?.data?.url === "string" ? response.data.url.trim() : "";
   if (!/^https:\/\//i.test(pdfUrl)) {
     throw new Error(
       "Fatture in Cloud non ha restituito il PDF della fattura. Riprova tra poco."
@@ -371,9 +371,49 @@ export async function scaricaFatturaPdf(
     throw new Error("Il PDF della fattura supera il limite di 10MB.");
   }
   if (pdf.length < 5 || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") {
-    throw new Error("Il file ricevuto da Fatture in Cloud non è un PDF valido.");
+    throw new Error(
+      "Il file ricevuto da Fatture in Cloud non è un PDF valido."
+    );
   }
   return pdf;
+}
+
+async function archiviaPdfFattureCollegate(
+  sedeId: number
+): Promise<{ archiviate: number; fallite: number }> {
+  const { hasDocumentoFic, upsertDocumentoFic } = await import(
+    "./preventiviContratti"
+  );
+  const collegate = ficFatture.filter(
+    fattura => fattura.sedeId === sedeId && fattura.commessaId != null
+  );
+  let archiviate = 0;
+  let fallite = 0;
+
+  for (const fattura of collegate) {
+    if (hasDocumentoFic(sedeId, fattura.id)) continue;
+    try {
+      const pdf = await scaricaFatturaPdf(sedeId, fattura.id);
+      await upsertDocumentoFic({
+        sedeId,
+        ficId: fattura.id,
+        commessaId: fattura.commessaId!,
+        numero: fattura.numero,
+        data: fattura.data,
+        pdf,
+        createdBy: null,
+      });
+      archiviate++;
+    } catch (error) {
+      fallite++;
+      console.warn(
+        `[fic] archivio PDF fattura ${fattura.id} fallito; nuovo tentativo al prossimo sync:`,
+        error instanceof Error ? error.message : "errore sconosciuto"
+      );
+    }
+  }
+
+  return { archiviate, fallite };
 }
 
 // ── Name handling (same CF-validated split used by the manual migration) ────
@@ -539,6 +579,7 @@ export async function runFicSync(sedeId: number): Promise<string> {
     // Fatture nello store locale + riconciliazione: le rate incassate su
     // FIC diventano PROPOSTE di registrazione, mai scritture dirette.
     const { nuove, aggiornate } = upsertFatture(fatture, sedeId);
+    const pdf = await archiviaPdfFattureCollegate(sedeId);
     const proposteCreate = generaProposteRiconciliazione(sedeId);
 
     // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
@@ -547,7 +588,13 @@ export async function runFicSync(sedeId: number): Promise<string> {
     const { programmaSmistamentoFatture } = await import("../tars/smistamento");
     programmaSmistamentoFatture(sedeId);
 
-    const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione`;
+    const esitoPdf =
+      pdf.fallite > 0
+        ? `, ${pdf.archiviate} PDF archiviati, ${pdf.fallite} da ritentare`
+        : pdf.archiviate > 0
+          ? `, ${pdf.archiviate} PDF archiviati`
+          : "";
+    const result = `${new Date().toLocaleString("it-IT")}: ${entities.length} fatture ${year} (${nuove} nuove, ${aggiornate} aggiornate), ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione${esitoPdf}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     _cfgStore.save();

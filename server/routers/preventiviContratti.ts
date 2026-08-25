@@ -283,18 +283,20 @@ export async function archiviaAllegatoComunicazione(args: {
     const id = existing?.id ?? nextId++;
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
-    const documento: Documento = existing ? { ...existing } : {
-      id,
-      commessaId: args.commessaId,
-      nome,
-      tipo: args.tipo,
-      mimeType: args.mimeType,
-      size: args.buffer.length,
-      note: null,
-      statoAtUpload: commessa.stato ?? null,
-      createdBy: args.createdBy,
-      createdAt: new Date(),
-    };
+    const documento: Documento = existing
+      ? { ...existing }
+      : {
+          id,
+          commessaId: args.commessaId,
+          nome,
+          tipo: args.tipo,
+          mimeType: args.mimeType,
+          size: args.buffer.length,
+          note: null,
+          statoAtUpload: commessa.stato ?? null,
+          createdBy: args.createdBy,
+          createdAt: new Date(),
+        };
 
     documento.commessaId = args.commessaId;
     documento.nome = nome;
@@ -427,6 +429,17 @@ export function deleteDocumentoFic(sedeId: number, ficId: number): void {
   const [doc] = documenti.splice(idx, 1);
   _documentiStore.save();
   deleteFileQuiet(doc.storageKey);
+}
+
+/** Verifica idempotente usata dal sync FIC per riparare i fascicoli storici. */
+export function hasDocumentoFic(sedeId: number, ficId: number): boolean {
+  const sourceRef = ficSourceRef(sedeId, ficId);
+  return documenti.some(
+    d =>
+      d.source === "fic" &&
+      d.sourceRef === sourceRef &&
+      (!!d.storageKey || !!d.dataBase64)
+  );
 }
 
 // Legacy helper kept for backward compat.

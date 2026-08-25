@@ -179,6 +179,14 @@ La roadmap OAuth è quindi **chiusa lato codice**. Resta l'attivazione operativa
 impostare le variabili Railway, registrare lo stesso redirect nella app FiC e
 collegare ogni sede dalla pagina Integrazioni.
 
+Il collegamento esplicito o approvato da Tars scarica il PDF ufficiale e lo
+archivia come documento `fattura` della commessa. Dal 25/08/2026 anche ogni
+sync ripara i collegamenti storici rimasti senza file: controlla soltanto le
+fatture con `commessaId`, deduplica per sorgente FiC, continua sulle altre se un
+download fallisce e riporta nell'esito quanti PDF sono stati archiviati o
+restano da ritentare. Per forzare il recupero senza attendere le 6 ore usare
+`Sincronizza ora` in Integrazioni.
+
 ## 6. Tars e caching
 
 Tars usa ora profili strumenti diversi per trigger, invece di inviare sempre
@@ -435,6 +443,13 @@ essere letto dalla casella sorgente e archiviato nel fascicolo. Eliminare una
 comunicazione dal CRM non modifica la casella: il tombstone evita la
 re-importazione.
 
+Il workspace Email usa una lista stabile da circa 20-25 rem e un lettore
+elastico sui desktop da 1280 px. Il pulsante nell'intestazione entra in modalità
+focus nascondendo la lista; sotto 1280 px lista e lettore diventano viste
+separate, così il contenuto non viene schiacciato. Il corpo mantiene una misura
+tipografica leggibile, mentre allegati e azioni Tars possono usare una larghezza
+maggiore.
+
 La configurazione WhatsApp espone una diagnostica webhook privacy-safe:
 ultimo campo e orario ricevuti, ultimo `smb_message_echoes`, eventi echo,
 messaggi echo consegnati e registrati. Non salva corpi, numeri, nomi o message
@@ -644,7 +659,12 @@ Poi verificare nel browser, desktop e mobile:
   con baseline/target/responsabile, correggere assegnatario e feedback nella
   card, quindi verificare il caso corrispondente nel Centro Azioni;
 - Email: archiviare un allegato approvato da Tars e riaprirlo/scaricarlo dal
-  fascicolo commessa;
+  fascicolo commessa; verificare inoltre vista affiancata a 1440 px, modalità
+  focus, vista singola sotto 1280 px e a 390 px, e assenza di scroll
+  orizzontale;
+- FiC: collegare una fattura, verificare il PDF nel fascicolo, eliminare solo il
+  documento di test e lanciare `Sincronizza ora` per controllare il recupero
+  idempotente e il conteggio PDF nell'esito;
 - Chat Tars: approvare una proposta figlia senza lasciare la conversazione e
   verificare che il relativo esito compaia nello stesso thread;
 - Centro Azioni in `shadow`: confrontare conteggi aggregati, priorità,
