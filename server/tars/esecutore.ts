@@ -9,6 +9,7 @@
 // con il messaggio: l'operatore vede PERCHÉ, e la coda non mente mai.
 
 import type { TrpcContext } from "../_core/context";
+import { createHash } from "node:crypto";
 import {
   getWorkflowOperation,
   saveWorkflowOperation,
@@ -493,8 +494,121 @@ export async function eseguiProposta(
       return "Bozza approvata — da copiare e inviare a mano";
     case "segnalazione":
       return "Segnalazione presa in carico";
-    case "miglioramento_processo":
-      return "Miglioramento di processo preso in carico dalla direzione";
+    case "miglioramento_processo": {
+      const sedeId = ctx.sedeId ?? 1;
+      const canonicalKey = String(
+        p.canonicalKey ?? `processo:${sedeId}:${p.metricKey}`
+      );
+      const { processExperimentRepository } = await import(
+        "./processExperiments"
+      );
+      const snapshot = processExperimentRepository.latestSnapshot(sedeId);
+      const metric = snapshot?.metrics.find(item => item.key === p.metricKey);
+      if (
+        !metric ||
+        metric.value !== Number(p.baselineValue) ||
+        metric.denominator !== Number(p.baselineDenominator)
+      ) {
+        throw new Error(
+          "La baseline è cambiata dopo la proposta. Chiedi a Tars una nuova analisi prima di approvare."
+        );
+      }
+      const responsibleId = Number(p.responsibleId);
+      const users = await caller.utenti.list();
+      const responsible = users.find(
+        (user: any) =>
+          Number(user.id) === responsibleId &&
+          (user.attivo ?? true) &&
+          (!Array.isArray(user.sediIds) || user.sediIds.includes(sedeId))
+      );
+      if (!responsible && Number((ctx.user as any)?.id) !== responsibleId) {
+        throw new Error("Il responsabile non è più assegnabile in questa sede.");
+      }
+      const dueAt = new Date(`${String(p.reviewDate)}T12:00:00.000Z`);
+      if (!Number.isFinite(dueAt.getTime()) || dueAt.getTime() <= Date.now()) {
+        throw new Error("La data di verifica dell'esperimento non è più valida.");
+      }
+      const experiment = processExperimentRepository.createExperiment({
+        sedeId,
+        proposalId: proposta.id,
+        canonicalKey,
+        metricKey: p.metricKey,
+        action: String(p.azione),
+        responsibleUserId: responsibleId,
+        baselineValue: Number(p.baselineValue),
+        baselineDenominator: Number(p.baselineDenominator),
+        targetValue: Number(p.targetValue),
+        dueAt,
+        now: new Date(),
+      });
+      const { getActionCaseRepository } = await import(
+        "../actionCenter/repository"
+      );
+      const repository = getActionCaseRepository();
+      await repository.ensureSchema();
+      const now = new Date();
+      const fingerprint = createHash("sha256")
+        .update(
+          JSON.stringify({
+            canonicalKey,
+            baselineValue: experiment.baselineValue,
+            targetValue: experiment.targetValue,
+            dueAt: dueAt.toISOString(),
+          })
+        )
+        .digest("hex");
+      const summary = `${p.metricLabel}: ${p.baselineValue}/${p.baselineDenominator}; obiettivo ${p.targetValue} entro ${p.reviewDate}`;
+      const upsert = await repository.upsertDraft(
+        {
+          canonicalKey,
+          sedeId,
+          targetType: "proposta_tars",
+          targetId: proposta.id,
+          commessaId: null,
+          clienteId: null,
+          title: proposta.titolo,
+          priority: "alta",
+          priorityScore: 80,
+          assigneeUserId: responsibleId,
+          dueAt,
+          link: "/tars?tab=oggi",
+          signals: [
+            {
+              sourceKey: canonicalKey,
+              kind: "process_experiment",
+              sedeId,
+              targetType: "proposta_tars",
+              targetId: proposta.id,
+              commessaId: null,
+              clienteId: null,
+              title: proposta.titolo,
+              summary,
+              actionLabel: String(p.azione),
+              priority: "alta",
+              priorityScore: 80,
+              assigneeUserId: responsibleId,
+              targetRole: null,
+              dueAt,
+              occurredAt: now,
+              link: "/tars?tab=oggi",
+              fingerprint,
+            },
+          ],
+          signalFingerprint: fingerprint,
+          nextAction: {
+            sourceKind: "process_experiment",
+            label: String(p.azione),
+          },
+        },
+        now
+      );
+      processExperimentRepository.attachActionCase(
+        experiment.id,
+        sedeId,
+        upsert.record.id
+      );
+      return `Esperimento avviato e assegnato nel Centro Azioni. Verifica il ${p.reviewDate}`;
+    }
     case "domanda":
       // Le domande non si "approvano": si risponde (tars.rispondi).
       throw new Error(

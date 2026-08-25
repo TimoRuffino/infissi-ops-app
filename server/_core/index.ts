@@ -102,6 +102,13 @@ async function startServer() {
   const { avviaAuditProcessiScheduler } = await import("../tars/auditProcessi");
   avviaAuditProcessiScheduler();
 
+  // Gli esperimenti approvati vengono rimisurati alla scadenza usando gli
+  // indicatori reali del CRM e chiudono il relativo presidio operativo.
+  const { startProcessExperimentReviewScheduler } = await import(
+    "../tars/processExperimentReview"
+  );
+  startProcessExperimentReviewScheduler();
+
   const app = express();
   const server = createServer(app);
 

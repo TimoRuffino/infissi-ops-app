@@ -166,11 +166,8 @@ function describePayload(p: any): string[] {
       out.push(`Severità ${pay.severita}: ${pay.descrizione}`);
       break;
     case "miglioramento_processo":
-      out.push(`Area: ${String(pay.area ?? "—").replace(/_/g, " ")}`);
       out.push(`Problema: ${pay.problema}`);
-      out.push(`Proposta: ${pay.proposta}`);
       out.push(`Impatto atteso: ${pay.impatto}`);
-      out.push(`Metrica: ${pay.metrica}`);
       break;
   }
   return out;
@@ -265,7 +262,7 @@ export default function TarsPropostaCard({
               {proposta.origineId != null
                 ? "Tars propone come chiuderla"
                 : processo
-                  ? "Tars migliora il processo"
+                  ? "Esperimento operativo Tars"
                   : proposta.tipo === "domanda"
                     ? "Tars chiede"
                     : "Tars propone"}
@@ -293,9 +290,50 @@ export default function TarsPropostaCard({
 
       <p className="text-sm text-muted-foreground">{proposta.motivazione}</p>
 
+      {processo && (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border/70 py-3 text-sm sm:grid-cols-4">
+          <div className="min-w-0">
+            <span className="block text-xs text-muted-foreground">Baseline</span>
+            <strong className="block truncate text-base font-semibold">
+              {proposta.payload.baselineValue} su {proposta.payload.baselineDenominator}
+            </strong>
+          </div>
+          <div className="min-w-0">
+            <span className="block text-xs text-muted-foreground">Obiettivo</span>
+            <strong className="block truncate text-base font-semibold text-primary">
+              {proposta.payload.targetValue}
+            </strong>
+          </div>
+          <div className="min-w-0">
+            <span className="block text-xs text-muted-foreground">Responsabile</span>
+            <strong className="block truncate font-medium">
+              {proposta.payload.responsibleName}
+            </strong>
+          </div>
+          <div className="min-w-0">
+            <span className="block text-xs text-muted-foreground">Verifica</span>
+            <strong className="block truncate font-medium">
+              {proposta.payload.reviewDate
+                ? new Intl.DateTimeFormat("it-IT", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  }).format(
+                    new Date(`${proposta.payload.reviewDate}T12:00:00`)
+                  )
+                : "—"}
+            </strong>
+          </div>
+          <div className="col-span-2 min-w-0 sm:col-span-4">
+            <span className="block text-xs text-muted-foreground">Azione da provare</span>
+            <strong className="block font-medium">{proposta.payload.azione}</strong>
+          </div>
+        </div>
+      )}
+
       <EvidenceList items={proposta.evidenceRefs ?? []} />
 
-      {righe.length > 0 && (
+      {righe.length > 0 && !processo && (
         <div className="space-y-1.5 rounded-md bg-background/70 px-3 py-2 text-sm">
           {righe.map((r, i) => (
             <div key={i} className="flex items-start gap-1.5">

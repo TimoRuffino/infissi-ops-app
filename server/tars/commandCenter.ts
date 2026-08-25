@@ -395,7 +395,7 @@ function conclusionFor(proposal: ProposalInput): string {
     case "collega_fattura":
       return "La fattura può completare il fascicolo della commessa.";
     case "miglioramento_processo":
-      return "Tars ha rilevato un pattern operativo migliorabile.";
+      return "Tars propone un esperimento misurabile con responsabile e verifica.";
     default:
       return "Tars ha preparato un'azione verificabile da decidere.";
   }

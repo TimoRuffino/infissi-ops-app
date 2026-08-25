@@ -45,6 +45,30 @@ import {
   setFeatureFlags,
   setFeatureFlagsForTesting,
 } from "../platform/featureFlags";
+import { processExperimentRepository } from "./processExperiments";
+import { extractProcessMetrics, type CompanyFrame } from "./processMetrics";
+import { getActionCaseRepository } from "../actionCenter/repository";
+
+function seedProcessSnapshot(sedeId = 1) {
+  const frame: CompanyFrame = {
+    clienti: { attivi: 40, senzaTelefonoOEmail: 3, nonAssegnati: 2 },
+    commesse: {
+      attive: 40,
+      nonAssegnate: 4,
+      ferme: Array.from({ length: 12 }, (_, index) => ({ id: 10_000 + index })),
+    },
+    operativita: {
+      interventiDaPresidiare: [{ id: 20_001 }, { id: 20_002 }],
+      merceInRitardo: [{ id: 30_001 }],
+    },
+    tars: { esecuzioni30Giorni: 20, errori30Giorni: 2 },
+  };
+  processExperimentRepository.saveSnapshot(
+    sedeId,
+    extractProcessMetrics(frame),
+    new Date()
+  );
+}
 
 function makeCtx(): TrpcContext {
   return {
@@ -1376,6 +1400,7 @@ describe("tars — profili e cache operativa", () => {
       JSON.stringify(TOOL_DEFS).length * 0.25
     );
     expect(audit.map(t => t.name)).toEqual([
+      "leggi_assegnatari",
       "leggi_quadro_azienda",
       "proponi_segnalazione",
       "proponi_miglioramento_processo",
@@ -1645,6 +1670,7 @@ describe("tars — profili e cache operativa", () => {
   });
 
   it("non duplica lo stesso miglioramento di processo riformulato", async () => {
+    seedProcessSnapshot();
     const rt: ToolRuntime = {
       ctx: makeCtx(),
       esecuzioneId: 999_160,
@@ -1659,9 +1685,17 @@ describe("tars — profili e cache operativa", () => {
     const base = {
       area: "commesse",
       problema: "Dodici commesse ferme oltre dieci giorni",
-      proposta: "Introdurre una revisione settimanale delle commesse ferme",
+      azione: "Introdurre una revisione settimanale delle commesse ferme",
       impatto: "Ridurre il tempo medio senza aggiornamenti",
-      metrica: "12 commesse ferme su 40 attive",
+      metricKey: "commesse_ferme_10g",
+      sampleSize: 40,
+      baselineValue: 12,
+      baselineDenominator: 40,
+      targetValue: 6,
+      responsabileId: 1,
+      dataVerifica: new Date(Date.now() + 14 * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
       motivazione: "Il quadro aziendale mostra 12 commesse ferme.",
       confidenza: "alta",
     };
@@ -1682,9 +1716,124 @@ describe("tars — profili e cache operativa", () => {
     expect(rt.duplicatiBloccati).toBe(1);
   });
 
-  it("non espone proposte senza ownership a un altro operatore", async () => {
+  it("rifiuta esperimenti con baseline inventata o obiettivo non migliorativo", async () => {
+    seedProcessSnapshot();
     const rt: ToolRuntime = {
       ctx: makeCtx(),
+      esecuzioneId: 999_161,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    const base = {
+      area: "commesse",
+      problema: "Commesse ferme oltre dieci giorni",
+      azione: "Revisionare le commesse ferme ogni lunedì",
+      impatto: "Ridurre le commesse ferme",
+      metricKey: "commesse_ferme_10g",
+      sampleSize: 40,
+      baselineDenominator: 40,
+      targetValue: 6,
+      responsabileId: 1,
+      dataVerifica: new Date(Date.now() + 14 * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      titolo: "Esperimento sulle commesse ferme",
+      motivazione: "Il quadro mostra un pattern ricorrente.",
+      confidenza: "alta",
+    };
+
+    const stale = await eseguiStrumento(rt, "proponi_miglioramento_processo", {
+      ...base,
+      baselineValue: 99,
+    });
+    const noImprovement = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      { ...base, baselineValue: 12, targetValue: 14 }
+    );
+    expect(stale.isError).toBe(true);
+    expect(stale.content).toMatch(/baseline/i);
+    expect(noImprovement.isError).toBe(true);
+    expect(noImprovement.content).toMatch(/obiettivo/i);
+  });
+
+  it("approvando un esperimento crea il presidio assegnato nel Centro Azioni", async () => {
+    const sedeId = 999_162;
+    seedProcessSnapshot(sedeId);
+    const ctx = makeCtx();
+    ctx.sedeId = sedeId;
+    ctx.sediIds = [sedeId];
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_162,
+      trigger: "audit_processi",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+    };
+    const reviewDate = new Date(Date.now() + 14 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const proposed = await eseguiStrumento(
+      rt,
+      "proponi_miglioramento_processo",
+      {
+        area: "organizzazione",
+        problema: "Una esecuzione Tars su dieci fallisce",
+        azione: "Rivedere gli errori Tars ogni mattina",
+        impatto: "Ridurre le esecuzioni fallite",
+        metricKey: "tars_errori_30g",
+        sampleSize: 20,
+        baselineValue: 10,
+        baselineDenominator: 20,
+        targetValue: 5,
+        responsabileId: 1,
+        dataVerifica: reviewDate,
+        titolo: "Dimezza gli errori Tars",
+        motivazione: "La baseline verificata mostra un errore ogni dieci run.",
+        confidenza: "alta",
+      }
+    );
+    expect(proposed.isError).toBeFalsy();
+
+    const approved = await appRouter
+      .createCaller(ctx)
+      .tars.proposte.approva({ id: rt.proposteIds[0] });
+    const canonicalKey = `processo:${sedeId}:tars_errori_30g`;
+    const experiment = processExperimentRepository.findOpenExperiment(
+      sedeId,
+      canonicalKey
+    );
+    const actionCase = await getActionCaseRepository().findByCanonicalKey(
+      sedeId,
+      canonicalKey
+    );
+
+    expect(approved.esito).toMatch(/Centro Azioni/i);
+    expect(experiment).toMatchObject({
+      proposalId: rt.proposteIds[0],
+      responsibleUserId: 1,
+      targetValue: 5,
+      actionCaseId: actionCase?.id,
+    });
+    expect(actionCase).toMatchObject({
+      targetType: "proposta_tars",
+      targetId: rt.proposteIds[0],
+      assigneeUserId: 1,
+      status: "da_valutare",
+    });
+  });
+
+  it("non espone proposte senza ownership a un altro operatore", async () => {
+    const privateSedeId = 999_170;
+    seedProcessSnapshot(privateSedeId);
+    const ownerCtx = makeCtx();
+    ownerCtx.sedeId = privateSedeId;
+    ownerCtx.sediIds = [privateSedeId];
+    const rt: ToolRuntime = {
+      ctx: ownerCtx,
       esecuzioneId: 999_170,
       trigger: "audit_processi",
       maxProposte: 3,
@@ -1695,11 +1844,19 @@ describe("tars — profili e cache operativa", () => {
       rt,
       "proponi_miglioramento_processo",
       {
-        area: "privacy-test-999170",
+        area: "organizzazione",
         problema: "Segnale sintetico riservato alla direzione",
-        proposta: "Verificare il perimetro di lettura delle proposte",
+        azione: "Verificare il perimetro di lettura delle proposte",
         impatto: "Nessuna esposizione tra operatori",
-        metrica: "Zero record non autorizzati",
+        metricKey: "clienti_senza_contatti",
+        sampleSize: 40,
+        baselineValue: 3,
+        baselineDenominator: 40,
+        targetValue: 1,
+        responsabileId: 1,
+        dataVerifica: new Date(Date.now() + 14 * 86_400_000)
+          .toISOString()
+          .slice(0, 10),
         motivazione: "Test ACL della coda Tars.",
         confidenza: "alta",
         titolo: "Verifica ACL proposte 999170",
@@ -1708,6 +1865,8 @@ describe("tars — profili e cache operativa", () => {
     expect(created.isError).toBeFalsy();
     const id = rt.proposteIds[0];
     const commercialCtx = makeCtx();
+    commercialCtx.sedeId = privateSedeId;
+    commercialCtx.sediIds = [privateSedeId];
     (commercialCtx.user as any) = {
       ...(commercialCtx.user as any),
       id: 999_171,

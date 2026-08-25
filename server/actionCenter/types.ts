@@ -23,7 +23,8 @@ export type ActionSignalKind =
   | "saldo"
   | "garanzia"
   | "ticket"
-  | "intervento";
+  | "intervento"
+  | "process_experiment";
 
 export type ActionSignal = {
   sourceKey: string;

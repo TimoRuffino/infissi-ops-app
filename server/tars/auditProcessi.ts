@@ -75,15 +75,19 @@ colli di bottiglia, passaggi manuali ripetuti, dati mancanti, ritardi sistematic
 rilavorazioni, comunicazioni non presidiate o regole del CRM che non riflettono il
 lavoro reale.
 
-Puoi proporre al massimo tre miglioramenti, ordinati per impatto. Ogni proposta deve:
-- citare una metrica presente nel quadro;
-- descrivere un cambiamento concreto e verificabile;
-- indicare come misurare se ha funzionato;
-- riguardare almeno due casi o un indicatore aggregato.
+Puoi proporre al massimo UN esperimento: scegli solo il pattern con il maggiore
+impatto e prove sufficienti. Ogni proposta deve usare esattamente una voce di
+metricheProcesso e riportarne metricKey, baselineValue, baselineDenominator e
+sampleSize senza ricalcolarli. Definisci inoltre:
+- una sola azione operativa concreta da provare;
+- un target numerico che migliori la baseline;
+- un responsabile valido letto con leggi_assegnatari;
+- una data di verifica tra 7 e 90 giorni.
 
 Non trasformare una singola anomalia in un processo. Non riproporre idee già pendenti
 o già decise: lo strumento le blocca, ma devi anche evitare di sprecare chiamate.
-Se non emerge un pattern abbastanza forte, usa nessuna_azione.`,
+Se il campione è inferiore a due o non emerge un esperimento chiaramente misurabile,
+usa nessuna_azione.`,
     });
   } finally {
     inCorso.delete(sedeId);

@@ -279,9 +279,7 @@ export function chiaveAzioneProposta(p: {
       break;
     case "miglioramento_processo":
       effetto = {
-        area: normalizzaTesto(pay.area),
-        problema: normalizzaTesto(pay.problema),
-        proposta: normalizzaTesto(pay.proposta),
+        metricKey: pay.metricKey,
       };
       break;
     case "domanda":

@@ -46,6 +46,11 @@ import {
   normalizeDocumentType,
   validateAttachmentMatch,
 } from "./documentIntake";
+import {
+  PROCESS_METRIC_KEYS,
+  extractProcessMetrics,
+} from "./processMetrics";
+import { processExperimentRepository } from "./processExperiments";
 
 type ToolResult = {
   content: string;
@@ -1211,7 +1216,7 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "proponi_miglioramento_processo",
     description:
-      "Propone alla direzione un miglioramento del modo di lavorare, basato su un pattern misurabile e ricorrente. Non usarlo per correggere una singola commessa: servono almeno due casi o un indicatore aggregato. L'approvazione prende in carico l'idea ma non modifica automaticamente il CRM.",
+      "Propone un esperimento operativo misurabile, non un consiglio generico. Usa una metrica restituita da leggi_quadro_azienda, assegna un responsabile e una verifica tra 7 e 90 giorni. L'approvazione crea un presidio nel Centro Azioni, senza modificare automaticamente dati o regole del CRM.",
     input_schema: {
       type: "object",
       properties: {
@@ -1230,20 +1235,32 @@ export const TOOL_DEFS: TarsTool[] = [
           ],
         },
         problema: { type: "string" },
-        proposta: { type: "string" },
-        impatto: { type: "string" },
-        metrica: {
+        azione: {
           type: "string",
-          description: "Il dato osservato che giustifica il miglioramento",
+          description: "Un comportamento operativo concreto da provare",
         },
+        impatto: { type: "string" },
+        metricKey: { type: "string", enum: [...PROCESS_METRIC_KEYS] },
+        sampleSize: { type: "number" },
+        baselineValue: { type: "number" },
+        baselineDenominator: { type: "number" },
+        targetValue: { type: "number" },
+        responsabileId: { type: "number" },
+        dataVerifica: { type: "string", description: "Data YYYY-MM-DD" },
         ...PROPOSTA_PROPS,
       },
       required: [
         "area",
         "problema",
-        "proposta",
+        "azione",
         "impatto",
-        "metrica",
+        "metricKey",
+        "sampleSize",
+        "baselineValue",
+        "baselineDenominator",
+        "targetValue",
+        "responsabileId",
+        "dataVerifica",
         "titolo",
         "motivazione",
         "confidenza",
@@ -1302,6 +1319,7 @@ const PROFILI: Record<string, readonly string[]> = {
   ],
   audit_processi: [
     "leggi_quadro_azienda",
+    "leggi_assegnatari",
     "proponi_miglioramento_processo",
     "proponi_segnalazione",
     ...TERMINAZIONE,
@@ -2337,7 +2355,7 @@ async function eseguiStrumentoSenzaCache(
             e.sedeId === sedeId && new Date(e.createdAt).getTime() >= soglia30
         );
 
-        return ok({
+        const quadro = {
           rilevatoAt: ora.toISOString(),
           clienti: {
             totali: clienti.length,
@@ -2397,7 +2415,25 @@ async function eseguiStrumentoSenzaCache(
               0
             ),
           },
-        });
+        };
+        const metricheProcesso = extractProcessMetrics(quadro);
+        processExperimentRepository.saveSnapshot(
+          sedeId,
+          metricheProcesso,
+          ora
+        );
+        const andamentoProcessi = processExperimentRepository
+          .listSnapshots(sedeId, 14)
+          .map(snapshot => ({
+            rilevatoAt: snapshot.capturedAt.toISOString(),
+            metriche: snapshot.metrics.map(metric => ({
+              key: metric.key,
+              value: metric.value,
+              denominator: metric.denominator,
+              unit: metric.unit,
+            })),
+          }));
+        return ok({ ...quadro, metricheProcesso, andamentoProcessi });
       }
       case "leggi_fatture_cloud": {
         const { ficFatture, statoFattura } = await import(
@@ -2995,7 +3031,77 @@ async function eseguiStrumentoSenzaCache(
             descrizione: String(input.descrizione),
           },
         });
-      case "proponi_miglioramento_processo":
+      case "proponi_miglioramento_processo": {
+        const sedeId = rt.ctx.sedeId ?? 1;
+        const snapshot = processExperimentRepository.latestSnapshot(sedeId);
+        if (!snapshot) {
+          return err(
+            "Baseline mancante. Usa prima leggi_quadro_azienda e fonda la proposta sui valori restituiti."
+          );
+        }
+        const metric = snapshot.metrics.find(
+          item => item.key === String(input.metricKey)
+        );
+        if (!metric) return err("Metrica di processo non valida.");
+        const baselineValue = Number(input.baselineValue);
+        const baselineDenominator = Number(input.baselineDenominator);
+        const sampleSize = Number(input.sampleSize);
+        if (
+          baselineValue !== metric.value ||
+          baselineDenominator !== metric.denominator
+        ) {
+          return err(
+            `Baseline non verificata: ${metric.label} vale ${metric.value} su ${metric.denominator}.`
+          );
+        }
+        if (
+          !Number.isFinite(sampleSize) ||
+          sampleSize < 2 ||
+          sampleSize !== metric.denominator
+        ) {
+          return err(
+            `Campione non valido: usa il denominatore verificato ${metric.denominator} e almeno due casi.`
+          );
+        }
+        const targetValue = Number(input.targetValue);
+        const targetImproves =
+          Number.isFinite(targetValue) &&
+          (metric.desiredDirection === "lower"
+            ? targetValue < metric.value
+            : targetValue > metric.value);
+        if (!targetImproves) {
+          return err(
+            `Obiettivo non migliorativo: per ${metric.label} il valore deve ${metric.desiredDirection === "lower" ? "scendere" : "salire"} rispetto a ${metric.value}.`
+          );
+        }
+        const dueAt = new Date(`${String(input.dataVerifica)}T12:00:00.000Z`);
+        const todayAtNoon = new Date(
+          `${new Date().toISOString().slice(0, 10)}T12:00:00.000Z`
+        );
+        const days = (dueAt.getTime() - todayAtNoon.getTime()) / 86_400_000;
+        if (!Number.isFinite(dueAt.getTime()) || days < 7 || days > 90) {
+          return err("La data di verifica deve essere compresa tra 7 e 90 giorni.");
+        }
+        const caller = await getCaller(rt.ctx);
+        const responsibleId = Number(input.responsabileId);
+        const responsible = utentiAssegnabili(
+          await caller.utenti.list(),
+          rt.ctx
+        ).find(user => user.id === responsibleId);
+        if (!responsible) {
+          return err(
+            "Responsabile non valido per questa sede. Usa leggi_assegnatari prima di proporre l'esperimento."
+          );
+        }
+        const canonicalKey = `processo:${sedeId}:${metric.key}`;
+        if (
+          processExperimentRepository.findOpenExperiment(
+            sedeId,
+            canonicalKey
+          )
+        ) {
+          return err("Esiste già un esperimento aperto per questa metrica.");
+        }
         return creaProposta(rt, {
           tipo: "miglioramento_processo",
           titolo: input.titolo,
@@ -3004,11 +3110,24 @@ async function eseguiStrumentoSenzaCache(
           payload: {
             area: String(input.area),
             problema: String(input.problema),
-            proposta: String(input.proposta),
+            azione: String(input.azione),
             impatto: String(input.impatto),
-            metrica: String(input.metrica),
+            metricKey: metric.key,
+            metricLabel: metric.label,
+            sampleSize,
+            baselineValue,
+            baselineDenominator,
+            targetValue,
+            unit: metric.unit,
+            responsibleId,
+            responsibleName: responsible.nome,
+            reviewDate: dueAt.toISOString().slice(0, 10),
+            snapshotAt: snapshot.capturedAt.toISOString(),
+            caseRefs: metric.caseRefs,
+            canonicalKey,
           },
         });
+      }
       case "chiedi_chiarimento":
         return creaProposta(rt, {
           tipo: "domanda",
