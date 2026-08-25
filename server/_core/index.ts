@@ -46,6 +46,8 @@ async function startServer() {
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();
+  const { getPolicyRepository } = await import("../authz/repository");
+  await getPolicyRepository().ensureSchema();
   const { startNotificationPgBridge } = await import("../notifications/sse");
   await startNotificationPgBridge();
   const { startEventWorkers } = await import("../events/worker");
