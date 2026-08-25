@@ -68,6 +68,7 @@ export type TarsPlanRepository = {
   updateStep(input: UpdateStepInput): Promise<TarsPlan>;
   resumeWithUserResponse(input: ResumeInput): Promise<TarsPlan>;
   listRunnable(input: { sedeId?: number; limit: number }): Promise<TarsPlan[]>;
+  listBySite(input: { sedeId: number; limit: number }): Promise<TarsPlan[]>;
   recoverStale(input: { cutoff: Date; now: Date }): Promise<number>;
   listEvents(input: {
     sedeId: number;
@@ -331,6 +332,14 @@ export function createMemoryTarsPlanRepository(): TarsPlanRepository {
             ["draft", "running", "verifying"].includes(plan.status)
         )
         .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+        .slice(0, Math.max(1, Math.min(input.limit, 100)))
+        .map(plan => clone(plan));
+    },
+
+    async listBySite(input) {
+      return plans
+        .filter(plan => plan.sedeId === input.sedeId)
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
         .slice(0, Math.max(1, Math.min(input.limit, 100)))
         .map(plan => clone(plan));
     },
@@ -712,6 +721,20 @@ export function createPostgresTarsPlanRepository(sql: Sql): TarsPlanRepository {
             sedeId: Number(row.sede_id),
             planId: Number(row.id),
           })
+        )
+      );
+      return loaded.filter((plan): plan is TarsPlan => plan != null);
+    },
+
+    async listBySite(input) {
+      await ensureSchema();
+      const limit = Math.max(1, Math.min(input.limit, 100));
+      const rows = await sql`SELECT id FROM tars_plans
+        WHERE sede_id = ${input.sedeId}
+        ORDER BY updated_at DESC LIMIT ${limit}`;
+      const loaded = await Promise.all(
+        rows.map(row =>
+          loadBy("id", { sedeId: input.sedeId, planId: Number(row.id) })
         )
       );
       return loaded.filter((plan): plan is TarsPlan => plan != null);

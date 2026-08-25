@@ -27,10 +27,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { PlanProgress } from "@/components/tars/PlanProgress";
 
 export function TarsChatPanel({ className }: { className?: string }) {
   const utils = trpc.useUtils();
   const messaggi = trpc.tars.chat.get.useQuery(undefined, { retry: false });
+  const commandCenter = trpc.tars.commandCenter.get.useQuery(
+    { limit: 4 },
+    { retry: false, staleTime: 15_000 }
+  );
   const [testo, setTesto] = useState("");
   const [testoInInvio, setTestoInInvio] = useState<string | null>(null);
   const [faseLavoro, setFaseLavoro] = useState(0);
@@ -53,6 +58,10 @@ export function TarsChatPanel({ className }: { className?: string }) {
   });
 
   const rows = messaggi.data ?? [];
+  const currentPlans = [
+    ...(commandCenter.data?.waitingQuestions ?? []),
+    ...(commandCenter.data?.activePlans ?? []),
+  ].slice(0, 2);
 
   // Sempre in fondo: è una chat, l'ultima cosa detta è quella che conta.
   useEffect(() => {
@@ -112,6 +121,16 @@ export function TarsChatPanel({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-col min-h-0", className)}>
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
+        {currentPlans.length > 0 && (
+          <div
+            className="divide-y border-y"
+            aria-label="Obiettivi Tars in corso"
+          >
+            {currentPlans.map((plan: any) => (
+              <PlanProgress key={plan.id} plan={plan} />
+            ))}
+          </div>
+        )}
         {rows.length === 0 && !invia.isPending && (
           <div className="mx-auto max-w-lg pt-6 text-center text-sm text-muted-foreground space-y-4">
             <TarsAvatar size="lg" className="mx-auto" />
@@ -196,8 +215,8 @@ export function TarsChatPanel({ className }: { className?: string }) {
       <div className="border-t p-2 flex gap-2 items-end shrink-0">
         <Textarea
           value={testo}
-          onChange={(e) => setTesto(e.target.value)}
-          onKeyDown={(e) => {
+          onChange={e => setTesto(e.target.value)}
+          onKeyDown={e => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();
@@ -278,7 +297,7 @@ export function TarsChatFloating() {
       )}
 
       <button
-        onClick={() => setAperta((v) => !v)}
+        onClick={() => setAperta(v => !v)}
         className="fixed bottom-4 right-4 z-50 rounded-full shadow-lg hover:scale-105 transition-transform"
         aria-label="Chat con Tars"
       >

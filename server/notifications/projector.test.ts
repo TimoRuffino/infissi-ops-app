@@ -43,6 +43,32 @@ describe("notification projector", () => {
     expect(projectNotification(assignmentEvent({ actorUserId: 7 }))).toEqual([]);
   });
 
+  it("porta una domanda Tars direttamente al piano", () => {
+    expect(
+      projectNotification(
+        assignmentEvent({
+          eventType: "tars.plan_waiting",
+          source: { type: "tars_plan", id: "55", version: "3" },
+          actorUserId: null,
+          recipientHints: [7],
+          subjectRefs: [{ type: "tars_plan", id: "55" }],
+          payload: {
+            version: 1,
+            status: "waiting_user",
+            link: "/tars?tab=oggi&plan=55",
+          },
+        })
+      )
+    ).toEqual([
+      expect.objectContaining({
+        type: "tars.plan_waiting",
+        recipientUserId: 7,
+        groupKey: "tars-plan:55",
+        link: "/tars?tab=oggi&plan=55",
+      }),
+    ]);
+  });
+
   it("risolve il precedente destinatario e deduplica i retry", async () => {
     const repository = createMemoryNotificationRepository();
     const users = [

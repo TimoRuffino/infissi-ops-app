@@ -26,6 +26,7 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import TarsAvatar from "@/components/TarsAvatar";
 import { cn } from "@/lib/utils";
+import { EvidenceList } from "@/components/tars/EvidenceList";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
@@ -202,7 +203,7 @@ export default function TarsPropostaCard({
       invalidate();
       if (p.seguitoAvviato) attendiSeguito();
     },
-    onError: (e) => {
+    onError: e => {
       toast.error(e.message);
       invalidate(); // stato "errore" va comunque mostrato
     },
@@ -212,7 +213,7 @@ export default function TarsPropostaCard({
       toast.success("Proposta rifiutata");
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const rispondi = trpc.tars.proposte.rispondi.useMutation({
     onSuccess: (p: any) => {
@@ -220,7 +221,7 @@ export default function TarsPropostaCard({
       invalidate();
       if (p?.seguitoAvviato) attendiSeguito();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const pendente = proposta.stato === "pendente";
@@ -250,9 +251,9 @@ export default function TarsPropostaCard({
                 ? "Tars propone come chiuderla"
                 : processo
                   ? "Tars migliora il processo"
-                : proposta.tipo === "domanda"
-                  ? "Tars chiede"
-                  : "Tars propone"}
+                  : proposta.tipo === "domanda"
+                    ? "Tars chiede"
+                    : "Tars propone"}
             </span>
             <div className="flex items-center gap-2 shrink-0">
               <Badge variant="outline" className="text-xs">
@@ -277,6 +278,8 @@ export default function TarsPropostaCard({
 
       <p className="text-sm text-muted-foreground">{proposta.motivazione}</p>
 
+      <EvidenceList items={proposta.evidenceRefs ?? []} />
+
       {righe.length > 0 && (
         <div className="space-y-1.5 rounded-md bg-background/70 px-3 py-2 text-sm">
           {righe.map((r, i) => (
@@ -293,16 +296,22 @@ export default function TarsPropostaCard({
           {proposta.stato === "approvata" && (
             <span className="flex items-start gap-1.5 text-success">
               <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
-              <span>Approvata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
-              {proposta.esito ? ` — ${proposta.esito}` : ""}
+              <span>
+                Approvata
+                {proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
+                {proposta.esito ? ` — ${proposta.esito}` : ""}
               </span>
             </span>
           )}
           {proposta.stato === "rifiutata" && (
             <span className="flex items-start gap-1.5">
               <XCircle className="mt-px h-3.5 w-3.5 shrink-0" />
-              <span>Rifiutata{proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
-              {proposta.motivoRifiuto ? ` — ${proposta.motivoRifiuto.replace(/_/g, " ")}` : ""}
+              <span>
+                Rifiutata
+                {proposta.decisaDaNome ? ` da ${proposta.decisaDaNome}` : ""}
+                {proposta.motivoRifiuto
+                  ? ` — ${proposta.motivoRifiuto.replace(/_/g, " ")}`
+                  : ""}
               </span>
             </span>
           )}
@@ -318,6 +327,23 @@ export default function TarsPropostaCard({
               <span>Risposta: {proposta.risposta}</span>
             </span>
           )}
+        </div>
+      )}
+
+      {proposta.stato === "errore" && (
+        <div className="border-t border-border/70 pt-3">
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => approva.mutate({ id: proposta.id })}
+          >
+            {approva.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ArrowRight className="h-3.5 w-3.5" />
+            )}
+            Riprendi dal punto interrotto
+          </Button>
         </div>
       )}
 
@@ -343,7 +369,7 @@ export default function TarsPropostaCard({
             <Textarea
               placeholder="Oppure rispondi liberamente…"
               value={rispostaLibera}
-              onChange={(e) => setRispostaLibera(e.target.value)}
+              onChange={e => setRispostaLibera(e.target.value)}
               rows={1}
               className="text-sm"
             />
@@ -351,7 +377,10 @@ export default function TarsPropostaCard({
               size="sm"
               disabled={busy || !rispostaLibera.trim()}
               onClick={() =>
-                rispondi.mutate({ id: proposta.id, risposta: rispostaLibera.trim() })
+                rispondi.mutate({
+                  id: proposta.id,
+                  risposta: rispostaLibera.trim(),
+                })
               }
             >
               Invia
@@ -389,7 +418,7 @@ export default function TarsPropostaCard({
       {pendente && rifiutoAperto && (
         <div className="flex flex-wrap gap-1.5 items-center">
           <span className="text-xs text-muted-foreground mr-1">Perché?</span>
-          {MOTIVI_RIFIUTO.map((m) => (
+          {MOTIVI_RIFIUTO.map(m => (
             <Button
               key={m.value}
               size="sm"

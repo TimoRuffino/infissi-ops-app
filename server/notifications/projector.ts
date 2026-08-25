@@ -1,7 +1,10 @@
 import type { BusinessEventConsumer } from "../events/registry";
 import type { BusinessEvent } from "../events/types";
 import { getUtentiStore } from "../routers/utenti";
-import { getNotificationRepository, type NotificationRepository } from "./repository";
+import {
+  getNotificationRepository,
+  type NotificationRepository,
+} from "./repository";
 import type { NotificationDraft } from "./types";
 import {
   notificationHub,
@@ -16,6 +19,7 @@ const ASSIGNMENT_EVENT_TYPES = [
   "ticket.assigned",
   "intervento.assigned",
   "azione_operativa.assigned",
+  "tars.plan_waiting",
 ] as const;
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -37,12 +41,42 @@ function assignmentGroupKey(event: BusinessEvent) {
 
 export function projectNotification(event: BusinessEvent): NotificationDraft[] {
   if (!ASSIGNMENT_EVENT_TYPES.includes(event.eventType as any)) return [];
+  if (event.eventType === "tars.plan_waiting") {
+    const recipientUserId = event.recipientHints[0];
+    if (recipientUserId == null) return [];
+    const status = String(event.payload.status ?? "waiting_user");
+    return [
+      {
+        sedeId: event.sedeId,
+        recipientUserId,
+        canonicalKey: `event:${event.id}:tars-plan:${event.source.id}`,
+        type: "tars.plan_waiting",
+        priority: status === "waiting_technical" ? "high" : "normal",
+        title:
+          status === "waiting_approval"
+            ? "Tars attende la tua approvazione"
+            : status === "waiting_technical"
+              ? "Un obiettivo Tars va ripreso"
+              : "Tars ha una domanda per te",
+        body: "Apri l'obiettivo per continuare dal punto raggiunto.",
+        link: String(
+          event.payload.link ?? `/tars?tab=oggi&plan=${event.source.id}`
+        ),
+        groupKey: `tars-plan:${event.source.id}`,
+        sourceEventId: event.id,
+        entityRefs: event.subjectRefs,
+        createdAt: new Date(event.occurredAt),
+        expiresAt: null,
+      },
+    ];
+  }
   const assigneeId = numericPayload(event, "assigneeId");
   if (assigneeId == null) return [];
   const notifyActor = event.payload.notifyActor === true;
   if (!notifyActor && event.actorUserId === assigneeId) return [];
   const label = ENTITY_LABELS[event.source.type] ?? "Attivita";
-  const link = typeof event.payload.link === "string" ? event.payload.link : "/";
+  const link =
+    typeof event.payload.link === "string" ? event.payload.link : "/";
   return [
     {
       sedeId: event.sedeId,
@@ -62,19 +96,23 @@ export function projectNotification(event: BusinessEvent): NotificationDraft[] {
   ];
 }
 
-export function createNotificationProjectorConsumer(options: {
-  repository?: NotificationRepository;
-  getUsers?: () => Array<{ id: number; attivo: boolean; sediIds?: number[] }>;
-  onDiagnostic?: (code: string, event: BusinessEvent, userId: number) => void;
-  hub?: NotificationHub;
-} = {}): BusinessEventConsumer {
+export function createNotificationProjectorConsumer(
+  options: {
+    repository?: NotificationRepository;
+    getUsers?: () => Array<{ id: number; attivo: boolean; sediIds?: number[] }>;
+    onDiagnostic?: (code: string, event: BusinessEvent, userId: number) => void;
+    hub?: NotificationHub;
+  } = {}
+): BusinessEventConsumer {
   const repository = options.repository ?? getNotificationRepository();
   const getUsers = options.getUsers ?? getUtentiStore;
   const hub = options.hub ?? notificationHub;
   const diagnostic =
     options.onDiagnostic ??
     ((code, event, userId) => {
-      console.warn(`[notifications] ${code} event=${event.id} recipient=${userId}`);
+      console.warn(
+        `[notifications] ${code} event=${event.id} recipient=${userId}`
+      );
     });
 
   return {

@@ -2,7 +2,10 @@ import type { TrpcContext } from "../_core/context";
 import { runTars } from "../tars/loop";
 import { openaiConfigured } from "../tars/openai";
 import { budgetMensileSuperato, getTarsConfig } from "../tars/stores";
-import { getActionCaseRepository, type ActionCaseRepository } from "./repository";
+import {
+  getActionCaseRepository,
+  type ActionCaseRepository,
+} from "./repository";
 import type { ActionCaseRecord } from "./types";
 
 const DEFAULT_BATCH_SIZE = 3;
@@ -11,9 +14,9 @@ const running = new Set<number>();
 const timers = new Map<number, NodeJS.Timeout>();
 
 export function buildCaseAnalysisRequest(record: ActionCaseRecord): string {
-  const evidence = record.signals.slice(0, 12).map(signal =>
-    `- ${signal.kind}: ${signal.summary} [${signal.sourceKey}]`
-  );
+  const evidence = record.signals
+    .slice(0, 12)
+    .map(signal => `- ${signal.kind}: ${signal.summary} [${signal.sourceKey}]`);
   return `<caso_operativo id="${record.id}" fingerprint="${record.signalFingerprint}">
 Titolo: ${record.title}
 Priorita deterministica: ${record.priority} (${record.priorityScore})
@@ -44,7 +47,10 @@ export async function runQueuedCaseAnalyses(input: {
 }) {
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_BATCH_SIZE, 1), 10);
   const now = input.now ?? new Date();
-  const queued = await input.repository.listPendingAnalysis(input.sedeId, limit);
+  const queued = await input.repository.listPendingAnalysis(
+    input.sedeId,
+    limit
+  );
   const result = { processed: 0, completed: 0, failed: 0 };
 
   for (const record of queued) {
@@ -78,7 +84,10 @@ export async function runQueuedCaseAnalyses(input: {
         status: "errore",
         fingerprint: record.signalFingerprint,
         analysis: {
-          message: error instanceof Error ? error.message.slice(0, 300) : "Errore analisi",
+          message:
+            error instanceof Error
+              ? error.message.slice(0, 300)
+              : "Errore analisi",
         },
         now: new Date(),
       });
@@ -114,7 +123,8 @@ function systemContext(sedeId: number): TrpcContext {
 export async function runQueuedCaseAnalysis(sedeId: number): Promise<void> {
   if (running.has(sedeId)) return;
   const config = getTarsConfig(sedeId);
-  if (!config.attivo || !openaiConfigured() || budgetMensileSuperato(sedeId)) return;
+  if (!config.attivo || !openaiConfigured() || budgetMensileSuperato(sedeId))
+    return;
   running.add(sedeId);
   try {
     const result = await runQueuedCaseAnalyses({
@@ -140,7 +150,10 @@ export async function runQueuedCaseAnalysis(sedeId: number): Promise<void> {
     if (result.processed > 0) {
       console.info("[action-center] Tars batch", { sedeId, ...result });
     }
-    if ((await getActionCaseRepository().listPendingAnalysis(sedeId, 1)).length > 0) {
+    if (
+      (await getActionCaseRepository().listPendingAnalysis(sedeId, 1)).length >
+      0
+    ) {
       scheduleCaseAnalysisQueue(sedeId);
     }
   } finally {
@@ -175,4 +188,24 @@ export async function scheduleCaseAnalysis(
   });
   scheduleCaseAnalysisQueue(sedeId);
   return queued;
+}
+
+export async function listVisibleBlockedCases(input: {
+  repository: ActionCaseRepository;
+  sedeId: number;
+  userId: number;
+  direction: boolean;
+  limit?: number;
+}): Promise<ActionCaseRecord[]> {
+  const result = await input.repository.list({
+    sedeId: input.sedeId,
+    statuses: ["in_attesa"],
+    limit: Math.min(Math.max(input.limit ?? 20, 1), 50),
+  });
+  return result.items.filter(
+    item =>
+      input.direction ||
+      item.assigneeUserId == null ||
+      item.assigneeUserId === input.userId
+  );
 }

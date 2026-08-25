@@ -12,6 +12,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   assertSedeScope,
+  isAmministrazione,
   isDirezione,
   requireDirezione,
   requireDirezioneOAmministrazione,
@@ -21,7 +22,11 @@ import { runTars } from "../tars/loop";
 import { avviaSeguito } from "../tars/seguito";
 import { eseguiAuditProcessi } from "../tars/auditProcessi";
 import { eseguiProposta } from "../tars/esecutore";
-import { buildCommandCenterSnapshot } from "../tars/commandCenter";
+import { buildCommandCenterSnapshot, canViewPlan } from "../tars/commandCenter";
+import { getTarsPlanRepository } from "../tars/planner/repository";
+import { getActionCaseRepository } from "../actionCenter/repository";
+import { listVisibleBlockedCases } from "../actionCenter/tars";
+import { getNotificationRepository } from "../notifications/repository";
 import {
   proposte,
   saveProposte,
@@ -417,8 +422,10 @@ ${input.testo.trim()}`;
           .object({ limit: z.number().int().min(1).max(20).default(12) })
           .optional()
       )
-      .query(({ input, ctx }) => {
+      .query(async ({ input, ctx }) => {
         const sedeId = ctx.sedeId ?? 1;
+        const userId = Number(ctx.user?.id ?? 0);
+        const direction = isDirezione(ctx.user);
         const config = getTarsConfig(sedeId);
         const soglia = Date.now() - 30 * 86_400_000;
         const pending = proposte
@@ -433,6 +440,15 @@ ${input.testo.trim()}`;
               },
             };
           });
+        const plans = (
+          await getTarsPlanRepository().listBySite({ sedeId, limit: 100 })
+        ).filter(plan => canViewPlan({ plan, userId, direction }));
+        const blockedCases = await listVisibleBlockedCases({
+          repository: getActionCaseRepository(),
+          sedeId,
+          userId,
+          direction,
+        });
         return buildCommandCenterSnapshot({
           active: config.attivo,
           openaiReady: openaiConfigured(),
@@ -440,8 +456,58 @@ ${input.testo.trim()}`;
           executions: esecuzioni.filter(
             e => e.sedeId === sedeId && e.createdAt.getTime() >= soglia
           ),
+          plans,
+          blockedCases,
+          canReadEconomic: direction || isAmministrazione(ctx.user),
           limit: input?.limit ?? 12,
         });
+      }),
+  }),
+
+  plans: router({
+    respond: protectedProcedure
+      .input(
+        z.object({
+          planId: z.number().int().positive(),
+          stepKey: z.string().min(1).max(120),
+          expectedVersion: z.number().int().positive(),
+          response: z.union([
+            z.string().max(4_000),
+            z.number(),
+            z.boolean(),
+            z.record(z.string(), z.unknown()),
+          ]),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        const repository = getTarsPlanRepository();
+        const plan = await repository.getById({ sedeId, planId: input.planId });
+        if (
+          !plan ||
+          !canViewPlan({
+            plan,
+            userId: Number(ctx.user?.id ?? 0),
+            direction: isDirezione(ctx.user),
+          })
+        ) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        const resumed = await repository.resumeWithUserResponse({
+          sedeId,
+          planId: plan.id,
+          stepKey: input.stepKey,
+          expectedVersion: input.expectedVersion,
+          response: input.response as any,
+          now: new Date(),
+        });
+        await getNotificationRepository().resolveGroup({
+          sedeId,
+          recipientUserId: Number(ctx.user?.id ?? 0),
+          groupKey: `tars-plan:${plan.id}`,
+          now: new Date(),
+        });
+        return resumed;
       }),
   }),
 

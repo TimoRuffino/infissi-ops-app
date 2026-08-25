@@ -1,3 +1,6 @@
+import type { ActionCaseRecord } from "../actionCenter/types";
+import type { StructuredValue, TarsPlan } from "./planner/types";
+
 export type TarsEvidence = {
   type:
     | "email"
@@ -42,6 +45,17 @@ export type TarsCommandCenterSnapshot = {
   status: "ready" | "degraded" | "disabled";
   brief: { title: string; summary: string; highlights: string[] };
   priorities: TarsPriority[];
+  activePlans: TarsPlanView[];
+  waitingQuestions: TarsPlanView[];
+  waitingApprovals: TarsPlanView[];
+  blockedCases: Array<{
+    id: number;
+    title: string;
+    priority: string;
+    link: string;
+    updatedAt: Date;
+  }>;
+  recentOutcomes: TarsPlanView[];
   metrics: {
     pending: number;
     failedRuns: number;
@@ -55,6 +69,115 @@ export type TarsCommandCenterSnapshot = {
     lastRunAt: Date | null;
   };
 };
+
+export type TarsPlanView = {
+  id: number;
+  version: number;
+  workflowId: string;
+  intent: string;
+  status: TarsPlan["status"];
+  currentStep: string | null;
+  currentStepData: StructuredValue | null;
+  completedSteps: number;
+  totalSteps: number;
+  errorCode: string | null;
+  evidence: StructuredEvidenceRef[];
+  updatedAt: Date;
+};
+
+const ECONOMIC_EVIDENCE = new Set(["fattura_fic", "pagamento", "economia"]);
+
+function planEvidence(plan: TarsPlan, canReadEconomic: boolean) {
+  const seen = new Set<string>();
+  return plan.steps
+    .flatMap(step => step.evidenceRefs)
+    .filter(ref => canReadEconomic || !ECONOMIC_EVIDENCE.has(ref.sourceType))
+    .filter(ref => {
+      const key = `${ref.sourceType}:${ref.sourceId}:${ref.version}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function assignedUserId(plan: TarsPlan): number | null {
+  const value = plan.input;
+  if (!value || Array.isArray(value) || typeof value !== "object") return null;
+  const direct = Number(value.assigneeId ?? value.assegnatoA);
+  if (Number.isSafeInteger(direct) && direct > 0) return direct;
+  const job = value.job;
+  if (!job || Array.isArray(job) || typeof job !== "object") return null;
+  const nested = Number(job.assigneeId ?? job.assegnatoA);
+  return Number.isSafeInteger(nested) && nested > 0 ? nested : null;
+}
+
+export function canViewPlan(input: {
+  plan: TarsPlan;
+  userId: number;
+  direction: boolean;
+}): boolean {
+  return (
+    input.direction ||
+    input.plan.createdBy === input.userId ||
+    assignedUserId(input.plan) === input.userId
+  );
+}
+
+function planView(plan: TarsPlan, canReadEconomic: boolean): TarsPlanView {
+  const current = plan.steps.find(
+    step => !["completed", "skipped"].includes(step.status)
+  );
+  return {
+    id: plan.id,
+    version: plan.version,
+    workflowId: plan.workflowId,
+    intent: plan.intent,
+    status: plan.status,
+    currentStep: current?.key ?? null,
+    currentStepData: current?.output ?? current?.input ?? null,
+    completedSteps: plan.steps.filter(step =>
+      ["completed", "skipped"].includes(step.status)
+    ).length,
+    totalSteps: plan.steps.length,
+    errorCode: plan.errorCode,
+    evidence: planEvidence(plan, canReadEconomic),
+    updatedAt: plan.updatedAt,
+  };
+}
+
+export function buildPlanCollections(input: {
+  plans: TarsPlan[];
+  blockedCases: ActionCaseRecord[];
+  canReadEconomic: boolean;
+}) {
+  const views = input.plans.map(plan => planView(plan, input.canReadEconomic));
+  const terminal = new Set<TarsPlan["status"]>([
+    "completed",
+    "partially_completed",
+    "failed",
+    "canceled",
+  ]);
+  return {
+    activePlans: views.filter(item =>
+      ["draft", "running", "verifying", "waiting_technical"].includes(
+        item.status
+      )
+    ),
+    waitingQuestions: views.filter(item => item.status === "waiting_user"),
+    waitingApprovals: views.filter(item => item.status === "waiting_approval"),
+    blockedCases: input.blockedCases.map(item => ({
+      id: item.id,
+      title: item.title,
+      priority: item.priority,
+      link: item.link,
+      updatedAt: item.updatedAt,
+    })),
+    recentOutcomes: views
+      .filter(item => terminal.has(item.status))
+      .slice(0, 12),
+  };
+}
 
 type ProposalInput = {
   id: number;
@@ -284,6 +407,9 @@ export function buildCommandCenterSnapshot(input: {
   openaiReady: boolean;
   proposals: ProposalInput[];
   executions: ExecutionInput[];
+  plans?: TarsPlan[];
+  blockedCases?: ActionCaseRecord[];
+  canReadEconomic?: boolean;
   limit?: number;
 }): TarsCommandCenterSnapshot {
   const now = input.now ?? new Date();
@@ -368,6 +494,11 @@ export function buildCommandCenterSnapshot(input: {
       ? "Nessuna decisione urgente"
       : `${pending} ${pending === 1 ? "decisione richiede" : "decisioni richiedono"} attenzione`;
 
+  const planCollections = buildPlanCollections({
+    plans: input.plans ?? [],
+    blockedCases: input.blockedCases ?? [],
+    canReadEconomic: input.canReadEconomic ?? false,
+  });
   return {
     generatedAt: now,
     status: !input.active
@@ -384,6 +515,7 @@ export function buildCommandCenterSnapshot(input: {
       highlights: priorities.slice(0, 3).map(item => item.title),
     },
     priorities,
+    ...planCollections,
     metrics: {
       pending,
       failedRuns,

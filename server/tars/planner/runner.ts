@@ -3,6 +3,7 @@ import { getTarsPlanRepository, type TarsPlanRepository } from "./repository";
 import { getFeatureFlags } from "../../platform/featureFlags";
 import { workflowRegistry, type WorkflowRegistry } from "../workflows/registry";
 import type { StepExecutor } from "../workflows/types";
+import { publishDomainEvent } from "../../events/publish";
 
 export type StepExecutors = Partial<Record<PlanStepType, StepExecutor>>;
 
@@ -19,6 +20,35 @@ function codeFor(error: unknown): string {
     if (typeof code === "string" && code.trim()) return code;
   }
   return "WORKFLOW_EXECUTION_FAILED";
+}
+
+async function publishWaitingPlan(plan: TarsPlan, now: Date): Promise<void> {
+  if (
+    !plan.createdBy ||
+    !["waiting_user", "waiting_approval", "waiting_technical"].includes(
+      plan.status
+    )
+  )
+    return;
+  await publishDomainEvent({
+    sedeId: plan.sedeId,
+    eventType: "tars.plan_waiting",
+    source: {
+      type: "tars_plan",
+      id: String(plan.id),
+      version: String(plan.version),
+    },
+    actorUserId: null,
+    subjectRefs: [{ type: "tars_plan", id: String(plan.id) }],
+    recipientHints: [plan.createdBy],
+    payload: {
+      version: 1,
+      status: plan.status,
+      link: `/tars?tab=oggi&plan=${plan.id}`,
+    },
+    dedupeKey: `tars-plan:${plan.id}:waiting:${plan.version}`,
+    occurredAt: now,
+  });
 }
 
 async function failPlan(
@@ -126,7 +156,7 @@ export async function runPlanOnce(input: {
           errorCode: result.errorCode,
           now,
         });
-        return input.repository.updatePlan({
+        plan = await input.repository.updatePlan({
           sedeId: plan.sedeId,
           planId: plan.id,
           expectedVersion: plan.version,
@@ -134,6 +164,8 @@ export async function runPlanOnce(input: {
           errorCode: result.errorCode,
           now,
         });
+        await publishWaitingPlan(plan, now);
+        return plan;
       }
       plan = await input.repository.updateStep({
         sedeId: plan.sedeId,
@@ -147,7 +179,10 @@ export async function runPlanOnce(input: {
         errorCode: result.status === "failed" ? result.errorCode : null,
         now,
       });
-      if (result.status !== "completed") return plan;
+      if (result.status !== "completed") {
+        await publishWaitingPlan(plan, now);
+        return plan;
+      }
     } catch (error) {
       return input.repository.updateStep({
         sedeId: plan.sedeId,
