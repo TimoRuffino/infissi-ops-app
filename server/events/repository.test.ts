@@ -21,7 +21,7 @@ function draft(overrides: Partial<BusinessEventDraft> = {}): BusinessEventDraft 
 
 describe("BusinessEventRepository", () => {
   it("deduplica per sede e chiave", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     const first = await repo.publish(draft());
     const duplicate = await repo.publish(draft());
     const otherSite = await repo.publish(draft({ sedeId: 2 }));
@@ -33,7 +33,7 @@ describe("BusinessEventRepository", () => {
   });
 
   it("mantiene elaborazioni indipendenti per consumer", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     await repo.publish(draft());
 
     const notifications = await repo.claim({
@@ -60,7 +60,7 @@ describe("BusinessEventRepository", () => {
   });
 
   it("recupera lease stale senza riaprire consumer completati", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     const published = await repo.publish(draft());
     await repo.claim({ consumerName: "notifications", workerId: "a", limit: 1, now });
     await repo.complete({
@@ -96,7 +96,7 @@ describe("BusinessEventRepository", () => {
   });
 
   it("sposta in dead-letter al quinto fallimento", async () => {
-    const repo = createMemoryBusinessEventRepository();
+    const repo = createMemoryBusinessEventRepository({ now: () => now });
     const published = await repo.publish(draft());
 
     for (let attempt = 1; attempt <= 5; attempt++) {

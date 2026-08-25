@@ -54,7 +54,9 @@ function processingKey(eventId: number, consumerName: string): string {
   return `${eventId}:${consumerName}`;
 }
 
-export function createMemoryBusinessEventRepository(): BusinessEventRepository {
+export function createMemoryBusinessEventRepository(options?: {
+  now?: () => Date;
+}): BusinessEventRepository {
   const events: BusinessEvent[] = [];
   const processing = new Map<string, BusinessEventProcessing>();
   let nextId = 1;
@@ -91,7 +93,7 @@ export function createMemoryBusinessEventRepository(): BusinessEventRepository {
       const event: BusinessEvent = {
         ...structuredClone(draft),
         id: nextId++,
-        createdAt: new Date(),
+        createdAt: new Date(options?.now?.() ?? new Date()),
       };
       events.push(event);
       return { id: event.id, inserted: true };
