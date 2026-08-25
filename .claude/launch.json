@@ -4,9 +4,35 @@
     {
       "name": "Dev Server (Express + Vite)",
       "runtimeExecutable": "/opt/homebrew/bin/node",
-      "runtimeArgs": ["node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs", "watch", "server/_core/index.ts"],
-      "env": { "NODE_ENV": "development", "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" },
+      "runtimeArgs": [
+        "node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs",
+        "watch",
+        "server/_core/index.ts"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      },
       "port": 3000
+    },
+    {
+      "name": "Promo Capture (demo data)",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": [
+        "node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs",
+        "server/_core/index.ts"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "PORT": "5199",
+        "BOOTSTRAP_ADMIN_EMAIL": "demo@ruffinoflow.it",
+        "BOOTSTRAP_ADMIN_PASSWORD": "DemoPromo2026!Flow",
+        "BOOTSTRAP_ADMIN_NAME": "Marco",
+        "BOOTSTRAP_ADMIN_SURNAME": "Demo",
+        "OPENAI_API_KEY": "sk-promo-capture-placeholder-never-called"
+      },
+      "port": 5199
     }
   ]
 }
