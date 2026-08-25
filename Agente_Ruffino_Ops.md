@@ -1,7 +1,7 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 1.7 — 25/08/2026
-**Stato:** loop agentico, quadro aziendale, audit continuo dei processi, proposte, Command Center, Centro Azioni persistente, email/WhatsApp, FiC read-only, memoria, budget, deduplica e caching implementati. Memoria semantica generale e ricerca pgvector restano roadmap.
+**Versione:** 2.0 — 25/08/2026
+**Stato:** loop agentico, eventi, notifiche realtime, contesto persistente, planner, workflow riprendibili, ricerca ibrida, esiti per capability, diagnostica, budget, deduplica e caching implementati. Il vettoriale resta spento senza `pgvector`; autonomia negata per default.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
 ### Stato implementativo sintetico
@@ -22,6 +22,10 @@
 - Il Centro Azioni riconcilia segnali deterministici in casi persistenti con responsabile, stato, revisione ed evidenze; Tars analizza in background soltanto i casi nuovi o cambiati alti/critici, massimo tre per lotto.
 - `gpt-5.6-sol` gestisce le richieste umane; `gpt-5.6-terra` i trigger automatici. Raggiunto il limite strumenti, il loop concede un solo turno finale senza tool.
 - Tars nasce spento su ogni sede nuova e ha budget mensile configurabile.
+- Eventi, notifiche, context engine, planner e ricerca hanno flag distinti per
+  rollout progressivo sede per sede.
+- Gli esiti alimentano metriche aggregate, non il prompt. Il gate di autonomia
+  lavora per capability e ha whitelist iniziale vuota.
 
 ---
 
@@ -108,7 +112,7 @@ Quando approvi, l'esecuzione passa dall'esecutore (P1.1 punto 5): chiama la stes
 | `leggi_fatture_cloud` | Fatture FIC: numero, data, importo, stato pagamento | Sola lettura |
 | `leggi_ticket`, `leggi_interventi`, `leggi_garanzie` | Stato operativo e post-vendita | |
 | `leggi_fornitori`, `leggi_squadre`, `leggi_economia` | Contesto organizzativo ed economico | |
-| `ricerca_semantica` | RAG su documenti e comunicazioni | **Roadmap**, non esposto oggi |
+| `ricerca_ibrida` | Ricerca ACL-aware su comunicazioni, clienti, commesse, note, documenti e conoscenza | Max 8 frammenti con evidence ref; testo sempre disponibile, vettori solo con supporto |
 
 ### 4.2 Strumenti di proposta
 

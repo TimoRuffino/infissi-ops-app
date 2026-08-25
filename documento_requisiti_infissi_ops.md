@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.19 - Creazione approvata di cliente e prima commessa direttamente dalla chat Tars.
+**Versione:** 4.20 - Eventi, notifiche realtime, planner, ricerca ibrida e gate di autonomia Tars.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -1502,3 +1502,51 @@ Ogni pagina è importata con `React.lazy` e caricata dentro un `Suspense` stabil
 
 ### 52.4 Umami
 Lo script Umami viene installato soltanto in produzione, con endpoint HTTP(S) valido e website id presenti. Ha un id univoco per evitare duplicati, usa `async`/`defer` e si rimuove in caso di errore di caricamento. In sviluppo non deve generare richieste o warning console.
+
+---
+
+## 53. Piattaforma operativa Tars
+
+### 53.1 Eventi e notifiche
+Le modifiche business rilevanti producono eventi sede-scoped con chiave di
+deduplica. Ogni consumer mantiene stato indipendente, retry limitato,
+dead-letter e recupero dei lease stale. Le assegnazioni devono notificare il
+nuovo responsabile con link all'entita; presa in carico o completamento
+risolvono il gruppo canonico invece di generare nuovi avvisi.
+
+Le notifiche realtime usano SSE con replay da `Last-Event-ID`; il polling resta
+fallback. L'attivazione avviene per sede nell'ordine eventi shadow,
+notifiche shadow, notifiche active, SSE e infine Web Push.
+
+### 53.2 Contesto, planner e workflow
+Tars usa fascicoli materializzati separati per sede, entita e visibility scope.
+I piani sono persistenti, versionati, riprendibili dopo domanda o approvazione
+e idempotenti dopo riavvio. Il workflow cliente + prima commessa conserva ogni
+operazione riuscita e riparte dal primo passo incompleto senza duplicare dati.
+Le mutation restano quelle applicative e richiedono approvazione dell'utente.
+
+### 53.3 Ricerca ibrida
+`ricerca_ibrida` indicizza fonti versionate da email, WhatsApp, clienti,
+commesse, note, documenti estratti e conoscenza. Ogni chunk conserva sede,
+scope, checksum, versione e riferimenti entita. Il ranking privilegia
+identificatori e riferimenti strutturati, poi testo e vettori; la policy della
+fonte viene ricontrollata dopo il ranking. Sono restituiti al massimo otto
+frammenti con evidence ref. Se `pgvector` non e presente, nessuna estensione
+viene installata e la ricerca testuale continua con la parte semantica `off`.
+
+### 53.4 Apprendimento e autonomia
+Approvazioni, modifiche, rifiuti, undo, verifiche e incidenti generano esiti
+strutturati per capability e versione. Il testo libero non viene promosso a
+regola o reiniettato nel prompt. Non esiste una media generale abilitante.
+
+Autonomia e negata per default e la whitelist iniziale e vuota. La singola
+capability richiede almeno sei settimane, cento esiti, accuratezza >=98%, zero
+incidenti, eval allegato, decisione della direzione, feature flag, undo e
+principal minimo. Rischio alto, irreversibilita, kill switch o cambio di
+modello, prompt o workflow negano o revocano immediatamente la qualifica.
+
+### 53.5 Diagnostica
+`diagnostica.snapshot` e accessibile solo alla direzione. Mostra code eventi
+per consumer, dead-letter, notifiche pendenti, connessioni SSE, piani per stato,
+cache e token per workflow. Non espone prompt, corpi di comunicazioni, numeri,
+email, token, user id o entity id come label metrica.

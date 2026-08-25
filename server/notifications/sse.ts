@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { createContext as defaultCreateContext } from "../_core/context";
 import { kvSql } from "../_core/persistence";
-import { getNotificationRepository, type NotificationRepository } from "./repository";
+import {
+  getNotificationRepository,
+  type NotificationRepository,
+} from "./repository";
 
 export type NotificationSignal = {
   notificationId: number;
@@ -19,7 +22,10 @@ export type NotificationHub = {
 };
 
 export function createNotificationHub(): NotificationHub {
-  const listeners = new Map<string, Set<(signal: NotificationSignal) => void>>();
+  const listeners = new Map<
+    string,
+    Set<(signal: NotificationSignal) => void>
+  >();
   const key = (userId: number, sedeId: number) => `${sedeId}:${userId}`;
   return {
     publish(signal) {
@@ -41,6 +47,11 @@ export function createNotificationHub(): NotificationHub {
 }
 
 export const notificationHub = createNotificationHub();
+const activeConnectionsBySite = new Map<number, number>();
+
+export function getSseConnectionCount(sedeId: number): number {
+  return activeConnectionsBySite.get(sedeId) ?? 0;
+}
 const notificationInstanceId = `${process.pid}-${randomUUID()}`;
 const PG_CHANNEL = "ruffino_notifications_changed";
 
@@ -54,7 +65,9 @@ export async function publishNotificationSignal(signal: NotificationSignal) {
     );
   } catch (error) {
     const code =
-      error && typeof error === "object" && typeof (error as any).code === "string"
+      error &&
+      typeof error === "object" &&
+      typeof (error as any).code === "string"
         ? (error as any).code
         : "PG_NOTIFY_FAILED";
     console.warn(`[notifications] postgres notify failed: ${code}`);
@@ -95,12 +108,14 @@ function eventFrame(notification: {
   })}\n\n`;
 }
 
-export function createNotificationSseHandler(options: {
-  repository?: NotificationRepository;
-  hub?: NotificationHub;
-  createContext?: (input: { req: Request; res: Response }) => Promise<any>;
-  heartbeatMs?: number;
-} = {}) {
+export function createNotificationSseHandler(
+  options: {
+    repository?: NotificationRepository;
+    hub?: NotificationHub;
+    createContext?: (input: { req: Request; res: Response }) => Promise<any>;
+    heartbeatMs?: number;
+  } = {}
+) {
   const repository = options.repository ?? getNotificationRepository();
   const hub = options.hub ?? notificationHub;
   const createContext =
@@ -123,10 +138,15 @@ export function createNotificationSseHandler(options: {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
+    activeConnectionsBySite.set(sedeId, getSseConnectionCount(sedeId) + 1);
 
-    const queryAfter = typeof req.query?.after === "string" ? req.query.after : undefined;
+    const queryAfter =
+      typeof req.query?.after === "string" ? req.query.after : undefined;
     let lastSent = Number(
-      req.get("last-event-id") ?? req.headers["last-event-id"] ?? queryAfter ?? 0
+      req.get("last-event-id") ??
+        req.headers["last-event-id"] ??
+        queryAfter ??
+        0
     );
     if (!Number.isInteger(lastSent) || lastSent < 0) lastSent = 0;
     const replay = await repository.listAfterId({
@@ -151,11 +171,20 @@ export function createNotificationSseHandler(options: {
           lastSent = item.id;
         });
     });
-    const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), heartbeatMs);
+    const heartbeat = setInterval(
+      () => res.write(": heartbeat\n\n"),
+      heartbeatMs
+    );
     heartbeat.unref();
+    let cleaned = false;
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       clearInterval(heartbeat);
       unsubscribe();
+      const remaining = Math.max(0, getSseConnectionCount(sedeId) - 1);
+      if (remaining) activeConnectionsBySite.set(sedeId, remaining);
+      else activeConnectionsBySite.delete(sedeId);
     };
     res.once("close", cleanup);
     res.once("finish", cleanup);

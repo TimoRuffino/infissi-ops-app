@@ -32,6 +32,7 @@ import { tarsRouter } from "./routers/tars";
 import { mailRouter } from "./routers/mail";
 import { ficFattureRouter } from "./routers/ficFatture";
 import { economiaRouter } from "./routers/economia";
+import { diagnosticaRouter } from "./routers/diagnostica";
 import {
   createLocalToken,
   clearLocalSessionFromRequest,
@@ -186,6 +187,7 @@ export const appRouter = router({
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   economia: economiaRouter,
+  diagnostica: diagnosticaRouter,
 });
 
 export type AppRouter = typeof appRouter;

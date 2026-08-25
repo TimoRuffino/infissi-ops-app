@@ -4,8 +4,7 @@
 > nel progetto senza il contesto delle sessioni precedenti.
 
 **Aggiornato:** 25/08/2026<br>
-**Base Git descritta:** `main` dopo `9f168a1` (Centro Azioni e creazione
-approvata cliente/commessa dalla chat Tars)<br>
+**Base Git descritta:** `main`, milestone Tars "cervello aziendale" Tasks 1-29<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -83,6 +82,16 @@ server/tars/
   stores.ts                 esecuzioni, proposte, budget e audit
   commandCenter.ts          ranking e brief deterministici, senza chiamata AI
   comunicazioni.ts          tabella messaggi e statistiche
+  planner/                  piani tipizzati, resume e recovery idempotente
+  workflows/                workflow cliente/commessa e flussi operativi
+  context/                  fascicoli materializzati e cache per scope
+  search/                   indice testuale/semantico ACL-aware
+  learning/                 esiti strutturati per capability
+  autonomy/                 gate puro; autonomia negata per default
+
+server/events/              registro eventi, consumer e recovery lease
+server/notifications/       repository, proiettore, SSE e Web Push
+server/observability/       metriche aggregate privacy-safe
 
 server/actionCenter/
   signals.ts                regole pure, priorità e deduplica
@@ -573,10 +582,32 @@ pnpm storage:dry-run
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
 5. QA di `OPENAI_API_KEY` su dati reali dopo il deploy e monitoraggio errori,
    latenza, cache e costi Tars.
-6. Memoria semantica Tars per cliente/commessa, con ricerca pgvector, riassunti
-   storici incrementali e visibility scope. Il contesto operativo persistente
-   per situazione è già coperto dal Centro Azioni.
+6. Attivazione progressiva per sede di context, planner e ricerca: l'indice
+   testuale e implementato; il vettoriale resta `off` quando `pgvector` non e
+   disponibile e non tenta installazioni automatiche.
 7. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 8. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
    per sede dopo confronto con le notifiche legacy.
+
+## 13. Piattaforma Tars corrente
+
+- Gli eventi business hanno deduplica, processing per consumer, retry,
+  dead-letter e recupero dei lease stale.
+- Le assegnazioni generano notifiche sede-scoped; SSE usa replay e polling di
+  fallback. Tars riunisce priorita, piani, domande, approvazioni ed evidenze nel
+  Command Center.
+- Il planner esegue workflow registrati e riprendibili. Cliente + prima
+  commessa usa una saga persistente idempotente; un errore parziale non duplica
+  il cliente al retry.
+- `ricerca_ibrida` combina testo, identificatori, riferimenti strutturati e,
+  quando disponibile, embedding. Applica ACL prima e dopo il ranking e
+  restituisce massimo otto frammenti con evidence ref.
+- Gli esiti sono aggregati per capability e non entrano automaticamente nei
+  prompt. Autonomia resta non qualificata: whitelist iniziale vuota, minimo 6
+  settimane, 100 esiti, 98% accuratezza, eval allegato, undo e principal
+  minimo; rischio alto, irreversibilita, incidenti o cambio versione negano.
+- `diagnostica.snapshot` e direzione-only e mostra code eventi, dead-letter,
+  notifiche, connessioni SSE, piani, cache e token per workflow senza contenuti
+  cliente. Runbook: `docs/runbooks/tars-eventi-notifiche.md` e
+  `docs/runbooks/tars-recovery.md`.
