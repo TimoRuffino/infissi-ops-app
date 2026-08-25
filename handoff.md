@@ -185,6 +185,13 @@ Ogni flusso usa paginazione completa e snapshot non distruttivo; i record non
 più restituiti diventano `presenteInFic=false` e smettono di alimentare i KPI.
 Una risposta incompleta non marca nulla come rimosso.
 
+Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
+essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.
+Ogni richiesta FiC scade dopo 30 secondi e l'intero giro viene interrotto dopo
+10 minuti: il lock per sede viene sempre liberato nel `finally`. Il deploy di
+questa versione riavvia inoltre il processo e libera eventuali lock della
+versione precedente rimasti in memoria.
+
 `/economia` separa ora Contratti CRM, Vendite FiC e Acquisti FiC. Fatturato e
 costi canonici sono imponibili al netto delle rispettive note di credito; IVA,
 lordo, rate pagate e rate aperte sono valori distinti. `/pagamenti` mostra

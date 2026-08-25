@@ -31,6 +31,7 @@ import {
   Link2,
   Unlink2,
   KeyRound,
+  Square,
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -631,6 +632,7 @@ function TarsCard() {
 function FattureInCloudCard() {
   const status = trpc.fattureInCloud.status.useQuery(undefined, {
     retry: false,
+    refetchInterval: query => (query.state.data?.syncInCorso ? 1_500 : 15_000),
   });
   const utils = trpc.useUtils();
   const [token, setToken] = useState("");
@@ -655,6 +657,9 @@ function FattureInCloudCard() {
     onError: e => toast.error(e.message),
   });
   const sync = trpc.fattureInCloud.syncNow.useMutation({
+    onMutate: () => {
+      window.setTimeout(() => void status.refetch(), 150);
+    },
     onSuccess: ({ result }) => {
       utils.fattureInCloud.invalidate();
       utils.clienti.invalidate();
@@ -662,6 +667,17 @@ function FattureInCloudCard() {
       utils.ficCosti.invalidate();
       utils.economia.invalidate();
       toast.success(result);
+    },
+    onError: e => {
+      utils.fattureInCloud.invalidate();
+      if (!/annullata dall'operatore/i.test(e.message)) toast.error(e.message);
+    },
+  });
+  const annullaSync = trpc.fattureInCloud.annullaSync.useMutation({
+    onSuccess: ({ annullata }) => {
+      utils.fattureInCloud.invalidate();
+      if (annullata) toast.success("Sincronizzazione fermata");
+      else toast.info("Nessuna sincronizzazione attiva");
     },
     onError: e => toast.error(e.message),
   });
@@ -707,15 +723,33 @@ function FattureInCloudCard() {
               <Switch
                 checked={st.enabled}
                 onCheckedChange={v => save.mutate({ enabled: v })}
+                disabled={st.syncInCorso}
               />
             )}
-            <Button
-              size="sm"
-              onClick={() => sync.mutate()}
-              disabled={!st.configured || sync.isPending}
-            >
-              {sync.isPending ? "Sincronizzo…" : "Sincronizza ora"}
-            </Button>
+            {st.syncInCorso ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => annullaSync.mutate()}
+                disabled={annullaSync.isPending}
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+                {annullaSync.isPending ? "Arresto…" : "Ferma sincronizzazione"}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => sync.mutate()}
+                disabled={!st.configured || sync.isPending}
+              >
+                <RefreshCw
+                  className={
+                    sync.isPending ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"
+                  }
+                />
+                {sync.isPending ? "Avvio…" : "Sincronizza ora"}
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -734,6 +768,20 @@ function FattureInCloudCard() {
             </>
           ) : (
             <Badge variant="warning">Non configurato</Badge>
+          )}
+          {st.syncInCorso && (
+            <Badge variant="warning">
+              Sincronizzazione in corso
+              {st.syncAvviataAt
+                ? ` dalle ${new Date(st.syncAvviataAt).toLocaleTimeString(
+                    "it-IT",
+                    {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }
+                  )}`
+                : ""}
+            </Badge>
           )}
           {st.lastResult && (
             <span

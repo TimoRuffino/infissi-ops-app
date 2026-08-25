@@ -29,6 +29,8 @@ import {
 // OAuth Authorization Code is the primary mode, with automatic refresh.
 
 const FIC = "https://api-v2.fattureincloud.it";
+const FIC_REQUEST_TIMEOUT_MS = 30_000;
+const FIC_SYNC_TIMEOUT_MS = 10 * 60_000;
 const FIC_SCOPES =
   "entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r";
 const FIC_CALLBACK_PATH = "/api/oauth/fic/callback";
@@ -193,17 +195,61 @@ type FicTokenResponse = {
   expires_in?: number;
 };
 
+async function fetchFicConTimeout(
+  input: string,
+  init: RequestInit = {},
+  signal?: AbortSignal
+): Promise<Response> {
+  const controller = new AbortController();
+  const interrompi = () =>
+    controller.abort(
+      signal?.reason instanceof Error
+        ? signal.reason
+        : new Error("Sincronizzazione annullata dall'operatore.")
+    );
+  if (signal?.aborted) interrompi();
+  else signal?.addEventListener("abort", interrompi, { once: true });
+
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new Error("Fatture in Cloud non ha risposto entro 30 secondi.")
+      ),
+    FIC_REQUEST_TIMEOUT_MS
+  );
+  timeout.unref?.();
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : new Error("Richiesta Fatture in Cloud interrotta.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", interrompi);
+  }
+}
+
 async function requestFicToken(
-  payload: Record<string, string>
+  payload: Record<string, string>,
+  signal?: AbortSignal
 ): Promise<FicTokenResponse> {
-  const res = await fetch(`${FIC}/oauth/token`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
+  const res = await fetchFicConTimeout(
+    `${FIC}/oauth/token`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+    signal
+  );
   if (!res.ok) {
     throw new Error(
       `OAuth Fatture in Cloud fallito (HTTP ${res.status}): ${(await res.text()).slice(0, 240)}`
@@ -274,7 +320,10 @@ export async function handleFicOAuthCallback(
 
 const refreshInFlight = new Map<number, Promise<string>>();
 
-async function refreshFicToken(cfg: FicConfig): Promise<string> {
+async function refreshFicToken(
+  cfg: FicConfig,
+  signal?: AbortSignal
+): Promise<string> {
   const existing = refreshInFlight.get(cfg.sedeId);
   if (existing) return existing;
   const promise = (async () => {
@@ -285,12 +334,15 @@ async function refreshFicToken(cfg: FicConfig): Promise<string> {
         "Collegamento OAuth incompleto: ricollega Fatture in Cloud"
       );
     }
-    const token = await requestFicToken({
-      grant_type: "refresh_token",
-      client_id: client.clientId,
-      client_secret: client.clientSecret,
-      refresh_token: refreshToken,
-    });
+    const token = await requestFicToken(
+      {
+        grant_type: "refresh_token",
+        client_id: client.clientId,
+        client_secret: client.clientSecret,
+        refresh_token: refreshToken,
+      },
+      signal
+    );
     salvaTokenOAuth(cfg, token, false);
     return token.access_token!;
   })().finally(() => refreshInFlight.delete(cfg.sedeId));
@@ -298,14 +350,17 @@ async function refreshFicToken(cfg: FicConfig): Promise<string> {
   return promise;
 }
 
-export async function accessTokenFic(cfg: FicConfig): Promise<string | null> {
+export async function accessTokenFic(
+  cfg: FicConfig,
+  signal?: AbortSignal
+): Promise<string | null> {
   const token = tokenDi(cfg);
   if (cfg.authMode !== "oauth") return token;
   const expiresAt = cfg.accessTokenExpiresAt
     ? new Date(cfg.accessTokenExpiresAt).getTime()
     : 0;
   if (token && expiresAt > Date.now() + 5 * 60_000) return token;
-  return refreshFicToken(cfg);
+  return refreshFicToken(cfg, signal);
 }
 
 // Il token manuale ha una forma precisa: "a/" + un JWT. Il Client ID (che
@@ -334,10 +389,16 @@ function messaggioErroreFic(status: number, corpo: string): string {
   return `Fatture in Cloud HTTP ${status}: ${corpo.slice(0, 200)}`;
 }
 
-async function ficGet(path: string, token: string): Promise<any> {
-  const res = await fetch(`${FIC}${path}`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+async function ficGet(
+  path: string,
+  token: string,
+  signal?: AbortSignal
+): Promise<any> {
+  const res = await fetchFicConTimeout(
+    `${FIC}${path}`,
+    { headers: { authorization: `Bearer ${token}` } },
+    signal
+  );
   if (!res.ok) {
     throw new Error(messaggioErroreFic(res.status, await res.text()));
   }
@@ -349,7 +410,8 @@ const MAX_FATTURA_PDF_BYTES = 10 * 1024 * 1024;
 /** Scarica il PDF ufficiale senza inoltrare il bearer token all'URL firmato. */
 export async function scaricaFatturaPdf(
   sedeId: number,
-  ficId: number
+  ficId: number,
+  signal?: AbortSignal
 ): Promise<Buffer> {
   const cfg = getCfg(sedeId);
   const token = await accessTokenFic(cfg);
@@ -360,7 +422,8 @@ export async function scaricaFatturaPdf(
   }
   const response = await ficGet(
     `/c/${cfg.companyId}/issued_documents/${ficId}?fields=id,url`,
-    token
+    token,
+    signal
   );
   const pdfUrl =
     typeof response?.data?.url === "string" ? response.data.url.trim() : "";
@@ -369,9 +432,11 @@ export async function scaricaFatturaPdf(
       "Fatture in Cloud non ha restituito il PDF della fattura. Riprova tra poco."
     );
   }
-  const pdfResponse = await fetch(pdfUrl, {
-    headers: { accept: "application/pdf" },
-  });
+  const pdfResponse = await fetchFicConTimeout(
+    pdfUrl,
+    { headers: { accept: "application/pdf" } },
+    signal
+  );
   if (!pdfResponse.ok) {
     throw new Error(
       `Download PDF fattura fallito (HTTP ${pdfResponse.status}). Riprova il collegamento.`
@@ -394,7 +459,8 @@ export async function scaricaFatturaPdf(
 }
 
 async function archiviaPdfFattureCollegate(
-  sedeId: number
+  sedeId: number,
+  signal?: AbortSignal
 ): Promise<{ archiviate: number; fallite: number }> {
   const { hasDocumentoFic, upsertDocumentoFic } = await import(
     "./preventiviContratti"
@@ -410,9 +476,10 @@ async function archiviaPdfFattureCollegate(
   let fallite = 0;
 
   for (const fattura of collegate) {
+    if (signal?.aborted) throw signal.reason;
     if (hasDocumentoFic(sedeId, fattura.id)) continue;
     try {
-      const pdf = await scaricaFatturaPdf(sedeId, fattura.id);
+      const pdf = await scaricaFatturaPdf(sedeId, fattura.id, signal);
       await upsertDocumentoFic({
         sedeId,
         ficId: fattura.id,
@@ -424,6 +491,7 @@ async function archiviaPdfFattureCollegate(
       });
       archiviate++;
     } catch (error) {
+      if (signal?.aborted) throw signal.reason;
       fallite++;
       console.warn(
         `[fic] archivio PDF fattura ${fattura.id} fallito; nuovo tentativo al prossimo sync:`,
@@ -489,7 +557,14 @@ function splitPersona(
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
 // Un lucchetto per sede: la sede 2 non deve aspettare il giro della sede 1.
-const syncing = new Set<number>();
+type FicSyncRun = {
+  id: string;
+  startedAt: Date;
+  controller: AbortController;
+  timeout: NodeJS.Timeout;
+};
+
+const syncRuns = new Map<number, FicSyncRun>();
 const MAX_FIC_SYNC_PAGES = 100;
 
 type FicPageResult = { rows: any[]; complete: boolean };
@@ -497,7 +572,8 @@ type FicPageResult = { rows: any[]; complete: boolean };
 async function ficListAll(
   path: string,
   token: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  signal?: AbortSignal
 ): Promise<FicPageResult> {
   const rows: any[] = [];
   for (let page = 1; page <= MAX_FIC_SYNC_PAGES; page++) {
@@ -506,7 +582,7 @@ async function ficListAll(
       per_page: "100",
       page: String(page),
     });
-    const response = await ficGet(`${path}?${query.toString()}`, token);
+    const response = await ficGet(`${path}?${query.toString()}`, token, signal);
     const chunk: any[] = Array.isArray(response?.data) ? response.data : [];
     rows.push(...chunk);
     const lastPage = Number(
@@ -585,13 +661,27 @@ function normalizzaCostoRicevuto(
 
 export async function runFicSync(sedeId: number): Promise<string> {
   const cfg = getCfg(sedeId);
-  const token = await accessTokenFic(cfg);
-  if (!token || !cfg.companyId) {
-    throw new Error("Token o azienda non configurati");
-  }
-  if (syncing.has(sedeId)) throw new Error("Sincronizzazione già in corso");
-  syncing.add(sedeId);
+  if (!cfg.companyId) throw new Error("Token o azienda non configurati");
+  if (syncRuns.has(sedeId)) throw new Error("Sincronizzazione già in corso");
+
+  const controller = new AbortController();
+  const run: FicSyncRun = {
+    id: crypto.randomUUID(),
+    startedAt: new Date(),
+    controller,
+    timeout: setTimeout(
+      () =>
+        controller.abort(
+          new Error("Sincronizzazione fermata automaticamente dopo 10 minuti.")
+        ),
+      FIC_SYNC_TIMEOUT_MS
+    ),
+  };
+  run.timeout.unref?.();
+  syncRuns.set(sedeId, run);
   try {
+    const token = await accessTokenFic(cfg, controller.signal);
+    if (!token) throw new Error("Token o azienda non configurati");
     const year = new Date().getFullYear();
     const periodoDa = `${year - 1}-01-01`;
     const periodoA = `${year}-12-31`;
@@ -606,27 +696,49 @@ export async function runFicSync(sedeId: number): Promise<string> {
 
     const [fattureResult, noteResult, speseResult, notePassiveResult] =
       await Promise.allSettled([
-        ficListAll(`/c/${cfg.companyId}/issued_documents`, token, {
-          ...baseParams,
-          type: "invoice",
-          fields: fieldsEmessi,
-        }),
-        ficListAll(`/c/${cfg.companyId}/issued_documents`, token, {
-          ...baseParams,
-          type: "credit_note",
-          fields: fieldsEmessi,
-        }),
-        ficListAll(`/c/${cfg.companyId}/received_documents`, token, {
-          ...baseParams,
-          type: "expense",
-          fields: fieldsRicevuti,
-        }),
-        ficListAll(`/c/${cfg.companyId}/received_documents`, token, {
-          ...baseParams,
-          type: "passive_credit_note",
-          fields: fieldsRicevuti,
-        }),
+        ficListAll(
+          `/c/${cfg.companyId}/issued_documents`,
+          token,
+          {
+            ...baseParams,
+            type: "invoice",
+            fields: fieldsEmessi,
+          },
+          controller.signal
+        ),
+        ficListAll(
+          `/c/${cfg.companyId}/issued_documents`,
+          token,
+          {
+            ...baseParams,
+            type: "credit_note",
+            fields: fieldsEmessi,
+          },
+          controller.signal
+        ),
+        ficListAll(
+          `/c/${cfg.companyId}/received_documents`,
+          token,
+          {
+            ...baseParams,
+            type: "expense",
+            fields: fieldsRicevuti,
+          },
+          controller.signal
+        ),
+        ficListAll(
+          `/c/${cfg.companyId}/received_documents`,
+          token,
+          {
+            ...baseParams,
+            type: "passive_credit_note",
+            fields: fieldsRicevuti,
+          },
+          controller.signal
+        ),
       ]);
+
+    if (controller.signal.aborted) throw controller.signal.reason;
 
     const entities: Array<{
       name: string;
@@ -749,7 +861,8 @@ export async function runFicSync(sedeId: number): Promise<string> {
       created++;
     }
 
-    const pdf = await archiviaPdfFattureCollegate(sedeId);
+    const pdf = await archiviaPdfFattureCollegate(sedeId, controller.signal);
+    if (controller.signal.aborted) throw controller.signal.reason;
     const proposteCreate = generaProposteRiconciliazione(sedeId);
 
     let classificazione = {
@@ -761,9 +874,11 @@ export async function runFicSync(sedeId: number): Promise<string> {
       const { classificaCostiFic } = await import("../tars/classificaCostiFic");
       classificazione = await classificaCostiFic(
         sedeId,
-        idsCostiDaClassificare
+        idsCostiDaClassificare,
+        controller.signal
       );
     }
+    if (controller.signal.aborted) throw controller.signal.reason;
 
     // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
     // propone il collegamento. Fire-and-forget col suo debounce: il sync
@@ -796,7 +911,8 @@ export async function runFicSync(sedeId: number): Promise<string> {
     _cfgStore.save();
     throw e;
   } finally {
-    syncing.delete(sedeId);
+    clearTimeout(run.timeout);
+    if (syncRuns.get(sedeId)?.id === run.id) syncRuns.delete(sedeId);
   }
 }
 
@@ -837,6 +953,7 @@ export const fattureInCloudRouter = router({
   status: adminProcedure.query(({ ctx }) => {
     const cfg = getCfg(ctx.sedeId);
     const token = tokenDi(cfg);
+    const run = syncRuns.get(ctx.sedeId ?? DEFAULT_SEDE_ID);
     return {
       configured: !!(token && cfg.companyId),
       connected: !!token || !!cfg.refreshTokenCifrato,
@@ -849,6 +966,8 @@ export const fattureInCloudRouter = router({
       enabled: cfg.enabled,
       lastSyncAt: cfg.lastSyncAt,
       lastResult: cfg.lastResult,
+      syncInCorso: !!run,
+      syncAvviataAt: run?.startedAt ?? null,
       permessiEconomiciDaAggiornare:
         (!!token || !!cfg.refreshTokenCifrato) && !cfg.economicScopesReady,
     };
@@ -949,5 +1068,14 @@ export const fattureInCloudRouter = router({
 
   syncNow: adminProcedure.mutation(async ({ ctx }) => {
     return { result: await runFicSync(ctx.sedeId ?? DEFAULT_SEDE_ID) };
+  }),
+
+  annullaSync: adminProcedure.mutation(({ ctx }) => {
+    const run = syncRuns.get(ctx.sedeId ?? DEFAULT_SEDE_ID);
+    if (!run) return { annullata: false } as const;
+    run.controller.abort(
+      new Error("Sincronizzazione annullata dall'operatore.")
+    );
+    return { annullata: true } as const;
   }),
 });

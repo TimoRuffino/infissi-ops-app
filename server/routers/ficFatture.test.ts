@@ -410,6 +410,64 @@ describe("archivio PDF FIC", () => {
   });
 });
 
+describe("controllo sincronizzazione FIC", () => {
+  it("mostra il sync attivo e permette di fermarlo anche da una nuova richiesta", async () => {
+    const caller = appRouter.createCaller(makeCtx());
+    const previousKey = process.env.MAIL_ENCRYPTION_KEY;
+    const realFetch = global.fetch;
+    const richiesteInAttesa: Array<() => void> = [];
+
+    process.env.MAIL_ENCRYPTION_KEY = "test-only-fic-cancel-key";
+    await caller.fattureInCloud.saveConfig({
+      accessToken: "a/test-token-fatture-cancel-9300",
+      companyId: 77,
+      enabled: true,
+    });
+
+    global.fetch = vi.fn((_input, init) => {
+      return new Promise((resolve, reject) => {
+        const completa = () =>
+          resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ data: [] }),
+            text: async () => "",
+          } as any);
+        richiesteInAttesa.push(completa);
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("richiesta annullata")),
+          { once: true }
+        );
+      });
+    }) as any;
+
+    const syncPromise = caller.fattureInCloud.syncNow();
+    try {
+      await vi.waitFor(() => {
+        expect(richiesteInAttesa).toHaveLength(4);
+      });
+      const durante = await caller.fattureInCloud.status();
+      expect((durante as any).syncInCorso).toBe(true);
+      expect((durante as any).syncAvviataAt).toBeInstanceOf(Date);
+
+      const arresto = await (caller.fattureInCloud as any).annullaSync();
+      expect(arresto).toEqual({ annullata: true });
+      await expect(syncPromise).rejects.toThrow(/annullata/i);
+
+      const dopo = await caller.fattureInCloud.status();
+      expect((dopo as any).syncInCorso).toBe(false);
+      expect((dopo as any).syncAvviataAt).toBeNull();
+    } finally {
+      richiesteInAttesa.forEach(completa => completa());
+      await syncPromise.catch(() => undefined);
+      global.fetch = realFetch;
+      if (previousKey === undefined) delete process.env.MAIL_ENCRYPTION_KEY;
+      else process.env.MAIL_ENCRYPTION_KEY = previousKey;
+    }
+  });
+});
+
 // Il Client ID e l'Access Token vivono nella stessa schermata di Fatture in
 // Cloud, un rigo sopra l'altro: incollare il primo al posto del secondo è
 // l'errore più facile da fare, e produce un 401 che non spiega niente.

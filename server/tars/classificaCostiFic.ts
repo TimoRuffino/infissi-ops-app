@@ -62,7 +62,8 @@ function parseRisultati(text: string): RisultatoClassificazione[] {
 
 export async function classificaCostiFic(
   sedeId: number,
-  ids?: number[]
+  ids?: number[],
+  signal?: AbortSignal
 ): Promise<{
   classificati: number;
   dubbi: number;
@@ -150,6 +151,7 @@ export async function classificaCostiFic(
         maxTokens: 6_000,
         reasoningEffort: "low",
         promptCacheKey: `tars:v1:s${sedeId}:classifica-costi-fic:${model}`,
+        signal,
         responseFormat: {
           name: "classificazione_costi_fic",
           schema: {
@@ -213,6 +215,7 @@ export async function classificaCostiFic(
         else classificati++;
       }
     } catch (errorLotto) {
+      if (signal?.aborted) throw signal.reason;
       errore ??=
         errorLotto instanceof Error ? errorLotto.message : "Errore OpenAI";
       dubbi += lotto.length;
