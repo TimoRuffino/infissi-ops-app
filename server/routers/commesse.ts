@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   addCommessaToCliente,
@@ -25,6 +26,10 @@ import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
+import {
+  normalizzaPagamentoLegacy,
+  ricalcolaImportoIncassato,
+} from "../_core/commessaPayments";
 
 // Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
 // per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
@@ -134,6 +139,8 @@ const _store = persistedStore<any>("commesse", (items) => {
         },
       ];
     }
+    (c as any).pagamenti = (c as any).pagamenti.map(normalizzaPagamentoLegacy);
+    ricalcolaImportoIncassato(c as any);
   }
 });
 const commesse = _store.items;
@@ -155,6 +162,10 @@ export function getCommesseStore() {
 
 export function getCommessaById(id: number) {
   return commesse.find((c) => c.id === id) ?? null;
+}
+
+export function saveCommesseStore(): void {
+  _store.save();
 }
 
 /**
@@ -933,9 +944,18 @@ export const commesseRouter = router({
         metodo: input.metodo ?? null,
         tipo: input.tipo ?? null,
         note: input.note?.trim() || null,
+        origine: "manuale",
+        stato: "attivo",
+        ficDocumentoId: null,
+        ficRataId: null,
+        ficSourceKey: null,
+        ficStato: null,
+        ficUltimoSyncAt: null,
+        stornatoAt: null,
         createdAt: new Date(),
+        updatedAt: null,
       });
-      c.importoIncassato = c.pagamenti.reduce((s: number, p: any) => s + (p.importo ?? 0), 0);
+      ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
       return c;
@@ -958,12 +978,20 @@ export const commesseRouter = router({
       const c = commesse[idx];
       const p = (c.pagamenti ?? []).find((x: any) => x.id === input.pagamentoId);
       if (!p) throw new Error("Acconto non trovato");
+      if (p.origine === "fic") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Il pagamento proviene da Fatture in Cloud e viene aggiornato dalla sincronizzazione.",
+        });
+      }
       if (input.importo !== undefined) p.importo = input.importo;
       if (input.data !== undefined) p.data = input.data || null;
       if (input.metodo !== undefined) p.metodo = input.metodo ?? null;
       if (input.tipo !== undefined) p.tipo = input.tipo ?? null;
       if (input.note !== undefined) p.note = input.note?.trim() || null;
-      c.importoIncassato = c.pagamenti.reduce((s: number, x: any) => s + (x.importo ?? 0), 0);
+      p.updatedAt = new Date();
+      ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
       return c;
@@ -979,8 +1007,15 @@ export const commesseRouter = router({
       if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
       const pi = c.pagamenti.findIndex((p: any) => p.id === input.pagamentoId);
       if (pi === -1) throw new Error("Acconto non trovato");
+      if (c.pagamenti[pi].origine === "fic") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Il pagamento proviene da Fatture in Cloud e viene aggiornato dalla sincronizzazione.",
+        });
+      }
       c.pagamenti.splice(pi, 1);
-      c.importoIncassato = c.pagamenti.reduce((s: number, p: any) => s + (p.importo ?? 0), 0);
+      ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
       return c;

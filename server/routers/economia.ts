@@ -11,6 +11,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
 import { ficCosti } from "./ficCosti";
 import { ficFatture, statoFattura } from "./ficFatture";
+import { calcolaImportoIncassato } from "../_core/commessaPayments";
 
 function documentiEmessi(sedeId: number): DocumentoEconomico[] {
   return ficFatture
@@ -61,10 +62,7 @@ function riepilogoCrm(sedeId: number) {
       ? commessa.pagamenti
       : [];
     const costi: any[] = Array.isArray(commessa.costi) ? commessa.costi : [];
-    const incassoCommessa = pagamenti.reduce(
-      (somma, pagamento) => somma + Number(pagamento.importo ?? 0),
-      0
-    );
+    const incassoCommessa = calcolaImportoIncassato(pagamenti);
     if (Number(commessa.importoTotale) > 0) {
       const importo = Number(commessa.importoTotale);
       pattuito += importo;
@@ -109,6 +107,7 @@ function flussoCassaCrm(sedeId: number, anno: number) {
       ? commessa.pagamenti
       : [];
     for (const pagamento of pagamenti) {
+      if (pagamento.stato === "stornato") continue;
       const importo = Number(pagamento.importo ?? 0);
       if (!Number.isFinite(importo)) continue;
       const mesePagamento = classificaDataAnnuale(pagamento.data, anno);

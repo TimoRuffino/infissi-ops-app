@@ -3,6 +3,7 @@ import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import { ficFatture, upsertDocumentiEmessi } from "./ficFatture";
 import { ficCosti, upsertCostiFic } from "./ficCosti";
+import { getCommesseStore } from "./commesse";
 
 function ctx(sedeId: number): TrpcContext {
   return {
@@ -27,6 +28,67 @@ function ctx(sedeId: number): TrpcContext {
 }
 
 describe("economia FiC", () => {
+  it("esclude i pagamenti stornati dai totali CRM", async () => {
+    const sedeId = 92;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({
+      cliente: "Cliente storni",
+      importoTotale: 1_000,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 300,
+      data: "2026-04-15",
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 100,
+      data: "2026-04-16",
+    });
+    const stored = getCommesseStore().find(item => item.id === commessa.id)!;
+    stored.pagamenti[1].stato = "stornato";
+
+    const overview = await caller.economia.overview({ anno: 2026 });
+
+    expect(overview.crm.incassato).toBe(300);
+    expect(overview.confrontoIncassi.crm).toBe(300);
+  });
+
+  it("impedisce modifica e rimozione manuale di un pagamento FiC", async () => {
+    const sedeId = 93;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({
+      cliente: "Cliente immutabile",
+      importoTotale: 1_000,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 500,
+      data: "2026-04-15",
+    });
+    const stored = getCommesseStore().find(item => item.id === commessa.id)!;
+    Object.assign(stored.pagamenti[0], {
+      origine: "fic",
+      ficDocumentoId: 9301,
+      ficRataId: 44,
+      ficSourceKey: "rate:44",
+    });
+
+    await expect(
+      caller.commesse.updatePagamento({
+        commessaId: commessa.id,
+        pagamentoId: stored.pagamenti[0].id,
+        importo: 600,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(
+      caller.commesse.removePagamento({
+        commessaId: commessa.id,
+        pagamentoId: stored.pagamenti[0].id,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
   it("separa contratti CRM, vendite FiC e acquisti FiC", async () => {
     const sedeId = 91;
     const caller = appRouter.createCaller(ctx(sedeId));
