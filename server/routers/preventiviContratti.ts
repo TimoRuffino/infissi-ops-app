@@ -11,6 +11,11 @@ import { registerMigratableCollection } from "../_core/fileStorageMigrate";
 // Extended tipo enum — one slot per board state so each transition can be
 // gated by the right artefact. "foto" and "altro" remain for miscellaneous
 // uploads that do not satisfy any gate.
+// I tipi che il fascicolo sa nominare. I primi dieci hanno un ruolo nel doc
+// gate; gli altri esistono perché una commessa raccoglie anche documenti che
+// non fanno avanzare niente — un documento d'identità, una visura, una
+// planimetria — e "Altro" li rendeva tutti indistinguibili al momento di
+// ritrovarli.
 export const DOC_TIPI = [
   "preventivo",
   "contratto",
@@ -23,6 +28,10 @@ export const DOC_TIPI = [
   "ddt_finale",
   "saldo",
   "foto",
+  "documento_identita",
+  "visura",
+  "planimetria",
+  "certificazione",
   "altro",
 ] as const;
 export type DocTipo = (typeof DOC_TIPI)[number];
@@ -195,8 +204,28 @@ export const DOC_TIPO_LABEL: Record<DocTipo, string> = {
   ddt_finale: "DDT finale",
   saldo: "Ricevuta saldo",
   foto: "Foto",
+  documento_identita: "Documento d'identità",
+  visura: "Visura",
+  planimetria: "Planimetria",
+  certificazione: "Certificazione",
   altro: "Altro",
 };
+
+// Tipi il cui nome non va riscritto automaticamente all'upload.
+//
+// L'auto-rename "{Tipo} {cliente}.pdf" è utile sui documenti di commessa, che
+// sono uno per tipo. Su un documento d'identità è dannoso: in una commessa
+// ce ne sono due o tre — intestatario, coniuge, delegato — e schiacciarli
+// tutti su "Documento d'identità Rossi Mario" li rende indistinguibili, con
+// un " (2)" appiccicato a decidere chi è chi.
+export const DOC_TIPI_NOME_ORIGINALE: readonly DocTipo[] = [
+  "documento_identita",
+  "visura",
+  "planimetria",
+  "certificazione",
+  "foto",
+  "altro",
+];
 
 // Cascade for commesse.delete — removes the documents AND their storage
 // bytes when the parent commessa is hard-deleted.
@@ -557,9 +586,10 @@ export const preventiviContrattiRouter = router({
       // the download name reflects the DOCUMENT TYPE picked from the dropdown
       // (not the board stato). Opt-out via `keepNome` when the caller already
       // built a meaningful name (e.g. the preventivatori PDF export).
-      const baseNome = input.keepNome
-        ? input.nome
-        : buildNomeFromTipo(input.nome, input.tipo, commessa?.cliente);
+      const baseNome =
+        input.keepNome || DOC_TIPI_NOME_ORIGINALE.includes(input.tipo)
+          ? input.nome
+          : buildNomeFromTipo(input.nome, input.tipo, commessa?.cliente);
       // Disambiguate duplicates within the same commessa: if the name is
       // already taken, append " (2)", " (3)", ... before the extension so the
       // browser doesn't silently overwrite on download.
