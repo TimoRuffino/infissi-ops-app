@@ -20,6 +20,9 @@ import {
   applicaMigrazioneConfigTars,
   normalizeExecutionMetadata,
   tarsOutcomes,
+  newPropostaId,
+  getChat,
+  saveChat,
 } from "./stores";
 import {
   eseguiStrumento,
@@ -1527,6 +1530,7 @@ describe("tars — prefisso stabile per la cache", () => {
       seguitoEsecuzioneId: null,
       origineId: null,
       requestedByUserId: null,
+      hiddenForUserIds: [],
     });
 
     const dopo = buildSystemPrompt(1);
@@ -2976,6 +2980,141 @@ describe("tars — profili e cache operativa", () => {
     await expect(caller.tars.proposte.approva({ id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("rimuove una proposta fallita solo dalla vista dell'utente e la conserva per audit", async () => {
+    const sedeId = 999_180;
+    const proposalId = newPropostaId();
+    proposte.push({
+      id: proposalId,
+      sedeId,
+      tipo: "nota_timeline",
+      titolo: "Proposta non più eseguibile",
+      motivazione: "Il riferimento originario non è più disponibile.",
+      confidenza: "media",
+      payload: { commessaId: 123, testo: "Nota non più valida" },
+      commessaId: null,
+      clienteId: null,
+      opzioni: null,
+      risposta: null,
+      stato: "errore",
+      esito: "Proposta non trovata.",
+      motivoRifiuto: null,
+      esecuzioneId: null,
+      trigger: "chat",
+      createdAt: new Date(),
+      decisaAt: new Date(),
+      decisaDa: 1,
+      decisaDaNome: "Admin Ruffino",
+      seguitoAt: null,
+      seguitoEsecuzioneId: null,
+      origineId: null,
+      requestedByUserId: null,
+      chiaveAzione: `test:rimozione:${proposalId}`,
+      evidenceRefs: [],
+      correzioni: [],
+      hiddenForUserIds: [],
+    } as any);
+
+    const ownerCtx = makeCtx();
+    ownerCtx.sedeId = sedeId;
+    ownerCtx.sediIds = [sedeId];
+    const ownerChat = getChat(sedeId, 1);
+    ownerChat.messaggi.push({
+      ruolo: "tars",
+      testo: "Ho preparato la proposta.",
+      proposteIds: [proposalId],
+      createdAt: new Date(),
+    });
+    saveChat();
+    const ownerCaller = appRouter.createCaller(ownerCtx);
+
+    expect(
+      (await ownerCaller.tars.proposte.list()).map(item => item.id)
+    ).toContain(proposalId);
+
+    await expect(
+      ownerCaller.tars.proposte.rimuovi({ id: proposalId })
+    ).resolves.toEqual({ success: true });
+
+    expect(
+      (await ownerCaller.tars.proposte.list()).map(item => item.id)
+    ).not.toContain(proposalId);
+    expect(
+      (await ownerCaller.tars.chat.get()).flatMap(message =>
+        message.proposte.map(item => item.id)
+      )
+    ).not.toContain(proposalId);
+    expect(proposte.find(item => item.id === proposalId)).toMatchObject({
+      id: proposalId,
+      hiddenForUserIds: [1],
+    });
+
+    const otherCtx = makeCtx();
+    otherCtx.sedeId = sedeId;
+    otherCtx.sediIds = [sedeId];
+    (otherCtx.user as any) = {
+      ...(otherCtx.user as any),
+      id: 2,
+      openId: "local-2",
+    };
+    const otherCaller = appRouter.createCaller(otherCtx);
+    expect(
+      (await otherCaller.tars.proposte.list()).map(item => item.id)
+    ).toContain(proposalId);
+  });
+
+  it("non rimuove proposte pendenti o appartenenti a un'altra sede", async () => {
+    const sedeId = 999_181;
+    const proposalId = newPropostaId();
+    proposte.push({
+      id: proposalId,
+      sedeId,
+      tipo: "nota_timeline",
+      titolo: "Proposta ancora da decidere",
+      motivazione: "Deve restare nella coda operativa.",
+      confidenza: "alta",
+      payload: { testo: "Nota valida" },
+      commessaId: null,
+      clienteId: null,
+      opzioni: null,
+      risposta: null,
+      stato: "pendente",
+      esito: null,
+      motivoRifiuto: null,
+      esecuzioneId: null,
+      trigger: "chat",
+      createdAt: new Date(),
+      decisaAt: null,
+      decisaDa: null,
+      decisaDaNome: null,
+      seguitoAt: null,
+      seguitoEsecuzioneId: null,
+      origineId: null,
+      requestedByUserId: null,
+      chiaveAzione: `test:rimozione:${proposalId}`,
+      evidenceRefs: [],
+      correzioni: [],
+      hiddenForUserIds: [],
+    } as any);
+
+    const sameSiteCtx = makeCtx();
+    sameSiteCtx.sedeId = sedeId;
+    sameSiteCtx.sediIds = [sedeId];
+    await expect(
+      appRouter
+        .createCaller(sameSiteCtx)
+        .tars.proposte.rimuovi({ id: proposalId })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+
+    const otherSiteCtx = makeCtx();
+    otherSiteCtx.sedeId = sedeId + 1;
+    otherSiteCtx.sediIds = [sedeId + 1];
+    await expect(
+      appRouter
+        .createCaller(otherSiteCtx)
+        .tars.proposte.rimuovi({ id: proposalId })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("legge il fascicolo completo una volta e riusa le richieste duplicate", async () => {

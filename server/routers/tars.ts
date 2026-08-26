@@ -150,9 +150,15 @@ function trovaProposta(id: number, sedeId: number | null) {
 }
 
 function canViewProposal(p: any, user: any): boolean {
-  if (isDirezione(user) || isAmministrazione(user)) return true;
   const userId = Number(user?.id ?? 0);
   if (!Number.isSafeInteger(userId) || userId <= 0) return false;
+  if (
+    Array.isArray(p.hiddenForUserIds) &&
+    p.hiddenForUserIds.some((id: unknown) => Number(id) === userId)
+  ) {
+    return false;
+  }
+  if (isDirezione(user) || isAmministrazione(user)) return true;
   if (Number(p.requestedByUserId) === userId) return true;
   const execution = p.esecuzioneId
     ? esecuzioni.find(item => item.id === p.esecuzioneId)
@@ -348,12 +354,12 @@ function propostaRiferitaAComunicazioni(
 
 // Un messaggio della chat con le sue proposte al seguito, nello stato
 // corrente (approvata/rifiutata compare aggiornato, non congelato).
-function idrataMessaggio(m: MessaggioChat, sedeId: number) {
+function idrataMessaggio(m: MessaggioChat, sedeId: number, user: any) {
   return {
     ...m,
-    proposte: collectProposalTree(m.proposteIds, proposte, sedeId).map(
-      idrataProposta
-    ),
+    proposte: collectProposalTree(m.proposteIds, proposte, sedeId)
+      .filter(proposta => canViewProposal(proposta, user))
+      .map(idrataProposta),
   };
 }
 
@@ -544,7 +550,7 @@ Non scrivere direttamente nel CRM: prepara soltanto proposte approvabili.`;
       const user: any = ctx.user;
       const rec = getChat(ctx.sedeId ?? 1, user?.id ?? 0);
       return rec.messaggi.map(message =>
-        idrataMessaggio(message, ctx.sedeId ?? 1)
+        idrataMessaggio(message, ctx.sedeId ?? 1, user)
       );
     }),
 
@@ -625,7 +631,7 @@ ${input.testo.trim()}`;
         rec.updatedAt = new Date();
         saveChat();
 
-        return idrataMessaggio(suoMsg, ctx.sedeId ?? 1);
+        return idrataMessaggio(suoMsg, ctx.sedeId ?? 1, user);
       }),
 
     pulisci: protectedProcedure.mutation(({ ctx }) => {
@@ -778,6 +784,42 @@ ${input.testo.trim()}`;
         return [...rows]
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
           .map(idrataProposta);
+      }),
+
+    rimuovi: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ input, ctx }) => {
+        const proposta = trovaPropostaVisibile(input.id, ctx);
+        assertReminderOwner(proposta, ctx.user);
+        if (
+          proposalApprovalsInFlight.has(
+            proposalDecisionKey(ctx.sedeId, input.id)
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "La proposta è in esecuzione. Attendi il completamento prima di eliminarla.",
+          });
+        }
+        if (proposta.stato !== "errore") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Si possono eliminare soltanto le proposte fallite.",
+          });
+        }
+        const userId = Number(ctx.user?.id ?? 0);
+        if (!Number.isSafeInteger(userId) || userId <= 0) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Utente non valido.",
+          });
+        }
+        proposta.hiddenForUserIds = Array.from(
+          new Set([...(proposta.hiddenForUserIds ?? []), userId])
+        );
+        saveProposte();
+        return { success: true } as const;
       }),
 
     selezionaPagamentoRiconciliazione: protectedProcedure

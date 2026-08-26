@@ -31,6 +31,7 @@ import {
   PencilLine,
   Reply,
   Save,
+  Trash2,
   X,
   XCircle,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import { toast } from "sonner";
 import TarsAvatar from "@/components/TarsAvatar";
 import { cn } from "@/lib/utils";
 import { EvidenceList } from "@/components/tars/EvidenceList";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 const TIPO_LABEL: Record<string, string> = {
   collega_comunicazione: "Email",
@@ -309,6 +311,7 @@ export default function TarsPropostaCard({
   const [responsabileCorretto, setResponsabileCorretto] = useState("");
   const [dataCorretta, setDataCorretta] = useState("");
   const [pagamentoSelezionato, setPagamentoSelezionato] = useState("");
+  const [eliminaAperta, setEliminaAperta] = useState(false);
   const pendente = proposta.stato === "pendente";
   const processo = proposta.tipo === "miglioramento_processo";
   const correzionePagamento = proposta.tipo === "correzione_pagamento";
@@ -369,6 +372,15 @@ export default function TarsPropostaCard({
     },
     onError: e => toast.error(e.message),
   });
+  const rimuovi = trpc.tars.proposte.rimuovi.useMutation({
+    onSuccess: () => {
+      setEliminaAperta(false);
+      toast.success("Proposta eliminata dalla tua vista");
+      utils.tars.chat.invalidate();
+      invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
   const correggiEsperimento =
     trpc.tars.proposte.correggiEsperimento.useMutation({
       onSuccess: () => {
@@ -409,6 +421,7 @@ export default function TarsPropostaCard({
     approva.isPending ||
     rifiuta.isPending ||
     rispondi.isPending ||
+    rimuovi.isPending ||
     correggiEsperimento.isPending ||
     selezionaPagamento.isPending;
   const utentiAssegnabili = (utenti.data ?? []).filter(
@@ -817,19 +830,32 @@ export default function TarsPropostaCard({
         </div>
       )}
 
-      {proposta.stato === "errore" && !correzionePagamentoNonValida && (
-        <div className="border-t border-border/70 pt-3">
+      {proposta.stato === "errore" && (
+        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
+          {!correzionePagamentoNonValida && (
+            <Button
+              size="sm"
+              className="min-h-11"
+              disabled={busy}
+              onClick={() => approva.mutate({ id: proposta.id })}
+            >
+              {approva.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ArrowRight className="h-3.5 w-3.5" />
+              )}
+              Riprendi dal punto interrotto
+            </Button>
+          )}
           <Button
             size="sm"
+            variant="destructive"
+            className="min-h-11"
             disabled={busy}
-            onClick={() => approva.mutate({ id: proposta.id })}
+            onClick={() => setEliminaAperta(true)}
           >
-            {approva.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ArrowRight className="h-3.5 w-3.5" />
-            )}
-            Riprendi dal punto interrotto
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            Elimina
           </Button>
         </div>
       )}
@@ -946,6 +972,14 @@ export default function TarsPropostaCard({
           </Button>
         </div>
       )}
+      <ConfirmDialog
+        open={eliminaAperta}
+        onOpenChange={setEliminaAperta}
+        title="Eliminare questa proposta?"
+        description="Scomparirà dalla tua chat, dal Centro Azioni e dalla commessa. L'esecuzione resterà nel registro aziendale per l'audit."
+        confirmLabel="Elimina proposta"
+        onConfirm={() => rimuovi.mutate({ id: proposta.id })}
+      />
     </div>
   );
 }

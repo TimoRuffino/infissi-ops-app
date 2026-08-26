@@ -148,6 +148,7 @@ function propostaDaIssue(
       },
     ],
     correzioni: [],
+    hiddenForUserIds: [],
   };
 }
 

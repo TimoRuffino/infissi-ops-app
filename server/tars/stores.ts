@@ -133,6 +133,9 @@ export type Proposta = {
   // Correzioni umane alle proposte di miglioramento. Restano separate dal
   // payload eseguibile: sono audit e feedback esplicito per i run successivi.
   correzioni: CorrezioneEsperimento[];
+  // Rimozione personale dalla UI: la proposta resta disponibile per audit,
+  // deduplicazione e per gli altri operatori autorizzati.
+  hiddenForUserIds: number[];
 };
 
 let nextPropostaId = 1;
@@ -146,6 +149,7 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
     if (!p.chiaveAzione) p.chiaveAzione = chiaveAzioneProposta(p);
     if (p.evidenceRefs === undefined) p.evidenceRefs = [];
     if (p.correzioni === undefined) p.correzioni = [];
+    if (p.hiddenForUserIds === undefined) p.hiddenForUserIds = [];
     for (const correzione of p.correzioni) {
       if (!(correzione.at instanceof Date)) {
         correzione.at = new Date(correzione.at);

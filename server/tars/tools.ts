@@ -365,6 +365,7 @@ function creaProposta(
     chiaveAzione: chiaveAzioneProposta(candidata),
     evidenceRefs,
     correzioni: [],
+    hiddenForUserIds: [],
   };
   proposte.push(p);
   saveProposte();
