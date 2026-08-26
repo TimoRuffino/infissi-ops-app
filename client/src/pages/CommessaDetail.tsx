@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
@@ -1077,7 +1078,7 @@ export default function CommessaDetail() {
 
       {/* Tabs */}
       <Tabs defaultValue="preventivi">
-        <TabsList>
+        <TabsList className="h-auto w-full justify-start overflow-x-auto">
           <TabsTrigger value="preventivi">
             File e documenti ({documenti.data?.length ?? 0})
           </TabsTrigger>
@@ -2316,7 +2317,7 @@ function PagamentiCard({
   if (!commessa) return null;
   const totale: number | null = commessa.importoTotale ?? null;
   const pagamenti: any[] = Array.isArray(commessa.pagamenti) ? commessa.pagamenti : [];
-  const incassato = pagamenti.reduce((s, p) => s + (p.importo ?? 0), 0);
+  const incassato = Number(commessa.importoIncassato ?? 0);
   const residuo = (totale ?? 0) - incassato;
   const pct = totale ? Math.min(100, Math.round((incassato / totale) * 100)) : 0;
 
@@ -2336,6 +2337,10 @@ function PagamentiCard({
   const ordered = [...pagamenti].sort((a, b) =>
     (a.data ?? "0000").localeCompare(b.data ?? "0000")
   );
+  const orderedWithView = ordered.map(p => ({
+    pagamento: p,
+    view: presentPagamento(p),
+  }));
 
   return (
     <Card className={residuo > 0 && totale ? "border-l-[3px] border-l-warning" : ""}>
@@ -2395,8 +2400,8 @@ function PagamentiCard({
         {/* Acconti registrati */}
         {ordered.length > 0 && (
           <div className="rounded-md border border-border divide-y divide-border/60">
-            {ordered.map((p) =>
-              editPag === p.id ? (
+            {orderedWithView.map(({ pagamento: p, view }) =>
+              editPag === p.id && view.canEdit ? (
                 <div key={p.id} className="flex items-end gap-2 px-3 py-2 flex-wrap bg-surface-2/60">
                   <div className="space-y-0.5">
                     <Label className="text-[10px]">Data</Label>
@@ -2476,7 +2481,12 @@ function PagamentiCard({
                   </Button>
                 </div>
               ) : (
-                <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <div
+                  key={p.id}
+                  className={`flex min-w-0 flex-wrap items-center gap-2 px-3 py-2 text-sm sm:flex-nowrap sm:gap-3 ${
+                    p.stato === "stornato" ? "bg-surface-2/50 text-text-3" : ""
+                  }`}
+                >
                   <span className="tabular-nums text-text-2 w-20 shrink-0">
                     {fmtData(p.data)}
                   </span>
@@ -2493,42 +2503,64 @@ function PagamentiCard({
                       {METODO_LABEL[p.metodo] ?? p.metodo}
                     </Badge>
                   )}
+                  <Badge variant="outline" className="text-[10px] shrink-0">
+                    {view.origineLabel}
+                  </Badge>
+                  {p.stato === "stornato" && (
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {view.statoLabel}
+                    </Badge>
+                  )}
+                  {view.fatturaLabel && (
+                    <span className="text-xs text-text-3 sm:shrink-0">
+                      {view.fatturaLabel}
+                    </span>
+                  )}
                   {p.note && (
-                    <span className="text-xs text-text-3 truncate" title={p.note}>
+                    <span
+                      className="order-last w-full truncate text-xs text-text-3 sm:order-none sm:min-w-0 sm:w-auto sm:flex-1"
+                      title={p.note}
+                    >
                       {p.note}
                     </span>
                   )}
-                  <span className="flex-1" />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0"
-                    title="Modifica acconto"
-                    onClick={() => {
-                      setEditPag(p.id);
-                      setEditDraft({
-                        importo: String(p.importo ?? ""),
-                        data: p.data ?? "",
-                        metodo: p.metodo ?? "bonifico",
-                        tipo: p.tipo ?? "",
-                        note: p.note ?? "",
-                      });
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-danger shrink-0"
-                    title="Rimuovi acconto"
-                    disabled={removePagamento.isPending}
-                    onClick={() =>
-                      removePagamento.mutate({ commessaId, pagamentoId: p.id })
-                    }
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <span className="hidden flex-1 sm:block" />
+                  {view.canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0"
+                      title="Modifica acconto"
+                      aria-label="Modifica acconto"
+                      onClick={() => {
+                        setEditPag(p.id);
+                        setEditDraft({
+                          importo: String(p.importo ?? ""),
+                          data: p.data ?? "",
+                          metodo: p.metodo ?? "bonifico",
+                          tipo: p.tipo ?? "",
+                          note: p.note ?? "",
+                        });
+                      }}
+                    >
+                      <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  {view.canRemove && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-danger shrink-0"
+                      title="Rimuovi acconto"
+                      aria-label="Rimuovi acconto"
+                      disabled={removePagamento.isPending}
+                      onClick={() =>
+                        removePagamento.mutate({ commessaId, pagamentoId: p.id })
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               )
             )}

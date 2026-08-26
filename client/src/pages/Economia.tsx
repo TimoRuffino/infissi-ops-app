@@ -1,8 +1,8 @@
 // /economia — la situazione contabile dell'azienda in una pagina.
 //
 // Panoramica contabile, riconciliazione fatture e revisione acquisti FiC.
-// Le rate incassate diventano proposte da approvare — mai scritture
-// automatiche.
+// Le rate FiC alimentano il registro dedicato; Tars propone soltanto le
+// correzioni dei movimenti manuali discordanti.
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -75,9 +75,11 @@ function RigaFattura({ f }: { f: any }) {
   const collegaMut = trpc.ficFatture.collega.useMutation({
     onSuccess: r => {
       toast.success(
-        r.proposteCreate > 0
-          ? `Collegata e PDF allegato — ${r.proposteCreate} proposte da approvare in Tars`
-          : "Collegata e PDF allegato alla commessa"
+        r.pdf.stato === "archiviata"
+          ? "Fattura collegata · pagamenti riconciliati · PDF archiviato"
+          : r.pdf.stato === "errore"
+            ? "Fattura collegata · PDF da ritentare"
+            : "Fattura collegata · pagamenti riconciliati"
       );
       chiudiCollegamento();
       utils.ficFatture.invalidate();
@@ -127,14 +129,34 @@ function RigaFattura({ f }: { f: any }) {
 
         <div className="flex items-center gap-2 flex-wrap">
           {f.commessaId != null ? (
-            <Link
-              href={`/commesse/${f.commessaId}`}
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              <Link2 className="h-3 w-3" />
-              {f.commessaCodice} — {f.commessaCliente}
-              {f.collegataAMano ? " (a mano)" : ""}
-            </Link>
+            <>
+              <Link
+                href={`/commesse/${f.commessaId}`}
+                className="inline-flex min-w-0 items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <Link2 aria-hidden="true" className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {f.commessaCodice} — {f.commessaCliente}
+                </span>
+              </Link>
+              <Badge variant="outline" className="text-[10px]">
+                {f.collegataAMano ? "Manuale" : "Automatico"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[10px]",
+                  f.pdfSync?.stato === "errore" && "border-warning text-warning",
+                  f.pdfSync?.stato === "archiviata" && "border-success/50 text-success"
+                )}
+              >
+                {f.pdfSync?.stato === "archiviata"
+                  ? "PDF archiviato"
+                  : f.pdfSync?.stato === "errore"
+                    ? "PDF da ritentare"
+                    : "PDF in attesa"}
+              </Badge>
+            </>
           ) : (
             f.motivo && (
               <span className="text-xs text-muted-foreground italic">

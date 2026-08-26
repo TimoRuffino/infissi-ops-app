@@ -37,6 +37,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
+import { presentFicSyncStats } from "@/lib/paymentView";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
@@ -699,6 +700,7 @@ function FattureInCloudCard() {
   if (status.error) return null;
   const st = status.data;
   if (!st) return null;
+  const lastStats = st.lastStats ? presentFicSyncStats(st.lastStats) : [];
 
   return (
     <Card>
@@ -791,6 +793,16 @@ function FattureInCloudCard() {
             </span>
           )}
         </div>
+
+        {lastStats.length > 0 && (
+          <div className="flex flex-wrap gap-1.5" aria-label="Esito ultimo sync FiC">
+            {lastStats.map(item => (
+              <Badge key={item} variant="outline" className="text-[10px]">
+                {item}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         {st.permessiEconomiciDaAggiornare && (
           <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-3">

@@ -52,6 +52,7 @@ const TIPO_LABEL: Record<string, string> = {
   modifica_commessa: "Commessa",
   ticket: "Ticket",
   pagamento: "Pagamento",
+  correzione_pagamento: "Correzione pagamento",
   avanzamento_stato: "Stato",
   chiudi_commessa: "Chiusura",
   bozza_risposta: "Bozza",
@@ -164,6 +165,24 @@ function describePayload(p: any): string[] {
       );
       if (pay.note) out.push(`Nota: ${pay.note}`);
       break;
+    case "correzione_pagamento": {
+      out.push(`Fonte autorevole: fattura FiC #${pay.ficDocumentoId}`);
+      if (pay.pagamentoId != null) {
+        out.push(`Pagamento CRM da correggere: #${pay.pagamentoId}`);
+      }
+      const patch = pay.patch ?? {};
+      if (patch.importo != null) {
+        out.push(`Importo corretto: ${formatEuroSimbolo(patch.importo)}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "data")) {
+        out.push(`Data corretta: ${patch.data ?? "non indicata"}`);
+      }
+      if (patch.stato === "stornato") out.push("Stato corretto: stornato");
+      if (pay.pagamentoId == null && Array.isArray(pay.candidati)) {
+        out.push(`${pay.candidati.length} pagamenti CRM compatibili da verificare`);
+      }
+      break;
+    }
     case "avanzamento_stato":
       out.push(`Nuovo stato: ${statoLabel(pay.nuovoStato)}`);
       break;
@@ -214,8 +233,12 @@ export default function TarsPropostaCard({
   const [targetCorretto, setTargetCorretto] = useState("");
   const [responsabileCorretto, setResponsabileCorretto] = useState("");
   const [dataCorretta, setDataCorretta] = useState("");
+  const [pagamentoSelezionato, setPagamentoSelezionato] = useState("");
   const pendente = proposta.stato === "pendente";
   const processo = proposta.tipo === "miglioramento_processo";
+  const correzionePagamento = proposta.tipo === "correzione_pagamento";
+  const richiedeSelezionePagamento =
+    correzionePagamento && proposta.payload?.pagamentoId == null;
   const utenti = trpc.utenti.list.useQuery(undefined, {
     enabled: processo && pendente,
   });
@@ -281,13 +304,28 @@ export default function TarsPropostaCard({
       },
       onError: e => toast.error(e.message),
     });
+  const selezionaPagamento =
+    trpc.tars.proposte.selezionaPagamentoRiconciliazione.useMutation({
+      onSuccess: () => {
+        toast.success("Pagamento selezionato. Ora puoi approvare la correzione.");
+        setPagamentoSelezionato("");
+        utils.tars.proposte.invalidate();
+        utils.tars.commandCenter.invalidate();
+        utils.ficFatture.invalidate();
+      },
+      onError: e => toast.error(e.message),
+    });
 
   const righe = describePayload(proposta);
+  const candidatiPagamento: any[] = Array.isArray(proposta.payload?.candidati)
+    ? proposta.payload.candidati
+    : [];
   const busy =
     approva.isPending ||
     rifiuta.isPending ||
     rispondi.isPending ||
-    correggiEsperimento.isPending;
+    correggiEsperimento.isPending ||
+    selezionaPagamento.isPending;
   const utentiAssegnabili = (utenti.data ?? []).filter(
     (utente: any) => utente.attivo ?? true
   );
@@ -581,6 +619,64 @@ export default function TarsPropostaCard({
         </div>
       )}
 
+      {pendente && richiedeSelezionePagamento && (
+        <div className="space-y-2 rounded-md border border-warning/40 bg-warning-soft p-3">
+          <Label htmlFor={`tars-payment-${proposta.id}`}>
+            Pagamento CRM da correggere
+          </Label>
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <Select
+              value={pagamentoSelezionato}
+              onValueChange={setPagamentoSelezionato}
+            >
+              <SelectTrigger
+                id={`tars-payment-${proposta.id}`}
+                className="min-w-0 flex-1 bg-background"
+              >
+                <SelectValue placeholder="Seleziona il pagamento verificato" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidatiPagamento.map(candidato => (
+                  <SelectItem
+                    key={candidato.pagamentoId}
+                    value={String(candidato.pagamentoId)}
+                  >
+                    Pagamento #{candidato.pagamentoId}
+                    {candidato.patch?.importo != null
+                      ? ` · ${formatEuroSimbolo(candidato.patch.importo)}`
+                      : ""}
+                    {candidato.patch?.data
+                      ? ` · ${candidato.patch.data}`
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="min-h-10 shrink-0"
+              disabled={!pagamentoSelezionato || selezionaPagamento.isPending}
+              onClick={() =>
+                selezionaPagamento.mutate({
+                  id: proposta.id,
+                  pagamentoId: Number(pagamentoSelezionato),
+                })
+              }
+            >
+              {selezionaPagamento.isPending ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+              Conferma scelta
+            </Button>
+          </div>
+          <p className="text-xs text-text-2">
+            FiC fa fede: scegli la riga CRM corrispondente prima di approvare.
+          </p>
+        </div>
+      )}
+
       {!pendente && (
         <div className="border-t border-border/70 pt-2 text-xs text-muted-foreground">
           {proposta.stato === "approvata" && (
@@ -615,6 +711,12 @@ export default function TarsPropostaCard({
             <span className="flex items-start gap-1.5">
               <Reply className="mt-px h-3.5 w-3.5 shrink-0" />
               <span>Risposta: {proposta.risposta}</span>
+            </span>
+          )}
+          {proposta.stato === "superata" && (
+            <span className="flex items-start gap-1.5">
+              <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>Superata — azione già soddisfatta o sostituita</span>
             </span>
           )}
         </div>
@@ -684,18 +786,20 @@ export default function TarsPropostaCard({
         !rifiutoAperto &&
         !correzioneAperta && (
           <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => approva.mutate({ id: proposta.id })}
-            >
-              {approva.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5 mr-1" />
-              )}
-              Approva
-            </Button>
+            {!richiedeSelezionePagamento && (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => approva.mutate({ id: proposta.id })}
+              >
+                {approva.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5 mr-1" />
+                )}
+                Approva
+              </Button>
+            )}
             {processo && (
               <Button
                 size="sm"
