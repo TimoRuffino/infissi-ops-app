@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (26/08/2026).
-**Versione:** 4.30 - Promemoria personali Tars con popup nel CRM.
+**Versione:** 4.31 - Autorità FiC su rate e storni, correzioni Tars e PDF idempotenti.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -869,6 +869,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.31 (26/08/2026)** - FiC diventa fonte autorevole per rate, date e storni; il pattuito resta nel CRM, i movimenti FiC sono idempotenti e auditabili, Tars propone soltanto correzioni dei manuali e i PDF fattura vengono collegati con retry sicuro (§37, §40.4, §50).
 - **v4.30 (26/08/2026)** - Tars riconosce le richieste di promemoria personali, chiede sempre data e ora, attende l'approvazione del richiedente e consegna popup e notifica nel CRM aperto con completamento e posticipo (§25.6, §50.11).
 - **v4.29 (26/08/2026)** - Il workspace Email amplia il lettore, elimina i troncamenti delle informazioni operative nel dettaglio e attiva automaticamente il focus quando si usa Tars o sono presenti proposte pendenti (§51.6).
 - **v4.28 (25/08/2026)** - Gli allegati WhatsApp in ingresso partecipano allo smistamento Tars e possono essere proposti per l'archiviazione nel fascicolo con gli stessi controlli, storage e deduplica degli allegati Email; dalla chat la sorgente può essere indicata per numero o indirizzo Email e la destinazione per cliente/commessa (§50.2, §51.2-51.7).
@@ -975,14 +976,18 @@ Le card del Kanban mostrano il blocco prodotti (vedi §11.2).
 ## 37. Pagamenti — registro acconti
 
 ### 37.1 Modello
-Su ogni commessa: `importoTotale` (pattuito) + `pagamenti[]` embedded: `{ id, importo, data?, metodo?, note?, createdAt }` con metodo ∈ `bonifico | contanti | assegno | pos | finanziamento | altro`.
-- `importoIncassato` è **sempre ricalcolato dal server** come somma del registro (`addPagamento`, `updatePagamento`, `removePagamento`) → board, dashboard e notifiche coerenti senza duplicare logica.
-- Gli acconti registrati sono **modificabili**: `updatePagamento` accetta importo, data, metodo e nota di una singola riga.
+Su ogni commessa: `importoTotale` (pattuito) + `pagamenti[]` embedded. Ogni
+movimento include almeno `{ id, importo, data?, metodo?, note?, origine, stato,
+createdAt, updatedAt }`; i movimenti FiC conservano inoltre documento, rata,
+chiave sorgente, stato remoto e date di sync/storno.
+- `importoTotale` è un dato contrattuale CRM: nessuna fattura lo propone o lo sovrascrive.
+- `importoIncassato` è **sempre ricalcolato dal server** come somma dei soli pagamenti `attivo`; gli `stornato` restano in audit ma valgono zero. Board, dashboard e notifiche usano lo stesso derivato.
+- Gli acconti `origine = manuale` sono modificabili e rimovibili; i movimenti `origine = fic` sono immutabili dalle mutation manuali.
 - Backfill: record legacy con incassato secco → unico acconto "Importo importato".
 
 ### 37.2 Card "Pagamenti" (scheda commessa)
 - Totale pattuito editabile inline (blur‑save), barra "% incassato · € N", **Residuo** grande (ambra finché > 0, verde a saldo).
-- Registro acconti ordinato per data: data, importo bold, badge metodo, nota, **matita** e cestino. La matita trasforma la riga in un form inline (data, importo, metodo, nota + Salva/Annulla); al salvataggio residuo, barra, chip del board, dashboard e notifiche si aggiornano da soli.
+- Registro acconti ordinato per data: data, importo bold, badge metodo, origine `Manuale`/`FiC`, eventuale `Stornato`, riferimento fattura e nota. Matita e cestino compaiono soltanto sui manuali; gli storni restano visibili con enfasi ridotta. Al salvataggio di un manuale residuo, barra, chip del board, dashboard e notifiche si aggiornano dal derivato server.
 - **Chips rapide 50% / 40% / 10%** del totale (il piano di pagamento tipico), cappate al residuo: un click precompila l'importo nel form di registrazione (data default oggi).
 - Accent warning sulla card finché c'è residuo.
 
@@ -1071,7 +1076,7 @@ esistenti non vengono modificati.
 - I clienti creati vanno sulla sede primaria.
 
 ### 40.3 Config & stato
-Store `fic_config`: modalità `oauth` o `manual`, access token e refresh token cifrati, scadenza, `companyId`, abilitazione, data collegamento e ultimo esito. Lo status non restituisce mai segreti in chiaro.
+Store `fic_config`: modalità `oauth` o `manual`, access token e refresh token cifrati, scadenza, `companyId`, abilitazione, data collegamento, ultimo esito e contatori privacy-safe dell'ultimo sync. Lo status non restituisce mai segreti in chiaro.
 
 - OAuth Authorization Code: `oauthStartUrl` crea uno state monouso valido 10 minuti; callback `/api/oauth/fic/callback`; scopes read-only `entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r`.
 - L'access token viene rinnovato prima della scadenza con refresh deduplicato per sede. Il refresh token aggiornato viene persistito cifrato.
@@ -1091,9 +1096,21 @@ Vendite FiC e Acquisti FiC: imponibile, IVA e lordo non vengono confusi e
 l'andamento mensile confronta grandezze dello stesso periodo.
 
 Una fattura può essere collegata manualmente a una commessa soltanto dopo una
-conferma esplicita. Il documento PDF, quando disponibile, viene archiviato nel
-fascicolo della commessa come file `fattura`. Il collegamento delle rate
-incassate genera proposte Tars approvabili e non scrive pagamenti in autonomia.
+conferma esplicita; il match automatico è ammesso soltanto su identificativo
+fiscale univoco e viene persistito. Il pattuito resta sempre fonte CRM. Le rate
+FiC pagate sincronizzano in modo deterministico e idempotente soltanto movimenti
+`origine = fic`; importo, data, stato e storni seguono FiC. Un movimento
+stornato resta auditabile e non alimenta `importoIncassato`. Una risposta
+incompleta non può stornare rate mancanti.
+
+Il sync non modifica mai i pagamenti manuali. Se un manuale compatibile è
+discordante, Tars crea una proposta `correzione_pagamento` approvabile; se i
+candidati sono più di uno, l'operatore seleziona la riga prima
+dell'approvazione. Le proposte soddisfatte o sostituite passano a `superata` e
+le guardie su fingerprint rendono no-op sicuri i dati già corretti o cambiati.
+
+Il documento PDF ufficiale, quando disponibile, viene archiviato nel fascicolo
+della commessa come file `fattura` dopo aver persistito il collegamento.
 Le fatture non abbinate entrano nel trigger `riconciliazione_fatture`: Tars può
 proporre un collegamento verificato oppure lasciarle non abbinate/ignorarle;
 non può applicare la scelta senza approvazione.
@@ -1103,7 +1120,8 @@ ancora il PDF nel fascicolo. Il recupero considera soltanto collegamenti
 espliciti (`commessaId`), deduplica per sorgente e id FiC e isola gli errori per
 singola fattura: un download fallito non interrompe il lotto e viene ritentato
 alla sincronizzazione successiva. Le sole corrispondenze ipotetiche non generano
-documenti.
+documenti. Un errore storage non crea nuovi blob base64 e non annulla il
+collegamento o la riconciliazione economica già completati.
 
 ### 40.5 Snapshot, costi e classificazione Tars
 `fic_fatture` mantiene documenti emessi, tipo, imponibile, IVA, lordo e stato
@@ -1313,6 +1331,14 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura diretta sui dati business: crea record in `azioni_suggerite`; un operatore approva o rifiuta; l'esecutore applica la proposta tramite la stessa mutation tRPC usata dall'interfaccia. Pagamenti, avanzamenti di stato, bozze di risposta e collegamenti fattura richiedono ruoli elevati.
 
 Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e campi significativi del payload. La stessa azione non deve tornare in coda riscritta con parole diverse quando è pendente, approvata, rifiutata, risposta, fallita o già gestita. La similarità del titolo funge da controllo aggiuntivo e il motivo del rifiuto viene restituito al modello.
+
+Per FiC, `correzione_pagamento` è l'unica proposta che può modificare un
+pagamento manuale: payload, candidato scelto e fingerprint vengono rivalidati
+all'approvazione. Se la correzione non è più necessaria, l'esecutore non duplica
+né forza la scrittura; la proposta passa a `superata` quando l'azione è già
+soddisfatta o sostituita. `proponi_pagamento` e `proponi_modifica_commessa`
+rifiutano inoltre i no-op e non possono ricreare importi già presenti o derivare
+il pattuito da FiC.
 
 ### 50.2 Trigger e profili strumenti
 Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:

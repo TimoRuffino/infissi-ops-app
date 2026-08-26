@@ -200,7 +200,7 @@ dall'operatore. Il classificatore continua a proteggere ogni opportunità e usa
 **Su evento** — la pipeline classifica ma marca `richiedeApprofondimento: true`. Casi tipici: importo che non torna, allegato che riguarda più commesse, cliente non identificato ma con indizi, comunicazione che contraddice lo stato della commessa.
 
 **Su schedulazione** — l'audit processi parte una volta al giorno per ogni sede attiva. Legge il quadro aziendale aggregato, cerca pattern ricorrenti e propone al massimo tre interventi con impatto e metrica di verifica. I controlli verticali restano:
-1. *Riconciliazione FIC*: fatture pagate su Fatture in Cloud senza corrispondenza nel registro acconti → proposte di registrazione pagamento
+1. *Riconciliazione FIC*: il motore deterministico sincronizza le sole rate FiC e Tars riceve esclusivamente ambiguità o correzioni dei pagamenti manuali da proporre all'operatore
 2. *Fascicoli fermi*: commesse senza update da oltre 10 giorni → indaga e propone il prossimo passo, o niente
 3. *Coerenza*: commesse il cui stato non corrisponde ai fatti (in `attesa_posa` con merce non arrivata; in `produzione` senza data confermata da 15 giorni)
 
@@ -222,11 +222,13 @@ Implementata con configurazione Meta per sede e ingestione nella stessa tabella 
 
 ### 6.3 Fatture in Cloud
 La sincronizzazione mantiene i clienti mancanti e persiste le fatture emesse in
-`fic_fatture`. Tars usa questi dati **in sola lettura** per:
+`fic_fatture`. Il contratto tra sistemi è rigido:
 
-- **Riconciliazione incassi.** Fattura risultante pagata su FIC ma senza acconto corrispondente nel registro commessa → `proponi_pagamento` con data, importo e riferimento fattura. Questa è probabilmente la singola automazione a più alto risparmio di tempo dell'intero progetto: elimina la doppia imputazione manuale.
-- **Collegamento fattura ↔ commessa.** Match su cliente + importo + periodo, con `chiedi_chiarimento` quando ambiguo.
-- **Coerenza stato.** Fattura emessa ma commessa ancora in `fatture_pagamento` → propone avanzamento.
+- **Pattuito.** È fonte CRM e non viene dedotto, proposto o sovrascritto dalle fatture.
+- **Rate e storni.** FiC è fonte autorevole per importo, data e stato. Il sync usa una chiave sorgente stabile, scrive soltanto movimenti `origine = fic` e non li duplica; gli storni restano nell'audit ma non alimentano l'incassato.
+- **Pagamenti manuali.** Il sync non li modifica mai. Una discordanza certa produce `correzione_pagamento`; un'ambiguità richiede la scelta dell'operatore prima dell'approvazione. Fingerprint e guardie no-op impediscono correzioni su dati cambiati o già corretti.
+- **Collegamento fattura ↔ commessa.** L'automatismo usa solo identificativi fiscali univoci; negli altri casi Tars propone un collegamento verificato e attende approvazione.
+- **PDF.** Il collegamento viene salvato prima del download. Il file ufficiale viene deduplicato nel fascicolo e ritentato se storage o download falliscono, senza base64 di ripiego e senza annullare la riconciliazione economica.
 
 ⚠️ L'agente **non emette e non modifica mai** fatture. Vincolo tecnico (nessuno strumento di scrittura verso FIC) prima ancora che di policy.
 
@@ -266,6 +268,13 @@ Anatomia di una riga:
 ```
 
 Regole di presentazione: il payload è **sempre in italiano leggibile**, mai JSON. La motivazione dice *perché ora* e su quale prova. La confidenza è a tre tacche, non un numero decimale — nessuno sa cosa farsene di 0.73.
+
+Le proposte `correzione_pagamento` mostrano la fattura autorevole, la riga CRM e
+la patch prevista. Se i candidati sono più di uno, `Approva` resta nascosto fino
+alla scelta salvata. Una proposta divenuta inutile assume stato `superata` con
+la dicitura “azione già soddisfatta o sostituita” e non espone pulsanti
+decisionali. La chiave d'azione copre anche proposte già approvate, rifiutate,
+risposte o superate: Tars non le ricrea cambiando il testo.
 
 **Approvazione multipla** con checkbox per le proposte a rischio basso. Il lunedì mattina con 14 proposte accumulate, "seleziona tutte le rinomine" e un click è la differenza fra usarlo e non usarlo.
 

@@ -185,6 +185,26 @@ Ogni flusso usa paginazione completa e snapshot non distruttivo; i record non
 più restituiti diventano `presenteInFic=false` e smettono di alimentare i KPI.
 Una risposta incompleta non marca nulla come rimosso.
 
+Dal 26/08/2026 il contratto economico è esplicito:
+
+- il pattuito (`importoTotale`) è fonte CRM e non viene mai derivato o
+  sovrascritto dalle fatture;
+- fatture, rate, importi incassati, date e storni hanno FiC come fonte
+  autorevole;
+- il sync scrive e aggiorna automaticamente soltanto movimenti con
+  `origine = fic`, usando una chiave sorgente stabile e senza duplicarli;
+- i pagamenti manuali non vengono mai mutati dal sync: una discordanza produce
+  una proposta Tars `correzione_pagamento` da approvare;
+- un movimento FiC annullato resta nel registro come `stornato`, conserva
+  l'audit e non alimenta `importoIncassato`;
+- snapshot FiC incompleti non stornano movimenti assenti dalla risposta.
+
+Le proposte di correzione usano una chiave d'azione canonica. Se più pagamenti
+manuali sono compatibili, l'operatore deve scegliere la riga prima di poter
+approvare. Una proposta già soddisfatta o sostituita diventa `superata` e non
+espone più azioni decisionali; fingerprint e guardie no-op impediscono di
+applicare una correzione su dati cambiati nel frattempo.
+
 Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
 essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.
 Ogni richiesta FiC scade dopo 30 secondi e l'intero giro viene interrotto dopo
@@ -227,12 +247,14 @@ scope. Prima di considerare affidabile il pareggio, confrontare due mesi chiusi
 e revisionare tutti i costi dubbi.
 
 Il collegamento esplicito o approvato da Tars scarica il PDF ufficiale e lo
-archivia come documento `fattura` della commessa. Dal 25/08/2026 anche ogni
-sync ripara i collegamenti storici rimasti senza file: controlla soltanto le
-fatture con `commessaId`, deduplica per sorgente FiC, continua sulle altre se un
-download fallisce e riporta nell'esito quanti PDF sono stati archiviati o
-restano da ritentare. Per forzare il recupero senza attendere le 6 ore usare
-`Sincronizza ora` in Integrazioni.
+archivia come documento `fattura` della commessa **dopo** aver persistito il
+collegamento. Ogni sync ripara i collegamenti storici rimasti senza file:
+controlla soltanto fatture con `commessaId`, deduplica per sorgente FiC,
+continua sulle altre se un download fallisce e ritenta al giro successivo. Un
+errore del PDF non annulla collegamento o riconciliazione economica e non crea
+fallback base64; UI ed esito distinguono PDF archiviati e da ritentare. Per
+forzare il recupero senza attendere le 6 ore usare `Sincronizza ora` in
+Integrazioni.
 
 ## 6. Tars e caching
 
