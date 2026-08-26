@@ -33,10 +33,24 @@ import {
 // ── Store ───────────────────────────────────────────────────────────────────
 
 export type RataFic = {
+  id: number | null;
+  sourceKey: string;
   importo: number;
   scadenza: string | null; // "YYYY-MM-DD"
   stato: "paid" | "not_paid" | "reversed" | string;
   dataPagamento: string | null;
+};
+
+export type ClienteMatchFic = "fiscale" | "nome_univoco" | "nessuno";
+export type CommessaMatchFic =
+  | "manuale"
+  | "automatico_fiscale"
+  | "nessuno";
+
+export type PdfSyncFic = {
+  stato: "non_collegata" | "in_attesa" | "archiviata" | "errore";
+  ultimoTentativoAt: Date | null;
+  ultimoErrore: string | null;
 };
 
 export type FatturaFic = {
@@ -58,7 +72,9 @@ export type FatturaFic = {
   // Aggancio nel CRM. clienteId dal match sul nome; commessaId quando il
   // match è certo o l'operatore l'ha collegata a mano.
   clienteId: number | null;
+  clienteMatch: ClienteMatchFic;
   commessaId: number | null;
+  commessaMatch: CommessaMatchFic;
   collegataAMano: boolean;
   ignorata: boolean;
   // Già esaminata da Tars per il collegamento: una fattura ambigua si paga
@@ -68,7 +84,35 @@ export type FatturaFic = {
   ultimoSyncId: string | null;
   ultimoVistoAt: Date | null;
   aggiornataAt: Date;
+  pdfSync: PdfSyncFic;
 };
+
+function legacyRateSourceKey(
+  documentoId: number,
+  rata: Partial<RataFic>,
+  index: number
+): string {
+  const amount = Number(rata.importo ?? 0).toFixed(2);
+  return `legacy:${documentoId}:${rata.scadenza ?? "-"}:${amount}:${index}`;
+}
+
+function normalizzaRatePersistite(
+  documentoId: number,
+  rate: readonly Partial<RataFic>[] | null | undefined
+): RataFic[] {
+  return (Array.isArray(rate) ? rate : []).map((rata, index) => ({
+    id: rata.id == null ? null : Number(rata.id),
+    sourceKey:
+      rata.sourceKey ||
+      (rata.id != null
+        ? `rate:${Number(rata.id)}`
+        : legacyRateSourceKey(documentoId, rata, index)),
+    importo: Number(rata.importo ?? 0),
+    scadenza: rata.scadenza ?? null,
+    stato: String(rata.stato ?? "not_paid"),
+    dataPagamento: rata.dataPagamento ?? null,
+  }));
+}
 
 const _fattureStore = persistedStore<FatturaFic>("fic_fatture", items => {
   for (const f of items) {
@@ -82,6 +126,26 @@ const _fattureStore = persistedStore<FatturaFic>("fic_fatture", items => {
     if (f.presenteInFic === undefined) f.presenteInFic = true;
     if (f.ultimoSyncId === undefined) f.ultimoSyncId = null;
     if (f.ultimoVistoAt === undefined) f.ultimoVistoAt = null;
+    f.rate = normalizzaRatePersistite(f.id, f.rate);
+    if (f.clienteMatch === undefined) {
+      f.clienteMatch = f.clienteId == null ? "nessuno" : "nome_univoco";
+    }
+    if (f.commessaMatch === undefined) {
+      f.commessaMatch =
+        f.commessaId != null && f.collegataAMano ? "manuale" : "nessuno";
+    }
+    if (f.pdfSync === undefined) {
+      f.pdfSync = {
+        stato: f.commessaId == null ? "non_collegata" : "in_attesa",
+        ultimoTentativoAt: null,
+        ultimoErrore: null,
+      };
+    } else {
+      if (f.pdfSync.ultimoTentativoAt != null) {
+        f.pdfSync.ultimoTentativoAt = new Date(f.pdfSync.ultimoTentativoAt);
+      }
+      if (f.pdfSync.ultimoErrore === undefined) f.pdfSync.ultimoErrore = null;
+    }
   }
 });
 export const ficFatture = _fattureStore.items;
@@ -109,6 +173,15 @@ export function normKey(s: string): string {
     .filter(Boolean)
     .sort()
     .join(" ");
+}
+
+function normFiscal(value: unknown, removeItalianPrefix = false): string {
+  const normalized = String(value ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return removeItalianPrefix && normalized.startsWith("IT")
+    ? normalized.slice(2)
+    : normalized;
 }
 
 // ── Ingestione (chiamata dal sync FIC) ──────────────────────────────────────
@@ -145,19 +218,45 @@ export function upsertDocumentiEmessi(
     (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
   );
   const perNome = new Map<string, number[]>();
+  const perVat = new Map<string, number[]>();
+  const perCf = new Map<string, number[]>();
   for (const c of clienti) {
     const k = normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`);
-    if (!k) continue;
-    perNome.set(k, [...(perNome.get(k) ?? []), c.id]);
+    if (k) perNome.set(k, [...(perNome.get(k) ?? []), c.id]);
+    const vat = normFiscal(c.partitaIva, true);
+    if (vat) perVat.set(vat, [...(perVat.get(vat) ?? []), c.id]);
+    const cf = normFiscal(c.codiceFiscale);
+    if (cf) perCf.set(cf, [...(perCf.get(cf) ?? []), c.id]);
   }
 
   let nuove = 0;
   let aggiornate = 0;
   const idsVariati: number[] = [];
   for (const r of rows) {
+    const vatMatch = r.clienteVat
+      ? perVat.get(normFiscal(r.clienteVat, true))
+      : undefined;
+    const cfMatch = r.clienteCf
+      ? perCf.get(normFiscal(r.clienteCf))
+      : undefined;
+    const fiscalIds = Array.from(
+      new Set([...(vatMatch ?? []), ...(cfMatch ?? [])])
+    );
     const k = normKey(r.clienteNome);
-    const match = perNome.get(k);
-    const clienteId = match && match.length === 1 ? match[0] : null;
+    const nameMatch = perNome.get(k);
+    const clienteId =
+      fiscalIds.length === 1
+        ? fiscalIds[0]
+        : fiscalIds.length === 0 && nameMatch?.length === 1
+          ? nameMatch[0]
+          : null;
+    const clienteMatch: ClienteMatchFic =
+      fiscalIds.length === 1
+        ? "fiscale"
+        : fiscalIds.length === 0 && nameMatch?.length === 1
+          ? "nome_univoco"
+          : "nessuno";
+    const rate = normalizzaRatePersistite(r.id, r.rate);
 
     const esistente = ficFatture.find(
       f => f.id === r.id && f.sedeId === sedeId
@@ -180,9 +279,10 @@ export function upsertDocumentiEmessi(
       esistente.importoNetto = r.importoNetto;
       esistente.importoIva = r.importoIva;
       esistente.importoLordo = r.importoLordo;
-      esistente.rate = r.rate;
+      esistente.rate = rate;
       if (!esistente.collegataAMano) {
-        esistente.clienteId = clienteId ?? esistente.clienteId;
+        esistente.clienteId = clienteId;
+        esistente.clienteMatch = clienteMatch;
       }
       esistente.presenteInFic = true;
       esistente.ultimoSyncId = syncId;
@@ -201,9 +301,12 @@ export function upsertDocumentiEmessi(
     } else {
       ficFatture.push({
         ...r,
+        rate,
         sedeId,
         clienteId,
+        clienteMatch,
         commessaId: null,
+        commessaMatch: "nessuno",
         collegataAMano: false,
         ignorata: false,
         tarsAnalizzata: false,
@@ -211,6 +314,11 @@ export function upsertDocumentiEmessi(
         ultimoSyncId: syncId,
         ultimoVistoAt: new Date(),
         aggiornataAt: new Date(),
+        pdfSync: {
+          stato: "non_collegata",
+          ultimoTentativoAt: null,
+          ultimoErrore: null,
+        },
       });
       idsVariati.push(r.id);
       nuove++;
@@ -286,42 +394,66 @@ export function commessaPerFattura(
   commesse: any[]
 ): { commessa: any | null; motivo: string } {
   if (f.commessaId != null) {
-    const c = commesse.find(x => x.id === f.commessaId);
-    return { commessa: c ?? null, motivo: "Collegata dall'operatore." };
-  }
-  if (f.clienteId == null) {
-    return {
-      commessa: null,
-      motivo: "Cliente non riconosciuto in anagrafica.",
-    };
-  }
-  const sue = commesse.filter(
-    c => c.clienteId === f.clienteId && !c.archivedAt
-  );
-  if (sue.length === 1) {
-    return {
-      commessa: sue[0],
-      motivo: `Il cliente ha una sola commessa attiva (${sue[0].codice}).`,
-    };
-  }
-  if (sue.length > 1) {
-    const perImporto = sue.filter(
-      c =>
-        c.importoTotale != null &&
-        Math.abs(c.importoTotale - f.importoLordo) <= 1
+    const c = commesse.find(
+      x => x.id === f.commessaId && (x.sedeId ?? DEFAULT_SEDE_ID) === f.sedeId
     );
-    if (perImporto.length === 1) {
-      return {
-        commessa: perImporto[0],
-        motivo: `L'importo della fattura coincide col pattuito di ${perImporto[0].codice}.`,
-      };
-    }
     return {
-      commessa: null,
-      motivo: `Il cliente ha ${sue.length} commesse attive: ambigua.`,
+      commessa: c ?? null,
+      motivo:
+        f.commessaMatch === "automatico_fiscale"
+          ? "Collegata automaticamente tramite identita fiscale."
+          : "Collegata dall'operatore.",
     };
   }
-  return { commessa: null, motivo: "Il cliente non ha commesse attive." };
+  return {
+    commessa: null,
+    motivo:
+      f.clienteId == null
+        ? "Cliente non riconosciuto in anagrafica."
+        : "La fattura non e ancora collegata a una commessa.",
+  };
+}
+
+export function collegaFattureAutomatiche(sedeId: number): {
+  collegate: number;
+  ambigue: number;
+} {
+  const commesse = getCommesseStore().filter(
+    (commessa: any) =>
+      (commessa.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
+      !commessa.archivedAt &&
+      commessa.stato !== "archiviata"
+  );
+  let collegate = 0;
+  let ambigue = 0;
+  for (const fattura of ficFatture) {
+    if (
+      fattura.sedeId !== sedeId ||
+      fattura.tipo !== "invoice" ||
+      !fattura.presenteInFic ||
+      fattura.ignorata ||
+      fattura.commessaId != null ||
+      fattura.clienteId == null ||
+      fattura.clienteMatch !== "fiscale"
+    ) {
+      continue;
+    }
+    const candidate = commesse.filter(
+      (commessa: any) => commessa.clienteId === fattura.clienteId
+    );
+    if (candidate.length === 1) {
+      fattura.commessaId = candidate[0].id;
+      fattura.commessaMatch = "automatico_fiscale";
+      fattura.collegataAMano = false;
+      fattura.pdfSync.stato = "in_attesa";
+      fattura.aggiornataAt = new Date();
+      collegate++;
+    } else if (candidate.length > 1) {
+      ambigue++;
+    }
+  }
+  if (collegate > 0) saveFicFatture();
+  return { collegate, ambigue };
 }
 
 function esisteRataInCommessa(
@@ -604,10 +736,12 @@ export const ficFattureRouter = router({
             motivo: propostaCollegamento
               ? "Tars ha individuato una possibile commessa."
               : s.motivo,
-            commessaId: s.commessa?.id ?? null,
+            commessaId: f.commessaId,
             commessaCodice: s.commessa?.codice ?? null,
             commessaCliente: s.commessa?.cliente ?? null,
             collegataAMano: f.collegataAMano,
+            commessaMatch: f.commessaMatch,
+            pdfSync: f.pdfSync,
             propostaTars: propostaCollegamento
               ? {
                   ...propostaCollegamento,

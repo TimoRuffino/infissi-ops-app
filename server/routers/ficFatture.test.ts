@@ -7,6 +7,7 @@ import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
   commessaPerFattura,
+  collegaFattureAutomatiche,
   _setScaricaFatturaPdfForTests,
   ficFatture,
   generaProposteRiconciliazione,
@@ -17,10 +18,10 @@ import {
 } from "./ficFatture";
 import { toOpenAIResponse } from "../tars/openaiTestHelpers";
 import { proposte } from "../tars/stores";
-import { runFicSync } from "./fattureInCloud";
+import { normalizzaRate, runFicSync } from "./fattureInCloud";
 import { deleteDocumentoFic } from "./preventiviContratti";
 
-function makeCtx(): TrpcContext {
+function makeCtx(sedeId = 1): TrpcContext {
   return {
     user: {
       id: 1,
@@ -37,10 +38,120 @@ function makeCtx(): TrpcContext {
     } as any,
     req: { protocol: "http", headers: {} } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
-    sedeId: 1,
-    sediIds: [1],
+    sedeId,
+    sediIds: [sedeId],
   };
 }
+
+describe("identita e collegamento persistito FIC", () => {
+  it("normalizza l'id stabile della rata FiC", () => {
+    expect(
+      normalizzaRate(
+        [
+          {
+            id: 444,
+            amount: 1_220,
+            status: "paid",
+            paid_date: "2026-08-20",
+          },
+        ],
+        90_001
+      )[0]
+    ).toMatchObject({ id: 444, sourceKey: "rate:444" });
+  });
+
+  it("non tratta una commessa inferita come collegamento persistito", async () => {
+    const sedeId = 120;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Mario",
+      cognome: "Persistito",
+      partitaIva: "IT12000000001",
+    });
+    await caller.commesse.create({ clienteId: cliente.id });
+    upsertFatture(
+      [
+        fatturaBase(120_001, {
+          clienteNome: "Persistito Mario",
+          clienteVat: "IT12000000001",
+        }),
+      ],
+      sedeId
+    );
+    const fattura = ficFatture.find(
+      item => item.sedeId === sedeId && item.id === 120_001
+    )!;
+    const commesse = await caller.commesse.list({ archived: "all" });
+
+    expect(commessaPerFattura(fattura, commesse).commessa).toBeNull();
+    const list = await caller.ficFatture.list({ anno: 2026 });
+    expect(list.find(item => item.id === fattura.id)?.commessaId).toBeNull();
+  });
+
+  it("collega automaticamente identita fiscale e unica commessa attiva", async () => {
+    const sedeId = 121;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Anna",
+      cognome: "Fiscale",
+      codiceFiscale: "FSCLNN80A01H501Z",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    upsertFatture(
+      [
+        fatturaBase(121_001, {
+          clienteNome: "Fiscale Anna",
+          clienteCf: "fsclnn80a01h501z",
+        }),
+      ],
+      sedeId
+    );
+
+    const result = collegaFattureAutomatiche(sedeId);
+    const fattura = ficFatture.find(
+      item => item.sedeId === sedeId && item.id === 121_001
+    )!;
+
+    expect(result).toEqual({ collegate: 1, ambigue: 0 });
+    expect(fattura.commessaId).toBe(commessa.id);
+    expect(fattura.commessaMatch).toBe("automatico_fiscale");
+    expect(fattura.collegataAMano).toBe(false);
+  });
+
+  it("non collega per importo quando il cliente ha piu commesse", async () => {
+    const sedeId = 122;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Paolo",
+      cognome: "Ambiguo",
+      partitaIva: "IT12200000001",
+    });
+    await caller.commesse.create({ clienteId: cliente.id, importoTotale: 900 });
+    await caller.commesse.create({
+      clienteId: cliente.id,
+      importoTotale: 1_220,
+    });
+    upsertFatture(
+      [
+        fatturaBase(122_001, {
+          clienteNome: "Ambiguo Paolo",
+          clienteVat: "IT12200000001",
+        }),
+      ],
+      sedeId
+    );
+
+    expect(collegaFattureAutomatiche(sedeId)).toEqual({
+      collegate: 0,
+      ambigue: 1,
+    });
+    expect(
+      ficFatture.find(
+        item => item.sedeId === sedeId && item.id === 122_001
+      )!.commessaId
+    ).toBeNull();
+  });
+});
 
 const fatturaBase = (id: number, extra: Partial<any> = {}) => ({
   id,
@@ -88,11 +199,16 @@ describe("riconciliazione FIC", () => {
     expect(f.clienteId).toBe(clienteId);
   });
 
-  it("cliente con una sola commessa attiva → commessa individuata", async () => {
+  it("la riconciliazione usa soltanto la commessa persistita", async () => {
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
     const f = ficFatture.find(x => x.id === 9001)!;
-    const m = commessaPerFattura(f, commesse);
-    expect(m.commessa?.id).toBe(commessaId);
+    expect(commessaPerFattura(f, commesse).commessa).toBeNull();
+
+    f.commessaId = commessaId;
+    f.commessaMatch = "manuale";
+    f.collegataAMano = true;
+
+    expect(commessaPerFattura(f, commesse).commessa?.id).toBe(commessaId);
   });
 
   it("rata incassata su FIC → proposta di pagamento, e il rilancio non duplica", async () => {

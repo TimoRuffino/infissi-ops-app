@@ -595,13 +595,26 @@ async function ficListAll(
   return { rows, complete: false };
 }
 
-function normalizzaRate(value: unknown): RataFic[] {
-  return (Array.isArray(value) ? value : []).map((p: any) => ({
-    importo: Number(p.amount ?? 0),
-    scadenza: p.due_date ? String(p.due_date) : null,
-    stato: String(p.status ?? "not_paid"),
-    dataPagamento: p.paid_date ? String(p.paid_date) : null,
-  }));
+export function normalizzaRate(
+  value: unknown,
+  documentoId: number
+): RataFic[] {
+  return (Array.isArray(value) ? value : []).map((p: any, index) => {
+    const id = p.id == null ? null : Number(p.id);
+    const importo = Number(p.amount ?? 0);
+    const scadenza = p.due_date ? String(p.due_date) : null;
+    return {
+      id,
+      sourceKey:
+        id == null
+          ? `legacy:${documentoId}:${scadenza ?? "-"}:${importo.toFixed(2)}:${index}`
+          : `rate:${id}`,
+      importo,
+      scadenza,
+      stato: String(p.status ?? "not_paid"),
+      dataPagamento: p.paid_date ? String(p.paid_date) : null,
+    };
+  });
 }
 
 function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
@@ -620,7 +633,7 @@ function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
     importoNetto,
     importoIva: Number(row.amount_vat ?? importoLordo - importoNetto),
     importoLordo,
-    rate: normalizzaRate(row.payments_list),
+    rate: normalizzaRate(row.payments_list, Number(row.id)),
   };
 }
 
@@ -655,7 +668,7 @@ function normalizzaCostoRicevuto(
     importoNetto,
     importoIva: Number(row.amount_vat ?? importoLordo - importoNetto),
     importoLordo,
-    rate: normalizzaRate(row.payments_list),
+    rate: normalizzaRate(row.payments_list, Number(row.id)),
   };
 }
 
