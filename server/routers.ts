@@ -21,6 +21,7 @@ import { utentiRouter, getUtentiStore } from "./routers/utenti";
 import { permessiRouter } from "./routers/permessi";
 import { preventiviContrattiRouter } from "./routers/preventiviContratti";
 import { notificheRouter } from "./routers/notifiche";
+import { promemoriaRouter } from "./routers/promemoria";
 import { sediRouter } from "./routers/sedi";
 import { calendarSyncRouter } from "./routers/calendarSync";
 import { externalCalendarsRouter } from "./routers/externalCalendars";
@@ -177,6 +178,7 @@ export const appRouter = router({
   permessi: permessiRouter,
   preventiviContratti: preventiviContrattiRouter,
   notifiche: notificheRouter,
+  promemoria: promemoriaRouter,
   sedi: sediRouter,
   calendarSync: calendarSyncRouter,
   externalCalendars: externalCalendarsRouter,
