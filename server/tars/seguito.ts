@@ -28,7 +28,15 @@ import {
 export function meritaSeguito(p: Proposta): boolean {
   if (p.seguitoAt != null) return false;
   // Un seguito non genera un altro seguito: la catena si ferma a uno.
-  if (p.origineId != null) return false;
+  // Eccezione controllata: un promemoria può richiedere più di una risposta
+  // umana per arrivare a data e ora esatte. Ogni giro resta comunque fermo
+  // finché l'operatore non risponde alla nuova domanda.
+  if (
+    p.origineId != null &&
+    !(p.tipo === "domanda" && p.payload?.intent === "promemoria")
+  ) {
+    return false;
+  }
   if (p.tipo === "segnalazione") return p.stato === "approvata";
   if (p.tipo === "domanda") return p.stato === "risposta";
   return false;
@@ -43,6 +51,17 @@ Data e ora: ${new Date().toISOString()}
 </trigger>`;
 
   if (p.tipo === "domanda") {
+    if (p.payload?.intent === "promemoria") {
+      return `${intestazione}
+
+L'operatore vuole questo promemoria personale:
+<promemoria>${p.payload.requestedText ?? ""}</promemoria>
+<quando>${p.risposta ?? ""}</quando>
+
+Interpreta la risposta in Europe/Rome. Se non identifica data e ora esatte,
+usa ancora chiedi_chiarimento. Se è esatta, usa proponi_promemoria una sola
+volta. Non creare note timeline, appuntamenti o attività operative.`;
+    }
     return `${intestazione}
 
 Avevi chiesto un chiarimento e un operatore ha risposto.

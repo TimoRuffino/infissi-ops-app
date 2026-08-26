@@ -3,7 +3,7 @@
 // Copre: analizza → tool di lettura → proposta → approvazione → mutation
 // reale, più nessuna_azione e il rifiuto con motivo.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
 import {
   bloccoDecisioni,
@@ -51,6 +51,19 @@ import { extractProcessMetrics, type CompanyFrame } from "./processMetrics";
 import { getActionCaseRepository } from "../actionCenter/repository";
 import { upsertDocumentiEmessi } from "../routers/ficFatture";
 import { upsertCostiFic } from "../routers/ficCosti";
+import { createMemoryReminderRepository } from "../reminders/repository";
+import {
+  createReminderService,
+  setReminderServiceForTesting,
+} from "../reminders/service";
+import { createMemoryNotificationRepository } from "../notifications/repository";
+import { getUtentiStore } from "../routers/utenti";
+import { meritaSeguito } from "./seguito";
+
+afterEach(() => {
+  vi.useRealTimers();
+  setReminderServiceForTesting(null);
+});
 
 function seedProcessSnapshot(sedeId = 1) {
   const frame: CompanyFrame = {
@@ -1513,6 +1526,7 @@ describe("tars — prefisso stabile per la cache", () => {
       seguitoAt: null,
       seguitoEsecuzioneId: null,
       origineId: null,
+      requestedByUserId: null,
     });
 
     const dopo = buildSystemPrompt(1);
@@ -1580,6 +1594,235 @@ describe("tars — profili e cache operativa", () => {
     expect(gestioneDocumento).toContain("cerca_commesse");
     expect(gestioneDocumento).toContain("proponi_archivia_allegato");
     expect(toolDefsForTrigger("chat")).toBe(TOOL_DEFS);
+  });
+
+  it("espone proponi_promemoria solo nei percorsi umani previsti", () => {
+    expect(toolDefsForTrigger("chat").map((tool) => tool.name)).toContain(
+      "proponi_promemoria",
+    );
+    expect(toolDefsForTrigger("seguito").map((tool) => tool.name)).toContain(
+      "proponi_promemoria",
+    );
+    expect(toolDefsForTrigger("smistamento").map((tool) => tool.name)).not.toContain(
+      "proponi_promemoria",
+    );
+    expect(toolDefsForTrigger("audit_processi").map((tool) => tool.name)).not.toContain(
+      "proponi_promemoria",
+    );
+  });
+
+  it("il prompt distingue promemoria, nota e calendario", () => {
+    const prompt = buildSystemPrompt(1);
+    expect(prompt).toContain("promemoria personale");
+    expect(prompt).toContain("chiedi sempre quando");
+    expect(prompt).toContain("non usare proponi_nota_timeline");
+  });
+
+  it("rifiuta un promemoria senza domanda temporale risposta", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-26T10:00:00.000Z"));
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_901,
+      trigger: "chat",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      origineId: null,
+      risultatiCache: new Map(),
+    };
+
+    const result = await eseguiStrumento(rt, "proponi_promemoria", {
+      text: "Invia preventivo",
+      remindAtIso: "2026-08-27T09:00:00+02:00",
+      timezone: "Europe/Rome",
+      titolo: "Invia preventivo",
+      motivazione: "Richiesto dall'operatore",
+      confidenza: "alta",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("chiedere quando");
+  });
+
+  it("non deduplica le domande promemoria di due utenti diversi", async () => {
+    const firstCtx = makeCtx();
+    const secondCtx = {
+      ...firstCtx,
+      user: { ...(firstCtx.user as any), id: 2, openId: "local-2" },
+    } as TrpcContext;
+    const runtime = (ctx: TrpcContext, executionId: number): ToolRuntime => ({
+      ctx,
+      esecuzioneId: executionId,
+      trigger: "chat",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+    });
+    const first = runtime(firstCtx, 999_904);
+    const second = runtime(secondCtx, 999_905);
+    const input = {
+      domanda: "Quando vuoi che te lo ricordi?",
+      contesto: "Serve data e ora.",
+      intent: "promemoria",
+      requestedText: "Inviare il preventivo",
+    };
+
+    expect((await eseguiStrumento(first, "chiedi_chiarimento", input)).isError)
+      .not.toBe(true);
+    expect((await eseguiStrumento(second, "chiedi_chiarimento", input)).isError)
+      .not.toBe(true);
+    expect(first.proposteIds).toHaveLength(1);
+    expect(second.proposteIds).toHaveLength(1);
+
+    for (const id of [...first.proposteIds, ...second.proposteIds]) {
+      const index = proposte.findIndex((item) => item.id === id);
+      if (index >= 0) proposte.splice(index, 1);
+    }
+  });
+
+  it("consente un secondo chiarimento temporale senza catene automatiche generiche", async () => {
+    const rt: ToolRuntime = {
+      ctx: makeCtx(),
+      esecuzioneId: 999_906,
+      trigger: "seguito",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      origineId: 999_000,
+      risultatiCache: new Map(),
+    };
+    await eseguiStrumento(rt, "chiedi_chiarimento", {
+      domanda: "A che ora esatta?",
+      contesto: "La risposta precedente non contieneva un'ora.",
+      intent: "promemoria",
+      requestedText: "Inviare il preventivo",
+    });
+    const id = rt.proposteIds[0];
+    const question = proposte.find((item) => item.id === id)!;
+    question.stato = "risposta";
+    question.risposta = "Alle 9";
+
+    expect(meritaSeguito(question)).toBe(true);
+
+    const index = proposte.findIndex((item) => item.id === id);
+    if (index >= 0) proposte.splice(index, 1);
+  });
+
+  it("crea il promemoria solo dopo domanda, risposta e approvazione del richiedente", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-26T10:00:00.000Z"));
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const users = getUtentiStore();
+    const insertedUser = !users.some((user: any) => Number(user.id) === 1);
+    if (insertedUser) {
+      users.push({
+        id: 1,
+        nome: "Admin",
+        cognome: "Ruffino",
+        attivo: true,
+        sediIds: [1],
+        ruoli: ["direzione"],
+      });
+    }
+    const reminders = createMemoryReminderRepository();
+    setReminderServiceForTesting(
+      createReminderService({
+        reminders,
+        notifications: createMemoryNotificationRepository(),
+        now: () => new Date(),
+      }),
+    );
+    const createdProposalIds: number[] = [];
+
+    const questionRuntime: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_902,
+      trigger: "chat",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      origineId: null,
+      risultatiCache: new Map(),
+    };
+    const asked = await eseguiStrumento(
+      questionRuntime,
+      "chiedi_chiarimento",
+      {
+        domanda: "Quando vuoi che te lo ricordi?",
+        contesto: "Serve una data e un'ora esatte.",
+        intent: "promemoria",
+        requestedText: "Chiamare Rossi",
+      },
+    );
+    expect(asked.isError).not.toBe(true);
+    const questionId = questionRuntime.proposteIds[0];
+    createdProposalIds.push(questionId);
+    const question = proposte.find((item) => item.id === questionId)!;
+    question.seguitoAt = new Date();
+    await caller.tars.proposte.rispondi({
+      id: questionId,
+      risposta: "27 agosto 2026 alle 09:00",
+    });
+
+    const proposalRuntime: ToolRuntime = {
+      ...questionRuntime,
+      esecuzioneId: 999_903,
+      trigger: "seguito",
+      proposteIds: [],
+      origineId: questionId,
+    };
+    const proposed = await eseguiStrumento(
+      proposalRuntime,
+      "proponi_promemoria",
+      {
+        text: "Chiamare Rossi",
+        remindAtIso: "2026-08-27T09:00:00+02:00",
+        timezone: "Europe/Rome",
+        titolo: "Ricorda di chiamare Rossi",
+        motivazione: "Data e ora confermate dall'operatore.",
+        confidenza: "alta",
+      },
+    );
+    expect(proposed.isError).not.toBe(true);
+    const proposalId = proposalRuntime.proposteIds[0];
+    createdProposalIds.push(proposalId);
+
+    const approved = await caller.tars.proposte.approva({ id: proposalId });
+    expect(approved.stato).toBe("approvata");
+    const repeated = await caller.tars.proposte.approva({ id: proposalId });
+    expect(repeated.approvazioneRipetuta).toBe(true);
+    expect(await reminders.findById(1, 1, 1)).toMatchObject({
+      sourceProposalId: proposalId,
+      recipientUserId: 1,
+      text: "Chiamare Rossi",
+    });
+
+    const otherCtx = {
+      ...ctx,
+      user: { ...(ctx.user as any), id: 2, openId: "local-2" },
+    } as TrpcContext;
+    const otherCaller = appRouter.createCaller(otherCtx);
+    await expect(
+      otherCaller.tars.proposte.rispondi({
+        id: questionId,
+        risposta: "Domani alle 10",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      otherCaller.tars.proposte.approva({ id: proposalId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    for (const id of createdProposalIds) {
+      const index = proposte.findIndex((item) => item.id === id);
+      if (index >= 0) proposte.splice(index, 1);
+    }
+    if (insertedUser) {
+      const index = users.findIndex((user: any) => Number(user.id) === 1);
+      if (index >= 0) users.splice(index, 1);
+    }
   });
 
   it("usa per lo smistamento un prompt compatto che protegge opportunità e sicurezza", () => {

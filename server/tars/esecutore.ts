@@ -35,6 +35,14 @@ async function getCaller(ctx: TrpcContext) {
   return appRouter.createCaller(ctx);
 }
 
+function formatReminderForAudit(value: Date) {
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(value);
+}
+
 function normalizza(value: unknown): string {
   return String(value ?? "")
     .toLowerCase()
@@ -649,6 +657,74 @@ export async function eseguiProposta(
         upsert.record.id
       );
       return `Esperimento avviato e assegnato nel Centro Azioni. Verifica il ${p.reviewDate}`;
+    }
+    case "promemoria": {
+      const requestedByUserId = Number(proposta.requestedByUserId);
+      const currentUserId = Number((ctx.user as any)?.id);
+      if (
+        !Number.isSafeInteger(requestedByUserId) ||
+        requestedByUserId <= 0 ||
+        requestedByUserId !== currentUserId
+      ) {
+        throw new Error(
+          "Il promemoria personale può essere approvato solo dal richiedente.",
+        );
+      }
+      const sedeId = Number(ctx.sedeId);
+      if (!Number.isSafeInteger(sedeId) || sedeId <= 0) {
+        throw new Error("Sede attiva non valida.");
+      }
+      const { getUtentiStore } = await import("../routers/utenti");
+      const requester: any = getUtentiStore().find(
+        (user: any) => Number(user.id) === requestedByUserId,
+      );
+      if (
+        !requester ||
+        !(requester.attivo ?? true) ||
+        (Array.isArray(requester.sediIds) && !requester.sediIds.includes(sedeId))
+      ) {
+        throw new Error("Il richiedente non è più attivo in questa sede.");
+      }
+
+      const { getCommessaById } = await import("../routers/commesse");
+      const { getClienteById } = await import("../routers/clienti");
+      const commessa: any =
+        proposta.commessaId == null
+          ? null
+          : getCommessaById(Number(proposta.commessaId));
+      const cliente: any =
+        proposta.clienteId == null
+          ? null
+          : getClienteById(Number(proposta.clienteId));
+      if (
+        (proposta.commessaId != null &&
+          (!commessa ||
+            Number(commessa.sedeId) !== sedeId ||
+            commessa.archivedAt)) ||
+        (proposta.clienteId != null &&
+          (!cliente ||
+            Number(cliente.sedeId) !== sedeId ||
+            cliente.archivedAt)) ||
+        (commessa &&
+          cliente &&
+          Number(commessa.clienteId) !== Number(cliente.id))
+      ) {
+        throw new Error("Riferimento CRM non trovato.");
+      }
+
+      const { getReminderService } = await import("../reminders/service");
+      const result = await getReminderService().createApproved({
+        sedeId,
+        requestedByUserId,
+        sourceProposalId: proposta.id,
+        actionKey:
+          proposta.chiaveAzione ?? `promemoria:${proposta.id}`,
+        text: String(p.text),
+        remindAtIso: String(p.remindAtIso),
+        clienteId: proposta.clienteId,
+        commessaId: proposta.commessaId,
+      });
+      return `Promemoria impostato per ${formatReminderForAudit(result.record.remindAt)}`;
     }
     case "domanda":
       // Le domande non si "approvano": si risponde (tars.rispondi).

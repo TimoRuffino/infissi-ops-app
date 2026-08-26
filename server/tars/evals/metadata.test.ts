@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeExecutionMetadata } from "../stores";
+import {
+  currentExecutionVersions,
+  normalizeExecutionMetadata,
+} from "../stores";
 
 describe("Tars execution version metadata", () => {
   it("backfilla versioni neutrali sui record legacy", () => {
@@ -36,6 +39,13 @@ describe("Tars execution version metadata", () => {
       evidenceRefs: [],
       factsRead: 0,
       factsRevalidated: 0,
+    });
+  });
+
+  it("registra le versioni del prompt e del catalogo promemoria", () => {
+    expect(currentExecutionVersions()).toMatchObject({
+      promptVersion: "prompt-v3",
+      toolRegistryVersion: "tools-v3",
     });
   });
 });

@@ -94,6 +94,7 @@ const CAPABILITIES_PER_PROPOSAL: Record<string, string[]> = {
   bozza_risposta: ["comunicazione.draft"],
   segnalazione: ["segnalazione.create"],
   miglioramento_processo: ["processo.propose"],
+  promemoria: ["reminder.create"],
   domanda: ["clarification.ask"],
 };
 
@@ -170,6 +171,22 @@ function trovaPropostaVisibile(id: number, ctx: any) {
   return proposal;
 }
 
+function assertReminderOwner(proposal: any, user: any) {
+  const personal =
+    proposal.tipo === "promemoria" ||
+    (proposal.tipo === "domanda" &&
+      proposal.payload?.intent === "promemoria");
+  if (
+    personal &&
+    Number(proposal.requestedByUserId) !== Number(user?.id)
+  ) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Proposta non trovata.",
+    });
+  }
+}
+
 const proposalApprovalsInFlight = new Map<string, Promise<any>>();
 
 function proposalDecisionKey(sedeId: number | null, proposalId: number) {
@@ -178,6 +195,7 @@ function proposalDecisionKey(sedeId: number | null, proposalId: number) {
 
 async function approveProposalOnce(id: number, ctx: any) {
   const p = trovaPropostaVisibile(id, ctx);
+  assertReminderOwner(p, ctx.user);
   if (p.stato === "approvata") {
     return {
       ...idrataProposta(p),
@@ -220,7 +238,8 @@ async function approveProposalOnce(id: number, ctx: any) {
 }
 
 async function approveProposalSerialized(id: number, ctx: any) {
-  trovaPropostaVisibile(id, ctx);
+  const proposal = trovaPropostaVisibile(id, ctx);
+  assertReminderOwner(proposal, ctx.user);
   const key = proposalDecisionKey(ctx.sedeId, id);
   const running = proposalApprovalsInFlight.get(key);
   if (running) return running;
@@ -724,6 +743,7 @@ ${input.testo.trim()}`;
       )
       .mutation(({ input, ctx }) => {
         const p = trovaPropostaVisibile(input.id, ctx);
+        assertReminderOwner(p, ctx.user);
         if (
           proposalApprovalsInFlight.has(
             proposalDecisionKey(ctx.sedeId, input.id)
@@ -866,6 +886,7 @@ ${input.testo.trim()}`;
       )
       .mutation(({ input, ctx }) => {
         const p = trovaPropostaVisibile(input.id, ctx);
+        assertReminderOwner(p, ctx.user);
         if (p.stato !== "pendente") {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -891,6 +912,7 @@ ${input.testo.trim()}`;
       )
       .mutation(({ input, ctx }) => {
         const p = trovaPropostaVisibile(input.id, ctx);
+        assertReminderOwner(p, ctx.user);
         if (p.tipo !== "domanda") {
           throw new TRPCError({
             code: "BAD_REQUEST",

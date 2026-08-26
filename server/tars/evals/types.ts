@@ -11,6 +11,7 @@ export const EVAL_FAMILIES = [
   "stalled_job",
   "no_action",
   "security",
+  "reminder",
 ] as const;
 
 export type EvalFamily = (typeof EVAL_FAMILIES)[number];
@@ -47,6 +48,6 @@ export type EvalObserved = {
   durationMs?: number;
 };
 
-export const TARS_PROMPT_VERSION = "prompt-v2";
-export const TARS_TOOL_REGISTRY_VERSION = "tools-v2";
+export const TARS_PROMPT_VERSION = "prompt-v3";
+export const TARS_TOOL_REGISTRY_VERSION = "tools-v3";
 export const TARS_POLICY_VERSION = "policy-legacy-v1";

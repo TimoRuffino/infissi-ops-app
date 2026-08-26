@@ -41,6 +41,7 @@ export const TIPI_PROPOSTA = [
   "bozza_risposta",
   "segnalazione",
   "miglioramento_processo",
+  "promemoria",
   "domanda", // chiedi_chiarimento
 ] as const;
 export type TipoProposta = (typeof TIPI_PROPOSTA)[number];
@@ -117,6 +118,9 @@ export type Proposta = {
   seguitoEsecuzioneId: number | null;
   // La proposta da cui nasce, se nasce da un seguito.
   origineId: number | null;
+  // Principal server-owned che ha chiesto un'azione personale. I record
+  // storici hanno null; per promemoria e relativa domanda è obbligatorio.
+  requestedByUserId: number | null;
   // Identita semantica dell'azione, indipendente da titolo e motivazione.
   // Serve a impedire che lo stesso effetto torni con parole diverse.
   chiaveAzione?: string;
@@ -135,6 +139,7 @@ const _proposteStore = persistedStore<Proposta>("azioni_suggerite", items => {
     if (p.seguitoAt === undefined) p.seguitoAt = null;
     if (p.seguitoEsecuzioneId === undefined) p.seguitoEsecuzioneId = null;
     if (p.origineId === undefined) p.origineId = null;
+    if (p.requestedByUserId === undefined) p.requestedByUserId = null;
     if (!p.chiaveAzione) p.chiaveAzione = chiaveAzioneProposta(p);
     if (p.evidenceRefs === undefined) p.evidenceRefs = [];
     if (p.correzioni === undefined) p.correzioni = [];
@@ -222,6 +227,7 @@ export function chiaveAzioneProposta(p: {
   tipo: string;
   commessaId?: number | null;
   clienteId?: number | null;
+  requestedByUserId?: number | null;
   payload?: any;
   titolo?: string;
 }): string {
@@ -312,8 +318,25 @@ export function chiaveAzioneProposta(p: {
         metricKey: pay.metricKey,
       };
       break;
+    case "promemoria":
+      effetto = {
+        requestedByUserId: p.requestedByUserId ?? null,
+        text: normalizzaTesto(pay.text),
+        remindAtIso: pay.remindAtIso,
+        commessaId: p.commessaId ?? null,
+        clienteId: p.clienteId ?? null,
+      };
+      break;
     case "domanda":
-      effetto = { domanda: normalizzaTesto(pay.domanda ?? p.titolo) };
+      effetto =
+        pay.intent === "promemoria"
+          ? {
+              requestedByUserId: p.requestedByUserId ?? null,
+              intent: "promemoria",
+              requestedText: normalizzaTesto(pay.requestedText),
+              domanda: normalizzaTesto(pay.domanda ?? p.titolo),
+            }
+          : { domanda: normalizzaTesto(pay.domanda ?? p.titolo) };
       break;
     default:
       effetto = pay;
@@ -341,6 +364,7 @@ function stessaProposta(
     tipo: string;
     commessaId: number | null;
     clienteId?: number | null;
+    requestedByUserId?: number | null;
     payload: any;
     titolo: string;
   },
@@ -350,6 +374,13 @@ function stessaProposta(
   const chiave = chiaveAzioneProposta(candidata);
   const altraChiave = esistente.chiaveAzione ?? chiaveAzioneProposta(esistente);
   if (chiave === altraChiave) return true;
+  if (
+    candidata.tipo === "promemoria" ||
+    (candidata.tipo === "domanda" &&
+      candidata.payload?.intent === "promemoria")
+  ) {
+    return false;
+  }
 
   const stessoTarget =
     (candidata.commessaId ?? null) === esistente.commessaId &&

@@ -22,6 +22,7 @@ describe("Tars eval corpus", () => {
         "stalled_job",
         "no_action",
         "security",
+        "reminder",
       ])
     );
 

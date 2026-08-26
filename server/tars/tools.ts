@@ -36,6 +36,7 @@ import {
   type CategoriaComunicazione,
 } from "./filtroComunicazioni";
 import { getCommessaById } from "../routers/commesse";
+import { getClienteById } from "../routers/clienti";
 import { isAmministrazione, isDirezione } from "../_core/permissions";
 import type { EvidenceRef, EntityContextKey } from "./context/types";
 import { hybridSearch } from "./search/retriever";
@@ -53,6 +54,10 @@ import {
 } from "./processMetrics";
 import { processExperimentRepository } from "./processExperiments";
 import { normalizzaTelefono } from "@shared/telefono";
+import {
+  parseFutureReminderInstant,
+  REMINDER_TIMEZONE,
+} from "../reminders/time";
 
 type ToolResult = {
   content: string;
@@ -225,6 +230,7 @@ function creaProposta(
   }
 
   const sedeId = rt.ctx.sedeId ?? 1;
+  const requestedByUserId = Number((rt.ctx.user as any)?.id) || null;
   const payload =
     rt.comunicazioneId != null
       ? {
@@ -260,6 +266,7 @@ function creaProposta(
     tipo: args.tipo,
     commessaId: args.commessaId ?? null,
     clienteId: args.clienteId ?? null,
+    requestedByUserId,
     payload,
     titolo: args.titolo,
   };
@@ -333,6 +340,7 @@ function creaProposta(
     seguitoAt: null,
     seguitoEsecuzioneId: null,
     origineId: args.origineId ?? rt.origineId ?? null,
+    requestedByUserId,
     chiaveAzione: chiaveAzioneProposta(candidata),
     evidenceRefs,
     correzioni: [],
@@ -986,6 +994,33 @@ export const TOOL_DEFS: TarsTool[] = [
     },
   },
   {
+    name: "proponi_promemoria",
+    description:
+      "Propone un promemoria personale solo dopo una domanda temporale risposta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", maxLength: 500 },
+        remindAtIso: {
+          type: "string",
+          description: "Data e ora ISO 8601 con offset esplicito",
+        },
+        timezone: { type: "string", enum: ["Europe/Rome"] },
+        commessaId: { type: "number" },
+        clienteId: { type: "number" },
+        ...PROPOSTA_PROPS,
+      },
+      required: [
+        "text",
+        "remindAtIso",
+        "timezone",
+        "titolo",
+        "motivazione",
+        "confidenza",
+      ],
+    },
+  },
+  {
     name: "proponi_nota_timeline",
     description:
       "Propone di aggiornare la nota di uno step della timeline ordine. Passa il testo COMPLETO della nota risultante (sostituisce l'esistente).",
@@ -1331,6 +1366,8 @@ export const TOOL_DEFS: TarsTool[] = [
         opzioni: { type: "array", items: { type: "string" }, maxItems: 12 },
         commessaId: { type: "number" },
         comunicazioneId: { type: "number" },
+        intent: { type: "string", enum: ["promemoria"] },
+        requestedText: { type: "string", maxLength: 500 },
       },
       required: ["domanda", "contesto"],
     },
@@ -2919,6 +2956,94 @@ async function eseguiStrumentoSenzaCache(
           },
         });
       }
+      case "proponi_promemoria": {
+        if (rt.trigger !== "chat" && rt.trigger !== "seguito") {
+          return err(
+            "I promemoria personali possono nascere solo da una richiesta dell'operatore in chat.",
+          );
+        }
+        const sedeId = rt.ctx.sedeId ?? 1;
+        const currentUserId = Number((rt.ctx.user as any)?.id);
+        const origineId = Number(rt.origineId);
+        const origine = proposte.find(
+          (item) => item.id === origineId && item.sedeId === sedeId,
+        );
+        if (
+          !origine ||
+          origine.tipo !== "domanda" ||
+          origine.stato !== "risposta" ||
+          origine.payload?.intent !== "promemoria" ||
+          !String(origine.risposta ?? "").trim()
+        ) {
+          return err(
+            "Prima di proporre un promemoria devi chiedere quando ricordarlo e ottenere una risposta esplicita dall'operatore.",
+          );
+        }
+        if (
+          !Number.isSafeInteger(currentUserId) ||
+          currentUserId <= 0 ||
+          Number(origine.requestedByUserId) !== currentUserId
+        ) {
+          return err("Domanda di origine non disponibile.");
+        }
+        if (input.timezone !== REMINDER_TIMEZONE) {
+          return err("Timezone del promemoria non valida.");
+        }
+        const text = String(input.text ?? "").trim().slice(0, 500);
+        if (!text) return err("Testo del promemoria obbligatorio.");
+        let remindAt: Date;
+        try {
+          remindAt = parseFutureReminderInstant(
+            String(input.remindAtIso ?? ""),
+            new Date(),
+          );
+        } catch {
+          return err(
+            "Data o ora del promemoria non valida: chiedi una data e un'ora future con offset esplicito.",
+          );
+        }
+
+        const commessaId =
+          input.commessaId == null ? null : Number(input.commessaId);
+        const clienteId = input.clienteId == null ? null : Number(input.clienteId);
+        const commessa: any =
+          commessaId == null ? null : getCommessaById(commessaId);
+        const cliente: any = clienteId == null ? null : getClienteById(clienteId);
+        if (
+          (commessaId != null &&
+            (!Number.isSafeInteger(commessaId) ||
+              !commessa ||
+              Number(commessa.sedeId) !== sedeId ||
+              commessa.archivedAt)) ||
+          (clienteId != null &&
+            (!Number.isSafeInteger(clienteId) ||
+              !cliente ||
+              Number(cliente.sedeId) !== sedeId ||
+              cliente.archivedAt)) ||
+          (commessa && clienteId != null && Number(commessa.clienteId) !== clienteId)
+        ) {
+          return err("Riferimento CRM non trovato.");
+        }
+
+        const resolvedClienteId =
+          clienteId ?? (commessa ? Number(commessa.clienteId) || null : null);
+        return creaProposta(rt, {
+          tipo: "promemoria",
+          titolo: String(input.titolo),
+          motivazione: String(input.motivazione),
+          confidenza: input.confidenza,
+          commessaId,
+          clienteId: resolvedClienteId,
+          origineId: origine.id,
+          payload: {
+            text,
+            remindAtIso: remindAt.toISOString(),
+            timezone: REMINDER_TIMEZONE,
+            ...(commessaId != null ? { commessaId } : {}),
+            ...(resolvedClienteId != null ? { clienteId: resolvedClienteId } : {}),
+          },
+        });
+      }
       case "proponi_nota_timeline":
         return creaProposta(rt, {
           tipo: "nota_timeline",
@@ -3223,6 +3348,11 @@ async function eseguiStrumentoSenzaCache(
         });
       }
       case "chiedi_chiarimento":
+        {
+          const intent = input.intent === "promemoria" ? "promemoria" : null;
+          const requestedText = String(input.requestedText ?? "")
+            .trim()
+            .slice(0, 500);
         return creaProposta(rt, {
           tipo: "domanda",
           titolo: String(input.domanda).slice(0, 200),
@@ -3235,11 +3365,14 @@ async function eseguiStrumentoSenzaCache(
             : null,
           payload: {
             domanda: String(input.domanda),
+            ...(intent ? { intent } : {}),
+            ...(intent && requestedText ? { requestedText } : {}),
             ...(input.comunicazioneId != null
               ? { comunicazioneId: Number(input.comunicazioneId) }
               : {}),
           },
         });
+        }
       case "nessuna_azione": {
         const motivo = String(input.motivo ?? "").trim();
         // L'analisi lanciata dall'operatore sulla commessa deve sempre

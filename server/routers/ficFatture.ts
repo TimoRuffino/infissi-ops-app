@@ -397,6 +397,7 @@ function creaPropostaDiretta(args: {
     seguitoAt: null,
     seguitoEsecuzioneId: null,
     origineId: null,
+    requestedByUserId: null,
     evidenceRefs: [
       {
         sourceType: "fattura_fic",
