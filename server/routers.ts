@@ -35,6 +35,7 @@ import { ficFattureRouter } from "./routers/ficFatture";
 import { ficCostiRouter } from "./routers/ficCosti";
 import { economiaRouter } from "./routers/economia";
 import { diagnosticaRouter } from "./routers/diagnostica";
+import { chatRouter } from "./routers/chat";
 import {
   createLocalToken,
   clearLocalSessionFromRequest,
@@ -192,6 +193,7 @@ export const appRouter = router({
   ficCosti: ficCostiRouter,
   economia: economiaRouter,
   diagnostica: diagnosticaRouter,
+  chat: chatRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -40,6 +40,7 @@ const PreventivatorePuntoDelSerramento = lazy(
 const Archivio = lazy(() => import("./pages/Archivio"));
 const SediList = lazy(() => import("./pages/SediList"));
 const TarsCommandCenter = lazy(() => import("./pages/TarsCommandCenter"));
+const ChatAziendale = lazy(() => import("./pages/ChatAziendale"));
 const Conoscenza = lazy(() => import("./pages/Conoscenza"));
 const Economia = lazy(() => import("./pages/Economia"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
@@ -157,6 +158,7 @@ function Router() {
           <Route path="/messaggi/email" component={EmailPage} />
           <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
           <Route path="/tars" component={TarsCommandCenter} />
+          <Route path="/chat" component={ChatAziendale} />
           <Route path="/notifiche" component={Notifiche} />
           <Route path="/inbox">
             {() => <LegacyRedirect redirect={legacyTarsRedirect} />}

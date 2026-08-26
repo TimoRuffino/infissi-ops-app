@@ -48,6 +48,7 @@ import {
   Bot,
   Mail,
   MessageCircle,
+  MessageSquare,
   MessagesSquare,
   ChevronDown,
   Landmark,
@@ -126,6 +127,9 @@ const menuItems: MenuItem[] = [
     children: [
       { icon: Mail, label: "Email", path: "/messaggi/email" },
       { icon: MessageCircle, label: "WhatsApp", path: "/messaggi/whatsapp" },
+      // Interna, non con i clienti: sta accanto agli altri canali perché è
+      // lì che si va a cercare "chi mi ha scritto cosa".
+      { icon: MessageSquare, label: "Chat aziendale", path: "/chat" },
     ],
   },
   { icon: Bot, label: "Tars", path: "/tars" },
