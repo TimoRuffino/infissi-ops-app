@@ -14,6 +14,7 @@
 
 import type { TrpcContext } from "../_core/context";
 import type { TarsTool } from "./openai";
+import { DOC_TIPI } from "../routers/preventiviContratti";
 import {
   proposte,
   esecuzioni,
@@ -943,20 +944,9 @@ export const TOOL_DEFS: TarsTool[] = [
         commessaId: { type: "number" },
         tipoDocumento: {
           type: "string",
-          enum: [
-            "preventivo",
-            "contratto",
-            "misure",
-            "fattura",
-            "ordine",
-            "conferma_ordine",
-            "ddt_consegna",
-            "ddt_posa",
-            "ddt_finale",
-            "saldo",
-            "foto",
-            "altro",
-          ],
+          // Elenco unico: si allarga in `preventiviContratti.ts` e arriva qui
+          // senza che nessuno debba ricordarsi di aggiornare due liste.
+          enum: [...DOC_TIPI],
         },
         nomeSuggerito: { type: "string" },
         evidenze: {
@@ -989,20 +979,9 @@ export const TOOL_DEFS: TarsTool[] = [
         nuovoNome: { type: "string" },
         nuovoTipo: {
           type: "string",
-          enum: [
-            "preventivo",
-            "contratto",
-            "misure",
-            "fattura",
-            "ordine",
-            "conferma_ordine",
-            "ddt_consegna",
-            "ddt_posa",
-            "ddt_finale",
-            "saldo",
-            "foto",
-            "altro",
-          ],
+          // Elenco unico: si allarga in `preventiviContratti.ts` e arriva qui
+          // senza che nessuno debba ricordarsi di aggiornare due liste.
+          enum: [...DOC_TIPI],
         },
         ...PROPOSTA_PROPS,
       },
@@ -1444,8 +1423,13 @@ const PROFILI: Record<string, readonly string[]> = {
     "cerca_commesse",
     "leggi_fascicolo_commessa",
     "leggi_allegato",
+    "leggi_magazzino",
     "proponi_collegamento",
     "proponi_archivia_allegato",
+    // Una data di consegna che arriva in una mail del fornitore è il dato
+    // più fresco che esista: farla passare da un secondo giro "gestisci con
+    // Tars" significava perderla per giorni.
+    "proponi_aggiornamento_magazzino",
     ...TERMINAZIONE,
   ],
   gestione_comunicazione: [
@@ -1454,11 +1438,15 @@ const PROFILI: Record<string, readonly string[]> = {
     "leggi_cliente",
     "cerca_commesse",
     "leggi_fascicolo_commessa",
+    "leggi_documenti",
     "leggi_allegato",
+    "leggi_magazzino",
     "cerca_comunicazioni",
     "leggi_assegnatari",
     "proponi_collegamento",
     "proponi_archivia_allegato",
+    "proponi_rinomina_documento",
+    "proponi_aggiornamento_magazzino",
     "proponi_nuovo_lead",
     "proponi_nota_timeline",
     "proponi_modifica_cliente",
@@ -1469,7 +1457,9 @@ const PROFILI: Record<string, readonly string[]> = {
     ...TERMINAZIONE,
   ],
   on_demand: [
+    "cerca_clienti",
     "cerca_commesse",
+    "ricerca_ibrida",
     "leggi_fascicolo_commessa",
     "verifica_chiusura_commessa",
     "leggi_contenuto_documento",
@@ -1477,8 +1467,11 @@ const PROFILI: Record<string, readonly string[]> = {
     "leggi_fatture_cloud",
     "leggi_produzione",
     "leggi_qualita_operativa",
+    "leggi_organizzazione",
+    "leggi_quadro_azienda",
     "cerca_comunicazioni",
     "leggi_allegato",
+    "leggi_magazzino",
     "leggi_fornitori",
     "leggi_squadre",
     "leggi_economia",
@@ -1513,6 +1506,7 @@ const WORKFLOW_PROFILI: Record<string, readonly string[] | "completo"> = {
   reconcile_invoice: PROFILI.riconciliazione_fatture,
   manage_document: [
     "classifica_comunicazione",
+    "cerca_clienti",
     "cerca_comunicazioni",
     "cerca_commesse",
     "leggi_fascicolo_commessa",

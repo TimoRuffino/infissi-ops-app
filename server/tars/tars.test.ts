@@ -1573,9 +1573,11 @@ describe("tars — profili e cache operativa", () => {
       "cerca_clienti",
       "cerca_commesse",
       "leggi_fascicolo_commessa",
+      "leggi_magazzino",
       "leggi_allegato",
       "proponi_collegamento",
       "proponi_archivia_allegato",
+      "proponi_aggiornamento_magazzino",
       "chiedi_chiarimento",
       "nessuna_azione",
     ]);
