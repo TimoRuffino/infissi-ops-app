@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (25/08/2026).
-**Versione:** 4.28 - Allegati WhatsApp smistati e archiviati da Tars con approvazione.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (26/08/2026).
+**Versione:** 4.29 - Workspace Email leggibile e focus automatico per il lavoro Tars.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -849,6 +849,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.29 (26/08/2026)** - Il workspace Email amplia il lettore, elimina i troncamenti delle informazioni operative nel dettaglio e attiva automaticamente il focus quando si usa Tars o sono presenti proposte pendenti (§51.6).
 - **v4.28 (25/08/2026)** - Gli allegati WhatsApp in ingresso partecipano allo smistamento Tars e possono essere proposti per l'archiviazione nel fascicolo con gli stessi controlli, storage e deduplica degli allegati Email; dalla chat la sorgente può essere indicata per numero o indirizzo Email e la destinazione per cliente/commessa (§50.2, §51.2-51.7).
 - **v4.27 (25/08/2026)** - La sincronizzazione FiC espone stato e orario di avvio per sede, può essere fermata dalla pagina Integrazioni e applica timeout alle richieste e al giro completo (§40.3).
 - **v4.26 (25/08/2026)** - La sincronizzazione FiC recupera in modo idempotente i PDF mancanti delle fatture già collegate; il workspace Email guadagna un lettore più ampio, modalità focus e vista singola sotto 1280 px (§40.4, §51.6).
@@ -1551,11 +1552,17 @@ tombstone per evitare una re-importazione.
 Su desktop da 1280 px la lista ha una larghezza stabile e il lettore occupa
 tutto lo spazio residuo. Il comando `Espandi email` nasconde temporaneamente la
 lista senza cambiare messaggio, filtri o URL; `Mostra elenco email` ripristina
-la vista affiancata. Sotto 1280 px elenco e lettore non vengono compressi in due
+la vista affiancata. Quando l'operatore avvia un'analisi Tars o la mail contiene
+proposte pendenti, il lettore entra automaticamente in modalità estesa; il
+ritorno alla vista affiancata resta sempre disponibile. Sotto 1280 px elenco e
+lettore non vengono compressi in due
 colonne: si mostra una vista alla volta con ritorno esplicito all'elenco. Corpo,
 allegati e azioni Tars usano contenitori distinti: il testo resta entro una
 misura leggibile, mentre gli strumenti operativi possono sfruttare il pannello
-più ampio. Nessuna delle tre modalità introduce scroll orizzontale globale.
+più ampio. Mittente, indirizzi, collegamenti CRM, nomi degli allegati, riepiloghi
+e contenuti delle proposte sono sempre accessibili nel dettaglio tramite testo
+a capo, senza ellissi distruttive. Nessuna delle tre modalità introduce scroll
+orizzontale globale.
 
 ### 51.7 Workspace WhatsApp
 WhatsApp raggruppa i messaggi in una sola conversazione per account e numero

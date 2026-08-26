@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { emailPaneVisibility } from "@/lib/emailLayout";
+import { emailPaneVisibility, emailShouldEnterFocus } from "@/lib/emailLayout";
 import {
   EMAIL_VIEWS,
   emailBulkExclusionCopy,
@@ -220,6 +220,21 @@ export default function EmailPage() {
     }
     return map;
   }, [pendingProposals.data]);
+
+  const selectedProposals =
+    selectedId == null ? [] : (proposalsByMessage.get(selectedId) ?? []);
+
+  useEffect(() => {
+    if (
+      emailShouldEnterFocus({
+        compact,
+        hasTarsProposals: selectedProposals.length > 0,
+        analysisRequested: false,
+      })
+    ) {
+      setFocusMode(true);
+    }
+  }, [compact, selectedId, selectedProposals.length]);
 
   const rawMessages = rows.data ?? [];
   const messages = rawMessages;
@@ -660,7 +675,7 @@ export default function EmailPage() {
           "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-card shadow-xs",
           showList &&
             showReader &&
-            "xl:grid-cols-[minmax(20rem,23rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(22rem,25rem)_minmax(0,1fr)]"
+            "xl:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(19rem,21rem)_minmax(0,1fr)]"
         )}
       >
         {showList && (
@@ -717,11 +732,22 @@ export default function EmailPage() {
             <EmailMessageReader
               key={selectedId}
               messageId={selectedId}
-              proposals={proposalsByMessage.get(selectedId) ?? []}
+              proposals={selectedProposals}
               mobile={compact}
               focus={focusMode}
               canFocus={canFocus}
               onToggleFocus={() => setFocusMode(value => !value)}
+              onOpenTarsWorkspace={() => {
+                if (
+                  emailShouldEnterFocus({
+                    compact,
+                    hasTarsProposals: false,
+                    analysisRequested: true,
+                  })
+                ) {
+                  setFocusMode(true);
+                }
+              }}
               selectionRemoved={selectionRemoved}
               canManageRules={isDirezione(user)}
               onBack={closeMessage}

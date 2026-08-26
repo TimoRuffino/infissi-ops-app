@@ -15,3 +15,15 @@ export function emailPaneVisibility({
     canFocus,
   };
 }
+
+export function emailShouldEnterFocus({
+  compact,
+  hasTarsProposals,
+  analysisRequested,
+}: {
+  compact: boolean;
+  hasTarsProposals: boolean;
+  analysisRequested: boolean;
+}): boolean {
+  return !compact && (hasTarsProposals || analysisRequested);
+}

@@ -494,12 +494,16 @@ l'operazione fallisce esplicitamente senza creare documenti parziali. Eliminare 
 comunicazione dal CRM non modifica la casella: il tombstone evita la
 re-importazione.
 
-Il workspace Email usa una lista stabile da circa 20-25 rem e un lettore
+Il workspace Email usa una lista stabile da circa 18-21 rem e un lettore
 elastico sui desktop da 1280 px. Il pulsante nell'intestazione entra in modalità
 focus nascondendo la lista; sotto 1280 px lista e lettore diventano viste
 separate, così il contenuto non viene schiacciato. Il corpo mantiene una misura
 tipografica leggibile, mentre allegati e azioni Tars possono usare una larghezza
-maggiore.
+maggiore. Il lettore entra automaticamente in focus quando l'operatore avvia
+un'analisi Tars o quando la mail contiene proposte pendenti; il comando in
+intestazione permette sempre di ripristinare l'elenco. Nel dettaglio mittente,
+indirizzi, collegamenti, nomi allegato, riepiloghi e proposte vanno a capo e non
+vengono troncati.
 
 La configurazione WhatsApp espone una diagnostica webhook privacy-safe:
 ultimo campo e orario ricevuti, ultimo `smb_message_echoes`, eventi echo,

@@ -112,6 +112,7 @@ export default function EmailMessageReader({
   focus,
   canFocus,
   onToggleFocus,
+  onOpenTarsWorkspace,
   selectionRemoved,
   canManageRules,
   onBack,
@@ -122,6 +123,7 @@ export default function EmailMessageReader({
   focus: boolean;
   canFocus: boolean;
   onToggleFocus: () => void;
+  onOpenTarsWorkspace: () => void;
   selectionRemoved: boolean;
   canManageRules: boolean;
   onBack: () => void;
@@ -309,6 +311,14 @@ export default function EmailMessageReader({
           },
         ];
 
+  const runAnalysis = () => {
+    onOpenTarsWorkspace();
+    analyze.mutate({
+      comunicazioneId: message.id,
+      istruzione: instruction.trim(),
+    });
+  };
+
   return (
     <article className="flex h-full min-h-0 min-w-0 flex-col bg-card">
       <header className="shrink-0 border-b border-border-soft px-4 py-4 sm:px-5">
@@ -321,7 +331,7 @@ export default function EmailMessageReader({
             gestirla qui.
           </div>
         )}
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 flex-wrap items-start gap-3">
           {mobile && (
             <Button
               size="icon"
@@ -337,13 +347,13 @@ export default function EmailMessageReader({
           <div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground shadow-xs">
             {initials(message)}
           </div>
-          <div className="min-w-0 flex-1 space-y-1">
+          <div className="min-w-[12rem] flex-1 space-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Mail
                 className="size-4 shrink-0 text-text-3"
                 aria-hidden="true"
               />
-              <span className="truncate text-sm font-bold">
+              <span className="min-w-0 break-words text-sm font-bold [overflow-wrap:anywhere]">
                 {message.mittenteNome ?? message.mittente}
               </span>
               <EmailCategoryBadge
@@ -353,7 +363,7 @@ export default function EmailMessageReader({
               />
             </div>
             {message.mittenteNome && (
-              <div className="truncate text-xs text-text-3">
+              <div className="break-words text-xs text-text-3 [overflow-wrap:anywhere]">
                 {message.mittente}
               </div>
             )}
@@ -364,7 +374,7 @@ export default function EmailMessageReader({
                 : ""}
             </div>
           </div>
-          <div className="flex shrink-0 gap-1">
+          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1">
             {canFocus && (
               <Button
                 size="icon"
@@ -441,7 +451,7 @@ export default function EmailMessageReader({
                   className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
                 >
                   <Link2 className="size-3.5 shrink-0" />
-                  <span className="truncate">
+                  <span className="break-words [overflow-wrap:anywhere]">
                     {linkedJob.data?.codice ??
                       `Commessa #${message.commessaId}`}
                     {linkedJob.data?.cliente
@@ -472,7 +482,7 @@ export default function EmailMessageReader({
                   className="inline-flex min-w-0 items-center gap-1.5 text-sm font-semibold text-accent-text hover:underline"
                 >
                   <Link2 className="size-3.5 shrink-0" />
-                  <span className="truncate">
+                  <span className="break-words [overflow-wrap:anywhere]">
                     {linkedClient.data
                       ? `${linkedClient.data.cognome ?? ""} ${linkedClient.data.nome ?? ""}`.trim()
                       : `Cliente #${message.clienteId}`}
@@ -677,12 +687,7 @@ export default function EmailMessageReader({
               <Button
                 className="shrink-0"
                 disabled={instruction.trim().length < 2 || analyze.isPending}
-                onClick={() =>
-                  analyze.mutate({
-                    comunicazioneId: message.id,
-                    istruzione: instruction.trim(),
-                  })
-                }
+                onClick={runAnalysis}
               >
                 {analyze.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -695,7 +700,7 @@ export default function EmailMessageReader({
               </Button>
             </div>
             {(latestSummary || message.tarsRiepilogo) && (
-              <div className="mt-3 border-l-2 border-primary pl-3 text-sm leading-6 text-text-1">
+              <div className="mt-3 whitespace-pre-wrap break-words border-l-2 border-primary pl-3 text-sm leading-6 text-text-1 [overflow-wrap:anywhere]">
                 {latestSummary ?? message.tarsRiepilogo}
               </div>
             )}
@@ -719,7 +724,7 @@ export default function EmailMessageReader({
                       className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
                     >
                       <Paperclip className="size-4 shrink-0 text-accent-text" />
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                      <span className="min-w-0 flex-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                         {attachment.nome}
                       </span>
                       <span className="shrink-0 text-xs text-text-3">
