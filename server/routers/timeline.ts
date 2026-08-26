@@ -125,6 +125,49 @@ export function reconcileTimelineBoardStates(): {
   };
 }
 
+/**
+ * L'altra metà del collegamento timeline ↔ board.
+ *
+ * `reconcileTimelineBoardStates` porta avanti la board quando la timeline
+ * avanza; questa porta avanti la TIMELINE quando avanza la board. Senza,
+ * chi lavora dal Kanban lasciava indietro una timeline piena di step aperti
+ * che nessuno avrebbe più chiuso, e la percentuale di avanzamento mentiva.
+ *
+ * Solo in avanti: una commessa arretrata di un passo non riapre gli step:
+ * il lavoro è stato fatto davvero, e riaprirlo cancellerebbe date e note di
+ * chi l'ha completato.
+ */
+export function allineaTimelineAlBoard(
+  commessaId: number,
+  stato: string,
+  utente?: string | null
+): number {
+  const indiceStato = STATI_COMMESSA.indexOf(stato as StatoCommessa);
+  if (indiceStato < 0) return 0;
+
+  const suoi = steps.filter(step => step.commessaId === commessaId);
+  // Nessuna timeline ancora materializzata: la creerà `byCommessa` con gli
+  // step giusti, e a quel punto questa funzione la troverà.
+  if (suoi.length === 0) return 0;
+
+  const oggi = new Date().toISOString().split("T")[0];
+  let completati = 0;
+  for (const step of suoi) {
+    if (step.stato === "completato") continue;
+    const traguardo = STATO_PER_MILESTONE[step.stepNumber];
+    if (!traguardo) continue;
+    // La milestone è "raggiunta" quando la board ha superato o toccato lo
+    // stato che quella milestone rappresenta.
+    if (STATI_COMMESSA.indexOf(traguardo) > indiceStato) continue;
+    step.stato = "completato";
+    step.dataCompletamento = step.dataCompletamento ?? oggi;
+    step.utente = step.utente ?? utente ?? null;
+    completati++;
+  }
+  if (completati > 0) _stepsStore.save();
+  return completati;
+}
+
 function createStepsForCommessa(commessaId: number): TimelineStep[] {
   const newSteps: TimelineStep[] = STEP_LABELS.map((label, idx) => ({
     id: nextId++,

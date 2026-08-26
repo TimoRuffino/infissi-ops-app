@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import { getCommesseStore } from "./commesse";
-import { reconcileTimelineBoardStates } from "./timeline";
+import {
+  allineaTimelineAlBoard,
+  reconcileTimelineBoardStates,
+} from "./timeline";
 
 function context(sedeId: number): TrpcContext {
   return {
@@ -160,5 +163,52 @@ describe("timeline ordine e stato commessa", () => {
     expect(await caller.commesse.byId(commessa.id)).toMatchObject({
       stato: "finiture_saldo",
     });
+  });
+});
+
+// Board → timeline: l'altro verso del collegamento. Chi lavora dal Kanban
+// non deve lasciare indietro una timeline che nessuno chiuderà più.
+describe("allineaTimelineAlBoard", () => {
+  it("completa le milestone raggiunte dalla board", async () => {
+    const caller = appRouter.createCaller(context(1));
+    const cliente = await caller.clienti.create({
+      nome: "Board",
+      cognome: "Allineato",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    await caller.timeline.byCommessa(commessa.id);
+
+    // "aggiornamento_contratto" copre le milestone 1 e 2.
+    expect(
+      allineaTimelineAlBoard(commessa.id, "aggiornamento_contratto", "Tars")
+    ).toBe(2);
+
+    const steps = await caller.timeline.byCommessa(commessa.id);
+    expect(steps[0].stato).toBe("completato");
+    expect(steps[1].stato).toBe("completato");
+    expect(steps[1].utente).toBe("Tars");
+    expect(steps[2].stato).toBe("da_fare");
+  });
+
+  it("è idempotente e non riapre né arretra", async () => {
+    const caller = appRouter.createCaller(context(1));
+    const cliente = await caller.clienti.create({
+      nome: "Idem",
+      cognome: "Potente",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    await caller.timeline.byCommessa(commessa.id);
+
+    allineaTimelineAlBoard(commessa.id, "fatture_pagamento");
+    expect(allineaTimelineAlBoard(commessa.id, "fatture_pagamento")).toBe(0);
+    // Arretrare la board non riapre il lavoro già fatto.
+    expect(allineaTimelineAlBoard(commessa.id, "preventivo")).toBe(0);
+    const steps = await caller.timeline.byCommessa(commessa.id);
+    expect(steps.filter(s => s.stato === "completato")).toHaveLength(3);
+  });
+
+  it("ignora uno stato sconosciuto e una commessa senza timeline", () => {
+    expect(allineaTimelineAlBoard(999_999, "produzione")).toBe(0);
+    expect(allineaTimelineAlBoard(1, "stato_inventato")).toBe(0);
   });
 });
