@@ -278,7 +278,14 @@ Ordine canonico (`STATI_COMMESSA`):
 ## 8. Documenti commessa (Preventivi/Contratti)
 
 ### 8.1 Tipi documento
-`preventivo, contratto, misure, fattura, ordine, conferma_ordine, ddt_consegna, ddt_posa, ddt_finale, saldo, foto, altro`.
+`preventivo, contratto, misure, fattura, ordine, conferma_ordine, ddt_consegna, ddt_posa, ddt_finale, saldo, foto, documento_identita, visura, planimetria, certificazione, altro`.
+
+I primi dieci hanno un ruolo nel doc gate (§9). Gli ultimi quattro sono stati
+aggiunti il 26/08/2026 perché una commessa raccoglie anche documenti che non
+fanno avanzare niente — un documento d'identità, una visura, una planimetria —
+e classificarli tutti come `altro` li rendeva indistinguibili al momento di
+ritrovarli. L'elenco è unico: `DOC_TIPI` alimenta schema server, dropdown UI e
+schema degli strumenti di Tars.
 
 ### 8.2 Storage e schema
 - Persistito in `preventivi_documenti` (kv_store JSONB).
@@ -295,10 +302,12 @@ Ordine canonico (`STATI_COMMESSA`):
 - **Dimensione**: validata sul payload reale (lunghezza base64 decodificata, NON il campo `size` lato client). Cap 10 MB.
 - Il `size` archiviato è quello calcolato dal server.
 
-### 8.4 Auto‑rename
-- Se `keepNome === false`, il file in upload viene rinominato secondo `renameForStato({stato, cliente, originalName})` (es. "Misure esecutive Mario Rossi.pdf").
+### 8.4 Auto‑rename e rinomina
+- Se `keepNome === false`, il file in upload viene rinominato in `{Tipo} {cliente}.{ext}` (es. "Misure esecutive Mario Rossi.pdf").
 - Se `keepNome === true` (usato dai preventivatori), il nome viene preservato e solo dedupato.
+- Dal 26/08/2026 l'auto‑rename **non si applica** ai tipi `documento_identita`, `visura`, `planimetria`, `certificazione`, `foto` e `altro`: di quei documenti una commessa ne contiene più d'uno (intestatario, coniuge, delegato) e schiacciarli sullo stesso nome produceva `(2)` e `(3)` indistinguibili. Conservano il nome originale.
 - Disambiguazione automatica: se il nome esiste già per la stessa commessa, viene appeso `(2)`, `(3)`, ecc.
+- La scheda commessa espone **Rinomina**: cambia nome libero e tipo di un documento già caricato (`preventiviContratti.update`). Il tipo conta per il doc gate, quindi correggere una classificazione sbagliata non richiede più di ricaricare il file.
 
 ### 8.5 Anteprima e download
 - Anteprima inline in `<iframe>` per PDF (URL `blob:` derivato dal base64) o in `<img>` con zoom/rotate per immagini.
@@ -954,6 +963,18 @@ Uno step non completato con data valorizzata mostra in riga una scritta blu **«
 - L'header di ogni fase mostra un badge ambra "📝 N" con il conteggio note.
 - Le date di completamento sono formattate it‑IT.
 
+### 35.4 Collegamento con il Board (bidirezionale)
+Completare una milestone della timeline avanza la commessa sul Board tramite la
+stessa mutation, quindi con gli stessi permessi, la stessa state machine a
+passo singolo e lo stesso doc gate. Dal 26/08/2026 vale anche il verso opposto:
+avanzare la commessa sul Board completa ogni milestone il cui stato di
+riferimento è stato raggiunto o superato.
+
+L'allineamento è **solo in avanti** e idempotente. Arretrare la commessa non
+riapre gli step: quel lavoro è stato fatto, e riaprirlo cancellerebbe data e
+autore del completamento. Un errore nell'allineamento non annulla
+l'avanzamento già salvato.
+
 ## 36. Magazzino (`/magazzino`)
 
 ### 36.1 Scope
@@ -1093,13 +1114,22 @@ Il requisito OAuth è code-complete. L'attivazione in produzione richiede `FIC_O
 ### 40.4 Fatture e riconciliazione (`/economia`)
 Le fatture sincronizzate sono persistite nello store `fic_fatture`, sede-scoped.
 La pagina `/economia`, visibile a direzione e amministrazione, separa
-`Panoramica`, `Fatture` e `Acquisti`. La panoramica divide Contratti CRM,
+`Andamento`, `Da riconciliare`, `Costi fissi` e `Acquisti`. `Andamento` si apre
+con la sintesi dell'anno — fatturato, costi, differenza e cassa attesa — e
+dichiara quante fatture restano da riconciliare e quanti costi da classificare
+prima di presentare i totali come definitivi. La panoramica divide Contratti CRM,
 Vendite FiC e Acquisti FiC: imponibile, IVA e lordo non vengono confusi e
 l'andamento mensile confronta grandezze dello stesso periodo.
 
 Una fattura può essere collegata manualmente a una commessa soltanto dopo una
-conferma esplicita; il match automatico è ammesso soltanto su identificativo
-fiscale univoco e viene persistito. Il pattuito resta sempre fonte CRM. Le rate
+conferma esplicita. Dal 26/08/2026 il match automatico non è più limitato
+all'identificativo fiscale: vale un solo segnale in comune fra telefono, email,
+nome e cognome, indirizzo o identità fiscale del cliente, e il codice commessa
+citato nell'oggetto della fattura prevale su tutto. La parità fra due commesse
+non viene sciolta: la fattura resta da riconciliare con i candidati esposti.
+Dalla stessa data **il pattuito è fonte FiC** quando esiste almeno una fattura
+collegata (vedi §40.6); resta CRM e modificabile a mano solo in assenza di
+fatture. Le rate
 FiC pagate sincronizzano in modo deterministico e idempotente soltanto movimenti
 `origine = fic`; importo, data, stato e storni seguono FiC. Un movimento
 stornato resta auditabile e non alimenta `importoIncassato`. Una risposta
@@ -1170,6 +1200,49 @@ stati sono esclusi finché non mappati esplicitamente.
 Lo strumento Tars `leggi_economia` riceve lo stesso contratto in forma compatta:
 fonte, periodo, contratti CRM separati, vendite/acquisti FiC, andamento mensile
 e affidabilità della copertura costi fissi, senza dump dei singoli documenti.
+
+
+### 40.6 Pattuito e piano rate — fonte FiC (26/08/2026)
+Il pattuito (`importoTotale`) e il piano rate (`pianoRate[]`) di una commessa
+hanno due regimi, distinti da `pattuitoFonte`:
+
+- `fic` — esiste almeno una fattura FiC collegata. Importo e rate sono derivati
+  da quelle fatture, in modo deterministico e idempotente. Le note di credito
+  abbattono il pattuito e non generano rate in attesa. Ogni scrittura manuale
+  su `importoTotale` o sulle rate risponde `PRECONDITION_FAILED`, direzione
+  inclusa: correggere significa correggere la fattura in FiC o scollegarla.
+- `manuale` — nessuna fattura collegata. Pattuito e rate li inserisce
+  l'operatore. È il regime normale finché la fattura non viene emessa.
+
+Il passaggio a `fic` avviene al primo collegamento; il ritorno a `manuale` solo
+quando l'ultima fattura viene scollegata, senza azzerare la cifra già mostrata.
+Le rate FiC portano `ficDocumentoId`, `ficRataId` e `ficSourceKey`, la stessa
+chiave stabile del registro pagamenti.
+
+Il piano rate NON è il registro incassi: descrive le scadenze concordate,
+mentre `pagamenti[]` registra il denaro effettivamente ricevuto. La scheda
+commessa li mostra separati e dichiara lo scostamento quando la somma delle
+rate non copre il pattuito.
+
+### 40.7 Costi fissi per ricorrenza (26/08/2026)
+Un costo è **fisso** quando compare per almeno tre mesi consecutivi con lo
+stesso importo, dallo stesso fornitore. La tolleranza sull'importo è di 50
+centesimi e la forma societaria viene normalizzata, così un canone indicizzato
+o una ragione sociale scritta in due modi non spezzano la serie. Le note di
+credito passive restano fuori.
+
+La regola è deterministica e non chiama modelli: gira in `upsertCostiFic`,
+prevale su una classificazione di Tars e mai su una decisione presa da una
+persona. I costi che riclassifica escono dalla coda di classificazione, quindi
+non consumano token. `/economia` → `Costi fissi` mostra l'elenco con fornitore,
+importo mensile e periodo coperto.
+
+### 40.8 Reset del pattuito (operazione una tantum)
+`scripts/reset-pattuiti.ts` azzera `importoTotale`, `pattuitoFonte`,
+`pianoRate[]` ed elimina i pagamenti con `origine="manuale"`, conservando i
+movimenti `origine="fic"`. È distruttivo e senza undo applicativo: si rifiuta
+di partire in `--apply` senza un backup Drive riuscito nelle ultime 24 ore.
+Le commesse archiviate restano escluse salvo `--includi-archiviate`.
 
 ## 41. WhatsApp (deep link)
 
@@ -1350,6 +1423,43 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 ---
 
 ## 50. Tars — agente operativo con approvazione umana
+
+### 50.0 Autonomia operativa (26/08/2026)
+Il principio "propone, non esegue" è configurabile per sede dalla direzione.
+`agente_config.autonomia` porta `attiva`, `killSwitch`, `tipiConsentiti[]` e
+`principalUserId`. Con l'autonomia attiva, al termine di ogni esecuzione le
+proposte dei tipi consentiti vengono approvate dal server passando dallo stesso
+percorso di un click umano: stesse guardie, stesso doc gate, stessi permessi.
+
+Tre confini non sono negoziabili da configurazione:
+
+1. i **tipi irreversibili** (`chiudi_commessa`, `domanda`) non entrano mai in
+   whitelist. Il criterio non è il rischio ma l'esistenza di un ritorno: un
+   pagamento si storna, un avanzamento si arretra, una chiusura no;
+2. l'esecuzione è attribuita a un **utente reale** della sede, con i suoi
+   permessi. Senza responsabile configurato l'autonomia non parte;
+3. ogni esecuzione autonoma viene **annunciata** nella chat aziendale, con
+   azione ed esito. È la condizione che tiene l'autonomia reversibile: nessuno
+   può annullare quello che non ha visto.
+
+`killSwitch` nega tutto senza perdere la configurazione. Il Registro Tars
+distingue le esecuzioni che hanno agito da quelle che hanno solo proposto.
+
+### 50.0-bis Intake dei file in arrivo (26/08/2026)
+Nome file e oggetto vengono letti da una pre-analisi deterministica prima del
+modello: tipo probabile del documento, nomi candidati, codice commessa citato e
+un segnale esplicito quando il nome non porta informazione. Un nome parlante
+("misure Rossi.pdf") permette a Tars di verificare la corrispondenza e proporre
+subito l'archiviazione; un nome muto ("IMG_4821.jpg", "scan0003.pdf") impone la
+lettura del contenuto invece di un'ipotesi. Da un nome muto il tipo non viene
+mai dedotto: le sue stesse parole sono rumore.
+
+Nome e contenuto restano dati esterni non fidati. In presenza di più clienti o
+commesse plausibili la scelta resta a un operatore.
+
+Quando da una comunicazione emerge una data di consegna di un prodotto già a
+magazzino, Tars può proporne l'aggiornamento direttamente dallo smistamento:
+la data scritta dal fornitore è il dato più aggiornato disponibile.
 
 ### 50.1 Principio di sicurezza
 Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura diretta sui dati business: crea record in `azioni_suggerite`; un operatore approva o rifiuta; l'esecutore applica la proposta tramite la stessa mutation tRPC usata dall'interfaccia. Pagamenti, avanzamenti di stato, bozze di risposta e collegamenti fattura richiedono ruoli elevati.
@@ -1742,6 +1852,36 @@ storico. Non eliminare il numero/WABA su Meta e non cancellare le comunicazioni
 CRM come tentativo di risoluzione.
 
 ---
+
+## 51-bis. Chat aziendale (`/chat`)
+
+### 51-bis.1 Scopo
+Comunicazione interna fra le persone dell'ufficio, distinta da Email e WhatsApp
+che parlano con i clienti. Persistita in tabelle PostgreSQL dedicate
+(`chat_canali`, `chat_messaggi`, `chat_letture`), con fallback in memoria senza
+`DATABASE_URL`.
+
+### 51-bis.2 Canali
+- `generale`: uno per sede, non si lascia. Riceve le azioni che Tars esegue in
+  autonomia e tutte le decisioni degli operatori sulle proposte, con nome di
+  chi ha deciso. È un registro, non una notifica.
+- `diretto`: fra due persone. La chiave è la coppia ordinata di id, quindi la
+  conversazione è la stessa nei due versi. L'id 0 è riservato a Tars.
+- `commessa`: previsto nel modello, non ancora esposto.
+
+### 51-bis.3 Notifiche di assegnazione
+Assegnare una commessa, un cliente, un ticket o un intervento a un'altra
+persona produce un messaggio nella sua conversazione diretta con Tars. Il
+consumer è separato dal proiettore delle notifiche: la campanella dipende da
+`notificationMode`, il messaggio in chat arriva comunque. Assegnarsi qualcosa
+da soli non produce messaggio.
+
+### 51-bis.4 Vincoli
+Scope sede su ogni lettura e scrittura; un canale di un'altra sede risponde
+`NOT_FOUND`. I messaggi di sistema hanno autore nullo e non sono scrivibili dal
+client. Il segnalibro di lettura non arretra. Limiti attuali: refresh a polling
+di 5 secondi, nessun allegato, nessuna modifica o cancellazione dei messaggi,
+nessun push a CRM chiuso.
 
 ## 52. Design system, caricamento e analytics
 

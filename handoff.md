@@ -185,10 +185,36 @@ Ogni flusso usa paginazione completa e snapshot non distruttivo; i record non
 più restituiti diventano `presenteInFic=false` e smettono di alimentare i KPI.
 Una risposta incompleta non marca nulla come rimosso.
 
-Dal 26/08/2026 il contratto economico è esplicito:
+**Contratto economico invertito il 26/08/2026 (sera).** Fino a quel giorno il
+pattuito era dato CRM e le fatture non potevano toccarlo. Ora vale l'opposto,
+per decisione della direzione:
 
-- il pattuito (`importoTotale`) è fonte CRM e non viene mai derivato o
-  sovrascritto dalle fatture;
+- il pattuito (`importoTotale`) e il piano rate di una commessa **con almeno
+  una fattura FiC collegata** sono derivati da quelle fatture. `pattuitoFonte`
+  vale `fic`, la scrittura manuale risponde `PRECONDITION_FAILED` e la scheda
+  commessa mostra la cifra senza campo di input;
+- una commessa **senza fattura collegata** è interamente manuale: pattuito e
+  rate li scrive l'operatore (`commesse.addRata`, `updateRata`, `removeRata`),
+  `pattuitoFonte` vale `manuale`;
+- il passaggio manuale → FiC avviene al primo collegamento; il ritorno solo
+  quando l'ultima fattura viene scollegata. Scollegare NON azzera il pattuito:
+  lo rende di nuovo scrivibile;
+- le note di credito abbattono il pattuito e non generano rate in attesa;
+- il punto unico è `sincronizzaPattuitoDaFic(sedeId)` in `ficFatture.ts`,
+  chiamato dal sync, da `collega` e dallo scollegamento. È idempotente.
+
+Il match fattura → commessa è stato riscritto (`server/routers/ficMatch.ts`).
+La regola voluta: **basta un solo segnale in comune** fra telefono, email,
+nome e cognome, indirizzo o identità fiscale perché la fattura venga allegata.
+Il codice commessa citato nell'oggetto vince su tutto. L'unico caso non deciso
+è la parità: due commesse con lo stesso punteggio lasciano la fattura in coda
+con i candidati esposti. Il sync legge ora anche `email`, `phone`,
+`address_street`, `address_city`, `address_postal_code` e
+`subject/visible_subject` dall'entity FiC — prima scartava tutto tranne nome,
+partita IVA e codice fiscale, ed è per questo che i privati non agganciavano.
+
+Il resto del contratto resta invariato:
+
 - fatture, rate, importi incassati, date e storni hanno FiC come fonte
   autorevole;
 - il sync scrive e aggiorna automaticamente soltanto movimenti con
@@ -229,8 +255,25 @@ Ogni richiesta FiC scade dopo 30 secondi e l'intero giro viene interrotto dopo
 questa versione riavvia inoltre il processo e libera eventuali lock della
 versione precedente rimasti in memoria.
 
-`/economia` separa ora quattro perimetri: controllo incassi annuale, Vendite
-FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa
+`/economia` ha ora quattro tab, in ordine di frequenza delle domande:
+**Andamento**, **Da riconciliare**, **Costi fissi**, **Acquisti**. Andamento si
+apre con una fascia di sintesi — fatturato, costi, differenza e cassa attesa —
+che risponde a "com'è andata" prima di ogni dettaglio; sotto restano le bande
+di composizione. Se ci sono fatture da riconciliare o costi dubbi, la fascia lo
+dice invece di lasciar credere che i numeri siano definitivi.
+
+I **costi fissi** sono ora calcolati da una regola deterministica
+(`server/_core/costiRicorrenti.ts`), non da un modello: un costo è fisso se
+compare per almeno **tre mesi consecutivi** con lo stesso importo (tolleranza
+50 centesimi) dallo stesso fornitore, normalizzando la forma societaria. Le
+note di credito passive restano fuori. La regola gira dentro `upsertCostiFic` e
+prevale su Tars, mai su una classificazione fatta da una persona; i costi che
+riclassifica escono dalla coda `idsDaClassificare`, quindi non consumano token.
+`ficCosti.ricorrenti` espone l'elenco con fornitore, importo e periodo — la
+domanda "quali sono?" prima non aveva risposta.
+
+Le bande di composizione separano quattro perimetri: controllo incassi annuale,
+Vendite FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa
 `pagamenti[].data` nel CRM e `rate[].dataPagamento` in FiC, include anche le
 commesse oggi archiviate e mostra `CRM - FiC`; i movimenti senza data restano
 fuori dal periodo e sono esposti come anomalia, senza inventare un mese. Le
@@ -275,7 +318,70 @@ Integrazioni.
 
 ## 6. Tars e caching
 
-Tars usa ora profili strumenti diversi per trigger, invece di inviare sempre
+### Autonomia operativa (26/08/2026)
+
+Il principio "propone, non esegue" è ora **configurabile per sede**, su
+decisione esplicita della direzione. Prima l'unico modo di far accadere
+qualcosa era un click, e il costo non era la sicurezza ma l'attesa: decine di
+approvazioni al giorno su azioni che venivano approvate comunque.
+
+`agente_config.autonomia` porta quattro campi: `attiva`, `killSwitch`,
+`tipiConsentiti[]` e `principalUserId`. Con l'autonomia attiva, alla fine di
+ogni run `loop.ts` chiama `eseguiProposteAutonome` che approva le proposte dei
+tipi consentiti passando dalla **stessa** `approveProposalSerialized` di un
+click umano — quindi stesse guardie, stesso doc gate, stessi permessi.
+
+Tre confini non sono negoziabili da configurazione:
+
+1. `TIPI_IRREVERSIBILI` (`chiudi_commessa`, `domanda`) non entra mai in
+   whitelist: il filtro è applicato sia in `onLoad` dello store sia nel
+   runner sia nell'endpoint, di proposito ridondante;
+2. l'esecuzione è attribuita a un **utente reale** della sede (`principalUserId`,
+   validato con `requireAssignableUser`) e usa i suoi permessi. Senza
+   responsabile configurato l'autonomia non parte;
+3. ogni esecuzione viene annunciata nella chat aziendale. Un annuncio fallito
+   viene loggato e non annulla le scritture, ma senza canale l'autonomia
+   perde la sua reversibilità pratica.
+
+Il prompt cambia di conseguenza (`prompt-v5`, `tools-v5`): Tars non chiede più
+il permesso di proporre, e con l'autonomia attiva riceve un blocco che gli dice
+di scrivere titolo e motivazione come RESOCONTO, non come richiesta. Il blocco
+sta nel system e cambia solo quando la direzione tocca la configurazione, così
+non invalida il prefisso di cache.
+
+Il pannello è in Impostazioni → Tars, direzione-only. `killSwitch` nega tutto
+senza perdere la lista dei tipi.
+
+### Intake dei file (26/08/2026)
+
+`server/tars/intakeAllegati.ts` legge nome file e oggetto **prima** del
+modello: `analizzaAllegato` restituisce tipo probabile, nomi candidati, codice
+commessa citato e — soprattutto — `richiedeLettura`, che distingue "non lo so
+ancora" da "non c'è niente da sapere nel nome".
+
+La riga `Allegati:` del blocco smistamento porta ora quella pre-analisi
+(`[0] misure Rossi.pdf — tipo probabile "misure", riferimento a rossi`).
+Costa una regex invece di un giro di strumenti. Su un nome muto
+("IMG_4821.jpg", "scan0003.pdf", "WhatsApp Image …") la riga dice
+esplicitamente `→ apri il file con leggi_allegato`: da un nome muto il tipo
+NON viene dedotto, perché le sue stesse parole sono rumore.
+
+I profili strumenti sono stati allargati: `smistamento` e
+`gestione_comunicazione` hanno ora `leggi_magazzino` e
+`proponi_aggiornamento_magazzino` — una data di consegna che arriva in una
+mail del fornitore è il dato più fresco che esista e passava da un secondo
+giro manuale. `on_demand` ha i lettori trasversali (`leggi_quadro_azienda`,
+`leggi_organizzazione`, `ricerca_ibrida`, `cerca_clienti`).
+
+`DOC_TIPI` si è allargato con `documento_identita`, `visura`, `planimetria` e
+`certificazione`; per quei tipi (più `foto` e `altro`) l'upload NON applica
+l'auto-rename `{Tipo} {cliente}.ext`, che su tre documenti d'identità della
+stessa commessa produceva `… (2)` e `… (3)` indistinguibili. La scheda commessa
+ha ora un comando **Rinomina** che cambia nome e tipo.
+
+### Profili strumenti
+
+Tars usa profili strumenti diversi per trigger, invece di inviare sempre
 l'intero catalogo:
 
 - `riconciliazione_fatture`: set minimo per FiC e pagamenti;
@@ -726,6 +832,41 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   di un rollout multi-istanza va aggiunto il claim PostgreSQL indicato nel
   checklist `docs/reports/tars-brain-rollout-checklist.md`.
 
+## 7-bis. Chat aziendale (26/08/2026)
+
+Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
+niente a che vedere con Email e WhatsApp, che parlano coi clienti.
+
+Persistenza in tabelle PostgreSQL dedicate (`chat_canali`, `chat_messaggi`,
+`chat_letture`), non in `kv_store`: una chat cresce a ogni messaggio e
+riscrivere un blob JSONB ogni volta è la malattia già curata per le
+comunicazioni. Senza `DATABASE_URL` degrada a un array in memoria con la
+stessa API.
+
+Tre tipi di canale:
+
+- `generale` — uno per sede, non si lascia. Ci finiscono le azioni che Tars
+  esegue in autonomia e **tutte** le decisioni degli operatori sulle proposte
+  (approvate e rifiutate, con chi ha deciso). È il registro leggibile che
+  rende l'autonomia accettabile;
+- `diretto` — fra due persone. La chiave è la coppia ordinata di id, quindi
+  A→B e B→A sono la stessa conversazione. L'id 0 è riservato a Tars: le
+  assegnazioni arrivano lì;
+- `commessa` — previsto nel modello, non ancora esposto in UI.
+
+Le assegnazioni passano da `chat-assignment-v1`, consumer **separato** dal
+proiettore delle notifiche: la campanella è dietro `notificationMode`, il
+messaggio in chat deve arrivare comunque. Assegnarsi qualcosa da soli non
+produce messaggio.
+
+I messaggi di sistema hanno `autore_id IS NULL` e il client non può scriverli:
+`autoreId` viene sempre dalla sessione.
+
+Limiti attuali: refresh a polling ogni 5 secondi mentre la pagina è aperta
+(nessun canale SSE dedicato), nessun allegato, nessuna modifica o cancellazione
+di un messaggio, nessuna notifica push. Le suite locali esercitano il fallback
+in memoria: le query PostgreSQL restano da verificare su Railway.
+
 ## 8. Sicurezza e credenziali
 
 Il seed storico con password in chiaro è stato rimosso dal codice corrente. Al
@@ -768,6 +909,13 @@ state machine a passo singolo e lo stesso doc gate del Board. La mappa è
 1→`misure_esecutive`, 2→`aggiornamento_contratto`, 3→`fatture_pagamento`,
 5→`da_ordinare`, 6→`produzione`, 10→`ordini_ultimazione`, 11→`attesa_posa`,
 15→`finiture_saldo`, 17→`interventi_regolazioni`, 18→`archiviata`.
+
+Dal 26/08/2026 vale anche il verso opposto: `commesse.update` chiama
+`allineaTimelineAlBoard`, che completa ogni milestone il cui stato di
+riferimento è stato raggiunto o superato dalla board. È solo in avanti e
+idempotente — arretrare la commessa non riapre gli step, perché quel lavoro è
+stato fatto davvero e riaprirlo cancellerebbe date e autore. Un errore qui
+viene loggato e non annulla l'avanzamento già salvato.
 
 Se il doc gate blocca il passaggio, lo step non viene salvato come completato e
 il client propone "Procedi comunque". Date, note, step intermedi e riaperture
@@ -813,7 +961,19 @@ Poi verificare nel browser, desktop e mobile:
 - Chat Tars: approvare una proposta figlia senza lasciare la conversazione e
   verificare che il relativo esito compaia nello stesso thread;
 - Centro Azioni in `shadow`: confrontare conteggi aggregati, priorità,
-  dedupliche e assegnazioni; passare ad `active` solo dopo il controllo.
+  dedupliche e assegnazioni; passare ad `active` solo dopo il controllo;
+- Pattuito: aprire una commessa con fattura FiC collegata e verificare che il
+  totale sia in sola lettura con badge `da FiC` e il piano rate popolato;
+  aprirne una senza fattura e inserire pattuito e due rate a mano;
+- Chat aziendale: inviare un messaggio nel generale e in una diretta,
+  assegnare una commessa a un altro utente e verificare che gli arrivi il
+  messaggio, approvare una proposta e ritrovarla nel generale;
+- Autonomia: accendere un solo tipo a basso rischio, verificare che l'azione
+  compaia nel generale e nel Registro Tars, poi provare il blocco d'emergenza;
+- Documenti: caricare un documento d'identità e verificare che conservi il
+  nome originale, poi rinominarlo e cambiargli tipo dalla scheda;
+- Timeline e board: spostare una commessa sul Kanban e verificare che le
+  milestone corrispondenti risultino completate.
 
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
@@ -848,6 +1008,19 @@ pnpm storage:dry-run
    per reimportare lo storico outbound con la controparte corretta.
 8. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
    per sede dopo confronto con le notifiche legacy.
+9. **Reset pattuiti da eseguire in produzione.** `pnpm pattuiti:dry-run` e poi
+   `pnpm pattuiti:reset` (`scripts/reset-pattuiti.ts`). È DISTRUTTIVO: azzera
+   `importoTotale`, `pianoRate` e **elimina** i pagamenti con
+   `origine="manuale"` — eliminati, non stornati, quindi recuperabili solo dal
+   backup Drive. Lo script si rifiuta di partire senza un backup Drive riuscito
+   nelle ultime 24 ore, come `storage:migrate`. Dopo il reset serve
+   `Sincronizza ora` per ogni sede: il pattuito si ricostruisce dalle fatture.
+   **Non ancora eseguito su Railway.**
+10. Autonomia Tars da accendere per sede in Impostazioni: scegliere il
+    responsabile e i tipi consentiti, poi osservare la chat generale per
+    qualche giorno prima di allargare l'elenco.
+11. Verifica su Railway delle query PostgreSQL della chat aziendale: le suite
+    locali esercitano solo il fallback in memoria.
 
 ## 13. Piattaforma Tars corrente
 
