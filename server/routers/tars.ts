@@ -243,6 +243,21 @@ async function approveProposalOnce(id: number, ctx: any) {
     p.stato = "approvata";
     p.esito = esito;
   } catch (e: any) {
+    if (
+      p.tipo === "correzione_pagamento" &&
+      e instanceof TRPCError &&
+      e.code === "PRECONDITION_FAILED"
+    ) {
+      superaProposteFicObsolete(ctx.sedeId ?? 1);
+      const cleaned = proposte.find(item => item.id === p.id);
+      if (cleaned?.stato === "superata") {
+        return {
+          ...idrataProposta(cleaned),
+          seguitoAvviato: false,
+          approvazioneRipetuta: false,
+        };
+      }
+    }
     p.stato = "errore";
     p.esito = e?.message ?? String(e);
   }

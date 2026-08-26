@@ -211,7 +211,12 @@ anche i vecchi link duplicati conservando quello compatibile con importo/data e
 creando, quando necessario, un movimento FiC distinto per la rata restante.
 La scelta resta deterministica anche se FiC restituisce le rate in ordine
 diverso e copre i link duplicati tra fatture; un movimento FiC persistito senza
-link viene recuperato senza duplicarlo. L'approvazione rivalida la rata FiC
+link viene recuperato senza duplicarlo. Se più link puntano alla stessa rata,
+il movimento FiC perdente viene stornato; un manuale perdente genera invece una
+proposta di neutralizzazione che non sposta il link canonico. Una nota FiC
+multirata incompatibile con tutte le rate sospende i nuovi importi di quella
+fattura fino alla decisione dell'operatore, senza sospendere aggiornamenti o
+storni dei movimenti già esistenti. L'approvazione rivalida la rata FiC
 viva, la source key, il link e il pagamento prima di qualsiasi scrittura: una
 proposta vecchia diventa `superata`, senza errore né modifica. La card Tars
 confronta `Nel CRM ora` con `FiC propone`, dichiara l'effetto sull'incassato e

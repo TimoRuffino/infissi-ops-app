@@ -329,6 +329,148 @@ describe("riconciliazione pagamenti FiC", () => {
     });
   });
 
+  it("non importa le rate se una nota FiC multirata non coincide con nessuna rata", async () => {
+    const sedeId = 218;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 218_001,
+      rate: [
+        {
+          id: 1001,
+          sourceKey: "rate:1001",
+          importo: 1_000,
+          scadenza: "2026-01-10",
+          stato: "paid",
+          dataPagamento: "2026-01-10",
+        },
+        {
+          id: 1002,
+          sourceKey: "rate:1002",
+          importo: 2_000,
+          scadenza: "2026-02-10",
+          stato: "paid",
+          dataPagamento: "2026-02-10",
+        },
+      ],
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_500,
+      data: "2026-01-20",
+      note: `Fattura FIC ${fattura.numero} — pagamento da verificare`,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.stats.pagamentiCreati).toBe(0);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        tipo: "correggi_manuale",
+        pagamentoId: commessa.pagamenti[0].id,
+      }),
+    ]);
+    expect(commessa.pagamenti).toHaveLength(1);
+    expect(commessa.importoIncassato).toBe(1_500);
+    expect(
+      ficPaymentLinks.filter(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.stato !== "superata"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        target: "manuale",
+        stato: "da_verificare",
+        pagamentoId: commessa.pagamenti[0].id,
+      }),
+    ]);
+  });
+
+  it("aggiorna i movimenti FiC esistenti anche quando blocca nuovi import multirata", async () => {
+    const sedeId = 220;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 220_001,
+      rate: [
+        {
+          id: 1101,
+          sourceKey: "rate:1101",
+          importo: 1_000,
+          scadenza: "2026-01-10",
+          stato: "paid",
+          dataPagamento: "2026-01-10",
+        },
+        {
+          id: 1102,
+          sourceKey: "rate:1102",
+          importo: 2_100,
+          scadenza: "2026-02-10",
+          stato: "paid",
+          dataPagamento: "2026-02-10",
+        },
+      ],
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 2_000,
+      data: "2026-02-09",
+    });
+    Object.assign(commessa.pagamenti[0], {
+      origine: "fic",
+      ficDocumentoId: fattura.id,
+      ficRataId: 1102,
+      ficSourceKey: "rate:1102",
+      ficStato: "paid",
+    });
+    const linkId = Math.max(0, ...ficPaymentLinks.map(link => link.id)) + 100;
+    ficPaymentLinks.push({
+      id: linkId,
+      sedeId,
+      ficDocumentoId: fattura.id,
+      ficRataId: 1102,
+      ficSourceKey: "rate:1102",
+      commessaId: commessa.id,
+      pagamentoId: commessa.pagamenti[0].id,
+      target: "fic",
+      stato: "confermata",
+      createdAt: new Date("2026-08-20T10:00:00.000Z"),
+      updatedAt: new Date("2026-08-20T10:00:00.000Z"),
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_500,
+      data: "2026-01-20",
+      note: `Fattura FIC ${fattura.numero} — pagamento da verificare`,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.stats.pagamentiCreati).toBe(0);
+    expect(result.stats.pagamentiAggiornati).toBe(1);
+    expect(commessa.pagamenti).toHaveLength(2);
+    expect(commessa.pagamenti[0]).toMatchObject({
+      origine: "fic",
+      importo: 2_100,
+      data: "2026-02-10",
+      stato: "attivo",
+    });
+    expect(commessa.pagamenti[1]).toMatchObject({
+      origine: "manuale",
+      importo: 1_500,
+      stato: "attivo",
+    });
+    expect(commessa.importoIncassato).toBe(3_600);
+  });
+
   it("ripara il riuso storico di un manuale anche tra fatture diverse", async () => {
     const sedeId = 216;
     const { caller, commessa, fattura: fatturaNonCompatibile } =
@@ -489,6 +631,88 @@ describe("riconciliazione pagamenti FiC", () => {
           link.stato !== "superata"
       )
     ).toHaveLength(1);
+  });
+
+  it("storna il movimento FiC perdente quando la stessa rata ha due link", async () => {
+    const sedeId = 219;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 219_001,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+      note: "Movimento FiC duplicato storico",
+    });
+    Object.assign(commessa.pagamenti[1], {
+      origine: "fic",
+      ficDocumentoId: fattura.id,
+      ficRataId: 444,
+      ficSourceKey: "rate:444",
+      ficStato: "paid",
+    });
+    const now = new Date("2026-08-20T10:00:00.000Z");
+    const baseId = Math.max(0, ...ficPaymentLinks.map(link => link.id)) + 100;
+    ficPaymentLinks.push(
+      {
+        id: baseId,
+        sedeId,
+        ficDocumentoId: fattura.id,
+        ficRataId: 444,
+        ficSourceKey: "rate:444",
+        commessaId: commessa.id,
+        pagamentoId: commessa.pagamenti[0].id,
+        target: "manuale",
+        stato: "confermata",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: baseId + 1,
+        sedeId,
+        ficDocumentoId: fattura.id,
+        ficRataId: 444,
+        ficSourceKey: "rate:444",
+        commessaId: commessa.id,
+        pagamentoId: commessa.pagamenti[1].id,
+        target: "fic",
+        stato: "confermata",
+        createdAt: now,
+        updatedAt: now,
+      }
+    );
+    expect(commessa.importoIncassato).toBe(2_440);
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.stats.pagamentiStornati).toBe(1);
+    expect(commessa.pagamenti[0].stato).toBe("attivo");
+    expect(commessa.pagamenti[1].stato).toBe("stornato");
+    expect(commessa.importoIncassato).toBe(1_220);
+    expect(
+      ficPaymentLinks.filter(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:444" &&
+          link.stato !== "superata"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        target: "manuale",
+        pagamentoId: commessa.pagamenti[0].id,
+      }),
+    ]);
   });
 
   it("ripara due link storici che riusano lo stesso pagamento manuale", async () => {

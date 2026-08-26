@@ -279,6 +279,25 @@ function activeManualLinksForPayment(input: {
   );
 }
 
+export function esisteLinkManualeSuperato(input: {
+  sedeId: number;
+  ficDocumentoId: number;
+  ficSourceKey: string;
+  commessaId: number;
+  pagamentoId: number;
+}): boolean {
+  return ficPaymentLinks.some(
+    link =>
+      link.sedeId === input.sedeId &&
+      link.ficDocumentoId === input.ficDocumentoId &&
+      link.ficSourceKey === input.ficSourceKey &&
+      link.commessaId === input.commessaId &&
+      link.pagamentoId === input.pagamentoId &&
+      link.target === "manuale" &&
+      link.stato === "superata"
+  );
+}
+
 export function trovaConflittoRiconciliazioneManuale(input: {
   sedeId: number;
   ficDocumentoId: number;
@@ -367,13 +386,13 @@ function canonicalManualLink(input: {
   })[0];
 }
 
-function normalizeDuplicateSourceLinks(input: {
+function duplicateSourceLinkLosers(input: {
   sedeId: number;
   fattura: FatturaFic;
   rata: RataFic;
   commessa: any;
-  now: Date;
-}): boolean {
+  commesse: any[];
+}): RiconciliazioneRataFic[] {
   const links = ficPaymentLinks.filter(
     link =>
       link.sedeId === input.sedeId &&
@@ -381,37 +400,37 @@ function normalizeDuplicateSourceLinks(input: {
       link.ficSourceKey === input.rata.sourceKey &&
       link.stato !== "superata"
   );
-  if (links.length <= 1) return false;
+  if (links.length <= 1) return [];
 
   const rank = (link: RiconciliazioneRataFic): number => {
-    if (link.commessaId !== input.commessa.id) return 0;
-    const raw = input.commessa.pagamenti?.find(
+    const owner = input.commesse.find(
+      commessa =>
+        commessa.id === link.commessaId &&
+        (commessa.sedeId ?? DEFAULT_SEDE_ID) === input.sedeId
+    );
+    const raw = owner?.pagamenti?.find(
       (pagamento: any) => pagamento.id === link.pagamentoId
     );
-    if (!raw) return 1;
+    const currentCommessaBonus = link.commessaId === input.commessa.id ? 100 : 0;
+    if (!raw) return currentCommessaBonus + 1;
     const pagamento = normalizzaPagamentoLegacy(raw);
+    if (link.target === "manuale" && pagamento.origine === "manuale") {
+      return currentCommessaBonus + 50 + manualRateRank(pagamento, input.rata);
+    }
     if (
       link.target === "fic" &&
       pagamento.origine === "fic" &&
       pagamento.ficDocumentoId === input.fattura.id &&
       pagamento.ficSourceKey === input.rata.sourceKey
     ) {
-      return 40;
+      return currentCommessaBonus + 40;
     }
-    if (link.target === "manuale" && pagamento.origine === "manuale") {
-      return 20 + manualRateRank(pagamento, input.rata);
-    }
-    return 2;
+    return currentCommessaBonus + 2;
   };
   const canonical = [...links].sort(
     (a, b) => rank(b) - rank(a) || a.id - b.id
   )[0];
-  for (const link of links) {
-    if (link.id === canonical.id) continue;
-    link.stato = "superata";
-    link.updatedAt = input.now;
-  }
-  return true;
+  return links.filter(link => link.id !== canonical.id);
 }
 
 function issueForManual(input: {
@@ -530,6 +549,99 @@ function manualCandidates(
   );
 }
 
+function bloccaFatturaMultirataEsplicitaDiscordante(input: {
+  sedeId: number;
+  fattura: FatturaFic;
+  commessa: any;
+  now: Date;
+  stats: FicPaymentSyncStats;
+  issues: FicPaymentIssue[];
+}): boolean {
+  const paidRates = input.fattura.rate.filter(
+    rata => rata.stato === "paid" && rata.importo > 0
+  );
+  if (paidRates.length <= 1) return false;
+
+  const explicitManuals: PagamentoCommessa[] = (input.commessa.pagamenti ?? [])
+    .map(normalizzaPagamentoLegacy)
+    .filter(
+      (pagamento: PagamentoCommessa) =>
+        pagamento.origine === "manuale" &&
+        pagamento.stato === "attivo" &&
+        typeof pagamento.note === "string" &&
+        pagamento.note.includes(`FIC ${input.fattura.numero}`) &&
+        paidRates.every(rata => manualRateRank(pagamento, rata) === 0)
+    );
+  if (explicitManuals.length === 0) return false;
+
+  const closestRate = [...paidRates].sort((a, b) => {
+    const distanceA = Math.min(
+      ...explicitManuals.map(pagamento =>
+        Math.abs(pagamento.importo - a.importo)
+      )
+    );
+    const distanceB = Math.min(
+      ...explicitManuals.map(pagamento =>
+        Math.abs(pagamento.importo - b.importo)
+      )
+    );
+    return distanceA - distanceB || a.sourceKey.localeCompare(b.sourceKey);
+  })[0];
+
+  if (explicitManuals.length > 1) {
+    input.issues.push({
+      tipo: "scegli_manuale",
+      sedeId: input.sedeId,
+      commessaId: input.commessa.id,
+      ficDocumentoId: input.fattura.id,
+      ficSourceKey: closestRate.sourceKey,
+      candidati: explicitManuals.map(pagamento => ({
+        pagamentoId: pagamento.id,
+        expectedFingerprint: fingerprintPagamento(pagamento),
+        patch: patchForManual(pagamento, closestRate),
+      })),
+    });
+    input.stats.ambiguita++;
+    return true;
+  }
+
+  const pagamento = explicitManuals[0];
+  const existingLink = activeManualLinksForPayment({
+    sedeId: input.sedeId,
+    commessaId: input.commessa.id,
+    pagamentoId: pagamento.id,
+  }).find(link => link.ficDocumentoId === input.fattura.id);
+  const targetRate = existingLink
+    ? paidRates.find(rata => rata.sourceKey === existingLink.ficSourceKey) ??
+      closestRate
+    : closestRate;
+  if (
+    !existingLink &&
+    trovaConflittoRiconciliazioneManuale({
+      sedeId: input.sedeId,
+      ficDocumentoId: input.fattura.id,
+      ficSourceKey: targetRate.sourceKey,
+      commessaId: input.commessa.id,
+      pagamentoId: pagamento.id,
+    })
+  ) {
+    return false;
+  }
+  if (!existingLink) {
+    createLink({
+      sedeId: input.sedeId,
+      fattura: input.fattura,
+      rata: targetRate,
+      commessaId: input.commessa.id,
+      pagamentoId: pagamento.id,
+      target: "manuale",
+      stato: "da_verificare",
+      now: input.now,
+    });
+  }
+  return true;
+}
+
 function reconcilePaidRate(input: {
   sedeId: number;
   fattura: FatturaFic;
@@ -538,6 +650,7 @@ function reconcilePaidRate(input: {
   now: Date;
   stats: FicPaymentSyncStats;
   issues: FicPaymentIssue[];
+  allowCreate: boolean;
 }): { commesseChanged: boolean; linksChanged: boolean } {
   let linksChanged = false;
   let existing = activeLink(
@@ -723,6 +836,10 @@ function reconcilePaidRate(input: {
     return { commesseChanged: false, linksChanged: false };
   }
 
+  if (!input.allowCreate) {
+    return { commesseChanged: false, linksChanged };
+  }
+
   const pagamento = creaPagamentoFic(
     input.fattura,
     input.rata,
@@ -883,16 +1000,39 @@ export function riconciliaPagamentiFic(input: {
       fattura.presenteInFic ? fattura.rate.map(rata => rata.sourceKey) : []
     );
 
+    const bloccaNuoviMovimenti =
+      fattura.presenteInFic &&
+      bloccaFatturaMultirataEsplicitaDiscordante({
+        sedeId: input.sedeId,
+        fattura,
+        commessa,
+        now,
+        stats,
+        issues,
+      });
+    linksChanged ||= bloccaNuoviMovimenti;
+
     if (fattura.presenteInFic) {
       for (const rata of fattura.rate) {
-        const duplicateSourceLinksChanged = normalizeDuplicateSourceLinks({
+        const duplicateLosers = duplicateSourceLinkLosers({
           sedeId: input.sedeId,
           fattura,
           rata,
           commessa,
-          now,
+          commesse,
         });
-        linksChanged ||= duplicateSourceLinksChanged;
+        for (const duplicate of duplicateLosers) {
+          const cleanup = superaLinkSpostato({
+            sedeId: input.sedeId,
+            link: duplicate,
+            commesse,
+            now,
+            stats,
+            issues,
+          });
+          commesseChanged ||= cleanup.commesseChanged;
+          linksChanged ||= cleanup.linksChanged;
+        }
         const existing = activeLink(input.sedeId, fattura.id, rata.sourceKey);
         if (existing && existing.commessaId !== commessa.id) {
           const moved = superaLinkSpostato({
@@ -916,6 +1056,7 @@ export function riconciliaPagamentiFic(input: {
             now,
             stats,
             issues,
+            allowCreate: !bloccaNuoviMovimenti,
           });
           commesseChanged ||= result.commesseChanged;
           linksChanged ||= result.linksChanged;

@@ -504,6 +504,7 @@ export async function eseguiProposta(
         ficSourceKey: p.ficSourceKey,
         expectedFingerprint: p.expectedFingerprint,
         patch: p.patch,
+        soloNeutralizzazione: p.soloNeutralizzazione === true,
       });
       return `Pagamento corretto. Incassato aggiornato: € ${c.importoIncassato}`;
     }

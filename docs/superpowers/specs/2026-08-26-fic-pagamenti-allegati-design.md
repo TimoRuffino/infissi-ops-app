@@ -225,6 +225,14 @@ payload, prove ed esito nell'audit, quando:
 Per duplicati pendenti si conserva attiva la proposta piu vecchia e si marcano
 `superata` le successive. Se l'effetto e gia soddisfatto, vengono superate tutte.
 
+Quando due link storici condividono la stessa source, il risanamento e
+target-aware: storna automaticamente soltanto il movimento `origine = fic`
+perdente; per un manuale genera una proposta di neutralizzazione che non
+riassegna il link canonico. Se una nota fattura esplicita riguarda una fattura
+multirata ma non coincide con nessuna rata, nessuna rata viene importata finche
+la proposta di riallineamento non viene decisa; manutenzione, storni e
+risanamento dei movimenti già esistenti continuano comunque.
+
 Le chiavi FiC hanno questa struttura logica:
 
 ```text

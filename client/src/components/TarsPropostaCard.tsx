@@ -695,7 +695,8 @@ export default function TarsPropostaCard({
         <PaymentCorrectionComparison payload={proposta.payload} />
       )}
 
-      {pendente && correzionePagamentoNonValida && (
+      {(pendente || proposta.stato === "errore") &&
+        correzionePagamentoNonValida && (
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-foreground">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
@@ -816,7 +817,7 @@ export default function TarsPropostaCard({
         </div>
       )}
 
-      {proposta.stato === "errore" && (
+      {proposta.stato === "errore" && !correzionePagamentoNonValida && (
         <div className="border-t border-border/70 pt-3">
           <Button
             size="sm"

@@ -304,6 +304,9 @@ export function chiaveAzioneProposta(p: {
         pagamentoId: pay.pagamentoId ?? null,
         patch: pay.patch,
         expectedFingerprint: pay.expectedFingerprint,
+        ...(pay.soloNeutralizzazione === true
+          ? { soloNeutralizzazione: true }
+          : {}),
       };
       break;
     case "avanzamento_stato":
@@ -387,6 +390,7 @@ function stessaProposta(
   const altraChiave = esistente.chiaveAzione ?? chiaveAzioneProposta(esistente);
   if (chiave === altraChiave) return true;
   if (
+    candidata.tipo === "correzione_pagamento" ||
     candidata.tipo === "promemoria" ||
     (candidata.tipo === "domanda" &&
       candidata.payload?.intent === "promemoria")

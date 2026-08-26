@@ -93,6 +93,9 @@ function propostaDaIssue(
     ficSourceKey: issue.ficSourceKey,
     expectedFingerprint,
     patch,
+    ...(issue.tipo === "verifica_spostamento"
+      ? { soloNeutralizzazione: true }
+      : {}),
     ...(candidati ? { candidati } : {}),
   };
   const candidata = {
@@ -103,6 +106,8 @@ function propostaDaIssue(
     titolo:
       issue.tipo === "scegli_manuale"
         ? `Scegli il pagamento CRM per la fattura ${numero}`
+        : issue.tipo === "verifica_spostamento"
+          ? `Neutralizza il pagamento CRM duplicato della fattura ${numero}`
         : `Allinea il pagamento CRM alla fattura ${numero}`,
   };
   return {
@@ -229,6 +234,28 @@ function correzioneObsoleta(proposta: Proposta, sedeId: number): boolean {
     Number(payload.pagamentoId)
   );
   if (!pagamento) return true;
+  if (payload.soloNeutralizzazione === true) {
+    const storicoDuplicato = ficPaymentLinks.some(
+      item =>
+        item.sedeId === sedeId &&
+        item.ficDocumentoId === payload.ficDocumentoId &&
+        item.ficSourceKey === payload.ficSourceKey &&
+        item.commessaId === proposta.commessaId &&
+        item.pagamentoId === pagamento.id &&
+        item.target === "manuale" &&
+        item.stato === "superata"
+    );
+    return !(
+      storicoDuplicato &&
+      payload.patch?.stato === "stornato" &&
+      pagamento.stato === "attivo" &&
+      fingerprintPagamento(pagamento) === payload.expectedFingerprint &&
+      link != null &&
+      (link.commessaId !== proposta.commessaId ||
+        link.pagamentoId !== pagamento.id ||
+        link.target !== "manuale")
+    );
+  }
   if (
     link &&
     (link.commessaId !== proposta.commessaId ||

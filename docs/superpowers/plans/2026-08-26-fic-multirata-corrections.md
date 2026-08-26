@@ -151,6 +151,6 @@
 
   Expected: tre comandi con exit code `0`.
 
-- [ ] **Step 4: Controllare il diff e fare commit**
+- [x] **Step 4: Controllare il diff e fare commit**
 
   Verificare `git diff --check`, `git status --short` e il diff limitato ai file del piano. Commit: `fix(fic): prevent duplicate installment payments`.

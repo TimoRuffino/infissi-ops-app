@@ -1112,7 +1112,17 @@ La riconciliazione è uno-a-uno in entrambe le direzioni: una rata FiC ha un sol
 link attivo e lo stesso pagamento manuale non può rappresentare due rate, anche
 tra fatture diverse. Il risanamento sceglie il link più compatibile con importo
 e data indipendentemente dall'ordine delle rate; un pagamento FiC già persistito
-ma rimasto senza link viene recuperato senza crearne un secondo.
+ma rimasto senza link viene recuperato senza crearne un secondo. I movimenti FiC
+associati ai link storici perdenti vengono stornati prima di superare il link;
+per un manuale perdente Tars propone invece una neutralizzazione separata senza
+spostare il collegamento canonico.
+
+Su una fattura multirata, una nota FiC esplicita ma incompatibile con tutte le
+rate blocca l'import automatico delle altre rate: Tars propone il riallineamento
+del manuale e il registro resta invariato finché l'operatore non decide. In
+questo modo l'incassato non contiene contemporaneamente il manuale discordante
+e nuovi movimenti FiC della stessa fattura. Il blocco riguarda soltanto nuove
+righe: aggiornamenti, storni e risanamento dei link già presenti continuano.
 
 Prima di ogni approvazione vengono riletti la rata FiC corrente, il pagamento
 CRM e il link attivo. Se importo, data, stato, sorgente o destinazione sono

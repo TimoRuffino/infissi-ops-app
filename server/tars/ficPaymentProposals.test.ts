@@ -6,13 +6,19 @@ import { getCommesseStore } from "../routers/commesse";
 import { ficFatture, upsertFatture } from "../routers/ficFatture";
 import {
   confermaRiconciliazioneManuale,
+  ficPaymentLinks,
   type FicPaymentIssue,
 } from "../routers/ficPagamenti";
 import {
   creaProposteCorrezionePagamento,
   superaProposteFicObsolete,
 } from "./ficPaymentProposals";
-import { chiaveAzioneProposta, newPropostaId, proposte } from "./stores";
+import {
+  chiaveAzioneProposta,
+  newPropostaId,
+  propostaGiaInCoda,
+  proposte,
+} from "./stores";
 
 function ctx(sedeId: number): TrpcContext {
   return {
@@ -122,6 +128,83 @@ describe("proposte correzione pagamenti FiC", () => {
           proposta.sedeId === sedeId && proposta.tipo === "correzione_pagamento"
       )
     ).toHaveLength(1);
+  });
+
+  it("non deduplica neutralizzazione e correzione canonica con lo stesso titolo", async () => {
+    const sedeId = 411;
+    const { commessa } = await commessaConPagamento(sedeId);
+    const pagamentoCanonico = commessa.pagamenti[0];
+    commessa.pagamenti.push({
+      ...pagamentoCanonico,
+      id: pagamentoCanonico.id + 1,
+      importo: 900,
+    });
+
+    const result = creaProposteCorrezionePagamento(
+      [
+        {
+          tipo: "verifica_spostamento",
+          sedeId,
+          commessaId: commessa.id,
+          pagamentoId: commessa.pagamenti[1].id,
+          ficDocumentoId: 411_001,
+          ficSourceKey: "rate:411",
+        },
+        {
+          tipo: "correggi_manuale",
+          sedeId,
+          commessaId: commessa.id,
+          pagamentoId: pagamentoCanonico.id,
+          ficDocumentoId: 411_001,
+          ficSourceKey: "rate:411",
+          expectedFingerprint: fingerprintPagamento(pagamentoCanonico),
+          patch: { data: "2026-08-21" },
+        },
+      ],
+      sedeId
+    );
+
+    expect(result.create).toBe(2);
+    const create = proposte.filter(
+        proposta =>
+          proposta.sedeId === sedeId &&
+          proposta.tipo === "correzione_pagamento"
+      );
+    expect(create).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ soloNeutralizzazione: true }),
+      }),
+      expect.objectContaining({
+        payload: expect.not.objectContaining({
+          soloNeutralizzazione: true,
+        }),
+      }),
+    ]);
+    expect(
+      propostaGiaInCoda(
+        {
+          tipo: create[1].tipo,
+          commessaId: create[1].commessaId,
+          clienteId: create[1].clienteId,
+          payload: create[1].payload,
+          titolo: create[0].titolo,
+        },
+        sedeId
+      )?.id
+    ).toBe(create[1].id);
+    const { soloNeutralizzazione: _ignored, ...legacyPayload } =
+      create[1].payload;
+    expect(
+      chiaveAzioneProposta({
+        ...create[1],
+        payload: { ...legacyPayload, soloNeutralizzazione: false },
+      })
+    ).toBe(
+      chiaveAzioneProposta({
+        ...create[1],
+        payload: legacyPayload,
+      })
+    );
   });
 
   it("marca superate le proposte economiche gia soddisfatte", async () => {
@@ -442,6 +525,78 @@ describe("proposte correzione pagamenti FiC", () => {
 
     expect(commessa.pagamenti[1].stato).toBe("stornato");
     expect(commessa.importoIncassato).toBe(1_220);
+  });
+
+  it("neutralizza un manuale duplicato senza spostare il link canonico", async () => {
+    const sedeId = 410;
+    const { caller, commessa } = await commessaConPagamento(sedeId);
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    registraRataFic({
+      sedeId,
+      commessaId: commessa.id,
+      ficDocumentoId: 410_001,
+      ficSourceKey: "rate:410",
+      importo: 1_220,
+      dataPagamento: "2026-08-20",
+    });
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: 410_001,
+      ficSourceKey: "rate:410",
+      commessaId: commessa.id,
+      pagamentoId: commessa.pagamenti[0].id,
+    });
+    const canonicalLink = ficPaymentLinks.find(
+      link =>
+        link.sedeId === sedeId &&
+        link.ficDocumentoId === 410_001 &&
+        link.ficSourceKey === "rate:410" &&
+        link.stato !== "superata"
+    )!;
+    ficPaymentLinks.push({
+      ...canonicalLink,
+      id: Math.max(...ficPaymentLinks.map(link => link.id)) + 100,
+      pagamentoId: commessa.pagamenti[1].id,
+      stato: "superata",
+      createdAt: new Date("2026-08-26T13:00:00.000Z"),
+      updatedAt: new Date("2026-08-26T14:00:00.000Z"),
+    });
+    creaProposteCorrezionePagamento(
+      [
+        {
+          tipo: "verifica_spostamento",
+          sedeId,
+          commessaId: commessa.id,
+          pagamentoId: commessa.pagamenti[1].id,
+          ficDocumentoId: 410_001,
+          ficSourceKey: "rate:410",
+        },
+      ],
+      sedeId
+    );
+    const proposta = proposte.find(
+      item => item.sedeId === sedeId && item.tipo === "correzione_pagamento"
+    )!;
+
+    await expect(
+      caller.tars.proposte.approva({ id: proposta.id })
+    ).resolves.toMatchObject({ stato: "approvata" });
+    expect(commessa.pagamenti[0].stato).toBe("attivo");
+    expect(commessa.pagamenti[1].stato).toBe("stornato");
+    expect(commessa.importoIncassato).toBe(1_220);
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === 410_001 &&
+          link.ficSourceKey === "rate:410" &&
+          link.stato !== "superata"
+      )
+    ).toMatchObject({ pagamentoId: commessa.pagamenti[0].id });
   });
 
   it("richiede la scelta del manuale ambiguo prima dell'approvazione", async () => {

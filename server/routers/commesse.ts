@@ -1005,6 +1005,7 @@ export const commesseRouter = router({
       ficDocumentoId: z.number(),
       ficSourceKey: z.string().min(1),
       expectedFingerprint: z.string().min(1),
+      soloNeutralizzazione: z.boolean().optional(),
       patch: z.object({
         importo: z.number().positive().optional(),
         data: z.string().nullable().optional(),
@@ -1045,6 +1046,7 @@ export const commesseRouter = router({
       const {
         confermaRiconciliazioneManuale,
         correzionePagamentoFicValida,
+        esisteLinkManualeSuperato,
         trovaConflittoRiconciliazioneManuale,
       } = await import("./ficPagamenti");
       const reconciliationConflict = trovaConflittoRiconciliazioneManuale({
@@ -1054,7 +1056,33 @@ export const commesseRouter = router({
         commessaId: input.commessaId,
         pagamentoId: input.pagamentoId,
       });
-      if (reconciliationConflict) {
+      if (input.soloNeutralizzazione) {
+        const storicoDuplicato = esisteLinkManualeSuperato({
+          sedeId: ctx.sedeId ?? 1,
+          ficDocumentoId: input.ficDocumentoId,
+          ficSourceKey: input.ficSourceKey,
+          commessaId: input.commessaId,
+          pagamentoId: input.pagamentoId,
+        });
+        const canonicalSourceStillElsewhere =
+          reconciliationConflict?.ficDocumentoId === input.ficDocumentoId &&
+          reconciliationConflict.ficSourceKey === input.ficSourceKey &&
+          (reconciliationConflict.commessaId !== input.commessaId ||
+            reconciliationConflict.pagamentoId !== input.pagamentoId ||
+            reconciliationConflict.target !== "manuale");
+        if (
+          !canonicalSourceStillElsewhere ||
+          !storicoDuplicato ||
+          input.patch.stato !== "stornato" ||
+          Object.keys(input.patch).length !== 1
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Il doppione non e piu neutralizzabile. Riesegui la sincronizzazione FiC.",
+          });
+        }
+      } else if (reconciliationConflict) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
@@ -1062,6 +1090,7 @@ export const commesseRouter = router({
         });
       }
       if (
+        !input.soloNeutralizzazione &&
         !correzionePagamentoFicValida({
           sedeId: ctx.sedeId ?? 1,
           ficDocumentoId: input.ficDocumentoId,
@@ -1094,13 +1123,15 @@ export const commesseRouter = router({
       commessa.updatedAt = new Date();
       _store.save();
 
-      confermaRiconciliazioneManuale({
-        sedeId: ctx.sedeId ?? 1,
-        ficDocumentoId: input.ficDocumentoId,
-        ficSourceKey: input.ficSourceKey,
-        commessaId: input.commessaId,
-        pagamentoId: input.pagamentoId,
-      });
+      if (!input.soloNeutralizzazione) {
+        confermaRiconciliazioneManuale({
+          sedeId: ctx.sedeId ?? 1,
+          ficDocumentoId: input.ficDocumentoId,
+          ficSourceKey: input.ficSourceKey,
+          commessaId: input.commessaId,
+          pagamentoId: input.pagamentoId,
+        });
+      }
       return commessa;
     }),
 
