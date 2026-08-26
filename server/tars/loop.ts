@@ -242,6 +242,7 @@ export async function runTars(params: {
     strumentiDisponibili: tools.length,
     toolCacheHits: 0,
     proposteDuplicateBloccate: 0,
+    azioniAutonome: [],
     comunicazioniClassificateIds: [],
     fascicoloPrecaricato: false,
     contextFingerprint: contextSnapshot?.fingerprint ?? null,
@@ -489,5 +490,52 @@ ${richiesta}`;
   esecuzione.durataMs = Date.now() - start;
   esecuzioni.push(esecuzione);
   saveEsecuzioni();
+  // Autonomia: le proposte appena create dei tipi abilitati vengono eseguite
+  // subito e annunciate in chat. Fuori dal try principale — un problema qui
+  // non deve trasformare un run riuscito in un errore, e le proposte restano
+  // comunque pendenti e approvabili a mano.
+  esecuzione.azioniAutonome = await eseguiAutonomia(
+    params.ctx.sedeId ?? 1,
+    rt.proposteIds
+  );
+  if (esecuzione.azioniAutonome.length > 0) saveEsecuzioni();
   return esecuzione;
+}
+
+/**
+ * Esegue in autonomia le proposte di un run. Il ponte verso il router è un
+ * import dinamico: `routers/tars.ts` importa questo modulo, e un import
+ * statico chiuderebbe il ciclo.
+ */
+async function eseguiAutonomia(
+  sedeId: number,
+  proposteIds: readonly number[]
+): Promise<Array<{ propostaId: number; titolo: string; eseguita: boolean }>> {
+  if (proposteIds.length === 0) return [];
+  try {
+    const [{ eseguiProposteAutonome }, { approvaPropostaComeSistema }, annunci] =
+      await Promise.all([
+        import("./autonomy/runner"),
+        import("../routers/tars"),
+        import("../chat/annunci"),
+      ]);
+    const azioni = await eseguiProposteAutonome({
+      sedeId,
+      propostaIds: proposteIds,
+      approva: approvaPropostaComeSistema,
+      annuncia: eseguite =>
+        annunci.annunciaAzioniAutonome({ sedeId, azioni: eseguite }),
+    });
+    return azioni.map(azione => ({
+      propostaId: azione.propostaId,
+      titolo: azione.titolo,
+      eseguita: azione.eseguita,
+    }));
+  } catch (errore: any) {
+    console.error(
+      `[tars] autonomia sede ${sedeId} non applicata:`,
+      errore?.message ?? errore
+    );
+    return [];
+  }
 }

@@ -46,6 +46,9 @@ import {
   MAX_MESSAGGI_CHAT,
   MODELLI_TARS,
   TIPI_ALTO_RISCHIO,
+  TIPI_AUTONOMIA_AMMESSI,
+  TIPI_IRREVERSIBILI,
+  TIPI_PROPOSTA,
   chiaveAzioneProposta,
   currentExecutionVersions,
   type MessaggioChat,
@@ -65,6 +68,7 @@ import {
 import { evaluateAutonomyGate } from "../tars/autonomy/policy";
 import { collectProposalTree } from "../tars/proposalTree";
 import { getUtentiStore } from "./utenti";
+import { requireAssignableUser } from "../authz/assignments";
 import { processExperimentRepository } from "../tars/processExperiments";
 import {
   fingerprintPagamento,
@@ -279,8 +283,52 @@ async function approveProposalOnce(id: number, ctx: any) {
     });
   }
   recordProposalOutcomes(p, "approved", null);
+  // L'autonomia annuncia da sé le proprie azioni in un messaggio solo: qui
+  // registriamo la decisione UMANA, che è l'altra metà del registro.
+  if (!(ctx.user as any)?.autonomo) {
+    void annunciaDecisioneChat(p, ctx, "approvata");
+  }
   const seguito = avviaSeguito(p, ctx);
   return { ...idrataProposta(p), seguitoAvviato: seguito };
+}
+
+/**
+ * Pubblica una decisione nella chat generale della sede. Fire-and-forget:
+ * la chat è un registro leggibile, non una dipendenza dell'approvazione.
+ */
+function annunciaDecisioneChat(
+  proposta: any,
+  ctx: any,
+  decisione: "approvata" | "rifiutata"
+): void {
+  void import("../chat/annunci")
+    .then(annunci =>
+      annunci.annunciaDecisioneProposta({
+        sedeId: proposta.sedeId,
+        decisore: ctx.user?.name ?? "Un operatore",
+        decisione,
+        titolo: proposta.titolo,
+        esito:
+          decisione === "approvata" ? proposta.esito : proposta.motivoRifiuto,
+        propostaId: proposta.id,
+        commessaId: proposta.commessaId ?? null,
+      })
+    )
+    .catch(() => {
+      /* la chat non blocca una decisione già presa */
+    });
+}
+
+/**
+ * Approvazione eseguita da Tars in autonomia.
+ *
+ * Passa dalla stessa serializzazione e dagli stessi controlli di ruolo di un
+ * click umano: il `ctx` che riceve è quello dell'utente responsabile
+ * configurato dalla direzione, non un principal privilegiato. Se
+ * quell'utente non potrebbe approvare a mano, qui fallisce allo stesso modo.
+ */
+export function approvaPropostaComeSistema(id: number, ctx: any) {
+  return approveProposalSerialized(id, ctx);
 }
 
 async function approveProposalSerialized(id: number, ctx: any) {
@@ -1064,6 +1112,7 @@ ${input.testo.trim()}`;
         p.decisaDaNome = user?.name ?? null;
         saveProposte();
         recordProposalOutcomes(p, "rejected", p.motivoRifiuto);
+        annunciaDecisioneChat(p, ctx, "rifiutata");
         return p;
       }),
 
@@ -1366,8 +1415,71 @@ ${input.testo.trim()}`;
         chiaveConfigurata: openaiConfigured(),
         puoModificare: isDirezione(ctx.user),
         platformFlags: getFeatureFlags(ctx.sedeId ?? 1),
+        autonomia: {
+          ...c.autonomia,
+          tipiAmmessi: TIPI_AUTONOMIA_AMMESSI,
+          tipiIrreversibili: TIPI_IRREVERSIBILI,
+          responsabili: getUtentiStore()
+            .filter(
+              (u: any) =>
+                u.attivo !== false &&
+                Array.isArray(u.sediIds) &&
+                u.sediIds.includes(ctx.sedeId ?? 1)
+            )
+            .map((u: any) => ({
+              id: u.id,
+              nome:
+                [u.nome, u.cognome].filter(Boolean).join(" ") ||
+                u.name ||
+                `Utente ${u.id}`,
+            })),
+        },
       };
     }),
+
+    // L'autonomia è una delega di firma: la decide la direzione, sede per
+    // sede, e nomina la persona che ne risponde. I tipi irreversibili non
+    // sono accettati nemmeno se arrivano nell'input — il filtro qui è
+    // ridondante rispetto a quello del runner, ed è voluto.
+    setAutonomia: protectedProcedure
+      .input(
+        z.object({
+          attiva: z.boolean().optional(),
+          killSwitch: z.boolean().optional(),
+          tipiConsentiti: z.array(z.enum(TIPI_PROPOSTA)).max(30).optional(),
+          principalUserId: z.number().int().positive().nullable().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const sedeId = ctx.sedeId ?? 1;
+        const c = getTarsConfig(sedeId);
+        if (input.attiva !== undefined) c.autonomia.attiva = input.attiva;
+        if (input.killSwitch !== undefined) {
+          c.autonomia.killSwitch = input.killSwitch;
+        }
+        if (input.tipiConsentiti !== undefined) {
+          c.autonomia.tipiConsentiti = input.tipiConsentiti.filter(tipo =>
+            TIPI_AUTONOMIA_AMMESSI.includes(tipo)
+          );
+        }
+        if (input.principalUserId !== undefined) {
+          if (input.principalUserId != null) {
+            // Il responsabile deve esistere ed essere di questa sede: senza,
+            // l'autonomia girerebbe con un contesto vuoto e fallirebbe in
+            // silenzio a ogni proposta.
+            requireAssignableUser({
+              assigneeUserId: input.principalUserId,
+              sedeId,
+              requiredCapability: "commessa.update_operational",
+            });
+          }
+          c.autonomia.principalUserId = input.principalUserId;
+        }
+        c.updatedAt = new Date();
+        saveConfig();
+        return c.autonomia;
+      }),
     setPlatformFlags: protectedProcedure
       .input(
         z.object({

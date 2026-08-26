@@ -39,13 +39,14 @@ describe("Tars execution version metadata", () => {
       evidenceRefs: [],
       factsRead: 0,
       factsRevalidated: 0,
+      azioniAutonome: [],
     });
   });
 
   it("registra le versioni del prompt e del catalogo promemoria", () => {
     expect(currentExecutionVersions()).toMatchObject({
-      promptVersion: "prompt-v4",
-      toolRegistryVersion: "tools-v4",
+      promptVersion: "prompt-v5",
+      toolRegistryVersion: "tools-v5",
     });
   });
 });

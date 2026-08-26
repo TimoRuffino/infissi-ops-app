@@ -382,6 +382,159 @@ const ETICHETTA_MODELLO: Record<string, string> = {
   "gpt-5.4-mini": "GPT-5.4 mini — economico",
 };
 
+// Autonomia di Tars — la delega di firma della direzione.
+//
+// Tre decisioni, e sono tutte esplicite di proposito: se accendere, chi ne
+// risponde, e su cosa. I tipi irreversibili non compaiono nell'elenco perché
+// il server non li accetterebbe comunque: mostrarli disabilitati farebbe
+// credere che siano una scelta.
+const ETICHETTA_TIPO_PROPOSTA: Record<string, string> = {
+  collega_comunicazione: "Collegare email e WhatsApp alle commesse",
+  crea_lead: "Creare cliente e prima commessa da un contatto",
+  collega_fattura: "Collegare le fatture FiC alle commesse",
+  archivia_allegato: "Archiviare allegati nel fascicolo",
+  rinomina_documento: "Rinominare e riclassificare documenti",
+  nota_timeline: "Scrivere note sulla timeline",
+  aggiornamento_magazzino: "Aggiornare consegne a magazzino",
+  modifica_cliente: "Correggere l'anagrafica cliente",
+  modifica_commessa: "Aggiornare i dati di una commessa",
+  ticket: "Aprire ticket post-vendita",
+  pagamento: "Registrare pagamenti",
+  correzione_pagamento: "Correggere pagamenti discordanti",
+  avanzamento_stato: "Avanzare lo stato di una commessa",
+  bozza_risposta: "Preparare bozze di risposta",
+  segnalazione: "Aprire segnalazioni",
+  miglioramento_processo: "Avviare esperimenti di processo",
+  promemoria: "Creare promemoria personali",
+};
+
+function AutonomiaTars({
+  autonomia,
+  inCorso,
+  onChange,
+}: {
+  autonomia: any;
+  inCorso: boolean;
+  onChange: (patch: {
+    attiva?: boolean;
+    killSwitch?: boolean;
+    tipiConsentiti?: string[];
+    principalUserId?: number | null;
+  }) => void;
+}) {
+  const consentiti: string[] = autonomia.tipiConsentiti ?? [];
+  const ammessi: string[] = autonomia.tipiAmmessi ?? [];
+  const responsabili: Array<{ id: number; nome: string }> =
+    autonomia.responsabili ?? [];
+  const pronta =
+    autonomia.attiva &&
+    !autonomia.killSwitch &&
+    autonomia.principalUserId != null &&
+    consentiti.length > 0;
+
+  const commuta = (tipo: string) =>
+    onChange({
+      tipiConsentiti: consentiti.includes(tipo)
+        ? consentiti.filter(t => t !== tipo)
+        : [...consentiti, tipo],
+    });
+
+  return (
+    <div className="rounded-md border p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Autonomia operativa</p>
+          <p className="text-xs text-muted-foreground">
+            {pronta
+              ? `Tars esegue da solo ${consentiti.length} tipi di azione e li riepiloga in chat.`
+              : "Ogni proposta attende l'approvazione di un operatore."}
+          </p>
+        </div>
+        <Switch
+          aria-label="Attiva l'autonomia operativa di Tars"
+          checked={autonomia.attiva === true}
+          disabled={inCorso}
+          onCheckedChange={v => onChange({ attiva: v })}
+        />
+      </div>
+
+      {autonomia.attiva && (
+        <>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground w-36">
+              Ne risponde:
+            </span>
+            <select
+              aria-label="Utente responsabile delle azioni autonome"
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              value={autonomia.principalUserId ?? ""}
+              disabled={inCorso}
+              onChange={e =>
+                onChange({
+                  principalUserId: e.target.value
+                    ? Number(e.target.value)
+                    : null,
+                })
+              }
+            >
+              <option value="">Nessuno (autonomia sospesa)</option>
+              {responsabili.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.nome}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">
+              le azioni usano i suoi permessi
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">
+              Blocco d&apos;emergenza: nega tutto senza perdere la
+              configurazione
+            </span>
+            <Switch
+              aria-label="Blocco d'emergenza dell'autonomia"
+              checked={autonomia.killSwitch === true}
+              disabled={inCorso}
+              onCheckedChange={v => onChange({ killSwitch: v })}
+            />
+          </div>
+
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs text-muted-foreground mb-1">
+              Cosa può fare da solo
+            </legend>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {ammessi.map(tipo => (
+                <label
+                  key={tipo}
+                  className="flex items-start gap-2 text-xs cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={consentiti.includes(tipo)}
+                    disabled={inCorso}
+                    onChange={() => commuta(tipo)}
+                  />
+                  <span>{ETICHETTA_TIPO_PROPOSTA[tipo] ?? tipo}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <p className="text-xs text-muted-foreground">
+            Chiusura di una commessa ed eliminazioni restano sempre da
+            approvare: non hanno un ritorno.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function TarsCard() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -407,6 +560,13 @@ function TarsCard() {
   const setAttivo = trpc.tars.config.setAttivo.useMutation({
     onSuccess: r => {
       toast.success(r.attivo ? "Tars attivato" : "Tars spento");
+      utils.tars.config.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const setAutonomia = trpc.tars.config.setAutonomia.useMutation({
+    onSuccess: () => {
+      toast.success("Autonomia aggiornata");
       utils.tars.config.invalidate();
     },
     onError: e => toast.error(e.message),
@@ -454,10 +614,14 @@ function TarsCard() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          Analizza le commesse su richiesta e propone azioni — registrazioni,
-          note, avanzamenti. <strong>Non esegue mai nulla da solo:</strong> ogni
-          proposta va approvata con un click, e passa dagli stessi controlli
-          (doc gate, permessi) di un'operazione manuale.
+          Analizza commesse e comunicazioni e propone azioni — registrazioni,
+          note, collegamenti, avanzamenti. Ogni azione passa dagli stessi
+          controlli di un'operazione manuale (doc gate, permessi, scope sede).
+          Senza autonomia attiva ogni proposta attende un click;{" "}
+          <strong>
+            con l'autonomia attiva i tipi scelti vengono eseguiti subito e
+            riepilogati nella chat aziendale.
+          </strong>
         </p>
         {!chiaveOk && (
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 text-xs">
@@ -516,6 +680,14 @@ function TarsCard() {
             </p>
           )}
         </div>
+
+        {isDirezione(user) && config.data?.autonomia && (
+          <AutonomiaTars
+            autonomia={config.data.autonomia}
+            inCorso={setAutonomia.isPending}
+            onChange={patch => setAutonomia.mutate(patch as any)}
+          />
+        )}
 
         {isDirezione(user) ? (
           <div className="space-y-2">

@@ -48,6 +48,6 @@ export type EvalObserved = {
   durationMs?: number;
 };
 
-export const TARS_PROMPT_VERSION = "prompt-v4";
-export const TARS_TOOL_REGISTRY_VERSION = "tools-v4";
+export const TARS_PROMPT_VERSION = "prompt-v5";
+export const TARS_TOOL_REGISTRY_VERSION = "tools-v5";
 export const TARS_POLICY_VERSION = "policy-legacy-v1";

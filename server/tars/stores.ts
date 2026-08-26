@@ -59,6 +59,16 @@ export const TIPI_ALTO_RISCHIO: TipoProposta[] = [
   "collega_fattura",
 ];
 
+// Tipi che nessuna configurazione di autonomia può includere.
+//
+// Il criterio è uno solo e non è il rischio: è l'esistenza di un ritorno.
+// Un pagamento si storna, un avanzamento si arretra di un passo, un
+// documento si rinomina di nuovo. La chiusura porta la commessa fino ad
+// `archiviata` attraversando più stati e non ha un percorso inverso
+// equivalente; `domanda` non è un'azione da eseguire ma una richiesta a una
+// persona, e auto-rispondersi non significherebbe niente.
+export const TIPI_IRREVERSIBILI: TipoProposta[] = ["chiudi_commessa", "domanda"];
+
 export type StatoProposta =
   | "pendente"
   | "approvata"
@@ -553,6 +563,14 @@ export type Esecuzione = {
   factsRevalidated: number;
   strumenti: StrumentoChiamato[];
   proposteIds: number[];
+  // Proposte che questa esecuzione ha eseguito da sola, con l'esito. Serve
+  // al Registro: senza, un run autonomo sarebbe indistinguibile da uno che
+  // ha soltanto proposto.
+  azioniAutonome: Array<{
+    propostaId: number;
+    titolo: string;
+    eseguita: boolean;
+  }>;
   riepilogo: string | null; // il testo finale del modello
   tokensIn: number;
   tokensOut: number;
@@ -594,6 +612,7 @@ export function normalizeExecutionMetadata(
   if (execution.evidenceRefs === undefined) execution.evidenceRefs = [];
   if (execution.factsRead === undefined) execution.factsRead = 0;
   if (execution.factsRevalidated === undefined) execution.factsRevalidated = 0;
+  if (!Array.isArray(execution.azioniAutonome)) execution.azioniAutonome = [];
 }
 
 export function currentExecutionVersions(
@@ -802,6 +821,21 @@ export type TarsConfig = {
   // miglioramenti di processo. Non modifica mai regole o dati da sola.
   auditProcessiAttivo: boolean;
   ultimoAuditProcessiAt: Date | null;
+  // Autonomia operativa. Quando è accesa Tars esegue da solo le proposte dei
+  // tipi elencati, subito dopo averle create, e ne dà conto nella chat
+  // aziendale: "propone" resta il modello, "attende" no.
+  //
+  // Restano SEMPRE fuori i tipi irreversibili (`TIPI_IRREVERSIBILI`): quelli
+  // non sono negoziabili da configurazione, perché non hanno un undo.
+  autonomia: {
+    attiva: boolean;
+    // Interruttore di emergenza: nega tutto senza dover svuotare la lista.
+    killSwitch: boolean;
+    tipiConsentiti: TipoProposta[];
+    // Utente a cui vengono attribuite le esecuzioni autonome. Serve un
+    // principal reale: l'audit deve poter dire chi risponde di una scrittura.
+    principalUserId: number | null;
+  };
   // Versione dei default applicata a questo record. Serve a far arrivare un
   // cambio di modello o di budget anche alle installazioni già avviate:
   // senza, il record salvato resterebbe sul vecchio provider per sempre.
@@ -824,9 +858,22 @@ const DEFAULT_CONFIG: Omit<TarsConfig, "id" | "sedeId"> = {
   timeoutMs: 120_000,
   auditProcessiAttivo: true,
   ultimoAuditProcessiAt: null,
+  // Spenta di default anche dopo questa versione: accendere l'autonomia è
+  // una decisione della direzione, sede per sede, non un aggiornamento.
+  autonomia: {
+    attiva: false,
+    killSwitch: false,
+    tipiConsentiti: [],
+    principalUserId: null,
+  },
   versioneDefault: VERSIONE_DEFAULT,
   updatedAt: new Date(),
 };
+
+/** Tipi proponibili in autonomia: tutto tranne quelli senza ritorno. */
+export const TIPI_AUTONOMIA_AMMESSI: TipoProposta[] = TIPI_PROPOSTA.filter(
+  tipo => !TIPI_IRREVERSIBILI.includes(tipo)
+);
 
 export function applicaMigrazioneConfigTars(config: TarsConfig): void {
   if ((config.versioneDefault ?? 1) >= VERSIONE_DEFAULT) return;
@@ -866,6 +913,26 @@ const _configStore = persistedStore<TarsConfig>(
       }
       if (c.budgetMensileUsd === undefined) {
         c.budgetMensileUsd = DEFAULT_CONFIG.budgetMensileUsd;
+      }
+      // Autonomia: assente su ogni record precedente. Nasce spenta, e i tipi
+      // irreversibili vengono comunque tolti a ogni caricamento — così una
+      // riga scritta a mano nel JSONB non può aggirare il confine.
+      if (!c.autonomia || typeof c.autonomia !== "object") {
+        c.autonomia = { ...DEFAULT_CONFIG.autonomia, tipiConsentiti: [] };
+      } else {
+        c.autonomia.attiva = c.autonomia.attiva === true;
+        c.autonomia.killSwitch = c.autonomia.killSwitch === true;
+        c.autonomia.principalUserId =
+          c.autonomia.principalUserId == null
+            ? null
+            : Number(c.autonomia.principalUserId);
+        c.autonomia.tipiConsentiti = (
+          Array.isArray(c.autonomia.tipiConsentiti)
+            ? c.autonomia.tipiConsentiti
+            : []
+        ).filter((tipo: TipoProposta) =>
+          TIPI_AUTONOMIA_AMMESSI.includes(tipo)
+        );
       }
       // Aggiornamento dei default. Non tocca `attivo`: accendere Tars resta
       // una decisione umana, e non sovrascrive limiti personalizzati.
