@@ -899,6 +899,18 @@ export default function TarsPropostaCard({
               Invia
             </Button>
           </div>
+          <div className="flex border-t border-border/70 pt-3">
+            <Button
+              size="sm"
+              variant="destructive"
+              className="min-h-11"
+              disabled={busy}
+              onClick={() => setEliminaAperta(true)}
+            >
+              <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+              Elimina
+            </Button>
+          </div>
         </div>
       )}
 
@@ -941,6 +953,16 @@ export default function TarsPropostaCard({
             >
               <X className="h-3.5 w-3.5 mr-1" />
               Rifiuta
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="min-h-11"
+              disabled={busy}
+              onClick={() => setEliminaAperta(true)}
+            >
+              <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+              Elimina
             </Button>
           </div>
         )}

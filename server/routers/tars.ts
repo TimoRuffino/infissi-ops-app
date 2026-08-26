@@ -802,10 +802,11 @@ ${input.testo.trim()}`;
               "La proposta è in esecuzione. Attendi il completamento prima di eliminarla.",
           });
         }
-        if (proposta.stato !== "errore") {
+        if (proposta.stato !== "pendente" && proposta.stato !== "errore") {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "Si possono eliminare soltanto le proposte fallite.",
+            message:
+              "Si possono eliminare soltanto le proposte ancora da decidere o fallite.",
           });
         }
         const userId = Number(ctx.user?.id ?? 0);

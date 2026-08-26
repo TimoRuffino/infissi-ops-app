@@ -3064,20 +3064,20 @@ describe("tars — profili e cache operativa", () => {
     ).toContain(proposalId);
   });
 
-  it("non rimuove proposte pendenti o appartenenti a un'altra sede", async () => {
+  it("rimuove domande pendenti dalla vista personale ma non da un'altra sede", async () => {
     const sedeId = 999_181;
     const proposalId = newPropostaId();
     proposte.push({
       id: proposalId,
       sedeId,
-      tipo: "nota_timeline",
-      titolo: "Proposta ancora da decidere",
-      motivazione: "Deve restare nella coda operativa.",
+      tipo: "domanda",
+      titolo: "Quale commessa devo usare?",
+      motivazione: "Tars attende una scelta dell'operatore.",
       confidenza: "alta",
-      payload: { testo: "Nota valida" },
+      payload: {},
       commessaId: null,
       clienteId: null,
-      opzioni: null,
+      opzioni: ["Commessa A", "Commessa B"],
       risposta: null,
       stato: "pendente",
       esito: null,
@@ -3105,7 +3105,11 @@ describe("tars — profili e cache operativa", () => {
       appRouter
         .createCaller(sameSiteCtx)
         .tars.proposte.rimuovi({ id: proposalId })
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    ).resolves.toEqual({ success: true });
+    expect(proposte.find(item => item.id === proposalId)).toMatchObject({
+      hiddenForUserIds: [1],
+      stato: "pendente",
+    });
 
     const otherSiteCtx = makeCtx();
     otherSiteCtx.sedeId = sedeId + 1;

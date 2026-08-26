@@ -320,11 +320,13 @@ la conversazione a 1, 2, 4, 8 e 15 secondi finche una domanda risposta o una
 proposta approvata ha ricevuto il proprio seguito: non e piu necessario aprire
 la tab Proposte per completare un flusso iniziato in chat.
 
-Le proposte fallite (`errore`) espongono anche `Elimina`. La route
+Le proposte pendenti (`pendente`, incluse le domande) e fallite (`errore`)
+espongono anche `Elimina`. La route
 `tars.proposte.rimuovi` applica sede, ACL e stato, poi aggiunge l'utente a
 `hiddenForUserIds`: la proposta sparisce per lui da chat, Centro Azioni e
 commessa, ma resta persistita per audit, deduplica e per gli altri utenti
-autorizzati. Non è una cancellazione fisica e non si applica alle pendenti.
+autorizzati. Non è una cancellazione fisica e non si applica alle proposte già
+approvate, rifiutate, risposte o superate.
 
 Per richieste come "il lavoro e finito", Tars usa
 `verifica_chiusura_commessa`: saldo, gruppi documentali obbligatori, step in

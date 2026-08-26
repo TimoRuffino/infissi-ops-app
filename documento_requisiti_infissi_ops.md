@@ -869,7 +869,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
-- **v4.32 (26/08/2026)** - Le proposte Tars fallite possono essere eliminate dalla vista personale con conferma; restano nello store per audit e deduplicazione e continuano a essere visibili agli altri utenti autorizzati (§50.1).
+- **v4.32 (26/08/2026)** - Le proposte Tars pendenti o fallite possono essere eliminate dalla vista personale con conferma; restano nello store per audit e deduplicazione e continuano a essere visibili agli altri utenti autorizzati (§50.1).
 - **v4.31 (26/08/2026)** - FiC diventa fonte autorevole per rate, date e storni; il pattuito resta nel CRM, i movimenti FiC sono idempotenti e auditabili, Tars propone soltanto correzioni dei manuali e i PDF fattura vengono collegati con retry sicuro (§37, §40.4, §50).
 - **v4.30 (26/08/2026)** - Tars riconosce le richieste di promemoria personali, chiede sempre data e ora, attende l'approvazione del richiedente e consegna popup e notifica nel CRM aperto con completamento e posticipo (§25.6, §50.11).
 - **v4.29 (26/08/2026)** - Il workspace Email amplia il lettore, elimina i troncamenti delle informazioni operative nel dettaglio e attiva automaticamente il focus quando si usa Tars o sono presenti proposte pendenti (§51.6).
@@ -1355,12 +1355,12 @@ Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura dir
 
 Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e campi significativi del payload. La stessa azione non deve tornare in coda riscritta con parole diverse quando è pendente, approvata, rifiutata, risposta, fallita o già gestita. La similarità del titolo funge da controllo aggiuntivo e il motivo del rifiuto viene restituito al modello.
 
-Una proposta in stato `errore` può essere eliminata dalla vista personale dopo
-conferma. L'operazione registra l'utente in `hiddenForUserIds` e la esclude da
+Una proposta in stato `pendente` o `errore` può essere eliminata dalla vista
+personale dopo conferma. L'operazione registra l'utente in `hiddenForUserIds` e la esclude da
 chat, Centro Azioni, scheda commessa e statistiche soltanto per quell'utente;
 non cancella il record, non altera la chiave d'azione e conserva audit,
 deduplicazione e visibilità per gli altri operatori autorizzati. Proposte
-pendenti o appartenenti a un'altra sede non sono eliminabili.
+già decise o appartenenti a un'altra sede non sono eliminabili.
 
 Per FiC, `correzione_pagamento` è l'unica proposta che può modificare un
 pagamento manuale: payload, candidato scelto e fingerprint vengono rivalidati
