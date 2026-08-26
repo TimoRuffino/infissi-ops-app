@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -47,6 +48,7 @@ import {
   ArchiveRestore,
   MoreHorizontal,
   Banknote,
+  CalendarClock,
   TrendingUp,
   ChevronDown,
   HardHat,
@@ -89,6 +91,10 @@ const tipoDocColors: Record<string, string> = {
   ddt_finale: "bg-teal-100 text-teal-800",
   saldo: "bg-purple-100 text-purple-800",
   foto: "bg-pink-100 text-pink-800",
+  documento_identita: "bg-indigo-100 text-indigo-800",
+  visura: "bg-cyan-100 text-cyan-800",
+  planimetria: "bg-violet-100 text-violet-800",
+  certificazione: "bg-lime-100 text-lime-800",
   altro: "bg-slate-100 text-slate-700",
 };
 
@@ -104,6 +110,10 @@ const DOC_TIPO_LABEL: Record<string, string> = {
   ddt_finale: "DDT finale",
   saldo: "Ricevuta saldo",
   foto: "Foto",
+  documento_identita: "Documento d'identità",
+  visura: "Visura",
+  planimetria: "Planimetria",
+  certificazione: "Certificazione",
   altro: "Altro",
 };
 
@@ -202,6 +212,12 @@ export default function CommessaDetail() {
     note: "",
   });
 
+  // Rinomina e riclassifica un documento gia caricato. Il tipo conta per il
+  // doc gate: un contratto caricato come "altro" blocca un avanzamento
+  // legittimo, e finora si poteva correggere solo ricaricando il file.
+  const [rinominaDoc, setRinominaDoc] = useState<any>(null);
+  const [rinominaForm, setRinominaForm] = useState({ nome: "", tipo: "altro" });
+
   // Nuovo cliente inline
   const [nuovoClienteDialog, setNuovoClienteDialog] = useState(false);
   const [clienteForm, setClienteForm] = useState({
@@ -252,6 +268,14 @@ export default function CommessaDetail() {
       utils.preventiviContratti.invalidate();
       setDeleteTarget(null);
     },
+  });
+  const rinominaDocumento = trpc.preventiviContratti.update.useMutation({
+    onSuccess: () => {
+      utils.preventiviContratti.invalidate();
+      setRinominaDoc(null);
+      toast.success("Documento aggiornato");
+    },
+    onError: (e) => toast.error(e.message ?? "Modifica non riuscita"),
   });
   const createIntervento = trpc.interventi.create.useMutation({
     onSuccess: () => {
@@ -1130,19 +1154,15 @@ export default function CommessaDetail() {
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
+                      {/* Una lista sola: DOC_TIPO_LABEL rispecchia DOC_TIPI
+                          del server, quindi un tipo nuovo compare qui senza
+                          che nessuno debba ricordarsene. */}
                       <SelectContent>
-                        <SelectItem value="preventivo">Preventivo</SelectItem>
-                        <SelectItem value="contratto">Contratto</SelectItem>
-                        <SelectItem value="misure">Misure esecutive</SelectItem>
-                        <SelectItem value="fattura">Fattura</SelectItem>
-                        <SelectItem value="ordine">Ordine fornitore</SelectItem>
-                        <SelectItem value="conferma_ordine">Conferma ordine</SelectItem>
-                        <SelectItem value="ddt_consegna">DDT consegna</SelectItem>
-                        <SelectItem value="ddt_posa">DDT posa</SelectItem>
-                        <SelectItem value="ddt_finale">DDT finale</SelectItem>
-                        <SelectItem value="saldo">Ricevuta saldo</SelectItem>
-                        <SelectItem value="foto">Foto</SelectItem>
-                        <SelectItem value="altro">Altro</SelectItem>
+                        {Object.entries(DOC_TIPO_LABEL).map(([tipo, label]) => (
+                          <SelectItem key={tipo} value={tipo}>
+                            {label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     {SUGGESTED_TIPO_FOR_STATO[c.stato] && uploadForm.tipo === SUGGESTED_TIPO_FOR_STATO[c.stato] && (
@@ -1213,7 +1233,7 @@ export default function CommessaDetail() {
                             variant="secondary"
                             className={`text-[10px] ${tipoDocColors[d.tipo] ?? ""}`}
                           >
-                            {d.tipo}
+                            {DOC_TIPO_LABEL[d.tipo] ?? d.tipo}
                           </Badge>
                           {d.source === "fic" && (
                             <Badge variant="outline" className="text-[10px]">
@@ -1261,6 +1281,19 @@ export default function CommessaDetail() {
                         onClick={() => downloadDocumento(d.id)}
                       >
                         <Download className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Rinomina o cambia tipo"
+                        aria-label={`Rinomina ${d.nome}`}
+                        onClick={() => {
+                          setRinominaDoc(d);
+                          setRinominaForm({ nome: d.nome, tipo: d.tipo });
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
@@ -2151,6 +2184,71 @@ export default function CommessaDetail() {
       />
 
       {/* Email preventivo dialog (mailto + auto-download) */}
+      <Dialog
+        open={!!rinominaDoc}
+        onOpenChange={(open) => !open && setRinominaDoc(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rinomina documento</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome file</Label>
+              <Input
+                value={rinominaForm.nome}
+                onChange={(e) =>
+                  setRinominaForm({ ...rinominaForm, nome: e.target.value })
+                }
+                placeholder="Documento d'identita Rossi Mario.pdf"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Il nome e libero: tienici l&apos;estensione del file.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo documento</Label>
+              <Select
+                value={rinominaForm.tipo}
+                onValueChange={(v) =>
+                  setRinominaForm({ ...rinominaForm, tipo: v })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(DOC_TIPO_LABEL).map(([tipo, label]) => (
+                    <SelectItem key={tipo} value={tipo}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRinominaDoc(null)}>
+              Annulla
+            </Button>
+            <Button
+              disabled={
+                !rinominaForm.nome.trim() || rinominaDocumento.isPending
+              }
+              onClick={() =>
+                rinominaDocumento.mutate({
+                  id: rinominaDoc.id,
+                  nome: rinominaForm.nome.trim(),
+                  tipo: rinominaForm.tipo as any,
+                })
+              }
+            >
+              Salva
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!emailDoc} onOpenChange={(open) => !open && setEmailDoc(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -2269,6 +2367,200 @@ export function tipoPagamentoSuggerito(nGiaRegistrati: number): string {
   return n >= 5 ? "saldo" : `acconto_${n + 1}`;
 }
 
+// Piano rate della commessa: le scadenze concordate, non gli incassi.
+//
+// Con una fattura FiC collegata il piano è di sola lettura — arriva dalle
+// scadenze del documento. Senza fattura è l'operatore a scriverlo, ed è
+// l'unico caso in cui questa sezione ha comandi.
+function PianoRateSezione({
+  commessaId,
+  totalePattuito,
+}: {
+  commessaId: number;
+  totalePattuito: number | null;
+}) {
+  const utils = trpc.useUtils();
+  const q = trpc.commesse.pattuito.useQuery(commessaId);
+  const [aggiungi, setAggiungi] = useState(false);
+  const [form, setForm] = useState({ importo: "", scadenza: "", descrizione: "" });
+  const fmt = formatEuro;
+  const parse = parseEuroPositivo;
+  const fmtScadenza = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+
+  const invalida = () => {
+    utils.commesse.pattuito.invalidate(commessaId);
+    utils.commesse.invalidate();
+  };
+  const addRata = trpc.commesse.addRata.useMutation({
+    onSuccess: () => {
+      invalida();
+      setForm({ importo: "", scadenza: "", descrizione: "" });
+      setAggiungi(false);
+      toast.success("Rata aggiunta");
+    },
+    onError: e => toast.error(e.message),
+  });
+  const removeRata = trpc.commesse.removeRata.useMutation({
+    onSuccess: () => {
+      invalida();
+      toast.success("Rata eliminata");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const rate = q.data?.rate ?? [];
+  const modificabile = q.data?.modificabile ?? false;
+  const sommaRate = rate
+    .filter((r: any) => r.stato !== "stornata")
+    .reduce((s: number, r: any) => s + (r.importo ?? 0), 0);
+  const scostamento =
+    totalePattuito != null && rate.length > 0
+      ? Math.round((sommaRate - totalePattuito) * 100) / 100
+      : null;
+
+  if (q.isLoading) return null;
+  if (rate.length === 0 && !modificabile) return null;
+
+  return (
+    <div className="rounded-md border border-border">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60 flex-wrap">
+        <CalendarClock className="h-4 w-4 text-text-3" />
+        <span className="text-sm font-medium">Piano rate</span>
+        {!modificabile && (
+          <Badge variant="outline" className="h-4 px-1 text-[10px]">
+            da FiC
+          </Badge>
+        )}
+        <span className="text-xs text-text-3 ml-auto tabular-nums">
+          {rate.length} rate · € {fmt(sommaRate)}
+        </span>
+        {modificabile && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7"
+            onClick={() => setAggiungi(v => !v)}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Rata
+          </Button>
+        )}
+      </div>
+
+      {rate.length > 0 && (
+        <div className="divide-y divide-border/60">
+          {rate.map((r: any) => (
+            <div key={r.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="text-xs text-text-3 w-6 tabular-nums shrink-0">
+                {r.numero}
+              </span>
+              <span className="font-medium tabular-nums w-24 shrink-0">
+                € {fmt(r.importo)}
+              </span>
+              <span className="text-xs text-text-3 w-24 shrink-0">
+                {r.scadenza ? fmtScadenza(r.scadenza) : "senza scadenza"}
+              </span>
+              <span className="text-xs text-text-3 truncate min-w-0 flex-1">
+                {r.descrizione ?? ""}
+              </span>
+              <Badge
+                variant={r.stato === "pagata" ? "default" : "outline"}
+                className="h-5 text-[10px] shrink-0"
+              >
+                {r.stato === "pagata"
+                  ? "Pagata"
+                  : r.stato === "stornata"
+                    ? "Stornata"
+                    : "In attesa"}
+              </Badge>
+              {modificabile && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  aria-label={`Elimina rata ${r.numero}`}
+                  onClick={() =>
+                    removeRata.mutate({ commessaId, rataId: r.id })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {scostamento != null && Math.abs(scostamento) >= 0.5 && (
+        <p className="px-3 py-2 text-xs text-warning border-t border-border/60">
+          Le rate {scostamento > 0 ? "superano" : "non coprono"} il pattuito di €{" "}
+          {fmt(Math.abs(scostamento))}.
+        </p>
+      )}
+
+      {aggiungi && modificabile && (
+        <div className="flex items-end gap-2 px-3 py-2.5 flex-wrap border-t border-border/60 bg-surface-2/60">
+          <div className="space-y-0.5">
+            <Label className="text-[10px]">Importo €</Label>
+            <Input
+              inputMode="decimal"
+              value={form.importo}
+              onChange={e => setForm({ ...form, importo: e.target.value })}
+              className="h-8 w-28 text-xs tabular-nums"
+            />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px]">Scadenza</Label>
+            <Input
+              type="date"
+              value={form.scadenza}
+              onChange={e => setForm({ ...form, scadenza: e.target.value })}
+              className="h-8 w-[135px] text-xs"
+            />
+          </div>
+          <div className="space-y-0.5 flex-1 min-w-[140px]">
+            <Label className="text-[10px]">Nota</Label>
+            <Input
+              value={form.descrizione}
+              onChange={e => setForm({ ...form, descrizione: e.target.value })}
+              placeholder="1° acconto, saldo…"
+              className="h-8 text-xs"
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8"
+            disabled={!form.importo.trim() || addRata.isPending}
+            onClick={() => {
+              const importo = parse(form.importo);
+              if (importo == null) {
+                toast.error("Importo della rata non valido");
+                return;
+              }
+              addRata.mutate({
+                commessaId,
+                importo,
+                scadenza: form.scadenza || null,
+                descrizione: form.descrizione.trim() || undefined,
+              });
+            }}
+          >
+            Aggiungi
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PagamentiCard({
   commessa,
   commessaId,
@@ -2288,6 +2580,12 @@ function PagamentiCard({
     tipo: "",
     note: "",
   });
+  // Fonte del pattuito. Finché non risponde il server assumiamo modificabile:
+  // il blocco è comunque riaffermato lato server, e un campo inerte a ogni
+  // apertura di scheda sarebbe peggio dell'attesa di un istante.
+  const pattuitoQ = trpc.commesse.pattuito.useQuery(commessaId);
+  const pattuitoDaFic = pattuitoQ.data?.fonte === "fic";
+  const motivoBlocco = pattuitoQ.data?.motivoBlocco ?? null;
 
   const addPagamento = trpc.commesse.addPagamento.useMutation({
     onSuccess: () => {
@@ -2354,19 +2652,38 @@ function PagamentiCard({
             <span className="font-semibold text-sm">Pagamenti</span>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-text-3">Totale pattuito €</Label>
-            <Input
-              inputMode="decimal"
-              placeholder="—"
-              value={tot ?? (totale != null ? String(totale) : "")}
-              onChange={(e) => setTot(e.target.value)}
-              onBlur={() => {
-                if (tot == null) return;
-                onSave({ importoTotale: tot.trim() === "" ? null : parse(tot) });
-                setTot(null);
-              }}
-              className="h-9 w-32 tabular-nums"
-            />
+            <div className="flex items-center gap-1.5">
+              <Label className="text-xs text-text-3">Totale pattuito €</Label>
+              {pattuitoDaFic && (
+                <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                  da FiC
+                </Badge>
+              )}
+            </div>
+            {/* Il pattuito di una commessa fatturata è FiC: mostrarlo come
+                campo editabile prometterebbe una modifica che il server
+                rifiuta. Qui diventa una cifra con la sua fonte. */}
+            {pattuitoDaFic ? (
+              <p
+                className="h-9 w-32 flex items-center text-sm font-semibold tabular-nums"
+                title={motivoBlocco ?? undefined}
+              >
+                {totale != null ? `€ ${fmt(totale)}` : "—"}
+              </p>
+            ) : (
+              <Input
+                inputMode="decimal"
+                placeholder="—"
+                value={tot ?? (totale != null ? String(totale) : "")}
+                onChange={(e) => setTot(e.target.value)}
+                onBlur={() => {
+                  if (tot == null) return;
+                  onSave({ importoTotale: tot.trim() === "" ? null : parse(tot) });
+                  setTot(null);
+                }}
+                className="h-9 w-32 tabular-nums"
+              />
+            )}
           </div>
           {totale != null && totale > 0 && (
             <>
@@ -2396,6 +2713,9 @@ function PagamentiCard({
             </>
           )}
         </div>
+
+        {/* Scadenze concordate — distinte dagli incassi qui sotto */}
+        <PianoRateSezione commessaId={commessaId} totalePattuito={totale} />
 
         {/* Acconti registrati */}
         {ordered.length > 0 && (
