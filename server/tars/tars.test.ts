@@ -1036,7 +1036,7 @@ describe("tars — proposta rifiutata non torna", () => {
     expect(secondo.proposte).toHaveLength(0);
     const registro = esecuzioni.find(e => e.id === secondo.esecuzioneId)!;
     expect(registro.proposteDuplicateBloccate).toBe(1);
-    expect(registro.strumenti[0].esito).toMatch(/già stata gestita/);
+    expect(registro.strumenti[0].esito).toMatch(/gia presente o da correggere/);
     expect(
       proposte.filter(
         p => p.commessaId === commessa.id && p.tipo === "pagamento"
@@ -3165,6 +3165,86 @@ describe("tars — profili e cache operativa", () => {
         }),
       ])
     );
+  });
+});
+
+describe("tars — guardie proposte economiche gia soddisfatte", () => {
+  const runtime = (ctx: TrpcContext, id: number): ToolRuntime => ({
+    ctx,
+    esecuzioneId: id,
+    trigger: "on_demand",
+    maxProposte: 3,
+    proposteIds: [],
+    terminato: null,
+    risultatiCache: new Map(),
+    toolCacheHits: 0,
+    duplicatiBloccati: 0,
+  });
+
+  it("non propone un pagamento con importo e data gia presenti", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({ cliente: "No-op pagamento" });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    const rt = runtime(ctx, 999_501);
+    const result = await eseguiStrumento(rt, "proponi_pagamento", {
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+      titolo: "Registra pagamento duplicato",
+      motivazione: "Test guardia live.",
+      confidenza: "alta",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/gia presente o da correggere/i);
+    expect(rt.proposteIds).toHaveLength(0);
+  });
+
+  it("non propone una rata quando il manuale ha la data nulla", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({ cliente: "No-op data" });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 800,
+      data: null,
+    });
+    const rt = runtime(ctx, 999_502);
+    const result = await eseguiStrumento(rt, "proponi_pagamento", {
+      commessaId: commessa.id,
+      importo: 800,
+      data: "2026-08-21",
+      titolo: "Registra rata con data FiC",
+      motivazione: "Test guardia data incompleta.",
+      confidenza: "alta",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/gia presente o da correggere/i);
+    expect(rt.proposteIds).toHaveLength(0);
+  });
+
+  it("rimuove il pattuito semanticamente uguale dalla modifica", async () => {
+    const ctx = makeCtx();
+    const caller = appRouter.createCaller(ctx);
+    const commessa = await caller.commesse.create({
+      cliente: "No-op pattuito",
+      importoTotale: 5_000,
+    });
+    const rt = runtime(ctx, 999_503);
+    const result = await eseguiStrumento(rt, "proponi_modifica_commessa", {
+      commessaId: commessa.id,
+      importoTotale: 5_000,
+      titolo: "Imposta pattuito duplicato",
+      motivazione: "Test guardia modifica.",
+      confidenza: "alta",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/nessuna modifica effettiva/i);
+    expect(rt.proposteIds).toHaveLength(0);
   });
 });
 

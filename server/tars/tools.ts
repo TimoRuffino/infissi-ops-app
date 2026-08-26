@@ -58,6 +58,10 @@ import {
   parseFutureReminderInstant,
   REMINDER_TIMEZONE,
 } from "../reminders/time";
+import {
+  normalizzaPagamentoLegacy,
+  pagamentoCompatibile,
+} from "../_core/commessaPayments";
 
 type ToolResult = {
   content: string;
@@ -111,6 +115,23 @@ const MAX_PENDENTI_PER_COMMESSA = 3;
 // Soglia sotto la quale "nessuna azione" non è una risposta ma un silenzio:
 // serve a escludere "ok", "tutto a posto", non a imporre un tema.
 const MIN_MOTIVO_ANALISI = 40;
+
+function valoreSemanticamenteUguale(current: unknown, proposed: unknown) {
+  if (typeof current === "number" || typeof proposed === "number") {
+    const a = Number(current);
+    const b = Number(proposed);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.01;
+  }
+  if (typeof current === "string" || typeof proposed === "string") {
+    return String(current ?? "").trim() === String(proposed ?? "").trim();
+  }
+  return (current ?? null) === (proposed ?? null);
+}
+
+function commessaToolInSede(commessaId: number, sedeId: number): any | null {
+  const commessa: any = getCommessaById(commessaId);
+  return commessa && Number(commessa.sedeId ?? 1) === sedeId ? commessa : null;
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -3099,6 +3120,9 @@ async function eseguiStrumentoSenzaCache(
         });
       }
       case "proponi_modifica_commessa": {
+        const commessaId = Number(input.commessaId);
+        const commessa = commessaToolInSede(commessaId, rt.ctx.sedeId ?? 1);
+        if (!commessa) return err("Commessa non trovata.");
         const campi: any = {};
         for (const k of [
           "indirizzo",
@@ -3110,18 +3134,22 @@ async function eseguiStrumentoSenzaCache(
           "dataConsegnaConfermata",
           "note",
         ]) {
-          if (input[k] !== undefined) campi[k] = input[k];
+          if (
+            input[k] !== undefined &&
+            !valoreSemanticamenteUguale(commessa[k], input[k])
+          ) campi[k] = input[k];
         }
         if (Object.keys(campi).length === 0) {
-          return err("Nessun campo da aggiornare indicato.");
+          rt.duplicatiBloccati = (rt.duplicatiBloccati ?? 0) + 1;
+          return err("Nessuna modifica effettiva: i dati sono gia aggiornati.");
         }
         return creaProposta(rt, {
           tipo: "modifica_commessa",
           titolo: input.titolo,
           motivazione: input.motivazione,
           confidenza: input.confidenza,
-          commessaId: Number(input.commessaId),
-          payload: { commessaId: Number(input.commessaId), campi },
+          commessaId,
+          payload: { commessaId, campi },
         });
       }
       case "proponi_ticket": {
@@ -3152,15 +3180,32 @@ async function eseguiStrumentoSenzaCache(
           },
         });
       }
-      case "proponi_pagamento":
+      case "proponi_pagamento": {
+        const commessaId = Number(input.commessaId);
+        const commessa = commessaToolInSede(commessaId, rt.ctx.sedeId ?? 1);
+        if (!commessa) return err("Commessa non trovata.");
+        const alreadyPresent = (commessa.pagamenti ?? [])
+          .map(normalizzaPagamentoLegacy)
+          .some((pagamento: any) =>
+            pagamentoCompatibile(pagamento, {
+              importo: Number(input.importo),
+              dataPagamento: input.data ?? null,
+            }) !== "nessuno"
+          );
+        if (alreadyPresent) {
+          rt.duplicatiBloccati = (rt.duplicatiBloccati ?? 0) + 1;
+          return err(
+            "Pagamento gia presente o da correggere: non creare una nuova rata."
+          );
+        }
         return creaProposta(rt, {
           tipo: "pagamento",
           titolo: input.titolo,
           motivazione: input.motivazione,
           confidenza: input.confidenza,
-          commessaId: Number(input.commessaId),
+          commessaId,
           payload: {
-            commessaId: Number(input.commessaId),
+            commessaId,
             importo: Number(input.importo),
             data: input.data,
             metodo: input.metodo ?? null,
@@ -3168,6 +3213,7 @@ async function eseguiStrumentoSenzaCache(
             note: input.nota ?? undefined,
           },
         });
+      }
       case "proponi_avanzamento_stato":
         return creaProposta(rt, {
           tipo: "avanzamento_stato",

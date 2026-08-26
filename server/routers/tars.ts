@@ -45,6 +45,7 @@ import {
   MAX_MESSAGGI_CHAT,
   MODELLI_TARS,
   TIPI_ALTO_RISCHIO,
+  chiaveAzioneProposta,
   currentExecutionVersions,
   type MessaggioChat,
 } from "../tars/stores";
@@ -64,6 +65,10 @@ import { evaluateAutonomyGate } from "../tars/autonomy/policy";
 import { collectProposalTree } from "../tars/proposalTree";
 import { getUtentiStore } from "./utenti";
 import { processExperimentRepository } from "../tars/processExperiments";
+import {
+  fingerprintPagamento,
+  normalizzaPagamentoLegacy,
+} from "../_core/commessaPayments";
 
 const MOTIVI_RIFIUTO = [
   "dato_sbagliato",
@@ -89,6 +94,7 @@ const CAPABILITIES_PER_PROPOSAL: Record<string, string[]> = {
   modifica_commessa: ["commessa.update"],
   ticket: ["ticket.create"],
   pagamento: ["pagamento.create"],
+  correzione_pagamento: ["pagamento.correct"],
   avanzamento_stato: ["commessa.transition"],
   chiudi_commessa: ["commessa.transition"],
   bozza_risposta: ["comunicazione.draft"],
@@ -212,6 +218,12 @@ async function approveProposalOnce(id: number, ctx: any) {
   }
   if (TIPI_ALTO_RISCHIO.includes(p.tipo)) {
     requireDirezioneOAmministrazione(ctx.user);
+  }
+  if (p.tipo === "correzione_pagamento" && p.payload?.pagamentoId == null) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Seleziona il pagamento da riconciliare prima dell'approvazione.",
+    });
   }
   const user: any = ctx.user;
   try {
@@ -716,6 +728,7 @@ ${input.testo.trim()}`;
                 "rifiutata",
                 "errore",
                 "risposta",
+                "superata",
               ])
               .optional(),
             commessaId: z.number().optional(),
@@ -738,6 +751,71 @@ ${input.testo.trim()}`;
         return [...rows]
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
           .map(idrataProposta);
+      }),
+
+    selezionaPagamentoRiconciliazione: protectedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        pagamentoId: z.number().int().positive(),
+      }))
+      .mutation(({ input, ctx }) => {
+        requireDirezioneOAmministrazione(ctx.user);
+        const proposta = trovaPropostaVisibile(input.id, ctx);
+        if (
+          proposta.tipo !== "correzione_pagamento" ||
+          proposta.stato !== "pendente"
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "La proposta non è una riconciliazione selezionabile.",
+          });
+        }
+        const candidati = Array.isArray(proposta.payload?.candidati)
+          ? proposta.payload.candidati
+          : [];
+        const candidato = candidati.find(
+          (item: any) => Number(item.pagamentoId) === input.pagamentoId
+        );
+        if (!candidato) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Il pagamento non appartiene ai candidati della proposta.",
+          });
+        }
+        if (proposta.commessaId == null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "La proposta non indica una commessa valida.",
+          });
+        }
+        const commessa = getCommessaById(proposta.commessaId);
+        assertSedeScope(commessa ?? null, ctx.sedeId);
+        const pagamento = (commessa!.pagamenti ?? []).find(
+          (item: any) => item.id === input.pagamentoId
+        );
+        if (!pagamento) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Pagamento non trovato." });
+        }
+        const normalized = normalizzaPagamentoLegacy(pagamento);
+        if (
+          normalized.origine !== "manuale" ||
+          fingerprintPagamento(normalized) !== candidato.expectedFingerprint
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Il pagamento e cambiato dopo la proposta. Riesegui la sincronizzazione FiC.",
+          });
+        }
+        proposta.payload = {
+          ...proposta.payload,
+          pagamentoId: input.pagamentoId,
+          expectedFingerprint: candidato.expectedFingerprint,
+          patch: candidato.patch ?? {},
+        };
+        proposta.chiaveAzione = chiaveAzioneProposta(proposta);
+        saveProposte();
+        return idrataProposta(proposta);
       }),
 
     approva: protectedProcedure

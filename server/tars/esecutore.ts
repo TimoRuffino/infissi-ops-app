@@ -491,6 +491,22 @@ export async function eseguiProposta(
       });
       return `Rata registrata. Incassato aggiornato: € ${c.importoIncassato}`;
     }
+    case "correzione_pagamento": {
+      if (p.pagamentoId == null || !p.expectedFingerprint || !p.patch) {
+        throw new Error(
+          "Seleziona il pagamento da riconciliare prima dell'approvazione."
+        );
+      }
+      const c = await caller.commesse.correggiPagamento({
+        commessaId: p.commessaId,
+        pagamentoId: p.pagamentoId,
+        ficDocumentoId: p.ficDocumentoId,
+        ficSourceKey: p.ficSourceKey,
+        expectedFingerprint: p.expectedFingerprint,
+        patch: p.patch,
+      });
+      return `Pagamento corretto. Incassato aggiornato: € ${c.importoIncassato}`;
+    }
     case "avanzamento_stato": {
       // Nessun force: il doc gate resta pienamente attivo. Se blocca,
       // l'errore DOC_GATE_BLOCKED arriva all'operatore così com'è.

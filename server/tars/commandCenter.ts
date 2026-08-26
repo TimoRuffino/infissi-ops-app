@@ -216,6 +216,7 @@ const URGENZA: Record<string, number> = {
   bozza_risposta: 86,
   collega_comunicazione: 84,
   pagamento: 82,
+  correzione_pagamento: 82,
   avanzamento_stato: 76,
   collega_fattura: 72,
   segnalazione: 70,
@@ -230,6 +231,7 @@ const URGENZA: Record<string, number> = {
 const IMPATTO: Record<string, number> = {
   crea_lead: 96,
   pagamento: 94,
+  correzione_pagamento: 94,
   ticket: 90,
   collega_fattura: 88,
   avanzamento_stato: 84,
@@ -392,6 +394,8 @@ function conclusionFor(proposal: ProposalInput): string {
       return "C'è una richiesta post-vendita da presidiare.";
     case "pagamento":
       return "Il movimento economico richiede una verifica.";
+    case "correzione_pagamento":
+      return "Il registro CRM non coincide con la rata autorevole di Fatture in Cloud.";
     case "collega_fattura":
       return "La fattura può completare il fascicolo della commessa.";
     case "miglioramento_processo":

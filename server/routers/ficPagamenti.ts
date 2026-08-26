@@ -109,6 +109,53 @@ const _linksStore = persistedStore<RiconciliazioneRataFic>(
 export const ficPaymentLinks = _linksStore.items;
 export const saveFicPaymentLinks = () => _linksStore.save();
 
+export function confermaRiconciliazioneManuale(input: {
+  sedeId: number;
+  ficDocumentoId: number;
+  ficSourceKey: string;
+  commessaId: number;
+  pagamentoId: number;
+  now?: Date;
+}): RiconciliazioneRataFic {
+  const now = input.now ?? new Date();
+  const existing = activeLink(
+    input.sedeId,
+    input.ficDocumentoId,
+    input.ficSourceKey
+  );
+  if (existing) {
+    existing.commessaId = input.commessaId;
+    existing.pagamentoId = input.pagamentoId;
+    existing.target = "manuale";
+    existing.stato = "confermata";
+    existing.updatedAt = now;
+    saveFicPaymentLinks();
+    return existing;
+  }
+  const rata = ficFatture
+    .find(
+      fattura =>
+        fattura.sedeId === input.sedeId && fattura.id === input.ficDocumentoId
+    )
+    ?.rate.find(item => item.sourceKey === input.ficSourceKey);
+  const link: RiconciliazioneRataFic = {
+    id: nextLinkId++,
+    sedeId: input.sedeId,
+    ficDocumentoId: input.ficDocumentoId,
+    ficRataId: rata?.id ?? null,
+    ficSourceKey: input.ficSourceKey,
+    commessaId: input.commessaId,
+    pagamentoId: input.pagamentoId,
+    target: "manuale",
+    stato: "confermata",
+    createdAt: now,
+    updatedAt: now,
+  };
+  ficPaymentLinks.push(link);
+  saveFicPaymentLinks();
+  return link;
+}
+
 function activeLink(
   sedeId: number,
   fatturaId: number,

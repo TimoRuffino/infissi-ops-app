@@ -27,6 +27,7 @@ import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
 import {
+  fingerprintPagamento,
   normalizzaPagamentoLegacy,
   ricalcolaImportoIncassato,
 } from "../_core/commessaPayments";
@@ -995,6 +996,77 @@ export const commesseRouter = router({
       c.updatedAt = new Date();
       _store.save();
       return c;
+    }),
+
+  correggiPagamento: protectedProcedure
+    .input(z.object({
+      commessaId: z.number(),
+      pagamentoId: z.number(),
+      ficDocumentoId: z.number(),
+      ficSourceKey: z.string().min(1),
+      expectedFingerprint: z.string().min(1),
+      patch: z.object({
+        importo: z.number().positive().optional(),
+        data: z.string().nullable().optional(),
+        metodo: z.enum(["bonifico", "contanti", "assegno", "pos", "finanziamento", "altro"]).nullable().optional(),
+        tipo: z.enum(["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"]).nullable().optional(),
+        note: z.string().nullable().optional(),
+        stato: z.literal("stornato").optional(),
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const idx = commesse.findIndex((c) => c.id === input.commessaId);
+      if (idx === -1) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Commessa non trovata" });
+      }
+      assertSedeScope(commesse[idx], ctx.sedeId);
+      const commessa = commesse[idx];
+      const pagamento = (commessa.pagamenti ?? []).find(
+        (item: any) => item.id === input.pagamentoId
+      );
+      if (!pagamento) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Pagamento non trovato" });
+      }
+      const normalized = normalizzaPagamentoLegacy(pagamento);
+      if (normalized.origine !== "manuale") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "La correzione approvabile riguarda soltanto pagamenti manuali.",
+        });
+      }
+      if (fingerprintPagamento(normalized) !== input.expectedFingerprint) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Il pagamento e cambiato dopo la proposta. Riesegui la sincronizzazione FiC.",
+        });
+      }
+
+      if (input.patch.importo !== undefined) pagamento.importo = input.patch.importo;
+      if (input.patch.data !== undefined) pagamento.data = input.patch.data;
+      if (input.patch.metodo !== undefined) pagamento.metodo = input.patch.metodo;
+      if (input.patch.tipo !== undefined) pagamento.tipo = input.patch.tipo;
+      if (input.patch.note !== undefined) {
+        pagamento.note = input.patch.note?.trim() || null;
+      }
+      if (input.patch.stato === "stornato") {
+        pagamento.stato = "stornato";
+        pagamento.stornatoAt = new Date();
+      }
+      pagamento.updatedAt = new Date();
+      ricalcolaImportoIncassato(commessa);
+      commessa.updatedAt = new Date();
+      _store.save();
+
+      const { confermaRiconciliazioneManuale } = await import("./ficPagamenti");
+      confermaRiconciliazioneManuale({
+        sedeId: ctx.sedeId ?? 1,
+        ficDocumentoId: input.ficDocumentoId,
+        ficSourceKey: input.ficSourceKey,
+        commessaId: input.commessaId,
+        pagamentoId: input.pagamentoId,
+      });
+      return commessa;
     }),
 
   removePagamento: protectedProcedure

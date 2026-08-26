@@ -36,6 +36,7 @@ export const TIPI_PROPOSTA = [
   "modifica_commessa",
   "ticket",
   "pagamento",
+  "correzione_pagamento",
   "avanzamento_stato",
   "chiudi_commessa",
   "bozza_risposta",
@@ -51,6 +52,7 @@ export type TipoProposta = (typeof TIPI_PROPOSTA)[number];
 // a quei ruoli: meglio bloccare all'approvazione che far fallire dopo.
 export const TIPI_ALTO_RISCHIO: TipoProposta[] = [
   "pagamento",
+  "correzione_pagamento",
   "avanzamento_stato",
   "chiudi_commessa",
   "bozza_risposta",
@@ -62,7 +64,8 @@ export type StatoProposta =
   | "approvata"
   | "rifiutata"
   | "errore" // approvata ma la mutation è fallita (es. doc gate)
-  | "risposta"; // solo tipo "domanda": l'operatore ha risposto
+  | "risposta" // solo tipo "domanda": l'operatore ha risposto
+  | "superata"; // l'effetto è già presente o la baseline non è più valida
 
 export type CorrezioneEsperimento = {
   at: Date;
@@ -292,6 +295,15 @@ export function chiaveAzioneProposta(p: {
         data: pay.data ?? null,
         tipo: pay.tipo ?? null,
         riferimento: normalizzaTesto(pay.note),
+      };
+      break;
+    case "correzione_pagamento":
+      effetto = {
+        ficDocumentoId: pay.ficDocumentoId,
+        ficSourceKey: pay.ficSourceKey,
+        pagamentoId: pay.pagamentoId ?? null,
+        patch: pay.patch,
+        expectedFingerprint: pay.expectedFingerprint,
       };
       break;
     case "avanzamento_stato":

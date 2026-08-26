@@ -124,4 +124,40 @@ describe("Tars command center", () => {
       evidenceCoveragePercent: 100,
     });
   });
+
+  it("presenta la correzione FiC come priorita economica", () => {
+    const snapshot = buildCommandCenterSnapshot({
+      active: true,
+      openaiReady: true,
+      proposals: [
+        {
+          id: 44,
+          tipo: "correzione_pagamento",
+          titolo: "Allinea il pagamento CRM",
+          motivazione: "La rata FiC ha una data diversa.",
+          confidenza: "alta",
+          payload: { ficDocumentoId: 9001, ficSourceKey: "rate:1" },
+          commessaId: 10,
+          clienteId: null,
+          evidenceRefs: [
+            {
+              sourceType: "fattura_fic",
+              sourceId: "9001",
+              label: "Fattura FiC 10/A",
+              version: "rate:1",
+            },
+          ],
+          createdAt: new Date("2026-08-26T09:00:00Z"),
+        },
+      ],
+      executions: [],
+    });
+
+    expect(snapshot.priorities[0]).toMatchObject({
+      urgency: 82,
+      impact: 94,
+      conclusion:
+        "Il registro CRM non coincide con la rata autorevole di Fatture in Cloud.",
+    });
+  });
 });
