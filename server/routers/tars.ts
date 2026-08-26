@@ -146,6 +146,7 @@ function canViewProposal(p: any, user: any): boolean {
   if (isDirezione(user) || isAmministrazione(user)) return true;
   const userId = Number(user?.id ?? 0);
   if (!Number.isSafeInteger(userId) || userId <= 0) return false;
+  if (Number(p.requestedByUserId) === userId) return true;
   const execution = p.esecuzioneId
     ? esecuzioni.find(item => item.id === p.esecuzioneId)
     : null;

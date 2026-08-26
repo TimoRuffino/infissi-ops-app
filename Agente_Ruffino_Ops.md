@@ -1,6 +1,6 @@
 # L'Agente — Il cervello operativo di Ruffino Flow
 
-**Versione:** 2.0 — 25/08/2026
+**Versione:** 2.1 — 26/08/2026
 **Stato:** loop agentico, eventi, notifiche realtime, contesto persistente, planner, workflow riprendibili, ricerca ibrida, esiti per capability, diagnostica, budget, deduplica e caching implementati. Il vettoriale resta spento senza `pgvector`; autonomia negata per default.
 **Principio:** Tars si costruisce sopra la pipeline deterministica, non al posto suo.
 
@@ -26,6 +26,10 @@
   rollout progressivo sede per sede.
 - Gli esiti alimentano metriche aggregate, non il prompt. Il gate di autonomia
   lavora per capability e ha whitelist iniziale vuota.
+- Se un operatore chiede di ricordare qualcosa, Tars identifica il richiedente
+  dalla sessione, chiede sempre quando e propone un promemoria personale. Solo
+  dopo l'approvazione nasce la scadenza; alla scadenza compaiono popup e
+  notifica nel CRM aperto.
 
 ---
 
@@ -133,6 +137,7 @@ Ognuno crea una riga in `azioni_suggerite` e restituisce l'id. **Nessuno scrive 
 | `proponi_avanzamento_stato` | `commesse.update({stato})` | **Alto** |
 | `proponi_bozza_risposta` | nessuna (invio manuale) | **Alto** |
 | `proponi_miglioramento_processo` | presa in carico della direzione | Medio |
+| `proponi_promemoria` | crea un promemoria personale per il richiedente | Basso |
 
 ### 4.3 I due strumenti che nessuno mette e che servono di più
 
@@ -146,6 +151,15 @@ scelta; se esiste un solo assegnatario può usarlo senza una domanda superflua.
 La risposta riapre una sola volta l'analisi. In chat la stessa proposta può
 nascere da un ordine esplicito dell'operatore senza comunicazione sorgente; nei
 trigger automatici questa scorciatoia resta vietata.
+
+Per un promemoria `chiedi_chiarimento` usa `intent=promemoria`, conserva il
+testo richiesto e domanda data e ora anche quando Tars ritiene di poterle
+dedurre. Il seguito può fare un secondo chiarimento temporale se la risposta è
+incompleta, poi usa `proponi_promemoria` con un istante esplicito e fuso
+`Europe/Rome`. Il proprietario è sempre `requestedByUserId` ricavato dalla
+sessione: non è un parametro scelto dal modello e solo lo stesso utente può
+rispondere, approvare o rifiutare. Nota timeline, calendario e attività non sono
+sostituti del promemoria personale.
 
 **`nessuna_azione`** — terminazione esplicita con motivazione. Senza di esso, un modello messo davanti a un compito tende a produrre *qualcosa* pur di non sembrare inutile. Rendere il non fare nulla una scelta legittima e dichiarabile abbassa drasticamente il rumore.
 

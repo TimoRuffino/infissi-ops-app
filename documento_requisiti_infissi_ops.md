@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (26/08/2026).
-**Versione:** 4.29 - Workspace Email leggibile e focus automatico per il lavoro Tars.
+**Versione:** 4.30 - Promemoria personali Tars con popup nel CRM.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), verifica esperimenti Tars (ogni 60 min, primo giro dopo circa 2 min), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), verifica esperimenti Tars (ogni 60 min, primo giro dopo circa 2 min), promemoria personali (giro immediato e poi ogni 15 s), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
@@ -685,6 +685,20 @@ conteggi aggregati, mentre la campanella conserva `notifiche.list/count` e lo
 store `notifiche_read`. In `active` la campanella usa il nuovo summary. Il
 fallback legacy resta disponibile finché il confronto produzione non è chiuso.
 
+### 25.6 Promemoria personali Tars
+I promemoria sono personali, sede-scoped e visibili soltanto al richiedente.
+Alla scadenza il worker crea una notifica persistente di tipo `reminder` e il
+CRM aperto mostra un dialog globale, una scadenza per volta. La consegna usa SSE
+quando disponibile e polling ogni 15 secondi come fallback; il polling si
+sospende in background e riparte al focus.
+
+Il dialog mostra testo e data nel fuso `Europe/Rome` senza troncamenti. Le
+azioni sono **Fatto**, **Posticipa** (15 minuti, un'ora, domani alle 09:00 o
+data/ora personalizzata), **Apri commessa** quando collegata e chiusura. Chiudere
+nasconde il popup ma conserva la notifica; completare, posticipare o annullare
+risolve il gruppo notifica. Un errore mantiene il dialog aperto e permette il
+retry. Cambio sede e logout azzerano la cache prima di cambiare principal.
+
 ---
 
 ## 26. Dashboard (`/`)
@@ -745,6 +759,12 @@ Integrazione richiesta al fornitore (import automatico clienti/preventivi/commes
 - Ogni router business possiede una o più raccolte persistite, tra cui `clienti`, `commesse`, `tickets`, `ticket_allegati`, `preventivi_documenti`, `utenti`, `sedi`, `backup_*`, `fic_config`, `fic_fatture`, `caselle_email`, `whatsapp_*`, `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`.
 
 La tabella `comunicazioni` è separata dal KV store: insert idempotente per `(casella_id, canale, message_id)`, indici per lista e tombstone per le eliminazioni dal CRM (§51).
+
+Le tabelle PostgreSQL `promemoria` e `promemoria_eventi` conservano scadenze
+personali e audit append-only. Ogni query e mutation applica `sede_id` e
+`recipient_user_id`; un record fuori scope restituisce `NOT_FOUND`. Il claim
+delle scadenze usa locking concorrente e la proiezione notifica è idempotente
+per id e revisione.
 
 Il refresh token Google del backup è inoltre **specchiato su file** (`data/backup-oauth.json`, mode 600, gitignored) così i riavvii senza DATABASE_URL non scollegano Drive; la riga DB, quando presente, ha precedenza.
 
@@ -829,7 +849,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - **Fatture in Cloud OAuth:** codice completato. Restano configurazione delle variabili Railway, registrazione del redirect e collegamento di ogni sede (§40.3).
 - **Antenore (Wnd/Oknoplast)**: connettore import clienti/preventivi/ordini — in attesa di specifiche dal fornitore.
 - Esportazione CSV/Excel commesse, clienti, anomalie.
-- Push notifications mobile.
+- Web Push e avvisi email per i promemoria a CRM chiuso (fuori ambito v4.30).
 - UI di restore dal backup Drive.
 
 ---
@@ -849,6 +869,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v4.30 (26/08/2026)** - Tars riconosce le richieste di promemoria personali, chiede sempre data e ora, attende l'approvazione del richiedente e consegna popup e notifica nel CRM aperto con completamento e posticipo (§25.6, §50.11).
 - **v4.29 (26/08/2026)** - Il workspace Email amplia il lettore, elimina i troncamenti delle informazioni operative nel dettaglio e attiva automaticamente il focus quando si usa Tars o sono presenti proposte pendenti (§51.6).
 - **v4.28 (25/08/2026)** - Gli allegati WhatsApp in ingresso partecipano allo smistamento Tars e possono essere proposti per l'archiviazione nel fascicolo con gli stessi controlli, storage e deduplica degli allegati Email; dalla chat la sorgente può essere indicata per numero o indirizzo Email e la destinazione per cliente/commessa (§50.2, §51.2-51.7).
 - **v4.27 (25/08/2026)** - La sincronizzazione FiC espone stato e orario di avvio per sede, può essere fermata dalla pagina Integrazioni e applica timeout alle richieste e al giro completo (§40.3).
@@ -1452,6 +1473,26 @@ categoria e stato attivo; può essere creata, modificata, disattivata o rimossa.
 Solo le voci attive entrano nel prompt. La conoscenza è scritta e governata
 dall'azienda: non viene dedotta automaticamente da un singolo caso o da una
 proposta rifiutata.
+
+### 50.11 Promemoria personali
+Quando l'operatore dice “ricordami” o esprime una richiesta equivalente, Tars
+DEVE trattarla come promemoria personale e non come nota timeline, evento di
+calendario o attività generica. `chiedi_chiarimento(intent=promemoria)` domanda
+sempre quando ricordarlo e conserva il testo richiesto. Se la risposta non
+contiene data e ora sufficienti, il seguito può fare un secondo chiarimento
+temporale senza aprire catene automatiche generiche.
+
+Solo dopo una risposta temporale valida Tars può usare `proponi_promemoria` con
+istante esplicito e timezone `Europe/Rome`. `requestedByUserId` deriva dal
+contesto autenticato e non è controllabile dal modello. La proposta è visibile
+e decidibile dallo stesso richiedente; per altri utenti rispondere, approvare o
+rifiutare restituisce `NOT_FOUND`. L'approvazione rivalida utente attivo, sede,
+cliente e commessa e crea il record in modo idempotente.
+
+Le API `promemoria.due`, `dismissPopup`, `complete`, `snooze` e `cancel` sono
+personali e sede-scoped. Il parsing rifiuta istanti passati, orari locali
+inesistenti o ambigui nei cambi di ora legale. La v4.30 non invia Web Push o
+email: popup e notifica sono disponibili con CRM aperto o al successivo focus.
 
 ---
 

@@ -633,6 +633,30 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 - Nel lettore Email il corpo precede allegati, proposte e istruzioni Tars; la
   lista mostra anteprima su due righe e badge testuali leggibili.
 
+### Promemoria personali Tars del 26/08/2026
+
+- In chat una richiesta come “ricordami di inviare il preventivo” apre una
+  domanda Tars su data e ora. Il richiedente viene preso dalla sessione e non
+  può essere scelto dal modello o da un altro utente.
+- Dopo la risposta Tars crea una proposta `promemoria`; il record effettivo
+  nasce solo con l'approvazione dello stesso richiedente. Risposta,
+  approvazione e rifiuto di un altro utente restituiscono `NOT_FOUND`.
+- PostgreSQL usa `promemoria` e `promemoria_eventi`, entrambe sede-scoped. Il
+  worker esegue un giro subito al bootstrap e poi ogni 15 secondi, con claim
+  concorrente, retry idempotente e proiezione nella notifica canonica.
+- Nel CRM aperto il popup globale mostra una scadenza per volta e permette
+  **Fatto**, **Posticipa** (15 minuti, un'ora, domani alle 9 o data libera),
+  **Apri commessa** e chiusura. La chiusura nasconde solo il popup; la notifica
+  resta nella campanella finché il promemoria non viene completato o rinviato.
+- SSE invalida subito la coda; resta un polling di fallback ogni 15 secondi,
+  sospeso quando la scheda è in background e aggiornato al focus. Cambio sede
+  e logout cancellano prima la cache personale.
+- API personali: `promemoria.due`, `dismissPopup`, `complete`, `snooze` e
+  `cancel`. Gli id fuori sede o appartenenti a un altro utente non vengono
+  rivelati. Fuso unico `Europe/Rome`, inclusi i controlli sui cambi ora legale.
+- Limite attuale: nessun Web Push, email o avviso a CRM chiuso; la consegna
+  visibile è garantita quando il CRM è aperto o torna in primo piano.
+
 ### Rollout piattaforma Tars del 25/08/2026
 
 - Eventi, notifiche persistenti, capability, contesto, piani e indice sono

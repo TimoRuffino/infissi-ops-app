@@ -163,7 +163,7 @@ export function PromemoriaPopupHost() {
                 size="icon"
                 aria-label="Chiudi promemoria"
                 disabled={busy}
-                className="-mr-2 shrink-0"
+                className="-mr-2 size-11 shrink-0"
               >
                 <X aria-hidden="true" />
               </Button>

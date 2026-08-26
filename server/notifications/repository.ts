@@ -633,10 +633,18 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
 }
 
 let repository: NotificationRepository | null = null;
+let repositoryOverride: NotificationRepository | null = null;
 
 export function getNotificationRepository(): NotificationRepository {
+  if (repositoryOverride) return repositoryOverride;
   repository ??= kvSql
     ? createPostgresNotificationRepository(kvSql)
     : createMemoryNotificationRepository();
   return repository;
+}
+
+export function setNotificationRepositoryForTesting(
+  value: NotificationRepository | null,
+) {
+  repositoryOverride = value;
 }
