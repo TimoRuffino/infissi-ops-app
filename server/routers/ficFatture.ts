@@ -765,44 +765,68 @@ export const ficFattureRouter = router({
       requireDirezioneOAmministrazione(ctx.user);
       const f = trovaFattura(input.ficId, ctx.sedeId);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-      let documentoId: number | null = null;
+      const { emptyFicPaymentSyncStats, riconciliaPagamentiFic } = await import(
+        "./ficPagamenti"
+      );
+      let paymentStats = emptyFicPaymentSyncStats();
+      let correzioniProposte = 0;
+      let pdf: {
+        stato: "archiviata" | "errore" | "non_collegata";
+        documentoId: number | null;
+        errore: string | null;
+      } = {
+        stato: "non_collegata",
+        documentoId: null,
+        errore: null,
+      };
       if (input.commessaId != null) {
         const commessa = getCommessaById(input.commessaId);
         assertSedeScope(commessa ?? null, ctx.sedeId);
-        const [{ scaricaFatturaPdf }, { upsertDocumentoFic }] =
-          await Promise.all([
-            import("./fattureInCloud"),
-            import("./preventiviContratti"),
-          ]);
-        const pdf = await (scaricaFatturaPdfForTests ?? scaricaFatturaPdf)(
-          sedeId,
-          f.id
-        );
-        const documento = await upsertDocumentoFic({
-          sedeId,
-          ficId: f.id,
-          commessaId: input.commessaId,
-          numero: f.numero,
-          data: f.data,
-          pdf,
-          createdBy: ctx.user?.id ?? null,
-        });
-        documentoId = documento.id;
         f.commessaId = input.commessaId;
         f.collegataAMano = true;
+        f.commessaMatch = "manuale";
         f.ignorata = false;
+        f.pdfSync.stato = "in_attesa";
+        f.pdfSync.ultimoErrore = null;
+        f.aggiornataAt = new Date();
+        saveFicFatture();
+
+        const paymentResult = riconciliaPagamentiFic({
+          sedeId,
+          snapshotCompleto: false,
+        });
+        paymentStats = paymentResult.stats;
+        correzioniProposte = paymentResult.issues.length;
+
+        const [{ ensureFicInvoiceAttachment }, { scaricaFatturaPdf }] =
+          await Promise.all([
+            import("./ficAllegati"),
+            import("./fattureInCloud"),
+          ]);
+        pdf = await ensureFicInvoiceAttachment({
+          sedeId,
+          fattura: f,
+          createdBy: ctx.user?.id ?? null,
+          downloadPdf: scaricaFatturaPdfForTests ?? scaricaFatturaPdf,
+        });
       } else {
-        const { deleteDocumentoFic } = await import("./preventiviContratti");
-        deleteDocumentoFic(sedeId, f.id);
         f.commessaId = null;
         f.collegataAMano = false;
+        f.commessaMatch = "nessuno";
+        f.pdfSync.stato = "non_collegata";
+        f.pdfSync.ultimoErrore = null;
+        f.aggiornataAt = new Date();
+        saveFicFatture();
       }
-      f.aggiornataAt = new Date();
-      saveFicFatture();
-      const proposteCreate = generaProposteRiconciliazione(
-        ctx.sedeId ?? DEFAULT_SEDE_ID
-      );
-      return { success: true as const, proposteCreate, documentoId };
+      return {
+        success: true as const,
+        paymentStats,
+        correzioniProposte,
+        pdf,
+        // Compatibilità temporanea per i consumer UI/Tars aggiornati ai Task 5/7.
+        proposteCreate: 0,
+        documentoId: pdf.documentoId,
+      };
     }),
 
   ignora: protectedProcedure

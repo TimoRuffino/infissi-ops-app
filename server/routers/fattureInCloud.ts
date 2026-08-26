@@ -462,45 +462,16 @@ async function archiviaPdfFattureCollegate(
   sedeId: number,
   signal?: AbortSignal
 ): Promise<{ archiviate: number; fallite: number }> {
-  const { hasDocumentoFic, upsertDocumentoFic } = await import(
-    "./preventiviContratti"
-  );
-  const collegate = ficFatture.filter(
-    fattura =>
-      fattura.sedeId === sedeId &&
-      fattura.tipo === "invoice" &&
-      fattura.presenteInFic &&
-      fattura.commessaId != null
-  );
-  let archiviate = 0;
-  let fallite = 0;
-
-  for (const fattura of collegate) {
-    if (signal?.aborted) throw signal.reason;
-    if (hasDocumentoFic(sedeId, fattura.id)) continue;
-    try {
-      const pdf = await scaricaFatturaPdf(sedeId, fattura.id, signal);
-      await upsertDocumentoFic({
-        sedeId,
-        ficId: fattura.id,
-        commessaId: fattura.commessaId!,
-        numero: fattura.numero,
-        data: fattura.data,
-        pdf,
-        createdBy: null,
-      });
-      archiviate++;
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason;
-      fallite++;
-      console.warn(
-        `[fic] archivio PDF fattura ${fattura.id} fallito; nuovo tentativo al prossimo sync:`,
-        error instanceof Error ? error.message : "errore sconosciuto"
-      );
-    }
-  }
-
-  return { archiviate, fallite };
+  const { ensureFicInvoiceAttachments } = await import("./ficAllegati");
+  const result = await ensureFicInvoiceAttachments({
+    sedeId,
+    createdBy: null,
+    signal,
+  });
+  return {
+    archiviate: result.pdfArchiviati,
+    fallite: result.pdfFalliti,
+  };
 }
 
 // ── Name handling (same CF-validated split used by the manual migration) ────

@@ -211,6 +211,10 @@ export function deleteDocumentiByCommessa(commessaId: number) {
 }
 
 function ficSourceRef(sedeId: number, ficId: number): string {
+  return `fic:${sedeId}:${ficId}`;
+}
+
+function legacyFicSourceRef(sedeId: number, ficId: number): string {
   return `${sedeId}:${ficId}`;
 }
 
@@ -352,16 +356,12 @@ export async function upsertDocumentoFic(args: {
   pdf: Buffer;
   createdBy: number | null;
 }): Promise<Documento> {
-  if (args.pdf.length > MAX_SIZE_BYTES) {
-    throw new Error("Il PDF della fattura supera il limite di 10MB.");
-  }
+  validaAllegatoFascicolo(args.pdf, "application/pdf");
   const commessa = commessaInSede(args.commessaId, args.sedeId);
   if (!commessa) throw new Error("Commessa non trovata");
 
   const sourceRef = ficSourceRef(args.sedeId, args.ficId);
-  const existing = documenti.find(
-    d => d.source === "fic" && d.sourceRef === sourceRef
-  );
+  const existing = findDocumentoFic(args.sedeId, args.ficId);
   const id = existing?.id ?? nextId++;
   const numeroSicuro = args.numero
     .replace(/[\\/:*?"<>|]+/g, "-")
@@ -373,18 +373,20 @@ export async function upsertDocumentoFic(args: {
     existing?.id
   );
   const oldStorageKey = existing?.storageKey;
-  const doc: Documento = existing ?? {
-    id,
-    commessaId: args.commessaId,
-    nome,
-    tipo: "fattura",
-    mimeType: "application/pdf",
-    size: args.pdf.length,
-    note: null,
-    statoAtUpload: commessa.stato ?? null,
-    createdBy: args.createdBy,
-    createdAt: new Date(),
-  };
+  const doc: Documento = existing
+    ? { ...existing }
+    : {
+        id,
+        commessaId: args.commessaId,
+        nome,
+        tipo: "fattura",
+        mimeType: "application/pdf",
+        size: args.pdf.length,
+        note: null,
+        statoAtUpload: commessa.stato ?? null,
+        createdBy: args.createdBy,
+        createdAt: new Date(),
+      };
 
   doc.commessaId = args.commessaId;
   doc.nome = nome;
@@ -408,17 +410,12 @@ export async function upsertDocumentoFic(args: {
     doc.storageKey = stored.storageKey;
     doc.checksum = stored.checksum;
     delete doc.dataBase64;
-  } catch (e) {
-    console.warn(
-      "[preventiviContratti] storage fattura FIC fallito, fallback base64 inline:",
-      e
-    );
-    doc.dataBase64 = args.pdf.toString("base64");
-    doc.storageKey = null;
-    doc.checksum = null;
+  } catch {
+    throw new StorageAllegatoTemporaneamenteNonDisponibile();
   }
 
-  if (!existing) documenti.push(doc);
+  if (existing) Object.assign(existing, doc);
+  else documenti.push(doc);
   _documentiStore.save();
   if (oldStorageKey && oldStorageKey !== doc.storageKey) {
     deleteFileQuiet(oldStorageKey);
@@ -426,12 +423,25 @@ export async function upsertDocumentoFic(args: {
   return doc;
 }
 
+export function findDocumentoFic(
+  sedeId: number,
+  ficId: number
+): Documento | null {
+  const refs = new Set([
+    ficSourceRef(sedeId, ficId),
+    legacyFicSourceRef(sedeId, ficId),
+  ]);
+  const documento = documenti.find(
+    d => d.source === "fic" && d.sourceRef != null && refs.has(d.sourceRef)
+  );
+  if (!documento || !commessaInSede(documento.commessaId, sedeId)) return null;
+  return documento;
+}
+
 /** Rimuove solo il file importato da FIC, senza toccare upload manuali. */
 export function deleteDocumentoFic(sedeId: number, ficId: number): void {
-  const sourceRef = ficSourceRef(sedeId, ficId);
-  const idx = documenti.findIndex(
-    d => d.source === "fic" && d.sourceRef === sourceRef
-  );
+  const documento = findDocumentoFic(sedeId, ficId);
+  const idx = documento ? documenti.findIndex(d => d.id === documento.id) : -1;
   if (idx === -1) return;
   const [doc] = documenti.splice(idx, 1);
   _documentiStore.save();
@@ -440,13 +450,8 @@ export function deleteDocumentoFic(sedeId: number, ficId: number): void {
 
 /** Verifica idempotente usata dal sync FIC per riparare i fascicoli storici. */
 export function hasDocumentoFic(sedeId: number, ficId: number): boolean {
-  const sourceRef = ficSourceRef(sedeId, ficId);
-  return documenti.some(
-    d =>
-      d.source === "fic" &&
-      d.sourceRef === sourceRef &&
-      (!!d.storageKey || !!d.dataBase64)
-  );
+  const documento = findDocumentoFic(sedeId, ficId);
+  return !!documento && (!!documento.storageKey || !!documento.dataBase64);
 }
 
 // Legacy helper kept for backward compat.

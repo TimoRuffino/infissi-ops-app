@@ -146,9 +146,8 @@ describe("identita e collegamento persistito FIC", () => {
       ambigue: 1,
     });
     expect(
-      ficFatture.find(
-        item => item.sedeId === sedeId && item.id === 122_001
-      )!.commessaId
+      ficFatture.find(item => item.sedeId === sedeId && item.id === 122_001)!
+        .commessaId
     ).toBeNull();
   });
 });
@@ -616,6 +615,50 @@ describe("validazione token FIC", () => {
   });
 });
 
+describe("collegamento fattura e PDF", () => {
+  it("mantiene il collegamento se il primo download PDF fallisce", async () => {
+    const sedeId = 130;
+    const ficId = 130_001;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const commessa = await caller.commesse.create({
+      cliente: "Collegamento prima del PDF",
+    });
+    upsertFatture(
+      [
+        fatturaBase(ficId, {
+          numero: "130/PDF",
+          clienteNome: "Collegamento prima del PDF",
+          rate: [],
+        }),
+      ],
+      sedeId
+    );
+    _setScaricaFatturaPdfForTests(async () => {
+      throw new Error("download non disponibile");
+    });
+
+    try {
+      const result = await caller.ficFatture.collega({
+        ficId,
+        commessaId: commessa.id,
+      });
+
+      expect(result.pdf.stato).toBe("errore");
+      expect(
+        ficFatture.find(item => item.sedeId === sedeId && item.id === ficId)
+      ).toMatchObject({
+        commessaId: commessa.id,
+        commessaMatch: "manuale",
+        collegataAMano: true,
+        pdfSync: { stato: "errore" },
+      });
+    } finally {
+      _setScaricaFatturaPdfForTests(null);
+      deleteDocumentoFic(sedeId, ficId);
+    }
+  });
+});
+
 // Le fatture che il motore deterministico NON sa abbinare vanno a Tars:
 // lui indaga e propone il collegamento; l'approvazione collega davvero e
 // fa partire le proposte su pattuito e incassi. Il giro si paga una volta.
@@ -730,7 +773,7 @@ describe("fatture orfane → Tars", () => {
         },
       });
 
-      // Approvazione (direzione) → collegata + proposte soldi in coda.
+      // Approvazione (direzione) → collegata + sync FiC deterministico.
       await caller.tars.proposte.approva({ id: proposta!.id });
       const f = ficFatture.find(x => x.id === 9100)!;
       expect(f.commessaId).toBe(commessa.id);
@@ -747,14 +790,13 @@ describe("fatture orfane → Tars", () => {
       await caller.ficFatture.collega({ ficId: 9100, commessaId: commessa.id });
       const docsDopo = await caller.preventiviContratti.byCommessa(commessa.id);
       expect(docsDopo.filter((d: any) => d.source === "fic")).toHaveLength(1);
-      expect(
-        proposte.some(
-          p =>
-            p.tipo === "pagamento" &&
-            p.commessaId === commessa.id &&
-            JSON.stringify(p.payload).includes("9100/A")
-        )
-      ).toBe(true);
+      expect((await caller.commesse.byId(commessa.id))?.pagamenti).toEqual([
+        expect.objectContaining({
+          origine: "fic",
+          stato: "attivo",
+          ficDocumentoId: 9100,
+        }),
+      ]);
 
       // Già esaminata: il secondo giro non richiama l'API.
       const spy = vi.fn();
@@ -766,9 +808,10 @@ describe("fatture orfane → Tars", () => {
       const docsScollegati = await caller.preventiviContratti.byCommessa(
         commessa.id
       );
-      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(false);
+      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(true);
     } finally {
       global.fetch = realFetch;
+      deleteDocumentoFic(1, 9100);
       delete process.env.OPENAI_API_KEY;
       getTarsConfig().attivo = false;
     }
