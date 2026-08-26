@@ -67,7 +67,9 @@ export function normalizzaPagamentoLegacy(value: any): PagamentoCommessa {
 }
 
 export function calcolaImportoIncassato(
-  pagamenti: readonly Array<Pick<PagamentoCommessa, "importo"> & { stato?: string }>
+  pagamenti: ReadonlyArray<
+    Pick<PagamentoCommessa, "importo"> & { stato?: string }
+  >
 ): number {
   const totale = pagamenti.reduce(
     (sum, pagamento) =>
