@@ -539,6 +539,27 @@ function legacyDto(item: Notifica & { read: boolean }) {
   };
 }
 
+async function listReminderNotifications(
+  sedeId: number,
+  recipientUserId: number,
+  input: {
+    statuses?: Notification["status"][];
+    priorities?: Notification["priority"][];
+    limit: number;
+    now: Date;
+  },
+) {
+  return getNotificationRepository().list({
+    sedeId,
+    recipientUserId,
+    statuses: input.statuses,
+    priorities: input.priorities,
+    types: ["reminder"],
+    limit: input.limit,
+    now: input.now,
+  });
+}
+
 export const notificheRouter = router({
   push: router({
     status: protectedProcedure.query(async ({ ctx }) => {
@@ -632,6 +653,8 @@ export const notificheRouter = router({
     const userId = ctx.user.id as number;
     const mode = getFeatureFlags(sedeId).notificationMode;
     if (mode !== "active") {
+      const now = new Date();
+      const limit = input?.limit ?? 30;
       const readSet = readSetFor(userId);
       let legacy = sortNotifiche(
         buildNotifichePerUtente(userId, ruoliOf(ctx.user), sedeId).map(item => ({
@@ -650,21 +673,47 @@ export const notificheRouter = router({
           return input.priorities!.includes(mapped);
         });
       }
-      legacy = legacy.slice(0, input?.limit ?? 30);
+      const reminderPage = await listReminderNotifications(sedeId, userId, {
+        statuses: input?.statuses,
+        priorities: input?.priorities,
+        limit,
+        now,
+      });
       if (mode === "shadow") {
-        const persistentUnread = await getNotificationRepository().countUnread({
+        const repository = getNotificationRepository();
+        const persistentUnread = await repository.countUnread({
           sedeId,
           recipientUserId: userId,
-          now: new Date(),
+          now,
         });
+        const reminderUnread = await repository.countUnread({
+          sedeId,
+          recipientUserId: userId,
+          types: ["reminder"],
+          now,
+        });
+        const persistentPlatformUnread = Math.max(
+          0,
+          persistentUnread - reminderUnread,
+        );
         const legacyUnread = legacy.filter(item => !item.read).length;
-        if (persistentUnread !== legacyUnread) {
+        if (persistentPlatformUnread !== legacyUnread) {
           console.info(
-            `[notifications] shadow count delta sede=${sedeId} user=${userId} legacy=${legacyUnread} persistent=${persistentUnread}`
+            `[notifications] shadow count delta sede=${sedeId} user=${userId} legacy=${legacyUnread} persistent=${persistentPlatformUnread}`
           );
         }
       }
-      return { mode, items: legacy.map(legacyDto), nextCursor: null };
+      const items = [
+        ...legacy.map(legacyDto),
+        ...reminderPage.items.map(persistentDto),
+      ]
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ||
+            a.canonicalKey.localeCompare(b.canonicalKey),
+        )
+        .slice(0, limit);
+      return { mode, items, nextCursor: null };
     }
     const page = await getNotificationRepository().list({
       sedeId,
@@ -691,20 +740,31 @@ export const notificheRouter = router({
       return buildNotifichePerUtente(userId, ruoliOf(ctx.user), sedeId)
         .filter(item => !readSet.has(item.id)).length;
     };
-    if (mode === "legacy") return { mode, count: legacy() };
-    const persistent = await getNotificationRepository().countUnread({
+    const repository = getNotificationRepository();
+    const persistent = await repository.countUnread({
       sedeId,
       recipientUserId: userId,
       now: new Date(),
     });
+    if (mode === "active") return { mode, count: persistent };
+    const reminderCount = await repository.countUnread({
+      sedeId,
+      recipientUserId: userId,
+      types: ["reminder"],
+      now: new Date(),
+    });
+    if (mode === "legacy") {
+      return { mode, count: legacy() + reminderCount };
+    }
     if (mode === "shadow") {
       const legacyCount = legacy();
-      if (legacyCount !== persistent) {
+      const persistentPlatformUnread = Math.max(0, persistent - reminderCount);
+      if (legacyCount !== persistentPlatformUnread) {
         console.info(
-          `[notifications] shadow unread delta sede=${sedeId} user=${userId} legacy=${legacyCount} persistent=${persistent}`
+          `[notifications] shadow unread delta sede=${sedeId} user=${userId} legacy=${legacyCount} persistent=${persistentPlatformUnread}`
         );
       }
-      return { mode, count: legacyCount };
+      return { mode, count: legacyCount + reminderCount };
     }
     return { mode, count: persistent };
   }),
@@ -977,13 +1037,21 @@ export const notificheRouter = router({
       return { success: true, count } as const;
     }),
 
-  markAllRead: protectedProcedure.mutation(({ ctx }) => {
+  markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.user.id as number;
+    const sedeId = (ctx.sedeId ?? 1) as number;
+    const mode = getFeatureFlags(sedeId).notificationMode;
     const all = buildNotifichePerUtente(userId, ruoliOf(ctx.user), ctx.sedeId);
     markIdsRead(
       userId,
       all.map((n) => n.id)
     );
-    return { success: true, count: all.length } as const;
+    const persistentCount = await getNotificationRepository().markAllRead({
+      sedeId,
+      recipientUserId: userId,
+      types: mode === "active" ? undefined : ["reminder"],
+      now: new Date(),
+    });
+    return { success: true, count: all.length + persistentCount } as const;
   }),
 });

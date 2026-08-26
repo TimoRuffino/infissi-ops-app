@@ -25,6 +25,7 @@ export type NotificationRepository = {
   list(input: Scope & {
     statuses?: NotificationStatus[];
     priorities?: Notification["priority"][];
+    types?: string[];
     cursor?: NotificationCursor;
     limit: number;
     now: Date;
@@ -32,9 +33,10 @@ export type NotificationRepository = {
   listAfterId(input: Scope & { afterId: number; limit: number; now: Date }): Promise<Notification[]>;
   markSeen(input: MutationInput): Promise<number>;
   markRead(input: MutationInput): Promise<number>;
+  markAllRead(input: Scope & { types?: string[]; now: Date }): Promise<number>;
   resolve(input: MutationInput): Promise<number>;
   resolveGroup(input: Scope & { groupKey: string; now: Date }): Promise<number>;
-  countUnread(input: Scope & { now: Date }): Promise<number>;
+  countUnread(input: Scope & { types?: string[]; now: Date }): Promise<number>;
   recordDelivery(draft: NotificationDeliveryDraft): Promise<{ id: number; created: boolean }>;
   getPreferences(input: Scope): Promise<NotificationPreferences>;
   setPreferences(input: Scope & { preferences: NotificationPreferences; now: Date }): Promise<NotificationPreferences>;
@@ -118,6 +120,7 @@ export function createMemoryNotificationRepository(): NotificationRepository {
     async list(input) {
       const explicitStatuses = input.statuses?.length ? new Set(input.statuses) : null;
       const priorities = input.priorities?.length ? new Set(input.priorities) : null;
+      const types = input.types?.length ? new Set(input.types) : null;
       const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 50);
       const items = notifications
         .filter(item => scoped(input, item))
@@ -127,6 +130,7 @@ export function createMemoryNotificationRepository(): NotificationRepository {
             : item.status !== "resolved" && item.status !== "expired" && !isExpired(item, input.now)
         )
         .filter(item => !priorities || priorities.has(item.priority))
+        .filter(item => !types || types.has(item.type))
         .filter(item =>
           !input.cursor ||
           item.createdAt < input.cursor.createdAt ||
@@ -172,6 +176,26 @@ export function createMemoryNotificationRepository(): NotificationRepository {
       });
     },
 
+    async markAllRead(input) {
+      const types = input.types?.length ? new Set(input.types) : null;
+      let changed = 0;
+      for (const item of notifications) {
+        if (
+          !scoped(input, item) ||
+          (types && !types.has(item.type)) ||
+          (item.status !== "unread" && item.status !== "seen")
+        ) {
+          continue;
+        }
+        item.status = "read";
+        item.seenAt ??= new Date(input.now);
+        item.readAt = new Date(input.now);
+        item.updatedAt = new Date(input.now);
+        changed += 1;
+      }
+      return changed;
+    },
+
     async resolve(input) {
       return transition(input, item => {
         if (item.status === "resolved" || item.status === "expired") return false;
@@ -201,8 +225,13 @@ export function createMemoryNotificationRepository(): NotificationRepository {
     },
 
     async countUnread(input) {
+      const types = input.types?.length ? new Set(input.types) : null;
       return notifications.filter(
-        item => scoped(input, item) && item.status === "unread" && !isExpired(item, input.now)
+        item =>
+          scoped(input, item) &&
+          (!types || types.has(item.type)) &&
+          item.status === "unread" &&
+          !isExpired(item, input.now)
       ).length;
     },
 
@@ -443,6 +472,8 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
       const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 50);
       const statuses = input.statuses?.length ? input.statuses : ["unread", "seen", "read", "acted"];
       const priorities = input.priorities?.length ? input.priorities : ["critical", "high", "normal", "low"];
+      const types = input.types?.length ? input.types : [];
+      const typeValues = types.length ? types : ["__all__"];
       const includeExpired = statuses.includes("expired");
       const activeStatuses = statuses.filter(status => status !== "expired");
       if (!activeStatuses.length) activeStatuses.push("expired");
@@ -452,6 +483,7 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
         SELECT * FROM notifications
         WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId}
           AND priority IN ${sql(priorities)}
+          AND (${types.length === 0} OR type IN ${sql(typeValues)})
           AND (
             (${includeExpired} AND expires_at IS NOT NULL AND expires_at <= ${input.now})
             OR ((expires_at IS NULL OR expires_at > ${input.now}) AND status IN ${sql(activeStatuses)})
@@ -481,6 +513,22 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
     markRead(input) {
       return updateStatus(input, "read");
     },
+    async markAllRead(input) {
+      await ensureSchema();
+      const types = input.types?.length ? input.types : [];
+      const typeValues = types.length ? types : ["__all__"];
+      const rows = await sql`
+        UPDATE notifications
+        SET status = 'read', seen_at = COALESCE(seen_at, ${input.now}),
+          read_at = ${input.now}, updated_at = ${input.now}
+        WHERE sede_id = ${input.sedeId}
+          AND recipient_user_id = ${input.recipientUserId}
+          AND (${types.length === 0} OR type IN ${sql(typeValues)})
+          AND status IN ('unread','seen')
+        RETURNING id
+      `;
+      return rows.length;
+    },
     resolve(input) {
       return updateStatus(input, "resolved");
     },
@@ -496,7 +544,14 @@ export function createPostgresNotificationRepository(sql: NonNullable<typeof kvS
     },
     async countUnread(input) {
       await ensureSchema();
-      const rows = await sql`SELECT COUNT(*)::int AS count FROM notifications WHERE sede_id = ${input.sedeId} AND recipient_user_id = ${input.recipientUserId} AND status = 'unread' AND (expires_at IS NULL OR expires_at > ${input.now})`;
+      const types = input.types?.length ? input.types : [];
+      const typeValues = types.length ? types : ["__all__"];
+      const rows = await sql`SELECT COUNT(*)::int AS count FROM notifications
+        WHERE sede_id = ${input.sedeId}
+          AND recipient_user_id = ${input.recipientUserId}
+          AND (${types.length === 0} OR type IN ${sql(typeValues)})
+          AND status = 'unread'
+          AND (expires_at IS NULL OR expires_at > ${input.now})`;
       return Number(rows[0]?.count ?? 0);
     },
     async recordDelivery(draft) {

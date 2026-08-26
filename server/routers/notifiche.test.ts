@@ -144,4 +144,41 @@ describe("notifiche Action Center API", () => {
         .notifiche.preferences.get()
     ).toMatchObject({ pushEnabled: false });
   });
+
+  it.each([
+    ["legacy", 990011],
+    ["shadow", 990012],
+    ["active", 990013],
+  ] as const)(
+    "include i promemoria personali nel rollout %s",
+    async (mode, sedeId) => {
+      setFeatureFlags(
+        sedeId,
+        { notificationMode: mode },
+        { actorUserId: 990007, reason: `Test promemoria ${mode}` },
+      );
+      await getNotificationRepository().upsert({
+        sedeId,
+        recipientUserId: 990007,
+        canonicalKey: `reminder:${sedeId}:1`,
+        type: "reminder",
+        priority: "normal",
+        title: "Promemoria",
+        body: "Invia il preventivo",
+        link: "/tars?tab=chat",
+        groupKey: `reminder:${sedeId}`,
+        sourceEventId: null,
+        entityRefs: [],
+        createdAt: NOW,
+        expiresAt: null,
+      });
+
+      const caller = appRouter.createCaller(context(sedeId));
+      const feed = await caller.notifiche.feed({ limit: 10 });
+      expect(feed.items.filter((item) => item.type === "reminder")).toHaveLength(1);
+      expect((await caller.notifiche.unreadCount()).count).toBeGreaterThanOrEqual(1);
+      await caller.notifiche.markAllRead();
+      expect((await caller.notifiche.unreadCount()).count).toBe(0);
+    },
+  );
 });

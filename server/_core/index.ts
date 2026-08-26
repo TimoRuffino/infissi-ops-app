@@ -75,6 +75,14 @@ async function startServer() {
     const { startPlanWorker } = await import("../tars/planner/runner");
     startPlanWorker();
   }
+  const { getNotificationRepository } = await import(
+    "../notifications/repository"
+  );
+  await getNotificationRepository().ensureSchema();
+  const { getReminderRepository } = await import("../reminders/repository");
+  await getReminderRepository().ensureSchema();
+  const { startReminderWorker } = await import("../reminders/worker");
+  startReminderWorker();
   const { startNotificationPgBridge } = await import("../notifications/sse");
   await startNotificationPgBridge();
   const { startEventWorkers } = await import("../events/worker");

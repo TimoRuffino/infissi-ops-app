@@ -67,6 +67,35 @@ describe("notification repository", () => {
     expect(resolved.items.map(item => item.canonicalKey)).toEqual(["a"]);
   });
 
+  it("filtra feed e count per tipo e marca in massa il solo tipo scelto", async () => {
+    const repo = createMemoryNotificationRepository();
+    await repo.upsert(
+      draft({ canonicalKey: "reminder:1", type: "reminder" }),
+    );
+    await repo.upsert(
+      draft({ canonicalKey: "assignment:1", type: "assignment" }),
+    );
+    const reminderScope = { sedeId: 1, recipientUserId: 7 };
+
+    expect(
+      (
+        await repo.list({
+          ...reminderScope,
+          types: ["reminder"],
+          limit: 10,
+          now,
+        })
+      ).items,
+    ).toHaveLength(1);
+    expect(
+      await repo.countUnread({ ...reminderScope, types: ["reminder"], now }),
+    ).toBe(1);
+    expect(
+      await repo.markAllRead({ ...reminderScope, types: ["reminder"], now }),
+    ).toBe(1);
+    expect(await repo.countUnread({ ...reminderScope, now })).toBe(1);
+  });
+
   it("registra una sola consegna per canale e tentativo canonico", async () => {
     const repo = createMemoryNotificationRepository();
     const { id } = await repo.upsert(draft());
