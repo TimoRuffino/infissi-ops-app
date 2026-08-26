@@ -62,6 +62,22 @@ let prossimoMessaggioId = 1;
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
+/**
+ * Esegue un passo della chat nominandolo nei log.
+ *
+ * Senza questo, un errore PostgreSQL arrivava al client come un 500 anonimo e
+ * la pagina restava a girare: il nome del passo e' la differenza fra
+ * "la chat non funziona" e "ensureSchema e' fallito".
+ */
+async function passo<T>(nome: string, azione: () => Promise<T>): Promise<T> {
+  try {
+    return await azione();
+  } catch (errore: any) {
+    console.error(`[chat] ${nome} fallito:`, errore?.message ?? errore);
+    throw new Error(`chat/${nome}: ${errore?.message ?? "errore sconosciuto"}`);
+  }
+}
+
 let schemaPromise: Promise<void> | null = null;
 
 export function ensureChatSchema(): Promise<void> {
@@ -110,9 +126,12 @@ export function ensureChatSchema(): Promise<void> {
           PRIMARY KEY (canale_id, utente_id)
         )`;
     })().catch(e => {
-      console.error("[chat] ensureSchema failed:", e);
+      console.error("[chat] ensureSchema fallito:", e?.message ?? e);
+      // Azzerare la promise permette un nuovo tentativo alla richiesta
+      // successiva: un guasto transitorio non deve spegnere la chat fino al
+      // prossimo deploy.
       schemaPromise = null;
-      throw e;
+      throw new Error(`chat/ensureSchema: ${e?.message ?? "errore sconosciuto"}`);
     });
   }
   return schemaPromise;
@@ -176,15 +195,19 @@ export async function trovaOCreaCanale(input: {
     return canale;
   }
   await ensureChatSchema();
-  // ON CONFLICT DO UPDATE invece di DO NOTHING: senza, una corsa fra due
-  // richieste lascerebbe la seconda senza riga da leggere.
-  const rows = await kvSql`
-    INSERT INTO chat_canali (sede_id, tipo, chiave, nome, commessa_id, membri_ids)
-    VALUES (${input.sedeId}, ${input.tipo}, ${input.chiave}, ${input.nome},
-            ${input.commessaId ?? null}, ${JSON.stringify(membriIds)}::jsonb)
-    ON CONFLICT (sede_id, chiave) DO UPDATE SET nome = chat_canali.nome
-    RETURNING *`;
-  return rigaCanale(rows[0]);
+  return passo("trovaOCreaCanale", async () => {
+    // ON CONFLICT DO UPDATE invece di DO NOTHING: senza, una corsa fra due
+    // richieste lascerebbe la seconda senza riga da leggere. `EXCLUDED` non
+    // serve — il nome esistente resta quello buono.
+    const rows = await kvSql!`
+      INSERT INTO chat_canali (sede_id, tipo, chiave, nome, commessa_id, membri_ids)
+      VALUES (${input.sedeId}, ${input.tipo}, ${input.chiave}, ${input.nome},
+              ${input.commessaId ?? null}, ${kvSql!.json(membriIds as any)})
+      ON CONFLICT (sede_id, chiave)
+        DO UPDATE SET nome = EXCLUDED.nome
+      RETURNING *`;
+    return rigaCanale(rows[0]);
+  });
 }
 
 export async function canaleGenerale(sedeId: number): Promise<CanaleChat> {

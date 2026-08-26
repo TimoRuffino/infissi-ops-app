@@ -21,6 +21,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  AlertTriangle,
   Hash,
   Loader2,
   MessageSquare,
@@ -135,8 +136,13 @@ export default function ChatAziendale() {
   const [nuovaChat, setNuovaChat] = useState(false);
   const fondo = useRef<HTMLDivElement | null>(null);
 
+  // `retry: false`: se la chat e' rotta lo si deve vedere subito. Con i retry
+  // di default piu' il refetch ogni 5 secondi, un errore persistente teneva
+  // `isLoading` sempre vero e la pagina restava a girare senza dire niente —
+  // che e' il modo peggiore di fallire.
   const canali = trpc.chat.canali.useQuery(undefined, {
     refetchInterval: INTERVALLO_AGGIORNAMENTO_MS,
+    retry: false,
   });
   const interlocutori = trpc.chat.interlocutori.useQuery(undefined, {
     enabled: nuovaChat,
@@ -158,6 +164,7 @@ export default function ChatAziendale() {
     {
       enabled: canaleAttivo != null,
       refetchInterval: INTERVALLO_AGGIORNAMENTO_MS,
+      retry: false,
     }
   );
 
@@ -262,6 +269,23 @@ export default function ChatAziendale() {
         </Card>
       )}
 
+      {(canali.error || messaggi.error) && (
+        <Card className="border-l-[3px] border-l-danger">
+          <CardContent className="flex items-start gap-2 py-3">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-danger"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 text-sm">
+              <p className="font-medium">La chat non ha risposto.</p>
+              <p className="mt-0.5 break-words text-xs text-text-3">
+                {canali.error?.message ?? messaggi.error?.message}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-3 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
         {/* Canali */}
         <Card className="lg:sticky lg:top-4 lg:self-start">
@@ -270,6 +294,13 @@ export default function ChatAziendale() {
               <div className="py-8 text-center">
                 <Loader2 className="h-4 w-4 mx-auto animate-spin text-text-3" />
               </div>
+            )}
+            {!canali.isLoading && (canali.data ?? []).length === 0 && (
+              <p className="px-2 py-6 text-center text-xs text-text-3">
+                {canali.error
+                  ? "Nessun canale caricato."
+                  : "Nessun canale disponibile."}
+              </p>
             )}
             <ul className="space-y-0.5">
               {(canali.data ?? []).map(canale => {
