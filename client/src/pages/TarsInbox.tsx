@@ -113,49 +113,7 @@ export function ElencoProposte({
   const proposte = trpc.tars.proposte.list.useQuery(
     stato ? { stato } : undefined
   );
-  const qaRows =
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).has("qaPayment")
-      ? [
-          {
-            id: -901,
-            stato: "pendente",
-            tipo: "correzione_pagamento",
-            titolo: "Allinea il pagamento CRM alla fattura 7",
-            motivazione:
-              "Il registro CRM non coincide con la rata autorevole di Fatture in Cloud.",
-            confidenza: "alta",
-            commessaId: null,
-            evidenceRefs: [],
-            payload: {
-              pagamentoId: 1,
-              ficDocumentoId: 499197651,
-              ficSourceKey: "rate:7",
-              expectedFingerprint: "1762.67|2026-01-26|attivo",
-              patch: { importo: 1410.14, data: "2026-02-10" },
-            },
-          },
-          {
-            id: -902,
-            stato: "pendente",
-            tipo: "correzione_pagamento",
-            titolo: "Correzione pagamento da risincronizzare",
-            motivazione:
-              "La proposta storica non contiene un confronto CRM leggibile.",
-            confidenza: "media",
-            commessaId: null,
-            evidenceRefs: [],
-            payload: {
-              pagamentoId: 2,
-              ficDocumentoId: 499197652,
-              ficSourceKey: "rate:8",
-              expectedFingerprint: "formato-storico",
-              patch: { importo: 900 },
-            },
-          },
-        ]
-      : null;
-  const rows = (qaRows ?? proposte.data ?? [])
+  const rows = (proposte.data ?? [])
     .filter(
       (p: any) =>
         (stato ? true : p.stato !== "pendente") && (!tipo || p.tipo === tipo)
