@@ -682,12 +682,14 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
 
 ### Promemoria personali Tars del 26/08/2026
 
-- In chat una richiesta come “ricordami di inviare il preventivo” apre una
-  domanda Tars su data e ora. Il richiedente viene preso dalla sessione e non
-  può essere scelto dal modello o da un altro utente.
-- Dopo la risposta Tars crea una proposta `promemoria`; il record effettivo
-  nasce solo con l'approvazione dello stesso richiedente. Risposta,
-  approvazione e rifiuto di un altro utente restituiscono `NOT_FOUND`.
+- In chat una richiesta che contiene già data e ora complete crea direttamente
+  una sola proposta `promemoria`: la sua approvazione è l'unica conferma. Se
+  manca la data o l'ora, Tars chiede soltanto il dato temporale mancante e poi
+  crea la stessa proposta, senza una domanda preliminare di conferma.
+- Il richiedente viene preso dalla sessione e non può essere scelto dal modello
+  o da un altro utente. Il record effettivo nasce solo con l'approvazione dello
+  stesso richiedente; risposta, approvazione e rifiuto di un altro utente
+  restituiscono `NOT_FOUND`.
 - PostgreSQL usa `promemoria` e `promemoria_eventi`, entrambe sede-scoped. Il
   worker esegue un giro subito al bootstrap e poi ogni 15 secondi, con claim
   concorrente, retry idempotente e proiezione nella notifica canonica.

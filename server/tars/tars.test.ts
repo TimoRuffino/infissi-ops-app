@@ -1618,11 +1618,13 @@ describe("tars — profili e cache operativa", () => {
   it("il prompt distingue promemoria, nota e calendario", () => {
     const prompt = buildSystemPrompt(1);
     expect(prompt).toContain("promemoria personale");
-    expect(prompt).toContain("chiedi sempre quando");
+    expect(prompt).toContain("proponi direttamente un solo promemoria");
+    expect(prompt).toContain("Se manca la data o l'ora");
+    expect(prompt).not.toContain("chiedi sempre quando");
     expect(prompt).toContain("non usare proponi_nota_timeline");
   });
 
-  it("rifiuta un promemoria senza domanda temporale risposta", async () => {
+  it("propone direttamente un promemoria completo in chat con una sola approvazione", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-26T10:00:00.000Z"));
     const rt: ToolRuntime = {
@@ -1645,8 +1647,23 @@ describe("tars — profili e cache operativa", () => {
       confidenza: "alta",
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("chiedere quando");
+    expect(result.isError).not.toBe(true);
+    expect(rt.proposteIds).toHaveLength(1);
+    const proposal = proposte.find((item) => item.id === rt.proposteIds[0]);
+    expect(proposal).toMatchObject({
+      tipo: "promemoria",
+      stato: "pendente",
+      origineId: null,
+      requestedByUserId: 1,
+      payload: {
+        text: "Invia preventivo",
+        remindAtIso: "2026-08-27T07:00:00.000Z",
+        timezone: "Europe/Rome",
+      },
+    });
+
+    const index = proposte.findIndex((item) => item.id === rt.proposteIds[0]);
+    if (index >= 0) proposte.splice(index, 1);
   });
 
   it("non deduplica le domande promemoria di due utenti diversi", async () => {

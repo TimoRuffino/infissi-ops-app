@@ -1534,17 +1534,20 @@ proposta rifiutata.
 ### 50.11 Promemoria personali
 Quando l'operatore dice “ricordami” o esprime una richiesta equivalente, Tars
 DEVE trattarla come promemoria personale e non come nota timeline, evento di
-calendario o attività generica. `chiedi_chiarimento(intent=promemoria)` domanda
-sempre quando ricordarlo e conserva il testo richiesto. Se la risposta non
-contiene data e ora sufficienti, il seguito può fare un secondo chiarimento
-temporale senza aprire catene automatiche generiche.
+calendario o attività generica. Se la richiesta contiene già data e ora
+complete, Tars usa direttamente `proponi_promemoria`: la card approvabile è
+l'unica conferma e non deve essere preceduta da una domanda. Se manca la data o
+l'ora, `chiedi_chiarimento(intent=promemoria)` domanda soltanto il dato mancante
+e conserva il testo richiesto; una risposta ancora insufficiente può produrre
+un ulteriore chiarimento temporale senza aprire catene automatiche generiche.
 
-Solo dopo una risposta temporale valida Tars può usare `proponi_promemoria` con
-istante esplicito e timezone `Europe/Rome`. `requestedByUserId` deriva dal
-contesto autenticato e non è controllabile dal modello. La proposta è visibile
-e decidibile dallo stesso richiedente; per altri utenti rispondere, approvare o
-rifiutare restituisce `NOT_FOUND`. L'approvazione rivalida utente attivo, sede,
-cliente e commessa e crea il record in modo idempotente.
+Tars usa `proponi_promemoria` soltanto con un istante futuro esplicito e timezone
+`Europe/Rome`, ricavato dalla richiesta completa o dalla risposta temporale.
+`requestedByUserId` deriva dal contesto autenticato e non è controllabile dal
+modello. La proposta è visibile e decidibile dallo stesso richiedente; per altri
+utenti rispondere, approvare o rifiutare restituisce `NOT_FOUND`.
+L'approvazione rivalida utente attivo, sede, cliente e commessa e crea il record
+in modo idempotente.
 
 Le API `promemoria.due`, `dismissPopup`, `complete`, `snooze` e `cancel` sono
 personali e sede-scoped. Il parsing rifiuta istanti passati, orari locali

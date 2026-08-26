@@ -44,8 +44,8 @@ describe("Tars execution version metadata", () => {
 
   it("registra le versioni del prompt e del catalogo promemoria", () => {
     expect(currentExecutionVersions()).toMatchObject({
-      promptVersion: "prompt-v3",
-      toolRegistryVersion: "tools-v3",
+      promptVersion: "prompt-v4",
+      toolRegistryVersion: "tools-v4",
     });
   });
 });

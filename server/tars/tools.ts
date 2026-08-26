@@ -1018,7 +1018,7 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "proponi_promemoria",
     description:
-      "Propone un promemoria personale solo dopo una domanda temporale risposta.",
+      "Propone un promemoria personale direttamente quando la richiesta contiene data e ora complete, oppure dopo un chiarimento temporale risposta.",
     input_schema: {
       type: "object",
       properties: {
@@ -2987,17 +2987,18 @@ async function eseguiStrumentoSenzaCache(
         }
         const sedeId = rt.ctx.sedeId ?? 1;
         const currentUserId = Number((rt.ctx.user as any)?.id);
-        const origineId = Number(rt.origineId);
-        const origine = proposte.find(
-          (item) => item.id === origineId && item.sedeId === sedeId,
-        );
-        if (
-          !origine ||
-          origine.tipo !== "domanda" ||
-          origine.stato !== "risposta" ||
-          origine.payload?.intent !== "promemoria" ||
-          !String(origine.risposta ?? "").trim()
-        ) {
+        const origineId = rt.origineId == null ? null : Number(rt.origineId);
+        const origine = origineId == null
+          ? null
+          : proposte.find(
+              (item) => item.id === origineId && item.sedeId === sedeId,
+            ) ?? null;
+        const originePromemoriaValida =
+          origine?.tipo === "domanda" &&
+          origine.stato === "risposta" &&
+          origine.payload?.intent === "promemoria" &&
+          Boolean(String(origine.risposta ?? "").trim());
+        if (rt.trigger === "seguito" && !originePromemoriaValida) {
           return err(
             "Prima di proporre un promemoria devi chiedere quando ricordarlo e ottenere una risposta esplicita dall'operatore.",
           );
@@ -3005,7 +3006,8 @@ async function eseguiStrumentoSenzaCache(
         if (
           !Number.isSafeInteger(currentUserId) ||
           currentUserId <= 0 ||
-          Number(origine.requestedByUserId) !== currentUserId
+          (originePromemoriaValida &&
+            Number(origine?.requestedByUserId) !== currentUserId)
         ) {
           return err("Domanda di origine non disponibile.");
         }
@@ -3057,7 +3059,7 @@ async function eseguiStrumentoSenzaCache(
           confidenza: input.confidenza,
           commessaId,
           clienteId: resolvedClienteId,
-          origineId: origine.id,
+          origineId: origine?.id ?? null,
           payload: {
             text,
             remindAtIso: remindAt.toISOString(),
