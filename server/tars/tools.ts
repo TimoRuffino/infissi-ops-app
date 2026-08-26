@@ -143,7 +143,13 @@ async function leggiEconomiaCompatta(caller: any, anno: number) {
       : null;
   return {
     fonteEffettivi: "Fatture in Cloud",
-    periodo: { anno, criterio: "competenza documento" },
+    periodo: {
+      anno,
+      criteri: {
+        competenza: "data documento",
+        cassa: "data pagamento",
+      },
+    },
     contrattiCrm: {
       fonte: "CRM",
       pattuitoLordo: overview.crm.pattuito,
@@ -154,12 +160,14 @@ async function leggiEconomiaCompatta(caller: any, anno: number) {
     },
     venditeFiC: overview.vendite,
     acquistiFiC: overview.acquisti,
+    confrontoIncassi: overview.confrontoIncassi,
     andamentoMensile: overview.mesi.map((mese: any) => ({
       mese: mese.mese,
-      venditeNette: mese.venditeNetto,
-      incassi: mese.incassi,
-      acquistiNetti: mese.acquistiNetto,
-      uscite: mese.uscite,
+      venditeNetteCompetenza: mese.venditeNetto,
+      acquistiNettiCompetenza: mese.acquistiNetto,
+      incassiCrmCassa: mese.incassiCrm,
+      incassiFicCassa: mese.incassi,
+      usciteFicCassa: mese.uscite,
     })),
     coperturaCostiFissi,
   };

@@ -192,18 +192,33 @@ Ogni richiesta FiC scade dopo 30 secondi e l'intero giro viene interrotto dopo
 questa versione riavvia inoltre il processo e libera eventuali lock della
 versione precedente rimasti in memoria.
 
-`/economia` separa ora Contratti CRM, Vendite FiC e Acquisti FiC. Fatturato e
-costi canonici sono imponibili al netto delle rispettive note di credito; IVA,
-lordo, rate pagate e rate aperte sono valori distinti. `/pagamenti` mostra
-Copertura costi fissi: obiettivo netto mensile calcolato dal margine di
-contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi dubbi sono
-esclusi e si revisionano nel tab Acquisti.
+`/economia` separa ora quattro perimetri: controllo incassi annuale, Vendite
+FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa
+`pagamenti[].data` nel CRM e `rate[].dataPagamento` in FiC, include anche le
+commesse oggi archiviate e mostra `CRM - FiC`; i movimenti senza data restano
+fuori dal periodo e sono esposti come anomalia, senza inventare un mese. Le
+viste mensili `Competenza` e `Cassa` impediscono di confrontare data documento
+e data pagamento come se fossero la stessa grandezza. In assenza di un mirror
+FiC il confronto non mostra più `0 = 0` come allineamento: espone `Dati FiC
+assenti` e invita a collegare o sincronizzare l'integrazione. Gli importi senza
+data sono rilevati dai conteggi, quindi note di credito e fatture non possono
+compensarsi nascondendo l'anomalia; la tolleranza di arrotondamento è fissa a
+50 centesimi.
+
+Fatturato e costi canonici sono imponibili al netto delle rispettive note di
+credito; IVA, lordo, rate pagate e rate aperte sono valori distinti. La vecchia
+azione `Ignora` è presentata come `Escludi dalla riconciliazione`: il documento
+resta nei totali FiC e nel break-even, ma non compare nella coda operativa.
+`/pagamenti` mostra Copertura costi fissi: obiettivo netto mensile calcolato dal
+margine di contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi
+dubbi sono esclusi e si revisionano nel tab Acquisti.
 
 Tars classifica in batch i nuovi costi FiC con output strutturato e cache key
 per sede/modello. Le correzioni utente e le regole esplicite prevalgono. Errori
 OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.
 `leggi_economia` usa gli stessi totali FiC e restituisce a Tars soltanto fonte,
-periodo, aggregati mensili e affidabilità, senza documenti contabili completi.
+criteri separati di competenza/cassa, confronto incassi, aggregati mensili e
+affidabilità, senza documenti contabili completi.
 
 **Azione produzione obbligatoria dopo il deploy:** ogni sede deve premere
 `Ricollega e aggiorna permessi` in Integrazioni, completare OAuth e poi
@@ -715,6 +730,9 @@ Poi verificare nel browser, desktop e mobile:
 - FiC: collegare una fattura, verificare il PDF nel fascicolo, eliminare solo il
   documento di test e lanciare `Sincronizza ora` per controllare il recupero
   idempotente e il conteggio PDF nell'esito;
+- Economia: confrontare incassi CRM/FiC sullo stesso anno, verificare gli avvisi
+  sui pagamenti senza data, alternare Competenza/Cassa e controllare che una
+  fattura esclusa dalla riconciliazione resti nei totali;
 - Chat Tars: approvare una proposta figlia senza lasciare la conversazione e
   verificare che il relativo esito compaia nello stesso thread;
 - Centro Azioni in `shadow`: confrontare conteggi aggregati, priorità,

@@ -28,3 +28,21 @@ export function statoCopertura(
   }
   return ancoraDaFatturare <= 0 ? "raggiunto" : "da_coprire";
 }
+
+export type StatoScostamentoIncassi =
+  | "allineato"
+  | "da_verificare"
+  | "dati_incompleti"
+  | "dati_non_disponibili";
+
+export function statoScostamentoIncassi(
+  scostamento: number,
+  movimentiSenzaData = 0,
+  datiDisponibili = true
+): StatoScostamentoIncassi {
+  if (!datiDisponibili) return "dati_non_disponibili";
+  if (movimentiSenzaData > 0) return "dati_incompleti";
+  return Math.abs(scostamento) <= 0.5
+    ? "allineato"
+    : "da_verificare";
+}

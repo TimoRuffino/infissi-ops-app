@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   etichettaAffidabilita,
   percentualeCopertura,
+  statoScostamentoIncassi,
   statoCopertura,
 } from "./economiaView";
 
@@ -23,5 +24,22 @@ describe("presentazione break-even", () => {
     expect(statoCopertura("dati_insufficienti", null)).toBe("insufficiente");
     expect(statoCopertura("disponibile", 0)).toBe("raggiunto");
     expect(statoCopertura("disponibile", 1_000)).toBe("da_coprire");
+  });
+});
+
+describe("confronto incassi", () => {
+  it("distingue allineamento, scostamento e dati incompleti", () => {
+    expect(statoScostamentoIncassi(0, 0, true)).toBe("allineato");
+    expect(statoScostamentoIncassi(100, 0, true)).toBe("da_verificare");
+    expect(statoScostamentoIncassi(0, 2, true)).toBe("dati_incompleti");
+    expect(statoScostamentoIncassi(0, 0, false)).toBe(
+      "dati_non_disponibili"
+    );
+  });
+
+  it("tollera solo differenze tecniche minime", () => {
+    expect(statoScostamentoIncassi(0.25, 0, true)).toBe("allineato");
+    expect(statoScostamentoIncassi(0.51, 0, true)).toBe("da_verificare");
+    expect(statoScostamentoIncassi(1_000, 0, true)).toBe("da_verificare");
   });
 });

@@ -1,9 +1,8 @@
 // /economia — la situazione contabile dell'azienda in una pagina.
 //
-// Due schede: Panoramica (KPI + andamento mensile) e Fatture (quelle
-// sincronizzate da Fatture in Cloud, con lo stato di riconciliazione e
-// il collegamento manuale alla commessa). Le rate incassate diventano
-// proposte da approvare — mai scritture automatiche.
+// Panoramica contabile, riconciliazione fatture e revisione acquisti FiC.
+// Le rate incassate diventano proposte da approvare — mai scritture
+// automatiche.
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +19,7 @@ import {
 import SearchSelect from "@/components/SearchSelect";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
 import CostiFicReview from "@/components/economia/CostiFicReview";
+import EconomiaPanoramica from "@/components/economia/EconomiaPanoramica";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { formatEuroSimbolo } from "@/lib/euro";
@@ -28,7 +28,6 @@ import {
   Link2,
   Loader2,
   EyeOff,
-  RefreshCw,
   ShieldAlert,
   Check,
   X,
@@ -37,21 +36,6 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-
-const MESI = [
-  "Gen",
-  "Feb",
-  "Mar",
-  "Apr",
-  "Mag",
-  "Giu",
-  "Lug",
-  "Ago",
-  "Set",
-  "Ott",
-  "Nov",
-  "Dic",
-];
 
 const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
   riconciliata: {
@@ -64,257 +48,8 @@ const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
   },
   da_riconciliare: { label: "Da riconciliare", classe: "" },
   non_abbinabile: { label: "Non abbinabile", classe: "" },
-  ignorata: { label: "Ignorata", classe: "" },
+  ignorata: { label: "Esclusa dalla riconciliazione", classe: "" },
 };
-
-function Kpi({
-  label,
-  value,
-  hint,
-  accent,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: "verde" | "rosso" | "ambra";
-}) {
-  return (
-    <Card>
-      <CardContent className="py-3 px-4">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div
-          className={cn(
-            "text-xl font-semibold tabular-nums",
-            accent === "verde" && "text-success",
-            accent === "rosso" && "text-danger",
-            accent === "ambra" && "text-warning"
-          )}
-        >
-          {value}
-        </div>
-        {hint && (
-          <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Panoramica({ anno }: { anno: number }) {
-  const q = trpc.economia.overview.useQuery({ anno });
-  if (q.isLoading) {
-    return (
-      <div className="py-12 text-center">
-        <Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  const d = q.data;
-  if (!d) return null;
-
-  const maxRiga = Math.max(
-    1,
-    ...d.mesi.map(m => Math.max(m.venditeNetto, m.incassi, m.acquistiNetto))
-  );
-
-  return (
-    <div className="space-y-6">
-      <section>
-        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">Contratti CRM</h2>
-            <p className="text-xs text-text-3">
-              Fotografia lorda di {d.crm.commesseAttive} commesse attive
-            </p>
-          </div>
-          <Badge variant="outline">Fonte CRM</Badge>
-        </div>
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <Kpi
-            label="Pattuito lordo"
-            value={formatEuroSimbolo(d.crm.pattuito)}
-          />
-          <Kpi
-            label="Incassato CRM"
-            value={formatEuroSimbolo(d.crm.incassato)}
-            accent="verde"
-          />
-          <Kpi
-            label="Da incassare"
-            value={formatEuroSimbolo(d.crm.residuo)}
-            accent="ambra"
-          />
-          <Kpi
-            label="Stime costi CRM"
-            value={formatEuroSimbolo(
-              d.crm.costiManualiStimati + d.crm.costoPosaStimato
-            )}
-            hint="Non entrano nei totali effettivi FiC"
-          />
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">Vendite FiC · {anno}</h2>
-            <p className="text-xs text-text-3">
-              {d.vendite.fatture} fatture e {d.vendite.noteCredito} note di
-              credito
-            </p>
-          </div>
-          <Badge variant="outline">Competenza FiC</Badge>
-        </div>
-        {d.vendite.disponibile ? (
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-            <Kpi
-              label="Fatturato netto"
-              value={formatEuroSimbolo(d.vendite.netto)}
-            />
-            <Kpi label="IVA" value={formatEuroSimbolo(d.vendite.iva)} />
-            <Kpi label="Lordo" value={formatEuroSimbolo(d.vendite.lordo)} />
-            <Kpi
-              label="Incassato FiC"
-              value={formatEuroSimbolo(d.vendite.incassato)}
-              accent="verde"
-            />
-            <Kpi
-              label="Da incassare FiC"
-              value={formatEuroSimbolo(d.vendite.daIncassare)}
-              accent="ambra"
-            />
-            <Kpi
-              label="Da riconciliare"
-              value={String(d.vendite.daRiconciliare)}
-              hint="Fatture senza riscontro CRM"
-              accent={d.vendite.daRiconciliare > 0 ? "ambra" : undefined}
-            />
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="py-6 text-sm text-muted-foreground text-center">
-              Nessun documento emesso sincronizzato per questo anno.
-            </CardContent>
-          </Card>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">Acquisti FiC · {anno}</h2>
-            <p className="text-xs text-text-3">
-              {d.acquisti.documenti} documenti ricevuti, al netto delle
-              rettifiche
-            </p>
-          </div>
-          <Badge variant={d.acquisti.dubbi > 0 ? "warning" : "outline"}>
-            {d.acquisti.dubbi} dubbi
-          </Badge>
-        </div>
-        {d.acquisti.disponibile ? (
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-            <Kpi
-              label="Costi netti"
-              value={formatEuroSimbolo(d.acquisti.netto)}
-              accent="rosso"
-            />
-            <Kpi label="IVA" value={formatEuroSimbolo(d.acquisti.iva)} />
-            <Kpi label="Lordo" value={formatEuroSimbolo(d.acquisti.lordo)} />
-            <Kpi
-              label="Uscite pagate"
-              value={formatEuroSimbolo(d.acquisti.pagato)}
-              accent="rosso"
-            />
-            <Kpi
-              label="Da pagare"
-              value={formatEuroSimbolo(d.acquisti.daPagare)}
-              accent="ambra"
-            />
-            <Kpi
-              label="Valore da rivedere"
-              value={formatEuroSimbolo(d.acquisti.importoDubbio)}
-              hint="Escluso dal pareggio"
-              accent={d.acquisti.dubbi > 0 ? "ambra" : undefined}
-            />
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="py-6 text-center text-sm text-text-3">
-              Nessun documento ricevuto sincronizzato. Ricollega FiC con i nuovi
-              permessi e avvia una sincronizzazione.
-            </CardContent>
-          </Card>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">Andamento netto · {anno}</h2>
-        <Card>
-          {/* tabIndex: una regione che scorre dev'essere raggiungibile da
-              tastiera, altrimenti chi non usa il mouse non vede le colonne
-              oltre il bordo. */}
-          <CardContent
-            className="py-3 overflow-x-auto"
-            tabIndex={0}
-            role="region"
-            aria-label={`Andamento ${anno}`}
-          >
-            <table className="w-full text-sm min-w-[560px]">
-              <thead>
-                <tr className="text-xs text-muted-foreground">
-                  <th className="text-left font-normal py-1">Mese</th>
-                  <th className="text-right font-normal">Vendite nette</th>
-                  <th className="text-right font-normal">Incassi FiC</th>
-                  <th className="text-right font-normal">Acquisti netti</th>
-                  <th className="w-1/3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.mesi.map(m => (
-                  <tr key={m.mese} className="border-t">
-                    <td className="py-1.5">{MESI[m.mese - 1]}</td>
-                    <td className="text-right tabular-nums">
-                      {m.venditeNetto ? formatEuroSimbolo(m.venditeNetto) : "—"}
-                    </td>
-                    <td className="text-right tabular-nums text-success">
-                      {m.incassi ? formatEuroSimbolo(m.incassi) : "—"}
-                    </td>
-                    <td className="text-right tabular-nums text-danger">
-                      {m.acquistiNetto
-                        ? formatEuroSimbolo(m.acquistiNetto)
-                        : "—"}
-                    </td>
-                    <td className="pl-3">
-                      <div className="flex gap-0.5 h-3 items-end">
-                        <div
-                          className="bg-primary/60 w-1/3 rounded-sm"
-                          style={{
-                            height: `${(m.venditeNetto / maxRiga) * 100}%`,
-                          }}
-                        />
-                        <div
-                          className="bg-success/70 w-1/3 rounded-sm"
-                          style={{ height: `${(m.incassi / maxRiga) * 100}%` }}
-                        />
-                        <div
-                          className="bg-danger/70 w-1/3 rounded-sm"
-                          style={{
-                            height: `${(m.acquistiNetto / maxRiga) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      </section>
-    </div>
-  );
-}
 
 function RigaFattura({ f }: { f: any }) {
   const utils = trpc.useUtils();
@@ -362,7 +97,7 @@ function RigaFattura({ f }: { f: any }) {
 
   const s = STATO_FATTURA[f.stato] ?? { label: f.stato, classe: "" };
   return (
-    <Card className={cn(f.stato === "ignorata" && "opacity-60")}>
+    <Card className={cn(f.stato === "ignorata" && "border-dashed")}>
       <CardContent className="py-3 space-y-1.5">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="min-w-0">
@@ -432,10 +167,12 @@ function RigaFattura({ f }: { f: any }) {
                   ignorata: f.stato !== "ignorata",
                 })
               }
-              title="Le fatture ignorate escono da riconciliazione e totali"
+              title="Esclude solo dalla riconciliazione: la fattura resta nei totali FiC"
             >
               <EyeOff className="h-3 w-3 mr-1" />
-              {f.stato === "ignorata" ? "Riprendi" : "Ignora"}
+              {f.stato === "ignorata"
+                ? "Riprendi riconciliazione"
+                : "Escludi dalla riconciliazione"}
             </Button>
           </div>
         </div>
@@ -625,7 +362,7 @@ export default function Economia() {
         </TabsList>
       </Tabs>
 
-      {tab === "panoramica" && <Panoramica anno={anno} />}
+      {tab === "panoramica" && <EconomiaPanoramica anno={anno} />}
       {tab === "fatture" && <Fatture anno={anno} />}
       {tab === "acquisti" && <CostiFicReview anno={anno} />}
     </div>

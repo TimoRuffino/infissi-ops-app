@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
-import { upsertDocumentiEmessi } from "./ficFatture";
+import { ficFatture, upsertDocumentiEmessi } from "./ficFatture";
 import { ficCosti, upsertCostiFic } from "./ficCosti";
 
 function ctx(sedeId: number): TrpcContext {
@@ -39,6 +39,42 @@ describe("economia FiC", () => {
       importo: 999,
       fornitore: "Costo manuale",
     });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 300,
+      data: "2026-04-15",
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 50,
+      data: null,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 25,
+      data: "2026-19-01",
+    });
+    const commessaArchiviata = await caller.commesse.create({
+      cliente: "Cliente storico economia",
+      importoTotale: 2_000,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessaArchiviata.id,
+      importo: 400,
+      data: "2026-04-18",
+    });
+    await caller.commesse.archive(commessaArchiviata.id);
+    const callerAltraSede = appRouter.createCaller(ctx(190));
+    const commessaAltraSede = await callerAltraSede.commesse.create({
+      cliente: "Cliente altra sede economia",
+      importoTotale: 9_000,
+    });
+    await callerAltraSede.commesse.addPagamento({
+      commessaId: commessaAltraSede.id,
+      importo: 9_000,
+      data: "2026-04-19",
+    });
+    await callerAltraSede.commesse.archive(commessaAltraSede.id);
 
     upsertDocumentiEmessi(
       [
@@ -125,7 +161,18 @@ describe("economia FiC", () => {
     const overview = await caller.economia.overview({ anno: 2026 });
 
     expect(overview.crm.pattuito).toBe(5_000);
+    expect(overview.crm.incassato).toBe(375);
     expect(overview.crm.costiManualiStimati).toBe(999);
+    expect(overview.confrontoIncassi).toMatchObject({
+      disponibile: true,
+      crm: 700,
+      fic: 600,
+      scostamento: 100,
+      crmSenzaData: 75,
+      pagamentiCrmSenzaData: 2,
+      ficSenzaData: 0,
+      rateFicSenzaData: 0,
+    });
     expect(overview.vendite).toMatchObject({
       netto: 900,
       iva: 198,
@@ -145,6 +192,58 @@ describe("economia FiC", () => {
     expect(overview.mesi[3]).toMatchObject({
       venditeNetto: 900,
       acquistiNetto: 350,
+      incassiCrm: 700,
+    });
+  });
+
+  it("mantiene le fatture escluse dalla riconciliazione nei totali FiC", async () => {
+    const sedeId = 93;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertDocumentiEmessi(
+      [
+        {
+          id: 89601,
+          tipo: "invoice",
+          numero: "93/IGN",
+          data: "2026-06-10",
+          clienteNome: "Cliente escluso dalla riconciliazione",
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 200,
+          importoIva: 44,
+          importoLordo: 244,
+          rate: [],
+        },
+      ],
+      sedeId,
+      "overview-ignorata"
+    );
+    const fattura = ficFatture.find(
+      documento => documento.sedeId === sedeId && documento.id === 89601
+    );
+    if (!fattura) throw new Error("Fixture FiC non creata");
+    fattura.ignorata = true;
+
+    const overview = await caller.economia.overview({ anno: 2026 });
+
+    expect(overview.vendite).toMatchObject({
+      fatture: 1,
+      netto: 200,
+      escluseRiconciliazione: 1,
+      daRiconciliare: 0,
+    });
+  });
+
+  it("non presenta come verificato un confronto senza mirror FiC", async () => {
+    const sedeId = 94;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const overview = await caller.economia.overview({ anno: 2026 });
+
+    expect(overview.confrontoIncassi).toMatchObject({
+      disponibile: false,
+      crm: 0,
+      fic: 0,
+      affidabile: false,
     });
   });
 

@@ -1661,7 +1661,14 @@ describe("tars — profili e cache operativa", () => {
           importoNetto: 1_000,
           importoIva: 220,
           importoLordo: 1_220,
-          rate: [],
+          rate: [
+            {
+              importo: 600,
+              stato: "paid",
+              scadenza: null,
+              dataPagamento: `${anno}-03-12`,
+            },
+          ],
         },
       ],
       sedeId,
@@ -1682,7 +1689,14 @@ describe("tars — profili e cache operativa", () => {
           importoNetto: 400,
           importoIva: 88,
           importoLordo: 488,
-          rate: [],
+          rate: [
+            {
+              importo: 200,
+              stato: "paid",
+              scadenza: null,
+              dataPagamento: `${anno}-03-15`,
+            },
+          ],
         },
       ],
       sedeId,
@@ -1707,10 +1721,23 @@ describe("tars — profili e cache operativa", () => {
     expect(economia.fonteEffettivi).toBe("Fatture in Cloud");
     expect(economia.periodo).toEqual({
       anno,
-      criterio: "competenza documento",
+      criteri: {
+        competenza: "data documento",
+        cassa: "data pagamento",
+      },
     });
     expect(economia.venditeFiC.netto).toBe(1_000);
     expect(economia.acquistiFiC.netto).toBe(400);
+    expect(economia.confrontoIncassi).toMatchObject({
+      crm: 0,
+      fic: 600,
+      scostamento: -600,
+    });
+    expect(economia.andamentoMensile[2]).toMatchObject({
+      incassiCrmCassa: 0,
+      incassiFicCassa: 600,
+      usciteFicCassa: 200,
+    });
     expect(economia).not.toHaveProperty("fic");
     expect(economia).toHaveProperty("coperturaCostiFissi.affidabilita");
   });

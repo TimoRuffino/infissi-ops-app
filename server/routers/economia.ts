@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   calcolaAggregatiFic,
   calcolaBreakEven,
+  classificaDataAnnuale,
   type DocumentoEconomico,
 } from "../_core/economiaFic";
 import { requireDirezioneOAmministrazione } from "../_core/permissions";
@@ -96,6 +97,37 @@ function riepilogoCrm(sedeId: number) {
   };
 }
 
+function flussoCassaCrm(sedeId: number, anno: number) {
+  const mesi = Array.from({ length: 12 }, () => 0);
+  let incassato = 0;
+  let senzaData = 0;
+  let pagamentiSenzaData = 0;
+
+  for (const commessa of getCommesseStore() as any[]) {
+    if (commessa.sedeId !== sedeId) continue;
+    const pagamenti: any[] = Array.isArray(commessa.pagamenti)
+      ? commessa.pagamenti
+      : [];
+    for (const pagamento of pagamenti) {
+      const importo = Number(pagamento.importo ?? 0);
+      if (!Number.isFinite(importo)) continue;
+      const mesePagamento = classificaDataAnnuale(pagamento.data, anno);
+      if (mesePagamento === "non_valida") {
+        senzaData += importo;
+        pagamentiSenzaData++;
+        continue;
+      }
+      if (mesePagamento === "fuori_periodo") {
+        continue;
+      }
+      incassato += importo;
+      mesi[mesePagamento - 1] += importo;
+    }
+  }
+
+  return { incassato, senzaData, pagamentiSenzaData, mesi };
+}
+
 export const economiaRouter = router({
   overview: protectedProcedure
     .input(z.object({ anno: z.number().int().optional() }).optional())
@@ -106,6 +138,10 @@ export const economiaRouter = router({
       const emessi = documentiEmessi(sedeId);
       const ricevuti = documentiRicevuti(sedeId);
       const aggregati = calcolaAggregatiFic([...emessi, ...ricevuti], anno);
+      const cassaCrm = flussoCassaCrm(sedeId, anno);
+      const ficIncassiDisponibili = emessi.some(
+        documento => documento.presenteInFic !== false
+      );
       const commesse = getCommesseStore().filter(
         (commessa: any) => commessa.sedeId === sedeId
       );
@@ -114,9 +150,11 @@ export const economiaRouter = router({
           fattura.sedeId === sedeId &&
           fattura.tipo === "invoice" &&
           fattura.presenteInFic &&
-          !fattura.ignorata &&
-          fattura.data.startsWith(String(anno))
+          typeof classificaDataAnnuale(fattura.data, anno) === "number"
       );
+      const escluseRiconciliazione = fattureAnno.filter(
+        fattura => fattura.ignorata
+      ).length;
       const daRiconciliare = fattureAnno.filter(fattura => {
         const stato = statoFattura(fattura, commesse).stato;
         return stato === "da_riconciliare" || stato === "non_abbinabile";
@@ -125,7 +163,7 @@ export const economiaRouter = router({
         costo =>
           costo.sedeId === sedeId &&
           costo.presenteInFic &&
-          costo.data.startsWith(String(anno))
+          typeof classificaDataAnnuale(costo.data, anno) === "number"
       );
       const documentiDubbi = costiAnno.filter(
         costo => costo.classificazione === "dubbio"
@@ -146,8 +184,11 @@ export const economiaRouter = router({
         iva: aggregati.vendite.iva,
         lordo: aggregati.vendite.lordo,
         incassato: aggregati.vendite.pagato,
+        incassatoSenzaData: aggregati.vendite.pagatoSenzaData,
+        ratePagateSenzaData: aggregati.vendite.ratePagateSenzaData,
         daIncassare: aggregati.vendite.aperto,
         daRiconciliare,
+        escluseRiconciliazione,
       };
       const acquisti = {
         disponibile: aggregati.acquisti.documenti > 0,
@@ -157,6 +198,8 @@ export const economiaRouter = router({
         iva: aggregati.acquisti.iva,
         lordo: aggregati.acquisti.lordo,
         pagato: aggregati.acquisti.pagato,
+        pagatoSenzaData: aggregati.acquisti.pagatoSenzaData,
+        ratePagateSenzaData: aggregati.acquisti.ratePagateSenzaData,
         daPagare: aggregati.acquisti.aperto,
         dubbi: documentiDubbi.length,
         importoDubbio,
@@ -167,12 +210,28 @@ export const economiaRouter = router({
         crm: riepilogoCrm(sedeId),
         vendite,
         acquisti,
+        confrontoIncassi: {
+          anno,
+          disponibile: ficIncassiDisponibili,
+          crm: cassaCrm.incassato,
+          fic: vendite.incassato,
+          scostamento: cassaCrm.incassato - vendite.incassato,
+          crmSenzaData: cassaCrm.senzaData,
+          pagamentiCrmSenzaData: cassaCrm.pagamentiSenzaData,
+          ficSenzaData: vendite.incassatoSenzaData,
+          rateFicSenzaData: vendite.ratePagateSenzaData,
+          affidabile:
+            ficIncassiDisponibili &&
+            cassaCrm.pagamentiSenzaData === 0 &&
+            vendite.ratePagateSenzaData === 0,
+        },
         // Alias compatibile: ora il fatturato è correttamente netto IVA.
         fic: {
           disponibile: vendite.disponibile,
           fatture: vendite.fatture,
           fatturato: vendite.netto,
           incassato: vendite.incassato,
+          incassatoSenzaData: vendite.incassatoSenzaData,
           daIncassare: vendite.daIncassare,
           daRiconciliare: vendite.daRiconciliare,
         },
@@ -180,6 +239,7 @@ export const economiaRouter = router({
           ...mese,
           fatturato: mese.venditeNetto,
           incassi: mese.incassi,
+          incassiCrm: cassaCrm.mesi[mese.mese - 1],
           costi: mese.acquistiNetto,
         })),
       };

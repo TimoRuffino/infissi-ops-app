@@ -40,8 +40,10 @@ BPM, MPS e Intesa Sanpaolo senza cambiare nuovamente le formule economiche.
 - **Fatturato lordo:** lordo delle fatture meno lordo delle note di credito,
   mostrato separatamente e mai usato come sinonimo di fatturato netto.
 - **Incassato FiC:** somma delle rate `paid` delle fatture emesse; le rate delle
-  note di credito riducono il valore con segno opposto. Stati diversi da
-  `paid` non sono incassati.
+  note di credito riducono il valore con segno opposto. Nel confronto annuale
+  e nell'andamento di cassa conta `dataPagamento`, non la data del documento.
+  Le rate `paid` senza data restano fuori dal periodo e sono esposte come dato
+  da completare. Stati diversi da `paid` non sono incassati.
 - **Da incassare FiC:** somma delle rate effettivamente esigibili e non pagate;
   entrano soltanto gli stati che FiC documenta come non pagati. Stati diversi
   da `paid` e `not_paid` restano esclusi finche non sono mappati esplicitamente.
@@ -52,6 +54,12 @@ BPM, MPS e Intesa Sanpaolo senza cambiare nuovamente le formule economiche.
 - **Pattuito:** importo contrattuale lordo memorizzato sulla commessa. Rimane un
   indicatore CRM delle commesse attive e non viene confrontato direttamente con
   il fatturato netto annuale.
+- **Incassato CRM annuale:** somma dei pagamenti CRM datati nell'anno selezionato,
+  comprese le commesse poi archiviate. I pagamenti senza data sono separati e
+  non vengono assegnati artificialmente a un mese.
+- **Fatture ignorate:** l'azione `Ignora` esclude soltanto dalla coda di
+  riconciliazione. Un documento ancora presente in FiC continua ad alimentare i
+  totali contabili e il punto di pareggio.
 - **Costi commessa stimati legacy:** restano consultabili per continuita, ma non
   alimentano totali aziendali, punto di pareggio o margine effettivo. Sono
   sempre etichettati come stime e confrontati separatamente con i costi FiC.
@@ -288,15 +296,24 @@ Tutte le route economiche richiedono direzione o amministrazione e applicano
 
 ### 8.1 Contabilita
 
-La Panoramica separa tre bande senza card annidate:
+La Panoramica separa quattro bande senza card annidate:
 
-1. **Contratti CRM:** pattuito lordo attivo, incassato CRM e residuo.
+1. **Controllo incassi:** incassato FiC e CRM dell'anno selezionato, scostamento
+   `CRM - FiC` e importi senza data che riducono l'affidabilita del confronto.
 2. **Vendite FiC:** fatturato netto, IVA, lordo, note di credito, incassato e
    scaduto del periodo selezionato.
 3. **Acquisti FiC:** costi netti, IVA, lordo, uscite pagate e documenti dubbi.
+4. **Portafoglio CRM attivo:** pattuito lordo, incassato, residuo e stime CRM
+   all-time, visivamente separati e dichiarati non confrontabili con l'anno FiC.
 
 Ogni KPI mostra base (`netto` o `lordo`), periodo e fonte. Il dettaglio mensile
-usa esclusivamente grandezze dello stesso anno.
+usa esclusivamente grandezze dello stesso anno ed e separato in `Competenza`
+(documenti per data documento) e `Cassa` (movimenti per data di pagamento).
+Se il mirror FiC non contiene documenti emessi, il controllo mostra dati non
+disponibili invece di dichiarare `0 = 0`; una differenza e allineata solo entro
+50 centesimi. L'incompletezza dipende dai conteggi dei movimenti senza data,
+non dalla loro somma netta. Anche i pagamenti degli acquisti senza data sono
+mostrati e marcano la vista Cassa come incompleta.
 
 ### 8.2 Pagamenti
 
@@ -373,6 +390,11 @@ ai calcoli precedenti senza perdere il mirror FiC o le classificazioni.
 - `expense` e `passive_credit_note` rettificano i costi con segno corretto.
 - Solo le rate `paid` alimentano incassi/uscite e solo le `not_paid` alimentano
   crediti/debiti; ogni altro stato resta escluso.
+- Le rate `paid` sono aggregate per `dataPagamento`; quelle senza data sono
+  conteggiate a parte e non attribuite al mese del documento.
+- I pagamenti CRM sono aggregati per data anche per commesse archiviate; quelli
+  senza data restano separati.
+- Una fattura ignorata resta nei totali FiC ma non nella riconciliazione.
 - Snapshot completo marca come non presente un record scomparso; snapshot
   incompleto non lo fa.
 - La produzione 52/54 viene riprodotta con fixture e corretta.

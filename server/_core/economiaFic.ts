@@ -13,6 +13,8 @@ export type ClassificazioneCostoEconomico =
 export type RataEconomica = {
   importo: number;
   stato: string;
+  scadenza?: string | null;
+  dataPagamento?: string | null;
 };
 
 export type DocumentoEconomico = {
@@ -32,6 +34,8 @@ export type TotaliEconomici = {
   iva: number;
   lordo: number;
   pagato: number;
+  pagatoSenzaData: number;
+  ratePagateSenzaData: number;
   aperto: number;
   documenti: number;
   noteCredito: number;
@@ -57,6 +61,8 @@ const ZERO_TOTALI = (): TotaliEconomici => ({
   iva: 0,
   lordo: 0,
   pagato: 0,
+  pagatoSenzaData: 0,
+  ratePagateSenzaData: 0,
   aperto: 0,
   documenti: 0,
   noteCredito: 0,
@@ -70,14 +76,38 @@ function latoDocumento(tipo: TipoDocumentoEconomico): "vendite" | "acquisti" {
   return tipo === "invoice" || tipo === "credit_note" ? "vendite" : "acquisti";
 }
 
-function meseDocumento(data: string): number | null {
-  if (!/^\d{4}-\d{2}/.test(data)) return null;
-  const value = Number(data.slice(5, 7));
-  return value >= 1 && value <= 12 ? value : null;
+function partiDataValida(data: string | null | undefined): {
+  anno: number;
+  mese: number;
+  giorno: number;
+} | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data ?? "");
+  if (!match) return null;
+  const annoData = Number(match[1]);
+  const mese = Number(match[2]);
+  const giorno = Number(match[3]);
+  const verificata = new Date(Date.UTC(annoData, mese - 1, giorno));
+  if (
+    verificata.getUTCFullYear() !== annoData ||
+    verificata.getUTCMonth() + 1 !== mese ||
+    verificata.getUTCDate() !== giorno
+  ) {
+    return null;
+  }
+  return { anno: annoData, mese, giorno };
 }
 
-function documentoUtilizzabile(documento: DocumentoEconomico): boolean {
-  return documento.presenteInFic !== false && documento.ignorato !== true;
+export function classificaDataAnnuale(
+  data: string | null | undefined,
+  anno: number
+): number | "fuori_periodo" | "non_valida" {
+  const parti = partiDataValida(data);
+  if (!parti) return "non_valida";
+  return parti.anno === anno ? parti.mese : "fuori_periodo";
+}
+
+function documentoContabilizzabile(documento: DocumentoEconomico): boolean {
+  return documento.presenteInFic !== false;
 }
 
 export function calcolaAggregatiFic(
@@ -95,45 +125,46 @@ export function calcolaAggregatiFic(
     acquistiLordo: 0,
     uscite: 0,
   }));
-  const prefissoAnno = `${anno}-`;
-
   for (const documento of documenti) {
-    if (
-      !documentoUtilizzabile(documento) ||
-      !documento.data.startsWith(prefissoAnno)
-    ) {
-      continue;
-    }
+    if (!documentoContabilizzabile(documento)) continue;
     const lato = latoDocumento(documento.tipo);
     const totali = lato === "vendite" ? vendite : acquisti;
     const segno = segnoDocumento(documento.tipo);
-    totali.netto += segno * documento.importoNetto;
-    totali.iva += segno * documento.importoIva;
-    totali.lordo += segno * documento.importoLordo;
-    totali.documenti++;
-    if (segno < 0) totali.noteCredito++;
+    const meseDocumento = classificaDataAnnuale(documento.data, anno);
+    const nelPeriodo = typeof meseDocumento === "number";
 
-    const mese = meseDocumento(documento.data);
-    if (mese) {
-      const aggregatoMese = mesi[mese - 1];
-      if (lato === "vendite") {
-        aggregatoMese.venditeNetto += segno * documento.importoNetto;
-        aggregatoMese.venditeLordo += segno * documento.importoLordo;
-      } else {
-        aggregatoMese.acquistiNetto += segno * documento.importoNetto;
-        aggregatoMese.acquistiLordo += segno * documento.importoLordo;
+    if (nelPeriodo) {
+      totali.netto += segno * documento.importoNetto;
+      totali.iva += segno * documento.importoIva;
+      totali.lordo += segno * documento.importoLordo;
+      totali.documenti++;
+      if (segno < 0) totali.noteCredito++;
+
+      if (typeof meseDocumento === "number") {
+        const aggregatoMese = mesi[meseDocumento - 1];
+        if (lato === "vendite") {
+          aggregatoMese.venditeNetto += segno * documento.importoNetto;
+          aggregatoMese.venditeLordo += segno * documento.importoLordo;
+        } else {
+          aggregatoMese.acquistiNetto += segno * documento.importoNetto;
+          aggregatoMese.acquistiLordo += segno * documento.importoLordo;
+        }
       }
     }
 
     for (const rata of documento.rate ?? []) {
       if (rata.stato === "paid") {
-        totali.pagato += segno * rata.importo;
-        if (mese) {
+        const mesePagamento = classificaDataAnnuale(rata.dataPagamento, anno);
+        if (typeof mesePagamento === "number") {
+          totali.pagato += segno * rata.importo;
           if (lato === "vendite")
-            mesi[mese - 1].incassi += segno * rata.importo;
-          else mesi[mese - 1].uscite += segno * rata.importo;
+            mesi[mesePagamento - 1].incassi += segno * rata.importo;
+          else mesi[mesePagamento - 1].uscite += segno * rata.importo;
+        } else if (mesePagamento === "non_valida") {
+          totali.pagatoSenzaData += segno * rata.importo;
+          totali.ratePagateSenzaData++;
         }
-      } else if (rata.stato === "not_paid") {
+      } else if (rata.stato === "not_paid" && nelPeriodo) {
         totali.aperto += segno * rata.importo;
       }
     }
@@ -173,28 +204,25 @@ function chiaveMese(data: Date): string {
 }
 
 function dataInIntervallo(data: string, da: string, a: string): boolean {
-  const giorno = data.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(giorno) && giorno >= da && giorno <= a;
+  return partiDataValida(data) != null && data >= da && data <= a;
 }
 
 export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
-  const osservato = new Date(Date.UTC(input.anno, input.mese - 1, 1));
   const fineBaseDate = new Date(Date.UTC(input.anno, input.mese - 1, 0));
   const inizioBaseDate = new Date(
     Date.UTC(fineBaseDate.getUTCFullYear(), fineBaseDate.getUTCMonth() - 11, 1)
   );
   const periodoDa = `${chiaveMese(inizioBaseDate)}-01`;
   const periodoA = fineBaseDate.toISOString().slice(0, 10);
-  const meseOsservato = chiaveMese(osservato);
 
   const emessiBase = input.documentiEmessi.filter(
     documento =>
-      documentoUtilizzabile(documento) &&
+      documentoContabilizzabile(documento) &&
       dataInIntervallo(documento.data, periodoDa, periodoA)
   );
   const costiBase = input.costi.filter(
     documento =>
-      documentoUtilizzabile(documento) &&
+      documentoContabilizzabile(documento) &&
       dataInIntervallo(documento.data, periodoDa, periodoA)
   );
 
@@ -253,8 +281,8 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   const fatturatoMese = input.documentiEmessi
     .filter(
       documento =>
-        documentoUtilizzabile(documento) &&
-        documento.data.startsWith(`${meseOsservato}-`)
+        documentoContabilizzabile(documento) &&
+        classificaDataAnnuale(documento.data, input.anno) === input.mese
     )
     .reduce(
       (somma, documento) =>
