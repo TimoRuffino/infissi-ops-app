@@ -145,7 +145,7 @@
 
   Avviare il CRM locale e controllare la card a `1440x900` e `390x844`, senza scroll orizzontale o errori console.
 
-- [ ] **Step 3: Eseguire tutte le verifiche**
+- [x] **Step 3: Eseguire tutte le verifiche**
 
   Run: `pnpm check && pnpm test && pnpm build`
 

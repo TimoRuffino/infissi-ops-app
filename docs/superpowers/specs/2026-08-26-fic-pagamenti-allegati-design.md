@@ -210,8 +210,10 @@ commessa, pagamento, rata FiC, valori correnti attesi e patch proposta. Puo:
 - impostare `stato = "stornato"` per neutralizzare uno storno o un doppione;
 - confermare quale pagamento manuale corrisponde a una rata FiC.
 
-L'esecutore verifica nuovamente versione e valori correnti prima della mutation.
-Una proposta diventata obsoleta non sovrascrive modifiche successive.
+L'esecutore verifica nuovamente versione, valori correnti, link attivo e rata
+FiC viva prima della mutation. Una proposta diventata obsoleta non sovrascrive
+modifiche successive: passa a `superata` senza entrare in `errore`, così un
+nuovo click non ripete una mutation ormai invalida.
 
 `StatoProposta` aggiunge `superata`. Una proposta passa a `superata`, mantenendo
 payload, prove ed esito nell'audit, quando:

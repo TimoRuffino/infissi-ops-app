@@ -209,9 +209,13 @@ Il vincolo di riconciliazione e ora uno-a-uno in entrambe le direzioni: un
 pagamento manuale non puo essere riutilizzato per due rate FiC. Il sync ripara
 anche i vecchi link duplicati conservando quello compatibile con importo/data e
 creando, quando necessario, un movimento FiC distinto per la rata restante.
-L'approvazione rivalida sia la source key sia il pagamento prima di qualsiasi
-scrittura. La card Tars confronta `Nel CRM ora` con `FiC propone` e dichiara
-l'effetto sull'incassato prima del comando `Applica correzione`.
+La scelta resta deterministica anche se FiC restituisce le rate in ordine
+diverso e copre i link duplicati tra fatture; un movimento FiC persistito senza
+link viene recuperato senza duplicarlo. L'approvazione rivalida la rata FiC
+viva, la source key, il link e il pagamento prima di qualsiasi scrittura: una
+proposta vecchia diventa `superata`, senza errore né modifica. La card Tars
+confronta `Nel CRM ora` con `FiC propone`, dichiara l'effetto sull'incassato e
+nasconde il comando quando i dati di confronto non sono leggibili.
 
 Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
 essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.

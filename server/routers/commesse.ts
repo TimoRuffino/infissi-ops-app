@@ -1044,6 +1044,7 @@ export const commesseRouter = router({
 
       const {
         confermaRiconciliazioneManuale,
+        correzionePagamentoFicValida,
         trovaConflittoRiconciliazioneManuale,
       } = await import("./ficPagamenti");
       const reconciliationConflict = trovaConflittoRiconciliazioneManuale({
@@ -1058,6 +1059,22 @@ export const commesseRouter = router({
           code: "PRECONDITION_FAILED",
           message:
             "La rata FiC e gia riconciliata con un altro pagamento. Riesegui la sincronizzazione FiC.",
+        });
+      }
+      if (
+        !correzionePagamentoFicValida({
+          sedeId: ctx.sedeId ?? 1,
+          ficDocumentoId: input.ficDocumentoId,
+          ficSourceKey: input.ficSourceKey,
+          commessaId: input.commessaId,
+          pagamento: normalized,
+          patch: input.patch,
+        })
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "La rata FiC e cambiata dopo la proposta. Riesegui la sincronizzazione FiC.",
         });
       }
 

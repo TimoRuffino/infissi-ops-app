@@ -122,6 +122,53 @@ describe("riconciliazione pagamenti FiC", () => {
     ).toHaveLength(1);
   });
 
+  it("ricostruisce il link di un pagamento FiC gia persistito senza duplicarlo", async () => {
+    const sedeId = 212;
+    const { caller, commessa } = await setupInvoice({
+      sedeId,
+      ficId: 212_001,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+      note: "Fattura FIC 212001/A — incasso del 2026-08-20",
+    });
+    Object.assign(commessa.pagamenti[0], {
+      origine: "fic",
+      stato: "attivo",
+      ficDocumentoId: 212_001,
+      ficRataId: 444,
+      ficSourceKey: "rate:444",
+      ficStato: "paid",
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.stats.pagamentiCreati).toBe(0);
+    expect(commessa.pagamenti).toHaveLength(1);
+    expect(commessa.importoIncassato).toBe(1_220);
+    expect(
+      ficPaymentLinks.filter(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === 212_001 &&
+          link.ficSourceKey === "rate:444" &&
+          link.stato !== "superata"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        pagamentoId: commessa.pagamenti[0].id,
+        target: "fic",
+        stato: "confermata",
+      }),
+    ]);
+  });
+
   it("collega un manuale con data nulla senza duplicarlo", async () => {
     const sedeId = 202;
     const { caller, commessa } = await setupInvoice({
@@ -214,6 +261,234 @@ describe("riconciliazione pagamenti FiC", () => {
     );
     expect(activeLinks).toHaveLength(2);
     expect(new Set(activeLinks.map(link => link.pagamentoId)).size).toBe(2);
+  });
+
+  it("abbina la rata esatta anche quando FiC restituisce le rate in ordine inverso", async () => {
+    const sedeId = 215;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 215_001,
+      rate: [
+        {
+          id: 702,
+          sourceKey: "rate:702",
+          importo: 1_410.14,
+          scadenza: "2026-02-10",
+          stato: "paid",
+          dataPagamento: "2026-02-10",
+        },
+        {
+          id: 701,
+          sourceKey: "rate:701",
+          importo: 1_762.67,
+          scadenza: "2026-01-26",
+          stato: "paid",
+          dataPagamento: "2026-01-26",
+        },
+      ],
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_762.67,
+      data: "2026-01-26",
+      note: `Fattura FIC ${fattura.numero} — prima rata`,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(commessa.pagamenti).toEqual([
+      expect.objectContaining({
+        origine: "manuale",
+        importo: 1_762.67,
+        data: "2026-01-26",
+      }),
+      expect.objectContaining({
+        origine: "fic",
+        importo: 1_410.14,
+        data: "2026-02-10",
+        ficSourceKey: "rate:702",
+      }),
+    ]);
+    expect(commessa.importoIncassato).toBe(3_172.81);
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:701" &&
+          link.stato !== "superata"
+      )
+    ).toMatchObject({
+      target: "manuale",
+      pagamentoId: commessa.pagamenti[0].id,
+    });
+  });
+
+  it("ripara il riuso storico di un manuale anche tra fatture diverse", async () => {
+    const sedeId = 216;
+    const { caller, commessa, fattura: fatturaNonCompatibile } =
+      await setupInvoice({
+        sedeId,
+        ficId: 216_001,
+        rate: [
+          {
+            id: 901,
+            sourceKey: "rate:901",
+            importo: 900,
+            scadenza: "2026-08-10",
+            stato: "paid",
+            dataPagamento: "2026-08-10",
+          },
+        ],
+      });
+    upsertFatture(
+      [
+        {
+          id: 216_002,
+          numero: "216002/A",
+          data: "2026-08-01",
+          clienteNome: `Cliente ${sedeId}`,
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 1_000,
+          importoLordo: 1_220,
+          rate: [
+            {
+              id: 902,
+              sourceKey: "rate:902",
+              importo: 1_220,
+              scadenza: "2026-08-20",
+              stato: "paid",
+              dataPagamento: "2026-08-20",
+            },
+          ],
+        },
+      ],
+      sedeId
+    );
+    const fatturaEsatta = ficFatture.find(
+      item => item.sedeId === sedeId && item.id === 216_002
+    )!;
+    Object.assign(fatturaEsatta, {
+      commessaId: commessa.id,
+      commessaMatch: "manuale",
+      collegataAMano: true,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    const pagamentoId = commessa.pagamenti[0].id;
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: fatturaNonCompatibile.id,
+      ficSourceKey: "rate:901",
+      commessaId: commessa.id,
+      pagamentoId,
+    });
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: fatturaEsatta.id,
+      ficSourceKey: "rate:902",
+      commessaId: commessa.id,
+      pagamentoId,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fatturaEsatta.id &&
+          link.ficSourceKey === "rate:902" &&
+          link.stato !== "superata"
+      )
+    ).toMatchObject({ target: "manuale", pagamentoId });
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fatturaNonCompatibile.id &&
+          link.ficSourceKey === "rate:901" &&
+          link.stato !== "superata"
+      )
+    ).toMatchObject({ target: "fic" });
+  });
+
+  it("mantiene un solo link attivo quando lo storico duplica la stessa rata", async () => {
+    const sedeId = 217;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 217_001,
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_220,
+      data: "2026-08-20",
+    });
+    const now = new Date("2026-08-20T10:00:00.000Z");
+    const baseId = Math.max(0, ...ficPaymentLinks.map(link => link.id)) + 100;
+    ficPaymentLinks.push(
+      {
+        id: baseId,
+        sedeId,
+        ficDocumentoId: fattura.id,
+        ficRataId: 444,
+        ficSourceKey: "rate:444",
+        commessaId: commessa.id,
+        pagamentoId: commessa.pagamenti[0].id,
+        target: "manuale",
+        stato: "confermata",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: baseId + 1,
+        sedeId,
+        ficDocumentoId: fattura.id,
+        ficRataId: 444,
+        ficSourceKey: "rate:444",
+        commessaId: commessa.id,
+        pagamentoId: commessa.pagamenti[1].id,
+        target: "manuale",
+        stato: "confermata",
+        createdAt: now,
+        updatedAt: now,
+      }
+    );
+
+    riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(
+      ficPaymentLinks.filter(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:444" &&
+          link.stato !== "superata"
+      )
+    ).toHaveLength(1);
   });
 
   it("ripara due link storici che riusano lo stesso pagamento manuale", async () => {

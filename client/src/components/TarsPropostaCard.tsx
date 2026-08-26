@@ -394,6 +394,10 @@ export default function TarsPropostaCard({
   const paymentCorrectionSummary = correzionePagamento
     ? presentPaymentCorrection(proposta.payload ?? {})
     : null;
+  const correzionePagamentoNonValida =
+    correzionePagamento &&
+    !richiedeSelezionePagamento &&
+    paymentCorrectionSummary == null;
   const righe =
     correzionePagamento && paymentCorrectionSummary
       ? []
@@ -691,6 +695,16 @@ export default function TarsPropostaCard({
         <PaymentCorrectionComparison payload={proposta.payload} />
       )}
 
+      {pendente && correzionePagamentoNonValida && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            I dati CRM della proposta non sono leggibili. Riesegui la
+            sincronizzazione FiC prima di approvare.
+          </span>
+        </div>
+      )}
+
       {righe.length > 0 && !processo && (
         <div className="space-y-1.5 rounded-md bg-background/70 px-3 py-2 text-sm">
           {righe.map((r, i) => (
@@ -866,7 +880,8 @@ export default function TarsPropostaCard({
         !rifiutoAperto &&
         !correzioneAperta && (
           <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
-            {!richiedeSelezionePagamento && (
+            {!richiedeSelezionePagamento &&
+              !correzionePagamentoNonValida && (
               <Button
                 size="sm"
                 disabled={busy}

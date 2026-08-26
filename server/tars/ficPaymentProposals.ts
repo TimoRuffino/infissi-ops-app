@@ -6,6 +6,7 @@ import {
 } from "../_core/commessaPayments";
 import { getCommesseStore } from "../routers/commesse";
 import {
+  correzionePagamentoFicValida,
   ficPaymentLinks,
   type FicPaymentIssue,
   type FicPaymentPatch,
@@ -236,10 +237,19 @@ function correzioneObsoleta(proposta: Proposta, sedeId: number): boolean {
   ) {
     return true;
   }
-  if (patchSoddisfatta(pagamento, payload.patch)) return true;
-  if (link?.pagamentoId === pagamento.id && link.stato === "confermata") {
+  if (
+    !correzionePagamentoFicValida({
+      sedeId,
+      ficDocumentoId: Number(payload.ficDocumentoId),
+      ficSourceKey: String(payload.ficSourceKey ?? ""),
+      commessaId: proposta.commessaId!,
+      pagamento,
+      patch: payload.patch ?? {},
+    })
+  ) {
     return true;
   }
+  if (patchSoddisfatta(pagamento, payload.patch)) return true;
   return fingerprintPagamento(pagamento) !== payload.expectedFingerprint;
 }
 
@@ -285,7 +295,11 @@ export function superaProposteFicObsolete(
   let count = 0;
   const pending = proposte
     .filter(
-      proposta => proposta.sedeId === sedeId && proposta.stato === "pendente"
+      proposta =>
+        proposta.sedeId === sedeId &&
+        (proposta.stato === "pendente" ||
+          (proposta.stato === "errore" &&
+            proposta.tipo === "correzione_pagamento"))
     )
     .sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id
@@ -294,13 +308,15 @@ export function superaProposteFicObsolete(
 
   for (const proposta of pending) {
     const key = proposta.chiaveAzione ?? chiaveAzioneProposta(proposta);
-    const oldest = oldestByKey.get(key);
-    if (oldest) {
-      marcaSuperata(proposta, now);
-      count++;
-      continue;
+    if (proposta.stato === "pendente") {
+      const oldest = oldestByKey.get(key);
+      if (oldest) {
+        marcaSuperata(proposta, now);
+        count++;
+        continue;
+      }
+      oldestByKey.set(key, proposta);
     }
-    oldestByKey.set(key, proposta);
 
     const obsolete =
       (proposta.tipo === "correzione_pagamento" &&

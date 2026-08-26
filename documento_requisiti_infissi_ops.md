@@ -1108,6 +1108,18 @@ discordante, Tars crea una proposta `correzione_pagamento` approvabile; se i
 candidati sono più di uno, l'operatore seleziona la riga prima
 dell'approvazione. Le proposte soddisfatte o sostituite passano a `superata` e
 le guardie su fingerprint rendono no-op sicuri i dati già corretti o cambiati.
+La riconciliazione è uno-a-uno in entrambe le direzioni: una rata FiC ha un solo
+link attivo e lo stesso pagamento manuale non può rappresentare due rate, anche
+tra fatture diverse. Il risanamento sceglie il link più compatibile con importo
+e data indipendentemente dall'ordine delle rate; un pagamento FiC già persistito
+ma rimasto senza link viene recuperato senza crearne un secondo.
+
+Prima di ogni approvazione vengono riletti la rata FiC corrente, il pagamento
+CRM e il link attivo. Se importo, data, stato, sorgente o destinazione sono
+cambiati, la proposta passa a `superata` senza modificare il registro né
+generare un errore ripetibile. La card confronta `Nel CRM ora` con `FiC propone`,
+mostra l'effetto esatto su `importoIncassato` e non espone il comando se i dati
+di confronto non sono leggibili.
 
 Il documento PDF ufficiale, quando disponibile, viene archiviato nel fascicolo
 della commessa come file `fattura` dopo aver persistito il collegamento.
@@ -1334,9 +1346,10 @@ Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e c
 
 Per FiC, `correzione_pagamento` è l'unica proposta che può modificare un
 pagamento manuale: payload, candidato scelto e fingerprint vengono rivalidati
-all'approvazione. Se la correzione non è più necessaria, l'esecutore non duplica
+all'approvazione insieme alla rata FiC viva e al collegamento uno-a-uno. Se la
+correzione non è più necessaria o la fonte è cambiata, l'esecutore non duplica
 né forza la scrittura; la proposta passa a `superata` quando l'azione è già
-soddisfatta o sostituita. `proponi_pagamento` e `proponi_modifica_commessa`
+soddisfatta, sostituita o non più valida. `proponi_pagamento` e `proponi_modifica_commessa`
 rifiutano inoltre i no-op e non possono ricreare importi già presenti o derivare
 il pattuito da FiC.
 

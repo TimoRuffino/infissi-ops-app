@@ -3,6 +3,7 @@ import type { TrpcContext } from "../_core/context";
 import { fingerprintPagamento } from "../_core/commessaPayments";
 import { appRouter } from "../routers";
 import { getCommesseStore } from "../routers/commesse";
+import { ficFatture, upsertFatture } from "../routers/ficFatture";
 import {
   confermaRiconciliazioneManuale,
   type FicPaymentIssue,
@@ -48,6 +49,50 @@ async function commessaConPagamento(sedeId: number, importo = 1_220) {
   });
   const commessa = getCommesseStore().find(item => item.id === created.id)!;
   return { caller, commessa };
+}
+
+function registraRataFic(input: {
+  sedeId: number;
+  commessaId: number;
+  ficDocumentoId: number;
+  ficSourceKey: string;
+  importo: number;
+  dataPagamento: string | null;
+  stato?: string;
+}) {
+  upsertFatture(
+    [
+      {
+        id: input.ficDocumentoId,
+        numero: String(input.ficDocumentoId),
+        data: "2026-08-01",
+        clienteNome: `Correzione FiC ${input.sedeId}`,
+        clienteVat: null,
+        clienteCf: null,
+        importoNetto: input.importo,
+        importoLordo: input.importo,
+        rate: [
+          {
+            id: Number(input.ficSourceKey.replace(/^rate:/, "")) || null,
+            sourceKey: input.ficSourceKey,
+            importo: input.importo,
+            scadenza: input.dataPagamento,
+            stato: input.stato ?? "paid",
+            dataPagamento: input.dataPagamento,
+          },
+        ],
+      },
+    ],
+    input.sedeId
+  );
+  const fattura = ficFatture.find(
+    item =>
+      item.sedeId === input.sedeId && item.id === input.ficDocumentoId
+  )!;
+  fattura.commessaId = input.commessaId;
+  fattura.commessaMatch = "manuale";
+  fattura.collegataAMano = true;
+  return fattura;
 }
 
 describe("proposte correzione pagamenti FiC", () => {
@@ -150,7 +195,7 @@ describe("proposte correzione pagamenti FiC", () => {
     ).resolves.toHaveLength(2);
   });
 
-  it("non applica una correzione se il pagamento e cambiato", async () => {
+  it("supera senza errore una correzione se il pagamento e cambiato", async () => {
     const sedeId = 403;
     const { caller, commessa } = await commessaConPagamento(sedeId);
     const pagamento = commessa.pagamenti[0];
@@ -176,8 +221,89 @@ describe("proposte correzione pagamenti FiC", () => {
 
     await expect(
       caller.tars.proposte.approva({ id: proposta.id })
-    ).rejects.toThrow("Il pagamento e cambiato dopo la proposta");
+    ).resolves.toMatchObject({ stato: "superata" });
+    expect(proposta.stato).toBe("superata");
     expect(commessa.pagamenti[0].importo).toBe(1_300);
+  });
+
+  it("supera la correzione se FiC cambia importo o data della rata", async () => {
+    const sedeId = 408;
+    const { commessa } = await commessaConPagamento(sedeId);
+    const pagamento = commessa.pagamenti[0];
+    const fattura = registraRataFic({
+      sedeId,
+      commessaId: commessa.id,
+      ficDocumentoId: 408_001,
+      ficSourceKey: "rate:408",
+      importo: 1_410.14,
+      dataPagamento: "2026-02-10",
+    });
+    creaProposteCorrezionePagamento(
+      [
+        {
+          tipo: "correggi_manuale",
+          sedeId,
+          commessaId: commessa.id,
+          pagamentoId: pagamento.id,
+          ficDocumentoId: fattura.id,
+          ficSourceKey: "rate:408",
+          expectedFingerprint: fingerprintPagamento(pagamento),
+          patch: { importo: 1_410.14, data: "2026-02-10" },
+        },
+      ],
+      sedeId
+    );
+    const proposta = proposte.find(
+      item => item.sedeId === sedeId && item.tipo === "correzione_pagamento"
+    )!;
+    Object.assign(fattura.rate[0], {
+      importo: 1_500,
+      dataPagamento: "2026-02-11",
+    });
+
+    expect(superaProposteFicObsolete(sedeId)).toBe(1);
+    expect(proposta.stato).toBe("superata");
+    expect(commessa.pagamenti[0].importo).toBe(1_220);
+  });
+
+  it("ricontrolla FiC anche al click e non applica una proposta vecchia", async () => {
+    const sedeId = 409;
+    const { caller, commessa } = await commessaConPagamento(sedeId);
+    const pagamento = commessa.pagamenti[0];
+    const fattura = registraRataFic({
+      sedeId,
+      commessaId: commessa.id,
+      ficDocumentoId: 409_001,
+      ficSourceKey: "rate:409",
+      importo: 1_410.14,
+      dataPagamento: "2026-02-10",
+    });
+    creaProposteCorrezionePagamento(
+      [
+        {
+          tipo: "correggi_manuale",
+          sedeId,
+          commessaId: commessa.id,
+          pagamentoId: pagamento.id,
+          ficDocumentoId: fattura.id,
+          ficSourceKey: "rate:409",
+          expectedFingerprint: fingerprintPagamento(pagamento),
+          patch: { importo: 1_410.14, data: "2026-02-10" },
+        },
+      ],
+      sedeId
+    );
+    const proposta = proposte.find(
+      item => item.sedeId === sedeId && item.tipo === "correzione_pagamento"
+    )!;
+    fattura.rate[0].importo = 1_500;
+    const incassatoPrima = commessa.importoIncassato;
+
+    await expect(
+      caller.tars.proposte.approva({ id: proposta.id })
+    ).resolves.toMatchObject({ stato: "superata" });
+    expect(commessa.pagamenti[0].importo).toBe(1_220);
+    expect(commessa.importoIncassato).toBe(incassatoPrima);
   });
 
   it("supera la correzione se la rata FiC e gia collegata a un altro pagamento", async () => {
@@ -256,7 +382,7 @@ describe("proposte correzione pagamenti FiC", () => {
 
     await expect(
       caller.tars.proposte.approva({ id: proposta.id })
-    ).rejects.toThrow("La rata FiC e gia riconciliata");
+    ).resolves.toMatchObject({ stato: "superata" });
     expect(commessa.pagamenti[0]).toMatchObject({
       importo: 1_220,
       data: "2026-08-20",
@@ -279,6 +405,22 @@ describe("proposte correzione pagamenti FiC", () => {
       data: "2026-08-20",
     });
     const doppione = commessa.pagamenti[1];
+    registraRataFic({
+      sedeId,
+      commessaId: commessa.id,
+      ficDocumentoId: 404_001,
+      ficSourceKey: "rate:404",
+      importo: 1_220,
+      dataPagamento: "2026-08-20",
+      stato: "not_paid",
+    });
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: 404_001,
+      ficSourceKey: "rate:404",
+      commessaId: commessa.id,
+      pagamentoId: doppione.id,
+    });
     const issue: FicPaymentIssue = {
       tipo: "correggi_manuale",
       sedeId,
@@ -309,6 +451,14 @@ describe("proposte correzione pagamenti FiC", () => {
       commessaId: commessa.id,
       importo: 1_220,
       data: "2026-08-20",
+    });
+    registraRataFic({
+      sedeId,
+      commessaId: commessa.id,
+      ficDocumentoId: 405_001,
+      ficSourceKey: "rate:405",
+      importo: 1_220,
+      dataPagamento: "2026-08-21",
     });
     const issue: FicPaymentIssue = {
       tipo: "scegli_manuale",

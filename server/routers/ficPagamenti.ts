@@ -218,6 +218,52 @@ function patchForManual(
   return patch;
 }
 
+function samePatchValue(a: unknown, b: unknown): boolean {
+  if (typeof a === "number" || typeof b === "number") {
+    const left = Number(a);
+    const right = Number(b);
+    return (
+      Number.isFinite(left) &&
+      Number.isFinite(right) &&
+      Math.abs(left - right) < 0.01
+    );
+  }
+  return (a ?? null) === (b ?? null);
+}
+
+function samePaymentPatch(
+  actual: FicPaymentPatch,
+  expected: FicPaymentPatch
+): boolean {
+  const actualKeys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every(
+      (key, index) =>
+        key === expectedKeys[index] &&
+        samePatchValue(
+          actual[key as keyof FicPaymentPatch],
+          expected[key as keyof FicPaymentPatch]
+        )
+    )
+  );
+}
+
+function manualRateRank(
+  pagamento: PagamentoCommessa,
+  rata: RataFic
+): number {
+  const compatibility = pagamentoCompatibile(pagamento, rata);
+  if (
+    compatibility === "esatto" &&
+    Object.keys(patchForManual(pagamento, rata)).length === 0
+  ) {
+    return 2;
+  }
+  return compatibility === "nessuno" ? 0 : 1;
+}
+
 function activeManualLinksForPayment(input: {
   sedeId: number;
   commessaId: number;
@@ -260,28 +306,112 @@ export function trovaConflittoRiconciliazioneManuale(input: {
   );
 }
 
+/**
+ * Rilegge la rata autorevole FiC al momento dell'approvazione. La proposta e
+ * valida solo se richiede ancora esattamente la stessa correzione.
+ */
+export function correzionePagamentoFicValida(input: {
+  sedeId: number;
+  ficDocumentoId: number;
+  ficSourceKey: string;
+  commessaId: number;
+  pagamento: PagamentoCommessa;
+  patch: FicPaymentPatch;
+}): boolean {
+  const fattura = ficFatture.find(
+    item =>
+      item.sedeId === input.sedeId && item.id === input.ficDocumentoId
+  );
+  if (!fattura || fattura.commessaId !== input.commessaId) return false;
+
+  const rata = fattura.rate.find(
+    item => item.sourceKey === input.ficSourceKey
+  );
+  if (rata?.stato === "paid" && rata.importo > 0) {
+    return samePaymentPatch(
+      input.patch,
+      patchForManual(input.pagamento, rata)
+    );
+  }
+
+  const link = activeLink(
+    input.sedeId,
+    input.ficDocumentoId,
+    input.ficSourceKey
+  );
+  return (
+    link?.target === "manuale" &&
+    link.commessaId === input.commessaId &&
+    link.pagamentoId === input.pagamento.id &&
+    samePaymentPatch(input.patch, { stato: "stornato" })
+  );
+}
+
 function canonicalManualLink(input: {
   links: RiconciliazioneRataFic[];
-  fattura: FatturaFic;
   pagamento: PagamentoCommessa;
 }): RiconciliazioneRataFic {
   return [...input.links].sort((a, b) => {
     const rank = (link: RiconciliazioneRataFic) => {
-      const rata = input.fattura.rate.find(
-        item => item.sourceKey === link.ficSourceKey
-      );
+      const rata = ficFatture
+        .find(
+          fattura =>
+            fattura.sedeId === link.sedeId &&
+            fattura.id === link.ficDocumentoId
+        )
+        ?.rate.find(item => item.sourceKey === link.ficSourceKey);
       if (!rata) return 0;
-      const compatibility = pagamentoCompatibile(input.pagamento, rata);
-      if (
-        compatibility === "esatto" &&
-        Object.keys(patchForManual(input.pagamento, rata)).length === 0
-      ) {
-        return 2;
-      }
-      return compatibility === "nessuno" ? 0 : 1;
+      return manualRateRank(input.pagamento, rata);
     };
     return rank(b) - rank(a) || a.id - b.id;
   })[0];
+}
+
+function normalizeDuplicateSourceLinks(input: {
+  sedeId: number;
+  fattura: FatturaFic;
+  rata: RataFic;
+  commessa: any;
+  now: Date;
+}): boolean {
+  const links = ficPaymentLinks.filter(
+    link =>
+      link.sedeId === input.sedeId &&
+      link.ficDocumentoId === input.fattura.id &&
+      link.ficSourceKey === input.rata.sourceKey &&
+      link.stato !== "superata"
+  );
+  if (links.length <= 1) return false;
+
+  const rank = (link: RiconciliazioneRataFic): number => {
+    if (link.commessaId !== input.commessa.id) return 0;
+    const raw = input.commessa.pagamenti?.find(
+      (pagamento: any) => pagamento.id === link.pagamentoId
+    );
+    if (!raw) return 1;
+    const pagamento = normalizzaPagamentoLegacy(raw);
+    if (
+      link.target === "fic" &&
+      pagamento.origine === "fic" &&
+      pagamento.ficDocumentoId === input.fattura.id &&
+      pagamento.ficSourceKey === input.rata.sourceKey
+    ) {
+      return 40;
+    }
+    if (link.target === "manuale" && pagamento.origine === "manuale") {
+      return 20 + manualRateRank(pagamento, input.rata);
+    }
+    return 2;
+  };
+  const canonical = [...links].sort(
+    (a, b) => rank(b) - rank(a) || a.id - b.id
+  )[0];
+  for (const link of links) {
+    if (link.id === canonical.id) continue;
+    link.stato = "superata";
+    link.updatedAt = input.now;
+  }
+  return true;
 }
 
 function issueForManual(input: {
@@ -372,9 +502,27 @@ function manualCandidates(
       })
   );
   const espliciti = manuali.filter(
-    pagamento =>
-      typeof pagamento.note === "string" &&
-      pagamento.note.includes(`FIC ${fattura.numero}`)
+    pagamento => {
+      if (
+        typeof pagamento.note !== "string" ||
+        !pagamento.note.includes(`FIC ${fattura.numero}`)
+      ) {
+        return false;
+      }
+      const paidRates = fattura.rate.filter(
+        item => item.stato === "paid" && item.importo > 0
+      );
+      if (paidRates.length <= 1) return true;
+      const best = [...paidRates].sort(
+        (a, b) =>
+          manualRateRank(pagamento, b) - manualRateRank(pagamento, a) ||
+          a.sourceKey.localeCompare(b.sourceKey)
+      )[0];
+      return (
+        manualRateRank(pagamento, best) > 0 &&
+        best.sourceKey === rata.sourceKey
+      );
+    }
   );
   if (espliciti.length > 0) return espliciti;
   return manuali.filter(
@@ -418,7 +566,6 @@ function reconcilePaidRate(input: {
       if (competingLinks.length > 1) {
         const canonical = canonicalManualLink({
           links: competingLinks,
-          fattura: input.fattura,
           pagamento: normalized,
         });
         for (const link of competingLinks) {
@@ -472,6 +619,53 @@ function reconcilePaidRate(input: {
       else input.stats.pagamentiAggiornati++;
       return { commesseChanged: true, linksChanged };
     }
+  }
+
+  const pagamentoFicPersistito = (input.commessa.pagamenti ?? []).find(
+    (item: any) => {
+      const pagamento = normalizzaPagamentoLegacy(item);
+      return (
+        pagamento.origine === "fic" &&
+        pagamento.ficDocumentoId === input.fattura.id &&
+        pagamento.ficSourceKey === input.rata.sourceKey
+      );
+    }
+  );
+  if (pagamentoFicPersistito) {
+    const normalized = normalizzaPagamentoLegacy(pagamentoFicPersistito);
+    const changed =
+      normalized.importo !== input.rata.importo ||
+      normalized.data !== input.rata.dataPagamento ||
+      normalized.stato !== "attivo" ||
+      normalized.ficStato !== input.rata.stato;
+    const wasStornato = normalized.stato === "stornato";
+    if (changed) {
+      Object.assign(pagamentoFicPersistito, {
+        importo: input.rata.importo,
+        data: input.rata.dataPagamento,
+        stato: "attivo",
+        ficDocumentoId: input.fattura.id,
+        ficRataId: input.rata.id,
+        ficSourceKey: input.rata.sourceKey,
+        ficStato: input.rata.stato,
+        ficUltimoSyncAt: input.now,
+        stornatoAt: null,
+        updatedAt: input.now,
+      });
+      if (wasStornato) input.stats.pagamentiRiattivati++;
+      else input.stats.pagamentiAggiornati++;
+    }
+    createLink({
+      sedeId: input.sedeId,
+      fattura: input.fattura,
+      rata: input.rata,
+      commessaId: input.commessa.id,
+      pagamentoId: normalized.id,
+      target: "fic",
+      stato: "confermata",
+      now: input.now,
+    });
+    return { commesseChanged: changed, linksChanged: true };
   }
 
   const candidates = manualCandidates(
@@ -691,6 +885,14 @@ export function riconciliaPagamentiFic(input: {
 
     if (fattura.presenteInFic) {
       for (const rata of fattura.rate) {
+        const duplicateSourceLinksChanged = normalizeDuplicateSourceLinks({
+          sedeId: input.sedeId,
+          fattura,
+          rata,
+          commessa,
+          now,
+        });
+        linksChanged ||= duplicateSourceLinksChanged;
         const existing = activeLink(input.sedeId, fattura.id, rata.sourceKey);
         if (existing && existing.commessaId !== commessa.id) {
           const moved = superaLinkSpostato({

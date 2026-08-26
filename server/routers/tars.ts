@@ -20,6 +20,7 @@ import {
 import { openaiConfigured } from "../tars/openai";
 import { runTars } from "../tars/loop";
 import { avviaSeguito } from "../tars/seguito";
+import { superaProposteFicObsolete } from "../tars/ficPaymentProposals";
 import { eseguiAuditProcessi } from "../tars/auditProcessi";
 import { eseguiProposta } from "../tars/esecutore";
 import { buildCommandCenterSnapshot, canViewPlan } from "../tars/commandCenter";
@@ -218,6 +219,17 @@ async function approveProposalOnce(id: number, ctx: any) {
   }
   if (TIPI_ALTO_RISCHIO.includes(p.tipo)) {
     requireDirezioneOAmministrazione(ctx.user);
+  }
+  if (p.tipo === "correzione_pagamento") {
+    superaProposteFicObsolete(ctx.sedeId ?? 1);
+    const cleaned = proposte.find(item => item.id === p.id);
+    if (cleaned?.stato === "superata") {
+      return {
+        ...idrataProposta(cleaned),
+        seguitoAvviato: false,
+        approvazioneRipetuta: false,
+      };
+    }
   }
   if (p.tipo === "correzione_pagamento" && p.payload?.pagamentoId == null) {
     throw new TRPCError({
