@@ -20,7 +20,17 @@ import {
   requireDirezioneOAmministrazione,
 } from "../_core/permissions";
 import { getClientiStore } from "./clienti";
-import { getCommesseStore, getCommessaById } from "./commesse";
+import {
+  applicaPattuitoDaFic,
+  getCommesseStore,
+  getCommessaById,
+} from "./commesse";
+import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
+import {
+  trovaCommessaPerFattura,
+  type ClientePerMatch,
+  type CommessaPerMatch,
+} from "./ficMatch";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { proposte } from "../tars/stores";
 
@@ -38,7 +48,12 @@ export type RataFic = {
 export type ClienteMatchFic = "fiscale" | "nome_univoco" | "nessuno";
 export type CommessaMatchFic =
   | "manuale"
+  // Storico: aggancio per identità fiscale + unica commessa attiva. Resta
+  // nel tipo perché è persistito su record già scritti.
   | "automatico_fiscale"
+  // Aggancio deterministico su telefono, email, nome, indirizzo o identità
+  // fiscale — la regola corrente (`ficMatch.ts`).
+  | "automatico_segnali"
   | "nessuno";
 
 export type PdfSyncFic = {
@@ -59,6 +74,17 @@ export type FatturaFic = {
   clienteNome: string;
   clienteVat: string | null;
   clienteCf: string | null;
+  // Contatti dell'intestatario, così come FiC li conosce. Servono al match
+  // automatico con la commessa: telefono, email e indirizzo agganciano i
+  // privati, che spesso non hanno né partita IVA né codice fiscale a
+  // registro nel CRM.
+  clienteEmail: string | null;
+  clienteTelefono: string | null;
+  clienteIndirizzo: string | null;
+  clienteCitta: string | null;
+  clienteCap: string | null;
+  // Oggetto/descrizione del documento: può citare il codice commessa.
+  descrizione: string | null;
   importoNetto: number;
   importoIva: number;
   importoLordo: number;
@@ -120,6 +146,14 @@ const _fattureStore = persistedStore<FatturaFic>("fic_fatture", items => {
     if (f.presenteInFic === undefined) f.presenteInFic = true;
     if (f.ultimoSyncId === undefined) f.ultimoSyncId = null;
     if (f.ultimoVistoAt === undefined) f.ultimoVistoAt = null;
+    // Contatti e oggetto: assenti su tutto lo storico. Restano null finché il
+    // sync successivo non li rilegge da FiC — il match ne fa a meno.
+    if (f.clienteEmail === undefined) f.clienteEmail = null;
+    if (f.clienteTelefono === undefined) f.clienteTelefono = null;
+    if (f.clienteIndirizzo === undefined) f.clienteIndirizzo = null;
+    if (f.clienteCitta === undefined) f.clienteCitta = null;
+    if (f.clienteCap === undefined) f.clienteCap = null;
+    if (f.descrizione === undefined) f.descrizione = null;
     f.rate = normalizzaRatePersistite(f.id, f.rate);
     if (f.clienteMatch === undefined) {
       f.clienteMatch = f.clienteId == null ? "nessuno" : "nome_univoco";
@@ -199,7 +233,18 @@ export type DocumentoEmessoFicInput = Pick<
   | "importoIva"
   | "importoLordo"
   | "rate"
->;
+> &
+  Partial<
+    Pick<
+      FatturaFic,
+      | "clienteEmail"
+      | "clienteTelefono"
+      | "clienteIndirizzo"
+      | "clienteCitta"
+      | "clienteCap"
+      | "descrizione"
+    >
+  >;
 
 export function upsertDocumentiEmessi(
   rows: DocumentoEmessoFicInput[],
@@ -270,6 +315,18 @@ export function upsertDocumentiEmessi(
       esistente.clienteNome = r.clienteNome;
       esistente.clienteVat = r.clienteVat;
       esistente.clienteCf = r.clienteCf;
+      // I contatti si aggiornano solo quando il sync li porta: una risposta
+      // FiC priva del campo non deve cancellare quello che già sapevamo.
+      if (r.clienteEmail !== undefined) esistente.clienteEmail = r.clienteEmail;
+      if (r.clienteTelefono !== undefined) {
+        esistente.clienteTelefono = r.clienteTelefono;
+      }
+      if (r.clienteIndirizzo !== undefined) {
+        esistente.clienteIndirizzo = r.clienteIndirizzo;
+      }
+      if (r.clienteCitta !== undefined) esistente.clienteCitta = r.clienteCitta;
+      if (r.clienteCap !== undefined) esistente.clienteCap = r.clienteCap;
+      if (r.descrizione !== undefined) esistente.descrizione = r.descrizione;
       esistente.importoNetto = r.importoNetto;
       esistente.importoIva = r.importoIva;
       esistente.importoLordo = r.importoLordo;
@@ -295,6 +352,12 @@ export function upsertDocumentiEmessi(
     } else {
       ficFatture.push({
         ...r,
+        clienteEmail: r.clienteEmail ?? null,
+        clienteTelefono: r.clienteTelefono ?? null,
+        clienteIndirizzo: r.clienteIndirizzo ?? null,
+        clienteCitta: r.clienteCitta ?? null,
+        clienteCap: r.clienteCap ?? null,
+        descrizione: r.descrizione ?? null,
         rate,
         sedeId,
         clienteId,
@@ -405,6 +468,17 @@ export function commessaPerFattura(
   };
 }
 
+/**
+ * Aggancia automaticamente le fatture non collegate.
+ *
+ * Regola voluta dalla direzione: basta UN segnale in comune — telefono,
+ * email, nome e cognome, indirizzo o identità fiscale — perché la fattura
+ * vada allegata alla commessa. Il solo caso non deciso è la parità fra due
+ * commesse: lì la fattura resta in coda con i candidati esposti.
+ *
+ * Le note di credito passano dallo stesso match: abbattono il pattuito della
+ * commessa che hanno rettificato, e senza aggancio resterebbero fuori.
+ */
 export function collegaFattureAutomatiche(sedeId: number): {
   collegate: number;
   ambigue: number;
@@ -415,36 +489,125 @@ export function collegaFattureAutomatiche(sedeId: number): {
       !commessa.archivedAt &&
       commessa.stato !== "archiviata"
   );
+  const clienti = getClientiStore().filter(
+    (cliente: any) => (cliente.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
+  const candidatiCommessa: CommessaPerMatch[] = commesse.map(
+    (commessa: any) => ({
+      id: commessa.id,
+      codice: String(commessa.codice ?? ""),
+      clienteId: commessa.clienteId ?? null,
+      cliente: commessa.cliente ?? null,
+      email: commessa.email ?? null,
+      telefono: commessa.telefono ?? null,
+      indirizzo: commessa.indirizzo ?? null,
+      citta: commessa.citta ?? null,
+    })
+  );
+  const anagrafiche: ClientePerMatch[] = clienti.map((cliente: any) => ({
+    id: cliente.id,
+    nome: cliente.nome ?? null,
+    cognome: cliente.cognome ?? null,
+    email: cliente.email ?? null,
+    telefono: cliente.telefono ?? null,
+    indirizzo: cliente.indirizzo ?? null,
+    citta: cliente.citta ?? null,
+    partitaIva: cliente.partitaIva ?? null,
+    codiceFiscale: cliente.codiceFiscale ?? null,
+  }));
+
   let collegate = 0;
   let ambigue = 0;
   for (const fattura of ficFatture) {
     if (
       fattura.sedeId !== sedeId ||
-      fattura.tipo !== "invoice" ||
       !fattura.presenteInFic ||
       fattura.ignorata ||
-      fattura.commessaId != null ||
-      fattura.clienteId == null ||
-      fattura.clienteMatch !== "fiscale"
+      fattura.commessaId != null
     ) {
       continue;
     }
-    const candidate = commesse.filter(
-      (commessa: any) => commessa.clienteId === fattura.clienteId
-    );
-    if (candidate.length === 1) {
-      fattura.commessaId = candidate[0].id;
-      fattura.commessaMatch = "automatico_fiscale";
+    const esito = trovaCommessaPerFattura({
+      fattura: {
+        id: fattura.id,
+        numero: fattura.numero,
+        clienteNome: fattura.clienteNome,
+        clienteVat: fattura.clienteVat,
+        clienteCf: fattura.clienteCf,
+        clienteEmail: fattura.clienteEmail,
+        clienteTelefono: fattura.clienteTelefono,
+        clienteIndirizzo: fattura.clienteIndirizzo,
+        clienteCitta: fattura.clienteCitta,
+        descrizione: fattura.descrizione,
+        clienteId: fattura.clienteId,
+      },
+      commesse: candidatiCommessa,
+      clienti: anagrafiche,
+    });
+    if (esito.commessaId != null) {
+      fattura.commessaId = esito.commessaId;
+      fattura.commessaMatch = "automatico_segnali";
       fattura.collegataAMano = false;
       fattura.pdfSync.stato = "in_attesa";
       fattura.aggiornataAt = new Date();
       collegate++;
-    } else if (candidate.length > 1) {
+    } else if (esito.ambiguo) {
       ambigue++;
     }
   }
   if (collegate > 0) saveFicFatture();
   return { collegate, ambigue };
+}
+
+/**
+ * Riporta pattuito e piano rate di ogni commessa della sede in linea con le
+ * fatture FiC collegate. Dal 26/08/2026 la fonte del pattuito è FiC: qui è
+ * dove quella regola diventa un dato.
+ *
+ * Gira su TUTTE le commesse della sede, non solo su quelle con fatture: una
+ * commessa appena scollegata deve tornare manuale, e per accorgersene serve
+ * guardarla anche quando il gruppo è vuoto. Idempotente — `applicaPattuitoDaFic`
+ * scrive solo quando qualcosa cambia davvero.
+ */
+export function sincronizzaPattuitoDaFic(sedeId: number): {
+  aggiornate: number;
+} {
+  const perCommessa = new Map<number, DocumentoFicPerPiano[]>();
+  for (const documento of ficFatture) {
+    if (
+      documento.sedeId !== sedeId ||
+      documento.commessaId == null ||
+      !documento.presenteInFic ||
+      documento.ignorata
+    ) {
+      continue;
+    }
+    const gruppo = perCommessa.get(documento.commessaId) ?? [];
+    gruppo.push({
+      id: documento.id,
+      tipo: documento.tipo,
+      numero: documento.numero,
+      data: documento.data,
+      importoLordo: documento.importoLordo,
+      rate: documento.rate,
+    });
+    perCommessa.set(documento.commessaId, gruppo);
+  }
+
+  let aggiornate = 0;
+  for (const commessa of getCommesseStore()) {
+    if ((commessa.sedeId ?? DEFAULT_SEDE_ID) !== sedeId) continue;
+    const documenti = perCommessa.get(commessa.id) ?? [];
+    // Niente fatture e già manuale: nessun motivo di toccarla.
+    if (
+      documenti.length === 0 &&
+      (commessa.pattuitoFicDocumentoIds ?? []).length === 0
+    ) {
+      continue;
+    }
+    if (applicaPattuitoDaFic(commessa.id, documenti).cambiato) aggiornate++;
+  }
+  return { aggiornate };
 }
 
 function esisteRataInCommessa(
@@ -628,6 +791,9 @@ export const ficFattureRouter = router({
         f.pdfSync.ultimoErrore = null;
         f.aggiornataAt = new Date();
         saveFicFatture();
+        // Il pattuito segue la fattura: collegarla la promuove a fonte FiC
+        // prima ancora della riconciliazione degli incassi.
+        sincronizzaPattuitoDaFic(sedeId);
 
         const paymentResult = riconciliaPagamentiFic({
           sedeId,
@@ -648,6 +814,7 @@ export const ficFattureRouter = router({
           downloadPdf: scaricaFatturaPdfForTests ?? scaricaFatturaPdf,
         });
       } else {
+        const commessaPrecedente = f.commessaId;
         f.commessaId = null;
         f.collegataAMano = false;
         f.commessaMatch = "nessuno";
@@ -655,6 +822,9 @@ export const ficFattureRouter = router({
         f.pdfSync.ultimoErrore = null;
         f.aggiornataAt = new Date();
         saveFicFatture();
+        // Senza più fatture la commessa torna manuale: il pattuito resta al
+        // valore emesso ma da qui in poi è di nuovo scrivibile a mano.
+        if (commessaPrecedente != null) sincronizzaPattuitoDaFic(sedeId);
       }
       return {
         success: true as const,

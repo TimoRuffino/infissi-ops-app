@@ -14,6 +14,7 @@ import {
   collegaFattureAutomatiche,
   ficFatture,
   finalizzaSnapshotDocumentiEmessi,
+  sincronizzaPattuitoDaFic,
   upsertDocumentiEmessi,
   type RataFic,
 } from "./ficFatture";
@@ -611,6 +612,24 @@ function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
     clienteNome: String(entity.name).trim(),
     clienteVat: entity.vat_number ? String(entity.vat_number) : null,
     clienteCf: entity.tax_code ? String(entity.tax_code) : null,
+    // Contatti dell'intestatario: alimentano il match automatico
+    // fattura → commessa. Restano dentro il CRM come il resto dei dati FiC.
+    clienteEmail: entity.email ? String(entity.email).trim() : null,
+    clienteTelefono: entity.phone ? String(entity.phone).trim() : null,
+    clienteIndirizzo: entity.address_street
+      ? String(entity.address_street).trim()
+      : null,
+    clienteCitta: entity.address_city ? String(entity.address_city).trim() : null,
+    clienteCap: entity.address_postal_code
+      ? String(entity.address_postal_code).trim()
+      : null,
+    // `visible_subject` è quello che il cliente legge sulla fattura ed è dove
+    // finisce il riferimento di commessa quando c'è.
+    descrizione:
+      [row.visible_subject, row.subject]
+        .map(valore => (valore ? String(valore).trim() : ""))
+        .filter(Boolean)
+        .join(" — ") || null,
     importoNetto,
     importoIva: Number(row.amount_vat ?? importoLordo - importoNetto),
     importoLordo,
@@ -725,7 +744,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     const periodoA = `${year}-12-31`;
     const syncId = crypto.randomUUID();
     const fieldsEmessi =
-      "id,number,numeration,date,entity,amount_net,amount_vat,amount_gross,payments_list";
+      "id,number,numeration,date,entity,subject,visible_subject,amount_net,amount_vat,amount_gross,payments_list";
     const fieldsRicevuti =
       "id,date,entity,category,description,amount_net,amount_vat,amount_gross,rc_center,invoice_number,payments_list";
     const baseParams = {
@@ -861,6 +880,9 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     cfg.economicScopesReady = completo;
     const created = creaClientiMancanti(sedeId, entities);
     const links = collegaFattureAutomatiche(sedeId);
+    // Il pattuito è FiC: appena i collegamenti sono aggiornati, importo e
+    // piano rate delle commesse vengono riallineati alle fatture emesse.
+    const pattuito = sincronizzaPattuitoDaFic(sedeId);
     const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
       import("./ficPagamenti"),
       import("../tars/ficPaymentProposals"),
@@ -913,7 +935,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
       programmaSmistamentoFatture(sedeId);
     }
 
-    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · collegamenti +${links.collegate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
+    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };

@@ -11,6 +11,7 @@ import {
   _setScaricaFatturaPdfForTests,
   ficFatture,
   finalizzaSnapshotDocumentiEmessi,
+  sincronizzaPattuitoDaFic,
   statoFattura,
   upsertDocumentiEmessi,
   upsertFatture,
@@ -117,7 +118,7 @@ describe("identita e collegamento persistito FIC", () => {
 
     expect(result).toEqual({ collegate: 1, ambigue: 0 });
     expect(fattura.commessaId).toBe(commessa.id);
-    expect(fattura.commessaMatch).toBe("automatico_fiscale");
+    expect(fattura.commessaMatch).toBe("automatico_segnali");
     expect(fattura.collegataAMano).toBe(false);
   });
 
@@ -238,9 +239,23 @@ describe("riconciliazione FIC", () => {
     ).toBe(false);
   });
 
-  it("non propone né sovrascrive il pattuito CRM dalla fattura", async () => {
-    const commessa = await caller.commesse.byId(commessaId);
-    expect(commessa!.importoTotale).toBeNull();
+  it("il pattuito e il piano rate arrivano dalla fattura, senza proposte", async () => {
+    // Contratto vigente dal 26/08/2026: la fonte del pattuito è FiC. Il
+    // riallineamento è un effetto del sync, non una proposta da approvare.
+    expect(sincronizzaPattuitoDaFic(1).aggiornate).toBeGreaterThan(0);
+    const commessa: any = await caller.commesse.byId(commessaId);
+    expect(commessa.importoTotale).toBe(1220);
+    expect(commessa.pattuitoFonte).toBe("fic");
+    expect(commessa.pattuitoFicDocumentoIds).toContain(9001);
+    expect(commessa.pianoRate).toEqual([
+      expect.objectContaining({
+        importo: 1220,
+        scadenza: "2026-07-31",
+        origine: "fic",
+        stato: "pagata",
+        ficDocumentoId: 9001,
+      }),
+    ]);
     expect(
       proposte.some(
         p =>
@@ -249,6 +264,15 @@ describe("riconciliazione FIC", () => {
           p.tipo === "modifica_commessa"
       )
     ).toBe(false);
+  });
+
+  it("una commessa con fattura rifiuta la scrittura manuale del pattuito", async () => {
+    await expect(
+      caller.commesse.update({ id: commessaId, importoTotale: 5_000 })
+    ).rejects.toThrow(/Fatture in Cloud/);
+    await expect(
+      caller.commesse.addRata({ commessaId, importo: 500 })
+    ).rejects.toThrow(/Fatture in Cloud/);
   });
 
   it("la rata FiC sincronizzata rende la fattura riconciliata", async () => {

@@ -31,6 +31,14 @@ import {
   normalizzaPagamentoLegacy,
   ricalcolaImportoIncassato,
 } from "../_core/commessaPayments";
+import {
+  MOTIVO_PATTUITO_BLOCCATO,
+  backfillPattuito,
+  derivaPattuitoDaFic,
+  pattuitoModificabileAMano,
+  type DocumentoFicPerPiano,
+  type RataCommessa,
+} from "../_core/commessaPattuito";
 
 // Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
 // per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
@@ -142,6 +150,9 @@ const _store = persistedStore<any>("commesse", (items) => {
     }
     (c as any).pagamenti = (c as any).pagamenti.map(normalizzaPagamentoLegacy);
     ricalcolaImportoIncassato(c as any);
+    // Pattuito: fonte esplicita (FiC o manuale) e piano rate. Sui record
+    // storici il pattuito già presente resta, dichiarato `manuale`.
+    backfillPattuito(c as any);
   }
 });
 const commesse = _store.items;
@@ -167,6 +178,88 @@ export function getCommessaById(id: number) {
 
 export function saveCommesseStore(): void {
   _store.save();
+}
+
+// ── Pattuito e piano rate ───────────────────────────────────────────────────
+
+/**
+ * Riallinea pattuito e rate di una commessa alle fatture FiC che le sono
+ * collegate. Chiamata dal sync e da ogni collegamento/scollegamento: è
+ * l'unico punto in cui il pattuito diventa `fic`.
+ *
+ * Con zero documenti la commessa torna manuale e il piano derivato viene
+ * rimosso, ma il pattuito NON viene azzerato: scollegare una fattura non è
+ * un motivo per cancellare la cifra che l'operatore vede sulla scheda. Da
+ * quel momento è di nuovo modificabile a mano.
+ */
+export function applicaPattuitoDaFic(
+  commessaId: number,
+  documenti: readonly DocumentoFicPerPiano[]
+): { cambiato: boolean; importoTotale: number | null } {
+  const commessa: any = getCommessaById(commessaId);
+  if (!commessa) return { cambiato: false, importoTotale: null };
+
+  const primaFonte = commessa.pattuitoFonte ?? null;
+  const primaImporto = commessa.importoTotale ?? null;
+  const primaFirma = JSON.stringify(commessa.pianoRate ?? []);
+  const primaDocs = JSON.stringify(commessa.pattuitoFicDocumentoIds ?? []);
+
+  if (documenti.length === 0) {
+    commessa.pattuitoFicDocumentoIds = [];
+    commessa.pattuitoFonte = commessa.importoTotale == null ? null : "manuale";
+    commessa.pianoRate = (commessa.pianoRate ?? []).filter(
+      (rata: RataCommessa) => rata.origine === "manuale"
+    );
+  } else {
+    const derivato = derivaPattuitoDaFic(documenti);
+    commessa.importoTotale = derivato.importoTotale;
+    commessa.pianoRate = derivato.rate;
+    commessa.pattuitoFicDocumentoIds = derivato.documentoIds;
+    commessa.pattuitoFonte = "fic";
+  }
+
+  const cambiato =
+    primaFonte !== (commessa.pattuitoFonte ?? null) ||
+    primaImporto !== (commessa.importoTotale ?? null) ||
+    primaFirma !== JSON.stringify(commessa.pianoRate ?? []) ||
+    primaDocs !== JSON.stringify(commessa.pattuitoFicDocumentoIds ?? []);
+
+  if (cambiato) {
+    commessa.pattuitoAggiornatoAt = new Date();
+    commessa.updatedAt = new Date();
+    _store.save();
+  }
+  return { cambiato, importoTotale: commessa.importoTotale ?? null };
+}
+
+/** Guardia condivisa: rifiuta una scrittura manuale su un pattuito FiC. */
+function assertPattuitoScrivibile(commessa: any): void {
+  if (pattuitoModificabileAMano(commessa)) return;
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: MOTIVO_PATTUITO_BLOCCATO,
+  });
+}
+
+function prossimoIdRata(commessa: any): number {
+  const rate: RataCommessa[] = Array.isArray(commessa.pianoRate)
+    ? commessa.pianoRate
+    : [];
+  return rate.length ? Math.max(...rate.map(rata => rata.id ?? 0)) + 1 : 1;
+}
+
+function rinumeraPiano(commessa: any): void {
+  const rate: RataCommessa[] = Array.isArray(commessa.pianoRate)
+    ? commessa.pianoRate
+    : [];
+  rate.sort(
+    (a, b) =>
+      (a.scadenza ?? "9999-12-31").localeCompare(b.scadenza ?? "9999-12-31") ||
+      a.id - b.id
+  );
+  rate.forEach((rata, index) => {
+    rata.numero = index + 1;
+  });
 }
 
 /**
@@ -454,6 +547,12 @@ export const commesseRouter = router({
         email: rest.email ?? null,
         stato: "preventivo" as const,
         importoTotale: input.importoTotale ?? null,
+        // Una commessa nasce sempre senza fattura: il pattuito è manuale
+        // finché il primo collegamento FiC non lo promuove.
+        pattuitoFonte: input.importoTotale == null ? null : ("manuale" as const),
+        pattuitoFicDocumentoIds: [] as number[],
+        pattuitoAggiornatoAt: input.importoTotale == null ? null : now,
+        pianoRate: [] as RataCommessa[],
         importoIncassato: 0,
         costoPosaStimato: null,
         costi: [],
@@ -546,6 +645,12 @@ export const commesseRouter = router({
         input.importoTotale !== undefined ||
         input.costoPosaStimato !== undefined
       ) {
+        // Il pattuito di una commessa fatturata è FiC. Il blocco vale prima
+        // dell'autorizzazione di ruolo: nemmeno la direzione può scrivere una
+        // cifra diversa da quella emessa.
+        if (input.importoTotale !== undefined) {
+          assertPattuitoScrivibile(commesse[idx]);
+        }
         await authorizeCoreOperation({
           ctx,
           endpoint: "commesse.update.economia",
@@ -663,6 +768,26 @@ export const commesseRouter = router({
         commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
       }
       _store.save();
+      // Board → timeline. L'altro verso lo fa gia' `timeline.updateStep`; senza
+      // questo, chi lavora dal Kanban lasciava la timeline ferma e la
+      // percentuale di avanzamento della commessa mentiva.
+      if (input.stato && input.stato !== prevStato) {
+        try {
+          const { allineaTimelineAlBoard } = await import("./timeline");
+          allineaTimelineAlBoard(
+            commesse[idx].id,
+            commesse[idx].stato,
+            ctx.user?.name ?? null
+          );
+        } catch (e: any) {
+          // La timeline e' una vista del lavoro, non la sua verita': un
+          // problema qui non deve annullare un avanzamento gia' salvato.
+          console.error(
+            `[timeline] allineamento commessa ${commesse[idx].id} fallito:`,
+            e?.message ?? e
+          );
+        }
+      }
       if (input.assegnatoA !== undefined) {
         await publishAssignmentEvent({
           sedeId: commesse[idx].sedeId,
@@ -919,6 +1044,146 @@ export const commesseRouter = router({
   // ── Acconti / pagamenti (embedded register on commessa) ────────────────────
   // importoIncassato is always recomputed as the sum of the register so the
   // board chips, dashboard items and notifications stay consistent.
+  // ── Piano rate ────────────────────────────────────────────────────────────
+  // Le rate di una commessa fatturata arrivano da FiC e sono di sola lettura.
+  // Queste tre mutation esistono per il caso opposto: nessuna fattura ancora
+  // emessa, e l'operatore che concorda il pagamento a rate col cliente.
+
+  pattuito: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+    const c = commesse.find(x => x.id === input);
+    if (!c) throw new Error("Commessa non trovata");
+    assertSedeScope(c, ctx.sedeId);
+    const rate: RataCommessa[] = Array.isArray((c as any).pianoRate)
+      ? (c as any).pianoRate
+      : [];
+    return {
+      importoTotale: (c as any).importoTotale ?? null,
+      fonte: ((c as any).pattuitoFonte ?? null) as "fic" | "manuale" | null,
+      modificabile: pattuitoModificabileAMano(c as any),
+      motivoBlocco: pattuitoModificabileAMano(c as any)
+        ? null
+        : MOTIVO_PATTUITO_BLOCCATO,
+      ficDocumentoIds: ((c as any).pattuitoFicDocumentoIds ?? []) as number[],
+      aggiornatoAt: (c as any).pattuitoAggiornatoAt ?? null,
+      rate,
+    };
+  }),
+
+  addRata: protectedProcedure
+    .input(
+      z.object({
+        commessaId: z.number(),
+        importo: z.number().positive(),
+        scadenza: z.string().nullable().optional(),
+        descrizione: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const c = commesse.find(x => x.id === input.commessaId);
+      if (!c) throw new Error("Commessa non trovata");
+      assertSedeScope(c, ctx.sedeId);
+      assertPattuitoScrivibile(c);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.addRata",
+        capability: "economia.read",
+        resourceType: "commessa",
+        resource: { ...(c as any), sensitivity: "economic" },
+      });
+      if (!Array.isArray((c as any).pianoRate)) (c as any).pianoRate = [];
+      const now = new Date();
+      (c as any).pianoRate.push({
+        id: prossimoIdRata(c),
+        numero: (c as any).pianoRate.length + 1,
+        importo: input.importo,
+        scadenza: input.scadenza ?? null,
+        descrizione: input.descrizione?.trim() || null,
+        origine: "manuale" as const,
+        ficDocumentoId: null,
+        ficRataId: null,
+        ficSourceKey: null,
+        stato: "attesa" as const,
+        dataPagamento: null,
+        createdAt: now,
+        updatedAt: null,
+      });
+      rinumeraPiano(c);
+      (c as any).pattuitoAggiornatoAt = now;
+      (c as any).updatedAt = now;
+      _store.save();
+      return (c as any).pianoRate as RataCommessa[];
+    }),
+
+  updateRata: protectedProcedure
+    .input(
+      z.object({
+        commessaId: z.number(),
+        rataId: z.number(),
+        importo: z.number().positive().optional(),
+        scadenza: z.string().nullable().optional(),
+        descrizione: z.string().max(200).nullable().optional(),
+        stato: z.enum(["attesa", "pagata", "stornata"]).optional(),
+        dataPagamento: z.string().nullable().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const c = commesse.find(x => x.id === input.commessaId);
+      if (!c) throw new Error("Commessa non trovata");
+      assertSedeScope(c, ctx.sedeId);
+      assertPattuitoScrivibile(c);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.updateRata",
+        capability: "economia.read",
+        resourceType: "commessa",
+        resource: { ...(c as any), sensitivity: "economic" },
+      });
+      const rata = ((c as any).pianoRate ?? []).find(
+        (r: RataCommessa) => r.id === input.rataId
+      );
+      if (!rata) throw new Error("Rata non trovata");
+      if (input.importo !== undefined) rata.importo = input.importo;
+      if (input.scadenza !== undefined) rata.scadenza = input.scadenza;
+      if (input.descrizione !== undefined) {
+        rata.descrizione = input.descrizione?.trim() || null;
+      }
+      if (input.stato !== undefined) rata.stato = input.stato;
+      if (input.dataPagamento !== undefined) {
+        rata.dataPagamento = input.dataPagamento;
+      }
+      rata.updatedAt = new Date();
+      rinumeraPiano(c);
+      (c as any).pattuitoAggiornatoAt = new Date();
+      (c as any).updatedAt = new Date();
+      _store.save();
+      return (c as any).pianoRate as RataCommessa[];
+    }),
+
+  removeRata: protectedProcedure
+    .input(z.object({ commessaId: z.number(), rataId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const c = commesse.find(x => x.id === input.commessaId);
+      if (!c) throw new Error("Commessa non trovata");
+      assertSedeScope(c, ctx.sedeId);
+      assertPattuitoScrivibile(c);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.removeRata",
+        capability: "economia.read",
+        resourceType: "commessa",
+        resource: { ...(c as any), sensitivity: "economic" },
+      });
+      const rate: RataCommessa[] = (c as any).pianoRate ?? [];
+      const idx = rate.findIndex(r => r.id === input.rataId);
+      if (idx === -1) throw new Error("Rata non trovata");
+      rate.splice(idx, 1);
+      rinumeraPiano(c);
+      (c as any).pattuitoAggiornatoAt = new Date();
+      (c as any).updatedAt = new Date();
+      _store.save();
+      return rate;
+    }),
+
   addPagamento: protectedProcedure
     .input(z.object({
       commessaId: z.number(),

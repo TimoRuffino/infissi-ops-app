@@ -15,7 +15,9 @@
     "storage:check": "tsx scripts/check-storage.ts",
     "storage:dry-run": "tsx scripts/migrate-documents-to-storage.ts",
     "storage:migrate": "tsx scripts/migrate-documents-to-storage.ts --apply",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "pattuiti:dry-run": "tsx scripts/reset-pattuiti.ts",
+    "pattuiti:reset": "tsx scripts/reset-pattuiti.ts --apply"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
