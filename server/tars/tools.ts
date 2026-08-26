@@ -770,7 +770,7 @@ export const TOOL_DEFS: TarsTool[] = [
   {
     name: "leggi_fatture_cloud",
     description:
-      "Fatture emesse sincronizzate da Fatture in Cloud: numero, data, cliente, importo, rate con stato d'incasso, commessa abbinata. Sola lettura. Utile per verificare se un pagamento dichiarato risulta incassato davvero.",
+      "Fatture emesse sincronizzate da Fatture in Cloud: id FiC, numero, data, cliente, importo, rate con stato d'incasso, commessa abbinata. Sola lettura. Usa ficId per proporre il collegamento di una fattura verificata; è utile anche per controllare se un pagamento dichiarato risulta incassato davvero.",
     input_schema: {
       type: "object",
       properties: {
@@ -2596,6 +2596,7 @@ async function eseguiStrumentoSenzaCache(
           .map(f => {
             const s = statoFattura(f, commesse);
             return {
+              ficId: f.id,
               numero: f.numero,
               data: f.data,
               cliente: f.clienteNome,

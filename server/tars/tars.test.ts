@@ -1986,6 +1986,57 @@ describe("tars — profili e cache operativa", () => {
     expect(economia).toHaveProperty("coperturaCostiFissi.affidabilita");
   });
 
+  it("espone a Tars l'id FiC necessario per collegare una fattura letta", async () => {
+    const sedeId = 99;
+    const ctx = { ...makeCtx(), sedeId, sediIds: [sedeId] };
+    const anno = new Date().getFullYear();
+    upsertDocumentiEmessi(
+      [
+        {
+          id: 999_301,
+          tipo: "invoice",
+          numero: "124",
+          data: `${anno}-08-26`,
+          clienteNome: "Picchia Marco",
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 9_067.21,
+          importoIva: 1_994.79,
+          importoLordo: 11_062,
+          rate: [],
+        },
+      ],
+      sedeId,
+      "tars-fic-id"
+    );
+    const rt: ToolRuntime = {
+      ctx,
+      esecuzioneId: 999_301,
+      trigger: "on_demand",
+      maxProposte: 3,
+      proposteIds: [],
+      terminato: null,
+      risultatiCache: new Map(),
+      toolCacheHits: 0,
+      duplicatiBloccati: 0,
+    };
+
+    const result = await eseguiStrumento(rt, "leggi_fatture_cloud", {
+      query: "Picchia",
+      soloNonRiconciliate: true,
+    });
+    const fatture = JSON.parse(result.content);
+
+    expect(result.isError).toBeFalsy();
+    expect(fatture).toContainEqual(
+      expect.objectContaining({
+        ficId: 999_301,
+        numero: "124",
+        riconciliazione: "non_abbinabile",
+      })
+    );
+  });
+
   it("propone di archiviare un allegato operativo nella commessa verificata", async () => {
     const ctx = makeCtx();
     const caller = appRouter.createCaller(ctx);
