@@ -258,10 +258,23 @@ async function approveProposalSerialized(id: number, ctx: any) {
 function idrataProposta(p: any) {
   if (!p) return p;
   const commessa = p.commessaId != null ? getCommessaById(p.commessaId) : null;
+  const requestedBy = p.requestedByUserId != null
+    ? getUtentiStore().find(
+        (user: any) =>
+          Number(user.id) === Number(p.requestedByUserId) &&
+          user.attivo !== false &&
+          Array.isArray(user.sediIds) &&
+          user.sediIds.includes(p.sedeId)
+      )
+    : null;
+  const requestedByName = requestedBy
+    ? [requestedBy.nome, requestedBy.cognome].filter(Boolean).join(" ")
+    : null;
   return {
     ...p,
     commessaCodice: (commessa as any)?.codice ?? null,
     commessaCliente: (commessa as any)?.cliente ?? null,
+    requestedByName,
   };
 }
 

@@ -26,12 +26,19 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   const active = trpc.sedi.active.useQuery();
 
   const switchSede = trpc.sedi.switch.useMutation({
+    onMutate: async () => {
+      await utils.promemoria.due.cancel();
+      utils.promemoria.due.setData(undefined, { items: [] });
+    },
     onSuccess: async (sede) => {
       // Refresh everything — data is scoped to the active sede server-side.
       await utils.invalidate();
       toast.success(`Sede attiva: ${sede?.nome ?? ""}`);
     },
-    onError: (err) => toast.error(err.message ?? "Cambio sede non riuscito"),
+    onError: (err) => {
+      void utils.promemoria.due.invalidate();
+      toast.error(err.message ?? "Cambio sede non riuscito");
+    },
   });
 
   const sedi = sediList.data ?? [];

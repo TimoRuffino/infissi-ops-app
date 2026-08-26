@@ -1792,6 +1792,7 @@ describe("tars — profili e cache operativa", () => {
 
     const approved = await caller.tars.proposte.approva({ id: proposalId });
     expect(approved.stato).toBe("approvata");
+    expect(approved.requestedByName).toBe("Admin Ruffino");
     const repeated = await caller.tars.proposte.approva({ id: proposalId });
     expect(repeated.approvazioneRipetuta).toBe(true);
     expect(await reminders.findById(1, 1, 1)).toMatchObject({

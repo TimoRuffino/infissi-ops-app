@@ -36,6 +36,8 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      await utils.promemoria.due.cancel();
+      utils.promemoria.due.setData(undefined, { items: [] });
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }

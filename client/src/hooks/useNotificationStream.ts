@@ -47,6 +47,7 @@ export function useNotificationStream(): {
       void utils.notifiche.unreadCount.invalidate();
       void utils.notifiche.list.invalidate();
       void utils.notifiche.count.invalidate();
+      void utils.promemoria.due.invalidate();
       for (const ref of event?.entityRefs ?? []) {
         if (ref.type === "commessa") void utils.commesse.invalidate();
         if (ref.type === "cliente") void utils.clienti.invalidate();

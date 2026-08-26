@@ -57,6 +57,7 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import NotificheDropdown from "./NotificheDropdown";
 import { TarsChatFloating } from "./TarsChat";
+import { PromemoriaPopupHost } from "./PromemoriaPopupHost";
 import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
@@ -184,6 +185,7 @@ export default function DashboardLayout({
       </DashboardLayoutContent>
       {/* Tars sempre a portata di mano, su ogni pagina (solo se attivo). */}
       <TarsChatFloating />
+      <PromemoriaPopupHost />
     </SidebarProvider>
   );
 }

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatEuroSimbolo } from "@/lib/euro";
+import { formatReminderAt } from "@/lib/reminders";
 import { statoLabel } from "@/lib/stato";
 import {
   AlertTriangle,
@@ -57,6 +58,7 @@ const TIPO_LABEL: Record<string, string> = {
   segnalazione: "Segnalazione",
   miglioramento_processo: "Processo",
   domanda: "Domanda",
+  promemoria: "Promemoria",
 };
 
 const MOTIVI_RIFIUTO: Array<{ value: string; label: string }> = [
@@ -181,6 +183,16 @@ function describePayload(p: any): string[] {
     case "miglioramento_processo":
       out.push(`Problema: ${pay.problema}`);
       out.push(`Impatto atteso: ${pay.impatto}`);
+      break;
+    case "promemoria":
+      out.push(`Promemoria: ${pay.text}`);
+      out.push(`Quando: ${formatReminderAt(pay.remindAtIso)}`);
+      out.push(`Per: ${p.requestedByName ?? "utente corrente"}`);
+      if (p.commessaCodice) {
+        out.push(
+          `Commessa: ${p.commessaCodice}${p.commessaCliente ? ` · ${p.commessaCliente}` : ""}`
+        );
+      }
       break;
   }
   return out;
