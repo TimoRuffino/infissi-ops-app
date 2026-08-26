@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 25/08/2026<br>
+**Aggiornato:** 26/08/2026<br>
 **Base Git descritta:** `main`, inclusi i flussi Tars operativi del 25/08/2026 e gate active ancora chiusi<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -204,6 +204,14 @@ manuali sono compatibili, l'operatore deve scegliere la riga prima di poter
 approvare. Una proposta già soddisfatta o sostituita diventa `superata` e non
 espone più azioni decisionali; fingerprint e guardie no-op impediscono di
 applicare una correzione su dati cambiati nel frattempo.
+
+Il vincolo di riconciliazione e ora uno-a-uno in entrambe le direzioni: un
+pagamento manuale non puo essere riutilizzato per due rate FiC. Il sync ripara
+anche i vecchi link duplicati conservando quello compatibile con importo/data e
+creando, quando necessario, un movimento FiC distinto per la rata restante.
+L'approvazione rivalida sia la source key sia il pagamento prima di qualsiasi
+scrittura. La card Tars confronta `Nel CRM ora` con `FiC propone` e dichiara
+l'effetto sull'incassato prima del comando `Applica correzione`.
 
 Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
 essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.

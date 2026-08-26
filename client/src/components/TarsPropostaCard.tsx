@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatEuroSimbolo } from "@/lib/euro";
+import { presentPaymentCorrection } from "@/lib/paymentView";
 import { formatReminderAt } from "@/lib/reminders";
 import { statoLabel } from "@/lib/stato";
 import {
@@ -89,6 +90,80 @@ function ConfidenzaDots({ livello }: { livello: string }) {
       ))}
     </span>
   );
+}
+
+function formatPaymentDate(value: string | null): string {
+  if (!value) return "Non indicata";
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function PaymentCorrectionComparison({ payload }: { payload: any }) {
+  const summary = presentPaymentCorrection(payload);
+  if (!summary) return null;
+  const delta = summary.deltaIncassato;
+  const effect =
+    Math.abs(delta) < 0.01
+      ? "invariato"
+      : delta > 0
+        ? `aumenta di ${formatEuroSimbolo(delta)}`
+        : `diminuisce di ${formatEuroSimbolo(Math.abs(delta))}`;
+
+  const renderValue = (
+    label: "Nel CRM ora" | "FiC propone",
+    value: typeof summary.current
+  ) => (
+    <div className="min-w-0 space-y-1.5">
+      <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <strong className="block text-base font-semibold">
+        {formatEuroSimbolo(value.importo)}
+      </strong>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">Data</dt>
+        <dd className="min-w-0 font-medium">
+          {formatPaymentDate(value.data)}
+        </dd>
+        <dt className="text-muted-foreground">Stato</dt>
+        <dd className="min-w-0 font-medium capitalize">{value.stato}</dd>
+      </dl>
+    </div>
+  );
+
+  return (
+    <div className="grid min-w-0 gap-3 border-y border-border/70 py-3 sm:grid-cols-2 sm:gap-0">
+      <div className="min-w-0 sm:pr-4">
+        {renderValue("Nel CRM ora", summary.current)}
+      </div>
+      <div className="min-w-0 border-t border-border/70 pt-3 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+        {renderValue("FiC propone", summary.proposed)}
+      </div>
+      <div className="flex min-w-0 items-start gap-2 border-t border-border/70 pt-2 text-sm font-medium sm:col-span-2 sm:mt-3">
+        <ArrowRight
+          aria-hidden="true"
+          className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+        />
+        <span>
+          Effetto sull’incassato: <strong>{effect}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function paymentCandidateLabel(candidate: any): string {
+  const summary = presentPaymentCorrection({
+    expectedFingerprint: candidate.expectedFingerprint,
+    patch: candidate.patch,
+  });
+  if (!summary) return `Pagamento #${candidate.pagamentoId}`;
+  return `#${candidate.pagamentoId}: ${formatEuroSimbolo(summary.current.importo)} (${formatPaymentDate(summary.current.data)}) → ${formatEuroSimbolo(summary.proposed.importo)} (${formatPaymentDate(summary.proposed.data)})`;
 }
 
 // Payload → righe leggibili in italiano. Mai JSON a video.
@@ -316,7 +391,13 @@ export default function TarsPropostaCard({
       onError: e => toast.error(e.message),
     });
 
-  const righe = describePayload(proposta);
+  const paymentCorrectionSummary = correzionePagamento
+    ? presentPaymentCorrection(proposta.payload ?? {})
+    : null;
+  const righe =
+    correzionePagamento && paymentCorrectionSummary
+      ? []
+      : describePayload(proposta);
   const candidatiPagamento: any[] = Array.isArray(proposta.payload?.candidati)
     ? proposta.payload.candidati
     : [];
@@ -606,6 +687,10 @@ export default function TarsPropostaCard({
 
       <EvidenceList items={proposta.evidenceRefs ?? []} />
 
+      {correzionePagamento && paymentCorrectionSummary && (
+        <PaymentCorrectionComparison payload={proposta.payload} />
+      )}
+
       {righe.length > 0 && !processo && (
         <div className="space-y-1.5 rounded-md bg-background/70 px-3 py-2 text-sm">
           {righe.map((r, i) => (
@@ -640,14 +725,9 @@ export default function TarsPropostaCard({
                   <SelectItem
                     key={candidato.pagamentoId}
                     value={String(candidato.pagamentoId)}
+                    className="max-w-[calc(100vw-2rem)] whitespace-normal"
                   >
-                    Pagamento #{candidato.pagamentoId}
-                    {candidato.patch?.importo != null
-                      ? ` · ${formatEuroSimbolo(candidato.patch.importo)}`
-                      : ""}
-                    {candidato.patch?.data
-                      ? ` · ${candidato.patch.data}`
-                      : ""}
+                    {paymentCandidateLabel(candidato)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -797,7 +877,7 @@ export default function TarsPropostaCard({
                 ) : (
                   <Check className="h-3.5 w-3.5 mr-1" />
                 )}
-                Approva
+                {correzionePagamento ? "Applica correzione" : "Approva"}
               </Button>
             )}
             {processo && (

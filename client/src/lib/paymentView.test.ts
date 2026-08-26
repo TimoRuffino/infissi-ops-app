@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { presentFicSyncStats, presentPagamento } from "./paymentView";
+import {
+  presentFicSyncStats,
+  presentPagamento,
+  presentPaymentCorrection,
+} from "./paymentView";
 
 describe("presentazione pagamenti", () => {
   it("presenta un pagamento FiC stornato come non modificabile", () => {
@@ -73,5 +77,49 @@ describe("presentazione sincronizzazione FiC", () => {
 
   it("non mostra una lista vuota come attività", () => {
     expect(presentFicSyncStats({})).toEqual([]);
+  });
+});
+
+describe("presentazione correzione pagamento", () => {
+  it("confronta il pagamento CRM con la rata FiC e calcola il delta incassato", () => {
+    expect(
+      presentPaymentCorrection({
+        expectedFingerprint: "1762.67|2026-01-26|attivo",
+        patch: { importo: 1_410.14, data: "2026-02-10" },
+      })
+    ).toEqual({
+      current: {
+        importo: 1_762.67,
+        data: "2026-01-26",
+        stato: "attivo",
+      },
+      proposed: {
+        importo: 1_410.14,
+        data: "2026-02-10",
+        stato: "attivo",
+      },
+      deltaIncassato: -352.53,
+    });
+  });
+
+  it("considera uno storno come uscita completa dall'incassato", () => {
+    expect(
+      presentPaymentCorrection({
+        expectedFingerprint: "1220.00|2026-08-20|attivo",
+        patch: { stato: "stornato" },
+      })
+    ).toMatchObject({
+      proposed: { importo: 1_220, stato: "stornato" },
+      deltaIncassato: -1_220,
+    });
+  });
+
+  it("non inventa valori correnti se il fingerprint non e leggibile", () => {
+    expect(
+      presentPaymentCorrection({
+        expectedFingerprint: "fingerprint-non-valido",
+        patch: { importo: 1_410.14 },
+      })
+    ).toBeNull();
   });
 });

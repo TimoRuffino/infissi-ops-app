@@ -3,7 +3,11 @@ import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import { getCommesseStore } from "./commesse";
 import { ficFatture, upsertFatture } from "./ficFatture";
-import { ficPaymentLinks, riconciliaPagamentiFic } from "./ficPagamenti";
+import {
+  confermaRiconciliazioneManuale,
+  ficPaymentLinks,
+  riconciliaPagamentiFic,
+} from "./ficPagamenti";
 
 function ctx(sedeId: number): TrpcContext {
   return {
@@ -146,6 +150,168 @@ describe("riconciliazione pagamenti FiC", () => {
         patch: { data: "2026-08-20" },
       }),
     ]);
+  });
+
+  it("non riusa lo stesso pagamento manuale per due rate della fattura", async () => {
+    const sedeId = 210;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 210_001,
+      rate: [
+        {
+          id: 701,
+          sourceKey: "rate:701",
+          importo: 1_762.67,
+          scadenza: "2026-01-26",
+          stato: "paid",
+          dataPagamento: "2026-01-26",
+        },
+        {
+          id: 702,
+          sourceKey: "rate:702",
+          importo: 1_410.14,
+          scadenza: "2026-02-10",
+          stato: "paid",
+          dataPagamento: "2026-02-10",
+        },
+      ],
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_762.67,
+      data: "2026-01-26",
+      note: `Fattura FIC ${fattura.numero} — prima rata`,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:00:00.000Z"),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(commessa.pagamenti).toHaveLength(2);
+    expect(commessa.pagamenti[0]).toMatchObject({
+      origine: "manuale",
+      importo: 1_762.67,
+      data: "2026-01-26",
+      stato: "attivo",
+    });
+    expect(commessa.pagamenti[1]).toMatchObject({
+      origine: "fic",
+      importo: 1_410.14,
+      data: "2026-02-10",
+      ficSourceKey: "rate:702",
+      stato: "attivo",
+    });
+    expect(commessa.importoIncassato).toBe(3_172.81);
+
+    const activeLinks = ficPaymentLinks.filter(
+      link =>
+        link.sedeId === sedeId &&
+        link.ficDocumentoId === 210_001 &&
+        link.stato !== "superata"
+    );
+    expect(activeLinks).toHaveLength(2);
+    expect(new Set(activeLinks.map(link => link.pagamentoId)).size).toBe(2);
+  });
+
+  it("ripara due link storici che riusano lo stesso pagamento manuale", async () => {
+    const sedeId = 211;
+    const { caller, commessa, fattura } = await setupInvoice({
+      sedeId,
+      ficId: 211_001,
+      rate: [
+        {
+          id: 801,
+          sourceKey: "rate:801",
+          importo: 1_762.67,
+          scadenza: "2026-01-26",
+          stato: "paid",
+          dataPagamento: "2026-01-26",
+        },
+        {
+          id: 802,
+          sourceKey: "rate:802",
+          importo: 1_410.14,
+          scadenza: "2026-02-10",
+          stato: "paid",
+          dataPagamento: "2026-02-10",
+        },
+      ],
+    });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_762.67,
+      data: "2026-01-26",
+      note: `Fattura FIC ${fattura.numero} — prima rata`,
+    });
+    const pagamentoId = commessa.pagamenti[0].id;
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: fattura.id,
+      ficSourceKey: "rate:801",
+      commessaId: commessa.id,
+      pagamentoId,
+    });
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: fattura.id,
+      ficSourceKey: "rate:802",
+      commessaId: commessa.id,
+      pagamentoId,
+    });
+
+    const result = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: true,
+      now: new Date("2026-08-26T14:30:00.000Z"),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(commessa.pagamenti).toHaveLength(2);
+    expect(commessa.pagamenti[0]).toMatchObject({
+      origine: "manuale",
+      importo: 1_762.67,
+      data: "2026-01-26",
+      stato: "attivo",
+    });
+    expect(commessa.pagamenti[1]).toMatchObject({
+      origine: "fic",
+      importo: 1_410.14,
+      data: "2026-02-10",
+      ficSourceKey: "rate:802",
+      stato: "attivo",
+    });
+    expect(commessa.importoIncassato).toBe(3_172.81);
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:801" &&
+          link.target === "manuale"
+      )?.stato
+    ).toBe("confermata");
+    expect(
+      ficPaymentLinks.find(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:802" &&
+          link.target === "manuale"
+      )?.stato
+    ).toBe("superata");
+    expect(
+      ficPaymentLinks.some(
+        link =>
+          link.sedeId === sedeId &&
+          link.ficDocumentoId === fattura.id &&
+          link.ficSourceKey === "rate:802" &&
+          link.target === "fic" &&
+          link.stato === "confermata"
+      )
+    ).toBe(true);
   });
 
   it("non scrive quando due manuali sono compatibili", async () => {

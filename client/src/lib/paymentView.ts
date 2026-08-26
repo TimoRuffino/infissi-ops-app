@@ -72,3 +72,65 @@ export function presentFicSyncStats(stats: FicSyncStatsView): string[] {
     voce(stats.pdfFalliti, "PDF da ritentare", "PDF da ritentare"),
   ].filter((item): item is string => item !== null);
 }
+
+type PaymentCorrectionState = "attivo" | "stornato";
+
+type PaymentCorrectionValue = {
+  importo: number;
+  data: string | null;
+  stato: PaymentCorrectionState;
+};
+
+export function presentPaymentCorrection(input: {
+  expectedFingerprint?: unknown;
+  patch?: {
+    importo?: unknown;
+    data?: unknown;
+    stato?: unknown;
+  } | null;
+}): {
+  current: PaymentCorrectionValue;
+  proposed: PaymentCorrectionValue;
+  deltaIncassato: number;
+} | null {
+  if (typeof input.expectedFingerprint !== "string") return null;
+  const parts = input.expectedFingerprint.split("|");
+  if (parts.length !== 3) return null;
+  const importo = Number(parts[0]);
+  const stato = parts[2];
+  if (
+    !Number.isFinite(importo) ||
+    (stato !== "attivo" && stato !== "stornato")
+  ) {
+    return null;
+  }
+
+  const current: PaymentCorrectionValue = {
+    importo,
+    data: parts[1] === "-" ? null : parts[1],
+    stato,
+  };
+  const patch = input.patch ?? {};
+  const proposedImporto =
+    patch.importo === undefined ? importo : Number(patch.importo);
+  if (!Number.isFinite(proposedImporto)) return null;
+  const proposed: PaymentCorrectionValue = {
+    importo: proposedImporto,
+    data: Object.prototype.hasOwnProperty.call(patch, "data")
+      ? typeof patch.data === "string"
+        ? patch.data
+        : null
+      : current.data,
+    stato: patch.stato === "stornato" ? "stornato" : current.stato,
+  };
+  const currentContribution = current.stato === "attivo" ? current.importo : 0;
+  const proposedContribution =
+    proposed.stato === "attivo" ? proposed.importo : 0;
+
+  return {
+    current,
+    proposed,
+    deltaIncassato:
+      Math.round((proposedContribution - currentContribution) * 100) / 100,
+  };
+}

@@ -228,6 +228,14 @@ function correzioneObsoleta(proposta: Proposta, sedeId: number): boolean {
     Number(payload.pagamentoId)
   );
   if (!pagamento) return true;
+  if (
+    link &&
+    (link.commessaId !== proposta.commessaId ||
+      link.pagamentoId !== pagamento.id ||
+      link.target !== "manuale")
+  ) {
+    return true;
+  }
   if (patchSoddisfatta(pagamento, payload.patch)) return true;
   if (link?.pagamentoId === pagamento.id && link.stato === "confermata") {
     return true;

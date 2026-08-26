@@ -218,6 +218,72 @@ function patchForManual(
   return patch;
 }
 
+function activeManualLinksForPayment(input: {
+  sedeId: number;
+  commessaId: number;
+  pagamentoId: number;
+}): RiconciliazioneRataFic[] {
+  return ficPaymentLinks.filter(
+    link =>
+      link.sedeId === input.sedeId &&
+      link.commessaId === input.commessaId &&
+      link.pagamentoId === input.pagamentoId &&
+      link.target === "manuale" &&
+      link.stato !== "superata"
+  );
+}
+
+export function trovaConflittoRiconciliazioneManuale(input: {
+  sedeId: number;
+  ficDocumentoId: number;
+  ficSourceKey: string;
+  commessaId: number;
+  pagamentoId: number;
+}): RiconciliazioneRataFic | undefined {
+  const sourceLink = activeLink(
+    input.sedeId,
+    input.ficDocumentoId,
+    input.ficSourceKey
+  );
+  if (
+    sourceLink &&
+    (sourceLink.target !== "manuale" ||
+      sourceLink.commessaId !== input.commessaId ||
+      sourceLink.pagamentoId !== input.pagamentoId)
+  ) {
+    return sourceLink;
+  }
+  return activeManualLinksForPayment(input).find(
+    link =>
+      link.ficDocumentoId !== input.ficDocumentoId ||
+      link.ficSourceKey !== input.ficSourceKey
+  );
+}
+
+function canonicalManualLink(input: {
+  links: RiconciliazioneRataFic[];
+  fattura: FatturaFic;
+  pagamento: PagamentoCommessa;
+}): RiconciliazioneRataFic {
+  return [...input.links].sort((a, b) => {
+    const rank = (link: RiconciliazioneRataFic) => {
+      const rata = input.fattura.rate.find(
+        item => item.sourceKey === link.ficSourceKey
+      );
+      if (!rata) return 0;
+      const compatibility = pagamentoCompatibile(input.pagamento, rata);
+      if (
+        compatibility === "esatto" &&
+        Object.keys(patchForManual(input.pagamento, rata)).length === 0
+      ) {
+        return 2;
+      }
+      return compatibility === "nessuno" ? 0 : 1;
+    };
+    return rank(b) - rank(a) || a.id - b.id;
+  })[0];
+}
+
 function issueForManual(input: {
   sedeId: number;
   fattura: FatturaFic;
@@ -285,6 +351,7 @@ function creaPagamentoFic(
 }
 
 function manualCandidates(
+  sedeId: number,
   fattura: FatturaFic,
   rata: RataFic,
   commessa: any
@@ -293,7 +360,16 @@ function manualCandidates(
     Array.isArray(commessa.pagamenti) ? commessa.pagamenti : []
   ).map(normalizzaPagamentoLegacy) as PagamentoCommessa[];
   const manuali = pagamenti.filter(
-    pagamento => pagamento.origine === "manuale" && pagamento.stato === "attivo"
+    pagamento =>
+      pagamento.origine === "manuale" &&
+      pagamento.stato === "attivo" &&
+      !trovaConflittoRiconciliazioneManuale({
+        sedeId,
+        ficDocumentoId: fattura.id,
+        ficSourceKey: rata.sourceKey,
+        commessaId: commessa.id,
+        pagamentoId: pagamento.id,
+      })
   );
   const espliciti = manuali.filter(
     pagamento =>
@@ -331,6 +407,28 @@ function reconcilePaidRate(input: {
       existing.updatedAt = input.now;
       linksChanged = true;
       existing = undefined;
+    }
+    if (existing?.target === "manuale") {
+      const normalized = normalizzaPagamentoLegacy(pagamento);
+      const competingLinks = activeManualLinksForPayment({
+        sedeId: input.sedeId,
+        commessaId: input.commessa.id,
+        pagamentoId: normalized.id,
+      });
+      if (competingLinks.length > 1) {
+        const canonical = canonicalManualLink({
+          links: competingLinks,
+          fattura: input.fattura,
+          pagamento: normalized,
+        });
+        for (const link of competingLinks) {
+          if (link.id === canonical.id) continue;
+          link.stato = "superata";
+          link.updatedAt = input.now;
+          linksChanged = true;
+        }
+        if (existing.id !== canonical.id) existing = undefined;
+      }
     }
     if (existing?.target === "manuale") {
       const normalized = normalizzaPagamentoLegacy(pagamento);
@@ -377,6 +475,7 @@ function reconcilePaidRate(input: {
   }
 
   const candidates = manualCandidates(
+    input.sedeId,
     input.fattura,
     input.rata,
     input.commessa

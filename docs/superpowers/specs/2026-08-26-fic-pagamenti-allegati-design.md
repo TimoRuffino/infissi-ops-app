@@ -125,8 +125,12 @@ type RiconciliazioneRataFic = {
 ```
 
 La chiave logica e `(sedeId, ficDocumentoId, ficSourceKey)`. Una rata puo
-puntare a un solo pagamento. Il registro non ha valore economico proprio: serve
-soltanto a evitare che la stessa rata venga conteggiata o proposta due volte.
+puntare a un solo pagamento e un pagamento manuale puo appartenere a una sola
+riconciliazione FiC attiva. Se dati storici violano questo vincolo, il sync
+conserva il collegamento compatibile con importo e data del pagamento, supera
+gli altri e riconcilia separatamente le rate rimaste. Il registro non ha valore
+economico proprio: serve soltanto a evitare che la stessa rata o lo stesso
+pagamento vengano conteggiati o proposti due volte.
 
 ## 4. Collegamento fattura-commessa
 
@@ -322,6 +326,12 @@ La pagina Economia usa esclusivamente il `commessaId` persistito e mostra:
 La vista resta densa, senza card annidate o scroll orizzontale globale, e usa
 token semantici e helper euro gia presenti.
 
+Ogni proposta `correzione_pagamento` mostra prima dell'approvazione un confronto
+esplicito tra `Nel CRM ora` e `FiC propone`, con importo, data, stato ed effetto
+sull'incassato (`invariato`, aumento o diminuzione). L'azione e denominata
+`Applica correzione`; il server la blocca se la rata o il pagamento risultano
+nel frattempo riconciliati altrove.
+
 ## 9. Errori, concorrenza e sicurezza
 
 - Le chiavi FiC rendono ogni operazione idempotente anche dopo timeout o deploy.
@@ -372,6 +382,10 @@ Test automatici mirati devono provare almeno:
 13. errori PDF lasciano valida la sincronizzazione economica;
 14. ogni accesso fuori sede restituisce `NOT_FOUND`;
 15. i record legacy ricevono default senza perdere importi o documenti.
+16. una fattura con piu rate non riusa lo stesso pagamento manuale e il totale
+    incassato coincide con la somma delle rate attive una sola volta;
+17. una correzione stale non puo spostare una rata gia riconciliata ne riusare
+    un pagamento collegato a un'altra rata.
 
 Prima della consegna devono passare:
 

@@ -1042,6 +1042,25 @@ export const commesseRouter = router({
         });
       }
 
+      const {
+        confermaRiconciliazioneManuale,
+        trovaConflittoRiconciliazioneManuale,
+      } = await import("./ficPagamenti");
+      const reconciliationConflict = trovaConflittoRiconciliazioneManuale({
+        sedeId: ctx.sedeId ?? 1,
+        ficDocumentoId: input.ficDocumentoId,
+        ficSourceKey: input.ficSourceKey,
+        commessaId: input.commessaId,
+        pagamentoId: input.pagamentoId,
+      });
+      if (reconciliationConflict) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "La rata FiC e gia riconciliata con un altro pagamento. Riesegui la sincronizzazione FiC.",
+        });
+      }
+
       if (input.patch.importo !== undefined) pagamento.importo = input.patch.importo;
       if (input.patch.data !== undefined) pagamento.data = input.patch.data;
       if (input.patch.metodo !== undefined) pagamento.metodo = input.patch.metodo;
@@ -1058,7 +1077,6 @@ export const commesseRouter = router({
       commessa.updatedAt = new Date();
       _store.save();
 
-      const { confermaRiconciliazioneManuale } = await import("./ficPagamenti");
       confermaRiconciliazioneManuale({
         sedeId: ctx.sedeId ?? 1,
         ficDocumentoId: input.ficDocumentoId,

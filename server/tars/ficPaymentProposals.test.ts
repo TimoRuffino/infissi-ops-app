@@ -3,7 +3,10 @@ import type { TrpcContext } from "../_core/context";
 import { fingerprintPagamento } from "../_core/commessaPayments";
 import { appRouter } from "../routers";
 import { getCommesseStore } from "../routers/commesse";
-import type { FicPaymentIssue } from "../routers/ficPagamenti";
+import {
+  confermaRiconciliazioneManuale,
+  type FicPaymentIssue,
+} from "../routers/ficPagamenti";
 import {
   creaProposteCorrezionePagamento,
   superaProposteFicObsolete,
@@ -175,6 +178,96 @@ describe("proposte correzione pagamenti FiC", () => {
       caller.tars.proposte.approva({ id: proposta.id })
     ).rejects.toThrow("Il pagamento e cambiato dopo la proposta");
     expect(commessa.pagamenti[0].importo).toBe(1_300);
+  });
+
+  it("supera la correzione se la rata FiC e gia collegata a un altro pagamento", async () => {
+    const sedeId = 406;
+    const { caller, commessa } = await commessaConPagamento(sedeId);
+    const pagamentoDaCorreggere = commessa.pagamenti[0];
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_410.14,
+      data: "2026-02-10",
+    });
+    const pagamentoGiaCollegato = commessa.pagamenti[1];
+    const issue: FicPaymentIssue = {
+      tipo: "correggi_manuale",
+      sedeId,
+      commessaId: commessa.id,
+      pagamentoId: pagamentoDaCorreggere.id,
+      ficDocumentoId: 406_001,
+      ficSourceKey: "rate:406",
+      expectedFingerprint: fingerprintPagamento(pagamentoDaCorreggere),
+      patch: { importo: 1_410.14, data: "2026-02-10" },
+    };
+    creaProposteCorrezionePagamento([issue], sedeId);
+    const proposta = proposte.find(
+      item => item.sedeId === sedeId && item.tipo === "correzione_pagamento"
+    )!;
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: 406_001,
+      ficSourceKey: "rate:406",
+      commessaId: commessa.id,
+      pagamentoId: pagamentoGiaCollegato.id,
+    });
+
+    expect(
+      superaProposteFicObsolete(
+        sedeId,
+        new Date("2026-08-26T15:00:00.000Z")
+      )
+    ).toBe(1);
+    expect(proposta.stato).toBe("superata");
+  });
+
+  it("blocca l'approvazione stale senza cambiare incassato o pagamenti", async () => {
+    const sedeId = 407;
+    const { caller, commessa } = await commessaConPagamento(sedeId);
+    const pagamentoDaCorreggere = commessa.pagamenti[0];
+    const issue: FicPaymentIssue = {
+      tipo: "correggi_manuale",
+      sedeId,
+      commessaId: commessa.id,
+      pagamentoId: pagamentoDaCorreggere.id,
+      ficDocumentoId: 407_001,
+      ficSourceKey: "rate:407",
+      expectedFingerprint: fingerprintPagamento(pagamentoDaCorreggere),
+      patch: { importo: 1_410.14, data: "2026-02-10" },
+    };
+    creaProposteCorrezionePagamento([issue], sedeId);
+    const proposta = proposte.find(
+      item => item.sedeId === sedeId && item.tipo === "correzione_pagamento"
+    )!;
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 1_410.14,
+      data: "2026-02-10",
+    });
+    const pagamentoGiaCollegato = commessa.pagamenti[1];
+    confermaRiconciliazioneManuale({
+      sedeId,
+      ficDocumentoId: 407_001,
+      ficSourceKey: "rate:407",
+      commessaId: commessa.id,
+      pagamentoId: pagamentoGiaCollegato.id,
+    });
+    const incassatoPrima = commessa.importoIncassato;
+
+    await expect(
+      caller.tars.proposte.approva({ id: proposta.id })
+    ).rejects.toThrow("La rata FiC e gia riconciliata");
+    expect(commessa.pagamenti[0]).toMatchObject({
+      importo: 1_220,
+      data: "2026-08-20",
+      stato: "attivo",
+    });
+    expect(commessa.pagamenti[1]).toMatchObject({
+      importo: 1_410.14,
+      data: "2026-02-10",
+      stato: "attivo",
+    });
+    expect(commessa.importoIncassato).toBe(incassatoPrima);
   });
 
   it("storna il doppione manuale soltanto dopo approvazione", async () => {
