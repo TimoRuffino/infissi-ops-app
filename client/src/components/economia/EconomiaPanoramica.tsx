@@ -200,8 +200,83 @@ export default function EconomiaPanoramica({ anno }: { anno: number }) {
       </Badge>
     );
 
+  // Il risultato dell'anno in tre cifre, prima di ogni dettaglio.
+  //
+  // Le bande sotto rispondono a "com'è composto"; questa risponde a "com'è
+  // andata", che è la domanda che si fa per prima chiunque apra la pagina.
+  // Fatturato e costi sono entrambi imponibili FiC, quindi la differenza è
+  // confrontabile: è l'unico accostamento onesto fra i due totali.
+  const margine = d.vendite.netto - d.acquisti.netto;
+  const marginePerc =
+    d.vendite.netto > 0 ? Math.round((margine / d.vendite.netto) * 100) : null;
+  const daIncassare = d.vendite.daIncassare;
+  const daPagare = d.acquisti.daPagare;
+
   return (
     <div className="space-y-3">
+      <section className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-3 md:px-4">
+          <CircleDollarSign className="h-4 w-4 text-text-3" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">Come sta andando · {anno}</h2>
+            <p className="text-xs text-text-3">
+              Imponibili FiC al netto delle note di credito. IVA esclusa da
+              entrambi i lati.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 border-t bg-background/40 lg:grid-cols-4 [&>*]:border-b [&>*]:border-r">
+          <Valore
+            label="Fatturato"
+            value={formatEuroSimbolo(d.vendite.netto)}
+            meta={`${d.vendite.fatture} fatture emesse`}
+            tono="successo"
+          />
+          <Valore
+            label="Costi"
+            value={formatEuroSimbolo(d.acquisti.netto)}
+            meta={`${d.acquisti.documenti} documenti ricevuti`}
+            tono="pericolo"
+          />
+          <Valore
+            label="Differenza"
+            value={formatEuroSimbolo(margine)}
+            meta={
+              marginePerc == null
+                ? "Nessun fatturato registrato"
+                : `${marginePerc}% del fatturato`
+            }
+            tono={margine >= 0 ? "successo" : "pericolo"}
+          />
+          <Valore
+            label="Cassa attesa"
+            value={formatEuroSimbolo(daIncassare - daPagare)}
+            meta={`${formatEuroSimbolo(daIncassare)} da incassare · ${formatEuroSimbolo(daPagare)} da pagare`}
+            tono={daIncassare - daPagare >= 0 ? "neutro" : "attenzione"}
+          />
+        </div>
+        {(d.vendite.daRiconciliare > 0 || d.acquisti.dubbi > 0) && (
+          <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2.5 text-xs md:px-4">
+            <AlertTriangle
+              className="h-4 w-4 shrink-0 text-warning"
+              aria-hidden="true"
+            />
+            <span>
+              Prima di fidarti di queste cifre:{" "}
+              {d.vendite.daRiconciliare > 0 && (
+                <>
+                  {d.vendite.daRiconciliare} fatture da riconciliare
+                  {d.acquisti.dubbi > 0 ? ", " : "."}
+                </>
+              )}
+              {d.acquisti.dubbi > 0 && (
+                <>{d.acquisti.dubbi} costi ancora da classificare.</>
+              )}
+            </span>
+          </div>
+        )}
+      </section>
+
       <Banda
         titolo={`Controllo incassi · ${anno}`}
         descrizione="Confronto per data effettiva di pagamento, su tutte le commesse e i documenti FiC della sede."

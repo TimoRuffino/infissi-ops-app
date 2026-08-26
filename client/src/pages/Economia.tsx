@@ -19,6 +19,7 @@ import {
 import SearchSelect from "@/components/SearchSelect";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
 import CostiFicReview from "@/components/economia/CostiFicReview";
+import CostiFissi from "@/components/economia/CostiFissi";
 import EconomiaPanoramica from "@/components/economia/EconomiaPanoramica";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
@@ -331,9 +332,17 @@ function Fatture({ anno }: { anno: number }) {
 export default function Economia() {
   const { user } = useAuth();
   const [anno, setAnno] = useState(new Date().getFullYear());
-  const [tab, setTab] = useState<"panoramica" | "fatture" | "acquisti">(() => {
+  // Quattro domande, quattro tab, in ordine di quanto spesso vengono fatte:
+  // «come va?», «chi mi deve dei soldi?», «quanto mi costa stare aperto?»,
+  // «cosa ho comprato?». La vecchia divisione Panoramica/Fatture/Acquisti
+  // mescolava la risposta alla prima con il lavoro operativo della seconda.
+  const [tab, setTab] = useState<
+    "panoramica" | "fatture" | "fissi" | "acquisti"
+  >(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    return requested === "fatture" || requested === "acquisti"
+    return requested === "fatture" ||
+      requested === "acquisti" ||
+      requested === "fissi"
       ? requested
       : "panoramica";
   });
@@ -378,14 +387,16 @@ export default function Economia() {
 
       <Tabs value={tab} onValueChange={v => setTab(v as any)}>
         <TabsList>
-          <TabsTrigger value="panoramica">Panoramica</TabsTrigger>
-          <TabsTrigger value="fatture">Fatture</TabsTrigger>
+          <TabsTrigger value="panoramica">Andamento</TabsTrigger>
+          <TabsTrigger value="fatture">Da riconciliare</TabsTrigger>
+          <TabsTrigger value="fissi">Costi fissi</TabsTrigger>
           <TabsTrigger value="acquisti">Acquisti</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {tab === "panoramica" && <EconomiaPanoramica anno={anno} />}
       {tab === "fatture" && <Fatture anno={anno} />}
+      {tab === "fissi" && <CostiFissi />}
       {tab === "acquisti" && <CostiFicReview anno={anno} />}
     </div>
   );

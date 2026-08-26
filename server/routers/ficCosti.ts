@@ -6,6 +6,10 @@ import { protectedProcedure, router } from "../_core/trpc";
 import type { ClassificazioneCostoEconomico } from "../_core/economiaFic";
 import type { RataFic } from "./ficFatture";
 import { DEFAULT_SEDE_ID } from "./sedi";
+import {
+  applicaCostiRicorrenti,
+  rilevaCostiRicorrenti,
+} from "../_core/costiRicorrenti";
 
 export type ClassificazioneCosto = ClassificazioneCostoEconomico;
 export type FonteClassificazioneCosto = "regola" | "tars" | "utente" | null;
@@ -137,7 +141,12 @@ export function upsertCostiFic(
   rows: CostoFicInput[],
   sedeId: number,
   syncId: string
-): { nuovi: number; aggiornati: number; idsDaClassificare: number[] } {
+): {
+  nuovi: number;
+  aggiornati: number;
+  idsDaClassificare: number[];
+  fissiPerRicorrenza: number;
+} {
   let nuovi = 0;
   let aggiornati = 0;
   const idsDaClassificare: number[] = [];
@@ -221,8 +230,23 @@ export function upsertCostiFic(
     ficCosti.push(nuovo);
     nuovi++;
   }
-  if (rows.length > 0) saveFicCosti();
-  return { nuovi, aggiornati, idsDaClassificare };
+  // Ricorrenza mensile: aritmetica, non valutazione. Gira dopo l'upsert
+  // perché serve la serie completa, e prevale su Tars — chiedere a un modello
+  // se l'affitto è un costo fisso è token spesi per riscoprire una somma.
+  const { aggiornati: perRicorrenza, gruppi } = applicaCostiRicorrenti(
+    ficCosti,
+    sedeId
+  );
+  if (perRicorrenza > 0) {
+    const riclassificati = new Set(gruppi.flatMap(gruppo => gruppo.ids));
+    for (let i = idsDaClassificare.length - 1; i >= 0; i--) {
+      if (riclassificati.has(idsDaClassificare[i])) {
+        idsDaClassificare.splice(i, 1);
+      }
+    }
+  }
+  if (rows.length > 0 || perRicorrenza > 0) saveFicCosti();
+  return { nuovi, aggiornati, idsDaClassificare, fissiPerRicorrenza: perRicorrenza };
 }
 
 export function finalizzaSnapshotCosti(args: {
@@ -275,6 +299,22 @@ function trovaCosto(id: number, sedeId: number | null): CostoFic {
 }
 
 export const ficCostiRouter = router({
+  // I canoni dell'azienda: stesso fornitore, stesso importo, ogni mese.
+  // È la definizione operativa di "costo fisso" data dalla direzione, e la
+  // pagina Economia la mostra come elenco invece che come somma opaca.
+  ricorrenti: protectedProcedure.query(({ ctx }) => {
+    requireDirezioneOAmministrazione(ctx.user);
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const gruppi = rilevaCostiRicorrenti(ficCosti, sedeId);
+    return {
+      gruppi,
+      totaleMensile:
+        Math.round(
+          gruppi.reduce((somma, gruppo) => somma + gruppo.importo, 0) * 100
+        ) / 100,
+    };
+  }),
+
   list: protectedProcedure
     .input(
       z
