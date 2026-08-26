@@ -3,13 +3,13 @@
 // Sola lettura verso FIC, come sempre. Le fatture entrano in uno store
 // locale e da lì:
 //   - alimentano la pagina Economia (fatturato, incassato, da incassare)
-//   - generano PROPOSTE di riconciliazione: pattuito e rate arrivano
-//     dalle fatture, ma li scrive un click di approvazione, mai il sync.
-//     Sono soldi: un aggancio sbagliato sporca marginalità e residui.
+//   - sincronizzano le rate FiC sui soli movimenti di origine FiC
+//   - trasformano le divergenze dei movimenti manuali in proposte approvabili.
+// Il pattuito resta un dato contrattuale CRM e non deriva dalle fatture.
 //
 // La riconciliazione è deterministica — niente LLM. Regole leggibili:
-// match esatto → proposta; ambiguo → resta in coda «da riconciliare»
-// finché un operatore non collega la fattura a mano.
+// match esatto → sync idempotente; ambiguo → resta in coda «da riconciliare»
+// finché un operatore non sceglie il pagamento o collega la fattura.
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -22,13 +22,7 @@ import {
 import { getClientiStore } from "./clienti";
 import { getCommesseStore, getCommessaById } from "./commesse";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import {
-  proposte,
-  newPropostaId,
-  propostaGiaRifiutata,
-  saveProposte,
-  type Proposta,
-} from "../tars/stores";
+import { proposte } from "../tars/stores";
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
@@ -379,9 +373,6 @@ export function finalizzaSnapshotDocumentiEmessi(args: {
 
 // ── Riconciliazione ─────────────────────────────────────────────────────────
 
-const MAX_PROPOSTE_PER_GIRO = 15;
-const MAX_PENDENTI_PER_COMMESSA = 3;
-
 /**
  * La commessa giusta per una fattura, solo quando è indiscutibile:
  *   1. collegata a mano → quella
@@ -466,172 +457,27 @@ function esisteRataInCommessa(
     : [];
   return pagamenti.some(
     p =>
+      p.stato !== "stornato" &&
       // Già registrata con riferimento esplicito alla fattura…
-      (typeof p.note === "string" && p.note.includes(`FIC ${numero}`)) ||
+      (p.ficSourceKey === rata.sourceKey ||
+        (typeof p.note === "string" && p.note.includes(`FIC ${numero}`)) ||
       // …o stessa cifra nello stesso giorno (registrata a mano).
-      (Math.abs((p.importo ?? 0) - rata.importo) < 0.01 &&
-        p.data === rata.dataPagamento)
+        (Math.abs((p.importo ?? 0) - rata.importo) < 0.01 &&
+          p.data === rata.dataPagamento))
   );
 }
 
-function esisteProposta(
-  tipo: string,
-  commessaId: number,
-  marker: string
+function esisteCorrezionePendente(
+  fattura: FatturaFic,
+  commessaId: number
 ): boolean {
   return proposte.some(
     p =>
-      p.tipo === tipo &&
+      p.tipo === "correzione_pagamento" &&
       p.commessaId === commessaId &&
       p.stato === "pendente" &&
-      JSON.stringify(p.payload).includes(marker)
+      p.payload?.ficDocumentoId === fattura.id
   );
-}
-
-function creaPropostaDiretta(args: {
-  tipo: Proposta["tipo"];
-  sedeId: number;
-  commessaId: number;
-  titolo: string;
-  motivazione: string;
-  payload: any;
-}): Proposta | null {
-  const pendenti = proposte.filter(
-    p => p.commessaId === args.commessaId && p.stato === "pendente"
-  ).length;
-  if (pendenti >= MAX_PENDENTI_PER_COMMESSA) return null;
-  // Anche la riconciliazione deterministica rispetta un rifiuto: se un
-  // operatore ha detto no a questa rata, ripresentarla a ogni sync sarebbe
-  // il rumore peggiore — automatico e inarrestabile.
-  if (propostaGiaRifiutata(args, args.sedeId)) return null;
-  const p: Proposta = {
-    id: newPropostaId(),
-    sedeId: args.sedeId,
-    tipo: args.tipo,
-    titolo: args.titolo,
-    motivazione: args.motivazione,
-    // Deterministica: il dato viene dritto dalla fattura, senza inferenze.
-    confidenza: "alta",
-    payload: args.payload,
-    commessaId: args.commessaId,
-    clienteId: null,
-    opzioni: null,
-    risposta: null,
-    stato: "pendente",
-    esito: null,
-    motivoRifiuto: null,
-    esecuzioneId: null,
-    trigger: "riconciliazione_fic",
-    createdAt: new Date(),
-    decisaAt: null,
-    decisaDa: null,
-    decisaDaNome: null,
-    seguitoAt: null,
-    seguitoEsecuzioneId: null,
-    origineId: null,
-    requestedByUserId: null,
-    evidenceRefs: [
-      {
-        sourceType: "fattura_fic",
-        sourceId: String(
-          args.payload?.fatturaId ?? args.payload?.ficId ?? args.commessaId
-        ),
-        label: String(
-          args.payload?.fatturaNumero ?? args.payload?.numero ?? "Fattura FIC"
-        ),
-        version: String(args.payload?.data ?? new Date().toISOString()),
-      },
-    ],
-    correzioni: [],
-  };
-  proposte.push(p);
-  return p;
-}
-
-/**
- * Genera le proposte di riconciliazione. Deterministica e rilanciabile:
- * il dedupe è triplo — rata già in commessa, proposta già pendente, cap
- * per commessa. Ritorna quante proposte ha creato.
- */
-export function generaProposteRiconciliazione(sedeId: number): number {
-  const commesse = getCommesseStore().filter(
-    (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
-  );
-  const fatture = ficFatture.filter(
-    f => f.sedeId === sedeId && f.tipo === "invoice" && f.presenteInFic
-  );
-  let create = 0;
-
-  for (const f of fatture) {
-    if (create >= MAX_PROPOSTE_PER_GIRO) break;
-    if (f.ignorata) continue;
-    const { commessa, motivo } = commessaPerFattura(f, commesse);
-    if (!commessa) continue;
-    const sedeId = commessa.sedeId ?? 1;
-    const etichettaCliente = `${commessa.codice} (${commessa.cliente})`;
-
-    // Pattuito: solo se la commessa non ce l'ha, e solo da QUESTA fattura
-    // se è l'unica del cliente sulla commessa — mai sommare per conto suo.
-    const fattureStessaCommessa = fatture.filter(x => {
-      if (x.ignorata) return false;
-      const m = commessaPerFattura(x, commesse);
-      return m.commessa?.id === commessa.id;
-    });
-    if (
-      (commessa.importoTotale == null || commessa.importoTotale === 0) &&
-      fattureStessaCommessa.length === 1 &&
-      f.importoLordo > 0 &&
-      !esisteProposta(
-        "modifica_commessa",
-        commessa.id,
-        `"importoTotale":${f.importoLordo}`
-      )
-    ) {
-      const p = creaPropostaDiretta({
-        tipo: "modifica_commessa",
-        sedeId,
-        commessaId: commessa.id,
-        titolo: `Imposta il pattuito a € ${f.importoLordo.toLocaleString("it-IT")} su ${etichettaCliente}`,
-        motivazione: `La fattura FIC ${f.numero} del ${f.data} ammonta a € ${f.importoLordo.toLocaleString("it-IT")} e la commessa non ha un pattuito. ${motivo}`,
-        payload: {
-          commessaId: commessa.id,
-          campi: { importoTotale: f.importoLordo },
-        },
-      });
-      if (p) create++;
-    }
-
-    // Rate pagate su FIC che il registro acconti non conosce.
-    for (const rata of f.rate) {
-      if (create >= MAX_PROPOSTE_PER_GIRO) break;
-      if (rata.stato !== "paid" || !rata.dataPagamento || rata.importo <= 0) {
-        continue;
-      }
-      if (esisteRataInCommessa(commessa, rata, f.numero)) continue;
-      const marker = `Fattura FIC ${f.numero}`;
-      if (esisteProposta("pagamento", commessa.id, marker)) continue;
-
-      const p = creaPropostaDiretta({
-        tipo: "pagamento",
-        sedeId,
-        commessaId: commessa.id,
-        titolo: `Registra incasso € ${rata.importo.toLocaleString("it-IT")} su ${etichettaCliente}`,
-        motivazione: `La fattura FIC ${f.numero} risulta incassata il ${rata.dataPagamento} su Fatture in Cloud, ma il registro acconti della commessa non la riporta. ${motivo}`,
-        payload: {
-          commessaId: commessa.id,
-          importo: rata.importo,
-          data: rata.dataPagamento,
-          metodo: null,
-          tipo: null,
-          note: `${marker} — incasso del ${rata.dataPagamento}`,
-        },
-      });
-      if (p) create++;
-    }
-  }
-
-  if (create > 0) saveProposte();
-  return create;
 }
 
 // ── Stato riconciliazione (derivato, mai scritto) ───────────────────────────
@@ -660,15 +506,7 @@ export function statoFattura(
     ratePagate.every(r => esisteRataInCommessa(commessa, r, f.numero));
   if (tutte) return { stato: "riconciliata", commessa, motivo };
 
-  const marker = `Fattura FIC ${f.numero}`;
-  if (
-    esisteProposta("pagamento", commessa.id, marker) ||
-    esisteProposta(
-      "modifica_commessa",
-      commessa.id,
-      `"importoTotale":${f.importoLordo}`
-    )
-  ) {
+  if (esisteCorrezionePendente(f, commessa.id)) {
     return { stato: "proposta", commessa, motivo };
   }
 
@@ -840,11 +678,25 @@ export const ficFattureRouter = router({
       return { success: true as const };
     }),
 
-  riconciliaOra: adminProcedure.mutation(({ ctx }) => {
+  riconciliaOra: adminProcedure.mutation(async ({ ctx }) => {
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
+      import("./ficPagamenti"),
+      import("../tars/ficPaymentProposals"),
+    ]);
+    const payments = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: false,
+    });
+    const corrections = correctionHelpers.creaProposteCorrezionePagamento(
+      payments.issues,
+      sedeId
+    );
+    const proposteSuperate = correctionHelpers.superaProposteFicObsolete(sedeId);
     return {
-      proposteCreate: generaProposteRiconciliazione(
-        ctx.sedeId ?? DEFAULT_SEDE_ID
-      ),
+      paymentStats: payments.stats,
+      correzioniProposte: corrections.create,
+      proposteSuperate,
     };
   }),
 });

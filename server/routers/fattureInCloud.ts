@@ -11,12 +11,13 @@ import {
 import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
+  collegaFattureAutomatiche,
   ficFatture,
   finalizzaSnapshotDocumentiEmessi,
-  generaProposteRiconciliazione,
   upsertDocumentiEmessi,
   type RataFic,
 } from "./ficFatture";
+import type { FicPaymentSyncStats } from "./ficPagamenti";
 import {
   finalizzaSnapshotCosti,
   upsertCostiFic,
@@ -37,6 +38,12 @@ const FIC_CALLBACK_PATH = "/api/oauth/fic/callback";
 
 type FicAuthMode = "manual" | "oauth";
 
+export type FicSyncResult = {
+  result: string;
+  complete: boolean;
+  stats: FicPaymentSyncStats;
+};
+
 type FicConfig = {
   id: number;
   // Una configurazione per sede: due sedi possono fatturare da due aziende
@@ -54,6 +61,7 @@ type FicConfig = {
   enabled: boolean;
   lastSyncAt: Date | null;
   lastResult: string | null;
+  lastStats: FicPaymentSyncStats | null;
   economicScopesReady: boolean;
 };
 
@@ -80,6 +88,7 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
     if (c.accessTokenExpiresAt === undefined) c.accessTokenExpiresAt = null;
     if (c.oauthConnectedAt === undefined) c.oauthConnectedAt = null;
     if (c.authMode !== "oauth") c.authMode = "manual";
+    if (c.lastStats === undefined) c.lastStats = null;
     if (c.economicScopesReady === undefined) c.economicScopesReady = false;
   }
   nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
@@ -102,6 +111,7 @@ function getCfg(sedeId: number | null): FicConfig {
       enabled: false,
       lastSyncAt: null,
       lastResult: null,
+      lastStats: null,
       economicScopesReady: false,
     };
     cfgRows.push(c);
@@ -643,7 +653,51 @@ function normalizzaCostoRicevuto(
   };
 }
 
-export async function runFicSync(sedeId: number): Promise<string> {
+function creaClientiMancanti(
+  sedeId: number,
+  entities: readonly { name: string; vat: string | null; cf: string | null }[]
+): number {
+  const clienti = getClientiStore().filter(
+    (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
+  const have = new Set<string>();
+  for (const c of clienti) {
+    have.add(normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`));
+  }
+  let created = 0;
+  const seen = new Set<string>();
+  for (const e of entities) {
+    const key = normKey(e.name);
+    if (!key || seen.has(key) || have.has(key)) continue;
+    seen.add(key);
+    const isCompany = !!(e.vat && e.vat !== "0") || COMPANY_RE.test(e.name);
+    if (isCompany) {
+      createClienteFromSync({
+        sedeId,
+        cognome: e.name,
+        nome: " ",
+        tipo: /condominio/i.test(e.name) ? "condominio" : "azienda",
+        partitaIva: e.vat ?? undefined,
+      });
+    } else {
+      const sp = splitPersona(e.name, e.cf);
+      createClienteFromSync({
+        sedeId,
+        cognome: sp.cognome,
+        nome: sp.nome,
+        tipo: "privato",
+        codiceFiscale:
+          e.cf && /^[A-Za-z0-9]{16}$/.test(e.cf)
+            ? e.cf.toUpperCase()
+            : undefined,
+      });
+    }
+    created++;
+  }
+  return created;
+}
+
+export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
   const cfg = getCfg(sedeId);
   if (!cfg.companyId) throw new Error("Token o azienda non configurati");
   if (syncRuns.has(sedeId)) throw new Error("Sincronizzazione già in corso");
@@ -802,52 +856,30 @@ export async function runFicSync(sedeId: number): Promise<string> {
     const completo = risultati.every(
       result => result.status === "fulfilled" && result.value.complete
     );
+    const fattureComplete =
+      fattureResult.status === "fulfilled" && fattureResult.value.complete;
     cfg.economicScopesReady = completo;
-
-    // L'anagrafica di questa sede: un omonimo in un'altra sede non deve
-    // impedire la creazione del cliente qui, e viceversa.
-    const clienti = getClientiStore().filter(
-      (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+    const created = creaClientiMancanti(sedeId, entities);
+    const links = collegaFattureAutomatiche(sedeId);
+    const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
+      import("./ficPagamenti"),
+      import("../tars/ficPaymentProposals"),
+    ]);
+    const payments = riconciliaPagamentiFic({
+      sedeId,
+      snapshotCompleto: fattureComplete,
+    });
+    const corrections = correctionHelpers.creaProposteCorrezionePagamento(
+      payments.issues,
+      sedeId
     );
-    const have = new Set<string>();
-    for (const c of clienti) {
-      have.add(normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`));
-    }
-
-    let created = 0;
-    const seen = new Set<string>();
-    for (const e of entities) {
-      const key = normKey(e.name);
-      if (!key || seen.has(key) || have.has(key)) continue;
-      seen.add(key);
-      const isCompany = !!(e.vat && e.vat !== "0") || COMPANY_RE.test(e.name);
-      if (isCompany) {
-        createClienteFromSync({
-          sedeId,
-          cognome: e.name,
-          nome: " ",
-          tipo: /condominio/i.test(e.name) ? "condominio" : "azienda",
-          partitaIva: e.vat ?? undefined,
-        });
-      } else {
-        const sp = splitPersona(e.name, e.cf);
-        createClienteFromSync({
-          sedeId,
-          cognome: sp.cognome,
-          nome: sp.nome,
-          tipo: "privato",
-          codiceFiscale:
-            e.cf && /^[A-Za-z0-9]{16}$/.test(e.cf)
-              ? e.cf.toUpperCase()
-              : undefined,
-        });
-      }
-      created++;
-    }
-
+    const superseded = correctionHelpers.superaProposteFicObsolete(sedeId);
     const pdf = await archiviaPdfFattureCollegate(sedeId, controller.signal);
+    payments.stats.correzioniProposte = corrections.create;
+    payments.stats.proposteSuperate = superseded;
+    payments.stats.pdfArchiviati = pdf.archiviate;
+    payments.stats.pdfFalliti = pdf.fallite;
     if (controller.signal.aborted) throw controller.signal.reason;
-    const proposteCreate = generaProposteRiconciliazione(sedeId);
 
     let classificazione = {
       classificati: 0,
@@ -867,31 +899,32 @@ export async function runFicSync(sedeId: number): Promise<string> {
     // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
     // propone il collegamento. Fire-and-forget col suo debounce: il sync
     // non deve aspettare l'agente.
-    const { programmaSmistamentoFatture } = await import("../tars/smistamento");
-    programmaSmistamentoFatture(sedeId);
+    if (
+      ficFatture.some(
+        fattura =>
+          fattura.sedeId === sedeId &&
+          fattura.tipo === "invoice" &&
+          fattura.presenteInFic &&
+          fattura.commessaId == null &&
+          !fattura.tarsAnalizzata
+      )
+    ) {
+      const { programmaSmistamentoFatture } = await import("../tars/smistamento");
+      programmaSmistamentoFatture(sedeId);
+    }
 
-    const esitoPdf =
-      pdf.fallite > 0
-        ? `, ${pdf.archiviate} PDF archiviati, ${pdf.fallite} da ritentare`
-        : pdf.archiviate > 0
-          ? `, ${pdf.archiviate} PDF archiviati`
-          : "";
-    const errori = risultati.filter(
-      result => result.status === "rejected"
-    ).length;
-    const stato = completo
-      ? "COMPLETO"
-      : `INCOMPLETO (${errori} flussi falliti)`;
-    const result = `${new Date().toLocaleString("it-IT")}: ${stato}, ${entities.length} fatture lette (${nuove} documenti nuovi, ${aggiornate} aggiornati, ${rimossi} non piu presenti), ${costiNuovi} costi nuovi, ${costiAggiornati} costi aggiornati, ${costiRimossi} costi non piu presenti, ${classificazione.classificati} classificati e ${classificazione.dubbi} dubbi, ${created} nuovi clienti, ${proposteCreate} proposte di riconciliazione${esitoPdf}`;
+    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · collegamenti +${links.collegate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
+    cfg.lastStats = { ...payments.stats };
     _cfgStore.save();
-    return result;
+    return { result, complete: completo, stats: payments.stats };
   } catch (e: any) {
     const cfg2 = getCfg(sedeId);
     cfg2.economicScopesReady = false;
     cfg2.lastSyncAt = new Date();
-    cfg2.lastResult = `ERRORE: ${e?.message ?? "sconosciuto"}`;
+    cfg2.lastResult = "ERRORE · sincronizzazione FiC non completata";
+    cfg2.lastStats = null;
     _cfgStore.save();
     throw e;
   } finally {
@@ -950,6 +983,7 @@ export const fattureInCloudRouter = router({
       enabled: cfg.enabled,
       lastSyncAt: cfg.lastSyncAt,
       lastResult: cfg.lastResult,
+      lastStats: cfg.lastStats,
       syncInCorso: !!run,
       syncAvviataAt: run?.startedAt ?? null,
       permessiEconomiciDaAggiornare:
@@ -1051,7 +1085,7 @@ export const fattureInCloudRouter = router({
   }),
 
   syncNow: adminProcedure.mutation(async ({ ctx }) => {
-    return { result: await runFicSync(ctx.sedeId ?? DEFAULT_SEDE_ID) };
+    return await runFicSync(ctx.sedeId ?? DEFAULT_SEDE_ID);
   }),
 
   annullaSync: adminProcedure.mutation(({ ctx }) => {

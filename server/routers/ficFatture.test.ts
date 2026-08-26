@@ -10,16 +10,19 @@ import {
   collegaFattureAutomatiche,
   _setScaricaFatturaPdfForTests,
   ficFatture,
-  generaProposteRiconciliazione,
   finalizzaSnapshotDocumentiEmessi,
   statoFattura,
   upsertDocumentiEmessi,
   upsertFatture,
 } from "./ficFatture";
+import { riconciliaPagamentiFic } from "./ficPagamenti";
 import { toOpenAIResponse } from "../tars/openaiTestHelpers";
 import { proposte } from "../tars/stores";
 import { normalizzaRate, runFicSync } from "./fattureInCloud";
-import { deleteDocumentoFic } from "./preventiviContratti";
+import {
+  deleteDocumentoFic,
+  findDocumentoFic,
+} from "./preventiviContratti";
 
 function makeCtx(sedeId = 1): TrpcContext {
   return {
@@ -210,51 +213,45 @@ describe("riconciliazione FIC", () => {
     expect(commessaPerFattura(f, commesse).commessa?.id).toBe(commessaId);
   });
 
-  it("rata incassata su FIC → proposta di pagamento, e il rilancio non duplica", async () => {
-    const prima = generaProposteRiconciliazione(1);
-    expect(prima).toBeGreaterThanOrEqual(1);
-    const mie = proposte.filter(
-      p =>
-        p.trigger === "riconciliazione_fic" &&
-        p.commessaId === commessaId &&
-        p.tipo === "pagamento"
-    );
-    expect(mie).toHaveLength(1);
-    expect(mie[0].payload.importo).toBe(1220);
-    expect(mie[0].payload.note).toContain("FIC 9001/A");
+  it("rata incassata su FIC → movimento FiC idempotente", async () => {
+    const prima = riconciliaPagamentiFic({ sedeId: 1, snapshotCompleto: true });
+    const seconda = riconciliaPagamentiFic({ sedeId: 1, snapshotCompleto: true });
+    const commessa = await caller.commesse.byId(commessaId);
 
-    // Idempotenza: il sync gira ogni 6 ore, la proposta resta una.
-    const seconda = generaProposteRiconciliazione(1);
-    const dopo = proposte.filter(
-      p =>
-        p.trigger === "riconciliazione_fic" &&
-        p.commessaId === commessaId &&
-        p.tipo === "pagamento"
-    );
-    expect(dopo).toHaveLength(1);
-    expect(seconda).toBe(0);
+    expect(prima.stats.pagamentiCreati).toBe(1);
+    expect(seconda.stats.pagamentiCreati).toBe(0);
+    expect(seconda.stats.pagamentiAggiornati).toBe(0);
+    expect(commessa!.pagamenti).toEqual([
+      expect.objectContaining({
+        origine: "fic",
+        stato: "attivo",
+        ficDocumentoId: 9001,
+      }),
+    ]);
+    expect(
+      proposte.some(
+        p =>
+          p.trigger === "riconciliazione_fic" &&
+          p.commessaId === commessaId &&
+          (p.tipo === "pagamento" || p.tipo === "modifica_commessa")
+      )
+    ).toBe(false);
   });
 
-  it("pattuito proposto solo se assente, dall'unica fattura", () => {
-    const p = proposte.find(
-      x =>
-        x.trigger === "riconciliazione_fic" &&
-        x.commessaId === commessaId &&
-        x.tipo === "modifica_commessa"
-    );
-    expect(p).toBeDefined();
-    expect(p!.payload.campi.importoTotale).toBe(1220);
+  it("non propone né sovrascrive il pattuito CRM dalla fattura", async () => {
+    const commessa = await caller.commesse.byId(commessaId);
+    expect(commessa!.importoTotale).toBeNull();
+    expect(
+      proposte.some(
+        p =>
+          p.trigger === "riconciliazione_fic" &&
+          p.commessaId === commessaId &&
+          p.tipo === "modifica_commessa"
+      )
+    ).toBe(false);
   });
 
-  it("approvare la proposta registra la rata e la fattura risulta riconciliata", async () => {
-    const p = proposte.find(
-      x =>
-        x.trigger === "riconciliazione_fic" &&
-        x.commessaId === commessaId &&
-        x.tipo === "pagamento"
-    )!;
-    await caller.tars.proposte.approva({ id: p.id });
-
+  it("la rata FiC sincronizzata rende la fattura riconciliata", async () => {
     const c = await caller.commesse.byId(commessaId);
     expect(c!.importoIncassato).toBe(1220);
     expect(c!.pagamenti[0].note).toContain("FIC 9001/A");
@@ -273,12 +270,10 @@ describe("riconciliazione FIC", () => {
       [fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })],
       1
     );
-    const create = generaProposteRiconciliazione(1);
     const perQuesta = proposte.filter(p =>
       JSON.stringify(p.payload).includes("9002/A")
     );
     expect(perQuesta).toHaveLength(0);
-    void create;
 
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
     const f = ficFatture.find(x => x.id === 9002)!;
@@ -295,7 +290,6 @@ describe("riconciliazione FIC", () => {
       ],
       1
     );
-    generaProposteRiconciliazione(1);
     expect(
       proposte.some(p => JSON.stringify(p.payload).includes("9003/A"))
     ).toBe(false);
@@ -416,6 +410,7 @@ describe("archivio PDF FIC", () => {
     const ficId = 9200;
     const previousKey = process.env.MAIL_ENCRYPTION_KEY;
     const realFetch = global.fetch;
+    let failPdf = true;
 
     upsertFatture(
       [
@@ -441,6 +436,14 @@ describe("archivio PDF FIC", () => {
     global.fetch = vi.fn(async input => {
       const url = String(input);
       if (url === "https://files.example.test/fattura-9200.pdf") {
+        if (failPdf) {
+          return {
+            ok: false,
+            status: 503,
+            headers: new Headers(),
+            arrayBuffer: async () => Buffer.alloc(0),
+          } as any;
+        }
         return {
           ok: true,
           status: 200,
@@ -482,7 +485,14 @@ describe("archivio PDF FIC", () => {
               entity: { name: "Archivio FIC Giulia" },
               amount_net: 1000,
               amount_gross: 1220,
-              payments_list: [],
+              payments_list: [
+                {
+                  id: 444,
+                  amount: 1220,
+                  status: "paid",
+                  paid_date: `${new Date().getFullYear()}-08-25`,
+                },
+              ],
             },
           ],
         }),
@@ -491,11 +501,15 @@ describe("archivio PDF FIC", () => {
     }) as any;
 
     try {
-      await runFicSync(1);
+      const first = await runFicSync(1);
+      failPdf = false;
+      const second = await runFicSync(1);
+      const documentAfterSecond = findDocumentoFic(1, ficId);
+      const third = await runFicSync(1);
       const listUrls = (global.fetch as any).mock.calls
         .map((call: any[]) => String(call[0]))
         .filter((url: string) => /\/(issued|received)_documents\?/.test(url));
-      expect(listUrls).toHaveLength(4);
+      expect(listUrls).toHaveLength(12);
       for (const url of listUrls) {
         const query = new URL(url).searchParams;
         const year = new Date().getFullYear();
@@ -516,6 +530,42 @@ describe("archivio PDF FIC", () => {
           hasData: true,
         }),
       ]);
+      const storedCommessa = await caller.commesse.byId(commessa.id);
+      expect(first.stats.pagamentiCreati).toBe(1);
+      expect(first.stats.pdfFalliti).toBe(1);
+      expect(second.stats.pagamentiCreati).toBe(0);
+      expect(second.stats.pagamentiAggiornati).toBe(0);
+      expect(second.stats.pdfArchiviati).toBe(1);
+      expect(third.stats.pagamentiCreati).toBe(0);
+      expect(third.stats.pagamentiAggiornati).toBe(0);
+      expect(
+        storedCommessa!.pagamenti.filter((p: any) => p.ficRataId === 444)
+      ).toHaveLength(1);
+      expect(findDocumentoFic(1, ficId)?.id).toBe(documentAfterSecond?.id);
+      expect(first.result).toMatch(/pagamenti \+1\/aggiornati 0/);
+      expect(first.result).not.toContain("9200-B");
+      expect((await caller.fattureInCloud.status()).lastStats).toMatchObject({
+        pagamentiCreati: 0,
+        pagamentiAggiornati: 0,
+        pdfFalliti: 0,
+      });
+
+      global.fetch = vi.fn(async input => {
+        const url = String(input);
+        if (url.includes("/issued_documents?") && url.includes("type=invoice")) {
+          throw new Error("pagina fatture incompleta");
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+          text: async () => "",
+        } as any;
+      }) as any;
+      const incomplete = await runFicSync(1);
+      expect(incomplete.complete).toBe(false);
+      expect(storedCommessa!.pagamenti[0].stato).toBe("attivo");
+      expect(storedCommessa!.importoIncassato).toBe(1_220);
     } finally {
       global.fetch = realFetch;
       deleteDocumentoFic(1, ficId);
