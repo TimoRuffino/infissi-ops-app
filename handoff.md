@@ -329,6 +329,49 @@ riclassifica escono dalla coda `idsDaClassificare`, quindi non consumano token.
 `ficCosti.ricorrenti` espone l'elenco con fornitore, importo e periodo — la
 domanda "quali sono?" prima non aveva risposta.
 
+**Acquisti, riscritto il 27/08/2026.** La revisione costava il doppio del
+necessario: nel 2025 restavano 265 documenti da classificare su 140 fornitori
+distinti, cioè 265 decisioni per rispondere a 140 domande — un fornitore ha
+quasi sempre una natura sola. E l'arretrato era invisibile: la pagina apre
+sull'anno corrente, dove i dubbi erano 3. Ora il tab ha tre viste:
+
+- **Per fornitore** (`ficCosti.daClassificarePerFornitore`): una riga per
+  fornitore con documenti, totale e periodo; i tre bottoni chiudono l'intero
+  gruppo e scrivono la regola per il futuro. Il raggruppamento e la selezione
+  dei documenti usano la stessa chiave larga di `costiRicorrenti`
+  (`chiaveFornitore`, che ignora SRL/S.r.l.), così un bottone «×9» ne tocca
+  davvero nove; la regola resta salvata sulla forma scritta per non
+  invalidare quelle già in archivio;
+- **Documento per documento**: selezione multipla e
+  `ficCosti.riclassificaMolti` per i casi sparsi — 82 fornitori con un solo
+  documento non sono un gruppo, ma insieme si chiudono in un gesto;
+- **Senza commessa**: i costi già dichiarati «Commessa» a cui manca la
+  commessa.
+
+`ficCosti.arretrati` conta il sospeso di **ogni** anno; il badge della
+linguetta e una barra dentro il tab portano all'anno arretrato con un click, e
+il selettore dell'anno elenca tutti gli anni che hanno dati.
+
+**Costo di commessa, finalmente assegnabile.** `CostoFic.commessaId` esisteva
+nel dato dal principio e nessuna mutation lo scriveva: 665 costi classificati
+«Commessa» avevano `commessaId = null`, quindi il margine leggeva soltanto i
+costi ribattuti a mano nel registro della scheda — lo stesso costo scritto due
+volte, o mai. Ora:
+
+- `ficCosti.assegnaCommessa` assegna (e classifica: un costo che sta su una
+  commessa È un costo di commessa) o toglie l'assegnazione;
+- `ficCosti.candidatiCommessa` propone le commesse plausibili con due soli
+  segnali verificabili — il codice commessa scritto nel documento e il
+  fornitore già presente nel registro costi di quella commessa. Il resto è
+  ricerca a mano: un costo sulla commessa sbagliata falsa due margini;
+- `calcolaMargine(commessa, costiFic)` somma le due sorgenti;
+  `costiFicPerCommessa` e `totaliCostiFicPerCommessa` alimentano
+  `commesse.margine` e `commesse.marginalita`. Le note di credito passive
+  entrano con segno negativo;
+- nella scheda commessa quelle voci si leggono con il badge «da Fatture in
+  Cloud» e non si modificano: si correggono in Acquisti, come il pattuito si
+  corregge in FiC.
+
 Le bande di composizione separano quattro perimetri: controllo incassi annuale,
 Vendite FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa
 `pagamenti[].data` nel CRM e `rate[].dataPagamento` in FiC, include anche le

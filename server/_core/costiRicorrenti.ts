@@ -35,6 +35,15 @@ const MESI_MINIMI = 3;
 // devono spezzare la serie. Mezzo euro non è una variazione di contratto.
 const TOLLERANZA_IMPORTO = 0.5;
 
+/**
+ * Chiave del fornitore: le forme societarie non fanno due fornitori diversi.
+ * "Brianzatende SRL" e "BRIANZATENDE S.R.L." sono la stessa azienda, e
+ * trattarle come due gruppi raddoppia il lavoro di chi classifica.
+ */
+export function chiaveFornitore(valore: string): string {
+  return normalizzaFornitore(valore);
+}
+
 function normalizzaFornitore(valore: string): string {
   return valore
     .normalize("NFD")

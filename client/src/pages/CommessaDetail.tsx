@@ -3279,7 +3279,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
         {costi.length > 0 && (
           <div className="space-y-1.5">
             {costi.map((c: any) =>
-              editId === c.id ? (
+              editId === c.id && c.origine !== "fic" ? (
                 <div
                   key={c.id}
                   className="rounded-lg border border-primary/40 bg-surface-2 px-3 py-3 space-y-3"
@@ -3296,7 +3296,7 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                 </div>
               ) : (
                 <div
-                  key={c.id}
+                  key={`${c.origine ?? "manuale"}-${c.id}`}
                   className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 flex-wrap"
                 >
                   <span className="tabular-nums font-bold">€ {fmt(c.importo)}</span>
@@ -3318,36 +3318,47 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                       {fmtData(c.data)}
                     </span>
                   )}
-                  <div className="ml-auto flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => {
-                        setEditId(c.id);
-                        setAddOpen(false);
-                        setForm({
-                          importo: String(c.importo ?? ""),
-                          fornitore: c.fornitore ?? "",
-                          descrizione: c.descrizione ?? "",
-                          data: c.data ?? "",
-                          numeroOrdine: c.numeroOrdine ?? "",
-                        });
-                      }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-danger"
-                      onClick={() =>
-                        removeCosto.mutate({ commessaId, costoId: c.id })
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                  {/* Una fattura d'acquisto assegnata a questa commessa: si
+                      legge qui, si corregge in Contabilità → Acquisti. Come
+                      il pattuito, una sola fonte per un solo dato. */}
+                  {c.origine === "fic" ? (
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <Badge variant="outline" className="text-[10px]">
+                        da Fatture in Cloud
+                      </Badge>
+                    </div>
+                  ) : (
+                    <div className="ml-auto flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEditId(c.id);
+                          setAddOpen(false);
+                          setForm({
+                            importo: String(c.importo ?? ""),
+                            fornitore: c.fornitore ?? "",
+                            descrizione: c.descrizione ?? "",
+                            data: c.data ?? "",
+                            numeroOrdine: c.numeroOrdine ?? "",
+                          });
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-danger"
+                        onClick={() =>
+                          removeCosto.mutate({ commessaId, costoId: c.id })
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )
             )}

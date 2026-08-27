@@ -8,8 +8,11 @@ import type { RataFic } from "./ficFatture";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import {
   applicaCostiRicorrenti,
+  chiaveFornitore,
   rilevaCostiRicorrenti,
 } from "../_core/costiRicorrenti";
+import type { CostoCommessa } from "../_core/margine";
+import { estraiCodiceCommessa } from "./ficMatch";
 
 export type ClassificazioneCosto = ClassificazioneCostoEconomico;
 export type FonteClassificazioneCosto = "regola" | "tars" | "utente" | null;
@@ -278,6 +281,133 @@ export function finalizzaSnapshotCosti(args: {
   return rimossi;
 }
 
+/**
+ * Le fatture d'acquisto assegnate a una commessa, nella forma del registro
+ * costi.
+ *
+ * Erano 665 documenti classificati «Commessa» con `commessaId` a null: il
+ * campo esisteva, nessuna mutation lo scriveva, e il margine leggeva soltanto
+ * i costi ribattuti a mano nella scheda. Ora una assegnazione fa contare il
+ * documento dov'e' gia', senza riscriverlo.
+ *
+ * Le note di credito passive entrano con segno negativo: abbattono il costo
+ * della commessa, non lo aumentano.
+ */
+export function costiFicPerCommessa(
+  commessaId: number,
+  sedeId: number
+): CostoCommessa[] {
+  return ficCosti
+    .filter(
+      costo =>
+        costo.sedeId === sedeId &&
+        costo.commessaId === commessaId &&
+        costo.presenteInFic
+    )
+    .map(costo => ({
+      id: costo.id,
+      fornitore: costo.fornitoreNome,
+      descrizione:
+        costo.descrizione ??
+        costo.categoriaFic ??
+        (costo.tipo === "passive_credit_note" ? "Nota di credito" : null),
+      importo:
+        costo.tipo === "passive_credit_note"
+          ? -costo.importoNetto
+          : costo.importoNetto,
+      data: costo.data,
+      numeroOrdine: costo.numeroDocumento,
+      note: null,
+      origine: "fic" as const,
+      ficCostoId: costo.id,
+    }))
+    .sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+}
+
+/** Indice commessaId → totale FiC, per non rifare N filtri su N commesse. */
+export function totaliCostiFicPerCommessa(
+  sedeId: number
+): Map<number, CostoCommessa[]> {
+  const commesseCoinvolte = new Set<number>();
+  for (const costo of ficCosti) {
+    if (
+      costo.sedeId === sedeId &&
+      costo.commessaId != null &&
+      costo.presenteInFic
+    ) {
+      commesseCoinvolte.add(costo.commessaId);
+    }
+  }
+  const indice = new Map<number, CostoCommessa[]>();
+  for (const commessaId of Array.from(commesseCoinvolte)) {
+    indice.set(commessaId, costiFicPerCommessa(commessaId, sedeId));
+  }
+  return indice;
+}
+
+function normalizzaNome(valore: string | null | undefined): string {
+  return (valore ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|s\.?n\.?c\.?|s\.?a\.?s\.?|societa|ditta)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Le commesse plausibili per un costo, in ordine di forza.
+ *
+ * Due segnali soltanto, entrambi verificabili: il codice commessa scritto nel
+ * documento, e il fornitore gia' presente nel registro costi di quella
+ * commessa. Il resto sarebbe indovinare — e un costo attribuito alla commessa
+ * sbagliata falsa due margini invece di uno.
+ */
+export function candidatiCommessaPerCosto(
+  costo: Pick<CostoFic, "descrizione" | "numeroDocumento" | "fornitoreNome" | "data">,
+  commesse: readonly any[],
+  massimo = 5
+): Array<{ commessaId: number; codice: string; cliente: string | null; motivo: string }> {
+  const codiceCitato = estraiCodiceCommessa(
+    `${costo.descrizione ?? ""} ${costo.numeroDocumento ?? ""}`
+  );
+  const fornitore = normalizzaNome(costo.fornitoreNome);
+  const trovati: Array<{ commessa: any; peso: number; motivo: string }> = [];
+  for (const commessa of commesse) {
+    if (codiceCitato && String(commessa.codice ?? "").toUpperCase() === codiceCitato) {
+      trovati.push({ commessa, peso: 100, motivo: "codice nel documento" });
+      continue;
+    }
+    if (
+      fornitore &&
+      (commessa.costi ?? []).some(
+        (voce: any) => normalizzaNome(voce.fornitore) === fornitore
+      )
+    ) {
+      trovati.push({
+        commessa,
+        peso: 30,
+        motivo: "stesso fornitore gia' nel registro",
+      });
+    }
+  }
+  return trovati
+    .sort(
+      (a, b) =>
+        b.peso - a.peso ||
+        String(b.commessa.dataApertura ?? "").localeCompare(
+          String(a.commessa.dataApertura ?? "")
+        )
+    )
+    .slice(0, massimo)
+    .map(({ commessa, motivo }) => ({
+      commessaId: commessa.id,
+      codice: String(commessa.codice ?? ""),
+      cliente: commessa.cliente ?? null,
+      motivo,
+    }));
+}
+
 const classificazioneSchema = z.enum([
   "fisso",
   "variabile_commessa",
@@ -324,11 +454,11 @@ export const ficCostiRouter = router({
         })
         .optional()
     )
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const anno = input?.anno ?? new Date().getFullYear();
-      return ficCosti
+      const righe = ficCosti
         .filter(
           costo =>
             costo.sedeId === sedeId &&
@@ -338,6 +468,199 @@ export const ficCostiRouter = router({
               costo.classificazione === input.classificazione)
         )
         .sort((a, b) => b.data.localeCompare(a.data));
+      // Il codice della commessa assegnata: senza, l'elenco mostrerebbe un id
+      // che non dice niente a chi legge.
+      const assegnate = new Set(
+        righe.map(costo => costo.commessaId).filter((id): id is number => id != null)
+      );
+      if (assegnate.size === 0) {
+        return righe.map(costo => ({ ...costo, commessaCodice: null }));
+      }
+      const { getCommesseStore } = await import("./commesse");
+      const codici = new Map<number, string>(
+        getCommesseStore()
+          .filter((commessa: any) => assegnate.has(commessa.id))
+          .map((commessa: any) => [commessa.id, String(commessa.codice ?? "")])
+      );
+      return righe.map(costo => ({
+        ...costo,
+        commessaCodice:
+          costo.commessaId == null ? null : codici.get(costo.commessaId) ?? null,
+      }));
+    }),
+
+  /**
+   * Quanto lavoro arretrato c'e', anno per anno.
+   *
+   * La pagina apre sempre sull'anno corrente, quindi 265 documenti del 2025
+   * erano invisibili: nessun badge, nessun conteggio, nessun motivo di
+   * cambiare l'anno. Un arretrato che non si vede non viene smaltito.
+   */
+  arretrati: protectedProcedure.query(({ ctx }) => {
+    requireDirezioneOAmministrazione(ctx.user);
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const perAnno = new Map<number, { daClassificare: number; senzaCommessa: number }>();
+    for (const costo of ficCosti) {
+      if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
+      const anno = Number(costo.data.slice(0, 4));
+      if (!Number.isFinite(anno)) continue;
+      const voce = perAnno.get(anno) ?? { daClassificare: 0, senzaCommessa: 0 };
+      if (costo.classificazione === "dubbio") voce.daClassificare++;
+      if (costo.classificazione === "variabile_commessa" && costo.commessaId == null) {
+        voce.senzaCommessa++;
+      }
+      perAnno.set(anno, voce);
+    }
+    return Array.from(perAnno.entries())
+      .map(([anno, voce]) => ({ anno, ...voce }))
+      .filter(voce => voce.daClassificare > 0 || voce.senzaCommessa > 0)
+      .sort((a, b) => b.anno - a.anno);
+  }),
+
+  /**
+   * I documenti da classificare raggruppati per fornitore.
+   *
+   * Un fornitore ha quasi sempre una natura sola, e classificare 265 righe
+   * una per una quando i fornitori distinti sono 140 significa fare il doppio
+   * del lavoro necessario. Qui la decisione si prende una volta per fornitore
+   * e vale per tutti i suoi documenti.
+   */
+  daClassificarePerFornitore: protectedProcedure
+    .input(z.object({ anno: z.number().int().optional() }).optional())
+    .query(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const anno = input?.anno;
+      const gruppi = new Map<
+        string,
+        {
+          fornitore: string;
+          ids: number[];
+          totale: number;
+          dal: string;
+          al: string;
+          esempi: string[];
+        }
+      >();
+      for (const costo of ficCosti) {
+        if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
+        if (costo.classificazione !== "dubbio") continue;
+        if (anno != null && !costo.data.startsWith(String(anno))) continue;
+        const chiave = chiaveFornitore(costo.fornitoreNome) || costo.fornitoreNome;
+        const gruppo = gruppi.get(chiave) ?? {
+          fornitore: costo.fornitoreNome,
+          ids: [],
+          totale: 0,
+          dal: costo.data,
+          al: costo.data,
+          esempi: [],
+        };
+        gruppo.ids.push(costo.id);
+        gruppo.totale += costo.importoNetto;
+        if (costo.data < gruppo.dal) gruppo.dal = costo.data;
+        if (costo.data > gruppo.al) gruppo.al = costo.data;
+        const etichetta = costo.descrizione ?? costo.categoriaFic;
+        if (etichetta && gruppo.esempi.length < 3 && !gruppo.esempi.includes(etichetta)) {
+          gruppo.esempi.push(etichetta);
+        }
+        gruppi.set(chiave, gruppo);
+      }
+      return Array.from(gruppi.values())
+        .map(gruppo => ({
+          ...gruppo,
+          totale: Math.round(gruppo.totale * 100) / 100,
+          documenti: gruppo.ids.length,
+        }))
+        .sort((a, b) => b.documenti - a.documenti || b.totale - a.totale);
+    }),
+
+  /**
+   * Classifica piu' documenti in un colpo solo.
+   *
+   * Serve per il resto: 82 fornitori con un documento solo, che come gruppo
+   * non esistono ma come selezione si chiudono insieme — i pranzi di lavoro
+   * sono tutti straordinari, e sono tutti di trattorie diverse.
+   */
+  riclassificaMolti: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.number().int()).min(1).max(500),
+        classificazione: classificazioneSchema.exclude(["dubbio"]),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const richiesti = new Set(input.ids);
+      let aggiornati = 0;
+      for (const costo of ficCosti) {
+        if (costo.sedeId !== sedeId || !richiesti.has(costo.id)) continue;
+        costo.classificazione = input.classificazione;
+        costo.fonteClassificazione = "utente";
+        costo.confidenza = 1;
+        costo.motivazione = "Classificato in blocco dall'operatore.";
+        costo.aggiornatoAt = new Date();
+        aggiornati++;
+      }
+      if (aggiornati > 0) saveFicCosti();
+      return { aggiornati };
+    }),
+
+  /**
+   * A quale commessa appartiene questo costo.
+   *
+   * Assegnare implica la classificazione: un costo che sta su una commessa e'
+   * un costo variabile di commessa, e chiedere le due cose separatamente era
+   * un passaggio in piu' per dire la stessa cosa. Togliere l'assegnazione non
+   * torna a `dubbio`: resta un costo di commessa, semplicemente non si sa
+   * ancora quale.
+   */
+  assegnaCommessa: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int(),
+        commessaId: z.number().int().nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const costo = trovaCosto(input.id, ctx.sedeId);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      if (input.commessaId != null) {
+        const { getCommessaById } = await import("./commesse");
+        const commessa: any = getCommessaById(input.commessaId);
+        if (!commessa || (commessa.sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Commessa non trovata.",
+          });
+        }
+        costo.commessaId = input.commessaId;
+        costo.classificazione = "variabile_commessa";
+        costo.fonteClassificazione = "utente";
+        costo.confidenza = 1;
+        costo.motivazione = `Assegnato a ${commessa.codice} dall'operatore.`;
+      } else {
+        costo.commessaId = null;
+      }
+      costo.aggiornatoAt = new Date();
+      saveFicCosti();
+      return { success: true as const };
+    }),
+
+  /** Le commesse plausibili per un costo, gia' ordinate per forza. */
+  candidatiCommessa: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const costo = trovaCosto(input.id, ctx.sedeId);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const { getCommesseStore } = await import("./commesse");
+      const commesse = getCommesseStore().filter(
+        (commessa: any) =>
+          (commessa.sedeId ?? DEFAULT_SEDE_ID) === sedeId && !commessa.archivedAt
+      );
+      return candidatiCommessaPerCosto(costo, commesse);
     }),
 
   riclassifica: protectedProcedure
@@ -415,13 +738,17 @@ export const ficCostiRouter = router({
       const riferimento = trovaCosto(input.id, ctx.sedeId);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const fornitoreNormalizzato = normalizzaRegola(riferimento.fornitoreNome);
+      // I documenti si scelgono con la chiave larga — quella che ignora
+      // "SRL" e "S.r.l." — perche' e' la stessa con cui l'elenco raggruppa:
+      // un bottone che dice ×9 deve toccarne nove. La regola per il futuro
+      // resta invece sulla forma scritta, com'era, per non invalidare quelle
+      // gia' salvate.
+      const chiave = chiaveFornitore(riferimento.fornitoreNome);
 
       let aggiornati = 0;
       for (const costo of ficCosti) {
         if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
-        if (normalizzaRegola(costo.fornitoreNome) !== fornitoreNormalizzato) {
-          continue;
-        }
+        if (chiaveFornitore(costo.fornitoreNome) !== chiave) continue;
         if (costo.id !== input.id && costo.classificazione !== "dubbio") continue;
         costo.classificazione = input.classificazione;
         costo.fonteClassificazione = "utente";

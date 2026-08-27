@@ -574,10 +574,28 @@ export default function Economia() {
     { anno, classificazione: "dubbio" },
     { enabled: puoVedere }
   );
+  // L'arretrato di TUTTI gli anni: 265 documenti del 2025 non comparivano da
+  // nessuna parte finché non si cambiava l'anno a mano, e nessuno aveva un
+  // motivo per cambiarlo.
+  const arretrati = trpc.ficCosti.arretrati.useQuery(undefined, {
+    enabled: puoVedere,
+  });
   const fattureAperte = (fatture.data ?? []).filter(
     (f: any) => f.stato === "non_abbinabile" || f.stato === "da_riconciliare"
   ).length;
   const costiDubbi = (costi.data ?? []).length;
+  const arretratoTotale = (arretrati.data ?? []).reduce(
+    (somma: number, voce: any) => somma + voce.daClassificare + voce.senzaCommessa,
+    0
+  );
+  const anniConDati = Array.from(
+    new Set<number>([
+      new Date().getFullYear(),
+      new Date().getFullYear() - 1,
+      ...(arretrati.data ?? []).map((voce: any) => voce.anno),
+      anno,
+    ])
+  ).sort((a, b) => b - a);
 
   if (!puoVedere) {
     return (
@@ -601,13 +619,11 @@ export default function Economia() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[new Date().getFullYear(), new Date().getFullYear() - 1].map(
-                a => (
-                  <SelectItem key={a} value={String(a)}>
-                    {a}
-                  </SelectItem>
-                )
-              )}
+              {anniConDati.map(a => (
+                <SelectItem key={a} value={String(a)}>
+                  {a}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -627,9 +643,13 @@ export default function Economia() {
           <TabsTrigger value="fissi">Costi fissi</TabsTrigger>
           <TabsTrigger value="acquisti" className="gap-1.5">
             Acquisti
-            {costiDubbi > 0 && (
+            {/* Il badge parla di TUTTI gli anni: contare solo quello aperto
+                nascondeva l'arretrato invece di segnalarlo. */}
+            {arretratoTotale > 0 && (
               <Badge variant="warning" className="text-[10px]">
-                {costiDubbi}
+                {costiDubbi > 0 && costiDubbi !== arretratoTotale
+                  ? `${costiDubbi}/${arretratoTotale}`
+                  : arretratoTotale}
               </Badge>
             )}
           </TabsTrigger>
@@ -639,7 +659,9 @@ export default function Economia() {
       {tab === "panoramica" && <EconomiaPanoramica anno={anno} />}
       {tab === "fatture" && <Fatture anno={anno} />}
       {tab === "fissi" && <CostiFissi />}
-      {tab === "acquisti" && <CostiFicReview anno={anno} />}
+      {tab === "acquisti" && (
+        <CostiFicReview anno={anno} onCambiaAnno={setAnno} />
+      )}
     </div>
   );
 }
