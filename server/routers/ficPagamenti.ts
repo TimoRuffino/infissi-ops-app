@@ -109,6 +109,70 @@ const _linksStore = persistedStore<RiconciliazioneRataFic>(
 export const ficPaymentLinks = _linksStore.items;
 export const saveFicPaymentLinks = () => _linksStore.save();
 
+/**
+ * Storna i movimenti FiC rimasti su una commessa dopo che la fattura le e'
+ * stata scollegata.
+ *
+ * La riconciliazione parte dalle fatture COLLEGATE: una fattura senza
+ * commessa non viene piu' guardata, quindi i suoi incassi restavano attivi
+ * sul vecchio fascicolo e `importoIncassato` continuava a contarli. I
+ * movimenti manuali non si toccano: quelli li ha inseriti una persona.
+ */
+export function stornaPagamentiFicScollegati(input: {
+  sedeId: number;
+  ficDocumentoId: number;
+  commessaId: number;
+}): { stornati: number } {
+  const commessa: any = getCommesseStore().find(
+    (item: any) =>
+      item.id === input.commessaId &&
+      (item.sedeId ?? DEFAULT_SEDE_ID) === input.sedeId
+  );
+  const now = new Date();
+  let stornati = 0;
+  if (commessa && Array.isArray(commessa.pagamenti)) {
+    for (const pagamento of commessa.pagamenti) {
+      const normalized = normalizzaPagamentoLegacy(pagamento);
+      if (
+        normalized.origine !== "fic" ||
+        normalized.ficDocumentoId !== input.ficDocumentoId ||
+        normalized.stato === "stornato"
+      ) {
+        continue;
+      }
+      Object.assign(pagamento, {
+        stato: "stornato",
+        ficStato: "scollegata",
+        ficUltimoSyncAt: now,
+        stornatoAt: now,
+        updatedAt: now,
+      });
+      stornati++;
+    }
+    if (stornati > 0) {
+      ricalcolaImportoIncassato(commessa);
+      saveCommesseStore();
+    }
+  }
+
+  let linksChanged = false;
+  for (const link of ficPaymentLinks) {
+    if (
+      link.sedeId !== input.sedeId ||
+      link.ficDocumentoId !== input.ficDocumentoId ||
+      link.commessaId !== input.commessaId ||
+      link.stato === "superata"
+    ) {
+      continue;
+    }
+    link.stato = "superata";
+    link.updatedAt = now;
+    linksChanged = true;
+  }
+  if (linksChanged) saveFicPaymentLinks();
+  return { stornati };
+}
+
 export function confermaRiconciliazioneManuale(input: {
   sedeId: number;
   ficDocumentoId: number;

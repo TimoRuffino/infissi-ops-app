@@ -260,7 +260,12 @@ export function chiaveAzioneProposta(p: {
       effetto =
         pay.comunicazioneId != null
           ? { comunicazioneId: pay.comunicazioneId }
-          : {
+          : // Nata da una fattura orfana: la fattura E' l'azione. Senza
+            // questo ramo due giri con la ragione sociale scritta appena
+            // diversa producevano due proposte per lo stesso documento.
+            pay.ficId != null
+            ? { ficId: pay.ficId }
+            : {
               nome: normalizzaTesto(
                 `${pay.cliente?.nome ?? ""} ${pay.cliente?.cognome ?? ""}`
               ),

@@ -197,8 +197,13 @@ per decisione della direzione:
   rate li scrive l'operatore (`commesse.addRata`, `updateRata`, `removeRata`),
   `pattuitoFonte` vale `manuale`;
 - il passaggio manuale → FiC avviene al primo collegamento; il ritorno solo
-  quando l'ultima fattura viene scollegata. Scollegare NON azzera il pattuito:
-  lo rende di nuovo scrivibile;
+  quando l'ultima fattura viene scollegata. Dal 27/08/2026 scollegare a mano
+  l'ultima fattura **azzera** il pattuito derivato (`azzeraPattuitoDerivato`
+  in `commesse.ts`) e lascia solo le rate manuali: se un umano stacca una
+  fattura è perché quel numero non descriveva quella commessa, e un campo
+  vuoto che chiede l'importo è meglio di una cifra che nessuno sa
+  giustificare. Il sync automatico resta conservativo: una fattura che
+  sparisce da FiC non svuota niente da sola;
 - le note di credito abbattono il pattuito e non generano rate in attesa;
 - il punto unico è `sincronizzaPattuitoDaFic(sedeId)` in `ficFatture.ts`,
   chiamato dal sync, da `collega` e dallo scollegamento. È idempotente.
@@ -206,12 +211,56 @@ per decisione della direzione:
 Il match fattura → commessa è stato riscritto (`server/routers/ficMatch.ts`).
 La regola voluta: **basta un solo segnale in comune** fra telefono, email,
 nome e cognome, indirizzo o identità fiscale perché la fattura venga allegata.
-Il codice commessa citato nell'oggetto vince su tutto. L'unico caso non deciso
-è la parità: due commesse con lo stesso punteggio lasciano la fattura in coda
-con i candidati esposti. Il sync legge ora anche `email`, `phone`,
+Il codice commessa citato nell'oggetto vince su tutto.
+
+**Correzione del 27/08/2026.** «Un segnale basta» valeva anche quando gli
+altri dati dicevano il contrario, e due fatture di due clienti diversi
+finivano sulla stessa commessa — con un pattuito che sommava due lavori. Ora
+il matcher guarda anche le contraddizioni e ha tre esiti invece di due:
+
+- **escluso**: partita IVA / codice fiscale diversi, o `clienteId` diverso.
+  La commessa non è nemmeno candidata. Solo il codice commessa scritto in
+  fattura scavalca il veto;
+- **incerto**: intestatario con nome diverso, oppure forza sotto
+  `FORZA_MINIMA_AUTOMATICA` (20). Il candidato si vede, con il dubbio
+  scritto accanto, ma non si collega da solo. L'unico segnale che da solo non
+  arriva a 20 è l'indirizzo: nelle palazzine e nei condomini combacia fra
+  persone che non c'entrano niente fra loro;
+- **certo**: si collega.
+
+L'altro caso non deciso resta la parità: due commesse con lo stesso punteggio
+lasciano la fattura in coda con i candidati esposti. Il sync legge ora anche `email`, `phone`,
 `address_street`, `address_city`, `address_postal_code` e
 `subject/visible_subject` dall'entity FiC — prima scartava tutto tranne nome,
 partita IVA e codice fiscale, ed è per questo che i privati non agganciavano.
+
+**Scollegare una fattura è un'unica operazione** (`scollegaFatturaDaCommessa`
+in `ficFatture.ts`), dal 27/08/2026. Prima i tre effetti succedevano
+separatamente e restavano a metà: il PDF archiviato rimaneva nel fascicolo
+(e il sync successivo lo riattaccava), gli incassi FiC restavano attivi sul
+vecchio fascicolo, e togliere l'allegato dalla commessa non scollegava niente.
+Ora, da qualunque porta si passi — pulsante Scollega o cancellazione del PDF
+dal fascicolo (`preventiviContratti.delete` su un documento `source = "fic"`):
+
+- il legame sparisce dalla fattura e la commessa finisce in
+  `commesseEscluse`, così il match automatico non rifà lo stesso errore al
+  giro dopo (ricollegarla a mano annulla il rifiuto);
+- il PDF esce dal fascicolo;
+- i movimenti `origine = fic` di quel documento vengono stornati
+  (`stornaPagamentiFicScollegati`) e `importoIncassato` ricalcolato;
+- pattuito e piano rate vengono riderivati dalle fatture rimaste;
+- la fattura torna in coda a Tars (`tarsAnalizzata = false`).
+
+**Tars sulle fatture orfane.** Il trigger `riconciliazione_fatture` riceve ora
+i candidati scartati dal match con il dubbio scritto, i contatti in fattura e
+l'elenco delle commesse già rifiutate. Il prompt gli chiede di collegare solo
+quando è sicuro, di usare `chiedi_chiarimento` quando il dato non torna invece
+di scegliere la commessa più somigliante, e — se il cliente fatturato non ha
+nessuna commessa nel CRM — di usare `proponi_nuovo_lead` con `ficId`:
+all'approvazione nascono cliente e commessa e la fattura ci si attacca da
+sola. Il profilo strumenti include perciò `leggi_assegnatari` e
+`proponi_nuovo_lead`; la chiave d'azione di `crea_lead` nato da fattura è il
+`ficId`, per non produrre due proposte per lo stesso documento.
 
 Il resto del contratto resta invariato:
 

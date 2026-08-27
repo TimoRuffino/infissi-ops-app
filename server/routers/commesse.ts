@@ -232,6 +232,40 @@ export function applicaPattuitoDaFic(
   return { cambiato, importoTotale: commessa.importoTotale ?? null };
 }
 
+/**
+ * Toglie il pattuito rimasto orfano quando l'ULTIMA fattura FiC viene
+ * scollegata a mano.
+ *
+ * `applicaPattuitoDaFic` con zero documenti lascia apposta l'importo dov'e' e
+ * si limita a restituire la commessa alla penna dell'operatore: e' giusto
+ * quando la fattura sparisce per motivi suoi. Non lo e' quando un umano la
+ * stacca perche' non c'entrava niente — li' quel numero e' la somma di un
+ * lavoro altrui, e lasciarlo significa esattamente "il pattuito non si e'
+ * aggiornato". Un campo vuoto che chiede l'importo e' meglio di un numero
+ * che nessuno sa giustificare.
+ *
+ * Le rate manuali restano: non sono mai state di FiC.
+ */
+export function azzeraPattuitoDerivato(commessaId: number): boolean {
+  const commessa: any = getCommessaById(commessaId);
+  if (!commessa) return false;
+  if ((commessa.pattuitoFicDocumentoIds ?? []).length > 0) return false;
+  const rate: RataCommessa[] = Array.isArray(commessa.pianoRate)
+    ? commessa.pianoRate
+    : [];
+  const manuali = rate.filter(rata => rata.origine === "manuale");
+  if (commessa.importoTotale == null && manuali.length === rate.length) {
+    return false;
+  }
+  commessa.importoTotale = null;
+  commessa.pattuitoFonte = null;
+  commessa.pianoRate = manuali;
+  commessa.pattuitoAggiornatoAt = new Date();
+  commessa.updatedAt = new Date();
+  _store.save();
+  return true;
+}
+
 /** Guardia condivisa: rifiuta una scrittura manuale su un pattuito FiC. */
 function assertPattuitoScrivibile(commessa: any): void {
   if (pattuitoModificabileAMano(commessa)) return;

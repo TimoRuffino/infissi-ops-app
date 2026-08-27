@@ -2,7 +2,11 @@
 // noiose. Un segnale basta per allegare; la parità non si scioglie a caso.
 
 import { describe, expect, it } from "vitest";
-import { trovaCommessaPerFattura, estraiCodiceCommessa } from "./ficMatch";
+import {
+  trovaCommessaPerFattura,
+  estraiCodiceCommessa,
+  verificaCollegamento,
+} from "./ficMatch";
 
 const fattura = (extra: Partial<any> = {}) => ({
   id: 1,
@@ -100,7 +104,10 @@ describe("trovaCommessaPerFattura", () => {
     expect(esito.ambiguo).toBe(false);
   });
 
-  it("indirizzo con città aggancia anche senza altri segnali", () => {
+  it("l'indirizzo da solo propone ma non collega: e' il posto, non il cliente", () => {
+    // Palazzine e condomini: stesso civico, clienti che non c'entrano fra
+    // loro. Collegare qui significava sommare due lavori nello stesso
+    // pattuito.
     const esito = trovaCommessaPerFattura({
       fattura: fattura({
         clienteNome: "Intestatario Diverso",
@@ -112,8 +119,29 @@ describe("trovaCommessaPerFattura", () => {
       ],
       clienti: [],
     });
+    expect(esito.commessaId).toBeNull();
+    expect(esito.incerto).toBe(true);
+    expect(esito.candidati[0]).toMatchObject({ commessaId: 10, incerto: true });
+  });
+
+  it("indirizzo piu' un altro segnale collega", () => {
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Rossi Mario",
+        clienteIndirizzo: "Via Guglielmo Marconi 14",
+        clienteCitta: "Sarzana",
+      }),
+      commesse: [
+        commessa({
+          cliente: "Mario Rossi",
+          indirizzo: "via marconi guglielmo, 14",
+          citta: "SARZANA",
+        }),
+      ],
+      clienti: [],
+    });
     expect(esito.commessaId).toBe(10);
-    expect(esito.segnali).toEqual(["indirizzo"]);
+    expect(esito.incerto).toBe(false);
   });
 
   it("due commesse con la stessa forza restano ambigue", () => {
@@ -159,6 +187,164 @@ describe("trovaCommessaPerFattura", () => {
     });
     expect(esito.commessaId).toBeNull();
     expect(esito.candidati).toEqual([]);
+  });
+});
+
+describe("contraddizioni", () => {
+  const anagrafica = (extra: Partial<any> = {}) => ({
+    id: 7,
+    nome: "Mario",
+    cognome: "Rossi",
+    email: null,
+    telefono: null,
+    indirizzo: null,
+    citta: null,
+    partitaIva: null,
+    codiceFiscale: null,
+    ...extra,
+  });
+
+  it("partita IVA diversa esclude la commessa anche col telefono uguale", () => {
+    // Il telefono e' quello dello studio o del familiare: la partita IVA
+    // dice che l'intestatario e' un'altra impresa.
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Beta Srl",
+        clienteVat: "IT02222222222",
+        clienteTelefono: "3451234567",
+      }),
+      commesse: [commessa({ clienteId: 7, telefono: "3451234567" })],
+      clienti: [
+        anagrafica({ cognome: "Alfa", nome: "Srl", partitaIva: "01111111111" }),
+      ],
+    });
+    expect(esito.commessaId).toBeNull();
+    expect(esito.candidati).toEqual([]);
+    expect(esito.motivo).toContain("Scartata");
+    expect(esito.motivo).toContain("va creata la commessa");
+  });
+
+  it("un cliente in anagrafica diverso esclude la commessa", () => {
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({ clienteId: 9, clienteTelefono: "3451234567" }),
+      commesse: [commessa({ clienteId: 7, telefono: "3451234567" })],
+      clienti: [anagrafica()],
+    });
+    expect(esito.commessaId).toBeNull();
+    expect(esito.candidati).toEqual([]);
+  });
+
+  it("un nome diverso lascia il candidato ma non collega", () => {
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Bianchi Lucia",
+        clienteTelefono: "3451234567",
+      }),
+      commesse: [commessa({ cliente: "Rossi Mario", telefono: "3451234567" })],
+      clienti: [],
+    });
+    expect(esito.commessaId).toBeNull();
+    expect(esito.incerto).toBe(true);
+    expect(esito.candidati[0].contraddizioni).toEqual(["cognome_nome"]);
+    expect(esito.candidati[0].dubbio).toBe("intestatario diverso");
+  });
+
+  it("la stessa partita IVA copre una ragione sociale riscritta", () => {
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Alfa Srl Unipersonale",
+        clienteVat: "IT01111111111",
+      }),
+      commesse: [commessa({ clienteId: 7 })],
+      clienti: [
+        anagrafica({ cognome: "Alfa", nome: "Srl", partitaIva: "01111111111" }),
+      ],
+    });
+    expect(esito.commessaId).toBe(10);
+    expect(esito.incerto).toBe(false);
+  });
+
+  it("il codice commessa in fattura vince anche sulla contraddizione", () => {
+    const esito = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Bianchi Lucia",
+        clienteVat: "IT02222222222",
+        descrizione: "Saldo COM 2026 035",
+      }),
+      commesse: [commessa({ clienteId: 7, codice: "COM-2026-035" })],
+      clienti: [
+        anagrafica({ cognome: "Rossi", nome: "Mario", partitaIva: "01111111111" }),
+      ],
+    });
+    expect(esito.commessaId).toBe(10);
+    expect(esito.incerto).toBe(false);
+  });
+
+  it("due fatture di clienti diversi non finiscono sulla stessa commessa", () => {
+    // Il caso vero: due intestatari nello stesso stabile. La prima fattura
+    // e' del cliente della commessa, la seconda no.
+    const commesse = [
+      commessa({
+        id: 10,
+        cliente: "Rossi Mario",
+        indirizzo: "Via Guglielmo Marconi 14",
+        citta: "Sarzana",
+      }),
+    ];
+    const sua = trovaCommessaPerFattura({
+      fattura: fattura({
+        clienteNome: "Rossi Mario",
+        clienteIndirizzo: "Via Guglielmo Marconi 14",
+        clienteCitta: "Sarzana",
+      }),
+      commesse,
+      clienti: [],
+    });
+    const altrui = trovaCommessaPerFattura({
+      fattura: fattura({
+        id: 2,
+        clienteNome: "Bianchi Lucia",
+        clienteIndirizzo: "Via Guglielmo Marconi 14",
+        clienteCitta: "Sarzana",
+      }),
+      commesse,
+      clienti: [],
+    });
+    expect(sua.commessaId).toBe(10);
+    expect(altrui.commessaId).toBeNull();
+    expect(altrui.incerto).toBe(true);
+  });
+});
+
+describe("verificaCollegamento", () => {
+  it("segnala una fattura gia' collegata alla commessa di un altro", () => {
+    const esito = verificaCollegamento({
+      fattura: fattura({ clienteNome: "Bianchi Lucia" }),
+      commessa: commessa({ cliente: "Rossi Mario" }),
+      cliente: null,
+    });
+    expect(esito.avviso).toBe("intestatario diverso");
+  });
+
+  it("tace quando l'intestatario e' lo stesso", () => {
+    const esito = verificaCollegamento({
+      fattura: fattura({ clienteNome: "Mario Rossi" }),
+      commessa: commessa({ cliente: "Rossi Mario" }),
+      cliente: null,
+    });
+    expect(esito.avviso).toBeNull();
+  });
+
+  it("tace quando il codice commessa e' scritto in fattura", () => {
+    const esito = verificaCollegamento({
+      fattura: fattura({
+        clienteNome: "Bianchi Lucia",
+        descrizione: "Saldo COM 2026 035",
+      }),
+      commessa: commessa({ cliente: "Rossi Mario", codice: "COM-2026-035" }),
+      cliente: null,
+    });
+    expect(esito.avviso).toBeNull();
   });
 });
 

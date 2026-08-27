@@ -31,8 +31,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { formatEuroSimbolo } from "@/lib/euro";
 import {
+  AlertTriangle,
   Landmark,
   Link2,
+  Unlink,
   Loader2,
   EyeOff,
   ShieldAlert,
@@ -71,6 +73,13 @@ const FILTRI = [
     id: "riconciliate",
     label: "A posto",
     tiene: (f: any) => f.stato === "riconciliata",
+  },
+  {
+    // Lo storico collegato con le regole vecchie: una fattura su una commessa
+    // di un altro cliente non si distingue da sola dalle altre "a posto".
+    id: "da_controllare",
+    label: "Da controllare",
+    tiene: (f: any) => Boolean(f.avvisoCollegamento),
   },
   { id: "escluse", label: "Escluse", tiene: (f: any) => f.stato === "ignorata" },
   { id: "tutte", label: "Tutte", tiene: () => true },
@@ -191,6 +200,17 @@ function RigaFattura({ f }: { f: any }) {
           </div>
         )}
 
+        {f.avvisoCollegamento && (
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-2.5 text-xs text-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <p className="min-w-0">
+              Collegata a {f.commessaCodice} ma {f.avvisoCollegamento}. Se la
+              fattura non è di questa commessa, scollegala: pattuito e incassi
+              tornano alle fatture rimaste.
+            </p>
+          </div>
+        )}
+
         {/* I candidati li ha già calcolati il matcher per decidere. Mostrarli
             trasforma una ricerca a mano in un click, e il motivo accanto dice
             perché il server li propone — così la scelta resta dell'operatore
@@ -199,9 +219,11 @@ function RigaFattura({ f }: { f: any }) {
           <div className="space-y-1.5 rounded-md border border-border bg-surface-2 p-2.5">
             <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-2">
               <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-              {candidati.length === 1
-                ? "Una commessa combacia"
-                : `${candidati.length} commesse combaciano`}
+              {candidati.every(c => c.incerto)
+                ? "Da confermare a mano"
+                : candidati.length === 1
+                  ? "Una commessa combacia"
+                  : `${candidati.length} commesse combaciano`}
             </p>
             <div className="flex flex-col gap-1.5">
               {candidati.map(c => (
@@ -222,6 +244,13 @@ function RigaFattura({ f }: { f: any }) {
                     <span className="block truncate text-[11px] font-normal text-text-3">
                       {c.motivo}
                     </span>
+                    {/* Il dubbio va detto qui, accanto al pulsante che lo
+                        ignorerebbe: e' l'unico punto in cui serve. */}
+                    {c.dubbio && (
+                      <span className="block truncate text-[11px] font-normal text-warning">
+                        Attenzione: {c.dubbio}
+                      </span>
+                    )}
                   </span>
                 </Button>
               ))}
@@ -244,6 +273,19 @@ function RigaFattura({ f }: { f: any }) {
             <Search className="mr-1 h-3 w-3" />
             {f.commessaId != null ? "Sposta" : "Cerca commessa"}
           </Button>
+          {f.commessaId != null && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              disabled={collegaMut.isPending}
+              title="Toglie la fattura dalla commessa: il PDF esce dal fascicolo, pattuito e incassi si ricalcolano"
+              onClick={() => collegaMut.mutate({ ficId: f.id, commessaId: null })}
+            >
+              <Unlink className="mr-1 h-3 w-3" />
+              Scollega
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -378,8 +420,14 @@ function Fatture({ anno }: { anno: number }) {
   const conCandidati = tutte.filter(
     f => f.stato === "non_abbinabile" && (f.candidati ?? []).length > 0
   ).length;
+  // Solo quelle che il riallineamento collegherebbe davvero: un candidato
+  // unico ma incerto resta una decisione umana, e contarlo qui prometteva un
+  // collegamento che non sarebbe avvenuto.
   const inequivocabili = tutte.filter(
-    f => f.stato === "non_abbinabile" && (f.candidati ?? []).length === 1
+    f =>
+      f.stato === "non_abbinabile" &&
+      (f.candidati ?? []).length === 1 &&
+      !f.candidati[0].incerto
   ).length;
 
   return (

@@ -30,6 +30,7 @@ import {
 import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
 import {
   trovaCommessaPerFattura,
+  verificaCollegamento,
   type ClientePerMatch,
   type CommessaPerMatch,
 } from "./ficMatch";
@@ -98,6 +99,11 @@ export type FatturaFic = {
   commessaId: number | null;
   commessaMatch: CommessaMatchFic;
   collegataAMano: boolean;
+  // Commesse gia' rifiutate per questa fattura: scollegarla a mano, o
+  // togliere il suo PDF dal fascicolo, e' un giudizio dell'operatore. Senza
+  // memoria il match automatico la riattaccava alla stessa commessa al giro
+  // dopo, e il pattuito tornava sbagliato da solo.
+  commesseEscluse: number[];
   ignorata: boolean;
   // Già esaminata da Tars per il collegamento: una fattura ambigua si paga
   // una volta sola, come le mail.
@@ -145,6 +151,7 @@ const _fattureStore = persistedStore<FatturaFic>("fic_fatture", items => {
     if (f.importoIva === undefined) {
       f.importoIva = Math.max(0, f.importoLordo - f.importoNetto);
     }
+    if (!Array.isArray(f.commesseEscluse)) f.commesseEscluse = [];
     if (f.presenteInFic === undefined) f.presenteInFic = true;
     if (f.ultimoSyncId === undefined) f.ultimoSyncId = null;
     if (f.ultimoVistoAt === undefined) f.ultimoVistoAt = null;
@@ -367,6 +374,7 @@ export function upsertDocumentiEmessi(
         commessaId: null,
         commessaMatch: "nessuno",
         collegataAMano: false,
+        commesseEscluse: [],
         ignorata: false,
         tarsAnalizzata: false,
         presenteInFic: true,
@@ -484,6 +492,7 @@ export function commessaPerFattura(
 export function collegaFattureAutomatiche(sedeId: number): {
   collegate: number;
   ambigue: number;
+  incerte: number;
 } {
   const commesse = getCommesseStore().filter(
     (commessa: any) =>
@@ -520,6 +529,7 @@ export function collegaFattureAutomatiche(sedeId: number): {
 
   let collegate = 0;
   let ambigue = 0;
+  let incerte = 0;
   for (const fattura of ficFatture) {
     if (
       fattura.sedeId !== sedeId ||
@@ -529,6 +539,7 @@ export function collegaFattureAutomatiche(sedeId: number): {
     ) {
       continue;
     }
+    const escluse = new Set(fattura.commesseEscluse ?? []);
     const esito = trovaCommessaPerFattura({
       fattura: {
         id: fattura.id,
@@ -543,7 +554,10 @@ export function collegaFattureAutomatiche(sedeId: number): {
         descrizione: fattura.descrizione,
         clienteId: fattura.clienteId,
       },
-      commesse: candidatiCommessa,
+      commesse:
+        escluse.size === 0
+          ? candidatiCommessa
+          : candidatiCommessa.filter(c => !escluse.has(c.id)),
       clienti: anagrafiche,
     });
     if (esito.commessaId != null) {
@@ -555,10 +569,79 @@ export function collegaFattureAutomatiche(sedeId: number): {
       collegate++;
     } else if (esito.ambiguo) {
       ambigue++;
+    } else if (esito.incerto) {
+      incerte++;
     }
   }
   if (collegate > 0) saveFicFatture();
-  return { collegate, ambigue };
+  return { collegate, ambigue, incerte };
+}
+
+/**
+ * Scollega una fattura dalla sua commessa, davvero.
+ *
+ * "Davvero" significa tre cose insieme, perche' finora ne succedeva una alla
+ * volta e le altre due restavano indietro:
+ *   1. il legame sparisce dalla fattura;
+ *   2. il PDF archiviato esce dal fascicolo della commessa (altrimenti il
+ *      sync successivo lo ritrovava e lo riattaccava);
+ *   3. il pattuito viene ricalcolato sulle fatture rimaste.
+ *
+ * La commessa finisce fra quelle escluse: e' un giudizio dell'operatore, e
+ * senza memoria il match automatico rifaceva lo stesso errore. La fattura
+ * torna in coda a Tars (`tarsAnalizzata = false`) perche' possa proporre la
+ * commessa giusta, o proporre di crearla.
+ */
+export async function scollegaFatturaDaCommessa(input: {
+  fattura: FatturaFic;
+  sedeId: number;
+  escludiCommessa?: boolean;
+  eliminaAllegato?: boolean;
+}): Promise<{ commessaPrecedente: number | null }> {
+  const { fattura, sedeId } = input;
+  const commessaPrecedente = fattura.commessaId;
+  if (commessaPrecedente == null) return { commessaPrecedente: null };
+
+  if (input.escludiCommessa !== false) {
+    if (!Array.isArray(fattura.commesseEscluse)) fattura.commesseEscluse = [];
+    if (!fattura.commesseEscluse.includes(commessaPrecedente)) {
+      fattura.commesseEscluse.push(commessaPrecedente);
+    }
+  }
+  fattura.commessaId = null;
+  fattura.collegataAMano = false;
+  fattura.commessaMatch = "nessuno";
+  fattura.tarsAnalizzata = false;
+  fattura.pdfSync.stato = "non_collegata";
+  fattura.pdfSync.ultimoErrore = null;
+  fattura.aggiornataAt = new Date();
+  saveFicFatture();
+
+  if (input.eliminaAllegato !== false) {
+    const { deleteDocumentoFic } = await import("./preventiviContratti");
+    deleteDocumentoFic(sedeId, fattura.id);
+  }
+
+  // Gli incassi seguono la fattura come il pattuito: la riconciliazione
+  // guarda solo le fatture collegate, quindi questi movimenti nessuno li
+  // toccherebbe piu'.
+  const { stornaPagamentiFicScollegati } = await import("./ficPagamenti");
+  stornaPagamentiFicScollegati({
+    sedeId,
+    ficDocumentoId: fattura.id,
+    commessaId: commessaPrecedente,
+  });
+
+  // Senza piu' quella fattura il pattuito della commessa cambia: e' il
+  // motivo per cui questa funzione esiste.
+  const commessa: any = getCommessaById(commessaPrecedente);
+  const eraFic = commessa?.pattuitoFonte === "fic";
+  sincronizzaPattuitoDaFic(sedeId);
+  if (eraFic) {
+    const { azzeraPattuitoDerivato } = await import("./commesse");
+    azzeraPattuitoDerivato(commessaPrecedente);
+  }
+  return { commessaPrecedente };
 }
 
 /**
@@ -685,18 +768,32 @@ export function statoFattura(
  * l'operatore a ricercare a mano una commessa che il server aveva gia'
  * individuato. Esposti, diventano un click.
  */
-export function candidatiPerFattura(
-  fattura: FatturaFic,
-  commesse: readonly any[],
-  clienti: readonly any[],
-  massimo = 3
-): Array<{
+export type CandidatoFattura = {
   commessaId: number;
   codice: string;
   cliente: string | null;
   motivo: string;
-}> {
-  if (fattura.commessaId != null) return [];
+  incerto: boolean;
+  dubbio: string | null;
+};
+
+/**
+ * Cosa ha visto il match su una fattura non collegata: i candidati e il
+ * perche' non e' bastato.
+ *
+ * Il motivo veniva calcolato e buttato via, e in lista restava un generico
+ * "non e' ancora collegata" anche quando il server sapeva benissimo di aver
+ * scartato una commessa per partita IVA diversa. Dirlo e' meta' del lavoro.
+ */
+export function analisiAggancioFattura(
+  fattura: FatturaFic,
+  commesse: readonly any[],
+  clienti: readonly any[],
+  massimo = 3
+): { candidati: CandidatoFattura[]; motivo: string | null } {
+  if (fattura.commessaId != null) return { candidati: [], motivo: null };
+  const escluse = new Set(fattura.commesseEscluse ?? []);
+  if (escluse.size > 0) commesse = commesse.filter(c => !escluse.has(c.id));
   const esito = trovaCommessaPerFattura({
     fattura: {
       id: fattura.id,
@@ -734,12 +831,92 @@ export function candidatiPerFattura(
     })),
   });
   const perId = new Map(commesse.map(c => [c.id, c]));
-  return esito.candidati.slice(0, massimo).map(candidato => ({
-    commessaId: candidato.commessaId,
-    codice: candidato.codice,
-    cliente: perId.get(candidato.commessaId)?.cliente ?? null,
-    motivo: candidato.segnali.map(segnale => ETICHETTA_SEGNALE[segnale]).join(" · "),
-  }));
+  return {
+    candidati: esito.candidati.slice(0, massimo).map(candidato => ({
+      commessaId: candidato.commessaId,
+      codice: candidato.codice,
+      cliente: perId.get(candidato.commessaId)?.cliente ?? null,
+      motivo: candidato.segnali
+        .map(segnale => ETICHETTA_SEGNALE[segnale])
+        .join(" · "),
+      incerto: candidato.incerto,
+      dubbio: candidato.dubbio,
+    })),
+    motivo: esito.motivo,
+  };
+}
+
+function perMatch(fattura: FatturaFic) {
+  return {
+    id: fattura.id,
+    numero: fattura.numero,
+    clienteNome: fattura.clienteNome,
+    clienteVat: fattura.clienteVat,
+    clienteCf: fattura.clienteCf,
+    clienteEmail: fattura.clienteEmail,
+    clienteTelefono: fattura.clienteTelefono,
+    clienteIndirizzo: fattura.clienteIndirizzo,
+    clienteCitta: fattura.clienteCitta,
+    descrizione: fattura.descrizione,
+    clienteId: fattura.clienteId,
+  };
+}
+
+/**
+ * L'avviso su una fattura GIA' collegata: i dati che dicono il contrario.
+ *
+ * Serve per lo storico. Le regole nuove impediscono nuovi collegamenti
+ * sbagliati, ma quelli fatti prima restano dove sono — con il pattuito
+ * gonfiato — e senza un avviso nessuno li ritrova.
+ */
+export function avvisoCollegamento(
+  fattura: FatturaFic,
+  commesse: readonly any[],
+  clienti: readonly any[]
+): string | null {
+  if (fattura.commessaId == null) return null;
+  const commessa: any = commesse.find(c => c.id === fattura.commessaId);
+  if (!commessa) return null;
+  const cliente: any =
+    commessa.clienteId != null
+      ? clienti.find(c => c.id === commessa.clienteId) ?? null
+      : null;
+  return verificaCollegamento({
+    fattura: perMatch(fattura),
+    commessa: {
+      id: commessa.id,
+      codice: String(commessa.codice ?? ""),
+      clienteId: commessa.clienteId ?? null,
+      cliente: commessa.cliente ?? null,
+      email: commessa.email ?? null,
+      telefono: commessa.telefono ?? null,
+      indirizzo: commessa.indirizzo ?? null,
+      citta: commessa.citta ?? null,
+    },
+    cliente: cliente
+      ? {
+          id: cliente.id,
+          nome: cliente.nome ?? null,
+          cognome: cliente.cognome ?? null,
+          email: cliente.email ?? null,
+          telefono: cliente.telefono ?? null,
+          indirizzo: cliente.indirizzo ?? null,
+          citta: cliente.citta ?? null,
+          partitaIva: cliente.partitaIva ?? null,
+          codiceFiscale: cliente.codiceFiscale ?? null,
+        }
+      : null,
+  }).avviso;
+}
+
+/** Solo i candidati, per chi non ha bisogno del motivo. */
+export function candidatiPerFattura(
+  fattura: FatturaFic,
+  commesse: readonly any[],
+  clienti: readonly any[],
+  massimo = 3
+): CandidatoFattura[] {
+  return analisiAggancioFattura(fattura, commesse, clienti, massimo).candidati;
 }
 
 const ETICHETTA_SEGNALE: Record<string, string> = {
@@ -805,6 +982,10 @@ export const ficFattureRouter = router({
         )
         .map(f => {
           const s = statoFattura(f, commesse);
+          const analisi =
+            f.commessaId == null && !f.ignorata
+              ? analisiAggancioFattura(f, commesseAgganciabili, clientiSede)
+              : { candidati: [] as CandidatoFattura[], motivo: null };
           const propostaCollegamento = proposteCollegamento.get(f.id);
           const commessaProposta = propostaCollegamento
             ? commesse.find(c => c.id === propostaCollegamento.commessaId)
@@ -822,16 +1003,17 @@ export const ficFattureRouter = router({
             stato: propostaCollegamento ? ("proposta" as const) : s.stato,
             motivo: propostaCollegamento
               ? "Tars ha individuato una possibile commessa."
-              : s.motivo,
+              : (analisi.motivo ?? s.motivo),
             commessaId: f.commessaId,
             commessaCodice: s.commessa?.codice ?? null,
             commessaCliente: s.commessa?.cliente ?? null,
             collegataAMano: f.collegataAMano,
             commessaMatch: f.commessaMatch,
-            candidati:
-              f.commessaId == null && !f.ignorata
-                ? candidatiPerFattura(f, commesseAgganciabili, clientiSede)
-                : [],
+            candidati: analisi.candidati,
+            avvisoCollegamento:
+              f.commessaId == null
+                ? null
+                : avvisoCollegamento(f, commesse, clientiSede),
             pdfSync: f.pdfSync,
             propostaTars: propostaCollegamento
               ? {
@@ -876,6 +1058,11 @@ export const ficFattureRouter = router({
         f.commessaId = input.commessaId;
         f.collegataAMano = true;
         f.commessaMatch = "manuale";
+        // Sceglierla a mano annulla un eventuale rifiuto precedente: e' la
+        // stessa persona che aveva detto no a dire ora di si'.
+        f.commesseEscluse = (f.commesseEscluse ?? []).filter(
+          id => id !== input.commessaId
+        );
         f.ignorata = false;
         f.pdfSync.stato = "in_attesa";
         f.pdfSync.ultimoErrore = null;
@@ -904,17 +1091,10 @@ export const ficFattureRouter = router({
           downloadPdf: scaricaFatturaPdfForTests ?? scaricaFatturaPdf,
         });
       } else {
-        const commessaPrecedente = f.commessaId;
-        f.commessaId = null;
-        f.collegataAMano = false;
-        f.commessaMatch = "nessuno";
-        f.pdfSync.stato = "non_collegata";
-        f.pdfSync.ultimoErrore = null;
-        f.aggiornataAt = new Date();
-        saveFicFatture();
-        // Senza più fatture la commessa torna manuale: il pattuito resta al
-        // valore emesso ma da qui in poi è di nuovo scrivibile a mano.
-        if (commessaPrecedente != null) sincronizzaPattuitoDaFic(sedeId);
+        // Scollegare vuol dire togliere anche il PDF dal fascicolo e
+        // ricalcolare il pattuito: `scollegaFatturaDaCommessa` fa i tre
+        // passi insieme, che separati restavano a meta'.
+        await scollegaFatturaDaCommessa({ fattura: f, sedeId });
       }
       return {
         success: true as const,
@@ -970,6 +1150,7 @@ export const ficFattureRouter = router({
     return {
       collegate: collegamenti.collegate,
       ambigue: collegamenti.ambigue,
+      incerte: collegamenti.incerte,
       pattuitiAggiornati: pattuito.aggiornate,
       paymentStats: payments.stats,
       correzioniProposte: corrections.create,

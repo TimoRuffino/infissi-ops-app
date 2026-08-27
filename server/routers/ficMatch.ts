@@ -5,10 +5,22 @@
 // la commessa, la fattura le va allegata. Deterministico e spiegabile, come
 // `tars/match.ts` per le comunicazioni: nessun modello qui dentro.
 //
-// L'unico caso in cui non si decide è la parità: due o più commesse che
-// combaciano con la stessa forza. Lì non si indovina — la fattura resta in
-// coda e Tars (o l'operatore) sceglie. Scegliere a caso fra due clienti
-// omonimi significa attribuire i soldi di uno all'altro.
+// Ma "un segnale basta" vale solo finché nessun ALTRO dato dice il
+// contrario. Dal 27/08/2026 il matcher guarda anche le contraddizioni:
+// due intestatari con partita IVA diversa, o due nomi diversi, non sono la
+// stessa persona nemmeno quando condividono il civico. È il caso dei
+// condomini e delle palazzine — stesso indirizzo, clienti diversi — che
+// portava due fatture di due clienti sulla stessa commessa, e quindi un
+// pattuito che sommava i soldi di due lavori.
+//
+// Tre esiti, non due:
+//   - certo    → si collega da solo
+//   - incerto  → si mostra il candidato ma NON si collega: decide un umano
+//   - escluso  → contraddizione forte, la commessa non è nemmeno candidata
+//
+// L'incertezza è un'informazione da dire, non da nascondere dietro una
+// scelta a caso: attribuire i soldi di un cliente a un altro è peggio che
+// lasciare una fattura in coda un giorno in più.
 
 import { stessoNumero } from "@shared/telefono";
 
@@ -19,6 +31,9 @@ export type SegnaleMatch =
   | "telefono"
   | "cognome_nome"
   | "indirizzo";
+
+/** Dati che si contraddicono fra fattura e commessa. */
+export type Contraddizione = "identita_fiscale" | "cognome_nome" | "cliente_crm";
 
 // Peso di ciascun segnale. Non è una soglia da superare: serve a ordinare i
 // candidati quando più commesse combaciano, e a scrivere il motivo.
@@ -31,6 +46,14 @@ const PESO: Record<SegnaleMatch, number> = {
   indirizzo: 12,
 };
 
+// Sotto questa forza il collegamento resta una proposta.
+//
+// L'unico segnale che non la raggiunge da solo è l'indirizzo (12): un
+// indirizzo è il posto, non l'intestatario. In una palazzina o in un
+// condominio combacia per clienti che non c'entrano niente fra loro, ed è
+// esattamente da lì che nascevano i doppi collegamenti.
+export const FORZA_MINIMA_AUTOMATICA = 20;
+
 const ETICHETTA: Record<SegnaleMatch, string> = {
   codice_commessa: "codice commessa citato nella fattura",
   identita_fiscale: "partita IVA o codice fiscale",
@@ -38,6 +61,12 @@ const ETICHETTA: Record<SegnaleMatch, string> = {
   telefono: "telefono",
   cognome_nome: "nome e cognome",
   indirizzo: "indirizzo",
+};
+
+const ETICHETTA_CONTRARIA: Record<Contraddizione, string> = {
+  identita_fiscale: "partita IVA / codice fiscale diversi",
+  cognome_nome: "intestatario diverso",
+  cliente_crm: "cliente in anagrafica diverso",
 };
 
 export type FatturaPerMatch = {
@@ -82,6 +111,11 @@ export type CandidatoMatch = {
   codice: string;
   punteggio: number;
   segnali: SegnaleMatch[];
+  contraddizioni: Contraddizione[];
+  /** Combacia, ma non abbastanza da collegarsi da solo. */
+  incerto: boolean;
+  /** Perché non basta: testo già pronto per l'operatore e per Tars. */
+  dubbio: string | null;
 };
 
 export type EsitoMatchFattura = {
@@ -90,6 +124,8 @@ export type EsitoMatchFattura = {
   motivo: string;
   candidati: CandidatoMatch[];
   ambiguo: boolean;
+  /** C'è un candidato, ma serve una conferma umana. */
+  incerto: boolean;
 };
 
 const CODICE_RE = /\bCOM[\s\-–_]?(\d{4})[\s\-–_]?(\d{1,4})\b/i;
@@ -199,11 +235,8 @@ function segnaliPerCommessa(
 
   const nomeFattura = chiaveNome(fattura.clienteNome);
   if (nomeFattura) {
-    const nomiCrm = [
-      chiaveNome(commessa.cliente),
-      cliente ? chiaveNome(`${cliente.cognome ?? ""} ${cliente.nome ?? ""}`) : "",
-    ];
-    if (nomiCrm.some(valore => valore && valore === nomeFattura)) {
+    const nomiCrm = nomiCommessa(commessa, cliente);
+    if (nomiCrm.some(valore => valore === nomeFattura)) {
       segnali.push("cognome_nome");
     }
   }
@@ -225,16 +258,159 @@ function segnaliPerCommessa(
   return segnali;
 }
 
+/** I nomi con cui il CRM conosce l'intestatario di questa commessa. */
+function nomiCommessa(
+  commessa: CommessaPerMatch,
+  cliente: ClientePerMatch | null
+): string[] {
+  return [
+    chiaveNome(commessa.cliente),
+    cliente ? chiaveNome(`${cliente.cognome ?? ""} ${cliente.nome ?? ""}`) : "",
+  ].filter(Boolean);
+}
+
+/**
+ * Dati che dicono il contrario. Non "assenti" — presenti su entrambi i lati
+ * e diversi. È la differenza fra "non lo so" e "non è lui".
+ */
+function contraddizioniPerCommessa(
+  fattura: FatturaPerMatch,
+  commessa: CommessaPerMatch,
+  cliente: ClientePerMatch | null
+): Contraddizione[] {
+  const contrarie: Contraddizione[] = [];
+
+  if (cliente) {
+    const vatFattura = normalizzaFiscale(fattura.clienteVat, true);
+    const cfFattura = normalizzaFiscale(fattura.clienteCf);
+    const vatCliente = normalizzaFiscale(cliente.partitaIva, true);
+    const cfCliente = normalizzaFiscale(cliente.codiceFiscale);
+    if (
+      (vatFattura && vatCliente && vatFattura !== vatCliente) ||
+      (cfFattura && cfCliente && cfFattura !== cfCliente)
+    ) {
+      contrarie.push("identita_fiscale");
+    }
+  }
+
+  // La fattura è già stata attribuita a un cliente in anagrafica e la
+  // commessa è di un altro: due schede diverse, due fascicoli diversi.
+  if (
+    fattura.clienteId != null &&
+    commessa.clienteId != null &&
+    fattura.clienteId !== commessa.clienteId
+  ) {
+    contrarie.push("cliente_crm");
+  }
+
+  const nomeFattura = chiaveNome(fattura.clienteNome);
+  const nomiCrm = nomiCommessa(commessa, cliente);
+  if (nomeFattura && nomiCrm.length > 0 && !nomiCrm.includes(nomeFattura)) {
+    contrarie.push("cognome_nome");
+  }
+
+  return contrarie;
+}
+
+/**
+ * Un collegamento GIA' fatto regge ancora?
+ *
+ * Le regole nuove valgono per i collegamenti futuri: quelli sbagliati prima
+ * restano dove sono, con il loro pattuito gonfiato, e nessuno se ne accorge
+ * finche' non torna il conto a fine anno. Questa funzione li rende visibili
+ * senza toccarli — scollegare resta una decisione umana.
+ */
+export function verificaCollegamento(input: {
+  fattura: FatturaPerMatch;
+  commessa: CommessaPerMatch;
+  cliente: ClientePerMatch | null;
+}): { contraddizioni: Contraddizione[]; avviso: string | null } {
+  const codiceCitato = estraiCodiceCommessa(
+    `${input.fattura.descrizione ?? ""} ${input.fattura.numero}`
+  );
+  if (codiceCitato && input.commessa.codice.toUpperCase() === codiceCitato) {
+    return { contraddizioni: [], avviso: null };
+  }
+  const segnali = segnaliPerCommessa(
+    input.fattura,
+    input.commessa,
+    input.cliente,
+    codiceCitato
+  );
+  const contraddizioni = contraddizioniPerCommessa(
+    input.fattura,
+    input.commessa,
+    input.cliente
+  );
+  // Stessa indulgenza del match: il codice fiscale copre una ragione sociale
+  // riscritta.
+  const daSegnalare = segnali.includes("identita_fiscale")
+    ? contraddizioni.filter(c => c !== "cognome_nome")
+    : contraddizioni;
+  if (daSegnalare.length === 0) return { contraddizioni: [], avviso: null };
+  return {
+    contraddizioni: daSegnalare,
+    avviso: daSegnalare.map(c => ETICHETTA_CONTRARIA[c]).join(", "),
+  };
+}
+
 function punteggio(segnali: readonly SegnaleMatch[]): number {
   return segnali.reduce((somma, segnale) => somma + PESO[segnale], 0);
 }
 
 /**
+ * Come pesare le contraddizioni.
+ *
+ * - il codice commessa scritto in fattura è volontà umana esplicita: vince
+ *   su qualsiasi contraddizione;
+ * - la stessa partita IVA / codice fiscale copre un nome diverso — le
+ *   ragioni sociali cambiano, i codici no;
+ * - tutto il resto: identità o cliente in conflitto ESCLUDONO la commessa,
+ *   un nome in conflitto la lascia candidata ma incerta.
+ */
+function valuta(
+  segnali: readonly SegnaleMatch[],
+  contraddizioni: readonly Contraddizione[]
+): { escluso: boolean; incerto: boolean; dubbio: string | null } {
+  if (segnali.includes("codice_commessa")) {
+    return { escluso: false, incerto: false, dubbio: null };
+  }
+  const fiscaleConferma = segnali.includes("identita_fiscale");
+  const gravi = contraddizioni.filter(c => c !== "cognome_nome");
+  if (gravi.length > 0) {
+    return {
+      escluso: true,
+      incerto: true,
+      dubbio: gravi.map(c => ETICHETTA_CONTRARIA[c]).join(", "),
+    };
+  }
+  if (contraddizioni.includes("cognome_nome") && !fiscaleConferma) {
+    return {
+      escluso: false,
+      incerto: true,
+      dubbio: ETICHETTA_CONTRARIA.cognome_nome,
+    };
+  }
+  if (punteggio(segnali) < FORZA_MINIMA_AUTOMATICA) {
+    return {
+      escluso: false,
+      incerto: true,
+      dubbio: `solo ${segnali.map(s => ETICHETTA[s]).join(", ")}`,
+    };
+  }
+  return { escluso: false, incerto: false, dubbio: null };
+}
+
+/**
  * Trova la commessa di una fattura.
  *
- * Un solo segnale basta per allegare — è la regola voluta. Il freno è
- * l'ambiguità: se due commesse raccolgono lo stesso punteggio massimo, si
- * restituisce `commessaId: null` con entrambe fra i candidati.
+ * Un solo segnale basta per allegare — è la regola voluta — purché nulla la
+ * contraddica e valga almeno `FORZA_MINIMA_AUTOMATICA`. I freni sono tre:
+ * la contraddizione (commessa scartata), l'incertezza (candidata, non
+ * collegata) e la parità fra due commesse (`ambiguo`). In tutti e tre i casi
+ * si restituisce `commessaId: null` con i candidati e il motivo scritto:
+ * scegliere a caso fra due clienti significa attribuire i soldi di uno
+ * all'altro.
  */
 export function trovaCommessaPerFattura(input: {
   fattura: FatturaPerMatch;
@@ -248,6 +424,7 @@ export function trovaCommessaPerFattura(input: {
   );
 
   const candidati: CandidatoMatch[] = [];
+  const esclusi: CandidatoMatch[] = [];
   for (const commessa of commesse) {
     const cliente =
       commessa.clienteId != null
@@ -255,15 +432,37 @@ export function trovaCommessaPerFattura(input: {
         : null;
     const segnali = segnaliPerCommessa(fattura, commessa, cliente, codiceCitato);
     if (segnali.length === 0) continue;
-    candidati.push({
+    const contraddizioni = contraddizioniPerCommessa(fattura, commessa, cliente);
+    const giudizio = valuta(segnali, contraddizioni);
+    const candidato: CandidatoMatch = {
       commessaId: commessa.id,
       codice: commessa.codice,
       punteggio: punteggio(segnali),
       segnali,
-    });
+      contraddizioni,
+      incerto: giudizio.incerto,
+      dubbio: giudizio.dubbio,
+    };
+    if (giudizio.escluso) esclusi.push(candidato);
+    else candidati.push(candidato);
   }
 
   if (candidati.length === 0) {
+    // Una commessa scartata per contraddizione non è "nessuna traccia": è una
+    // pista sbagliata, e dirlo evita che l'operatore la rifaccia a mano.
+    if (esclusi.length > 0) {
+      const scartata = esclusi[0];
+      return {
+        commessaId: null,
+        segnali: [],
+        motivo: `Scartata ${scartata.codice}: combacia su ${scartata.segnali
+          .map(segnale => ETICHETTA[segnale])
+          .join(", ")} ma ${scartata.dubbio}. Se la fattura è di un cliente nuovo, va creata la commessa.`,
+        candidati: [],
+        ambiguo: false,
+        incerto: false,
+      };
+    }
     return {
       commessaId: null,
       segnali: [],
@@ -271,6 +470,7 @@ export function trovaCommessaPerFattura(input: {
         "Nessuna commessa condivide telefono, email, nome, indirizzo o identità fiscale con questa fattura.",
       candidati: [],
       ambiguo: false,
+      incerto: false,
     };
   }
 
@@ -289,6 +489,18 @@ export function trovaCommessaPerFattura(input: {
         .join(", ")}): serve una scelta.`,
       candidati,
       ambiguo: true,
+      incerto: true,
+    };
+  }
+
+  if (migliore.incerto) {
+    return {
+      commessaId: null,
+      segnali: migliore.segnali,
+      motivo: `${migliore.codice} è possibile ma non certa: ${migliore.dubbio}. Serve una conferma, oppure la fattura è di una commessa che non esiste ancora.`,
+      candidati,
+      ambiguo: false,
+      incerto: true,
     };
   }
 
@@ -300,5 +512,6 @@ export function trovaCommessaPerFattura(input: {
       .join(", ")} con ${migliore.codice}.`,
     candidati,
     ambiguo: false,
+    incerto: false,
   };
 }

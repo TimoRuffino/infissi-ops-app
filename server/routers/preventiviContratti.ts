@@ -2,6 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
+import { DEFAULT_SEDE_ID } from "./sedi";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
 import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
 import { registerMigratableCollection } from "../_core/fileStorageMigrate";
@@ -245,6 +246,25 @@ function ficSourceRef(sedeId: number, ficId: number): string {
 
 function legacyFicSourceRef(sedeId: number, ficId: number): string {
   return `${sedeId}:${ficId}`;
+}
+
+/** L'id FIC dentro un sourceRef, nelle due forme storiche. */
+export function ficIdDaSourceRef(
+  sourceRef: string | null | undefined,
+  sedeId: number
+): number | null {
+  if (!sourceRef) return null;
+  const parti = sourceRef.split(":");
+  const attese =
+    parti.length === 3 && parti[0] === "fic"
+      ? parti.slice(1)
+      : parti.length === 2
+        ? parti
+        : null;
+  if (!attese) return null;
+  const [sede, fic] = attese.map(Number);
+  if (!Number.isSafeInteger(sede) || !Number.isSafeInteger(fic)) return null;
+  return sede === sedeId ? fic : null;
 }
 
 function comunicazioneSourceRef(
@@ -661,7 +681,7 @@ export const preventiviContrattiRouter = router({
       return { ...rest, hasData: !!dataBase64 || !!doc.storageKey };
     }),
 
-  delete: protectedProcedure.input(z.number()).mutation(({ input, ctx }) => {
+  delete: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = documenti.findIndex(d => d.id === input);
     if (idx === -1) throw new Error("Documento non trovato");
     // Allow delete when the user is the doc uploader OR owns the parent
@@ -679,6 +699,30 @@ export const preventiviContrattiRouter = router({
     documenti.splice(idx, 1);
     _documentiStore.save();
     deleteFileQuiet(doc.storageKey);
+
+    // Togliere il PDF di una fattura dal fascicolo E' scollegare la fattura.
+    // Finora era solo la cancellazione di un file: la fattura restava
+    // agganciata, il pattuito continuava a contarla e il sync successivo
+    // riscaricava lo stesso PDF nello stesso fascicolo.
+    if (doc.source === "fic") {
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const ficId = ficIdDaSourceRef(doc.sourceRef, sedeId);
+      if (ficId != null) {
+        const { ficFatture, scollegaFatturaDaCommessa } = await import(
+          "./ficFatture"
+        );
+        const fattura = ficFatture.find(
+          f => f.id === ficId && f.sedeId === sedeId
+        );
+        if (fattura && fattura.commessaId === doc.commessaId) {
+          await scollegaFatturaDaCommessa({
+            fattura,
+            sedeId,
+            eliminaAllegato: false,
+          });
+        }
+      }
+    }
     return { success: true };
   }),
 

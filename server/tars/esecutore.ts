@@ -441,6 +441,15 @@ export async function eseguiProposta(
           }
         );
       }
+      // Nata da una fattura orfana: la fattura ci va attaccata subito, se no
+      // resta in coda e al giro dopo si ripropone la stessa creazione.
+      if (p.ficId != null && result.jobId != null) {
+        await caller.ficFatture.collega({
+          ficId: Number(p.ficId),
+          commessaId: Number(result.jobId),
+        });
+        return `Cliente #${result.customerId} e commessa #${result.jobId} pronti; fattura ${p.fatturaNumero ?? p.ficId} collegata`;
+      }
       return comunicazioneId != null
         ? `Cliente #${result.customerId} e commessa #${result.jobId} pronti; comunicazione collegata`
         : `Cliente #${result.customerId} e commessa #${result.jobId} pronti`;

@@ -862,6 +862,11 @@ export const TOOL_DEFS: TarsTool[] = [
           description:
             "Obbligatorio solo quando la richiesta nasce da email o WhatsApp; omettilo per una richiesta diretta in chat.",
         },
+        ficId: {
+          type: "number",
+          description:
+            "Id della fattura Fatture in Cloud da cui nasce la proposta, quando il cliente fatturato non ha alcuna commessa nel CRM.",
+        },
         nome: {
           type: "string",
           description: "Nome della persona o ragione sociale",
@@ -1414,7 +1419,14 @@ const PROFILI: Record<string, readonly string[]> = {
     "cerca_commesse",
     "leggi_fascicolo_commessa",
     "leggi_fatture_cloud",
+    "leggi_assegnatari",
     "proponi_collegamento_fattura",
+    // Una fattura senza commessa spesso non e' un aggancio mancato: e' un
+    // lavoro che nel CRM non e' mai stato aperto. Senza questo strumento
+    // l'unica uscita era forzare il collegamento sulla commessa piu'
+    // somigliante, che e' il modo in cui due clienti finivano nello stesso
+    // fascicolo.
+    "proponi_nuovo_lead",
     ...TERMINAZIONE,
   ],
   smistamento: [
@@ -2833,8 +2845,28 @@ async function eseguiStrumentoSenzaCache(
         ) {
           return err("Comunicazione inesistente.");
         }
+        // Terza origine legittima, oltre alla comunicazione e alla chat: una
+        // fattura emessa a un cliente che nel CRM non ha commesse. Il
+        // documento fiscale esiste gia', quindi il lavoro e' reale: quello
+        // che manca e' il fascicolo.
+        let fatturaOrigine: { id: number; numero: string } | null = null;
+        if (input.ficId != null && rt.trigger === "riconciliazione_fatture") {
+          const { ficFatture } = await import("../routers/ficFatture");
+          const trovata = ficFatture.find(
+            f =>
+              f.id === Number(input.ficId) && f.sedeId === (rt.ctx.sedeId ?? 1)
+          );
+          if (!trovata) return err("Fattura non trovata.");
+          if (trovata.commessaId != null) {
+            return err(
+              "La fattura e' gia' collegata a una commessa: non serve crearne una nuova."
+            );
+          }
+          fatturaOrigine = { id: trovata.id, numero: trovata.numero };
+        }
         if (
           comunicazioneId == null &&
+          fatturaOrigine == null &&
           rt.trigger !== "chat" &&
           rt.trigger !== "seguito"
         ) {
@@ -2884,6 +2916,14 @@ async function eseguiStrumentoSenzaCache(
           confidenza: input.confidenza,
           payload: {
             ...(comunicazioneId != null ? { comunicazioneId } : {}),
+            // Alla creazione la fattura viene collegata da sola: e' l'unico
+            // motivo per cui la commessa sta nascendo.
+            ...(fatturaOrigine != null
+              ? {
+                  ficId: fatturaOrigine.id,
+                  fatturaNumero: fatturaOrigine.numero,
+                }
+              : {}),
             assegnatoA,
             assegnatoNome,
             cliente: {
@@ -2902,7 +2942,9 @@ async function eseguiStrumentoSenzaCache(
               note:
                 comunicazioneId != null
                   ? `Lead proposto da Tars dalla comunicazione #${comunicazioneId}.`
-                  : "Cliente proposto da Tars su richiesta dell'operatore in chat.",
+                  : fatturaOrigine
+                    ? `Cliente proposto da Tars dalla fattura ${fatturaOrigine.numero}, emessa senza commessa nel CRM.`
+                    : "Cliente proposto da Tars su richiesta dell'operatore in chat.",
             },
             commessa: {
               ...(email ? { email } : {}),
@@ -2919,7 +2961,9 @@ async function eseguiStrumentoSenzaCache(
                 input.note ??
                   (comunicazione
                     ? `Richiesta ricevuta via ${comunicazione.canale}: ${comunicazione.oggetto}`
-                    : "Commessa creata su richiesta dell'operatore in chat.")
+                    : fatturaOrigine
+                      ? `Commessa aperta a posteriori per la fattura ${fatturaOrigine.numero}.`
+                      : "Commessa creata su richiesta dell'operatore in chat.")
               ).slice(0, 2000),
               prodotti,
             },

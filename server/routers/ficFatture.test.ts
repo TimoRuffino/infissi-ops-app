@@ -116,7 +116,7 @@ describe("identita e collegamento persistito FIC", () => {
       item => item.sedeId === sedeId && item.id === 121_001
     )!;
 
-    expect(result).toEqual({ collegate: 1, ambigue: 0 });
+    expect(result).toEqual({ collegate: 1, ambigue: 0, incerte: 0 });
     expect(fattura.commessaId).toBe(commessa.id);
     expect(fattura.commessaMatch).toBe("automatico_segnali");
     expect(fattura.collegataAMano).toBe(false);
@@ -148,6 +148,7 @@ describe("identita e collegamento persistito FIC", () => {
     expect(collegaFattureAutomatiche(sedeId)).toEqual({
       collegate: 0,
       ambigue: 1,
+      incerte: 0,
     });
     expect(
       ficFatture.find(item => item.sedeId === sedeId && item.id === 122_001)!
@@ -174,6 +175,144 @@ const fatturaBase = (id: number, extra: Partial<any> = {}) => ({
     },
   ],
   ...extra,
+});
+
+describe("scollegare una fattura collegata per sbaglio", () => {
+  it("togliere il PDF dal fascicolo scollega la fattura, ricalcola pattuito e incassato", async () => {
+    // Il caso segnalato: due fatture su una commessa, pattuito di due
+    // fatture. L'operatore toglie l'allegato di quella sbagliata e si aspetta
+    // che il pattuito torni a una sola fattura.
+    const sedeId = 131;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    _setScaricaFatturaPdfForTests(async () => Buffer.from("%PDF-1.4 finto"));
+    try {
+      const cliente = await caller.clienti.create({
+        nome: "Anna",
+        cognome: "Giusta",
+      });
+      const commessa = await caller.commesse.create({ clienteId: cliente.id });
+      upsertFatture(
+        [
+          fatturaBase(131_001, {
+            clienteNome: "Giusta Anna",
+            importoNetto: 820,
+            importoLordo: 1_000,
+            rate: [
+              {
+                importo: 1_000,
+                scadenza: "2026-07-31",
+                stato: "not_paid",
+                dataPagamento: null,
+              },
+            ],
+          }),
+          fatturaBase(131_002, {
+            clienteNome: "Giusta Anna",
+            importoNetto: 410,
+            importoLordo: 500,
+            rate: [
+              {
+                importo: 500,
+                scadenza: "2026-08-31",
+                stato: "paid",
+                dataPagamento: "2026-08-20",
+              },
+            ],
+          }),
+        ],
+        sedeId
+      );
+
+      await caller.ficFatture.collega({ ficId: 131_001, commessaId: commessa.id });
+      await caller.ficFatture.collega({ ficId: 131_002, commessaId: commessa.id });
+      const conDue = await caller.commesse.byId(commessa.id);
+      expect(conDue?.importoTotale).toBe(1_500);
+      expect(conDue?.importoIncassato).toBe(500);
+
+      const allegatoSbagliato = findDocumentoFic(sedeId, 131_002);
+      expect(allegatoSbagliato).not.toBeNull();
+      await caller.preventiviContratti.delete(allegatoSbagliato!.id);
+
+      const dopo = await caller.commesse.byId(commessa.id);
+      expect(dopo?.importoTotale).toBe(1_000);
+      expect(dopo?.importoIncassato).toBe(0);
+      expect(dopo?.pianoRate.map((r: any) => r.ficDocumentoId)).toEqual([131_001]);
+
+      const scollegata = ficFatture.find(
+        f => f.id === 131_002 && f.sedeId === sedeId
+      )!;
+      expect(scollegata.commessaId).toBeNull();
+      expect(scollegata.commesseEscluse).toContain(commessa.id);
+      expect(scollegata.tarsAnalizzata).toBe(false);
+
+      // E il match automatico non rifa' l'errore al giro dopo: i due nomi
+      // combaciano, ma un umano ha gia' detto di no.
+      collegaFattureAutomatiche(sedeId);
+      expect(
+        ficFatture.find(f => f.id === 131_002 && f.sedeId === sedeId)!.commessaId
+      ).toBeNull();
+
+      // Ricollegarla a mano annulla il rifiuto: decide sempre la persona.
+      await caller.ficFatture.collega({ ficId: 131_002, commessaId: commessa.id });
+      const riattaccata = ficFatture.find(
+        f => f.id === 131_002 && f.sedeId === sedeId
+      )!;
+      expect(riattaccata.commesseEscluse).not.toContain(commessa.id);
+      expect((await caller.commesse.byId(commessa.id))?.importoTotale).toBe(1_500);
+    } finally {
+      _setScaricaFatturaPdfForTests(null);
+      deleteDocumentoFic(sedeId, 131_001);
+      deleteDocumentoFic(sedeId, 131_002);
+    }
+  });
+
+  it("l'ultima fattura scollegata svuota il pattuito invece di lasciarne uno orfano", async () => {
+    const sedeId = 132;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Ugo",
+      cognome: "Solo",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    upsertFatture(
+      [
+        fatturaBase(132_001, {
+          clienteNome: "Solo Ugo",
+          importoLordo: 2_000,
+          rate: [
+            {
+              importo: 2_000,
+              scadenza: "2026-09-30",
+              stato: "not_paid",
+              dataPagamento: null,
+            },
+          ],
+        }),
+      ],
+      sedeId
+    );
+    _setScaricaFatturaPdfForTests(async () => Buffer.from("%PDF-1.4 finto"));
+    try {
+      await caller.ficFatture.collega({ ficId: 132_001, commessaId: commessa.id });
+      expect((await caller.commesse.byId(commessa.id))?.importoTotale).toBe(2_000);
+
+      await caller.ficFatture.collega({ ficId: 132_001, commessaId: null });
+      const vuota = await caller.commesse.byId(commessa.id);
+      expect(vuota?.importoTotale).toBeNull();
+      expect(vuota?.pianoRate).toEqual([]);
+      // E torna scrivibile a mano.
+      expect(await caller.commesse.pattuito(commessa.id)).toMatchObject({
+        importoTotale: null,
+        fonte: null,
+        modificabile: true,
+      });
+      await caller.commesse.update({ id: commessa.id, importoTotale: 1_800 });
+      expect((await caller.commesse.byId(commessa.id))?.importoTotale).toBe(1_800);
+    } finally {
+      _setScaricaFatturaPdfForTests(null);
+      deleteDocumentoFic(sedeId, 132_001);
+    }
+  });
 });
 
 describe("riconciliazione FIC", () => {
@@ -878,11 +1017,15 @@ describe("fatture orfane → Tars", () => {
       await smistaFatture(1);
       expect(spy).not.toHaveBeenCalled();
 
+      // Scollegare porta via anche il PDF dal fascicolo: lasciarlo li'
+      // significava che il sync successivo lo ritrovava e riattaccava la
+      // fattura alla stessa commessa.
       await caller.ficFatture.collega({ ficId: 9100, commessaId: null });
       const docsScollegati = await caller.preventiviContratti.byCommessa(
         commessa.id
       );
-      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(true);
+      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(false);
+      expect((await caller.commesse.byId(commessa.id))?.importoTotale).toBeNull();
     } finally {
       global.fetch = realFetch;
       deleteDocumentoFic(1, 9100);

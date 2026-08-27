@@ -414,11 +414,20 @@ export async function smistaFatture(sedeId: number): Promise<void> {
   const pausaFatture = fatturePausaFinoA.get(sedeId);
   if (pausaFatture && Date.now() < pausaFatture) return;
 
-  const { ficFatture, saveFicFatture, statoFattura } = await import(
-    "../routers/ficFatture"
-  );
+  const { ficFatture, saveFicFatture, statoFattura, candidatiPerFattura } =
+    await import("../routers/ficFatture");
   const { getCommesseStore } = await import("../routers/commesse");
+  const { getClientiStore } = await import("../routers/clienti");
   const commesse = getCommesseStore();
+  const commesseAgganciabili = commesse.filter(
+    (commessa: any) =>
+      (commessa.sedeId ?? 1) === sedeId &&
+      !commessa.archivedAt &&
+      commessa.stato !== "archiviata"
+  );
+  const clientiSede = getClientiStore().filter(
+    (cliente: any) => (cliente.sedeId ?? 1) === sedeId
+  );
 
   const orfane = ficFatture
     .filter(f => {
@@ -436,12 +445,37 @@ export async function smistaFatture(sedeId: number): Promise<void> {
         const incassato = f.rate
           .filter(r => r.stato === "paid")
           .reduce((s, r) => s + r.importo, 0);
+        // I candidati che il match deterministico ha trovato ma non ha
+        // ritenuto sufficienti, col dubbio scritto: senza questi Tars
+        // ricominciava da zero e finiva per proporre la commessa piu'
+        // somigliante, che e' il modo in cui due clienti diversi finivano
+        // nello stesso fascicolo.
+        const candidati = candidatiPerFattura(
+          f,
+          commesseAgganciabili,
+          clientiSede
+        );
+        const righeCandidati =
+          candidati.length === 0
+            ? "Candidati: nessuno."
+            : `Candidati scartati dal match automatico:\n${candidati
+                .map(
+                  c =>
+                    `  - ${c.codice} (commessaId ${c.commessaId})${c.cliente ? ` · ${c.cliente}` : ""} · combacia su ${c.motivo}${c.dubbio ? ` · MA: ${c.dubbio}` : ""}`
+                )
+                .join("\n")}`;
+        const escluse =
+          (f.commesseEscluse ?? []).length > 0
+            ? `\nGia' rifiutate da un operatore: ${f.commesseEscluse.join(", ")} — non riproporle.`
+            : "";
         return `<fattura ficId="${f.id}">
 Numero: ${f.numero} · Data: ${f.data}
 Cliente in fattura: ${f.clienteNome}${f.clienteVat ? ` · P.IVA ${f.clienteVat}` : ""}${f.clienteCf ? ` · CF ${f.clienteCf}` : ""}
+Contatti in fattura: ${[f.clienteEmail, f.clienteTelefono, [f.clienteIndirizzo, f.clienteCitta].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "nessuno"}
 Importo lordo: € ${f.importoLordo}
 Incassato su FIC: € ${incassato}
 Motivo del mancato abbinamento: ${statoFattura(f, commesse).motivo}
+${righeCandidati}${escluse}
 </fattura>`;
       })
       .join("\n\n");
@@ -455,9 +489,27 @@ Le fatture qui sotto arrivano da Fatture in Cloud e il collegamento automatico n
 individuato la commessa. Per ciascuna: cerca il cliente e le sue commesse con gli
 strumenti (il nome in fattura può essere scritto diversamente dall'anagrafica: ragioni
 sociali abbreviate, soci con cognomi diversi, condomini). Confronta importi e periodo.
-Se individui la commessa giusta, usa proponi_collegamento_fattura con l'id FIC. Se una
-fattura non c'entra con le commesse (consulenze, vendite al banco, altro), non proporre
-nulla per lei. Se non c'è nulla da proporre, usa nessuna_azione.
+
+Una fattura collegata alla commessa sbagliata ne gonfia il pattuito e attribuisce i
+soldi di un cliente a un altro: costa molto più che lasciarla in coda un giorno in più.
+Quindi:
+
+- Collega solo se sei sicuro che l'intestatario della fattura è il cliente di quella
+  commessa. Usa proponi_collegamento_fattura con l'id FIC.
+- Se hai un dubbio, dillo: usa chiedi_chiarimento elencando le commesse in ballo e il
+  dato che non torna (nome diverso, partita IVA diversa, solo l'indirizzo in comune).
+  Non scegliere la più somigliante per chiudere la pratica.
+- Un indirizzo uguale non è un cliente uguale: nelle palazzine e nei condomini
+  combacia fra persone che non c'entrano niente fra loro.
+- Se il cliente della fattura non ha nessuna commessa nel CRM, la risposta giusta non
+  è forzare il collegamento: usa proponi_nuovo_lead passando ficId, così alla
+  approvazione nascono cliente e commessa e la fattura ci si attacca da sola. Prima
+  però cerca il cliente in anagrafica per non duplicarlo, e usa leggi_assegnatari per
+  scegliere a chi assegnarla.
+- Se una fattura non c'entra con le commesse (consulenze, vendite al banco, altro),
+  non proporre nulla per lei.
+
+Se non c'è nulla da proporre, usa nessuna_azione.
 
 ${blocchi}`;
 
