@@ -236,6 +236,11 @@ describe("scollegare una fattura collegata per sbaglio", () => {
       const dopo = await caller.commesse.byId(commessa.id);
       expect(dopo?.importoTotale).toBe(1_000);
       expect(dopo?.importoIncassato).toBe(0);
+      // Rimossi, non stornati: un incasso mai stato di questa commessa non
+      // merita una riga nel suo registro.
+      expect(
+        dopo?.pagamenti.filter((p: any) => p.ficDocumentoId === 131_002)
+      ).toEqual([]);
       expect(dopo?.pianoRate.map((r: any) => r.ficDocumentoId)).toEqual([131_001]);
 
       const scollegata = ficFatture.find(

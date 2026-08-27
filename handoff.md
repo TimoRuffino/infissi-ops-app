@@ -246,8 +246,16 @@ dal fascicolo (`preventiviContratti.delete` su un documento `source = "fic"`):
   `commesseEscluse`, così il match automatico non rifà lo stesso errore al
   giro dopo (ricollegarla a mano annulla il rifiuto);
 - il PDF esce dal fascicolo;
-- i movimenti `origine = fic` di quel documento vengono stornati
-  (`stornaPagamentiFicScollegati`) e `importoIncassato` ricalcolato;
+- i movimenti `origine = fic` di quel documento vengono **rimossi**, non
+  stornati (`rimuoviPagamentiFicScollegati`), e `importoIncassato`
+  ricalcolato: uno storno dice che un incasso di quella commessa è stato
+  annullato, ma se la fattura non era sua quei movimenti non sono mai stati
+  suoi, e restare come righe «Stornato» è cronaca di un errore. Sono dati
+  derivati: la riconciliazione li ricostruisce da FiC appena la fattura viene
+  collegata alla commessa giusta. Pagamenti manuali e link riconciliati a
+  mano non si toccano (questi ultimi diventano `superata`). Le righe già
+  create dalla prima versione — marcate `ficStato = "scollegata"` — vengono
+  ripulite dall'`onLoad` di `commesse`;
 - pattuito e piano rate vengono riderivati dalle fatture rimaste;
 - la fattura torna in coda a Tars (`tarsAnalizzata = false`).
 

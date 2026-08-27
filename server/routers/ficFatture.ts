@@ -624,9 +624,10 @@ export async function scollegaFatturaDaCommessa(input: {
 
   // Gli incassi seguono la fattura come il pattuito: la riconciliazione
   // guarda solo le fatture collegate, quindi questi movimenti nessuno li
-  // toccherebbe piu'.
-  const { stornaPagamentiFicScollegati } = await import("./ficPagamenti");
-  stornaPagamentiFicScollegati({
+  // toccherebbe piu'. Vanno via, non stornati: non sono mai stati di questa
+  // commessa.
+  const { rimuoviPagamentiFicScollegati } = await import("./ficPagamenti");
+  rimuoviPagamentiFicScollegati({
     sedeId,
     ficDocumentoId: fattura.id,
     commessaId: commessaPrecedente,

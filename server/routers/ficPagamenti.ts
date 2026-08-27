@@ -110,67 +110,72 @@ export const ficPaymentLinks = _linksStore.items;
 export const saveFicPaymentLinks = () => _linksStore.save();
 
 /**
- * Storna i movimenti FiC rimasti su una commessa dopo che la fattura le e'
- * stata scollegata.
+ * Toglie dalla commessa i movimenti FiC di una fattura che le e' stata
+ * scollegata.
  *
- * La riconciliazione parte dalle fatture COLLEGATE: una fattura senza
- * commessa non viene piu' guardata, quindi i suoi incassi restavano attivi
- * sul vecchio fascicolo e `importoIncassato` continuava a contarli. I
- * movimenti manuali non si toccano: quelli li ha inseriti una persona.
+ * Toglie, non storna. Uno storno racconta che un incasso di QUESTA commessa
+ * e' stato annullato, e vale la pena conservarlo. Ma se la fattura non era
+ * sua, quei movimenti non sono mai stati suoi: lasciarli come righe
+ * "Stornato" e' cronaca di un errore, non storia del lavoro. E niente va
+ * perso — i movimenti `origine = fic` sono dati derivati: si ricostruiscono
+ * da FiC appena la fattura viene collegata alla commessa giusta.
+ *
+ * Non si tocca nulla di manuale: i pagamenti scritti da una persona
+ * restano, e i link che una persona ha riconciliato a mano diventano
+ * `superata` invece di sparire.
  */
-export function stornaPagamentiFicScollegati(input: {
+export function rimuoviPagamentiFicScollegati(input: {
   sedeId: number;
   ficDocumentoId: number;
   commessaId: number;
-}): { stornati: number } {
+}): { rimossi: number } {
   const commessa: any = getCommesseStore().find(
     (item: any) =>
       item.id === input.commessaId &&
       (item.sedeId ?? DEFAULT_SEDE_ID) === input.sedeId
   );
   const now = new Date();
-  let stornati = 0;
+  const idRimossi = new Set<number>();
   if (commessa && Array.isArray(commessa.pagamenti)) {
-    for (const pagamento of commessa.pagamenti) {
+    const restanti = commessa.pagamenti.filter((pagamento: any) => {
       const normalized = normalizzaPagamentoLegacy(pagamento);
-      if (
-        normalized.origine !== "fic" ||
-        normalized.ficDocumentoId !== input.ficDocumentoId ||
-        normalized.stato === "stornato"
-      ) {
-        continue;
-      }
-      Object.assign(pagamento, {
-        stato: "stornato",
-        ficStato: "scollegata",
-        ficUltimoSyncAt: now,
-        stornatoAt: now,
-        updatedAt: now,
-      });
-      stornati++;
-    }
-    if (stornati > 0) {
+      const suo =
+        normalized.origine === "fic" &&
+        normalized.ficDocumentoId === input.ficDocumentoId;
+      if (suo) idRimossi.add(normalized.id);
+      return !suo;
+    });
+    if (idRimossi.size > 0) {
+      commessa.pagamenti = restanti;
+      commessa.updatedAt = now;
       ricalcolaImportoIncassato(commessa);
       saveCommesseStore();
     }
   }
 
   let linksChanged = false;
-  for (const link of ficPaymentLinks) {
+  for (let i = ficPaymentLinks.length - 1; i >= 0; i--) {
+    const link = ficPaymentLinks[i];
     if (
       link.sedeId !== input.sedeId ||
       link.ficDocumentoId !== input.ficDocumentoId ||
-      link.commessaId !== input.commessaId ||
-      link.stato === "superata"
+      link.commessaId !== input.commessaId
     ) {
       continue;
     }
-    link.stato = "superata";
-    link.updatedAt = now;
-    linksChanged = true;
+    // Il link a un pagamento che non esiste piu' e' spazzatura: la
+    // riconciliazione lo ricrea da sola al collegamento giusto.
+    if (idRimossi.has(link.pagamentoId)) {
+      ficPaymentLinks.splice(i, 1);
+      linksChanged = true;
+    } else if (link.stato !== "superata") {
+      link.stato = "superata";
+      link.updatedAt = now;
+      linksChanged = true;
+    }
   }
   if (linksChanged) saveFicPaymentLinks();
-  return { stornati };
+  return { rimossi: idRimossi.size };
 }
 
 export function confermaRiconciliazioneManuale(input: {

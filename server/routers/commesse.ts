@@ -149,6 +149,19 @@ const _store = persistedStore<any>("commesse", (items) => {
       ];
     }
     (c as any).pagamenti = (c as any).pagamenti.map(normalizzaPagamentoLegacy);
+    // Pulizia una tantum: la prima versione dello scollegamento stornava i
+    // movimenti della fattura tolta invece di rimuoverli, e la commessa
+    // restava con righe "Stornato" che raccontavano incassi mai stati suoi.
+    // Il marcatore `ficStato = "scollegata"` lo scriveva solo quella
+    // versione, quindi non tocca nessuno storno vero.
+    (c as any).pagamenti = (c as any).pagamenti.filter(
+      (p: any) =>
+        !(
+          p.origine === "fic" &&
+          p.stato === "stornato" &&
+          p.ficStato === "scollegata"
+        )
+    );
     ricalcolaImportoIncassato(c as any);
     // Pattuito: fonte esplicita (FiC o manuale) e piano rate. Sui record
     // storici il pattuito già presente resta, dichiarato `manuale`.
