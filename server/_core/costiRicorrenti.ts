@@ -134,6 +134,13 @@ export type EsitoClassificazioneRicorrenza = {
  * Non tocca ciò che una persona ha già deciso: `fonteClassificazione` a
  * "utente" vince sempre. Vince anche su Tars — quando l'aritmetica dice
  * "ricorrente", non c'è motivo di lasciare la parola a un modello.
+ *
+ * `fornitoriEsclusi` è l'altra metà della stessa idea, aggiunta il
+ * 27/08/2026. Un trasportatore che fattura la stessa cifra per cinque mesi
+ * di fila SEMBRA un canone, ma è manodopera di commessa. Se qualcuno ha
+ * dichiarato che quel fornitore non è un costo fisso, l'aritmetica deve
+ * tacere: senza questo elenco la sua decisione veniva ribaltata al sync
+ * successivo su ogni documento nuovo, all'infinito.
  */
 export function applicaCostiRicorrenti(
   costi: Array<
@@ -145,9 +152,12 @@ export function applicaCostiRicorrenti(
       aggiornatoAt: Date;
     }
   >,
-  sedeId: number
+  sedeId: number,
+  fornitoriEsclusi: ReadonlySet<string> = new Set()
 ): EsitoClassificazioneRicorrenza {
-  const gruppi = rilevaCostiRicorrenti(costi, sedeId);
+  const gruppi = rilevaCostiRicorrenti(costi, sedeId).filter(
+    gruppo => !fornitoriEsclusi.has(normalizzaFornitore(gruppo.fornitore))
+  );
   const perId = new Map<number, GruppoRicorrente>();
   for (const gruppo of gruppi) {
     for (const id of gruppo.ids) perId.set(id, gruppo);

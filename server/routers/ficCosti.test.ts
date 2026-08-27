@@ -294,3 +294,94 @@ describe("arretrato per anno", () => {
     ).toBe("straordinario");
   });
 });
+
+describe("togliere un fornitore dai costi fissi", () => {
+  it("sposta tutti i documenti, non solo i dubbi, e aggiorna la regola", async () => {
+    const sedeId = 97;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      [
+        costo(97_001, {
+          data: "2025-04-10",
+          fornitoreNome: "Sciacca Trasporti SRL",
+          importoNetto: 1_850,
+        }),
+        costo(97_002, {
+          data: "2025-05-10",
+          fornitoreNome: "SCIACCA TRASPORTI S.R.L.",
+          importoNetto: 1_850,
+        }),
+        costo(97_003, {
+          data: "2025-06-10",
+          fornitoreNome: "Sciacca Trasporti SRL",
+          importoNetto: 1_850,
+        }),
+      ],
+      sedeId,
+      "costi-sciacca"
+    );
+    // Tre mesi consecutivi allo stesso importo: l'aritmetica lo dichiara fisso.
+    const nostri = () =>
+      ficCosti.filter(c => c.sedeId === sedeId && c.id >= 97_001 && c.id <= 97_003);
+    expect(nostri().every(c => c.classificazione === "fisso")).toBe(true);
+
+    // Ma e' manodopera di commessa, e va tolto tutto insieme.
+    const esito = await caller.ficCosti.spostaFornitore({
+      fornitore: "Sciacca Trasporti SRL",
+      classificazione: "variabile_commessa",
+    });
+    expect(esito.aggiornati).toBe(3);
+    // Due forme scritte, due regole: lasciarne una indietro faceva rientrare
+    // i documenti nuovi.
+    expect(esito.formeScritte).toBe(2);
+    expect(nostri().every(c => c.classificazione === "variabile_commessa")).toBe(
+      true
+    );
+
+    // E l'aritmetica non lo riporta dentro al sync successivo.
+    upsertCostiFic(
+      [
+        costo(97_004, {
+          data: "2025-07-10",
+          fornitoreNome: "Sciacca Trasporti SRL",
+          importoNetto: 1_850,
+        }),
+      ],
+      sedeId,
+      "costi-sciacca-2"
+    );
+    const tutti = ficCosti.filter(
+      c => c.sedeId === sedeId && c.id >= 97_001 && c.id <= 97_004
+    );
+    expect(tutti).toHaveLength(4);
+    expect(tutti.some(c => c.classificazione === "fisso")).toBe(false);
+  });
+
+  it("dice per quale motivo ogni fornitore risulta fisso", async () => {
+    const sedeId = 98;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const mesi = ["01", "02", "03"];
+    const oggi = new Date();
+    const anno = oggi.getMonth() === 0 ? oggi.getFullYear() - 1 : oggi.getFullYear();
+    upsertCostiFic(
+      mesi.map((m, i) =>
+        costo(98_001 + i, {
+          data: `${anno}-${m}-10`,
+          fornitoreNome: "Canone Fisso SRL",
+          importoNetto: 300,
+        })
+      ),
+      sedeId,
+      "costi-motivo"
+    );
+    const esito = await caller.ficCosti.fissiPerFornitore();
+    const gruppo = esito.gruppi.find(g => g.fornitore === "Canone Fisso SRL");
+    if (gruppo) {
+      // Quando cade nel periodo base, l'origine dev'essere l'aritmetica —
+      // non un generico "regola", che significava due cose diverse.
+      expect(gruppo.origini.ricorrenza).toBeGreaterThan(0);
+      expect(gruppo.origini.regola).toBe(0);
+      expect(gruppo.spiegazioni[0]).toContain("mesi consecutivi");
+    }
+  });
+});

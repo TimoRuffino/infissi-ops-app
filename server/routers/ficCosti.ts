@@ -95,6 +95,27 @@ function normalizzaRegola(value: string | null | undefined): string | null {
   return normalized || null;
 }
 
+/**
+ * I fornitori che una persona ha dichiarato NON fissi.
+ *
+ * Serve a fermare l'aritmetica della ricorrenza: un trasportatore che
+ * fattura la stessa cifra per cinque mesi sembra un canone ma e' manodopera
+ * di commessa, e senza questo freno la decisione dell'operatore veniva
+ * ribaltata al sync successivo.
+ */
+export function fornitoriNonFissi(sedeId: number): Set<string> {
+  const esclusi = new Set<string>();
+  for (const regola of ficRegoleCosti) {
+    if (regola.sedeId !== sedeId || !regola.attiva) continue;
+    if (regola.classificazione === "fisso") continue;
+    if (!regola.fornitoreNormalizzato) continue;
+    // La regola e' salvata sulla forma scritta; l'aritmetica ragiona sulla
+    // chiave larga. Serve tradurre, o l'esclusione non aggancia.
+    esclusi.add(chiaveFornitore(regola.fornitoreNormalizzato));
+  }
+  return esclusi;
+}
+
 export function classificaConRegole(
   costo: Pick<CostoFic, "sedeId" | "fornitoreNome" | "categoriaFic">
 ): Exclude<ClassificazioneCosto, "dubbio"> | null {
@@ -238,7 +259,8 @@ export function upsertCostiFic(
   // se l'affitto è un costo fisso è token spesi per riscoprire una somma.
   const { aggiornati: perRicorrenza, gruppi } = applicaCostiRicorrenti(
     ficCosti,
-    sedeId
+    sedeId,
+    fornitoriNonFissi(sedeId)
   );
   if (perRicorrenza > 0) {
     const riclassificati = new Set(gruppi.flatMap(gruppo => gruppo.ids));
@@ -435,7 +457,10 @@ export const ficCostiRouter = router({
   ricorrenti: protectedProcedure.query(({ ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const gruppi = rilevaCostiRicorrenti(ficCosti, sedeId);
+    const esclusi = fornitoriNonFissi(sedeId);
+    const gruppi = rilevaCostiRicorrenti(ficCosti, sedeId).filter(
+      gruppo => !esclusi.has(chiaveFornitore(gruppo.fornitore))
+    );
     return {
       gruppi,
       totaleMensile:
@@ -468,6 +493,10 @@ export const ficCostiRouter = router({
     const periodoDa = inizio.toISOString().slice(0, 10);
     const periodoA = fine.toISOString().slice(0, 10);
 
+    // Perche' questo fornitore risulta fisso. "regola" da solo non lo diceva:
+    // significava sia l'aritmetica della ricorrenza sia una regola creata da
+    // una persona, e la motivazione veniva riscritta a ogni sync — TIM aveva
+    // otto motivazioni diverse sui suoi 72 documenti.
     const gruppi = new Map<
       string,
       {
@@ -475,8 +504,9 @@ export const ficCostiRouter = router({
         documenti: number;
         totale: number;
         mesi: Set<string>;
-        daRegola: boolean;
-        daPersona: boolean;
+        origini: { ricorrenza: number; regola: number; persona: number; tars: number };
+        spiegazioni: Set<string>;
+        righe: Array<{ id: number; data: string; importo: number; descrizione: string | null }>;
       }
     >();
     const mesiConDati = new Set<string>();
@@ -491,15 +521,31 @@ export const ficCostiRouter = router({
         documenti: 0,
         totale: 0,
         mesi: new Set<string>(),
-        daRegola: false,
-        daPersona: false,
+        origini: { ricorrenza: 0, regola: 0, persona: 0, tars: 0 },
+        spiegazioni: new Set<string>(),
+        righe: [],
       };
       gruppo.documenti++;
       gruppo.totale +=
         (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto;
       gruppo.mesi.add(costo.data.slice(0, 7));
-      if (costo.fonteClassificazione === "regola") gruppo.daRegola = true;
-      else gruppo.daPersona = true;
+      const daRicorrenza =
+        costo.fonteClassificazione === "regola" &&
+        (costo.motivazione ?? "").startsWith("Stesso importo");
+      if (costo.fonteClassificazione === "utente") gruppo.origini.persona++;
+      else if (costo.fonteClassificazione === "tars") gruppo.origini.tars++;
+      else if (daRicorrenza) gruppo.origini.ricorrenza++;
+      else gruppo.origini.regola++;
+      if (costo.motivazione && gruppo.spiegazioni.size < 3) {
+        gruppo.spiegazioni.add(costo.motivazione);
+      }
+      gruppo.righe.push({
+        id: costo.id,
+        data: costo.data,
+        importo:
+          (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto,
+        descrizione: costo.descrizione ?? costo.categoriaFic,
+      });
       gruppi.set(chiave, gruppo);
     }
 
@@ -511,8 +557,9 @@ export const ficCostiRouter = router({
         totale: Math.round(gruppo.totale * 100) / 100,
         mensile: Math.round((gruppo.totale / mesiCoperti) * 100) / 100,
         mesi: gruppo.mesi.size,
-        daRegola: gruppo.daRegola,
-        daPersona: gruppo.daPersona,
+        origini: gruppo.origini,
+        spiegazioni: Array.from(gruppo.spiegazioni),
+        righe: gruppo.righe.sort((a, b) => b.data.localeCompare(a.data)),
       }))
       .sort((a, b) => b.totale - a.totale);
 
@@ -743,6 +790,88 @@ export const ficCostiRouter = router({
           (commessa.sedeId ?? DEFAULT_SEDE_ID) === sedeId && !commessa.archivedAt
       );
       return candidatiCommessaPerCosto(costo, commesse);
+    }),
+
+  /**
+   * Sposta TUTTI i documenti di un fornitore in una classificazione, e
+   * aggiorna la regola perche' i prossimi ci nascano.
+   *
+   * Diverso da `riclassificaFornitore`, che tocca solo i `dubbio`: quello
+   * serve a smaltire la coda senza travolgere decisioni gia' prese. Questo
+   * serve al caso opposto — un fornitore finito fra i costi fissi che fisso
+   * non e'. TIM ha 72 documenti, SCIACCA 11: senza un'azione unica l'unico
+   * modo di tirarli fuori era aprirli uno per uno.
+   *
+   * Aggiorna la regola per OGNI forma scritta del nome trovata nel gruppo:
+   * "Brianzatende SRL" e "BRIANZATENDE S.R.L." sono lo stesso fornitore per
+   * il raggruppamento ma due chiavi diverse per le regole, e lasciarne una
+   * indietro avrebbe fatto rientrare i documenti nuovi.
+   */
+  spostaFornitore: protectedProcedure
+    .input(
+      z.object({
+        fornitore: z.string().trim().min(1),
+        classificazione: classificazioneSchema.exclude(["dubbio"]),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const chiave = chiaveFornitore(input.fornitore);
+      if (!chiave) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Nome fornitore non utilizzabile.",
+        });
+      }
+
+      let aggiornati = 0;
+      const formeScritte = new Set<string>();
+      for (const costo of ficCosti) {
+        if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
+        if (chiaveFornitore(costo.fornitoreNome) !== chiave) continue;
+        formeScritte.add(costo.fornitoreNome);
+        if (costo.classificazione === input.classificazione) continue;
+        costo.classificazione = input.classificazione;
+        costo.fonteClassificazione = "utente";
+        costo.confidenza = 1;
+        costo.motivazione = `Spostato dall'operatore: tutti i documenti di ${input.fornitore}.`;
+        costo.aggiornatoAt = new Date();
+        aggiornati++;
+      }
+
+      for (const forma of Array.from(formeScritte)) {
+        const fornitoreNormalizzato = normalizzaRegola(forma);
+        const regola = ficRegoleCosti.find(
+          item =>
+            item.sedeId === sedeId &&
+            item.fornitoreNormalizzato === fornitoreNormalizzato &&
+            item.categoriaNormalizzata == null
+        );
+        if (regola) {
+          regola.classificazione = input.classificazione;
+          regola.attiva = true;
+        } else {
+          ficRegoleCosti.push({
+            id:
+              ficRegoleCosti.reduce((max, item) => Math.max(max, item.id), 0) + 1,
+            sedeId,
+            fornitoreNormalizzato,
+            categoriaNormalizzata: null,
+            classificazione: input.classificazione,
+            createdBy: ctx.user!.id,
+            createdAt: new Date(),
+            attiva: true,
+          });
+        }
+      }
+      saveFicRegoleCosti();
+      saveFicCosti();
+      return {
+        aggiornati,
+        fornitore: input.fornitore,
+        formeScritte: formeScritte.size,
+      };
     }),
 
   riclassifica: protectedProcedure

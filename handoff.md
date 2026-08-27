@@ -348,6 +348,30 @@ somigliavano per caso (€9.192 contro €9.313), e un elenco che non spiegava i
 numero sotto cui si decide se l'anno regge. `ficCosti.fissiPerFornitore` usa lo
 stesso periodo base e la stessa selezione del pareggio.
 
+**«Perché è qui», e come toglierlo** (27/08/2026, dopo la segnalazione che
+l'elenco conteneva voci che non dovevano esserci). `fonteClassificazione =
+"regola"` significava due cose molto diverse — l'aritmetica della ricorrenza
+oppure una regola nata da un click su «Tutti Fisso» in Acquisti — e la
+`motivazione` veniva riscritta a ogni sync: TIM aveva otto motivazioni diverse
+sui suoi 72 documenti. `fissiPerFornitore` ora separa le origini
+(`ricorrenza` / `regola` / `persona` / `tars`) con i conteggi, espone le
+spiegazioni e l'elenco dei documenti, e la scheda ha un riquadro «Come si
+calcola questo numero».
+
+Togliere un fornitore richiede una sola azione, `ficCosti.spostaFornitore`, che
+sposta **tutti** i suoi documenti (non solo i `dubbio`, come
+`riclassificaFornitore`: SCIACCA ne aveva 11, TIM 72) e aggiorna la regola per
+**ogni forma scritta** del nome presente nel gruppo — il raggruppamento usa la
+chiave larga, le regole la forma scritta, e lasciarne una indietro faceva
+rientrare i documenti nuovi.
+
+Infine `applicaCostiRicorrenti` accetta `fornitoriEsclusi`: se una persona ha
+dichiarato che un fornitore non è fisso, l'aritmetica tace. Senza questo freno
+un trasportatore che fattura la stessa cifra per cinque mesi veniva riportato
+fra i costi fissi al sync successivo, ribaltando la decisione all'infinito —
+`fonteClassificazione = "utente"` protegge il singolo documento, non quelli
+che arrivano dopo.
+
 **Costi fissi dichiarati a mano** (`server/routers/costiFissi.ts`, store
 `costi_fissi_manuali`). Dentro i €9.313 al mese non c'era una riga di stipendi,
 contributi, tasse o affitti pagati senza fattura passiva: niente di tutto ciò

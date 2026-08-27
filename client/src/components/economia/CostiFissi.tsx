@@ -24,7 +24,16 @@ import {
 } from "@/components/ui/select";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
-import { CalendarRange, Loader2, Pencil, Plus, Repeat, Trash2 } from "lucide-react";
+import {
+  CalendarRange,
+  ChevronRight,
+  Loader2,
+  Pencil,
+  Plus,
+  Repeat,
+  Trash2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -219,6 +228,156 @@ function FormCostoFisso({
         </Button>
       </div>
     </div>
+  );
+}
+
+const ORIGINI: Array<[string, string, string]> = [
+  ["ricorrenza", "ricorrenza", "Stesso importo dallo stesso fornitore per almeno tre mesi consecutivi"],
+  ["regola", "regola salvata", "Una regola creata da una persona classifica questo fornitore"],
+  ["persona", "deciso a mano", "Classificato da un operatore documento per documento"],
+  ["tars", "Tars", "Proposto da Tars e non ancora corretto da nessuno"],
+];
+
+/**
+ * Una riga della tabella FiC.
+ *
+ * "regola" da sola non spiegava niente: significava sia l'aritmetica della
+ * ricorrenza sia una regola creata da una persona con un click su «Tutti
+ * Fisso», e le due cose portano qui fornitori molto diversi. Qui si vedono
+ * separate, con i documenti sotto, e si può togliere il fornitore dai costi
+ * fissi in un gesto invece che aprendo 72 documenti.
+ */
+function RigaFornitore({ gruppo }: { gruppo: any }) {
+  const utils = trpc.useUtils();
+  const [aperto, setAperto] = useState(false);
+  const sposta = trpc.ficCosti.spostaFornitore.useMutation({
+    onSuccess: r => {
+      utils.ficCosti.invalidate();
+      utils.economia.invalidate();
+      toast.success(
+        `${r.aggiornati} documenti di ${r.fornitore} spostati fuori dai costi fissi`
+      );
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const origini = ORIGINI.filter(([id]) => (gruppo.origini?.[id] ?? 0) > 0);
+
+  return (
+    <>
+      <tr className="border-b border-border/60 last:border-0">
+        <td className="px-3 py-2.5 font-medium align-top">
+          <span className="block max-w-[16rem] truncate">{gruppo.fornitore}</span>
+          <button
+            type="button"
+            className="mt-0.5 inline-flex items-center text-xs font-normal text-text-3 hover:text-text-1"
+            aria-expanded={aperto}
+            onClick={() => setAperto(v => !v)}
+          >
+            <ChevronRight
+              className={cn("mr-0.5 h-3 w-3 transition-transform", aperto && "rotate-90")}
+              aria-hidden="true"
+            />
+            <CalendarRange className="mr-1 h-3 w-3" aria-hidden="true" />
+            {gruppo.documenti} document{gruppo.documenti === 1 ? "o" : "i"} su{" "}
+            {gruppo.mesi} mes{gruppo.mesi === 1 ? "e" : "i"}
+          </button>
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums align-top">
+          {formatEuroSimbolo(gruppo.mensile)}
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-text-3 align-top">
+          {formatEuroSimbolo(gruppo.totale)}
+        </td>
+        <td className="px-3 py-2.5 align-top">
+          <div className="flex flex-wrap gap-1">
+            {origini.map(([id, etichetta, aiuto]) => (
+              <Badge
+                key={id}
+                variant="outline"
+                className="text-[10px]"
+                title={aiuto}
+              >
+                {etichetta}
+                {origini.length > 1 ? ` ${gruppo.origini[id]}` : ""}
+              </Badge>
+            ))}
+          </div>
+        </td>
+      </tr>
+      {aperto && (
+        <tr className="border-b border-border/60 bg-surface-2 last:border-0">
+          <td colSpan={4} className="px-3 py-2.5">
+            {gruppo.spiegazioni?.length > 0 && (
+              <ul className="mb-2 space-y-0.5 text-xs text-text-2">
+                {gruppo.spiegazioni.map((testo: string) => (
+                  <li key={testo}>— {testo}</li>
+                ))}
+              </ul>
+            )}
+            <ul className="mb-2 divide-y divide-border/60 rounded-md border border-border bg-surface">
+              {gruppo.righe.map((riga: any) => (
+                <li
+                  key={riga.id}
+                  className="flex items-center justify-between gap-3 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="min-w-0 truncate text-text-2">
+                    {riga.descrizione ?? "Senza descrizione"}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-text-3">
+                    {etichettaMese(riga.data.slice(0, 7))} ·{" "}
+                    {formatEuroSimbolo(riga.importo)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {/* Togliere un fornitore deve spostare i documenti E la regola:
+                senza la regola i documenti nuovi rientrerebbero al sync dopo. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-text-3">
+                Non è un costo fisso? Sposta tutti i {gruppo.documenti} documenti:
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 text-xs"
+                disabled={sposta.isPending}
+                onClick={() =>
+                  sposta.mutate({
+                    fornitore: gruppo.fornitore,
+                    classificazione: "variabile_commessa",
+                  })
+                }
+              >
+                {sposta.isPending &&
+                sposta.variables?.classificazione === "variabile_commessa" ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : null}
+                È di commessa
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 text-xs"
+                disabled={sposta.isPending}
+                onClick={() =>
+                  sposta.mutate({
+                    fornitore: gruppo.fornitore,
+                    classificazione: "straordinario",
+                  })
+                }
+              >
+                {sposta.isPending &&
+                sposta.variables?.classificazione === "straordinario" ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : null}
+                È straordinario
+              </Button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -475,46 +634,13 @@ export default function CostiFissi() {
                       Totale 12 mesi
                     </th>
                     <th scope="col" className="px-3 py-2 font-medium">
-                      Come
+                      Perché è qui
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {gruppi.map((gruppo: any) => (
-                    <tr
-                      key={gruppo.fornitore}
-                      className="border-b border-border/60 last:border-0"
-                    >
-                      <td className="px-3 py-2.5 font-medium">
-                        <span className="block max-w-[16rem] truncate">
-                          {gruppo.fornitore}
-                        </span>
-                        <span className="text-xs font-normal text-text-3">
-                          <CalendarRange
-                            className="mr-1 inline h-3 w-3"
-                            aria-hidden="true"
-                          />
-                          {gruppo.documenti} document
-                          {gruppo.documenti === 1 ? "o" : "i"} su {gruppo.mesi} mes
-                          {gruppo.mesi === 1 ? "e" : "i"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">
-                        {formatEuroSimbolo(gruppo.mensile)}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-text-3">
-                        {formatEuroSimbolo(gruppo.totale)}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="outline" className="text-[10px]">
-                          {gruppo.daRegola && gruppo.daPersona
-                            ? "regola + persona"
-                            : gruppo.daRegola
-                              ? "regola"
-                              : "deciso a mano"}
-                        </Badge>
-                      </td>
-                    </tr>
+                    <RigaFornitore key={gruppo.fornitore} gruppo={gruppo} />
                   ))}
                 </tbody>
               </table>
@@ -523,13 +649,55 @@ export default function CostiFissi() {
         </Card>
       )}
 
-      <p className="text-xs text-text-3">
-        Il riconoscimento automatico resta stretto di proposito: stesso
-        fornitore, stesso importo (tolleranza 50 centesimi), almeno tre mesi
-        consecutivi. Allargarlo farebbe entrare i fornitori di serramenti fra i
-        costi fissi, e un costo variabile contato come fisso sballa sia il
-        pareggio sia il margine di contribuzione.
-      </p>
+      <details className="rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-2">
+        <summary className="min-h-11 cursor-pointer py-2 font-medium text-text-1">
+          Come si calcola questo numero
+        </summary>
+        <div className="space-y-2 pb-2 leading-relaxed">
+          <p>
+            <strong>Totale al mese</strong> = le fatture d&apos;acquisto
+            classificate «Fisso» negli ultimi 12 mesi, divise per i mesi con
+            dati, <strong>più</strong> le voci aggiunte a mano, che pesano per
+            quanto valgono oggi. È esattamente la cifra che il punto di
+            pareggio divide per il margine di contribuzione.
+          </p>
+          <p>
+            Un acquisto diventa «Fisso» in tre modi diversi, e la colonna
+            <em> Perché è qui</em> dice quale:
+          </p>
+          <ul className="ml-4 list-disc space-y-1">
+            <li>
+              <strong>ricorrenza</strong> — aritmetica: stesso fornitore,
+              stesso importo (tolleranza 50 centesimi), almeno tre mesi
+              consecutivi. Nessun modello, nessuna valutazione.
+            </li>
+            <li>
+              <strong>regola salvata</strong> — qualcuno ha premuto «Tutti
+              Fisso» su quel fornitore in Acquisti, e da allora ogni suo
+              documento nasce fisso. È il motivo per cui in questo elenco
+              possono comparire fornitori che fissi non sono.
+            </li>
+            <li>
+              <strong>deciso a mano</strong> / <strong>Tars</strong> —
+              classificato documento per documento.
+            </li>
+          </ul>
+          <p>
+            Se un fornitore non ci deve stare, aprilo e premi «È di commessa» o
+            «È straordinario»: sposta tutti i suoi documenti <em>e</em> la
+            regola, così non rientra al prossimo sync. Da quel momento
+            l&apos;aritmetica della ricorrenza lo lascia stare anche se fattura
+            la stessa cifra ogni mese — un trasportatore regolare resta
+            manodopera di commessa.
+          </p>
+          <p>
+            La soglia dei 50 centesimi resta stretta di proposito: allargandola
+            al 5% entrerebbero i fornitori di serramenti, e un costo variabile
+            contato come fisso sballa sia il pareggio sia il margine di
+            contribuzione.
+          </p>
+        </div>
+      </details>
     </div>
   );
 }
