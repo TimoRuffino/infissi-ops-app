@@ -33,6 +33,7 @@ import { tarsRouter } from "./routers/tars";
 import { mailRouter } from "./routers/mail";
 import { ficFattureRouter } from "./routers/ficFatture";
 import { ficCostiRouter } from "./routers/ficCosti";
+import { costiFissiRouter } from "./routers/costiFissi";
 import { economiaRouter } from "./routers/economia";
 import { diagnosticaRouter } from "./routers/diagnostica";
 import { chatRouter } from "./routers/chat";
@@ -191,6 +192,7 @@ export const appRouter = router({
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,
+  costiFissi: costiFissiRouter,
   economia: economiaRouter,
   diagnostica: diagnosticaRouter,
   chat: chatRouter,

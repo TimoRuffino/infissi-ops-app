@@ -188,6 +188,68 @@ describe("break-even mensile", () => {
     expect(risultato.obiettivoMensile).toBeCloseTo(1_666.67, 2);
   });
 
+  it("i costi fissi dichiarati a mano entrano nell'obiettivo", () => {
+    // Stipendi e contributi non passano da Fatture in Cloud: senza questa
+    // via il pareggio girava su una parte sola dei costi fissi.
+    const emessi = [1, 2, 3].map(mese =>
+      documento("invoice", `2026-0${mese}-10`, 10_000)
+    );
+    const costi = [1, 2, 3].flatMap(mese => [
+      documento("expense", `2026-0${mese}-12`, 4_000, {
+        classificazione: "variabile_commessa",
+      }),
+      documento("expense", `2026-0${mese}-15`, 1_000, {
+        classificazione: "fisso",
+      }),
+    ]);
+
+    const senza = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+    });
+    const con = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+      costiFissiDichiarati: [{ mensile: 5_000, dal: "2026-01", al: null }],
+    });
+
+    expect(senza.costiFissiDichiarati).toBe(0);
+    expect(con.costiFissiDichiarati).toBe(15_000);
+    // Il peso di oggi, non la media: 1.000 di fatture + 5.000 dichiarati.
+    expect(con.costiFissiMensili).toBeCloseTo(6_000, 2);
+    expect(con.obiettivoMensile).toBeGreaterThan(senza.obiettivoMensile!);
+  });
+
+  it("una voce gia' chiusa non alza l'obiettivo di oggi", () => {
+    const emessi = [1, 2, 3].map(mese =>
+      documento("invoice", `2026-0${mese}-10`, 10_000)
+    );
+    const costi = [1, 2, 3].flatMap(mese => [
+      documento("expense", `2026-0${mese}-12`, 4_000, {
+        classificazione: "variabile_commessa",
+      }),
+      documento("expense", `2026-0${mese}-15`, 1_000, {
+        classificazione: "fisso",
+      }),
+    ]);
+
+    const risultato = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+      // Chiusa a gennaio: pesa sul totale del periodo, non sul mese corrente.
+      costiFissiDichiarati: [{ mensile: 5_000, dal: "2026-01", al: "2026-01" }],
+    });
+
+    expect(risultato.costiFissiDichiarati).toBe(5_000);
+    expect(risultato.costiFissiMensili).toBeCloseTo(1_000, 2);
+  });
+
   it("usa margine di contribuzione e costi fissi degli ultimi dodici mesi", () => {
     const emessi: DocumentoEconomico[] = [];
     const costi: DocumentoEconomico[] = [];

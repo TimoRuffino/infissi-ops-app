@@ -10,6 +10,7 @@ import { requireDirezioneOAmministrazione } from "../_core/permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
 import { ficCosti } from "./ficCosti";
+import { costiFissiManualiPerSede } from "./costiFissi";
 import { ficFatture, statoFattura } from "./ficFatture";
 import { calcolaImportoIncassato } from "../_core/commessaPayments";
 
@@ -266,6 +267,11 @@ export const economiaRouter = router({
         mese: input.mese,
         documentiEmessi: documentiEmessi(sedeId),
         costi: documentiRicevuti(sedeId),
+        costiFissiDichiarati: costiFissiManualiPerSede(sedeId).map(voce => ({
+          mensile: voce.mensile,
+          dal: voce.dal,
+          al: voce.al,
+        })),
       });
     }),
 });

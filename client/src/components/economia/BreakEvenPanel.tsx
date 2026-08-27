@@ -121,6 +121,15 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     <p className="mt-1 text-lg font-bold tabular-nums">
                       {formatEuroSimbolo(data.costiFissiMensili ?? 0)}
                     </p>
+                    {/* Se nessuno ha dichiarato stipendi e contributi,
+                        l'obiettivo è calcolato su una parte sola dei costi:
+                        va detto qui, dove il numero si legge. */}
+                    {(data.costiFissiDichiarati ?? 0) === 0 && (
+                      <p className="mt-0.5 text-[11px] leading-tight text-warning">
+                        Solo fatture d&apos;acquisto: stipendi e contributi non
+                        sono dichiarati.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-4">
@@ -171,7 +180,11 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
               Costi fissi medi divisi per il margine di contribuzione degli
               ultimi {data.mesiCoperti} mesi disponibili, dal {data.periodoDa}
               al {data.periodoA}. IVA esclusa. Fatturare non equivale a
-              incassare.
+              incassare. I costi fissi sommano le fatture d&apos;acquisto
+              classificate «Fisso», mediate sul periodo, e le voci dichiarate
+              a mano in Contabilità → Costi fissi, che invece pesano per
+              quanto valgono oggi: un canone chiuso a marzo non deve alzare
+              l&apos;obiettivo di agosto.
             </p>
           </details>
           {data.documentiDubbi > 0 && (

@@ -326,8 +326,42 @@ compare per almeno **tre mesi consecutivi** con lo stesso importo (tolleranza
 note di credito passive restano fuori. La regola gira dentro `upsertCostiFic` e
 prevale su Tars, mai su una classificazione fatta da una persona; i costi che
 riclassifica escono dalla coda `idsDaClassificare`, quindi non consumano token.
-`ficCosti.ricorrenti` espone l'elenco con fornitore, importo e periodo — la
-domanda "quali sono?" prima non aveva risposta.
+
+**La tolleranza resta stretta di proposito** (rimisurata il 27/08/2026 sui dati
+reali, per non riaprire la questione ogni sei mesi):
+
+| tolleranza | gruppi | €/mese | cosa entra |
+|---|---|---|---|
+| €0,50 (attuale) | 26 | 9.192 | solo documenti già `fisso` |
+| 2% | 27 | 9.556 | + ALIAS (materiale di commessa) |
+| 5% | 32 | 12.396 | + WND ×2 (materiale) |
+| 10% | 40 | 19.487 | + SIMEONE, WND ×4 |
+
+Allargarla fa entrare i fornitori di serramenti fra i costi fissi, e un costo
+variabile contato come fisso sballa **sia** il pareggio **sia** il margine di
+contribuzione — cioè entrambi i termini della divisione.
+
+**La scheda «Costi fissi» ora è la cifra, non un'altra cifra.** Mostrava i 26
+gruppi rilevati dalla ricorrenza mentre il break-even sommava tutti i documenti
+classificati `fisso` — 37 fornitori. Due insiemi diversi con due totali che si
+somigliavano per caso (€9.192 contro €9.313), e un elenco che non spiegava il
+numero sotto cui si decide se l'anno regge. `ficCosti.fissiPerFornitore` usa lo
+stesso periodo base e la stessa selezione del pareggio.
+
+**Costi fissi dichiarati a mano** (`server/routers/costiFissi.ts`, store
+`costi_fissi_manuali`). Dentro i €9.313 al mese non c'era una riga di stipendi,
+contributi, tasse o affitti pagati senza fattura passiva: niente di tutto ciò
+passa da Fatture in Cloud, quindi l'obiettivo di pareggio usciva
+sistematicamente più basso del vero e non c'era modo di correggerlo. Ogni voce
+ha importo, **cadenza** (mensile → annuale, mensilizzata dividendo per i mesi
+che copre), validità `dal`/`al` e categoria. `calcolaBreakEven` accetta
+`costiFissiDichiarati` e somma i due addendi **mensilizzandoli in modo
+diverso, di proposito**: le fatture FiC si mediano sui mesi coperti (è una
+media storica, non c'è altro modo di leggerle), le voci dichiarate pesano per
+quanto valgono **oggi** — un canone chiuso a marzo non deve alzare l'obiettivo
+di agosto, uno acceso a luglio deve pesare per intero subito. Se non esiste
+nessuna voce dichiarata il pannello del pareggio lo dice, invece di far
+sembrare completo un numero che non lo è.
 
 **Acquisti, riscritto il 27/08/2026.** La revisione costava il doppio del
 necessario: nel 2025 restavano 265 documenti da classificare su 140 fornitori

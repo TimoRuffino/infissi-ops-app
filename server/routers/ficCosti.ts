@@ -445,6 +445,88 @@ export const ficCostiRouter = router({
     };
   }),
 
+  /**
+   * I costi fissi che il break-even sta DAVVERO usando, per fornitore.
+   *
+   * La scheda «Costi fissi» mostrava i gruppi ricorrenti rilevati
+   * dall'aritmetica: 26 gruppi. Il break-even somma invece tutti i documenti
+   * classificati `fisso`, che sui dati veri sono 37 fornitori. Due insiemi
+   * diversi, due numeri che si somigliavano per caso — e un elenco che non
+   * spiegava la cifra sotto cui si decide se l'anno regge.
+   *
+   * Qui l'elenco E' la cifra: stesso periodo base del pareggio, stessa
+   * selezione, stesso segno sulle note di credito.
+   */
+  fissiPerFornitore: protectedProcedure.query(({ ctx }) => {
+    requireDirezioneOAmministrazione(ctx.user);
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const oggi = new Date();
+    const fine = new Date(Date.UTC(oggi.getUTCFullYear(), oggi.getUTCMonth(), 0));
+    const inizio = new Date(
+      Date.UTC(fine.getUTCFullYear(), fine.getUTCMonth() - 11, 1)
+    );
+    const periodoDa = inizio.toISOString().slice(0, 10);
+    const periodoA = fine.toISOString().slice(0, 10);
+
+    const gruppi = new Map<
+      string,
+      {
+        fornitore: string;
+        documenti: number;
+        totale: number;
+        mesi: Set<string>;
+        daRegola: boolean;
+        daPersona: boolean;
+      }
+    >();
+    const mesiConDati = new Set<string>();
+    for (const costo of ficCosti) {
+      if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
+      if (costo.data < periodoDa || costo.data > periodoA) continue;
+      if (costo.classificazione !== "dubbio") mesiConDati.add(costo.data.slice(0, 7));
+      if (costo.classificazione !== "fisso") continue;
+      const chiave = chiaveFornitore(costo.fornitoreNome) || costo.fornitoreNome;
+      const gruppo = gruppi.get(chiave) ?? {
+        fornitore: costo.fornitoreNome,
+        documenti: 0,
+        totale: 0,
+        mesi: new Set<string>(),
+        daRegola: false,
+        daPersona: false,
+      };
+      gruppo.documenti++;
+      gruppo.totale +=
+        (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto;
+      gruppo.mesi.add(costo.data.slice(0, 7));
+      if (costo.fonteClassificazione === "regola") gruppo.daRegola = true;
+      else gruppo.daPersona = true;
+      gruppi.set(chiave, gruppo);
+    }
+
+    const mesiCoperti = Math.max(1, mesiConDati.size);
+    const righe = Array.from(gruppi.values())
+      .map(gruppo => ({
+        fornitore: gruppo.fornitore,
+        documenti: gruppo.documenti,
+        totale: Math.round(gruppo.totale * 100) / 100,
+        mensile: Math.round((gruppo.totale / mesiCoperti) * 100) / 100,
+        mesi: gruppo.mesi.size,
+        daRegola: gruppo.daRegola,
+        daPersona: gruppo.daPersona,
+      }))
+      .sort((a, b) => b.totale - a.totale);
+
+    return {
+      periodoDa,
+      periodoA,
+      mesiCoperti,
+      gruppi: righe,
+      totale: Math.round(righe.reduce((s, r) => s + r.totale, 0) * 100) / 100,
+      totaleMensile:
+        Math.round(righe.reduce((s, r) => s + r.mensile, 0) * 100) / 100,
+    };
+  }),
+
   list: protectedProcedure
     .input(
       z

@@ -178,6 +178,23 @@ export type BreakEvenInput = {
   mese: number;
   documentiEmessi: DocumentoEconomico[];
   costi: DocumentoEconomico[];
+  /** Voci dichiarate a mano: stipendi, contributi, affitti, tasse. */
+  costiFissiDichiarati?: readonly CostoFissoDichiarato[];
+};
+
+/**
+ * Una voce di costo fisso dichiarata a mano, gia' mensilizzata.
+ *
+ * Il break-even leggeva solo le fatture d'acquisto FiC classificate `fisso`:
+ * sui dati veri sono €9.313 al mese su 37 fornitori, e dentro non c'e' una
+ * riga di stipendi, contributi, tasse o affitti pagati senza fattura
+ * passiva. Nessuna di quelle cose passa da Fatture in Cloud, quindi
+ * l'obiettivo di pareggio usciva sistematicamente piu' basso del vero.
+ */
+export type CostoFissoDichiarato = {
+  mensile: number;
+  dal: string; // "YYYY-MM"
+  al: string | null;
 };
 
 export type BreakEvenResult = {
@@ -189,6 +206,8 @@ export type BreakEvenResult = {
   fatturatoBase: number;
   costiVariabili: number;
   costiFissi: number;
+  /** Quota dei fissi che arriva dalle voci dichiarate a mano. */
+  costiFissiDichiarati: number;
   margineContribuzione: number | null;
   costiFissiMensili: number | null;
   obiettivoMensile: number | null;
@@ -201,6 +220,25 @@ export type BreakEvenResult = {
 
 function chiaveMese(data: Date): string {
   return `${data.getUTCFullYear()}-${String(data.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function indiceMese(mese: string): number {
+  const [anno, numero] = mese.slice(0, 7).split("-").map(Number);
+  return anno * 12 + (numero - 1);
+}
+
+/** Mesi di sovrapposizione fra la validita' di una voce e il periodo base. */
+function mesiAttivi(
+  voce: CostoFissoDichiarato,
+  periodoDa: string,
+  periodoA: string
+): number {
+  const da = Math.max(indiceMese(voce.dal), indiceMese(periodoDa));
+  const a = Math.min(
+    voce.al ? indiceMese(voce.al) : Number.MAX_SAFE_INTEGER,
+    indiceMese(periodoA)
+  );
+  return Math.max(0, a - da + 1);
 }
 
 function dataInIntervallo(data: string, da: string, a: string): boolean {
@@ -238,13 +276,25 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
         somma + segnoDocumento(documento.tipo) * documento.importoNetto,
       0
     );
-  const costiFissi = costiBase
+  const costiFissiFic = costiBase
     .filter(documento => documento.classificazione === "fisso")
     .reduce(
       (somma, documento) =>
         somma + segnoDocumento(documento.tipo) * documento.importoNetto,
       0
     );
+  // Le voci dichiarate pesano per i mesi in cui erano attive dentro il
+  // periodo base: un costo aperto a marzo non grava sui dodici mesi
+  // precedenti, e uno chiuso a giugno non grava su luglio.
+  const costiFissiDichiarati =
+    Math.round(
+      (input.costiFissiDichiarati ?? []).reduce(
+        (somma, voce) =>
+          somma + voce.mensile * mesiAttivi(voce, periodoDa, periodoA),
+        0
+      ) * 100
+    ) / 100;
+  const costiFissi = costiFissiFic + costiFissiDichiarati;
   const dubbi = costiBase.filter(
     documento => documento.classificazione === "dubbio"
   );
@@ -300,6 +350,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       fatturatoBase,
       costiVariabili,
       costiFissi,
+      costiFissiDichiarati,
       margineContribuzione,
       costiFissiMensili: null,
       obiettivoMensile: null,
@@ -311,7 +362,21 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     };
   }
 
-  const costiFissiMensili = costiFissi / mesiCoperti;
+  // I due addendi si mensilizzano in modo diverso, di proposito.
+  //
+  // Le fatture FiC si dividono per i mesi coperti: e' una media storica, ed
+  // e' l'unico modo di leggerle. Le voci dichiarate invece hanno una data di
+  // inizio e una di fine, quindi non serve stimarle: quello che conta per il
+  // pareggio e' il peso di OGGI. Un canone chiuso a marzo non deve alzare
+  // l'obiettivo di agosto, e uno acceso a luglio deve pesare per intero
+  // subito, non per un dodicesimo.
+  const dichiaratiOggi =
+    Math.round(
+      (input.costiFissiDichiarati ?? [])
+        .filter(voce => mesiAttivi(voce, periodoA, periodoA) > 0)
+        .reduce((somma, voce) => somma + voce.mensile, 0) * 100
+    ) / 100;
+  const costiFissiMensili = costiFissiFic / mesiCoperti + dichiaratiOggi;
   const obiettivoMensile = costiFissiMensili / margineContribuzione!;
   return {
     stato: "disponibile",
@@ -322,6 +387,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     fatturatoBase,
     costiVariabili,
     costiFissi,
+    costiFissiDichiarati,
     margineContribuzione,
     costiFissiMensili,
     obiettivoMensile,
