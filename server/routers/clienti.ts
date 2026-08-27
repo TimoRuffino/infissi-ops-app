@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
-import { assertSedeScope } from "../_core/permissions";
+import { assertSedeScope, requireDirezione } from "../_core/permissions";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
 // NOTE: imported lazily inside the update handler to avoid a circular-
@@ -96,6 +97,11 @@ export function createClienteFromSync(data: {
   clienti.push(cliente);
   _store.save();
   return cliente;
+}
+
+/** Persiste la raccolta: serve agli import e alle manutenzioni una tantum. */
+export function saveClientiStore(): void {
+  _store.save();
 }
 
 export function getClienteById(id: number) {
@@ -229,6 +235,107 @@ export const clientiRouter = router({
         link: `/clienti/${cliente.id}`,
       });
       return cliente;
+    }),
+
+  /**
+   * Import dell'anagrafica da un export CSV di Fatture in Cloud.
+   *
+   * Sta qui e non solo nello script perché `persistedStore` tiene i clienti
+   * in memoria e li riscrive interi a ogni salvataggio: una scrittura fatta
+   * da un processo separato viene sovrascritta dal primo salvataggio del
+   * server vivo. È lo stesso motivo per cui il reset del pattuito è passato
+   * dall'interfaccia.
+   *
+   * Non elimina e non sovrascrive mai: crea i mancanti e, solo con
+   * `arricchisci`, riempie i campi VUOTI di chi c'è già.
+   */
+  importaDaCsv: protectedProcedure
+    .input(
+      z.object({
+        csv: z.string().min(10).max(20_000_000),
+        apply: z.boolean().default(false),
+        arricchisci: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      requireDirezione(ctx.user);
+      const sedeId = ctx.sedeId ?? 1;
+      const [{ importaClienti, leggiRighe }, { COMPANY_RE, splitPersona }] =
+        await Promise.all([
+          import("../_core/importaClienti"),
+          import("./fattureInCloud"),
+        ]);
+
+      const righe = leggiRighe(input.csv);
+      if (righe.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Nessuna riga leggibile: serve un CSV con la riga di intestazione dell'export Fatture in Cloud.",
+        });
+      }
+
+      const report = importaClienti(
+        righe,
+        { apply: input.apply, arricchisci: input.arricchisci },
+        {
+          clientiEsistenti: clienti as any,
+          sedeId,
+          crea: dati => {
+            const creato: any = createClienteFromSync({
+              sedeId: dati.sedeId,
+              cognome: dati.cognome,
+              nome: dati.nome,
+              tipo: dati.tipo,
+              partitaIva: dati.partitaIva,
+              codiceFiscale: dati.codiceFiscale,
+            });
+            Object.assign(creato, {
+              email: dati.email ?? null,
+              telefono: dati.telefono ?? null,
+              indirizzo: dati.indirizzo ?? null,
+              citta: dati.citta ?? null,
+              cap: dati.cap ?? null,
+              note: dati.note ?? null,
+              // Import massivo: nessun proprietario. Assegnarli tutti a chi
+              // preme il bottone riempirebbe la sua coda di centinaia di
+              // clienti che non ha mai visto.
+              assegnatoA: null,
+              createdBy: ctx.user?.id ?? null,
+            });
+            return creato.id;
+          },
+          arricchisci: (clienteId, campi) => {
+            const cliente: any = clienti.find((c: any) => c.id === clienteId);
+            if (!cliente) return;
+            Object.assign(cliente, campi, { updatedAt: new Date() });
+          },
+          salva: () => _store.save(),
+          isAzienda: nome => COMPANY_RE.test(nome),
+          dividiPersona: (nome, cf) => splitPersona(nome, cf),
+        }
+      );
+
+      // Gli esiti riga per riga sono centinaia: al client serve il conteggio
+      // e un campione, non l'elenco intero.
+      const campione = (esito: string, max: number) =>
+        report.esiti
+          .filter(e => e.esito === esito)
+          .slice(0, max)
+          .map(e => e.riga.denominazione);
+
+      return {
+        dryRun: report.dryRun,
+        righeLette: report.righeLette,
+        creati: report.creati,
+        giaPresenti: report.giaPresenti,
+        duplicatiNelFile: report.duplicatiNelFile,
+        scartati: report.scartati,
+        campiArricchiti: report.campiArricchiti,
+        esempiDaCreare: campione("creato", 15),
+        esempiRipetuti: campione("duplicato_nel_file", 8),
+        esempiScartati: campione("scartato", 8),
+      };
     }),
 
   update: protectedProcedure

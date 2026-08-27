@@ -10,6 +10,7 @@ import {
   Settings,
   CheckCircle2,
   AlertCircle,
+  Loader2,
   ExternalLink,
   Calendar,
   ListTodo,
@@ -325,6 +326,7 @@ export default function Integrazioni() {
             Contabilità
           </h3>
           <FattureInCloudCard />
+          <ImportaClientiCard />
           <ResetPattuitiCard />
         </div>
 
@@ -810,6 +812,159 @@ function TarsCard() {
 // server tiene le commesse in memoria e le riscrive intere al primo salvataggio,
 // quindi una scrittura fatta da fuori viene sovrascritta dal primo sync utile.
 // Da questo bottone la mutazione avviene dentro il processo vivo.
+// Import anagrafica da un export Fatture in Cloud — direzione soltanto.
+//
+// Il file lo legge il browser e ne manda il testo: l'alternativa era un
+// upload con storage temporaneo per un'operazione che si fa due volte l'anno.
+// Simula sempre per primo — la simulazione dice quanti ne creerebbe, ed è il
+// numero su cui si decide.
+function ImportaClientiCard() {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const [csv, setCsv] = useState<string | null>(null);
+  const [nomeFile, setNomeFile] = useState<string | null>(null);
+  const [arricchisci, setArricchisci] = useState(true);
+  const [report, setReport] = useState<any>(null);
+
+  const importa = trpc.clienti.importaDaCsv.useMutation({
+    onSuccess: r => {
+      setReport(r);
+      if (!r.dryRun) {
+        toast.success(
+          `${r.creati} clienti creati · ${r.campiArricchiti} campi riempiti`
+        );
+        utils.clienti.invalidate();
+      }
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  if (!isDirezione(user)) return null;
+
+  const scegli = async (file: File | undefined) => {
+    if (!file) return;
+    setReport(null);
+    setNomeFile(file.name);
+    setCsv(await file.text());
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          Importa clienti da Fatture in Cloud
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Carica l&apos;export dei clienti in <strong>CSV</strong>. Chi c&apos;è
+          già viene riconosciuto da partita IVA, codice fiscale o nome e{" "}
+          <strong>non viene duplicato</strong>. Nessun cliente viene mai
+          eliminato o sovrascritto.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Da Excel: <em>File → Salva come → CSV UTF-8</em>. Da Fatture in Cloud
+          si può esportare direttamente in CSV.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            id="import-clienti-file"
+            type="file"
+            accept=".csv,text/csv"
+            className="sr-only"
+            onChange={e => scegli(e.target.files?.[0])}
+          />
+          <Button asChild variant="outline" size="sm" className="h-10">
+            <label htmlFor="import-clienti-file" className="cursor-pointer">
+              Scegli il file CSV
+            </label>
+          </Button>
+          {nomeFile && (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {nomeFile}
+            </span>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={arricchisci}
+            onChange={e => setArricchisci(e.target.checked)}
+          />
+          <span>
+            Riempi i campi vuoti dei clienti già presenti (email, telefono,
+            indirizzo). Non sovrascrive mai un dato esistente.
+          </span>
+        </label>
+
+        {report && (
+          <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-2">
+            <p className="font-medium">
+              {report.dryRun ? "Simulazione — nessuna scrittura" : "Importato"}
+            </p>
+            <ul className="space-y-0.5 tabular-nums">
+              <li>Righe lette: {report.righeLette}</li>
+              <li className="font-medium">
+                {report.dryRun ? "Da creare" : "Creati"}: {report.creati}
+              </li>
+              <li>Già in anagrafica: {report.giaPresenti}</li>
+              <li>Ripetuti nel file: {report.duplicatiNelFile}</li>
+              {report.scartati > 0 && <li>Scartati: {report.scartati}</li>}
+              {arricchisci && (
+                <li>Campi vuoti riempiti: {report.campiArricchiti}</li>
+              )}
+            </ul>
+            {report.esempiDaCreare?.length > 0 && (
+              <div>
+                <p className="text-muted-foreground">
+                  Esempi fra i nuovi:
+                </p>
+                <p className="mt-0.5">
+                  {report.esempiDaCreare.slice(0, 8).join(" · ")}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-10"
+            disabled={!csv || importa.isPending}
+            onClick={() =>
+              importa.mutate({ csv: csv!, apply: false, arricchisci })
+            }
+          >
+            {importa.isPending && (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            )}
+            Simula
+          </Button>
+          <Button
+            size="sm"
+            className="h-10"
+            disabled={!csv || !report || !report.dryRun || importa.isPending}
+            onClick={() =>
+              importa.mutate({ csv: csv!, apply: true, arricchisci })
+            }
+          >
+            Importa {report?.dryRun ? `${report.creati} clienti` : ""}
+          </Button>
+        </div>
+        {!report && (
+          <p className="text-[11px] text-muted-foreground">
+            Simula prima: il numero della simulazione è quello che verrà creato.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ResetPattuitiCard() {
   const { user } = useAuth();
   const utils = trpc.useUtils();

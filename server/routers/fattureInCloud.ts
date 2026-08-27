@@ -506,10 +506,10 @@ function consonants(s: string): string {
   const vows = clean.replace(/[^AEIOU]/g, "");
   return (cons + vows + "XXX").slice(0, 3);
 }
-const COMPANY_RE =
+export const COMPANY_RE =
   /\b(S\.?R\.?L\.?S?|S\.?P\.?A\.?|S\.?N\.?C\.?|S\.?A\.?S\.?|SOC(IETA)?'?|COOP|CONDOMINIO|IMPRESA|COSTRUZIONI|EDIL\w*|STUDIO|HOTEL|RISTORANTE|BAR|IMMOBILIARE|SERVICE|GROUP|ITALIA|DITTA|&)\b/i;
 
-function splitPersona(
+export function splitPersona(
   full: string,
   cf: string | null
 ): { cognome: string; nome: string } {
