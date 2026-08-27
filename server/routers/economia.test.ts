@@ -309,7 +309,7 @@ describe("economia FiC", () => {
     });
   });
 
-  it("espone il break-even del mese corrente usando solo costi FiC classificati", async () => {
+  it("non usa i costi FiC classificati senza una conferma nel registro", async () => {
     const now = new Date();
     const anno = now.getFullYear();
     const mese = now.getMonth() + 1;
@@ -380,6 +380,7 @@ describe("economia FiC", () => {
     expect(risultato.stato).toBe("disponibile");
     expect(risultato.affidabilita).toBe("media");
     expect(risultato.margineContribuzione).toBeCloseTo(0.6);
-    expect(risultato.obiettivoMensile).toBeCloseTo(1_666.666, 2);
+    expect(risultato.daCoprireMensile).toBe(0);
+    expect(risultato.obiettivoMensile).toBe(0);
   });
 });
