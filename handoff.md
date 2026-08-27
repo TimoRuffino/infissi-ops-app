@@ -451,6 +451,27 @@ resta nei totali FiC e nel break-even, ma non compare nella coda operativa.
 margine di contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi
 dubbi sono esclusi e si revisionano nel tab Acquisti.
 
+**La catena è esplicita dal 27/08/2026.** Il pannello mostrava solo
+l'obiettivo e, in piccolo, il margine usato: sembrava che dentro ci fosse un
+utile deciso da qualcuno. Ora scrive la divisione per esteso — «€9.090 di costi
+fissi ÷ 34% di margine = €26.868 da fatturare. Nessun utile dentro» — e
+`daCoprireMensile` espone il costo di esistere anche quando l'obiettivo non è
+calcolabile, dove prima la pagina restava muta.
+
+Due leve, in `impostazioni_pareggio` (per sede, non per utente: due persone
+davanti allo stesso obiettivo devono leggere lo stesso numero):
+
+- **`margineManuale`** — il margine di contribuzione esce dagli ultimi dodici
+  mesi, ma in quel periodo 265 costi erano ancora da classificare: una
+  percentuale precisa su dati incompleti resta sbagliata. Vuoto = calcolato;
+  un valore fuori da (0, 1] viene ignorato invece di produrre un obiettivo
+  infinito. `margineCalcolato` resta sempre nella risposta;
+- **`includiStraordinari`** — sui dati veri gli straordinari sono €110.963 in
+  dodici mesi, **più dei costi fissi**, e non entravano né fra i fissi né fra
+  i variabili: sparivano dal pareggio. Il pannello dichiara sempre quanto
+  resta fuori; contarli porta l'obiettivo da €26.868 a €54.198. Se siano una
+  tantum o struttura sotto un altro nome lo decide chi conosce l'azienda.
+
 Tars classifica in batch i nuovi costi FiC con output strutturato e cache key
 per sede/modello. Le correzioni utente e le regole esplicite prevalgono. Errori
 OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.

@@ -366,3 +366,84 @@ describe("break-even mensile", () => {
     );
   });
 });
+
+describe("break-even: cosa coprire e con quale margine", () => {
+  const scenario = () => {
+    const emessi = [1, 2, 3].map(mese =>
+      documento("invoice", `2026-0${mese}-10`, 10_000)
+    );
+    const costi = [1, 2, 3].flatMap(mese => [
+      documento("expense", `2026-0${mese}-12`, 4_000, {
+        classificazione: "variabile_commessa",
+      }),
+      documento("expense", `2026-0${mese}-15`, 1_000, {
+        classificazione: "fisso",
+      }),
+      documento("expense", `2026-0${mese}-20`, 2_000, {
+        classificazione: "straordinario",
+      }),
+    ]);
+    return { emessi, costi };
+  };
+
+  it("mostra i costi da coprire separati dal fatturato che serve", () => {
+    const { emessi, costi } = scenario();
+    const r = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+    });
+    // 1.000 al mese di costi fissi, margine 60%: servono 1.666 di fatturato.
+    expect(r.daCoprireMensile).toBeCloseTo(1_000, 2);
+    expect(r.margineContribuzione).toBeCloseTo(0.6, 4);
+    expect(r.obiettivoMensile).toBeCloseTo(1_666.67, 2);
+    // Gli straordinari esistono e restano fuori: dirlo è il punto.
+    expect(r.costiStraordinari).toBe(6_000);
+    expect(r.straordinariInclusi).toBe(false);
+  });
+
+  it("gli straordinari possono entrare fra i costi da coprire", () => {
+    const { emessi, costi } = scenario();
+    const r = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+      includiStraordinari: true,
+    });
+    expect(r.straordinariInclusi).toBe(true);
+    expect(r.daCoprireMensile).toBeCloseTo(3_000, 2);
+    expect(r.obiettivoMensile).toBeCloseTo(5_000, 2);
+  });
+
+  it("un margine fissato a mano prevale, e resta detto quale era il calcolato", () => {
+    const { emessi, costi } = scenario();
+    const r = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      costi,
+      margineManuale: 0.25,
+    });
+    expect(r.margineFonte).toBe("manuale");
+    expect(r.margineCalcolato).toBeCloseTo(0.6, 4);
+    expect(r.margineContribuzione).toBeCloseTo(0.25, 4);
+    expect(r.obiettivoMensile).toBeCloseTo(4_000, 2);
+  });
+
+  it("un margine fuori scala viene ignorato invece di produrre un obiettivo assurdo", () => {
+    const { emessi, costi } = scenario();
+    for (const margine of [0, -0.5, 1.5]) {
+      const r = calcolaBreakEven({
+        anno: 2026,
+        mese: 4,
+        documentiEmessi: emessi,
+        costi,
+        margineManuale: margine,
+      });
+      expect(r.margineFonte).toBe("calcolato");
+      expect(r.obiettivoMensile).toBeCloseTo(1_666.67, 2);
+    }
+  });
+});

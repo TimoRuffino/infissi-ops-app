@@ -132,6 +132,60 @@ export function costiFissiManualiPerSede(sedeId: number): Array<
     .sort((a, b) => b.mensile - a.mensile);
 }
 
+/**
+ * Come si vuole calcolare il punto di pareggio, per sede.
+ *
+ * Due leve, entrambe nate da un dubbio legittimo sull'automatismo:
+ *
+ * - `margineManuale`: il margine di contribuzione viene calcolato sugli
+ *   ultimi dodici mesi, ma se in quel periodo centinaia di costi erano ancora
+ *   da classificare la percentuale non descrive l'azienda. Poterla fissare a
+ *   mano vale piu' di un numero preciso ma sbagliato.
+ * - `includiStraordinari`: sui dati veri gli straordinari sono €110.963 in un
+ *   anno, piu' dei costi fissi, e non entrano ne' fra i fissi ne' fra i
+ *   variabili — spariscono dal pareggio. Per alcune aziende sono davvero una
+ *   tantum; per altre sono struttura sotto un altro nome. Lo decide chi
+ *   conosce l'azienda, non il codice.
+ *
+ * L'impostazione e' della SEDE, non dell'utente: due persone che guardano lo
+ * stesso obiettivo devono leggere lo stesso numero.
+ */
+export type ImpostazioniPareggio = {
+  sedeId: number;
+  /** 0–1, oppure null per usare quello calcolato dai documenti. */
+  margineManuale: number | null;
+  includiStraordinari: boolean;
+  updatedBy: number | null;
+  updatedAt: Date | null;
+};
+
+const _impostazioniStore = persistedStore<ImpostazioniPareggio>(
+  "impostazioni_pareggio",
+  items => {
+    for (const voce of items as any[]) {
+      if (voce.sedeId === undefined) voce.sedeId = DEFAULT_SEDE_ID;
+      if (voce.margineManuale === undefined) voce.margineManuale = null;
+      if (voce.includiStraordinari === undefined) voce.includiStraordinari = false;
+      if (voce.updatedBy === undefined) voce.updatedBy = null;
+      if (voce.updatedAt != null && !(voce.updatedAt instanceof Date)) {
+        voce.updatedAt = new Date(voce.updatedAt);
+      }
+    }
+  }
+);
+
+export function impostazioniPareggio(sedeId: number): ImpostazioniPareggio {
+  return (
+    _impostazioniStore.items.find(voce => voce.sedeId === sedeId) ?? {
+      sedeId,
+      margineManuale: null,
+      includiStraordinari: false,
+      updatedBy: null,
+      updatedAt: null,
+    }
+  );
+}
+
 const cadenzaSchema = z.enum([
   "mensile",
   "bimestrale",
@@ -165,6 +219,42 @@ export const costiFissiRouter = router({
         100,
     };
   }),
+
+  impostazioni: protectedProcedure.query(({ ctx }) => {
+    requireDirezioneOAmministrazione(ctx.user);
+    return impostazioniPareggio(ctx.sedeId ?? DEFAULT_SEDE_ID);
+  }),
+
+  salvaImpostazioni: protectedProcedure
+    .input(
+      z.object({
+        // Un margine di contribuzione a zero o negativo renderebbe
+        // l'obiettivo infinito: si rifiuta prima di scriverlo.
+        margineManuale: z.number().gt(0).lte(1).nullable(),
+        includiStraordinari: z.boolean(),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      let voce = _impostazioniStore.items.find(item => item.sedeId === sedeId);
+      if (!voce) {
+        voce = {
+          sedeId,
+          margineManuale: null,
+          includiStraordinari: false,
+          updatedBy: null,
+          updatedAt: null,
+        };
+        _impostazioniStore.items.push(voce);
+      }
+      voce.margineManuale = input.margineManuale;
+      voce.includiStraordinari = input.includiStraordinari;
+      voce.updatedBy = ctx.user?.id ?? null;
+      voce.updatedAt = new Date();
+      _impostazioniStore.save();
+      return voce;
+    }),
 
   create: protectedProcedure
     .input(

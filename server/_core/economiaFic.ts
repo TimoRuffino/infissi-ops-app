@@ -180,6 +180,18 @@ export type BreakEvenInput = {
   costi: DocumentoEconomico[];
   /** Voci dichiarate a mano: stipendi, contributi, affitti, tasse. */
   costiFissiDichiarati?: readonly CostoFissoDichiarato[];
+  /**
+   * Margine di contribuzione imposto (0–1). Quello calcolato esce dagli
+   * ultimi dodici mesi: se in quel periodo molti costi erano ancora da
+   * classificare, la percentuale non descrive l'azienda e conviene fissarla.
+   */
+  margineManuale?: number | null;
+  /**
+   * Contare gli straordinari fra i costi da coprire. Sui dati veli sono piu'
+   * dei costi fissi e oggi non entrano da nessuna parte: ne' fissi ne'
+   * variabili, quindi spariscono dal pareggio.
+   */
+  includiStraordinari?: boolean;
 };
 
 /**
@@ -208,6 +220,14 @@ export type BreakEvenResult = {
   costiFissi: number;
   /** Quota dei fissi che arriva dalle voci dichiarate a mano. */
   costiFissiDichiarati: number;
+  /** Straordinari del periodo: dentro il conto solo se richiesto. */
+  costiStraordinari: number;
+  straordinariInclusi: boolean;
+  /** Il margine che i documenti dicono, anche quando ne viene imposto un altro. */
+  margineCalcolato: number | null;
+  margineFonte: "calcolato" | "manuale";
+  /** Costi fissi al mese: il numero da coprire, prima del margine. */
+  daCoprireMensile: number | null;
   margineContribuzione: number | null;
   costiFissiMensili: number | null;
   obiettivoMensile: number | null;
@@ -294,7 +314,18 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
         0
       ) * 100
     ) / 100;
-  const costiFissi = costiFissiFic + costiFissiDichiarati;
+  const costiStraordinari = costiBase
+    .filter(documento => documento.classificazione === "straordinario")
+    .reduce(
+      (somma, documento) =>
+        somma + segnoDocumento(documento.tipo) * documento.importoNetto,
+      0
+    );
+  const straordinariInclusi = input.includiStraordinari === true;
+  const costiFissi =
+    costiFissiFic +
+    costiFissiDichiarati +
+    (straordinariInclusi ? costiStraordinari : 0);
   const dubbi = costiBase.filter(
     documento => documento.classificazione === "dubbio"
   );
@@ -315,8 +346,38 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     mesiConDati.add(documento.data.slice(0, 7));
   }
   const mesiCoperti = mesiConDati.size;
-  const margineContribuzione =
+  const margineCalcolato =
     fatturatoBase > 0 ? (fatturatoBase - costiVariabili) / fatturatoBase : null;
+  // Un margine imposto vale anche quando i documenti non basterebbero a
+  // calcolarlo: e' il caso per cui esiste.
+  const margineImposto =
+    input.margineManuale != null &&
+    input.margineManuale > 0 &&
+    input.margineManuale <= 1
+      ? input.margineManuale
+      : null;
+  const margineContribuzione = margineImposto ?? margineCalcolato;
+  const margineFonte: "calcolato" | "manuale" =
+    margineImposto != null ? "manuale" : "calcolato";
+  // Quanto costa esistere ogni mese. Non dipende dal margine, quindi si
+  // calcola prima: e' la risposta anche quando l'obiettivo non e'
+  // calcolabile, ed e' il numero che la direzione chiedeva di vedere nudo.
+  const dichiaratiOggi =
+    Math.round(
+      (input.costiFissiDichiarati ?? [])
+        .filter(voce => mesiAttivi(voce, periodoA, periodoA) > 0)
+        .reduce((somma, voce) => somma + voce.mensile, 0) * 100
+    ) / 100;
+  const daCoprireMensile =
+    mesiCoperti > 0
+      ? Math.round(
+          ((costiFissiFic + (straordinariInclusi ? costiStraordinari : 0)) /
+            mesiCoperti +
+            dichiaratiOggi) *
+            100
+        ) / 100
+      : null;
+
   const motivi: string[] = [];
   if (mesiCoperti < 3) {
     motivi.push("Servono almeno tre mesi di dati economici.");
@@ -351,6 +412,11 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       costiVariabili,
       costiFissi,
       costiFissiDichiarati,
+      costiStraordinari,
+      straordinariInclusi,
+      margineCalcolato,
+      margineFonte,
+      daCoprireMensile,
       margineContribuzione,
       costiFissiMensili: null,
       obiettivoMensile: null,
@@ -370,13 +436,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   // pareggio e' il peso di OGGI. Un canone chiuso a marzo non deve alzare
   // l'obiettivo di agosto, e uno acceso a luglio deve pesare per intero
   // subito, non per un dodicesimo.
-  const dichiaratiOggi =
-    Math.round(
-      (input.costiFissiDichiarati ?? [])
-        .filter(voce => mesiAttivi(voce, periodoA, periodoA) > 0)
-        .reduce((somma, voce) => somma + voce.mensile, 0) * 100
-    ) / 100;
-  const costiFissiMensili = costiFissiFic / mesiCoperti + dichiaratiOggi;
+  const costiFissiMensili = daCoprireMensile ?? 0;
   const obiettivoMensile = costiFissiMensili / margineContribuzione!;
   return {
     stato: "disponibile",
@@ -388,6 +448,11 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     costiVariabili,
     costiFissi,
     costiFissiDichiarati,
+    costiStraordinari,
+    straordinariInclusi,
+    margineCalcolato,
+    margineFonte,
+    daCoprireMensile,
     margineContribuzione,
     costiFissiMensili,
     obiettivoMensile,

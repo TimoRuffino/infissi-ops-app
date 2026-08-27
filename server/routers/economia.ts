@@ -10,7 +10,10 @@ import { requireDirezioneOAmministrazione } from "../_core/permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
 import { ficCosti } from "./ficCosti";
-import { costiFissiManualiPerSede } from "./costiFissi";
+import {
+  costiFissiManualiPerSede,
+  impostazioniPareggio,
+} from "./costiFissi";
 import { ficFatture, statoFattura } from "./ficFatture";
 import { calcolaImportoIncassato } from "../_core/commessaPayments";
 
@@ -262,6 +265,7 @@ export const economiaRouter = router({
         });
       }
       const sedeId = ctx.sedeId ?? 1;
+      const impostazioni = impostazioniPareggio(sedeId);
       return calcolaBreakEven({
         anno: input.anno,
         mese: input.mese,
@@ -272,6 +276,8 @@ export const economiaRouter = router({
           dal: voce.dal,
           al: voce.al,
         })),
+        margineManuale: impostazioni.margineManuale,
+        includiStraordinari: impostazioni.includiStraordinari,
       });
     }),
 });

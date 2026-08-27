@@ -9,14 +9,19 @@ import {
   statoCopertura,
 } from "@/lib/economiaView";
 import { trpc } from "@/lib/trpc";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ArrowRight,
   Calculator,
   CheckCircle2,
   CircleAlert,
   Loader2,
+  SlidersHorizontal,
   Target,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 const MESI = [
   "Gennaio",
@@ -32,6 +37,154 @@ const MESI = [
   "Novembre",
   "Dicembre",
 ];
+
+/**
+ * Le due leve del pareggio.
+ *
+ * Il margine di contribuzione si calcola dagli ultimi dodici mesi, ma in quel
+ * periodo centinaia di costi erano ancora da classificare: una percentuale
+ * precisa su dati incompleti resta una percentuale sbagliata, e chi conosce
+ * l'azienda deve poterla fissare.
+ *
+ * Gli straordinari sono l'altra: sui dati veri valgono più dei costi fissi e
+ * oggi non entrano nel calcolo da nessuna parte — né fissi né variabili.
+ * Se per questa azienda sono struttura sotto un altro nome, vanno contati.
+ *
+ * L'impostazione è della sede: due persone che guardano lo stesso obiettivo
+ * devono leggere lo stesso numero.
+ */
+function ImpostazioniPareggio({ data }: { data: any }) {
+  const utils = trpc.useUtils();
+  const [aperto, setAperto] = useState(false);
+  const salvate = trpc.costiFissi.impostazioni.useQuery(undefined, {
+    enabled: aperto,
+  });
+  const [margine, setMargine] = useState("");
+  const [straordinari, setStraordinari] = useState(false);
+
+  useEffect(() => {
+    if (!salvate.data) return;
+    setMargine(
+      salvate.data.margineManuale == null
+        ? ""
+        : String(Math.round(salvate.data.margineManuale * 1000) / 10)
+    );
+    setStraordinari(salvate.data.includiStraordinari);
+  }, [salvate.data]);
+
+  const salva = trpc.costiFissi.salvaImpostazioni.useMutation({
+    onSuccess: () => {
+      utils.economia.invalidate();
+      utils.costiFissi.invalidate();
+      setAperto(false);
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const numero = Number(margine.replace(",", "."));
+  const margineValido = margine.trim() === "" || (numero > 0 && numero <= 100);
+
+  if (!aperto) {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          onClick={() => setAperto(true)}
+        >
+          <SlidersHorizontal className="mr-1 h-3 w-3" />
+          Come calcolarlo
+        </Button>
+        {!data.straordinariInclusi && (data.costiStraordinari ?? 0) > 0 && (
+          <span className="text-text-3">
+            {formatEuroSimbolo(data.costiStraordinari)} di straordinari nel
+            periodo restano fuori dal conto.
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border border-border bg-surface-2 p-3">
+      <div className="space-y-1">
+        <Label htmlFor="be-margine" className="text-xs">
+          Margine di contribuzione
+        </Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            id="be-margine"
+            inputMode="decimal"
+            value={margine}
+            onChange={e => setMargine(e.target.value)}
+            placeholder={`${Math.round((data.margineCalcolato ?? 0) * 100)}`}
+            className="h-10 w-24 tabular-nums"
+            aria-invalid={!margineValido}
+          />
+          <span className="text-xs text-text-3">
+            % — vuoto usa quello calcolato dai documenti (
+            {Math.round((data.margineCalcolato ?? 0) * 100)}%, su{" "}
+            {data.mesiCoperti} mesi)
+          </span>
+        </div>
+        {!margineValido && (
+          <p className="text-[11px] text-danger">
+            Serve una percentuale fra 1 e 100.
+          </p>
+        )}
+      </div>
+
+      <label className="flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+          checked={straordinari}
+          onChange={e => setStraordinari(e.target.checked)}
+        />
+        <span className="min-w-0">
+          Conta anche gli straordinari fra i costi da coprire
+          <span className="block text-text-3">
+            {formatEuroSimbolo(data.costiStraordinari ?? 0)} negli ultimi{" "}
+            {data.mesiCoperti} mesi. Oggi non entrano né fra i fissi né fra i
+            variabili: spariscono dal pareggio.
+          </span>
+        </span>
+      </label>
+
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9"
+          onClick={() => setAperto(false)}
+        >
+          Annulla
+        </Button>
+        <Button
+          size="sm"
+          className="h-9"
+          disabled={!margineValido || salva.isPending}
+          onClick={() =>
+            salva.mutate({
+              margineManuale:
+                margine.trim() === ""
+                  ? null
+                  : Math.round((numero / 100) * 10000) / 10000,
+              includiStraordinari: straordinari,
+            })
+          }
+        >
+          {salva.isPending ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : null}
+          Salva
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
   const oggi = new Date();
@@ -117,9 +270,9 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     </p>
                   </div>
                   <div>
-                    <p className="eyebrow">Costi fissi medi</p>
+                    <p className="eyebrow">Costi da coprire</p>
                     <p className="mt-1 text-lg font-bold tabular-nums">
-                      {formatEuroSimbolo(data.costiFissiMensili ?? 0)}
+                      {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
                     </p>
                     {/* Se nessuno ha dichiarato stipendi e contributi,
                         l'obiettivo è calcolato su una parte sola dei costi:
@@ -141,32 +294,62 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                   </div>
                   <Progress value={progress} className="h-2.5" />
                 </div>
-                <div className="mt-3 flex items-center gap-2 text-xs">
+                {/* La catena per esteso. L'obiettivo non contiene nessun
+                    utile: è solo il fatturato che serve perché i costi fissi
+                    tornino a zero, e senza vedere la divisione sembrava che
+                    dentro ci fosse un margine deciso da qualcuno. */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                   {stato === "raggiunto" ? (
                     <CheckCircle2 className="h-4 w-4 text-success" />
                   ) : (
                     <Calculator className="h-4 w-4 text-primary" />
                   )}
                   <span className="text-text-2">
-                    Margine di contribuzione usato:{" "}
-                    {Math.round((data.margineContribuzione ?? 0) * 100)}%
+                    {formatEuroSimbolo(data.daCoprireMensile ?? 0)} di costi
+                    fissi ÷ {Math.round((data.margineContribuzione ?? 0) * 100)}%
+                    di margine ={" "}
+                    <strong>
+                      {formatEuroSimbolo(data.obiettivoMensile ?? 0)}
+                    </strong>{" "}
+                    da fatturare. Nessun utile dentro.
                   </span>
+                  {data.margineFonte === "manuale" && (
+                    <Badge variant="outline" className="text-[10px]">
+                      margine fissato a mano
+                    </Badge>
+                  )}
                 </div>
+                <ImpostazioniPareggio data={data} />
               </>
             ) : (
-              <div className="rounded-md border border-warning/30 bg-warning-soft p-3">
-                <div className="flex gap-2">
-                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Obiettivo non ancora affidabile
-                    </p>
-                    <p className="mt-1 text-xs text-text-2">
-                      {data.motivi.join(" ")}
-                    </p>
+              <>
+                <div className="rounded-md border border-warning/30 bg-warning-soft p-3">
+                  <div className="flex gap-2">
+                    <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <div>
+                      <p className="text-sm font-semibold">
+                        Obiettivo non ancora affidabile
+                      </p>
+                      <p className="mt-1 text-xs text-text-2">
+                        {data.motivi.join(" ")}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+                {/* Il costo di esistere non dipende dal margine: si sa anche
+                    quando l'obiettivo non è calcolabile, ed è metà della
+                    risposta. Nasconderlo lasciava la pagina muta. */}
+                {data.daCoprireMensile != null && (
+                  <p className="mt-3 text-sm text-text-2">
+                    Intanto: coprire i costi fissi costa{" "}
+                    <strong className="tabular-nums">
+                      {formatEuroSimbolo(data.daCoprireMensile)}
+                    </strong>{" "}
+                    al mese.
+                  </p>
+                )}
+                <ImpostazioniPareggio data={data} />
+              </>
             )}
           </div>
         </div>
