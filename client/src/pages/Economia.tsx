@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import SearchSelect from "@/components/SearchSelect";
+import { Input } from "@/components/ui/input";
 import TarsPropostaCard from "@/components/TarsPropostaCard";
 import CostiFicReview from "@/components/economia/CostiFicReview";
 import CostiFissi from "@/components/economia/CostiFissi";
@@ -311,10 +312,43 @@ function RigaFattura({ f }: { f: any }) {
   );
 }
 
+/** Testo su cui si cerca una fattura: quello che una persona ricorda di lei. */
+function testoRicerca(f: any): string {
+  return [
+    f.numero,
+    f.clienteNome,
+    f.commessaCodice,
+    f.commessaCliente,
+    // L'importo si cerca come lo si legge: "1.220" e "1220" devono trovare
+    // la stessa fattura.
+    String(f.importoLordo ?? ""),
+    String(f.importoLordo ?? "").replace(".", ","),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function Fatture({ anno }: { anno: number }) {
+  const utils = trpc.useUtils();
   const q = trpc.ficFatture.list.useQuery({ anno });
   const [filtro, setFiltro] = useState<FiltroId>("da_collegare");
+  const [cerca, setCerca] = useState("");
   const tutte = q.data ?? [];
+
+  const riallinea = trpc.ficFatture.riconciliaOra.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.collegate > 0
+          ? `${r.collegate} fatture collegate · ${r.pattuitiAggiornati} pattuiti aggiornati`
+          : "Nessuna fattura era collegabile senza ambiguità"
+      );
+      utils.ficFatture.invalidate();
+      utils.commesse.invalidate();
+      utils.economia.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   const conteggi = Object.fromEntries(
     FILTRI.map(f => [f.id, tutte.filter(f.tiene).length])
@@ -328,14 +362,74 @@ function Fatture({ anno }: { anno: number }) {
     );
   }
 
+  // Cercare significa avere in mente UNA fattura: la ricerca scavalca il
+  // filtro, altrimenti si trova niente e si dà la colpa alla ricerca.
+  const termine = cerca.trim().toLowerCase();
+  const inRicerca = termine.length > 0;
   const attivo = FILTRI.find(f => f.id === filtro) ?? FILTRI[0];
-  const righe = tutte.filter(attivo.tiene);
+  const righe = inRicerca
+    ? tutte.filter(f => testoRicerca(f).includes(termine))
+    : tutte.filter(attivo.tiene);
+
+  const totale = righe.reduce(
+    (somma: number, f: any) => somma + (f.importoLordo ?? 0),
+    0
+  );
   const conCandidati = tutte.filter(
     f => f.stato === "non_abbinabile" && (f.candidati ?? []).length > 0
+  ).length;
+  const inequivocabili = tutte.filter(
+    f => f.stato === "non_abbinabile" && (f.candidati ?? []).length === 1
   ).length;
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3"
+            aria-hidden="true"
+          />
+          <Input
+            value={cerca}
+            onChange={e => setCerca(e.target.value)}
+            placeholder="Numero, cliente, commessa, importo…"
+            aria-label="Cerca fra le fatture"
+            className="h-10 pl-8 pr-8"
+          />
+          {inRicerca && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2"
+              aria-label="Azzera la ricerca"
+              onClick={() => setCerca("")}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+        {inequivocabili > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-10 shrink-0"
+            disabled={riallinea.isPending}
+            title="Collega solo le fatture con un unico candidato: le ambigue restano da decidere"
+            onClick={() => riallinea.mutate()}
+          >
+            {riallinea.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Collega le {inequivocabili} sicure
+          </Button>
+        )}
+      </div>
+
       {/* Filtri come chip: si vede quanta coda c'è in ognuno senza aprirli. */}
       <div
         role="group"
@@ -347,14 +441,17 @@ function Fatture({ anno }: { anno: number }) {
             key={f.id}
             type="button"
             size="sm"
-            variant={filtro === f.id ? "default" : "outline"}
-            aria-pressed={filtro === f.id}
-            className="h-9 shrink-0"
-            onClick={() => setFiltro(f.id)}
+            variant={!inRicerca && filtro === f.id ? "default" : "outline"}
+            aria-pressed={!inRicerca && filtro === f.id}
+            className={cn("h-9 shrink-0", inRicerca && "opacity-60")}
+            onClick={() => {
+              setCerca("");
+              setFiltro(f.id);
+            }}
           >
             {f.label}
             <Badge
-              variant={filtro === f.id ? "secondary" : "outline"}
+              variant={!inRicerca && filtro === f.id ? "secondary" : "outline"}
               className="ml-1.5 text-[10px]"
             >
               {conteggi[f.id]}
@@ -363,21 +460,34 @@ function Fatture({ anno }: { anno: number }) {
         ))}
       </div>
 
-      {filtro === "da_collegare" && conCandidati > 0 && (
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-xs text-text-3">
-          {conCandidati} di queste hanno già una commessa suggerita: basta un
-          click sul candidato.
+          {inRicerca
+            ? `${righe.length} fatture per «${cerca.trim()}», su tutto il ${anno}`
+            : filtro === "da_collegare" && conCandidati > 0
+              ? `${conCandidati} hanno già una commessa suggerita: basta un click sul candidato.`
+              : `${righe.length} fatture`}
         </p>
-      )}
+        {righe.length > 0 && (
+          <p className="text-xs tabular-nums text-text-3">
+            totale{" "}
+            <span className="font-semibold text-text-2">
+              {formatEuroSimbolo(totale)}
+            </span>
+          </p>
+        )}
+      </div>
 
       {righe.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-text-3">
-            {filtro === "da_collegare"
-              ? "Ogni fattura ha la sua commessa."
-              : filtro === "da_riconciliare"
-                ? "Nessun incasso da registrare."
-                : "Nessuna fattura in questa vista."}
+            {inRicerca
+              ? `Nessuna fattura per «${cerca.trim()}».`
+              : filtro === "da_collegare"
+                ? "Ogni fattura ha la sua commessa."
+                : filtro === "da_riconciliare"
+                  ? "Nessun incasso da registrare."
+                  : "Nessuna fattura in questa vista."}
           </CardContent>
         </Card>
       )}
