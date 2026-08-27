@@ -1044,6 +1044,47 @@ export const commesseRouter = router({
   // ── Acconti / pagamenti (embedded register on commessa) ────────────────────
   // importoIncassato is always recomputed as the sum of the register so the
   // board chips, dashboard items and notifications stay consistent.
+  /**
+   * Reset di pattuito, piano rate e pagamenti manuali — direzione soltanto.
+   *
+   * Esiste come endpoint e non solo come script perche' `persistedStore` e' un
+   * array in memoria: uno script esterno scrive sul DB, ma il processo vivo
+   * conserva la copia vecchia e la riscrive al primo `save()` — il sync FiC
+   * gira da solo ogni 6 ore, quindi la sovrascrittura e' certa, non probabile.
+   * Qui la mutazione avviene sullo stesso array che il server tiene, quindi
+   * regge.
+   *
+   * DISTRUTTIVO: i pagamenti `origine="manuale"` vengono eliminati, non
+   * stornati. Il ripristino passa dal backup Drive, e senza un backup riuscito
+   * nelle ultime 24 ore l'apply viene rifiutato.
+   */
+  resetPattuiti: protectedProcedure
+    .input(
+      z.object({
+        apply: z.boolean().default(false),
+        includiArchiviate: z.boolean().default(false),
+        skipBackupCheck: z.boolean().default(false),
+        soloSedeAttiva: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      requireDirezione(ctx.user);
+      const { resetPattuiti } = await import("../_core/resetPattuiti");
+      return resetPattuiti(
+        {
+          apply: input.apply,
+          includiArchiviate: input.includiArchiviate,
+          skipBackupCheck: input.skipBackupCheck,
+          sedeId: input.soloSedeAttiva ? (ctx.sedeId ?? 1) : null,
+        },
+        {
+          commesse,
+          save: () => _store.save(),
+          ricalcolaImportoIncassato,
+        }
+      );
+    }),
+
   // ── Piano rate ────────────────────────────────────────────────────────────
   // Le rate di una commessa fatturata arrivano da FiC e sono di sola lettura.
   // Queste tre mutation esistono per il caso opposto: nessuna fattura ancora

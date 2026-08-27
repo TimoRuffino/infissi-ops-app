@@ -1008,14 +1008,21 @@ pnpm storage:dry-run
    per reimportare lo storico outbound con la controparte corretta.
 8. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
    per sede dopo confronto con le notifiche legacy.
-9. **Reset pattuiti da eseguire in produzione.** `pnpm pattuiti:dry-run` e poi
-   `pnpm pattuiti:reset` (`scripts/reset-pattuiti.ts`). È DISTRUTTIVO: azzera
-   `importoTotale`, `pianoRate` e **elimina** i pagamenti con
-   `origine="manuale"` — eliminati, non stornati, quindi recuperabili solo dal
-   backup Drive. Lo script si rifiuta di partire senza un backup Drive riuscito
-   nelle ultime 24 ore, come `storage:migrate`. Dopo il reset serve
-   `Sincronizza ora` per ogni sede: il pattuito si ricostruisce dalle fatture.
-   **Non ancora eseguito su Railway.**
+9. **Reset pattuiti: usare l'interfaccia, non lo script.** Impostazioni →
+   `Reset pattuito e pagamenti manuali` (`commesse.resetPattuiti`, direzione
+   soltanto): Simula, controlla i numeri, poi Esegui. Azzera `importoTotale` e
+   `pianoRate` ed **elimina** i pagamenti `origine="manuale"` — eliminati, non
+   stornati, recuperabili solo dal backup Drive, che viene verificato prima di
+   procedere. Dopo il reset serve `Sincronizza ora` per ogni sede.
+
+   Il 26/08/2026 il reset è stato eseguito con `scripts/reset-pattuiti.ts` via
+   `railway run` ed è stato **annullato entro poche ore**: `persistedStore`
+   tiene le raccolte in memoria e `save()` riscrive l'intera riga JSONB, quindi
+   il primo salvataggio del server vivo — il sync FiC ne fa uno ogni 6 ore — ha
+   sovrascritto le modifiche fatte da fuori con la sua copia precedente. Lo
+   script resta valido solo a servizio fermo. Vale per qualunque manutenzione
+   futura sui dati: contro un'istanza attiva si passa dal processo, mai dal
+   database.
 10. Autonomia Tars da accendere per sede in Impostazioni: scegliere il
     responsabile e i tipi consentiti, poi osservare la chat generale per
     qualche giorno prima di allargare l'elenco.

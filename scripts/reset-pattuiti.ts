@@ -11,6 +11,19 @@
 // DISTRUTTIVO: i pagamenti con origine "manuale" vengono eliminati. Il
 // comando si rifiuta di partire senza un backup Drive riuscito nelle
 // ultime 24 ore, come `storage:migrate`.
+//
+// ATTENZIONE — NON USARLO CONTRO UN'ISTANZA IN ESECUZIONE.
+//
+// `persistedStore` tiene ogni raccolta come array in memoria e `save()`
+// riscrive l'intera riga JSONB. Un processo separato che scrive sul database
+// non tocca la copia in memoria del server vivo: al primo salvataggio di
+// quest'ultimo — e il sync FiC ne fa uno da solo ogni 6 ore — il reset viene
+// sovrascritto per intero. Non e' un rischio di orario: e' certo.
+//
+// Su un'istanza attiva usa `Impostazioni -> Reset pattuito e pagamenti
+// manuali` (procedura `commesse.resetPattuiti`, direzione soltanto): li' la
+// mutazione avviene sullo stesso array che il server tiene, quindi regge.
+// Questo script resta utile a servizio fermo o su un ripristino offline.
 
 import { bootstrapAll, flushAll } from "../server/_core/persistence";
 // L'import dei router registra gli store persistiti.

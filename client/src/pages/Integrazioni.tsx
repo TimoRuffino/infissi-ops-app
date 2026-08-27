@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -324,6 +325,7 @@ export default function Integrazioni() {
             Contabilità
           </h3>
           <FattureInCloudCard />
+          <ResetPattuitiCard />
         </div>
 
         <div className="space-y-2 pt-4">
@@ -802,6 +804,162 @@ function TarsCard() {
 // Every 6h (or on demand) the CRM reads the year's issued invoices and
 // creates any client that's still missing — keeps the anagrafica aligned
 // with the fatturazione without manual imports.
+// Reset di pattuito, rate e pagamenti manuali — direzione soltanto.
+//
+// Sta qui e non solo nello script perche' uno script esterno non regge: il
+// server tiene le commesse in memoria e le riscrive intere al primo salvataggio,
+// quindi una scrittura fatta da fuori viene sovrascritta dal primo sync utile.
+// Da questo bottone la mutazione avviene dentro il processo vivo.
+function ResetPattuitiCard() {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const [includiArchiviate, setIncludiArchiviate] = useState(false);
+  const [tutteLeSedi, setTutteLeSedi] = useState(false);
+  const [report, setReport] = useState<any>(null);
+  const [confermaAperta, setConfermaAperta] = useState(false);
+
+  const reset = trpc.commesse.resetPattuiti.useMutation({
+    onSuccess: r => {
+      setReport(r);
+      if (r.refusedReason) {
+        toast.error("Reset rifiutato");
+        return;
+      }
+      if (!r.dryRun) {
+        setConfermaAperta(false);
+        toast.success(
+          `Reset eseguito · ${r.pattuitiAzzerati} pattuiti, ${r.pagamentiManualiRimossi} pagamenti manuali`
+        );
+        utils.commesse.invalidate();
+        utils.economia.invalidate();
+      }
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  if (!isDirezione(user)) return null;
+
+  const lancia = (apply: boolean) =>
+    reset.mutate({
+      apply,
+      includiArchiviate,
+      soloSedeAttiva: !tutteLeSedi,
+    });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          Reset pattuito e pagamenti manuali
+          <Badge variant="destructive">Distruttivo</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Azzera <strong>importo pattuito</strong> e <strong>piano rate</strong> ed
+          elimina i pagamenti inseriti a mano. I movimenti che arrivano da Fatture
+          in Cloud restano intatti. Dopo il reset, <strong>Sincronizza ora</strong>{" "}
+          ricostruisce il pattuito dalle fatture.
+        </p>
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs">
+          <AlertCircle className="h-4 w-4 shrink-0 text-destructive mt-0.5" />
+          <span>
+            I pagamenti manuali vengono <strong>eliminati, non stornati</strong>.
+            Quelli che Fatture in Cloud conosce tornano al prossimo sync; gli
+            acconti mai fatturati no. Serve un backup Drive riuscito nelle ultime
+            24 ore, altrimenti l&apos;esecuzione viene rifiutata.
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includiArchiviate}
+              onChange={e => setIncludiArchiviate(e.target.checked)}
+            />
+            <span>Includi anche le commesse archiviate</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={tutteLeSedi}
+              onChange={e => setTutteLeSedi(e.target.checked)}
+            />
+            <span>Tutte le sedi, non solo quella attiva</span>
+          </label>
+        </div>
+
+        {report && (
+          <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1">
+            <p className="font-medium">
+              {report.refusedReason
+                ? "Rifiutato"
+                : report.dryRun
+                  ? "Simulazione — nessuna scrittura"
+                  : "Eseguito"}
+            </p>
+            {report.refusedReason ? (
+              <p className="text-destructive">{report.refusedReason}</p>
+            ) : (
+              <ul className="space-y-0.5 tabular-nums">
+                <li>Commesse esaminate: {report.commesseEsaminate}</li>
+                <li>Pattuiti azzerati: {report.pattuitiAzzerati}</li>
+                <li>Piani rate rimossi: {report.pianiRimossi}</li>
+                <li className="text-destructive">
+                  Pagamenti manuali eliminati: {report.pagamentiManualiRimossi}
+                </li>
+                <li>Pagamenti FiC conservati: {report.pagamentiFicConservati}</li>
+                {report.commesseSaltate?.length > 0 && (
+                  <li>Saltate (archiviate): {report.commesseSaltate.length}</li>
+                )}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reset.isPending}
+            onClick={() => lancia(false)}
+          >
+            Simula
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={reset.isPending || !report || report.dryRun === false}
+            onClick={() => setConfermaAperta(true)}
+          >
+            Esegui il reset
+          </Button>
+        </div>
+        {!report && (
+          <p className="text-[11px] text-muted-foreground">
+            Simula prima: i numeri della simulazione sono quelli che verranno
+            applicati.
+          </p>
+        )}
+
+        <ConfirmDialog
+          open={confermaAperta}
+          onOpenChange={setConfermaAperta}
+          title="Eliminare i pagamenti inseriti a mano?"
+          description={
+            report
+              ? `Verranno azzerati ${report.pattuitiAzzerati} pattuiti ed eliminati ${report.pagamentiManualiRimossi} pagamenti manuali su ${report.commesseEsaminate} commesse. I ${report.pagamentiFicConservati} movimenti di Fatture in Cloud restano. L'operazione non ha un annullamento: si torna indietro solo dal backup Drive.`
+              : ""
+          }
+          confirmLabel="Elimina"
+          onConfirm={() => lancia(true)}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 function FattureInCloudCard() {
   const status = trpc.fattureInCloud.status.useQuery(undefined, {
     retry: false,
