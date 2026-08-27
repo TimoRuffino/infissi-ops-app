@@ -174,10 +174,13 @@ export function calcolaAggregatiFic(
 }
 
 export type BreakEvenInput = {
-  anno: number;
-  mese: number;
-  documentiEmessi: DocumentoEconomico[];
-  costi: DocumentoEconomico[];
+  anno?: number;
+  mese?: number;
+  periodoDa?: string;
+  periodoA?: string;
+  documentiEmessi: readonly DocumentoEconomico[];
+  costi?: readonly DocumentoEconomico[];
+  documentiRicevuti?: readonly DocumentoEconomico[];
   /** Voci dichiarate a mano: stipendi, contributi, affitti, tasse. */
   costiFissiDichiarati?: readonly CostoFissoDichiarato[];
   /**
@@ -205,8 +208,9 @@ export type BreakEvenInput = {
  */
 export type CostoFissoDichiarato = {
   mensile: number;
-  dal: string; // "YYYY-MM"
-  al: string | null;
+  dal?: string; // "YYYY-MM"
+  al?: string | null;
+  mesiNelPeriodo?: number;
 };
 
 export type BreakEvenResult = {
@@ -253,6 +257,7 @@ function mesiAttivi(
   periodoDa: string,
   periodoA: string
 ): number {
+  if (!voce.dal) return 1;
   const da = Math.max(indiceMese(voce.dal), indiceMese(periodoDa));
   const a = Math.min(
     voce.al ? indiceMese(voce.al) : Number.MAX_SAFE_INTEGER,
@@ -266,19 +271,30 @@ function dataInIntervallo(data: string, da: string, a: string): boolean {
 }
 
 export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
-  const fineBaseDate = new Date(Date.UTC(input.anno, input.mese - 1, 0));
-  const inizioBaseDate = new Date(
-    Date.UTC(fineBaseDate.getUTCFullYear(), fineBaseDate.getUTCMonth() - 11, 1)
-  );
-  const periodoDa = `${chiaveMese(inizioBaseDate)}-01`;
-  const periodoA = fineBaseDate.toISOString().slice(0, 10);
+  let periodoDa: string;
+  let periodoA: string;
+  if (input.periodoDa && input.periodoA) {
+    periodoDa = input.periodoDa;
+    periodoA = input.periodoA;
+  } else if (input.anno != null && input.mese != null) {
+    const fineBaseDate = new Date(Date.UTC(input.anno, input.mese - 1, 0));
+    const inizioBaseDate = new Date(
+      Date.UTC(fineBaseDate.getUTCFullYear(), fineBaseDate.getUTCMonth() - 11, 1)
+    );
+    periodoDa = `${chiaveMese(inizioBaseDate)}-01`;
+    periodoA = fineBaseDate.toISOString().slice(0, 10);
+  } else {
+    throw new Error("Periodo break-even incompleto.");
+  }
+
+  const documentiRicevuti = input.documentiRicevuti ?? input.costi ?? [];
 
   const emessiBase = input.documentiEmessi.filter(
     documento =>
       documentoContabilizzabile(documento) &&
       dataInIntervallo(documento.data, periodoDa, periodoA)
   );
-  const costiBase = input.costi.filter(
+  const costiBase = documentiRicevuti.filter(
     documento =>
       documentoContabilizzabile(documento) &&
       dataInIntervallo(documento.data, periodoDa, periodoA)
@@ -296,13 +312,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
         somma + segnoDocumento(documento.tipo) * documento.importoNetto,
       0
     );
-  const costiFissiFic = costiBase
-    .filter(documento => documento.classificazione === "fisso")
-    .reduce(
-      (somma, documento) =>
-        somma + segnoDocumento(documento.tipo) * documento.importoNetto,
-      0
-    );
+  // Le righe FiC classificate `fisso` non sono una fonte certa.
   // Le voci dichiarate pesano per i mesi in cui erano attive dentro il
   // periodo base: un costo aperto a marzo non grava sui dodici mesi
   // precedenti, e uno chiuso a giugno non grava su luglio.
@@ -310,7 +320,9 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     Math.round(
       (input.costiFissiDichiarati ?? []).reduce(
         (somma, voce) =>
-          somma + voce.mensile * mesiAttivi(voce, periodoDa, periodoA),
+          somma +
+          voce.mensile *
+            (voce.mesiNelPeriodo ?? mesiAttivi(voce, periodoDa, periodoA)),
         0
       ) * 100
     ) / 100;
@@ -323,9 +335,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     );
   const straordinariInclusi = input.includiStraordinari === true;
   const costiFissi =
-    costiFissiFic +
-    costiFissiDichiarati +
-    (straordinariInclusi ? costiStraordinari : 0);
+    costiFissiDichiarati + (straordinariInclusi ? costiStraordinari : 0);
   const dubbi = costiBase.filter(
     documento => documento.classificazione === "dubbio"
   );
@@ -365,18 +375,20 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   const dichiaratiOggi =
     Math.round(
       (input.costiFissiDichiarati ?? [])
-        .filter(voce => mesiAttivi(voce, periodoA, periodoA) > 0)
+        .filter(
+          voce =>
+            (voce.mesiNelPeriodo ?? mesiAttivi(voce, periodoA, periodoA)) > 0
+        )
         .reduce((somma, voce) => somma + voce.mensile, 0) * 100
     ) / 100;
   const daCoprireMensile =
-    mesiCoperti > 0
-      ? Math.round(
-          ((costiFissiFic + (straordinariInclusi ? costiStraordinari : 0)) /
-            mesiCoperti +
-            dichiaratiOggi) *
-            100
-        ) / 100
-      : null;
+    Math.round(
+      (dichiaratiOggi +
+        (straordinariInclusi && mesiCoperti > 0
+          ? costiStraordinari / mesiCoperti
+          : 0)) *
+        100
+    ) / 100;
 
   const motivi: string[] = [];
   if (mesiCoperti < 3) {
@@ -389,11 +401,17 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     motivi.push("Il margine di contribuzione non è positivo.");
   }
 
+  const meseRiferimento =
+    input.anno != null && input.mese != null
+      ? `${input.anno}-${String(input.mese).padStart(2, "0")}`
+      : periodoA.slice(0, 7);
   const fatturatoMese = input.documentiEmessi
     .filter(
       documento =>
         documentoContabilizzabile(documento) &&
-        classificaDataAnnuale(documento.data, input.anno) === input.mese
+        (input.anno != null && input.mese != null
+          ? classificaDataAnnuale(documento.data, input.anno) === input.mese
+          : documento.data.slice(0, 7) === meseRiferimento)
     )
     .reduce(
       (somma, documento) =>
@@ -418,7 +436,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       margineFonte,
       daCoprireMensile,
       margineContribuzione,
-      costiFissiMensili: null,
+      costiFissiMensili: daCoprireMensile,
       obiettivoMensile: null,
       fatturatoMese,
       ancoraDaFatturare: null,
@@ -436,7 +454,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   // pareggio e' il peso di OGGI. Un canone chiuso a marzo non deve alzare
   // l'obiettivo di agosto, e uno acceso a luglio deve pesare per intero
   // subito, non per un dodicesimo.
-  const costiFissiMensili = daCoprireMensile ?? 0;
+  const costiFissiMensili = daCoprireMensile;
   const obiettivoMensile = costiFissiMensili / margineContribuzione!;
   return {
     stato: "disponibile",

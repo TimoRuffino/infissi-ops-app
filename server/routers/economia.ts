@@ -266,11 +266,21 @@ export const economiaRouter = router({
       }
       const sedeId = ctx.sedeId ?? 1;
       const impostazioni = impostazioniPareggio(sedeId);
+      const finePeriodo = new Date(Date.UTC(input.anno, input.mese - 1, 0));
+      const inizioPeriodo = new Date(
+        Date.UTC(
+          finePeriodo.getUTCFullYear(),
+          finePeriodo.getUTCMonth() - 11,
+          1
+        )
+      );
       return calcolaBreakEven({
-        anno: input.anno,
-        mese: input.mese,
+        periodoDa: `${inizioPeriodo.getUTCFullYear()}-${String(
+          inizioPeriodo.getUTCMonth() + 1
+        ).padStart(2, "0")}-01`,
+        periodoA: finePeriodo.toISOString().slice(0, 10),
         documentiEmessi: documentiEmessi(sedeId),
-        costi: documentiRicevuti(sedeId),
+        documentiRicevuti: documentiRicevuti(sedeId),
         costiFissiDichiarati: costiFissiManualiPerSede(sedeId).map(voce => ({
           mensile: voce.mensile,
           dal: voce.dal,

@@ -163,7 +163,7 @@ describe("aggregati economici FiC", () => {
 });
 
 describe("break-even mensile", () => {
-  it("include le fatture escluse dalla riconciliazione nel break-even", () => {
+  it("esclude dal break-even i costi FiC fissi non presenti nel registro", () => {
     const emessi = [1, 2, 3].map(mese =>
       documento("invoice", `2026-0${mese}-10`, 10_000, { ignorato: true })
     );
@@ -185,7 +185,8 @@ describe("break-even mensile", () => {
 
     expect(risultato.stato).toBe("disponibile");
     expect(risultato.fatturatoBase).toBe(30_000);
-    expect(risultato.obiettivoMensile).toBeCloseTo(1_666.67, 2);
+    expect(risultato.costiFissiMensili).toBe(0);
+    expect(risultato.obiettivoMensile).toBe(0);
   });
 
   it("i costi fissi dichiarati a mano entrano nell'obiettivo", () => {
@@ -219,8 +220,8 @@ describe("break-even mensile", () => {
 
     expect(senza.costiFissiDichiarati).toBe(0);
     expect(con.costiFissiDichiarati).toBe(15_000);
-    // Il peso di oggi, non la media: 1.000 di fatture + 5.000 dichiarati.
-    expect(con.costiFissiMensili).toBeCloseTo(6_000, 2);
+    // Il peso di oggi arriva solo dal registro: 5.000 dichiarati.
+    expect(con.costiFissiMensili).toBeCloseTo(5_000, 2);
     expect(con.obiettivoMensile).toBeGreaterThan(senza.obiettivoMensile!);
   });
 
@@ -247,7 +248,7 @@ describe("break-even mensile", () => {
     });
 
     expect(risultato.costiFissiDichiarati).toBe(5_000);
-    expect(risultato.costiFissiMensili).toBeCloseTo(1_000, 2);
+    expect(risultato.costiFissiMensili).toBe(0);
   });
 
   it("usa margine di contribuzione e costi fissi degli ultimi dodici mesi", () => {
@@ -302,6 +303,7 @@ describe("break-even mensile", () => {
       mese: 8,
       documentiEmessi: emessi,
       costi,
+      costiFissiDichiarati: [{ mensile: 3_000, dal: "2025-08", al: null }],
     });
 
     expect(risultato.stato).toBe("disponibile");
@@ -337,6 +339,7 @@ describe("break-even mensile", () => {
       mese: 6,
       documentiEmessi: emessi,
       costi,
+      costiFissiDichiarati: [{ mensile: 1_600, dal: "2026-03", al: null }],
     });
 
     expect(risultato.stato).toBe("disponibile");
@@ -383,16 +386,21 @@ describe("break-even: cosa coprire e con quale margine", () => {
         classificazione: "straordinario",
       }),
     ]);
-    return { emessi, costi };
+    return {
+      emessi,
+      costi,
+      costiFissiDichiarati: [{ mensile: 1_000, dal: "2026-01", al: null }],
+    };
   };
 
   it("mostra i costi da coprire separati dal fatturato che serve", () => {
-    const { emessi, costi } = scenario();
+    const { emessi, costi, costiFissiDichiarati } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
+      costiFissiDichiarati,
     });
     // 1.000 al mese di costi fissi, margine 60%: servono 1.666 di fatturato.
     expect(r.daCoprireMensile).toBeCloseTo(1_000, 2);
@@ -404,12 +412,13 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("gli straordinari possono entrare fra i costi da coprire", () => {
-    const { emessi, costi } = scenario();
+    const { emessi, costi, costiFissiDichiarati } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
+      costiFissiDichiarati,
       includiStraordinari: true,
     });
     expect(r.straordinariInclusi).toBe(true);
@@ -418,12 +427,13 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("un margine fissato a mano prevale, e resta detto quale era il calcolato", () => {
-    const { emessi, costi } = scenario();
+    const { emessi, costi, costiFissiDichiarati } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
+      costiFissiDichiarati,
       margineManuale: 0.25,
     });
     expect(r.margineFonte).toBe("manuale");
@@ -433,17 +443,33 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("un margine fuori scala viene ignorato invece di produrre un obiettivo assurdo", () => {
-    const { emessi, costi } = scenario();
+    const { emessi, costi, costiFissiDichiarati } = scenario();
     for (const margine of [0, -0.5, 1.5]) {
       const r = calcolaBreakEven({
         anno: 2026,
         mese: 4,
         documentiEmessi: emessi,
         costi,
+        costiFissiDichiarati,
         margineManuale: margine,
       });
       expect(r.margineFonte).toBe("calcolato");
       expect(r.obiettivoMensile).toBeCloseTo(1_666.67, 2);
     }
+  });
+});
+
+describe("break-even: totale certo", () => {
+  it("usa solo il registro confermato e ignora i documenti FiC fissi legacy", () => {
+    const result = calcolaBreakEven({
+      periodoDa: "2025-09-01",
+      periodoA: "2026-08-31",
+      documentiEmessi: [],
+      documentiRicevuti: [{ classificazione: "fisso", importoNetto: 99_000 }],
+      costiFissiDichiarati: [{ mensile: 2_500, mesiNelPeriodo: 12 }],
+    } as any);
+
+    expect(result.costiFissiMensili).toBe(2_500);
+    expect(result.daCoprireMensile).toBe(2_500);
   });
 });

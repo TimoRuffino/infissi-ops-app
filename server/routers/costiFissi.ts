@@ -266,8 +266,10 @@ export const costiFissiRouter = router({
       z.object({
         chiave: z.string().trim().min(1),
         descrizione: z.string().trim().min(1).max(200),
+        importo: z.number().positive().optional(),
         cadenza: cadenzaSchema,
         dal: meseSchema,
+        al: meseSchema.nullable().optional(),
         categoria: categoriaSchema,
       })
     )
@@ -288,6 +290,12 @@ export const costiFissiRouter = router({
           message: "Candidato FiC non trovato.",
         });
       }
+      if (input.al && input.al < input.dal) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "La fine non può precedere l'inizio.",
+        });
+      }
 
       const voce: CostoFissoManuale = {
         id: costiFissiManuali.reduce((max, item) => Math.max(max, item.id), 0) + 1,
@@ -296,10 +304,10 @@ export const costiFissiRouter = router({
         ficChiaveRicorrenza: candidato.chiave,
         descrizione: input.descrizione,
         fornitore: candidato.fornitore,
-        importo: Math.round(candidato.importo * 100) / 100,
+        importo: Math.round((input.importo ?? candidato.importo) * 100) / 100,
         cadenza: input.cadenza,
         dal: input.dal,
-        al: null,
+        al: input.al ?? null,
         categoria: input.categoria,
         note: null,
         createdBy: ctx.user?.id ?? null,
