@@ -678,6 +678,79 @@ export function statoFattura(
   return { stato: "da_riconciliare", commessa, motivo };
 }
 
+/**
+ * I candidati per una fattura non collegata, gia' ordinati per forza.
+ *
+ * Il matcher li calcola comunque per decidere; buttarli via costringeva
+ * l'operatore a ricercare a mano una commessa che il server aveva gia'
+ * individuato. Esposti, diventano un click.
+ */
+export function candidatiPerFattura(
+  fattura: FatturaFic,
+  commesse: readonly any[],
+  clienti: readonly any[],
+  massimo = 3
+): Array<{
+  commessaId: number;
+  codice: string;
+  cliente: string | null;
+  motivo: string;
+}> {
+  if (fattura.commessaId != null) return [];
+  const esito = trovaCommessaPerFattura({
+    fattura: {
+      id: fattura.id,
+      numero: fattura.numero,
+      clienteNome: fattura.clienteNome,
+      clienteVat: fattura.clienteVat,
+      clienteCf: fattura.clienteCf,
+      clienteEmail: fattura.clienteEmail,
+      clienteTelefono: fattura.clienteTelefono,
+      clienteIndirizzo: fattura.clienteIndirizzo,
+      clienteCitta: fattura.clienteCitta,
+      descrizione: fattura.descrizione,
+      clienteId: fattura.clienteId,
+    },
+    commesse: commesse.map(commessa => ({
+      id: commessa.id,
+      codice: String(commessa.codice ?? ""),
+      clienteId: commessa.clienteId ?? null,
+      cliente: commessa.cliente ?? null,
+      email: commessa.email ?? null,
+      telefono: commessa.telefono ?? null,
+      indirizzo: commessa.indirizzo ?? null,
+      citta: commessa.citta ?? null,
+    })),
+    clienti: clienti.map(cliente => ({
+      id: cliente.id,
+      nome: cliente.nome ?? null,
+      cognome: cliente.cognome ?? null,
+      email: cliente.email ?? null,
+      telefono: cliente.telefono ?? null,
+      indirizzo: cliente.indirizzo ?? null,
+      citta: cliente.citta ?? null,
+      partitaIva: cliente.partitaIva ?? null,
+      codiceFiscale: cliente.codiceFiscale ?? null,
+    })),
+  });
+  const perId = new Map(commesse.map(c => [c.id, c]));
+  return esito.candidati.slice(0, massimo).map(candidato => ({
+    commessaId: candidato.commessaId,
+    codice: candidato.codice,
+    cliente: perId.get(candidato.commessaId)?.cliente ?? null,
+    motivo: candidato.segnali.map(segnale => ETICHETTA_SEGNALE[segnale]).join(" · "),
+  }));
+}
+
+const ETICHETTA_SEGNALE: Record<string, string> = {
+  codice_commessa: "codice in fattura",
+  identita_fiscale: "P.IVA / CF",
+  email: "email",
+  telefono: "telefono",
+  cognome_nome: "nome",
+  indirizzo: "indirizzo",
+};
+
 // Una fattura di QUESTA sede. Come per le commesse: fuori sede è NOT_FOUND,
 // non FORBIDDEN — un id non deve poter confermare l'esistenza di un dato
 // altrui.
@@ -700,6 +773,17 @@ export const ficFattureRouter = router({
       const anno = input?.anno ?? new Date().getFullYear();
       const sede = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const commesse = getCommesseStore();
+      // Il set per i candidati e' piu' stretto di quello per lo stato: una
+      // fattura non si propone su una commessa archiviata.
+      const commesseAgganciabili = commesse.filter(
+        (commessa: any) =>
+          (commessa.sedeId ?? DEFAULT_SEDE_ID) === sede &&
+          !commessa.archivedAt &&
+          commessa.stato !== "archiviata"
+      );
+      const clientiSede = getClientiStore().filter(
+        (cliente: any) => (cliente.sedeId ?? DEFAULT_SEDE_ID) === sede
+      );
       const proposteCollegamento = new Map(
         proposte
           .filter(
@@ -744,6 +828,10 @@ export const ficFattureRouter = router({
             commessaCliente: s.commessa?.cliente ?? null,
             collegataAMano: f.collegataAMano,
             commessaMatch: f.commessaMatch,
+            candidati:
+              f.commessaId == null && !f.ignorata
+                ? candidatiPerFattura(f, commesseAgganciabili, clientiSede)
+                : [],
             pdfSync: f.pdfSync,
             propostaTars: propostaCollegamento
               ? {

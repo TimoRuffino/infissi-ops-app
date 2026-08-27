@@ -391,6 +391,75 @@ export const ficCostiRouter = router({
       return { success: true as const };
     }),
 
+  /**
+   * Applica una classificazione a TUTTI i costi ancora dubbi dello stesso
+   * fornitore, e registra la regola per quelli futuri.
+   *
+   * Un fornitore ha quasi sempre una natura sola: l'affitto e' affitto ogni
+   * mese. Riclassificarlo riga per riga era la parte piu' lenta della
+   * revisione, e la regola valeva solo per i documenti successivi — quelli
+   * gia' in coda restavano da toccare a mano uno per uno.
+   *
+   * Tocca solo i `dubbio`: una classificazione gia' decisa da una persona su
+   * un singolo documento non viene travolta dall'azione di massa.
+   */
+  riclassificaFornitore: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int(),
+        classificazione: classificazioneSchema.exclude(["dubbio"]),
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const riferimento = trovaCosto(input.id, ctx.sedeId);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const fornitoreNormalizzato = normalizzaRegola(riferimento.fornitoreNome);
+
+      let aggiornati = 0;
+      for (const costo of ficCosti) {
+        if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
+        if (normalizzaRegola(costo.fornitoreNome) !== fornitoreNormalizzato) {
+          continue;
+        }
+        if (costo.id !== input.id && costo.classificazione !== "dubbio") continue;
+        costo.classificazione = input.classificazione;
+        costo.fonteClassificazione = "utente";
+        costo.confidenza = 1;
+        costo.motivazione = `Classificazione applicata a tutti i documenti di ${riferimento.fornitoreNome}.`;
+        costo.aggiornatoAt = new Date();
+        aggiornati++;
+      }
+
+      // La regola vale per il futuro. Senza categoria: l'azione parla del
+      // fornitore nel suo insieme, non di una sua singola voce.
+      let regola = ficRegoleCosti.find(
+        item =>
+          item.sedeId === sedeId &&
+          item.fornitoreNormalizzato === fornitoreNormalizzato &&
+          item.categoriaNormalizzata == null
+      );
+      if (!regola) {
+        ficRegoleCosti.push({
+          id:
+            ficRegoleCosti.reduce((max, item) => Math.max(max, item.id), 0) + 1,
+          sedeId,
+          fornitoreNormalizzato,
+          categoriaNormalizzata: null,
+          classificazione: input.classificazione,
+          createdBy: ctx.user!.id,
+          createdAt: new Date(),
+          attiva: true,
+        });
+      } else {
+        regola.classificazione = input.classificazione;
+        regola.attiva = true;
+      }
+      saveFicRegoleCosti();
+      saveFicCosti();
+      return { aggiornati, fornitore: riferimento.fornitoreNome };
+    }),
+
   regole: protectedProcedure.query(({ ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;

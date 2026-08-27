@@ -1,157 +1,269 @@
+// Acquisti — revisione delle classificazioni.
+//
+// Il lavoro qui è ripetitivo per natura: un costo alla volta, decine alla
+// settimana. Prima erano tre interazioni per riga — scegli nel menu, spunta
+// "ricorda", premi salva — cioè un centinaio di gesti per una revisione
+// normale, e la spunta "ricorda" chiedeva una decisione sul futuro mentre
+// stavi guardando il passato.
+//
+// Ora la classificazione è un click: i tre valori sono bottoni, e il click
+// salva. La regola per il futuro non si chiede più in anticipo: dopo aver
+// classificato, se lo stesso fornitore ha altri documenti in coda, compare
+// l'azione che li chiude tutti insieme. È l'ordine giusto, perché "questo
+// fornitore è sempre così" lo si capisce guardando il primo documento, non
+// prima di averlo aperto.
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
-import { Check, Loader2, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { Check, Layers, Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const CLASSI = [
-  ["fisso", "Fisso"],
-  ["variabile_commessa", "Variabile commessa"],
-  ["straordinario", "Straordinario"],
-  ["dubbio", "Dubbio"],
+  ["fisso", "Fisso", "Torna ogni mese: affitto, canoni, assicurazioni"],
+  ["variabile_commessa", "Commessa", "Materiale o servizio per un lavoro"],
+  ["straordinario", "Straordinario", "Una tantum, non si ripeterà"],
 ] as const;
 
-function RigaCosto({ costo }: { costo: any }) {
-  const utils = trpc.useUtils();
-  const [classificazione, setClassificazione] = useState(costo.classificazione);
-  const [ricorda, setRicorda] = useState(false);
-  const mutation = trpc.ficCosti.riclassifica.useMutation({
-    onSuccess: () => {
-      utils.ficCosti.invalidate();
-      utils.economia.invalidate();
-      toast.success("Classificazione aggiornata");
-    },
-    onError: error => toast.error(error.message),
-  });
-  const modificata = classificazione !== costo.classificazione || ricorda;
+const ETICHETTA_CLASSE: Record<string, string> = {
+  fisso: "Fisso",
+  variabile_commessa: "Commessa",
+  straordinario: "Straordinario",
+  dubbio: "Da classificare",
+};
 
-  const editor = (
-    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-      <Select value={classificazione} onValueChange={setClassificazione}>
-        <SelectTrigger
-          className="h-10 min-w-0 sm:w-[190px]"
-          aria-label="Classificazione costo"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {CLASSI.map(([value, label]) => (
-            <SelectItem key={value} value={value}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <label className="flex min-h-10 items-center gap-2 text-xs text-text-2">
-        <Checkbox
-          checked={ricorda}
-          onCheckedChange={value => setRicorda(value === true)}
-        />
-        Ricorda regola
-      </label>
-      <Button
-        size="icon"
-        variant={modificata ? "default" : "outline"}
-        className="h-10 w-10 shrink-0"
-        disabled={!modificata || mutation.isPending}
-        aria-label="Salva classificazione"
-        onClick={() =>
-          mutation.mutate({ id: costo.id, classificazione, ricorda })
-        }
-      >
-        {mutation.isPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Check className="h-4 w-4" />
-        )}
-      </Button>
-    </div>
+function dataBreve(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
+
+function RigaCosto({
+  costo,
+  altriDubbiStessoFornitore,
+}: {
+  costo: any;
+  altriDubbiStessoFornitore: number;
+}) {
+  const utils = trpc.useUtils();
+  const [appenaClassificato, setAppenaClassificato] = useState<string | null>(
+    null
   );
 
+  const invalida = () => {
+    utils.ficCosti.invalidate();
+    utils.economia.invalidate();
+  };
+
+  const riclassifica = trpc.ficCosti.riclassifica.useMutation({
+    onSuccess: (_r, variabili) => {
+      invalida();
+      setAppenaClassificato(variabili.classificazione);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const perFornitore = trpc.ficCosti.riclassificaFornitore.useMutation({
+    onSuccess: r => {
+      invalida();
+      setAppenaClassificato(null);
+      toast.success(`${r.aggiornati} documenti di ${r.fornitore} classificati`);
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const inCorso = riclassifica.isPending || perFornitore.isPending;
+  const attuale = costo.classificazione;
+  // L'offerta di estendere al fornitore compare solo dopo una scelta, e solo
+  // se c'è davvero altro da chiudere: un'azione di massa su un elemento solo
+  // è rumore.
+  const proponiEstensione =
+    appenaClassificato != null &&
+    appenaClassificato !== "dubbio" &&
+    altriDubbiStessoFornitore > 0;
+
   return (
-    <>
-      <tr className="hidden border-t md:table-row">
-        <td className="px-3 py-3">
-          <p className="font-medium">{costo.fornitoreNome}</p>
-          <p className="max-w-[320px] truncate text-xs text-text-3">
-            {costo.descrizione || "Nessuna descrizione"}
+    <li className="flex flex-col gap-2.5 px-3 py-3 sm:px-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{costo.fornitoreNome}</p>
+          <p className="truncate text-xs text-text-3">
+            {[costo.categoriaFic, costo.descrizione]
+              .filter(Boolean)
+              .join(" · ") || "Nessuna descrizione"}
           </p>
-        </td>
-        <td className="px-3 py-3 text-sm text-text-2">
-          {costo.categoriaFic || "—"}
-        </td>
-        <td className="px-3 py-3 text-right font-semibold tabular-nums">
-          {formatEuroSimbolo(costo.importoNetto)}
-        </td>
-        <td className="px-3 py-3 text-sm tabular-nums text-text-2">
-          {new Date(`${costo.data}T12:00:00`).toLocaleDateString("it-IT")}
-        </td>
-        <td className="px-3 py-3">{editor}</td>
-      </tr>
-      <tr className="border-t md:hidden">
-        <td colSpan={5} className="space-y-3 px-3 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">
-                {costo.fornitoreNome}
-              </p>
-              <p className="text-xs text-text-3">
-                {costo.categoriaFic || "Senza categoria"}
-              </p>
-            </div>
-            <p className="shrink-0 font-bold tabular-nums">
-              {formatEuroSimbolo(costo.importoNetto)}
-            </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-semibold tabular-nums">
+            {formatEuroSimbolo(costo.importoNetto)}
+          </p>
+          <p className="text-xs tabular-nums text-text-3">
+            {dataBreve(costo.data)}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {/* Un gruppo di bottoni, non un menu: i valori sono tre e vanno
+            confrontati a colpo d'occhio, non aperti per essere letti. */}
+        <div
+          role="group"
+          aria-label={`Classificazione di ${costo.fornitoreNome}`}
+          className="flex flex-wrap gap-1.5"
+        >
+          {CLASSI.map(([valore, etichetta, aiuto]) => {
+            const attivo = attuale === valore;
+            return (
+              <Button
+                key={valore}
+                type="button"
+                size="sm"
+                variant={attivo ? "default" : "outline"}
+                title={aiuto}
+                aria-pressed={attivo}
+                className="h-10 sm:h-9"
+                disabled={inCorso}
+                onClick={() =>
+                  riclassifica.mutate({
+                    id: costo.id,
+                    classificazione: valore,
+                    ricorda: false,
+                  })
+                }
+              >
+                {inCorso && riclassifica.variables?.classificazione === valore ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : attivo ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : null}
+                {etichetta}
+              </Button>
+            );
+          })}
+        </div>
+
+        {costo.fonteClassificazione === "utente" && attuale !== "dubbio" && (
+          <Badge variant="outline" className="text-[10px]">
+            confermato
+          </Badge>
+        )}
+      </div>
+
+      {proponiEstensione && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
+          <Layers className="h-4 w-4 shrink-0 text-text-3" aria-hidden="true" />
+          <span className="min-w-0 flex-1 text-xs text-text-2">
+            {costo.fornitoreNome} ha altri {altriDubbiStessoFornitore} documenti
+            da classificare.
+          </span>
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-9"
+              onClick={() => setAppenaClassificato(null)}
+            >
+              No
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9"
+              disabled={inCorso}
+              onClick={() =>
+                perFornitore.mutate({
+                  id: costo.id,
+                  classificazione: appenaClassificato as any,
+                })
+              }
+            >
+              {perFornitore.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Tutti «{ETICHETTA_CLASSE[appenaClassificato!]}»
+            </Button>
           </div>
-          {costo.descrizione && (
-            <p className="text-xs text-text-2">{costo.descrizione}</p>
-          )}
-          {editor}
-        </td>
-      </tr>
-    </>
+        </div>
+      )}
+    </li>
   );
 }
 
 export default function CostiFicReview({ anno }: { anno: number }) {
   const [soloDubbi, setSoloDubbi] = useState(true);
-  const query = trpc.ficCosti.list.useQuery({
-    anno,
-    classificazione: soloDubbi ? "dubbio" : undefined,
+  const [cerca, setCerca] = useState("");
+
+  // Sempre l'anno intero: il conteggio dei dubbi per fornitore deve valere
+  // anche quando la vista è filtrata, altrimenti l'azione di massa
+  // prometterebbe un numero che non corrisponde.
+  const query = trpc.ficCosti.list.useQuery({ anno });
+  const tutti = query.data ?? [];
+
+  const dubbiPerFornitore = useMemo(() => {
+    const mappa = new Map<string, number>();
+    for (const costo of tutti) {
+      if (costo.classificazione !== "dubbio") continue;
+      const chiave = (costo.fornitoreNome ?? "").trim().toLowerCase();
+      mappa.set(chiave, (mappa.get(chiave) ?? 0) + 1);
+    }
+    return mappa;
+  }, [tutti]);
+
+  const termine = cerca.trim().toLowerCase();
+  const righe = tutti.filter(costo => {
+    if (soloDubbi && costo.classificazione !== "dubbio") return false;
+    if (!termine) return true;
+    return [costo.fornitoreNome, costo.categoriaFic, costo.descrizione]
+      .filter(Boolean)
+      .some(campo => String(campo).toLowerCase().includes(termine));
   });
-  const rows = query.data ?? [];
+
+  const daRivedere = dubbiPerFornitore.size
+    ? Array.from(dubbiPerFornitore.values()).reduce((a, b) => a + b, 0)
+    : 0;
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">Acquisti e costi FiC</h2>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">Acquisti</h2>
           <p className="text-xs text-text-3">
-            Tars classifica automaticamente; conferma soltanto i casi dubbi.
+            {daRivedere > 0
+              ? `${daRivedere} documenti aspettano una classificazione. I costi che tornano ogni mese sono già fissi da soli.`
+              : "Tutto classificato. I costi ricorrenti si riconoscono da soli."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={rows.length > 0 && soloDubbi ? "warning" : "outline"}>
-            {rows.length} {soloDubbi ? "da rivedere" : "documenti"}
-          </Badge>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3"
+              aria-hidden="true"
+            />
+            <Input
+              value={cerca}
+              onChange={e => setCerca(e.target.value)}
+              placeholder="Cerca fornitore…"
+              aria-label="Cerca fra gli acquisti"
+              className="h-10 w-[10.5rem] pl-8 sm:h-9"
+            />
+          </div>
           <Button
             variant="outline"
             size="sm"
-            className="min-h-10"
-            onClick={() => setSoloDubbi(value => !value)}
+            className="h-10 sm:h-9"
+            aria-pressed={soloDubbi}
+            onClick={() => setSoloDubbi(v => !v)}
           >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            {soloDubbi ? "Mostra tutti" : "Solo dubbi"}
+            {soloDubbi ? "Solo da fare" : "Tutti"}
+            <Badge variant="secondary" className="ml-1.5 text-[10px]">
+              {soloDubbi ? daRivedere : tutti.length}
+            </Badge>
           </Button>
         </div>
       </div>
@@ -161,39 +273,29 @@ export default function CostiFicReview({ anno }: { anno: number }) {
           <div className="flex min-h-32 items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-text-3" />
           </div>
-        ) : rows.length === 0 ? (
+        ) : righe.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-text-3">
-            {soloDubbi
-              ? "Nessun costo dubbio: il calcolo non richiede revisioni."
-              : "Nessun documento ricevuto sincronizzato per questo anno."}
+            {termine
+              ? `Nessun acquisto per «${cerca.trim()}».`
+              : soloDubbi
+                ? "Niente da classificare: il calcolo del pareggio è completo."
+                : "Nessun documento ricevuto per questo anno."}
           </div>
         ) : (
-          <table className="w-full table-fixed text-sm">
-            <thead className="hidden bg-surface-2 text-xs text-text-3 md:table-header-group">
-              <tr>
-                <th className="w-[29%] px-3 py-2 text-left font-medium">
-                  Fornitore
-                </th>
-                <th className="w-[15%] px-3 py-2 text-left font-medium">
-                  Categoria
-                </th>
-                <th className="w-[12%] px-3 py-2 text-right font-medium">
-                  Netto
-                </th>
-                <th className="w-[12%] px-3 py-2 text-left font-medium">
-                  Data
-                </th>
-                <th className="w-[32%] px-3 py-2 text-left font-medium">
-                  Classificazione
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(costo => (
-                <RigaCosto key={costo.id} costo={costo} />
-              ))}
-            </tbody>
-          </table>
+          <ul className="divide-y divide-border/70">
+            {righe.map(costo => (
+              <RigaCosto
+                key={costo.id}
+                costo={costo}
+                altriDubbiStessoFornitore={Math.max(
+                  0,
+                  (dubbiPerFornitore.get(
+                    (costo.fornitoreNome ?? "").trim().toLowerCase()
+                  ) ?? 0) - 1
+                )}
+              />
+            ))}
+          </ul>
         )}
       </div>
     </section>
