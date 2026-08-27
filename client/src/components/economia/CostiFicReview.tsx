@@ -30,7 +30,7 @@ import { toast } from "sonner";
 
 const CLASSI = [
   ["fisso", "Fisso", "Torna ogni mese: affitto, canoni, assicurazioni"],
-  ["variabile_commessa", "Commessa", "Materiale o servizio per un lavoro"],
+  ["variabile_commessa", "Variabile", "Materiale o servizio operativo"],
   ["straordinario", "Straordinario", "Una tantum, non si ripeterà"],
 ] as const;
 

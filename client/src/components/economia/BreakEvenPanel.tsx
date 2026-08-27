@@ -223,17 +223,17 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                 <Target className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-semibold">Copertura costi fissi</p>
+                <p className="text-sm font-semibold">Costi fissi da coprire</p>
                 <p className="text-xs text-text-3">
-                  Obiettivo netto di {MESI[mese - 1].toLowerCase()}
+                  Totale mensile confermato · {MESI[mese - 1].toLowerCase()}
                 </p>
               </div>
             </div>
             <div className="mt-4 flex items-end gap-2">
               <span className="text-2xl font-bold tabular-nums sm:text-3xl">
-                {data.obiettivoMensile == null
+                {data.daCoprireMensile == null
                   ? "—"
-                  : formatEuroSimbolo(data.obiettivoMensile)}
+                  : formatEuroSimbolo(data.daCoprireMensile)}
               </span>
               {data.stato === "disponibile" && (
                 <span className="pb-1 text-xs text-text-3">da fatturare</span>
@@ -270,7 +270,7 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     </p>
                   </div>
                   <div>
-                    <p className="eyebrow">Costi da coprire</p>
+                    <p className="eyebrow">Costi fissi confermati</p>
                     <p className="mt-1 text-lg font-bold tabular-nums">
                       {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
                     </p>
@@ -305,13 +305,12 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     <Calculator className="h-4 w-4 text-primary" />
                   )}
                   <span className="text-text-2">
-                    {formatEuroSimbolo(data.daCoprireMensile ?? 0)} di costi
-                    fissi ÷ {Math.round((data.margineContribuzione ?? 0) * 100)}%
-                    di margine ={" "}
+                    Fatturato da fare per coprire i costi fissi ={" "}
                     <strong>
-                      {formatEuroSimbolo(data.obiettivoMensile ?? 0)}
-                    </strong>{" "}
-                    da fatturare. Nessun utile dentro.
+                      {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
+                    </strong>
+                    . Il totale è il mensile confermato; il margine è uno
+                    scenario separato, non un costo aggiunto.
                   </span>
                   {data.margineFonte === "manuale" && (
                     <Badge variant="outline" className="text-[10px]">
@@ -360,14 +359,11 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
               Come viene calcolato
             </summary>
             <p className="max-w-3xl pb-3 leading-relaxed">
-              Costi fissi medi divisi per il margine di contribuzione degli
-              ultimi {data.mesiCoperti} mesi disponibili, dal {data.periodoDa}
-              al {data.periodoA}. IVA esclusa. Fatturare non equivale a
-              incassare. I costi fissi sommano le fatture d&apos;acquisto
-              classificate «Fisso», mediate sul periodo, e le voci dichiarate
-              a mano in Contabilità → Costi fissi, che invece pesano per
-              quanto valgono oggi: un canone chiuso a marzo non deve alzare
-              l&apos;obiettivo di agosto.
+              L&apos;importo principale da coprire è il totale dei costi fissi
+              mensili confermati nel registro, attivi nel periodo. IVA esclusa.
+              Fatturare non equivale a incassare. Il margine di contribuzione
+              resta disponibile solo come scenario opzionale per stimare il
+              fatturato necessario, ma non modifica il totale certo.
             </p>
           </details>
           {data.documentiDubbi > 0 && (
