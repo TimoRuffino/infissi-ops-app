@@ -99,6 +99,96 @@ describe("costiFissi router", () => {
     expect((await caller.costiFissi.list()).totaleMensile).toBe(candidato.importo);
   });
 
+  it("restituisce la conferma FiC anche dopo che il candidato viene escluso", async () => {
+    // Se un retry cercasse ancora il candidato prima del registro, una
+    // successiva esclusione del fornitore trasformerebbe una conferma già
+    // scritta in un falso NOT_FOUND.
+    const sedeId = 75;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      ["01", "02", "03"].map((mese, index) => ({
+        id: 75_001 + index,
+        tipo: "expense" as const,
+        data: `2026-${mese}-10`,
+        fornitoreId: 75,
+        fornitoreNome: "Canone Escluso SRL",
+        categoriaFic: "Servizi",
+        descrizione: "Canone da confermare",
+        centro: null,
+        numeroDocumento: `ESCLUSO-${mese}`,
+        importoNetto: 420,
+        importoIva: 92.4,
+        importoLordo: 512.4,
+        rate: [],
+      })),
+      sedeId,
+      "costi-escluso"
+    );
+    const candidato = candidatiFissiPerSede(sedeId)[0];
+    const input = {
+      chiave: candidato.chiave,
+      descrizione: "Canone escluso",
+      cadenza: "mensile" as const,
+      categoria: "servizi" as const,
+      dal: "2026-01",
+    };
+    const confermato = await caller.costiFissi.confermaDaFic(input);
+
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Canone Escluso SRL",
+      classificazione: "straordinario",
+    });
+    expect(candidatiFissiPerSede(sedeId)).toEqual([]);
+
+    const retry = await caller.costiFissi.confermaDaFic(input);
+    expect(retry.id).toBe(confermato.id);
+  });
+
+  it("non restituisce la conferma di un'altra sede con la stessa chiave FiC", async () => {
+    // La chiave ricorrente non contiene la sede: il registro deve quindi
+    // includere sempre lo scope nel controllo di idempotenza.
+    const sedeUno = 76;
+    const sedeDue = 77;
+    const uno = appRouter.createCaller(ctx(sedeUno));
+    const due = appRouter.createCaller(ctx(sedeDue));
+    const righe = (sedeId: number) =>
+      ["01", "02", "03"].map((mese, index) => ({
+        id: sedeId * 1_000 + index,
+        tipo: "expense" as const,
+        data: `2026-${mese}-10`,
+        fornitoreId: 91,
+        fornitoreNome: "Chiave Condivisa SRL",
+        categoriaFic: "Servizi",
+        descrizione: "Canone condiviso",
+        centro: null,
+        numeroDocumento: `CONDIVISA-${sedeId}-${mese}`,
+        importoNetto: 880,
+        importoIva: 193.6,
+        importoLordo: 1_073.6,
+        rate: [],
+      }));
+    upsertCostiFic(righe(sedeUno), sedeUno, "costi-condivisi-uno");
+    upsertCostiFic(righe(sedeDue), sedeDue, "costi-condivisi-due");
+    const candidatoUno = candidatiFissiPerSede(sedeUno)[0];
+    const candidatoDue = candidatiFissiPerSede(sedeDue)[0];
+    expect(candidatoDue.chiave).toBe(candidatoUno.chiave);
+
+    const input = {
+      chiave: candidatoUno.chiave,
+      descrizione: "Canone condiviso",
+      cadenza: "mensile" as const,
+      categoria: "servizi" as const,
+      dal: "2026-01",
+    };
+    const confermatoUno = await uno.costiFissi.confermaDaFic(input);
+    const confermatoDue = await due.costiFissi.confermaDaFic(input);
+
+    expect(confermatoDue.id).not.toBe(confermatoUno.id);
+    expect(confermatoDue.sedeId).toBe(sedeDue);
+    expect((await uno.costiFissi.list()).voci).toHaveLength(1);
+    expect((await due.costiFissi.list()).voci).toHaveLength(1);
+  });
+
   it("crea, mensilizza, aggiorna e cancella", async () => {
     const caller = appRouter.createCaller(ctx(71));
     const creato = await caller.costiFissi.create({

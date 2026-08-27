@@ -274,6 +274,11 @@ export const costiFissiRouter = router({
     .mutation(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const esistente = costiFissiManuali.find(
+        item => item.sedeId === sedeId && item.ficChiaveRicorrenza === input.chiave
+      );
+      if (esistente) return { ...esistente, mensile: importoMensile(esistente) };
+
       const candidato = candidatiFissiPerSede(sedeId).find(
         item => item.chiave === input.chiave
       );
@@ -283,11 +288,6 @@ export const costiFissiRouter = router({
           message: "Candidato FiC non trovato.",
         });
       }
-      const esistente = costiFissiManuali.find(
-        item =>
-          item.sedeId === sedeId && item.ficChiaveRicorrenza === candidato.chiave
-      );
-      if (esistente) return { ...esistente, mensile: importoMensile(esistente) };
 
       const voce: CostoFissoManuale = {
         id: costiFissiManuali.reduce((max, item) => Math.max(max, item.id), 0) + 1,
