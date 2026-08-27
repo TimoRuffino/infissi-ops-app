@@ -313,8 +313,9 @@ controlla soltanto fatture con `commessaId`, deduplica per sorgente FiC,
 continua sulle altre se un download fallisce e ritenta al giro successivo. Un
 errore del PDF non annulla collegamento o riconciliazione economica e non crea
 fallback base64; UI ed esito distinguono PDF archiviati e da ritentare. Per
-forzare il recupero senza attendere le 6 ore usare `Sincronizza ora` in
-Integrazioni.
+forzare il recupero senza attendere il giro orario usare `Sincronizza ora` in
+Integrazioni, oppure `Riallinea dalle fatture` quando basta rileggere i
+documenti già scaricati.
 
 ## 6. Tars e caching
 
@@ -1018,8 +1019,9 @@ pnpm storage:dry-run
    Il 26/08/2026 il reset è stato eseguito con `scripts/reset-pattuiti.ts` via
    `railway run` ed è stato **annullato entro poche ore**: `persistedStore`
    tiene le raccolte in memoria e `save()` riscrive l'intera riga JSONB, quindi
-   il primo salvataggio del server vivo — il sync FiC ne fa uno ogni 6 ore — ha
-   sovrascritto le modifiche fatte da fuori con la sua copia precedente. Lo
+   il primo salvataggio del server vivo — il sync FiC ne fa uno a ogni giro
+   automatico — ha sovrascritto le modifiche fatte da fuori con la sua copia
+   precedente. Lo
    script resta valido solo a servizio fermo. Vale per qualunque manutenzione
    futura sui dati: contro un'istanza attiva si passa dal processo, mai dal
    database.

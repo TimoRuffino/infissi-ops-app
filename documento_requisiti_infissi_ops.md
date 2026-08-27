@@ -1087,7 +1087,7 @@ Backup CRM YYYY-MM-DD/
 ## 40. Fatture in Cloud → Registro economico e clienti
 
 ### 40.1 Funzione
-Ogni 6 ore (se abilitato) o su "Sincronizza ora", il CRM legge anno corrente
+Ogni ora (se abilitato) o su "Sincronizza ora", il CRM legge anno corrente
 e precedente di **fatture emesse, note di credito emesse, spese e note di
 credito passive**. Le sole fatture creano i clienti mancanti; i clienti
 esistenti non vengono modificati.

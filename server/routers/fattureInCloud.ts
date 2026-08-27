@@ -955,7 +955,14 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
   }
 }
 
-// Poll every 6 hours while enabled.
+// Un giro ogni ora, finché l'integrazione è accesa.
+//
+// Prima erano sei ore, e sei ore sono la distanza fra "il cliente ha pagato"
+// e "il CRM lo sa". Il giro è comunque a costo contenuto: lo snapshot è
+// idempotente, i PDF già archiviati non si riscaricano e le fatture non
+// cambiate non producono scritture.
+const INTERVALLO_SYNC_MS = 60 * 60 * 1000;
+
 let ficTimer: NodeJS.Timeout | null = null;
 export function startFicScheduler(): void {
   if (ficTimer) return;
@@ -978,7 +985,7 @@ export function startFicScheduler(): void {
         }
       }
     },
-    6 * 60 * 60 * 1000
+    INTERVALLO_SYNC_MS
   );
   ficTimer.unref?.();
 }
