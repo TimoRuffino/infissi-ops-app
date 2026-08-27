@@ -12,6 +12,7 @@ import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   collegaFattureAutomatiche,
+  creaCommesseDaFattureFic,
   ficFatture,
   finalizzaSnapshotDocumentiEmessi,
   sincronizzaPattuitoDaFic,
@@ -43,6 +44,7 @@ export type FicSyncResult = {
   result: string;
   complete: boolean;
   stats: FicPaymentSyncStats;
+  commesseCreate?: { create: number; existing: number; ambiguous: number; skipped: number };
 };
 
 type FicConfig = {
@@ -880,6 +882,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     cfg.economicScopesReady = completo;
     const created = creaClientiMancanti(sedeId, entities);
     const links = collegaFattureAutomatiche(sedeId);
+    const commesseCreate = await creaCommesseDaFattureFic(sedeId);
     // Il pattuito è FiC: appena i collegamenti sono aggiornati, importo e
     // piano rate delle commesse vengono riallineati alle fatture emesse.
     const pattuito = sincronizzaPattuitoDaFic(sedeId);
@@ -935,12 +938,12 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
       programmaSmistamentoFatture(sedeId);
     }
 
-    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
+    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · commesse +${commesseCreate.create} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };
     _cfgStore.save();
-    return { result, complete: completo, stats: payments.stats };
+    return { result, complete: completo, stats: payments.stats, commesseCreate };
   } catch (e: any) {
     const cfg2 = getCfg(sedeId);
     cfg2.economicScopesReady = false;

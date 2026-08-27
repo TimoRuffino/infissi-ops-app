@@ -21,11 +21,12 @@ import {
   assertSedeScope,
   requireDirezioneOAmministrazione,
 } from "../_core/permissions";
-import { getClientiStore } from "./clienti";
+import { createClienteFromSync, getClientiStore } from "./clienti";
 import {
   applicaPattuitoDaFic,
   getCommesseStore,
   getCommessaById,
+  createCommessaFromFic,
 } from "./commesse";
 import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
 import {
@@ -57,6 +58,7 @@ export type CommessaMatchFic =
   // Aggancio deterministico su telefono, email, nome, indirizzo o identità
   // fiscale — la regola corrente (`ficMatch.ts`).
   | "automatico_segnali"
+  | "automatico_fattura"
   | "nessuno";
 
 export type PdfSyncFic = {
@@ -560,7 +562,10 @@ export function collegaFattureAutomatiche(sedeId: number): {
           : candidatiCommessa.filter(c => !escluse.has(c.id)),
       clienti: anagrafiche,
     });
-    if (esito.commessaId != null) {
+    if (
+      esito.commessaId != null &&
+      (fattura.tipo === "credit_note" || esito.segnali.includes("codice_commessa"))
+    ) {
       fattura.commessaId = esito.commessaId;
       fattura.commessaMatch = "automatico_segnali";
       fattura.collegataAMano = false;
@@ -575,6 +580,87 @@ export function collegaFattureAutomatiche(sedeId: number): {
   }
   if (collegate > 0) saveFicFatture();
   return { collegate, ambigue, incerte };
+}
+
+/** Una fattura emessa non collegata genera una commessa propria. */
+export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
+  create: number;
+  existing: number;
+  ambiguous: number;
+  skipped: number;
+}> {
+  let create = 0;
+  let existing = 0;
+  let ambiguous = 0;
+  let skipped = 0;
+  for (const fattura of ficFatture) {
+    if (
+      fattura.sedeId !== sedeId || fattura.tipo !== "invoice" ||
+      !fattura.presenteInFic || fattura.ignorata || fattura.commessaId != null
+    ) {
+      continue;
+    }
+    const clienti = getClientiStore().filter(
+      (c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+    );
+    const vat = normFiscal(fattura.clienteVat, true);
+    const cf = normFiscal(fattura.clienteCf);
+    const fiscali = clienti.filter((c: any) =>
+      (vat && normFiscal(c.partitaIva, true) === vat) ||
+      (cf && normFiscal(c.codiceFiscale) === cf)
+    );
+    const nomi = clienti.filter(
+      (c: any) => normKey(`${c.cognome ?? ""} ${c.nome ?? ""}`) === normKey(fattura.clienteNome)
+    );
+    let cliente: any = fattura.clienteId == null
+      ? null
+      : clienti.find((c: any) => c.id === fattura.clienteId) ?? null;
+    if (!cliente && fiscali.length === 1) cliente = fiscali[0];
+    if (!cliente && fiscali.length === 0 && nomi.length === 1) cliente = nomi[0];
+    if (!cliente && (fiscali.length > 1 || (fiscali.length === 0 && nomi.length > 1))) {
+      ambiguous++;
+      continue;
+    }
+    if (!cliente) {
+      if (!fattura.clienteNome.trim()) {
+        skipped++;
+        continue;
+      }
+      cliente = createClienteFromSync({
+        sedeId,
+        cognome: fattura.clienteNome.trim(),
+        nome: "",
+        tipo: fattura.clienteVat ? "azienda" : "privato",
+        codiceFiscale: fattura.clienteCf ?? undefined,
+        partitaIva: fattura.clienteVat ?? undefined,
+        email: fattura.clienteEmail,
+        telefono: fattura.clienteTelefono,
+        indirizzo: fattura.clienteIndirizzo,
+        citta: fattura.clienteCitta,
+        cap: fattura.clienteCap,
+      });
+    }
+    fattura.clienteId = cliente.id;
+    const risultato = await createCommessaFromFic({
+      sedeId,
+      fatturaId: fattura.id,
+      clienteId: cliente.id,
+      indirizzo: fattura.clienteIndirizzo,
+      citta: fattura.clienteCitta,
+      telefono: fattura.clienteTelefono,
+      email: fattura.clienteEmail,
+      note: `Creata automaticamente dalla fattura FiC ${fattura.numero}.`,
+    });
+    fattura.commessaId = risultato.commessa.id;
+    fattura.commessaMatch = "automatico_fattura";
+    fattura.collegataAMano = false;
+    fattura.pdfSync.stato = "in_attesa";
+    fattura.aggiornataAt = new Date();
+    if (risultato.creata) create++;
+    else existing++;
+  }
+  if (create > 0 || existing > 0) saveFicFatture();
+  return { create, existing, ambiguous, skipped };
 }
 
 /**
@@ -1138,6 +1224,7 @@ export const ficFattureRouter = router({
     // derivare, e senza pattuito la riconciliazione degli incassi lavora su
     // commesse a zero.
     const collegamenti = collegaFattureAutomatiche(sedeId);
+    const commesseCreate = await creaCommesseDaFattureFic(sedeId);
     const pattuito = sincronizzaPattuitoDaFic(sedeId);
     const payments = riconciliaPagamentiFic({
       sedeId,
@@ -1152,6 +1239,7 @@ export const ficFattureRouter = router({
       collegate: collegamenti.collegate,
       ambigue: collegamenti.ambigue,
       incerte: collegamenti.incerte,
+      commesseCreate,
       pattuitiAggiornati: pattuito.aggiornate,
       paymentStats: payments.stats,
       correzioniProposte: corrections.create,

@@ -8,6 +8,7 @@ import type { TrpcContext } from "../_core/context";
 import {
   commessaPerFattura,
   collegaFattureAutomatiche,
+  creaCommesseDaFattureFic,
   _setScaricaFatturaPdfForTests,
   ficFatture,
   finalizzaSnapshotDocumentiEmessi,
@@ -92,7 +93,7 @@ describe("identita e collegamento persistito FIC", () => {
     expect(list.find(item => item.id === fattura.id)?.commessaId).toBeNull();
   });
 
-  it("collega automaticamente identita fiscale e unica commessa attiva", async () => {
+  it("crea una commessa propria invece di riusarne una solo per identita fiscale", async () => {
     const sedeId = 121;
     const caller = appRouter.createCaller(makeCtx(sedeId));
     const cliente = await caller.clienti.create({
@@ -116,10 +117,30 @@ describe("identita e collegamento persistito FIC", () => {
       item => item.sedeId === sedeId && item.id === 121_001
     )!;
 
-    expect(result).toEqual({ collegate: 1, ambigue: 0, incerte: 0 });
-    expect(fattura.commessaId).toBe(commessa.id);
-    expect(fattura.commessaMatch).toBe("automatico_segnali");
+    expect(result).toEqual({ collegate: 0, ambigue: 0, incerte: 0 });
+    expect(fattura.commessaId).toBeNull();
+    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(1);
+    expect(fattura.commessaId).not.toBe(commessa.id);
+    expect(fattura.commessaMatch).toBe("automatico_fattura");
     expect(fattura.collegataAMano).toBe(false);
+  });
+
+  it("crea tre commesse distinte per tre fatture dello stesso cliente ed e idempotente", async () => {
+    const sedeId = 123;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Mario", cognome: "Tre Fatture", partitaIva: "IT12300000001",
+    });
+    upsertFatture([1, 2, 3].map(n => fatturaBase(123_000 + n, {
+      clienteNome: "Tre Fatture Mario", clienteVat: "IT12300000001",
+    })), sedeId);
+
+    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(3);
+    const create = (await caller.commesse.list({ archived: "all" }))
+      .filter((c: any) => c.clienteId === cliente.id && c.ficSourceRef);
+    expect(create).toHaveLength(3);
+    expect(new Set(create.map((c: any) => c.ficSourceRef)).size).toBe(3);
+    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(0);
   });
 
   it("non collega per importo quando il cliente ha piu commesse", async () => {

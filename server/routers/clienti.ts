@@ -80,6 +80,11 @@ export function createClienteFromSync(data: {
   tipo: "privato" | "azienda" | "condominio" | "ente_pubblico";
   codiceFiscale?: string;
   partitaIva?: string;
+  email?: string | null;
+  telefono?: string | null;
+  indirizzo?: string | null;
+  citta?: string | null;
+  cap?: string | null;
 }) {
   const now = new Date();
   const cliente = {
@@ -90,6 +95,11 @@ export function createClienteFromSync(data: {
     tipo: data.tipo,
     codiceFiscale: data.codiceFiscale ?? null,
     partitaIva: data.partitaIva ?? null,
+    email: data.email ?? null,
+    telefono: data.telefono ?? null,
+    indirizzo: data.indirizzo ?? null,
+    citta: data.citta ?? null,
+    cap: data.cap ?? null,
     commesseIds: [],
     createdAt: now,
     updatedAt: now,

@@ -319,13 +319,11 @@ che risponde a "com'è andata" prima di ogni dettaglio; sotto restano le bande
 di composizione. Se ci sono fatture da riconciliare o costi dubbi, la fascia lo
 dice invece di lasciar credere che i numeri siano definitivi.
 
-I **costi fissi** sono ora calcolati da una regola deterministica
-(`server/_core/costiRicorrenti.ts`), non da un modello: un costo è fisso se
-compare per almeno **tre mesi consecutivi** con lo stesso importo (tolleranza
-50 centesimi) dallo stesso fornitore, normalizzando la forma societaria. Le
-note di credito passive restano fuori. La regola gira dentro `upsertCostiFic` e
-prevale su Tars, mai su una classificazione fatta da una persona; i costi che
-riclassifica escono dalla coda `idsDaClassificare`, quindi non consumano token.
+I **costi fissi certi** arrivano soltanto dal registro confermato
+`costi_fissi_manuali`. La ricorrenza deterministica (stesso fornitore e stesso
+importo per almeno tre mesi consecutivi, tolleranza 50 centesimi) genera solo
+candidati: non riclassifica documenti, non prevale su una persona e non entra
+nel pareggio finché l'operatore non la conferma.
 
 **La tolleranza resta stretta di proposito** (rimisurata il 27/08/2026 sui dati
 reali, per non riaprire la questione ogni sei mesi):
@@ -403,32 +401,22 @@ sull'anno corrente, dove i dubbi erano 3. Ora il tab ha tre viste:
 - **Documento per documento**: selezione multipla e
   `ficCosti.riclassificaMolti` per i casi sparsi — 82 fornitori con un solo
   documento non sono un gruppo, ma insieme si chiudono in un gesto;
-- **Senza commessa**: i costi già dichiarati «Commessa» a cui manca la
-  commessa.
+- nessuna vista o azione associa gli acquisti alle commesse.
 
 `ficCosti.arretrati` conta il sospeso di **ogni** anno; il badge della
 linguetta e una barra dentro il tab portano all'anno arretrato con un click, e
 il selettore dell'anno elenca tutti gli anni che hanno dati.
 
-**Costo di commessa, finalmente assegnabile.** `CostoFic.commessaId` esisteva
-nel dato dal principio e nessuna mutation lo scriveva: 665 costi classificati
-«Commessa» avevano `commessaId = null`, quindi il margine leggeva soltanto i
-costi ribattuti a mano nel registro della scheda — lo stesso costo scritto due
-volte, o mai. Ora:
+`CostoFic.commessaId` resta solo come campo legacy. Nessuna API o UI lo scrive,
+e il margine della commessa legge esclusivamente il registro manuale della
+commessa e la posa. Gli acquisti sono classificati `Variabile`, `Straordinario`
+o proposti come fissi aziendali, senza attribuzione a un lavoro.
 
-- `ficCosti.assegnaCommessa` assegna (e classifica: un costo che sta su una
-  commessa È un costo di commessa) o toglie l'assegnazione;
-- `ficCosti.candidatiCommessa` propone le commesse plausibili con due soli
-  segnali verificabili — il codice commessa scritto nel documento e il
-  fornitore già presente nel registro costi di quella commessa. Il resto è
-  ricerca a mano: un costo sulla commessa sbagliata falsa due margini;
-- `calcolaMargine(commessa, costiFic)` somma le due sorgenti;
-  `costiFicPerCommessa` e `totaliCostiFicPerCommessa` alimentano
-  `commesse.margine` e `commesse.marginalita`. Le note di credito passive
-  entrano con segno negativo;
-- nella scheda commessa quelle voci si leggono con il badge «da Fatture in
-  Cloud» e non si modificano: si correggono in Acquisti, come il pattuito si
-  corregge in FiC.
+Ogni fattura emessa FiC non ignorata e non già collegata crea una commessa
+propria. Il cliente viene riusato per P.IVA/CF o intestazione esatta; se manca
+viene creato. `ficSourceRef = fic:<sedeId>:<fatturaId>` impedisce duplicati ai
+sync successivi. Il codice commessa scritto esplicitamente in fattura continua
+a prevalere; note di credito e identità ambigue non creano commesse.
 
 Le bande di composizione separano quattro perimetri: controllo incassi annuale,
 Vendite FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa

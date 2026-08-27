@@ -4,6 +4,11 @@
 **Stato:** approvato dall'utente  
 **Ambito:** Contabilita, Pagamenti, Marginalita, sincronizzazione FiC e classificazione Tars
 
+> **Superato il 27/08/2026:** costi FiC classificati `fisso` e associazione
+> acquisto-commessa non alimentano più i calcoli. La fonte di verità è il
+> registro confermato descritto in
+> `2026-08-27-costi-fissi-certificati-commesse-fic-design.md`.
+
 ## 1. Obiettivo
 
 Rendere coerenti e verificabili fatturato, pattuito, incassato, costi e margine,

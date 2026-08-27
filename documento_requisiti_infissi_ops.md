@@ -1224,18 +1224,12 @@ mentre `pagamenti[]` registra il denaro effettivamente ricevuto. La scheda
 commessa li mostra separati e dichiara lo scostamento quando la somma delle
 rate non copre il pattuito.
 
-### 40.7 Costi fissi per ricorrenza (26/08/2026)
-Un costo è **fisso** quando compare per almeno tre mesi consecutivi con lo
-stesso importo, dallo stesso fornitore. La tolleranza sull'importo è di 50
-centesimi e la forma societaria viene normalizzata, così un canone indicizzato
-o una ragione sociale scritta in due modi non spezzano la serie. Le note di
-credito passive restano fuori.
-
-La regola è deterministica e non chiama modelli: gira in `upsertCostiFic`,
-prevale su una classificazione di Tars e mai su una decisione presa da una
-persona. I costi che riclassifica escono dalla coda di classificazione, quindi
-non consumano token. `/economia` → `Costi fissi` mostra l'elenco con fornitore,
-importo mensile e periodo coperto.
+### 40.7 Costi fissi confermati (27/08/2026)
+La ricorrenza (stesso fornitore e importo per almeno tre mesi consecutivi,
+tolleranza 50 centesimi) è solo una proposta. Un costo entra nel totale fisso
+e nel fatturato necessario a coprirlo soltanto dopo conferma nel registro
+aziendale, con importo, cadenza e validità. Tars e sync non possono confermare
+né sovrascrivere questa decisione.
 
 ### 40.8 Reset del pattuito (operazione una tantum)
 `scripts/reset-pattuiti.ts` azzera `importoTotale`, `pattuitoFonte`,

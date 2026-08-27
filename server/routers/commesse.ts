@@ -127,6 +127,7 @@ const _store = persistedStore<any>("commesse", (items) => {
     }
     // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
     if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
+    if ((c as any).ficSourceRef === undefined) (c as any).ficSourceRef = null;
     // Payment tracker fields (saldi).
     if ((c as any).importoTotale === undefined) (c as any).importoTotale = null;
     // Margine (P0.2): manual estimate of the posa cost, € — direzione-only.
@@ -192,6 +193,59 @@ export function getCommessaById(id: number) {
 
 export function saveCommesseStore(): void {
   _store.save();
+}
+
+/** Crea una sola commessa per fattura FiC; ogni retry restituisce la stessa. */
+export async function createCommessaFromFic(data: {
+  sedeId: number;
+  fatturaId: number;
+  clienteId: number;
+  indirizzo?: string | null;
+  citta?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  note?: string | null;
+}) {
+  const ficSourceRef = `fic:${data.sedeId}:${data.fatturaId}`;
+  const trovaEsistente = () => commesse.find(
+    c => (c.sedeId ?? DEFAULT_SEDE_ID) === data.sedeId && c.ficSourceRef === ficSourceRef
+  );
+  const esistente = trovaEsistente();
+  if (esistente) return { commessa: esistente, creata: false };
+  const cliente = getClienteById(data.clienteId);
+  if (!cliente || (cliente.sedeId ?? DEFAULT_SEDE_ID) !== data.sedeId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Cliente FiC non trovato." });
+  }
+  const now = new Date();
+  const commessa = {
+    id: nextId++, sedeId: data.sedeId, codice: generaCodiceCommessa(),
+    clienteId: cliente.id,
+    cliente: `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim(),
+    indirizzo: data.indirizzo ?? cliente.indirizzoLavoro ?? cliente.indirizzo ?? null,
+    citta: data.citta ?? cliente.cittaLavoro ?? cliente.citta ?? null,
+    telefono: data.telefono ?? cliente.telefono ?? null,
+    email: data.email ?? cliente.email ?? null,
+    stato: "preventivo" as const, importoTotale: null, pattuitoFonte: null,
+    pattuitoFicDocumentoIds: [] as number[], pattuitoAggiornatoAt: null,
+    pianoRate: [] as RataCommessa[], importoIncassato: 0,
+    costoPosaStimato: null, costi: [], pagamenti: [], priorita: "media" as const,
+    squadraId: null, dataApertura: now.toISOString().split("T")[0],
+    consegnaIndicativa: null, dataConsegnaIndicativa: null,
+    dataConsegnaConfermata: null, dataChiusura: null,
+    note: data.note ?? null, prodotti: [], assegnatoA: cliente.assegnatoA ?? null,
+    createdBy: null, createdAt: now, updatedAt: now, ficSourceRef,
+  };
+  const concorrente = trovaEsistente();
+  if (concorrente) return { commessa: concorrente, creata: false };
+  commesse.push(commessa);
+  addCommessaToCliente(cliente.id, commessa.id);
+  _store.save();
+  await publishAssignmentEvent({
+    sedeId: commessa.sedeId, entityType: "commessa", entityId: commessa.id,
+    previousAssigneeId: null, assigneeId: commessa.assegnatoA,
+    actorUserId: null, updatedAt: now, link: `/commesse/${commessa.id}`,
+  });
+  return { commessa, creata: true };
 }
 
 // ── Pattuito e piano rate ───────────────────────────────────────────────────
@@ -626,6 +680,7 @@ export const commesseRouter = router({
         createdBy: ctx.user?.id ?? null,
         createdAt: now,
         updatedAt: now,
+        ficSourceRef: null,
       };
       commesse.push(commessa);
       // Link commessa back to cliente

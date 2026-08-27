@@ -180,7 +180,11 @@ function RigaFattura({ f }: { f: any }) {
               </span>
             </Link>
             <Badge variant="outline" className="text-[10px]">
-              {f.collegataAMano ? "Manuale" : "Automatico"}
+              {f.collegataAMano
+                ? "Manuale"
+                : f.commessaMatch === "automatico_fattura"
+                  ? "Commessa creata da FiC"
+                  : "Automatico"}
             </Badge>
             <Badge
               variant="outline"
