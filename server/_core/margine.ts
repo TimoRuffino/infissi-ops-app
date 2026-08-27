@@ -9,13 +9,6 @@
 // parte logistica (righe, ricevimento merce) ma NON alimenta più il margine
 // — un solo posto dove scrivere un costo, nessun doppio conteggio.
 //
-// Dal 27/08/2026 il registro ha una seconda sorgente: le fatture d'acquisto
-// che arrivano da Fatture in Cloud e che qualcuno ha assegnato a questa
-// commessa (`CostoFic.commessaId`). Erano già in azienda, classificate
-// «Commessa», e restavano fuori dal margine perché nessuno poteva dire di
-// QUALE commessa fossero — così lo stesso costo andava riscritto a mano.
-// Quelle voci sono derivate: si correggono da Acquisti, non da qui.
-//
 // Pure function: nessuna dipendenza dagli store, banale da testare.
 
 export type CostoCommessa = {
@@ -26,10 +19,6 @@ export type CostoCommessa = {
   data: string | null; // "YYYY-MM-DD"
   numeroOrdine: string | null;
   note: string | null;
-  // "fic" = fattura d'acquisto assegnata a questa commessa: si legge, non si
-  // modifica dalla scheda. `ficCostoId` è l'id del documento in `fic_costi`.
-  origine: "manuale" | "fic";
-  ficCostoId: number | null;
 };
 
 export type MargineCommessa = {
@@ -49,14 +38,12 @@ export function calcolaMargine(
     importoTotale?: number | null;
     costoPosaStimato?: number | null;
     costi?: any[] | null;
-  },
-  /** Fatture d'acquisto FiC assegnate a questa commessa. */
-  costiFic: readonly CostoCommessa[] = []
+  }
 ): MargineCommessa {
   const ricavi = commessa.importoTotale ?? null;
   const costoPosa = commessa.costoPosaStimato ?? null;
 
-  const manuali: CostoCommessa[] = (
+  const costi: CostoCommessa[] = (
     Array.isArray(commessa.costi) ? commessa.costi : []
   ).map((c: any) => ({
     id: c.id,
@@ -66,12 +53,7 @@ export function calcolaMargine(
     data: c.data ?? null,
     numeroOrdine: c.numeroOrdine ?? null,
     note: c.note ?? null,
-    origine: "manuale" as const,
-    ficCostoId: null,
   }));
-  const costi = [...manuali, ...costiFic].sort((a, b) =>
-    (b.data ?? "").localeCompare(a.data ?? "")
-  );
   const costiFornitore =
     Math.round(costi.reduce((sum, c) => sum + c.importo, 0) * 100) / 100;
 

@@ -3,15 +3,12 @@ import { TRPCError } from "@trpc/server";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
-  candidatiCommessaPerCosto,
   candidatiFissiPerSede,
   classificaConRegole,
-  costiFicPerCommessa,
   ficCosti,
   finalizzaSnapshotCosti,
   upsertCostiFic,
 } from "./ficCosti";
-import { calcolaMargine } from "../_core/margine";
 
 function ctx(sedeId: number): TrpcContext {
   return {
@@ -158,117 +155,6 @@ describe("registro costi FiC", () => {
         ricorda: false,
       })
     ).rejects.toMatchObject<Partial<TRPCError>>({ code: "NOT_FOUND" });
-  });
-});
-
-describe("costi di commessa", () => {
-  it("assegnare un costo lo fa entrare nel margine senza riscriverlo", async () => {
-    // Il difetto vero: `commessaId` esisteva nel dato e nessuna mutation lo
-    // scriveva, quindi i costi «Commessa» non arrivavano mai al margine e
-    // qualcuno li ribatteva a mano nella scheda.
-    const sedeId = 91;
-    const caller = appRouter.createCaller(ctx(sedeId));
-    const cliente = await caller.clienti.create({
-      nome: "Ada",
-      cognome: "Margine",
-    });
-    const commessa = await caller.commesse.create({
-      clienteId: cliente.id,
-      importoTotale: 10_000,
-    });
-    upsertCostiFic(
-      [costo(91_001, { importoNetto: 4_000, fornitoreNome: "Vetreria Alfa" })],
-      sedeId,
-      "costi-margine"
-    );
-
-    expect(costiFicPerCommessa(commessa.id, sedeId)).toEqual([]);
-
-    await caller.ficCosti.assegnaCommessa({
-      id: 91_001,
-      commessaId: commessa.id,
-    });
-
-    const assegnati = costiFicPerCommessa(commessa.id, sedeId);
-    expect(assegnati).toHaveLength(1);
-    expect(assegnati[0]).toMatchObject({
-      fornitore: "Vetreria Alfa",
-      importo: 4_000,
-      origine: "fic",
-    });
-    // Assegnare implica la classificazione: un costo che sta su una commessa
-    // e' un costo di commessa.
-    expect(
-      ficCosti.find(c => c.id === 91_001 && c.sedeId === sedeId)!.classificazione
-    ).toBe("variabile_commessa");
-
-    const margine = await caller.commesse.margine(commessa.id);
-    expect(margine.costiFornitore).toBe(4_000);
-    expect(margine.margineLordo).toBe(6_000);
-    expect(margine.datiIncompleti).toBe(false);
-
-    await caller.ficCosti.assegnaCommessa({ id: 91_001, commessaId: null });
-    expect((await caller.commesse.margine(commessa.id)).costiFornitore).toBe(0);
-  });
-
-  it("una nota di credito passiva abbatte il costo, non lo aumenta", () => {
-    const sedeId = 92;
-    upsertCostiFic(
-      [
-        costo(92_001, { importoNetto: 1_000 }),
-        costo(92_002, {
-          tipo: "passive_credit_note" as const,
-          importoNetto: 250,
-        }),
-      ],
-      sedeId,
-      "costi-nc"
-    );
-    for (const id of [92_001, 92_002]) {
-      ficCosti.find(c => c.id === id && c.sedeId === sedeId)!.commessaId = 7;
-    }
-    const voci = costiFicPerCommessa(7, sedeId);
-    expect(calcolaMargine({ importoTotale: 5_000 }, voci).costiFornitore).toBe(750);
-  });
-
-  it("una commessa di un'altra sede non si puo' assegnare", async () => {
-    const sedeId = 93;
-    const caller = appRouter.createCaller(ctx(sedeId));
-    const altra = appRouter.createCaller(ctx(94));
-    const cliente = await altra.clienti.create({ nome: "Nino", cognome: "Altrove" });
-    const commessaAltrui = await altra.commesse.create({ clienteId: cliente.id });
-    upsertCostiFic([costo(93_001)], sedeId, "costi-sede");
-    await expect(
-      caller.ficCosti.assegnaCommessa({
-        id: 93_001,
-        commessaId: commessaAltrui.id,
-      })
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("il codice commessa scritto nel documento e' il primo candidato", () => {
-    const candidati = candidatiCommessaPerCosto(
-      {
-        descrizione: "Fornitura serramenti rif. COM 2026 012",
-        numeroDocumento: "FT-99",
-        fornitoreNome: "Vetreria Alfa",
-        data: "2026-05-04",
-      },
-      [
-        { id: 1, codice: "COM-2026-012", cliente: "Rossi", costi: [] },
-        {
-          id: 2,
-          codice: "COM-2026-050",
-          cliente: "Bianchi",
-          costi: [{ fornitore: "Vetreria Alfa Srl" }],
-        },
-      ]
-    );
-    expect(candidati[0]).toMatchObject({
-      commessaId: 1,
-      motivo: "codice nel documento",
-    });
-    expect(candidati[1]).toMatchObject({ commessaId: 2 });
   });
 });
 

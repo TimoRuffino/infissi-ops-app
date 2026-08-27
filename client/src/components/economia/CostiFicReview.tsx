@@ -1,4 +1,4 @@
-// Acquisti — classificazione e assegnazione dei costi.
+// Acquisti — classificazione dei costi.
 //
 // Il lavoro qui è ripetitivo per natura, e lo era due volte più del
 // necessario. Nel 2025 restavano 265 documenti da classificare distribuiti su
@@ -7,33 +7,23 @@
 // sola — l'affitto è affitto ogni mese, la trattoria è un pranzo di lavoro
 // tutte le volte.
 //
-// Da qui le tre viste:
+// Da qui le due viste:
 //   Fornitori   una riga per fornitore, tre bottoni, chiude tutto il gruppo
 //   Documenti   selezione multipla per i casi sparsi (82 fornitori con un
 //               documento solo: come gruppi non esistono, come selezione sì)
-//   Commesse    i costi già dichiarati «di commessa» ma senza commessa
-//
-// L'ultima è quella che mancava del tutto: `commessaId` esisteva nel dato e
-// nessuna mutation lo scriveva, quindi 665 costi «Commessa» non arrivavano
-// mai al margine e chi voleva il margine riscriveva gli stessi costi a mano
-// nella scheda.
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import SearchSelect from "@/components/SearchSelect";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  Building2,
   Check,
   ChevronRight,
   Layers,
-  Link2,
   Loader2,
   Search,
-  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -98,146 +88,6 @@ function BottoniClasse({
           </Button>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * Assegnazione a una commessa.
- *
- * I candidati arrivano dal server e sono solo due tipi, entrambi
- * verificabili: il codice commessa scritto nel documento e il fornitore già
- * presente nel registro costi di quella commessa. Il resto è ricerca a mano —
- * un costo sulla commessa sbagliata falsa due margini invece di uno.
- */
-function AssegnaCommessa({ costo }: { costo: any }) {
-  const utils = trpc.useUtils();
-  const [apriRicerca, setApriRicerca] = useState(false);
-  const [scelta, setScelta] = useState<string | null>(null);
-
-  const candidati = trpc.ficCosti.candidatiCommessa.useQuery(
-    { id: costo.id },
-    { enabled: costo.commessaId == null }
-  );
-  const commesse = trpc.commesse.list.useQuery(undefined, {
-    enabled: apriRicerca,
-  });
-  const assegna = trpc.ficCosti.assegnaCommessa.useMutation({
-    onSuccess: () => {
-      utils.ficCosti.invalidate();
-      utils.commesse.invalidate();
-      utils.economia.invalidate();
-      setApriRicerca(false);
-      setScelta(null);
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  if (costo.commessaId != null) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Badge variant="outline" className="gap-1 text-[10px]">
-          <Link2 className="h-3 w-3" aria-hidden="true" />
-          {costo.commessaCodice ?? `Commessa #${costo.commessaId}`}
-        </Badge>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-8 text-xs"
-          disabled={assegna.isPending}
-          onClick={() => assegna.mutate({ id: costo.id, commessaId: null })}
-        >
-          Togli
-        </Button>
-      </div>
-    );
-  }
-
-  const suggeriti = candidati.data ?? [];
-  return (
-    <div className="space-y-1.5 rounded-md border border-border bg-surface-2 p-2.5">
-      <p className="text-[11px] font-medium text-text-2">Di quale commessa è?</p>
-      {suggeriti.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {suggeriti.map((c: any) => (
-            <Button
-              key={c.commessaId}
-              type="button"
-              variant="outline"
-              className="h-auto min-h-11 w-full justify-start gap-2 px-2.5 py-2 text-left sm:min-h-10"
-              disabled={assegna.isPending}
-              onClick={() =>
-                assegna.mutate({ id: costo.id, commessaId: c.commessaId })
-              }
-            >
-              <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">
-                  {c.codice}
-                  {c.cliente ? ` — ${c.cliente}` : ""}
-                </span>
-                <span className="block truncate text-[11px] font-normal text-text-3">
-                  {c.motivo}
-                </span>
-              </span>
-            </Button>
-          ))}
-        </div>
-      )}
-      {apriRicerca ? (
-        <div className="space-y-1.5">
-          <SearchSelect
-            value={scelta}
-            onChange={setScelta}
-            options={(commesse.data ?? []).map((cm: any) => ({
-              value: String(cm.id),
-              label: `${cm.codice} — ${cm.cliente}`,
-              keywords: `${cm.citta ?? ""} ${cm.cliente ?? ""}`,
-            }))}
-            disabled={commesse.isLoading || assegna.isPending}
-            placeholder={commesse.isLoading ? "Caricamento…" : "Cerca la commessa…"}
-            searchPlaceholder="Codice, cliente o città…"
-            emptyText="Nessuna commessa trovata"
-          />
-          <div className="flex gap-1.5">
-            <Button
-              type="button"
-              className="h-10 flex-1 sm:h-9"
-              disabled={!scelta || assegna.isPending}
-              onClick={() =>
-                assegna.mutate({ id: costo.id, commessaId: Number(scelta) })
-              }
-            >
-              {assegna.isPending ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              Assegna
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 shrink-0 sm:h-9 sm:w-9"
-              aria-label="Chiudi ricerca commessa"
-              onClick={() => setApriRicerca(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-9 text-xs"
-          onClick={() => setApriRicerca(true)}
-        >
-          <Search className="mr-1 h-3 w-3" />
-          {suggeriti.length > 0 ? "Un'altra commessa" : "Cerca la commessa"}
-        </Button>
-      )}
     </div>
   );
 }
@@ -310,13 +160,6 @@ function RigaCosto({
           )}
       </div>
 
-      {/* La commessa si chiede subito dopo la classificazione, non in un
-          secondo giro: è il momento in cui hai il documento davanti. */}
-      {costo.classificazione === "variabile_commessa" && (
-        <div className="sm:pl-7">
-          <AssegnaCommessa costo={costo} />
-        </div>
-      )}
     </li>
   );
 }
@@ -400,7 +243,7 @@ function GruppoFornitore({ gruppo }: { gruppo: any }) {
   );
 }
 
-type Vista = "fornitori" | "documenti" | "commesse";
+type Vista = "fornitori" | "documenti";
 
 export default function CostiFicReview({
   anno,
@@ -435,9 +278,6 @@ export default function CostiFicReview({
   const daClassificare = tutti.filter(
     (c: any) => c.classificazione === "dubbio"
   );
-  const senzaCommessa = tutti.filter(
-    (c: any) => c.classificazione === "variabile_commessa" && c.commessaId == null
-  );
 
   // Il dettaglio dei gruppi viene dalla lista già in pagina: il server manda
   // gli id, non serve una seconda query per mostrare tre righe.
@@ -453,9 +293,7 @@ export default function CostiFicReview({
       }));
   }, [gruppi, tutti, termine]);
 
-  const righeDocumenti = (
-    vista === "commesse" ? senzaCommessa : daClassificare
-  ).filter((costo: any) => {
+  const righeDocumenti = daClassificare.filter((costo: any) => {
     if (!termine) return true;
     return [costo.fornitoreNome, costo.categoriaFic, costo.descrizione]
       .filter(Boolean)
@@ -463,7 +301,7 @@ export default function CostiFicReview({
   });
 
   const altriAnni = arretrati.filter(
-    (a: any) => a.anno !== anno && (a.daClassificare > 0 || a.senzaCommessa > 0)
+    (a: any) => a.anno !== anno && a.daClassificare > 0
   );
 
   const seleziona = (id: number, valore: boolean) =>
@@ -477,7 +315,6 @@ export default function CostiFicReview({
   const VISTE: Array<[Vista, string, number]> = [
     ["fornitori", "Per fornitore", gruppi.length],
     ["documenti", "Documento per documento", daClassificare.length],
-    ["commesse", "Senza commessa", senzaCommessa.length],
   ];
 
   return (
@@ -488,9 +325,7 @@ export default function CostiFicReview({
           <p className="text-xs text-text-3">
             {daClassificare.length > 0
               ? `${daClassificare.length} document${daClassificare.length === 1 ? "o" : "i"} da classificare nel ${anno}, su ${gruppi.length} fornitor${gruppi.length === 1 ? "e" : "i"}. I costi che tornano ogni mese sono già fissi da soli.`
-              : senzaCommessa.length > 0
-                ? `Tutto classificato. Restano ${senzaCommessa.length} costi di commessa senza commessa: finché non gliela dai, non entrano nel margine.`
-                : "Tutto classificato e assegnato."}
+              : "Tutto classificato."}
           </p>
         </div>
         <div className="relative">
@@ -529,7 +364,7 @@ export default function CostiFicReview({
               >
                 {a.anno}
                 <Badge variant="warning" className="ml-1.5 text-[10px]">
-                  {a.daClassificare + a.senzaCommessa}
+                  {a.daClassificare}
                 </Badge>
               </Button>
             ))}
@@ -551,9 +386,6 @@ export default function CostiFicReview({
               setSelezione(new Set());
             }}
           >
-            {id === "commesse" ? (
-              <Building2 className="mr-1 h-3 w-3" aria-hidden="true" />
-            ) : null}
             {etichetta}
             <Badge variant="secondary" className="ml-1.5 text-[10px]">
               {conteggio}
@@ -628,9 +460,7 @@ export default function CostiFicReview({
           <div className="px-4 py-10 text-center text-sm text-text-3">
             {termine
               ? `Nessun acquisto per «${cerca.trim()}».`
-              : vista === "commesse"
-                ? "Ogni costo di commessa ha la sua commessa."
-                : `Niente da classificare nel ${anno}.`}
+              : `Niente da classificare nel ${anno}.`}
           </div>
         ) : (
           <ul className="divide-y divide-border/70">

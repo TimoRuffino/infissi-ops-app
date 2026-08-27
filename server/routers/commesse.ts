@@ -15,10 +15,6 @@ import {
   isDirezione,
 } from "../_core/permissions";
 import { calcolaMargine } from "../_core/margine";
-import {
-  costiFicPerCommessa,
-  totaliCostiFicPerCommessa,
-} from "./ficCosti";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { getOrdiniPerMargine } from "./fornitori";
 import {
@@ -947,10 +943,7 @@ export const commesseRouter = router({
           )
         : [];
     return {
-      ...calcolaMargine(
-        c!,
-        costiFicPerCommessa(input, ctx.sedeId ?? DEFAULT_SEDE_ID)
-      ),
+      ...calcolaMargine(c!),
       ordiniImportabili,
     };
   }),
@@ -1075,9 +1068,6 @@ export const commesseRouter = router({
   marginalita: protectedProcedure.query(({ ctx }) => {
     requireDirezione(ctx.user);
     const utenti = getUtentiStore() as any[];
-    // Un indice solo per tutte le commesse: filtrare i costi FiC dentro il
-    // map sarebbe N scansioni dell'archivio acquisti.
-    const costiFic = totaliCostiFicPerCommessa(ctx.sedeId ?? DEFAULT_SEDE_ID);
     return commesse
       .filter(
         (c) =>
@@ -1097,7 +1087,7 @@ export const commesseRouter = router({
           assegnatoNome: assegnatario
             ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
             : null,
-          ...calcolaMargine(c, costiFic.get(c.id) ?? []),
+          ...calcolaMargine(c),
         };
       });
   }),

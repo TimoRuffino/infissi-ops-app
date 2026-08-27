@@ -11,8 +11,6 @@ import {
   rilevaCostiRicorrenti,
 } from "../_core/costiRicorrenti";
 import type { GruppoRicorrente } from "../_core/costiRicorrenti";
-import type { CostoCommessa } from "../_core/margine";
-import { estraiCodiceCommessa } from "./ficMatch";
 
 export type ClassificazioneCosto = ClassificazioneCostoEconomico;
 export type FonteClassificazioneCosto = "regola" | "tars" | "utente" | null;
@@ -36,7 +34,9 @@ export type CostoFic = {
   fonteClassificazione: FonteClassificazioneCosto;
   confidenza: number | null;
   motivazione: string | null;
-  commessaId: number | null;
+  // Legacy field: mantenuto per leggere record storici, ma non alimenta più
+  // né API né marginalità e non viene scritto dai nuovi acquisti.
+  commessaId?: number | null;
   presenteInFic: boolean;
   ultimoSyncId: string | null;
   ultimoVistoAt: Date | null;
@@ -244,7 +244,6 @@ export function upsertCostiFic(
       fonteClassificazione: null,
       confidenza: null,
       motivazione: null,
-      commessaId: null,
       presenteInFic: true,
       ultimoSyncId: syncId,
       ultimoVistoAt: new Date(),
@@ -293,133 +292,6 @@ export function finalizzaSnapshotCosti(args: {
   }
   if (rimossi > 0) saveFicCosti();
   return rimossi;
-}
-
-/**
- * Le fatture d'acquisto assegnate a una commessa, nella forma del registro
- * costi.
- *
- * Erano 665 documenti classificati «Commessa» con `commessaId` a null: il
- * campo esisteva, nessuna mutation lo scriveva, e il margine leggeva soltanto
- * i costi ribattuti a mano nella scheda. Ora una assegnazione fa contare il
- * documento dov'e' gia', senza riscriverlo.
- *
- * Le note di credito passive entrano con segno negativo: abbattono il costo
- * della commessa, non lo aumentano.
- */
-export function costiFicPerCommessa(
-  commessaId: number,
-  sedeId: number
-): CostoCommessa[] {
-  return ficCosti
-    .filter(
-      costo =>
-        costo.sedeId === sedeId &&
-        costo.commessaId === commessaId &&
-        costo.presenteInFic
-    )
-    .map(costo => ({
-      id: costo.id,
-      fornitore: costo.fornitoreNome,
-      descrizione:
-        costo.descrizione ??
-        costo.categoriaFic ??
-        (costo.tipo === "passive_credit_note" ? "Nota di credito" : null),
-      importo:
-        costo.tipo === "passive_credit_note"
-          ? -costo.importoNetto
-          : costo.importoNetto,
-      data: costo.data,
-      numeroOrdine: costo.numeroDocumento,
-      note: null,
-      origine: "fic" as const,
-      ficCostoId: costo.id,
-    }))
-    .sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
-}
-
-/** Indice commessaId → totale FiC, per non rifare N filtri su N commesse. */
-export function totaliCostiFicPerCommessa(
-  sedeId: number
-): Map<number, CostoCommessa[]> {
-  const commesseCoinvolte = new Set<number>();
-  for (const costo of ficCosti) {
-    if (
-      costo.sedeId === sedeId &&
-      costo.commessaId != null &&
-      costo.presenteInFic
-    ) {
-      commesseCoinvolte.add(costo.commessaId);
-    }
-  }
-  const indice = new Map<number, CostoCommessa[]>();
-  for (const commessaId of Array.from(commesseCoinvolte)) {
-    indice.set(commessaId, costiFicPerCommessa(commessaId, sedeId));
-  }
-  return indice;
-}
-
-function normalizzaNome(valore: string | null | undefined): string {
-  return (valore ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\b(s\.?r\.?l\.?|s\.?p\.?a\.?|s\.?n\.?c\.?|s\.?a\.?s\.?|societa|ditta)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-/**
- * Le commesse plausibili per un costo, in ordine di forza.
- *
- * Due segnali soltanto, entrambi verificabili: il codice commessa scritto nel
- * documento, e il fornitore gia' presente nel registro costi di quella
- * commessa. Il resto sarebbe indovinare — e un costo attribuito alla commessa
- * sbagliata falsa due margini invece di uno.
- */
-export function candidatiCommessaPerCosto(
-  costo: Pick<CostoFic, "descrizione" | "numeroDocumento" | "fornitoreNome" | "data">,
-  commesse: readonly any[],
-  massimo = 5
-): Array<{ commessaId: number; codice: string; cliente: string | null; motivo: string }> {
-  const codiceCitato = estraiCodiceCommessa(
-    `${costo.descrizione ?? ""} ${costo.numeroDocumento ?? ""}`
-  );
-  const fornitore = normalizzaNome(costo.fornitoreNome);
-  const trovati: Array<{ commessa: any; peso: number; motivo: string }> = [];
-  for (const commessa of commesse) {
-    if (codiceCitato && String(commessa.codice ?? "").toUpperCase() === codiceCitato) {
-      trovati.push({ commessa, peso: 100, motivo: "codice nel documento" });
-      continue;
-    }
-    if (
-      fornitore &&
-      (commessa.costi ?? []).some(
-        (voce: any) => normalizzaNome(voce.fornitore) === fornitore
-      )
-    ) {
-      trovati.push({
-        commessa,
-        peso: 30,
-        motivo: "stesso fornitore gia' nel registro",
-      });
-    }
-  }
-  return trovati
-    .sort(
-      (a, b) =>
-        b.peso - a.peso ||
-        String(b.commessa.dataApertura ?? "").localeCompare(
-          String(a.commessa.dataApertura ?? "")
-        )
-    )
-    .slice(0, massimo)
-    .map(({ commessa, motivo }) => ({
-      commessaId: commessa.id,
-      codice: String(commessa.codice ?? ""),
-      cliente: commessa.cliente ?? null,
-      motivo,
-    }));
 }
 
 const classificazioneSchema = z.enum([
@@ -570,7 +442,7 @@ export const ficCostiRouter = router({
         })
         .optional()
     )
-    .query(async ({ input, ctx }) => {
+    .query(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const anno = input?.anno ?? new Date().getFullYear();
@@ -584,25 +456,7 @@ export const ficCostiRouter = router({
               costo.classificazione === input.classificazione)
         )
         .sort((a, b) => b.data.localeCompare(a.data));
-      // Il codice della commessa assegnata: senza, l'elenco mostrerebbe un id
-      // che non dice niente a chi legge.
-      const assegnate = new Set(
-        righe.map(costo => costo.commessaId).filter((id): id is number => id != null)
-      );
-      if (assegnate.size === 0) {
-        return righe.map(costo => ({ ...costo, commessaCodice: null }));
-      }
-      const { getCommesseStore } = await import("./commesse");
-      const codici = new Map<number, string>(
-        getCommesseStore()
-          .filter((commessa: any) => assegnate.has(commessa.id))
-          .map((commessa: any) => [commessa.id, String(commessa.codice ?? "")])
-      );
-      return righe.map(costo => ({
-        ...costo,
-        commessaCodice:
-          costo.commessaId == null ? null : codici.get(costo.commessaId) ?? null,
-      }));
+      return righe;
     }),
 
   /**
@@ -615,21 +469,18 @@ export const ficCostiRouter = router({
   arretrati: protectedProcedure.query(({ ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const perAnno = new Map<number, { daClassificare: number; senzaCommessa: number }>();
+    const perAnno = new Map<number, { daClassificare: number }>();
     for (const costo of ficCosti) {
       if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
       const anno = Number(costo.data.slice(0, 4));
       if (!Number.isFinite(anno)) continue;
-      const voce = perAnno.get(anno) ?? { daClassificare: 0, senzaCommessa: 0 };
+      const voce = perAnno.get(anno) ?? { daClassificare: 0 };
       if (costo.classificazione === "dubbio") voce.daClassificare++;
-      if (costo.classificazione === "variabile_commessa" && costo.commessaId == null) {
-        voce.senzaCommessa++;
-      }
       perAnno.set(anno, voce);
     }
     return Array.from(perAnno.entries())
       .map(([anno, voce]) => ({ anno, ...voce }))
-      .filter(voce => voce.daClassificare > 0 || voce.senzaCommessa > 0)
+      .filter(voce => voce.daClassificare > 0)
       .sort((a, b) => b.anno - a.anno);
   }),
 
@@ -720,63 +571,6 @@ export const ficCostiRouter = router({
       }
       if (aggiornati > 0) saveFicCosti();
       return { aggiornati };
-    }),
-
-  /**
-   * A quale commessa appartiene questo costo.
-   *
-   * Assegnare implica la classificazione: un costo che sta su una commessa e'
-   * un costo variabile di commessa, e chiedere le due cose separatamente era
-   * un passaggio in piu' per dire la stessa cosa. Togliere l'assegnazione non
-   * torna a `dubbio`: resta un costo di commessa, semplicemente non si sa
-   * ancora quale.
-   */
-  assegnaCommessa: protectedProcedure
-    .input(
-      z.object({
-        id: z.number().int(),
-        commessaId: z.number().int().nullable(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      requireDirezioneOAmministrazione(ctx.user);
-      const costo = trovaCosto(input.id, ctx.sedeId);
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-      if (input.commessaId != null) {
-        const { getCommessaById } = await import("./commesse");
-        const commessa: any = getCommessaById(input.commessaId);
-        if (!commessa || (commessa.sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Commessa non trovata.",
-          });
-        }
-        costo.commessaId = input.commessaId;
-        costo.classificazione = "variabile_commessa";
-        costo.fonteClassificazione = "utente";
-        costo.confidenza = 1;
-        costo.motivazione = `Assegnato a ${commessa.codice} dall'operatore.`;
-      } else {
-        costo.commessaId = null;
-      }
-      costo.aggiornatoAt = new Date();
-      saveFicCosti();
-      return { success: true as const };
-    }),
-
-  /** Le commesse plausibili per un costo, gia' ordinate per forza. */
-  candidatiCommessa: protectedProcedure
-    .input(z.object({ id: z.number().int() }))
-    .query(async ({ input, ctx }) => {
-      requireDirezioneOAmministrazione(ctx.user);
-      const costo = trovaCosto(input.id, ctx.sedeId);
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-      const { getCommesseStore } = await import("./commesse");
-      const commesse = getCommesseStore().filter(
-        (commessa: any) =>
-          (commessa.sedeId ?? DEFAULT_SEDE_ID) === sedeId && !commessa.archivedAt
-      );
-      return candidatiCommessaPerCosto(costo, commesse);
     }),
 
   /**

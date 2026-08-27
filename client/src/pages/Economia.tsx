@@ -585,7 +585,7 @@ export default function Economia() {
   ).length;
   const costiDubbi = (costi.data ?? []).length;
   const arretratoTotale = (arretrati.data ?? []).reduce(
-    (somma: number, voce: any) => somma + voce.daClassificare + voce.senzaCommessa,
+    (somma: number, voce: any) => somma + voce.daClassificare,
     0
   );
   const anniConDati = Array.from(
