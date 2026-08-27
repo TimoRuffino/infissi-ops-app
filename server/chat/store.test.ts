@@ -5,12 +5,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   _resetChatInMemoria,
+  canaleDiretto,
   canaleGenerale,
   chiaveDiretta,
+  commutaReazione,
   leggiMessaggi,
   listaCanali,
   scriviMessaggio,
   segnaLetto,
+  totaleNonLetti,
   trovaCanale,
   trovaOCreaCanale,
 } from "./store";
@@ -124,7 +127,10 @@ describe("messaggi", () => {
     });
   });
 
-  it("i messaggi di un'altra sede non entrano nella lettura", async () => {
+  // `leggiMessaggi` non filtra per sede di proposito: l'autorizzazione sta
+  // sul canale, e una conversazione diretta non appartiene a nessuna sede.
+  // L'isolamento è verificato su `trovaCanale`, qui sotto.
+  it("legge i messaggi del canale indicato", async () => {
     const canale = await canaleGenerale(SEDE);
     await scriviMessaggio({
       sedeId: SEDE,
@@ -133,9 +139,121 @@ describe("messaggi", () => {
       autoreNome: "Timmy",
       testo: "mio",
     });
+    const messaggi = await leggiMessaggi({
+      sedeId: SEDE,
+      canaleId: canale.id,
+    });
+    expect(messaggi.map(m => m.testo)).toEqual(["mio"]);
+  });
+});
+
+describe("conversazioni dirette fra sedi", () => {
+  it("una diretta non appartiene a nessuna sede", async () => {
+    const canale = await canaleDiretto({ a: 4, b: 9, nome: "Nicolas" });
+    expect(canale.sedeId).toBe(0);
+    expect(canale.membriIds.sort()).toEqual([4, 9]);
+  });
+
+  it("si vede da qualunque sede attiva, il generale no", async () => {
+    await canaleGenerale(SEDE);
+    await canaleGenerale(ALTRA_SEDE);
+    await canaleDiretto({ a: 4, b: 9, nome: "Nicolas" });
+
+    for (const sede of [SEDE, ALTRA_SEDE]) {
+      const lista = await listaCanali({ sedeId: sede, utenteId: 4 });
+      expect(lista.filter(c => c.tipo === "diretto")).toHaveLength(1);
+      // Un solo generale per volta: quello della sede attiva.
+      expect(lista.filter(c => c.tipo === "generale")).toHaveLength(1);
+      expect(lista.find(c => c.tipo === "generale")?.sedeId).toBe(sede);
+    }
+  });
+
+  it("chi non ne fa parte non la vede", async () => {
+    await canaleDiretto({ a: 4, b: 9, nome: "Nicolas" });
+    const lista = await listaCanali({ sedeId: SEDE, utenteId: 5 });
+    expect(lista.some(c => c.tipo === "diretto")).toBe(false);
+  });
+
+  it("una diretta è raggiungibile per id da qualunque sede", async () => {
+    const canale = await canaleDiretto({ a: 4, b: 9, nome: "Nicolas" });
+    expect(await trovaCanale(ALTRA_SEDE, canale.id)).not.toBeNull();
+  });
+});
+
+describe("reazioni", () => {
+  async function unMessaggio() {
+    const canale = await canaleGenerale(SEDE);
+    return scriviMessaggio({
+      sedeId: SEDE,
+      canaleId: canale.id,
+      autoreId: 1,
+      autoreNome: "Timmy",
+      testo: "ciao",
+    });
+  }
+
+  it("aggiunge, poi toglie la stessa emoji", async () => {
+    const m = await unMessaggio();
     expect(
-      await leggiMessaggi({ sedeId: ALTRA_SEDE, canaleId: canale.id })
-    ).toEqual([]);
+      await commutaReazione({ messaggioId: m.id, utenteId: 3, emoji: "👍" })
+    ).toEqual({ "👍": [3] });
+    expect(
+      await commutaReazione({ messaggioId: m.id, utenteId: 3, emoji: "👍" })
+    ).toEqual({});
+  });
+
+  it("tiene separate persone ed emoji diverse", async () => {
+    const m = await unMessaggio();
+    await commutaReazione({ messaggioId: m.id, utenteId: 3, emoji: "👍" });
+    await commutaReazione({ messaggioId: m.id, utenteId: 4, emoji: "👍" });
+    const dopo = await commutaReazione({
+      messaggioId: m.id,
+      utenteId: 3,
+      emoji: "🎉",
+    });
+    expect(dopo).toEqual({ "👍": [3, 4], "🎉": [3] });
+  });
+
+  it("un messaggio inesistente non passa in silenzio", async () => {
+    await expect(
+      commutaReazione({ messaggioId: 999_999, utenteId: 3, emoji: "👍" })
+    ).rejects.toThrow();
+  });
+});
+
+describe("totaleNonLetti", () => {
+  it("somma i canali visibili e ignora i propri messaggi", async () => {
+    const generale = await canaleGenerale(SEDE);
+    const diretta = await canaleDiretto({ a: 1, b: 2, nome: "Lidia" });
+    await scriviMessaggio({
+      sedeId: SEDE,
+      canaleId: generale.id,
+      autoreId: 2,
+      autoreNome: "Lidia",
+      testo: "uno",
+    });
+    await scriviMessaggio({
+      sedeId: 0,
+      canaleId: diretta.id,
+      autoreId: 2,
+      autoreNome: "Lidia",
+      testo: "due",
+    });
+    await scriviMessaggio({
+      sedeId: SEDE,
+      canaleId: generale.id,
+      autoreId: 1,
+      autoreNome: "Timmy",
+      testo: "mio",
+    });
+
+    const riepilogo = await totaleNonLetti({ sedeId: SEDE, utenteId: 1 });
+    expect(riepilogo.totale).toBe(2);
+    // L'ultimo non letto è quello della diretta, non il proprio in generale.
+    expect(riepilogo.ultimo).toMatchObject({
+      autore: "Lidia",
+      anteprima: "due",
+    });
   });
 });
 

@@ -66,6 +66,8 @@ import { hasRuolo, isDirezione } from "@/lib/roles";
 import { isPathActive, navigationItemState } from "@/lib/navigation";
 import { AnimatePresence } from "framer-motion";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 // Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
 // for users without the `direzione` role. Garanzie, Produzione e Fornitori
@@ -217,6 +219,38 @@ function DashboardLayoutContent({
   const isMobile = useIsMobile();
   useNotificationStream();
 
+  // Non letti in chat: badge nel menu e avviso all'arrivo.
+  //
+  // Sta qui e non nella pagina perché una notifica che si vede solo quando sei
+  // già sulla chat non è una notifica. Polling a 15 secondi: la campanella SSE
+  // dipende da un feature flag, questo funziona comunque.
+  const chat = trpc.chat.nonLetti.useQuery(undefined, {
+    enabled: !!user,
+    refetchInterval: 15_000,
+    retry: false,
+  });
+  const chatNonLetti = chat.data?.totale ?? 0;
+  const ultimoAvvisato = useRef<number>(0);
+
+  useEffect(() => {
+    const ultimo = chat.data?.ultimo;
+    if (!ultimo) return;
+    // Primo caricamento: si registra il punto senza avvisare, altrimenti
+    // aprire il CRM sparerebbe un avviso per messaggi già vecchi.
+    if (ultimoAvvisato.current === 0) {
+      ultimoAvvisato.current = ultimo.messaggioId;
+      return;
+    }
+    if (ultimo.messaggioId <= ultimoAvvisato.current) return;
+    ultimoAvvisato.current = ultimo.messaggioId;
+    // Già sulla chat: il messaggio si vede da sé, l'avviso sarebbe rumore.
+    if (location.startsWith("/chat")) return;
+    toast(`${ultimo.autore} · ${ultimo.canaleNome}`, {
+      description: ultimo.anteprima,
+      action: { label: "Apri", onClick: () => setLocation("/chat") },
+    });
+  }, [chat.data?.ultimo, location, setLocation]);
+
   useEffect(() => {
     if (isCollapsed) {
       setIsResizing(false);
@@ -354,6 +388,11 @@ function DashboardLayoutContent({
                                     className={`h-4 w-4 transition-colors ${attiva ? "text-white" : ""}`}
                                   />
                                   <span className="flex-1">{c.label}</span>
+                                  {c.path === "/chat" && chatNonLetti > 0 && (
+                                    <Badge className="h-5 shrink-0 px-1.5 text-[10px]">
+                                      {chatNonLetti > 9 ? "9+" : chatNonLetti}
+                                    </Badge>
+                                  )}
                                 </SidebarMenuButton>
                               );
                             })}
