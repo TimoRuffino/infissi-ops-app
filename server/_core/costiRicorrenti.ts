@@ -1,14 +1,9 @@
-// Costi fissi per ricorrenza.
+// Candidati a costo fisso per ricorrenza.
 //
-// La regola dell'azienda è letterale: un costo è fisso se ogni mese torna
-// lo stesso importo dallo stesso fornitore. Affitto, leasing del furgone,
-// canoni, assicurazioni, commercialista. Non è una valutazione — è
-// aritmetica su fornitore, importo e mese, e va fatta qui e non chiedendola
-// a un modello: costa zero, non varia fra due esecuzioni ed è spiegabile a
-// chi chiede "perché questo risulta fisso?".
-//
-// Restano al classificatore i costi che ricorrenti non sono: quelli decide
-// se sono variabili di commessa o straordinari.
+// La ricorrenza è aritmetica su fornitore, importo e mese: individua canoni,
+// assicurazioni e leasing senza chiedere un modello. Non è però una decisione
+// contabile: un operatore deve confermare il candidato nel registro dei costi
+// fissi prima che pesi sul punto di pareggio.
 
 export type CostoPerRicorrenza = {
   id: number;
@@ -120,67 +115,4 @@ export function rilevaCostiRicorrenti(
     });
   }
   return risultato.sort((a, b) => b.importo - a.importo);
-}
-
-export type EsitoClassificazioneRicorrenza = {
-  aggiornati: number;
-  gruppi: GruppoRicorrente[];
-};
-
-/**
- * Applica la regola ai costi: quelli in una serie mensile diventano `fisso`
- * con fonte `regola`.
- *
- * Non tocca ciò che una persona ha già deciso: `fonteClassificazione` a
- * "utente" vince sempre. Vince anche su Tars — quando l'aritmetica dice
- * "ricorrente", non c'è motivo di lasciare la parola a un modello.
- *
- * `fornitoriEsclusi` è l'altra metà della stessa idea, aggiunta il
- * 27/08/2026. Un trasportatore che fattura la stessa cifra per cinque mesi
- * di fila SEMBRA un canone, ma è manodopera di commessa. Se qualcuno ha
- * dichiarato che quel fornitore non è un costo fisso, l'aritmetica deve
- * tacere: senza questo elenco la sua decisione veniva ribaltata al sync
- * successivo su ogni documento nuovo, all'infinito.
- */
-export function applicaCostiRicorrenti(
-  costi: Array<
-    CostoPerRicorrenza & {
-      classificazione: string;
-      fonteClassificazione: string | null;
-      motivazione: string | null;
-      confidenza: number | null;
-      aggiornatoAt: Date;
-    }
-  >,
-  sedeId: number,
-  fornitoriEsclusi: ReadonlySet<string> = new Set()
-): EsitoClassificazioneRicorrenza {
-  const gruppi = rilevaCostiRicorrenti(costi, sedeId).filter(
-    gruppo => !fornitoriEsclusi.has(normalizzaFornitore(gruppo.fornitore))
-  );
-  const perId = new Map<number, GruppoRicorrente>();
-  for (const gruppo of gruppi) {
-    for (const id of gruppo.ids) perId.set(id, gruppo);
-  }
-
-  let aggiornati = 0;
-  for (const costo of costi) {
-    const gruppo = perId.get(costo.id);
-    if (!gruppo) continue;
-    if (costo.fonteClassificazione === "utente") continue;
-    if (
-      costo.classificazione === "fisso" &&
-      costo.fonteClassificazione === "regola" &&
-      costo.motivazione === gruppo.motivazione
-    ) {
-      continue;
-    }
-    costo.classificazione = "fisso";
-    costo.fonteClassificazione = "regola";
-    costo.motivazione = gruppo.motivazione;
-    costo.confidenza = 1;
-    costo.aggiornatoAt = new Date();
-    aggiornati++;
-  }
-  return { aggiornati, gruppi };
 }

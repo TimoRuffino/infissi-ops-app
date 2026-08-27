@@ -4,6 +4,7 @@ import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import {
   candidatiCommessaPerCosto,
+  candidatiFissiPerSede,
   classificaConRegole,
   costiFicPerCommessa,
   ficCosti,
@@ -52,6 +53,29 @@ const costo = (id: number, extra: Partial<any> = {}) => ({
 });
 
 describe("registro costi FiC", () => {
+  it("la ricorrenza propone costi fissi senza classificare i documenti", async () => {
+    // Se `upsertCostiFic` tornasse a promuovere i documenti a fisso, il
+    // registro confermato e il punto di pareggio conterebbero una decisione
+    // che nessuno ha preso.
+    const sedeId = 80;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const rows = [
+      costo(80_001, { data: "2026-01-10", fornitoreNome: "Canoni TIM SPA" }),
+      costo(80_002, { data: "2026-02-10", fornitoreNome: "Canoni TIM SPA" }),
+      costo(80_003, { data: "2026-03-10", fornitoreNome: "Canoni TIM SPA" }),
+    ];
+
+    const result = upsertCostiFic(rows, sedeId, "costi-ricorrenza");
+    const salvati = ficCosti.filter(
+      costo => costo.sedeId === sedeId && costo.id >= 80_001 && costo.id <= 80_003
+    );
+
+    expect(salvati.every(costo => costo.classificazione === "dubbio")).toBe(true);
+    expect(result.fissiPerRicorrenza).toBe(0);
+    expect(candidatiFissiPerSede(sedeId)).toHaveLength(1);
+    expect((await caller.ficCosti.ricorrenti()).totaleMensilePotenziale).toBe(500);
+  });
+
   it("uno snapshot incompleto non nasconde record, quello completo si", () => {
     const sedeId = 81;
     upsertCostiFic([costo(88101), costo(88102)], sedeId, "costi-a");
@@ -320,10 +344,12 @@ describe("togliere un fornitore dai costi fissi", () => {
       sedeId,
       "costi-sciacca"
     );
-    // Tre mesi consecutivi allo stesso importo: l'aritmetica lo dichiara fisso.
+    // Tre mesi consecutivi allo stesso importo: l'aritmetica lo propone, ma
+    // la classificazione resta una decisione dell'operatore.
     const nostri = () =>
       ficCosti.filter(c => c.sedeId === sedeId && c.id >= 97_001 && c.id <= 97_003);
-    expect(nostri().every(c => c.classificazione === "fisso")).toBe(true);
+    expect(nostri().every(c => c.classificazione === "dubbio")).toBe(true);
+    expect(candidatiFissiPerSede(sedeId)).toHaveLength(1);
 
     // Ma e' manodopera di commessa, e va tolto tutto insieme.
     const esito = await caller.ficCosti.spostaFornitore({

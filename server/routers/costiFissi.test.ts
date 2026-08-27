@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import { importoMensile, mesiNelPeriodo } from "./costiFissi";
+import { candidatiFissiPerSede, upsertCostiFic } from "./ficCosti";
 
 function ctx(sedeId: number): TrpcContext {
   return {
@@ -51,6 +52,53 @@ describe("mensilizzazione", () => {
 });
 
 describe("costiFissi router", () => {
+  it("conferma una proposta FiC una sola volta", async () => {
+    // La regressione: due click o due retry non devono raddoppiare il costo
+    // registrato e quindi il punto di pareggio.
+    const sedeId = 70;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      ["01", "02", "03"].map((mese, index) => ({
+        id: 70_001 + index,
+        tipo: "expense" as const,
+        data: `2026-${mese}-10`,
+        fornitoreId: 70,
+        fornitoreNome: "TIM S.p.A.",
+        categoriaFic: "Utenze",
+        descrizione: "Canone telefonia",
+        centro: null,
+        numeroDocumento: `TIM-${mese}`,
+        importoNetto: 750,
+        importoIva: 165,
+        importoLordo: 915,
+        rate: [],
+      })),
+      sedeId,
+      "costi-tim"
+    );
+    const candidato = candidatiFissiPerSede(sedeId)[0];
+
+    const first = await caller.costiFissi.confermaDaFic({
+      chiave: candidato.chiave,
+      descrizione: "Canone TIM",
+      cadenza: "mensile",
+      categoria: "servizi",
+      dal: "2026-01",
+    });
+    const second = await caller.costiFissi.confermaDaFic({
+      chiave: candidato.chiave,
+      descrizione: "Canone TIM",
+      cadenza: "mensile",
+      categoria: "servizi",
+      dal: "2026-01",
+    });
+
+    expect(first.origine).toBe("fic");
+    expect(first.ficChiaveRicorrenza).toBe(candidato.chiave);
+    expect(second.id).toBe(first.id);
+    expect((await caller.costiFissi.list()).totaleMensile).toBe(candidato.importo);
+  });
+
   it("crea, mensilizza, aggiorna e cancella", async () => {
     const caller = appRouter.createCaller(ctx(71));
     const creato = await caller.costiFissi.create({

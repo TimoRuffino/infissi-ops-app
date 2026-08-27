@@ -2,10 +2,7 @@
 // sbaglia, sbaglia il break-even e l'obiettivo mensile su /pagamenti.
 
 import { describe, expect, it } from "vitest";
-import {
-  applicaCostiRicorrenti,
-  rilevaCostiRicorrenti,
-} from "./costiRicorrenti";
+import { rilevaCostiRicorrenti } from "./costiRicorrenti";
 
 let seq = 0;
 const costo = (
@@ -119,62 +116,5 @@ describe("rilevaCostiRicorrenti", () => {
         1
       )
     ).toEqual([]);
-  });
-});
-
-describe("applicaCostiRicorrenti", () => {
-  it("marca fisso con fonte regola e motivazione leggibile", () => {
-    const costi = [
-      costo("Canone Cloud", "2026-05-01", 49),
-      costo("Canone Cloud", "2026-06-01", 49),
-      costo("Canone Cloud", "2026-07-01", 49),
-    ];
-    const esito = applicaCostiRicorrenti(costi, 1);
-
-    expect(esito.aggiornati).toBe(3);
-    for (const riga of costi) {
-      expect(riga.classificazione).toBe("fisso");
-      expect(riga.fonteClassificazione).toBe("regola");
-      expect(riga.motivazione).toContain("mesi consecutivi");
-    }
-  });
-
-  it("è idempotente", () => {
-    const costi = [
-      costo("Leasing", "2026-05-01", 310),
-      costo("Leasing", "2026-06-01", 310),
-      costo("Leasing", "2026-07-01", 310),
-    ];
-    applicaCostiRicorrenti(costi, 1);
-    expect(applicaCostiRicorrenti(costi, 1).aggiornati).toBe(0);
-  });
-
-  it("non sovrascrive la decisione di una persona", () => {
-    const costi = [
-      costo("Commercialista", "2026-05-01", 200, {
-        classificazione: "straordinario",
-        fonteClassificazione: "utente",
-      }),
-      costo("Commercialista", "2026-06-01", 200),
-      costo("Commercialista", "2026-07-01", 200),
-    ];
-    applicaCostiRicorrenti(costi, 1);
-
-    expect(costi[0].classificazione).toBe("straordinario");
-    expect(costi[1].classificazione).toBe("fisso");
-  });
-
-  it("sovrascrive invece una classificazione di Tars", () => {
-    const costi = [
-      costo("Affitto", "2026-05-01", 900, {
-        classificazione: "straordinario",
-        fonteClassificazione: "tars",
-      }),
-      costo("Affitto", "2026-06-01", 900),
-      costo("Affitto", "2026-07-01", 900),
-    ];
-    applicaCostiRicorrenti(costi, 1);
-    expect(costi[0].classificazione).toBe("fisso");
-    expect(costi[0].fonteClassificazione).toBe("regola");
   });
 });

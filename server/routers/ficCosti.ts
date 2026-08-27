@@ -7,10 +7,10 @@ import type { ClassificazioneCostoEconomico } from "../_core/economiaFic";
 import type { RataFic } from "./ficFatture";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import {
-  applicaCostiRicorrenti,
   chiaveFornitore,
   rilevaCostiRicorrenti,
 } from "../_core/costiRicorrenti";
+import type { GruppoRicorrente } from "../_core/costiRicorrenti";
 import type { CostoCommessa } from "../_core/margine";
 import { estraiCodiceCommessa } from "./ficMatch";
 
@@ -114,6 +114,14 @@ export function fornitoriNonFissi(sedeId: number): Set<string> {
     esclusi.add(chiaveFornitore(regola.fornitoreNormalizzato));
   }
   return esclusi;
+}
+
+/** Ricorrenze proposte dalla FiC: solo una conferma crea un costo fisso. */
+export function candidatiFissiPerSede(sedeId: number): GruppoRicorrente[] {
+  const esclusi = fornitoriNonFissi(sedeId);
+  return rilevaCostiRicorrenti(ficCosti, sedeId).filter(
+    gruppo => !esclusi.has(chiaveFornitore(gruppo.fornitore))
+  );
 }
 
 export function classificaConRegole(
@@ -254,24 +262,8 @@ export function upsertCostiFic(
     ficCosti.push(nuovo);
     nuovi++;
   }
-  // Ricorrenza mensile: aritmetica, non valutazione. Gira dopo l'upsert
-  // perché serve la serie completa, e prevale su Tars — chiedere a un modello
-  // se l'affitto è un costo fisso è token spesi per riscoprire una somma.
-  const { aggiornati: perRicorrenza, gruppi } = applicaCostiRicorrenti(
-    ficCosti,
-    sedeId,
-    fornitoriNonFissi(sedeId)
-  );
-  if (perRicorrenza > 0) {
-    const riclassificati = new Set(gruppi.flatMap(gruppo => gruppo.ids));
-    for (let i = idsDaClassificare.length - 1; i >= 0; i--) {
-      if (riclassificati.has(idsDaClassificare[i])) {
-        idsDaClassificare.splice(i, 1);
-      }
-    }
-  }
-  if (rows.length > 0 || perRicorrenza > 0) saveFicCosti();
-  return { nuovi, aggiornati, idsDaClassificare, fissiPerRicorrenza: perRicorrenza };
+  if (rows.length > 0) saveFicCosti();
+  return { nuovi, aggiornati, idsDaClassificare, fissiPerRicorrenza: 0 };
 }
 
 export function finalizzaSnapshotCosti(args: {
@@ -451,19 +443,14 @@ function trovaCosto(id: number, sedeId: number | null): CostoFic {
 }
 
 export const ficCostiRouter = router({
-  // I canoni dell'azienda: stesso fornitore, stesso importo, ogni mese.
-  // È la definizione operativa di "costo fisso" data dalla direzione, e la
-  // pagina Economia la mostra come elenco invece che come somma opaca.
+  // I canoni rilevati dalla FiC: sono candidati, non costi già confermati.
   ricorrenti: protectedProcedure.query(({ ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const esclusi = fornitoriNonFissi(sedeId);
-    const gruppi = rilevaCostiRicorrenti(ficCosti, sedeId).filter(
-      gruppo => !esclusi.has(chiaveFornitore(gruppo.fornitore))
-    );
+    const gruppi = candidatiFissiPerSede(sedeId);
     return {
       gruppi,
-      totaleMensile:
+      totaleMensilePotenziale:
         Math.round(
           gruppi.reduce((somma, gruppo) => somma + gruppo.importo, 0) * 100
         ) / 100,

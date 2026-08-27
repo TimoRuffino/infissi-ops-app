@@ -1,4 +1,4 @@
-// Costi fissi aggiunti a mano.
+// Registro dei costi fissi confermati.
 //
 // Il break-even legge `costiFissi` dalle fatture d'acquisto FiC classificate
 // `fisso`: sui dati veri sono €9.313 al mese, su 37 fornitori. Dentro non c'è
@@ -8,9 +8,9 @@
 // vero, e non c'era modo di correggerlo: non esisteva un posto dove scrivere
 // un costo fisso che FiC non conosce.
 //
-// Questo store è quel posto. Voci dichiarate da una persona, con una cadenza
-// e un periodo di validità, che entrano nel break-even accanto a quelle
-// lette da FiC.
+// Questo store è quel posto. Le voci possono essere dichiarate a mano o
+// confermare un candidato FiC, ma entrano nel break-even solo dopo la
+// registrazione esplicita di una persona.
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -18,6 +18,7 @@ import { persistedStore } from "../_core/persistence";
 import { requireDirezioneOAmministrazione } from "../_core/permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 import { DEFAULT_SEDE_ID } from "./sedi";
+import { candidatiFissiPerSede } from "./ficCosti";
 
 export type CadenzaCostoFisso =
   | "mensile"
@@ -52,6 +53,8 @@ export type CategoriaCostoFisso = (typeof CATEGORIE_COSTO_FISSO)[number];
 export type CostoFissoManuale = {
   id: number;
   sedeId: number;
+  origine: "manuale" | "fic";
+  ficChiaveRicorrenza: string | null;
   descrizione: string;
   fornitore: string | null;
   /** Importo di UNA occorrenza, non il mensilizzato. */
@@ -70,6 +73,8 @@ export type CostoFissoManuale = {
 const _store = persistedStore<CostoFissoManuale>("costi_fissi_manuali", items => {
   for (const voce of items as any[]) {
     if (voce.sedeId === undefined) voce.sedeId = DEFAULT_SEDE_ID;
+    if (voce.origine === undefined) voce.origine = "manuale";
+    if (voce.ficChiaveRicorrenza === undefined) voce.ficChiaveRicorrenza = null;
     if (voce.cadenza === undefined) voce.cadenza = "mensile";
     if (voce.categoria === undefined) voce.categoria = "altro";
     if (voce.al === undefined) voce.al = null;
@@ -256,6 +261,56 @@ export const costiFissiRouter = router({
       return voce;
     }),
 
+  confermaDaFic: protectedProcedure
+    .input(
+      z.object({
+        chiave: z.string().trim().min(1),
+        descrizione: z.string().trim().min(1).max(200),
+        cadenza: cadenzaSchema,
+        dal: meseSchema,
+        categoria: categoriaSchema,
+      })
+    )
+    .mutation(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const candidato = candidatiFissiPerSede(sedeId).find(
+        item => item.chiave === input.chiave
+      );
+      if (!candidato) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Candidato FiC non trovato.",
+        });
+      }
+      const esistente = costiFissiManuali.find(
+        item =>
+          item.sedeId === sedeId && item.ficChiaveRicorrenza === candidato.chiave
+      );
+      if (esistente) return { ...esistente, mensile: importoMensile(esistente) };
+
+      const voce: CostoFissoManuale = {
+        id: costiFissiManuali.reduce((max, item) => Math.max(max, item.id), 0) + 1,
+        sedeId,
+        origine: "fic",
+        ficChiaveRicorrenza: candidato.chiave,
+        descrizione: input.descrizione,
+        fornitore: candidato.fornitore,
+        importo: Math.round(candidato.importo * 100) / 100,
+        cadenza: input.cadenza,
+        dal: input.dal,
+        al: null,
+        categoria: input.categoria,
+        note: null,
+        createdBy: ctx.user?.id ?? null,
+        createdAt: new Date(),
+        updatedAt: null,
+      };
+      costiFissiManuali.push(voce);
+      saveCostiFissiManuali();
+      return { ...voce, mensile: importoMensile(voce) };
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -280,6 +335,8 @@ export const costiFissiRouter = router({
       const voce: CostoFissoManuale = {
         id: costiFissiManuali.reduce((max, item) => Math.max(max, item.id), 0) + 1,
         sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+        origine: "manuale",
+        ficChiaveRicorrenza: null,
         descrizione: input.descrizione,
         fornitore: input.fornitore?.trim() || null,
         importo: Math.round(input.importo * 100) / 100,
