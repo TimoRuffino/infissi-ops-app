@@ -130,79 +130,108 @@ function Messaggio({
     onError: e => toast.error(e.message),
   });
 
+  const emojiPicker = (
+    <div className="relative shrink-0">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label="Aggiungi una reazione"
+        aria-expanded={aperto}
+        className="h-7 w-7 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-60"
+        onClick={() => setAperto(v => !v)}
+      >
+        <SmilePlus className="h-3.5 w-3.5" />
+      </Button>
+      {aperto && (
+        <div
+          className={cn(
+            "absolute top-8 z-10 flex gap-0.5 rounded-md border border-border bg-surface p-1 shadow-md",
+            // Ancorato dal lato del messaggio, così non esce mai dallo schermo.
+            mio ? "left-0" : "right-0"
+          )}
+        >
+          {EMOJI.map(emoji => (
+            <button
+              key={emoji}
+              type="button"
+              aria-label={`Reagisci con ${emoji}`}
+              className="grid h-8 w-8 place-items-center rounded hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => reagisci.mutate({ messaggioId: messaggio.id, emoji })}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className={cn("group flex gap-2.5", attaccato ? "mt-0.5" : "mt-3")}>
-      {attaccato ? (
+    <div
+      className={cn(
+        "group flex gap-2.5",
+        attaccato ? "mt-0.5" : "mt-3",
+        // I miei messaggi a destra, quelli degli altri a sinistra: è la
+        // convenzione di ogni chat, e senza si legge tutto come un registro.
+        mio && "flex-row-reverse"
+      )}
+    >
+      {/* Sul proprio messaggio l'avatar non serve: sai chi sei. Lo spazio
+          resta occupato solo per gli altri, così i blocchi restano allineati. */}
+      {mio ? null : attaccato ? (
         <span className="w-8 shrink-0" aria-hidden="true" />
       ) : (
         <Avatar nome={messaggio.autoreNome} sistema={diSistema} />
       )}
 
-      <div className="min-w-0 flex-1">
+      <div className={cn("min-w-0 flex-1", mio && "flex flex-col items-end")}>
         {!attaccato && (
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-xs font-semibold">
-              {messaggio.autoreNome}
-            </span>
+          <div
+            className={cn(
+              "flex items-baseline gap-2 flex-wrap",
+              mio && "justify-end"
+            )}
+          >
+            {!mio && (
+              <span className="text-xs font-semibold">
+                {messaggio.autoreNome}
+              </span>
+            )}
             <span className="text-[11px] text-text-3">
               {ora(messaggio.createdAt)}
             </span>
           </div>
         )}
 
-        <div className="flex items-start gap-1.5">
+        <div
+          className={cn(
+            "flex items-start gap-1.5",
+            mio && "flex-row-reverse justify-start"
+          )}
+        >
           <div
             className={cn(
               "min-w-0 max-w-[min(44rem,100%)] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm",
               diSistema
                 ? "border border-border bg-surface-2"
                 : mio
-                  ? "bg-primary/10"
+                  ? "bg-primary text-primary-foreground"
                   : "bg-surface-2"
             )}
           >
             {messaggio.testo}
           </div>
-
-          {/* Il comando compare all'hover su desktop e resta sempre
-              raggiungibile da tastiera e su touch. */}
-          <div className="relative shrink-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Aggiungi una reazione"
-              aria-expanded={aperto}
-              className="h-7 w-7 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-60"
-              onClick={() => setAperto(v => !v)}
-            >
-              <SmilePlus className="h-3.5 w-3.5" />
-            </Button>
-            {aperto && (
-              <div className="absolute right-0 top-8 z-10 flex gap-0.5 rounded-md border border-border bg-surface p-1 shadow-md">
-                {EMOJI.map(emoji => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    aria-label={`Reagisci con ${emoji}`}
-                    className="grid h-8 w-8 place-items-center rounded hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() =>
-                      reagisci.mutate({
-                        messaggioId: messaggio.id,
-                        emoji,
-                      })
-                    }
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {emojiPicker}
         </div>
 
         {Object.keys(reazioni).length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
+          <div
+            className={cn(
+              "mt-1 flex flex-wrap gap-1",
+              mio && "justify-end"
+            )}
+          >
             {Object.entries(reazioni).map(([emoji, ids]) => {
               const mia = ioId != null && ids.includes(ioId);
               return (
