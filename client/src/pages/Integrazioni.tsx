@@ -987,6 +987,21 @@ function FattureInCloudCard() {
     },
     onError: e => toast.error(e.message),
   });
+  // Riallineamento locale: nessuna chiamata all'API, lavora sulle fatture
+  // gia' scaricate. Serve dopo un reset del pattuito o dopo un cambio della
+  // regola di match, quando il sync completo sarebbe minuti spesi per niente.
+  const riallinea = trpc.ficFatture.riconciliaOra.useMutation({
+    onSuccess: r => {
+      toast.success(
+        `Riallineato · ${r.collegate} fatture collegate · ${r.pattuitiAggiornati} pattuiti aggiornati`
+      );
+      utils.ficFatture.invalidate();
+      utils.commesse.invalidate();
+      utils.economia.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
   const sync = trpc.fattureInCloud.syncNow.useMutation({
     onMutate: () => {
       window.setTimeout(() => void status.refetch(), 150);
@@ -1082,6 +1097,22 @@ function FattureInCloudCard() {
                 {sync.isPending ? "Avvio…" : "Sincronizza ora"}
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              title="Ricollega le fatture già scaricate e ricostruisce pattuito e rate, senza contattare Fatture in Cloud"
+              onClick={() => riallinea.mutate()}
+              disabled={!st.configured || riallinea.isPending || sync.isPending}
+            >
+              <Link2
+                className={
+                  riallinea.isPending
+                    ? "h-3.5 w-3.5 animate-pulse"
+                    : "h-3.5 w-3.5"
+                }
+              />
+              {riallinea.isPending ? "Riallineo…" : "Riallinea dalle fatture"}
+            </Button>
           </div>
         </div>
       </CardHeader>

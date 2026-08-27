@@ -4,8 +4,10 @@
 // locale e da lì:
 //   - alimentano la pagina Economia (fatturato, incassato, da incassare)
 //   - sincronizzano le rate FiC sui soli movimenti di origine FiC
-//   - trasformano le divergenze dei movimenti manuali in proposte approvabili.
-// Il pattuito resta un dato contrattuale CRM e non deriva dalle fatture.
+//   - trasformano le divergenze dei movimenti manuali in proposte approvabili
+//   - alimentano pattuito e piano rate delle commesse collegate.
+// Dal 26/08/2026 il pattuito NON e' piu' un dato contrattuale CRM: una
+// commessa con almeno una fattura collegata lo deriva da quelle fatture.
 //
 // La riconciliazione è deterministica — niente LLM. Regole leggibili:
 // match esatto → sync idempotente; ambiguo → resta in coda «da riconciliare»
@@ -848,12 +850,26 @@ export const ficFattureRouter = router({
       return { success: true as const };
     }),
 
+  /**
+   * Riallinea il CRM alle fatture GIA' scaricate, senza chiamare l'API.
+   *
+   * Il sync completo fa anche questo, ma scarica quattro flussi paginati e
+   * puo' durare minuti. Qui i documenti sono gia' nello store: collegare,
+   * derivare il pattuito e riconciliare gli incassi e' lavoro locale, quindi
+   * immediato e ripetibile a costo zero. Serve dopo un reset del pattuito, o
+   * quando cambia la regola di match e si vuole vedere l'effetto subito.
+   */
   riconciliaOra: adminProcedure.mutation(async ({ ctx }) => {
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
     const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
       import("./ficPagamenti"),
       import("../tars/ficPaymentProposals"),
     ]);
+    // L'ordine e' vincolante: senza collegamento non c'e' pattuito da
+    // derivare, e senza pattuito la riconciliazione degli incassi lavora su
+    // commesse a zero.
+    const collegamenti = collegaFattureAutomatiche(sedeId);
+    const pattuito = sincronizzaPattuitoDaFic(sedeId);
     const payments = riconciliaPagamentiFic({
       sedeId,
       snapshotCompleto: false,
@@ -864,6 +880,9 @@ export const ficFattureRouter = router({
     );
     const proposteSuperate = correctionHelpers.superaProposteFicObsolete(sedeId);
     return {
+      collegate: collegamenti.collegate,
+      ambigue: collegamenti.ambigue,
+      pattuitiAggiornati: pattuito.aggiornate,
       paymentStats: payments.stats,
       correzioniProposte: corrections.create,
       proposteSuperate,
