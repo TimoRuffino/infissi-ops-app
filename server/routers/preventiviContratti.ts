@@ -541,6 +541,13 @@ function commessaInSede(commessaId: number, sedeId: number | null) {
   return c;
 }
 
+// Analisi documentale (D7): il record del documento con i suoi metadati
+// (storageKey/dataBase64 inclusi), senza passare dal router. Chi chiama
+// applica lo scope di sede tramite la commessa del documento.
+export function getDocumentoRecordById(id: number): Documento | null {
+  return documenti.find(d => d.id === id) ?? null;
+}
+
 export const preventiviContrattiRouter = router({
   byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
     // Don't leak another sede's documents.

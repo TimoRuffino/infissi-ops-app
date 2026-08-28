@@ -38,6 +38,7 @@ import { costiFissiRouter } from "./routers/costiFissi";
 import { economiaRouter } from "./routers/economia";
 import { diagnosticaRouter } from "./routers/diagnostica";
 import { chatRouter } from "./routers/chat";
+import { analisiDocumentiRouter } from "./routers/analisiDocumenti";
 import {
   createLocalToken,
   clearLocalSessionFromRequest,
@@ -198,6 +199,7 @@ export const appRouter = router({
   economia: economiaRouter,
   diagnostica: diagnosticaRouter,
   chat: chatRouter,
+  analisiDocumenti: analisiDocumentiRouter,
 });
 
 export type AppRouter = typeof appRouter;

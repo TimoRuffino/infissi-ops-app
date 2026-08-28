@@ -123,6 +123,19 @@ export function getOrdiniPerMargine(commessaId: number, sedeId: number | null) {
     }));
 }
 
+// Analisi documentale (D7): l'ordine con il nome del fornitore risolto,
+// senza passare dal router. Chi chiama applica lo scope di sede.
+export function getOrdineFornitoreById(id: number) {
+  const ordine = ordini.find((o) => o.id === id);
+  if (!ordine) return null;
+  return {
+    ordine,
+    fornitoreNome:
+      fornitori.find((f) => f.id === ordine.fornitoreId)?.ragioneSociale ??
+      null,
+  };
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const fornitoriRouter = router({
