@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import CollegaOrdineDialog from "@/components/documenti/CollegaOrdineDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -52,6 +53,7 @@ import {
   TrendingUp,
   ChevronDown,
   HardHat,
+  Link2,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
@@ -216,6 +218,8 @@ export default function CommessaDetail() {
   // legittimo, e finora si poteva correggere solo ricaricando il file.
   const [rinominaDoc, setRinominaDoc] = useState<any>(null);
   const [rinominaForm, setRinominaForm] = useState({ nome: "", tipo: "altro" });
+  // Collegamento assistito documento → ordine fornitore (D7 slice 2).
+  const [collegaDoc, setCollegaDoc] = useState<any>(null);
 
   // Nuovo cliente inline
   const [nuovoClienteDialog, setNuovoClienteDialog] = useState(false);
@@ -1279,6 +1283,18 @@ export default function CommessaDetail() {
                       >
                         <Download className="h-3.5 w-3.5" />
                       </Button>
+                      {(d.mimeType ?? "").toLowerCase().includes("pdf") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Collega a un ordine fornitore"
+                          aria-label={`Collega ${d.nome} a un ordine fornitore`}
+                          onClick={() => setCollegaDoc(d)}
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -2178,6 +2194,12 @@ export default function CommessaDetail() {
         preview={previewDoc}
         onClose={() => setPreviewDoc(null)}
         onDownload={() => previewDoc && downloadDocumento(previewDoc.id)}
+      />
+
+      {/* Collegamento assistito documento → ordine fornitore */}
+      <CollegaOrdineDialog
+        documento={collegaDoc}
+        onClose={() => setCollegaDoc(null)}
       />
 
       {/* Email preventivo dialog (mailto + auto-download) */}
