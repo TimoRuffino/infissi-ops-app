@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.2 - Autorizzazioni sui dati economici (§37.5) sopra la riconciliazione documentale della v5.1: le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54). Tutto il resto è comportamento corrente.
+**Versione:** 5.3 - Analisi delle conferme d'ordine PDF (§19.4, prima slice della Document Intelligence §54.6) sopra le autorizzazioni economiche della v5.2 (§37.5). Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -549,6 +549,39 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 - Campi: `fornitoreId, nome, versione, dataValidita, nomeFile, tipo (pdf|excel|altro), note?`.
 - I listini sono solo metadati: il file effettivo viene gestito altrove (cartella condivisa o sezione documenti separata).
 
+### 19.4 Analisi delle conferme d'ordine (PDF) — 28/08/2026
+Prima slice della Document Intelligence (visione completa in §54.6; piano in
+`docs/reports/d7-document-intelligence-piano.md`). Dalla scheda ordine
+(direzione) il pannello «Conferma d'ordine (PDF)» analizza un documento del
+fascicolo della commessa dell'ordine:
+
+- **Pipeline**: registro parser estendibile; oggi un solo parser,
+  `pdf-testo-nativo` (unpdf, testo per pagina). Il run è persistito in
+  `documenti_analisi` con impronta SHA-256 dei byte e versioni di
+  parser/estrattore/confronto: lo stesso file non produce due run
+  (idempotente); la rielaborazione esplicita conserva lo storico.
+- **Estrazione deterministica** con evidenza obbligatoria per ogni valore
+  (pagina, frammento, metodo, confidenza, eventuali letture alternative):
+  riferimento al nostro ordine, codici commessa citati, fornitore, numero e
+  data della conferma, date/settimane di consegna, totale documento,
+  riscontro delle righe per codice articolo (best-effort, confidenza bassa).
+  Nessun modello: il testo del documento è un dato inerte, e un prompt
+  injection nel PDF resta un frammento di evidenza.
+- **Confronto con l'ordine**: differenze tipizzate e ordinate per gravità —
+  consegna diversa o non dichiarata, totale diverso (tolleranza 50
+  centesimi), riferimento ordine assente, commessa incoerente, riga non
+  citata, quantità diversa.
+- **Nessuna scrittura su dati autorevoli**: l'analisi non tocca commesse,
+  ordini, righe, prezzi, date o stati. L'operatore legge le differenze e
+  aggiorna i dati dalle schede.
+- **Limite corrente, dichiarato**: solo i PDF con testo nativo vengono
+  analizzati. Un PDF scansionato viene riconosciuto e fermato con lo stato
+  esplicito `scansione_senza_testo`: senza OCR il contenuto NON viene
+  compreso e il documento non viene mai presentato come analizzato (campi e
+  confronto compaiono solo con stato `analizzata`). File corrotti, cifrati
+  o di formato non supportato producono gli stati espliciti `illeggibile` /
+  `non_supportato` con il motivo.
+
 ---
 
 ## 20. Produzione (`/produzione`, direzione‑only)
@@ -884,6 +917,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.3 (28/08/2026)** - Prima slice della Document Intelligence (§19.4): analisi deterministica delle conferme d'ordine PDF dalla scheda ordine — registro parser, estrazione con evidenze per pagina, confronto con l'ordine per gravità, run idempotenti con impronta e versioni. Nessuna scrittura su dati autorevoli. Limite dichiarato: le scansioni senza testo producono uno stato esplicito e non vengono comprese finché non esiste un OCR.
 - **v5.2 (28/08/2026)** - Slice 2 «dati economici dietro capability» (§37.5): registro pagamenti, costi e margine viaggiano solo con `pagamento.read`/`economia.read` (payload sagomati, mai errori sulla parte operativa); scritture acconti dietro `pagamento.record` con override individuale auditato; `/pagamenti` riservata; Board, liste, Dashboard, Centro Azioni e notifiche senza importi (bit `daSaldare` e versione del registro al posto delle cifre); `permessi.mie` per la parità di policy nella UI. La matrice vale identica in ogni `policyMode` (`legacyAllowed: "capability"`).
 - **v5.1 (28/08/2026)** - Riconciliazione documentale post-rimozione: §51 e §53 riscritti sul comportamento corrente (nessuna classificazione automatica, nessuna proposta, flag di sola lettura, limite noto sugli allegati WhatsApp); §40.4-40.5 allineati alla riconciliazione senza agente; nuova sezione §54 con la visione del futuro agente, marcata non implementata, inclusa la Document Intelligence decisa dalla direzione (§54.6, decisione D7): comprensione verificabile dei documenti — priorità alle conferme d'ordine PDF — da realizzare dopo la slice authz e prima delle capacità operative avanzate; correzioni minori (poller IMAP a 5 minuti, route legacy). Il PDF `PRD_infissi_ops_v4.pdf` resta il riferimento storico della v4.
 - **v5.0 (28/08/2026)** - Tars rimosso per intero su richiesta della direzione: va rifatto da zero. L'infrastruttura comunicazioni (tabella, IMAP, WhatsApp, caselle, matcher, filtri) è stata spostata in `server/comunicazioni/` perché non era l'agente; la Conoscenza aziendale ha un router suo. I dati dell'agente sono stati esportati e cancellati. Smistamento automatico, proposte, classificazione AI dei costi e analisi dei casi non esistono più (§50).
@@ -1841,6 +1875,13 @@ storia della rimozione: `docs/tars-rimosso-2026-08-28.md`; la ricognizione:
 `docs/discovery-dossier-2026-08-28.md`.
 
 ### 54.6 Document Intelligence — comprensione dei documenti
+
+> Stato: la **prima slice è implementata** — analisi deterministica delle
+> conferme d'ordine PDF con testo nativo, comportamento corrente documentato
+> in §19.4. Tutto il resto di questa sezione (OCR, visione, altri formati,
+> collegamento assistito, azioni proposte, dataset di valutazione) resta da
+> costruire secondo il piano in
+> `docs/reports/d7-document-intelligence-piano.md`.
 
 Decisione della direzione del 28/08/2026 (dossier §13, D7): la comprensione
 dei documenti non è una funzione accessoria ma una **fondazione del futuro

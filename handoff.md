@@ -935,6 +935,52 @@ amministrazione va censito e abilitato con un override individuale. Le
 notifiche saldo esistenti cambiano id al primo ricalcolo (una ri-notifica una
 tantum).
 
+### D7 Document Intelligence — slice 1 (28/08/2026, notte) — code-complete, in revisione
+
+Prima vertical slice della Document Intelligence decisa con D7 (PRD §54.6;
+ricognizione, gap e piano in `docs/reports/d7-document-intelligence-piano.md`).
+**Non ancora committata**: in attesa di revisione della direzione.
+
+- `server/documenti/`: registro parser (`pdf-testo-nativo` su unpdf, testo
+  PER PAGINA; scansioni, file corrotti e formati non supportati producono
+  stati espliciti, mai errori muti), estrattore deterministico delle
+  conferme d'ordine (riferimento ordine, codici commessa, fornitore, numero
+  e data conferma, date/settimane di consegna, totale con letture
+  alternative, riscontro righe per codice articolo — ogni valore con
+  evidenza: pagina, frammento, metodo, confidenza), confronto con l'ordine
+  fornitore (differenze tipizzate per gravità) e run persistiti in
+  `documenti_analisi` (impronta SHA-256 dei byte + versioni parser/
+  estrattore/confronto: idempotente, `forza` rielabora conservando lo
+  storico).
+- Router `analisiDocumenti` (direzione): `analizzaConferma` e `perOrdine`.
+  Nessuna scrittura su commesse, ordini, date o importi: la slice produce
+  solo letture verificabili — le azioni proposte con approval gateway sono
+  la slice 3 del piano. I byte restano nelle fonti esistenti (storage/
+  inline): nessuna seconda fonte di verità, nessuna migrazione.
+- UI: pannello «Conferma d'ordine (PDF)» nella scheda ordine di
+  `/fornitori` — scelta del PDF dal fascicolo della commessa dell'ordine,
+  campi con evidenze citate, differenze con badge di gravità, rianalisi
+  esplicita.
+- Sicurezza: contenuti trattati come non fidati (nessun modello, testo
+  inerte; un prompt injection nel PDF resta un frammento di evidenza),
+  limiti di dimensione, cifrato/corrotto → `illeggibile` col motivo.
+- Test (`server/documenti/analisiConferma.test.ts`, 6 scenari con PDF
+  generati in-test): digitale multi-pagina con variazioni di consegna/
+  totale/quantità e riga mancante; scansione senza testo; corrotto; formato
+  non supportato; duplicato idempotente + `forza`; commessa incoerente vs
+  doppia citazione; injection inerte con verifica «nessuna modifica
+  critica»; authz (solo direzione, cross-sede NOT_FOUND, fascicolo
+  coerente). Verifica visiva sul run demo: analisi dal pannello, campi ed
+  evidenze a video, differenze ALTA/MEDIA, risultato persistito dopo il
+  reload, console pulita.
+- Limiti dichiarati della slice: **solo i PDF con testo nativo vengono
+  analizzati**. Le scansioni vengono riconosciute e fermate con lo stato
+  esplicito `scansione_senza_testo`: senza OCR il loro contenuto NON viene
+  compreso, e la UI non le presenta mai come analisi riuscite (campi e
+  confronto compaiono solo con stato `analizzata`). Righe best-effort a
+  confidenza bassa; collegamento assistito e azioni proposte alle slice 2-3
+  del piano.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
