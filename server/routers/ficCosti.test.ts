@@ -73,6 +73,43 @@ describe("registro costi FiC", () => {
     expect((await caller.ficCosti.ricorrenti()).totaleMensilePotenziale).toBe(500);
   });
 
+  it("classificare un candidato lo toglie dalla coda e non lo fa tornare", async () => {
+    // La coda «Da confermare» e' l'unico posto da cui un costo fisso puo'
+    // nascere: se un candidato scartato ricomparisse al sync successivo, la
+    // decisione dell'operatore varrebbe zero.
+    const sedeId = 83;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const rate = ["01", "02", "03"].map((m, i) =>
+      costo(83_001 + i, {
+        data: `2026-${m}-10`,
+        fornitoreNome: "Sciacca Trasporti SRL",
+        importoNetto: 1_850,
+      })
+    );
+    upsertCostiFic(rate, sedeId, "costi-coda");
+    expect((await caller.ficCosti.ricorrenti()).gruppi).toHaveLength(1);
+
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Sciacca Trasporti SRL",
+      classificazione: "variabile_commessa",
+    });
+    expect((await caller.ficCosti.ricorrenti()).gruppi).toHaveLength(0);
+
+    // Un quarto documento identico non riapre la questione.
+    upsertCostiFic(
+      [
+        costo(83_004, {
+          data: "2026-04-10",
+          fornitoreNome: "SCIACCA TRASPORTI S.R.L.",
+          importoNetto: 1_850,
+        }),
+      ],
+      sedeId,
+      "costi-coda-2"
+    );
+    expect((await caller.ficCosti.ricorrenti()).gruppi).toHaveLength(0);
+  });
+
   it("uno snapshot incompleto non nasconde record, quello completo si", () => {
     const sedeId = 81;
     upsertCostiFic([costo(88101), costo(88102)], sedeId, "costi-a");

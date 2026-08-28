@@ -325,6 +325,16 @@ importo per almeno tre mesi consecutivi, tolleranza 50 centesimi) genera solo
 candidati: non riclassifica documenti, non prevale su una persona e non entra
 nel pareggio finché l'operatore non la conferma.
 
+La scheda **non usa tabelle**, e non è una preferenza estetica: la coda dei
+candidati aveva cinque colonne con tre bottoni nell'ultima, misurati 1172px
+contro i 1134px disponibili a 1440 con la sidebar. Il bottone «Straordinario»
+finiva 21px oltre il bordo dello scroll orizzontale, e a 390px la parte
+tagliata era di 816px — la coda si vedeva ma non si poteva smaltire, che è
+esattamente il difetto segnalato («devo scorrere in orizzontale» e «non riesco
+a classificarli» erano lo stesso bug). Ora sono righe flex che vanno a capo:
+importo a destra, azioni su una riga propria, verificate a 1440x900 e 390x844
+senza overflow e con tutti i target ≥44px.
+
 **La tolleranza resta stretta di proposito** (rimisurata il 27/08/2026 sui dati
 reali, per non riaprire la questione ogni sei mesi):
 
