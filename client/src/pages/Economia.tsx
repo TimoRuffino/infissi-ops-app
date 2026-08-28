@@ -52,6 +52,7 @@ const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
   riconciliata: { label: "Riconciliata", classe: "bg-success hover:bg-success" },
   proposta: { label: "Proposta Tars", classe: "bg-warning hover:bg-warning" },
   da_riconciliare: { label: "Incasso da registrare", classe: "" },
+  attesa_incasso: { label: "In attesa di pagamento", classe: "" },
   non_abbinabile: { label: "Senza commessa", classe: "" },
   ignorata: { label: "Esclusa", classe: "" },
 };
@@ -66,9 +67,19 @@ const FILTRI = [
     tiene: (f: any) => f.stato === "non_abbinabile",
   },
   {
+    // FiC dice pagato, il CRM non ha l'acconto: soldi incassati che la
+    // commessa non conosce, quindi residuo e Pagamenti sballati.
     id: "da_riconciliare",
     label: "Incassi da registrare",
     tiene: (f: any) => f.stato === "da_riconciliare" || f.stato === "proposta",
+  },
+  {
+    // Il cliente non ha ancora pagato. Non è lavoro: è il corso normale di
+    // una fattura. Stava sotto la stessa etichetta della coda vera e la
+    // teneva gonfia di righe su cui non c'era niente da fare.
+    id: "attesa_incasso",
+    label: "In attesa di pagamento",
+    tiene: (f: any) => f.stato === "attesa_incasso",
   },
   {
     id: "riconciliate",
@@ -590,7 +601,9 @@ function Fatture({ anno }: { anno: number }) {
                 ? "Ogni fattura ha la sua commessa."
                 : filtro === "da_riconciliare"
                   ? "Nessun incasso da registrare."
-                  : "Nessuna fattura in questa vista."}
+                  : filtro === "attesa_incasso"
+                    ? "Nessuna fattura in attesa di pagamento."
+                    : "Nessuna fattura in questa vista."}
           </CardContent>
         </Card>
       )}
@@ -635,6 +648,9 @@ export default function Economia() {
   const arretrati = trpc.ficCosti.arretrati.useQuery(undefined, {
     enabled: puoVedere,
   });
+  // Il badge conta solo il lavoro. `attesa_incasso` — fattura emessa e non
+  // ancora pagata — resta fuori: non c'è niente da fare finché il cliente
+  // non paga, e contarlo teneva il badge acceso per sempre.
   const fattureAperte = (fatture.data ?? []).filter(
     (f: any) => f.stato === "non_abbinabile" || f.stato === "da_riconciliare"
   ).length;

@@ -2594,6 +2594,10 @@ async function eseguiStrumentoSenzaCache(
             if (
               input.soloNonRiconciliate &&
               s.stato !== "da_riconciliare" &&
+              // `attesa_incasso` resta dentro: per una lettura «non ancora
+              // riconciliate» una fattura non pagata è pertinente, anche se
+              // per le code operative non è lavoro.
+              s.stato !== "attesa_incasso" &&
               s.stato !== "non_abbinabile"
             ) {
               return false;

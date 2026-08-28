@@ -820,7 +820,8 @@ function esisteCorrezionePendente(
 export type StatoRiconciliazione =
   | "riconciliata" // ogni rata pagata ha il suo pagamento in commessa
   | "proposta" // c'è una proposta pendente che la riguarda
-  | "da_riconciliare"
+  | "attesa_incasso" // collegata, ma in FiC non risulta ancora pagato niente
+  | "da_riconciliare" // FiC dice pagato, il CRM non ha l'acconto
   | "non_abbinabile" // cliente/commessa non individuabili
   | "ignorata";
 
@@ -843,6 +844,15 @@ export function statoFattura(
 
   if (esisteCorrezionePendente(f, commessa.id)) {
     return { stato: "proposta", commessa, motivo };
+  }
+
+  // Due situazioni molto diverse stavano sotto la stessa etichetta «Incassi
+  // da registrare»: il cliente non ha ancora pagato, e il cliente ha pagato
+  // ma l'acconto non è a registro. La prima non è lavoro — è il corso
+  // normale di una fattura — e teneva la coda gonfia di righe su cui non
+  // c'era niente da fare, badge di Economia e Dashboard compresi.
+  if (ratePagate.length === 0) {
+    return { stato: "attesa_incasso", commessa, motivo };
   }
 
   return { stato: "da_riconciliare", commessa, motivo };

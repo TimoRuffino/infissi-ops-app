@@ -1108,3 +1108,96 @@ describe("ogni fattura deve avere una commessa", () => {
     expect(secondo.create).toBe(0);
   });
 });
+
+describe("incassi da registrare vs in attesa di pagamento", () => {
+  const commessa = (over: any = {}) => ({
+    id: 500,
+    sedeId: 1,
+    codice: "COM-2026-0500",
+    cliente: "Rossi Mario",
+    pagamenti: [],
+    ...over,
+  });
+
+  const fattura = (rate: any[], over: any = {}): any => ({
+    id: 500_001,
+    sedeId: 1,
+    tipo: "invoice",
+    numero: "500/A",
+    data: "2026-05-10",
+    clienteNome: "Rossi Mario",
+    clienteVat: null,
+    clienteCf: null,
+    importoNetto: 1_000,
+    importoIva: 220,
+    importoLordo: 1_220,
+    rate,
+    commessaId: 500,
+    commesseEscluse: [],
+    ignorata: false,
+    presenteInFic: true,
+    ...over,
+  });
+
+  it("nessuna rata pagata in FiC → in attesa di pagamento, non lavoro", () => {
+    // Il cliente non ha ancora pagato: è il corso normale di una fattura.
+    // Finiva sotto «Incassi da registrare» e teneva accesi il badge di
+    // Economia e la voce «Riconcilia» della Dashboard per sempre.
+    const f = fattura([
+      { importo: 1_220, stato: "not_paid", scadenza: "2026-06-10", dataPagamento: null },
+    ]);
+    expect(statoFattura(f, [commessa()]).stato).toBe("attesa_incasso");
+  });
+
+  it("nessuna rata affatto → in attesa di pagamento", () => {
+    expect(statoFattura(fattura([]), [commessa()]).stato).toBe("attesa_incasso");
+  });
+
+  it("FiC dice pagato ma il CRM non ha l'acconto → incasso da registrare", () => {
+    // Questo sì è lavoro: la commessa risulta a residuo pieno su soldi già
+    // incassati.
+    const f = fattura([
+      { importo: 1_220, stato: "paid", scadenza: "2026-06-10", dataPagamento: "2026-06-08" },
+    ]);
+    expect(statoFattura(f, [commessa()]).stato).toBe("da_riconciliare");
+  });
+
+  it("acconto già a registro → riconciliata", () => {
+    const f = fattura([
+      { importo: 1_220, stato: "paid", scadenza: "2026-06-10", dataPagamento: "2026-06-08" },
+    ]);
+    const c = commessa({
+      pagamenti: [
+        {
+          id: 1,
+          importo: 1_220,
+          data: "2026-06-08",
+          stato: "incassato",
+          origine: "fic",
+        },
+      ],
+    });
+    expect(statoFattura(f, [c]).stato).toBe("riconciliata");
+  });
+
+  it("pagata a metà, con l'acconto registrato → riconciliata, non in attesa", () => {
+    // «Riconciliata» parla di quello che è stato incassato, non di quello
+    // che resta da incassare: il residuo lo dice la commessa.
+    const f = fattura([
+      { importo: 600, stato: "paid", scadenza: "2026-06-10", dataPagamento: "2026-06-08" },
+      { importo: 620, stato: "not_paid", scadenza: "2026-07-10", dataPagamento: null },
+    ]);
+    const c = commessa({
+      pagamenti: [
+        {
+          id: 1,
+          importo: 600,
+          data: "2026-06-08",
+          stato: "incassato",
+          origine: "fic",
+        },
+      ],
+    });
+    expect(statoFattura(f, [c]).stato).toBe("riconciliata");
+  });
+});

@@ -540,6 +540,24 @@ data sono rilevati dai conteggi, quindi note di credito e fatture non possono
 compensarsi nascondendo l'anomalia; la tolleranza di arrotondamento è fissa a
 50 centesimi.
 
+**«Incassi da registrare» era due cose** (28/08/2026). `da_riconciliare`
+copriva sia «FiC dice pagato ma il CRM non ha l'acconto» sia «il cliente non
+ha ancora pagato». La prima è lavoro — la commessa risulta a residuo pieno su
+soldi già incassati, e Pagamenti mente; la seconda è il corso normale di una
+fattura. Sotto la stessa etichetta la coda restava gonfia di righe su cui non
+c'era niente da fare, e il badge di Economia insieme alla voce «Riconcilia»
+della Dashboard restavano accesi per sempre.
+
+Ora `statoFattura` distingue `attesa_incasso` (collegata, nessuna rata `paid`
+in FiC) da `da_riconciliare` (almeno una rata `paid` senza acconto
+corrispondente in commessa). L'ordine di valutazione è: `ignorata` →
+`non_abbinabile` → `riconciliata` → `proposta` → `attesa_incasso` →
+`da_riconciliare`; una proposta Tars pendente vince sull'attesa, perché quella
+è lavoro. Il filtro è diventato due chip, e badge e Dashboard contano solo
+`non_abbinabile` + `da_riconciliare`. Lo strumento Tars `leggi_fatture_cloud`
+con `soloNonRiconciliate` tiene invece dentro anche `attesa_incasso`: per una
+lettura una fattura non pagata è pertinente, per una coda operativa no.
+
 Fatturato e costi canonici sono imponibili al netto delle rispettive note di
 credito; IVA, lordo, rate pagate e rate aperte sono valori distinti. La vecchia
 azione `Ignora` è presentata come `Escludi dalla riconciliazione`: il documento
