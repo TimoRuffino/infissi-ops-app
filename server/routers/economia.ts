@@ -10,12 +10,10 @@ import { requireDirezioneOAmministrazione } from "../_core/permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getCommesseStore } from "./commesse";
 import { ficCosti } from "./ficCosti";
-import {
-  costiFissiManualiPerSede,
-  impostazioniPareggio,
-} from "./costiFissi";
+import { costiFissiAzienda, impostazioniPareggio } from "./costiFissi";
 import { ficFatture, statoFattura } from "./ficFatture";
 import { calcolaImportoIncassato } from "../_core/commessaPayments";
+import { annoCommessa } from "../_core/annoCommessa";
 
 function documentiEmessi(sedeId: number): DocumentoEconomico[] {
   return ficFatture
@@ -47,55 +45,91 @@ function documentiRicevuti(sedeId: number): DocumentoEconomico[] {
     }));
 }
 
-function riepilogoCrm(sedeId: number) {
-  const commesse = getCommesseStore().filter(
-    (commessa: any) => commessa.sedeId === sedeId
+/**
+ * Le commesse dell'anno viste dal CRM.
+ *
+ * Due cambi rispetto alla versione precedente, entrambi per poter mettere
+ * questi numeri accanto a quelli FiC senza mentire:
+ *
+ * 1. È dell'ANNO, non all-time. Prima sommava tutte le commesse attive e il
+ *    totale finiva a fianco di un fatturato annuale: due perimetri diversi
+ *    presentati come confrontabili.
+ * 2. Include le archiviate. Una commessa chiusa e archiviata a marzo è
+ *    lavoro del 2026 esattamente come una ancora aperta, e toglierla faceva
+ *    calare il pattuito dell'anno mentre l'anno andava avanti.
+ *
+ * Il pattuito è diviso per provenienza perché è la differenza che la
+ * direzione cerca: quello delle commesse fatturate è la stessa cifra che sta
+ * in FiC (lordo), quello delle commesse senza fattura è il di più che solo il
+ * CRM conosce — lavoro concordato e non ancora fatturato.
+ */
+function riepilogoCommesse(sedeId: number, anno: number) {
+  const dellAnno = (getCommesseStore() as any[]).filter(
+    commessa => commessa.sedeId === sedeId && annoCommessa(commessa) === anno
   );
-  const attive = commesse.filter(
-    (commessa: any) => !commessa.archivedAt && commessa.stato !== "archiviata"
-  );
+
   let pattuito = 0;
+  let pattuitoDaFattura = 0;
+  let pattuitoSoloCrm = 0;
   let incassato = 0;
   let residuo = 0;
+  let conFattura = 0;
+  let senzaFattura = 0;
+  let senzaPattuito = 0;
   let costiManualiStimati = 0;
   let costoPosaStimato = 0;
-  let commesseConPattuito = 0;
 
-  for (const commessa of attive as any[]) {
-    const pagamenti: any[] = Array.isArray(commessa.pagamenti)
-      ? commessa.pagamenti
-      : [];
+  for (const commessa of dellAnno) {
+    const haFattura = (commessa.pattuitoFicDocumentoIds ?? []).length > 0;
+    if (haFattura) conFattura++;
+    else senzaFattura++;
+
     const costi: any[] = Array.isArray(commessa.costi) ? commessa.costi : [];
-    const incassoCommessa = calcolaImportoIncassato(pagamenti);
-    if (Number(commessa.importoTotale) > 0) {
-      const importo = Number(commessa.importoTotale);
-      pattuito += importo;
-      incassato += incassoCommessa;
-      residuo += Math.max(0, importo - incassoCommessa);
-      commesseConPattuito++;
-    }
     costiManualiStimati += costi.reduce(
       (somma, costo) => somma + Number(costo.importo ?? 0),
       0
     );
     costoPosaStimato += Number(commessa.costoPosaStimato ?? 0);
+
+    const importo = Number(commessa.importoTotale ?? 0);
+    if (!(importo > 0)) {
+      senzaPattuito++;
+      continue;
+    }
+    const pagamenti: any[] = Array.isArray(commessa.pagamenti)
+      ? commessa.pagamenti
+      : [];
+    const incasso = calcolaImportoIncassato(pagamenti);
+    pattuito += importo;
+    if (haFattura) pattuitoDaFattura += importo;
+    else pattuitoSoloCrm += importo;
+    incassato += incasso;
+    residuo += Math.max(0, importo - incasso);
   }
-  const margineStimato = pattuito - costiManualiStimati - costoPosaStimato;
+
+  const arrotonda = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+  const attive = (getCommesseStore() as any[]).filter(
+    commessa =>
+      commessa.sedeId === sedeId &&
+      !commessa.archivedAt &&
+      commessa.stato !== "archiviata"
+  ).length;
+
   return {
-    pattuito,
-    incassato,
-    residuo,
-    commesseAttive: attive.length,
-    commesseConPattuito,
-    costiManualiStimati,
-    costoPosaStimato,
-    margineStimato,
-    margineStimatoPerc: pattuito > 0 ? margineStimato / pattuito : null,
-    // Alias temporanei per le viste ancora in migrazione.
-    costiFornitore: costiManualiStimati,
-    costoPosa: costoPosaStimato,
-    margineLordo: margineStimato,
-    marginePerc: pattuito > 0 ? margineStimato / pattuito : null,
+    anno,
+    commesse: dellAnno.length,
+    commesseAttive: attive,
+    commesseConPattuito: dellAnno.length - senzaPattuito,
+    commesseSenzaPattuito: senzaPattuito,
+    commesseConFattura: conFattura,
+    commesseSenzaFattura: senzaFattura,
+    pattuito: arrotonda(pattuito),
+    pattuitoDaFattura: arrotonda(pattuitoDaFattura),
+    pattuitoSoloCrm: arrotonda(pattuitoSoloCrm),
+    incassato: arrotonda(incassato),
+    residuo: arrotonda(residuo),
+    costiManualiStimati: arrotonda(costiManualiStimati),
+    costoPosaStimato: arrotonda(costoPosaStimato),
   };
 }
 
@@ -210,7 +244,7 @@ export const economiaRouter = router({
 
       return {
         anno,
-        crm: riepilogoCrm(sedeId),
+        crm: riepilogoCommesse(sedeId, anno),
         vendite,
         acquisti,
         confrontoIncassi: {
@@ -266,28 +300,28 @@ export const economiaRouter = router({
       }
       const sedeId = ctx.sedeId ?? 1;
       const impostazioni = impostazioniPareggio(sedeId);
-      const finePeriodo = new Date(Date.UTC(input.anno, input.mese - 1, 0));
-      const inizioPeriodo = new Date(
-        Date.UTC(
-          finePeriodo.getUTCFullYear(),
-          finePeriodo.getUTCMonth() - 11,
-          1
-        )
-      );
-      return calcolaBreakEven({
-        periodoDa: `${inizioPeriodo.getUTCFullYear()}-${String(
-          inizioPeriodo.getUTCMonth() + 1
-        ).padStart(2, "0")}-01`,
-        periodoA: finePeriodo.toISOString().slice(0, 10),
-        documentiEmessi: documentiEmessi(sedeId),
-        documentiRicevuti: documentiRicevuti(sedeId),
-        costiFissiDichiarati: costiFissiManualiPerSede(sedeId).map(voce => ({
-          mensile: voce.mensile,
-          dal: voce.dal,
-          al: voce.al,
-        })),
-        margineManuale: impostazioni.margineManuale,
-        includiStraordinari: impostazioni.includiStraordinari,
+      // Stesso periodo e stesso totale del registro dei costi fissi: due
+      // finestre diverse davano due numeri diversi per la stessa azienda.
+      const fissi = costiFissiAzienda(sedeId, {
+        anno: input.anno,
+        mese: input.mese,
       });
+      return {
+        ...calcolaBreakEven({
+          periodoDa: fissi.periodoDa,
+          periodoA: fissi.periodoA,
+          documentiEmessi: documentiEmessi(sedeId),
+          documentiRicevuti: documentiRicevuti(sedeId),
+          costiFissiMensili: fissi.totaleMensile,
+          costiFissiFicMensili: fissi.totaleFic,
+          costiFissiDichiaratiMensili: fissi.totaleDichiarato,
+          margineManuale: impostazioni.margineManuale,
+          includiStraordinari: impostazioni.includiStraordinari,
+        }),
+        // Da dove esce il costo fisso, senza cambiare pagina: la cifra grande
+        // non si crede se non si vede cosa c'è dentro.
+        vociFisse: fissi.righe.length,
+        fissiDaClassificare: fissi.documentiDaClassificare,
+      };
     }),
 });

@@ -228,7 +228,7 @@ describe("arretrato per anno", () => {
       sedeId,
       "costi-gruppi"
     );
-    const gruppi = await caller.ficCosti.daClassificarePerFornitore({ anno: 2025 });
+    const gruppi = await caller.ficCosti.perFornitore({ anno: 2025 });
     // Le forme societarie non fanno due fornitori diversi.
     const brianza = gruppi.find(g => g.documenti === 2);
     expect(brianza?.ids).toHaveLength(2);
@@ -308,32 +308,103 @@ describe("togliere un fornitore dai costi fissi", () => {
     expect(tutti).toHaveLength(4);
     expect(tutti.some(c => c.classificazione === "fisso")).toBe(false);
   });
+});
 
-  it("dice per quale motivo ogni fornitore risulta fisso", async () => {
-    const sedeId = 98;
+describe("registro acquisti", () => {
+  it("mostra i fornitori di TUTTE le classificazioni, non solo la coda", async () => {
+    // La regressione: la scheda Acquisti interrogava solo i `dubbio`, in
+    // entrambe le viste. Finito di classificare, gli acquisti sparivano dalla
+    // pagina e non restava un posto dove vederli.
+    const sedeId = 88;
     const caller = appRouter.createCaller(ctx(sedeId));
-    const mesi = ["01", "02", "03"];
-    const oggi = new Date();
-    const anno = oggi.getMonth() === 0 ? oggi.getFullYear() - 1 : oggi.getFullYear();
     upsertCostiFic(
-      mesi.map((m, i) =>
-        costo(98_001 + i, {
-          data: `${anno}-${m}-10`,
-          fornitoreNome: "Canone Fisso SRL",
-          importoNetto: 300,
-        })
-      ),
+      [
+        costo(88_001, { fornitoreNome: "Affitti Rossi SRL", data: "2026-03-01" }),
+        costo(88_002, { fornitoreNome: "Materiali Bianchi SRL", data: "2026-03-02" }),
+        costo(88_003, { fornitoreNome: "Trattoria Verdi", data: "2026-03-03" }),
+      ],
       sedeId,
-      "costi-motivo"
+      "acquisti-registro"
     );
-    const esito = await caller.ficCosti.fissiPerFornitore();
-    const gruppo = esito.gruppi.find(g => g.fornitore === "Canone Fisso SRL");
-    if (gruppo) {
-      // Quando cade nel periodo base, l'origine dev'essere l'aritmetica —
-      // non un generico "regola", che significava due cose diverse.
-      expect(gruppo.origini.ricorrenza).toBeGreaterThan(0);
-      expect(gruppo.origini.regola).toBe(0);
-      expect(gruppo.spiegazioni[0]).toContain("mesi consecutivi");
-    }
+
+    expect(await caller.ficCosti.perFornitore({ anno: 2026 })).toHaveLength(3);
+
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Affitti Rossi SRL",
+      classificazione: "fisso",
+    });
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Materiali Bianchi SRL",
+      classificazione: "variabile_commessa",
+    });
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Trattoria Verdi",
+      classificazione: "straordinario",
+    });
+
+    // Classificato tutto, il registro resta pieno.
+    const tutti = await caller.ficCosti.perFornitore({ anno: 2026 });
+    expect(tutti).toHaveLength(3);
+    expect(tutti.every(g => g.daClassificare === 0)).toBe(true);
+    // E la coda è vuota, che è cosa diversa dal registro.
+    expect(
+      await caller.ficCosti.perFornitore({ anno: 2026, classificazione: "dubbio" })
+    ).toEqual([]);
+  });
+
+  it("filtra per classificazione e dice quella prevalente", async () => {
+    const sedeId = 89;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      [
+        costo(89_001, { fornitoreNome: "Canone Alfa SRL", data: "2026-01-10" }),
+        costo(89_002, { fornitoreNome: "Canone Alfa SRL", data: "2026-02-10" }),
+        costo(89_003, { fornitoreNome: "Beta Materiali SRL", data: "2026-02-11" }),
+      ],
+      sedeId,
+      "acquisti-filtri"
+    );
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Canone Alfa SRL",
+      classificazione: "fisso",
+    });
+
+    const fissi = await caller.ficCosti.perFornitore({
+      anno: 2026,
+      classificazione: "fisso",
+    });
+    expect(fissi).toHaveLength(1);
+    expect(fissi[0]).toMatchObject({
+      fornitore: "Canone Alfa SRL",
+      documenti: 2,
+      prevalente: "fisso",
+      totale: 1_000,
+    });
+
+    const dubbi = await caller.ficCosti.perFornitore({
+      anno: 2026,
+      classificazione: "dubbio",
+    });
+    expect(dubbi.map(g => g.fornitore)).toEqual(["Beta Materiali SRL"]);
+  });
+
+  it("le note di credito passive abbassano il totale del fornitore", async () => {
+    const sedeId = 90;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      [
+        costo(90_001, { fornitoreNome: "Reso SRL", data: "2026-04-01" }),
+        costo(90_002, {
+          fornitoreNome: "Reso SRL",
+          data: "2026-04-02",
+          tipo: "passive_credit_note" as const,
+          importoNetto: 200,
+        }),
+      ],
+      sedeId,
+      "acquisti-note"
+    );
+    const gruppi = await caller.ficCosti.perFornitore({ anno: 2026 });
+    expect(gruppi[0].totale).toBe(300);
   });
 });

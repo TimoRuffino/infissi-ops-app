@@ -1,14 +1,18 @@
-// Acquisti — classificazione dei costi.
+// Acquisti — il registro dei documenti ricevuti da Fatture in Cloud.
 //
-// Il lavoro qui è ripetitivo per natura, e lo era due volte più del
-// necessario. Nel 2025 restavano 265 documenti da classificare distribuiti su
-// 140 fornitori: farlo riga per riga significa prendere 265 decisioni per
-// rispondere a 140 domande, perché un fornitore ha quasi sempre una natura
-// sola — l'affitto è affitto ogni mese, la trattoria è un pranzo di lavoro
-// tutte le volte.
+// Prima questa scheda mostrava SOLO i documenti ancora `dubbio`, in entrambe
+// le sue viste. Classificare era quindi l'unico modo di far sparire un
+// acquisto dalla pagina: finito il lavoro, gli acquisti sparivano tutti e non
+// restava un posto dove vederli. Un registro non può svuotarsi perché è in
+// ordine.
 //
-// Da qui le due viste:
-//   Fornitori   una riga per fornitore, tre bottoni, chiude tutto il gruppo
+// Ora il perimetro è l'anno intero e la coda è un filtro fra gli altri. Il
+// lavoro resta comunque la prima cosa che si apre.
+//
+// Le due viste servono a due lavori diversi:
+//   Fornitori   una riga per fornitore, tre bottoni, chiude tutto il gruppo.
+//               Un fornitore ha quasi sempre una natura sola: 265 documenti
+//               su 140 fornitori sono 140 decisioni, non 265.
 //   Documenti   selezione multipla per i casi sparsi (82 fornitori con un
 //               documento solo: come gruppi non esistono, come selezione sì)
 
@@ -18,13 +22,7 @@ import { Input } from "@/components/ui/input";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import {
-  Check,
-  ChevronRight,
-  Layers,
-  Loader2,
-  Search,
-} from "lucide-react";
+import { Check, ChevronRight, Layers, Loader2, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -33,6 +31,24 @@ const CLASSI = [
   ["variabile_commessa", "Variabile", "Materiale o servizio operativo"],
   ["straordinario", "Straordinario", "Una tantum, non si ripeterà"],
 ] as const;
+
+const ETICHETTA_CLASSE: Record<string, string> = {
+  fisso: "Fisso",
+  variabile_commessa: "Di commessa",
+  straordinario: "Straordinario",
+  dubbio: "Da classificare",
+};
+
+// L'ordine è quello del lavoro: prima cosa manca, poi com'è messo il resto.
+const FILTRI = [
+  { id: "dubbio", label: "Da classificare" },
+  { id: "fisso", label: "Fissi" },
+  { id: "variabile_commessa", label: "Di commessa" },
+  { id: "straordinario", label: "Straordinari" },
+  { id: "tutti", label: "Tutti" },
+] as const;
+
+type FiltroId = (typeof FILTRI)[number]["id"];
 
 function dataBreve(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString("it-IT", {
@@ -106,6 +122,7 @@ function RigaCosto({
     onSuccess: () => {
       utils.ficCosti.invalidate();
       utils.economia.invalidate();
+      utils.costiFissi.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -159,7 +176,6 @@ function RigaCosto({
             </Badge>
           )}
       </div>
-
     </li>
   );
 }
@@ -167,14 +183,23 @@ function RigaCosto({
 function GruppoFornitore({ gruppo }: { gruppo: any }) {
   const utils = trpc.useUtils();
   const [aperto, setAperto] = useState(false);
-  const classifica = trpc.ficCosti.riclassificaFornitore.useMutation({
+  // `spostaFornitore` e non `riclassificaFornitore`: il bottone dice ×N dove
+  // N sono TUTTI i documenti del gruppo, e deve toccarne N. Il secondo tocca
+  // solo i dubbi, e su un fornitore già classificato non faceva niente.
+  const classifica = trpc.ficCosti.spostaFornitore.useMutation({
     onSuccess: r => {
       utils.ficCosti.invalidate();
       utils.economia.invalidate();
-      toast.success(`${r.aggiornati} documenti di ${r.fornitore} classificati`);
+      utils.costiFissi.invalidate();
+      toast.success(`${r.fornitore}: ${r.aggiornati} documenti classificati`);
     },
     onError: e => toast.error(e.message),
   });
+
+  const misto =
+    Object.keys(gruppo.classificazioni ?? {}).filter(
+      k => (gruppo.classificazioni[k] ?? 0) > 0
+    ).length > 1;
 
   return (
     <li className="flex flex-col gap-2.5 px-3 py-3 sm:px-4">
@@ -187,18 +212,37 @@ function GruppoFornitore({ gruppo }: { gruppo: any }) {
             {gruppo.esempi.length > 0 ? ` · ${gruppo.esempi.join(" · ")}` : ""}
           </p>
         </div>
-        <p className="shrink-0 font-semibold tabular-nums">
-          {formatEuroSimbolo(gruppo.totale)}
-        </p>
+        <div className="shrink-0 text-right">
+          <p className="font-semibold tabular-nums">
+            {formatEuroSimbolo(gruppo.totale)}
+          </p>
+          <p className="text-xs text-text-3">
+            {gruppo.daClassificare > 0 ? (
+              <span className="text-warning">
+                {gruppo.daClassificare} da classificare
+              </span>
+            ) : misto ? (
+              "classificazioni miste"
+            ) : (
+              ETICHETTA_CLASSE[gruppo.prevalente] ?? gruppo.prevalente
+            )}
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
         <BottoniClasse
           etichetta={`Classificazione di ${gruppo.fornitore}`}
+          attuale={
+            gruppo.daClassificare === 0 && !misto ? gruppo.prevalente : undefined
+          }
           inCorso={classifica.isPending}
           inCorsoSu={classifica.variables?.classificazione}
           onScegli={valore =>
-            classifica.mutate({ id: gruppo.ids[0], classificazione: valore })
+            classifica.mutate({
+              fornitore: gruppo.fornitore,
+              classificazione: valore,
+            })
           }
           suffisso={gruppo.documenti > 1 ? ` ×${gruppo.documenti}` : undefined}
         />
@@ -254,11 +298,15 @@ export default function CostiFicReview({
 }) {
   const [vista, setVista] = useState<Vista>("fornitori");
   const [cerca, setCerca] = useState("");
+  const [filtro, setFiltro] = useState<FiltroId>("dubbio");
   const [selezione, setSelezione] = useState<Set<number>>(new Set());
 
   const utils = trpc.useUtils();
   const query = trpc.ficCosti.list.useQuery({ anno });
-  const gruppiQuery = trpc.ficCosti.daClassificarePerFornitore.useQuery({ anno });
+  const gruppiQuery = trpc.ficCosti.perFornitore.useQuery({
+    anno,
+    ...(filtro === "tutti" ? {} : { classificazione: filtro }),
+  });
   const arretratiQuery = trpc.ficCosti.arretrati.useQuery();
   const tutti = query.data ?? [];
   const gruppi = gruppiQuery.data ?? [];
@@ -268,6 +316,7 @@ export default function CostiFicReview({
     onSuccess: r => {
       utils.ficCosti.invalidate();
       utils.economia.invalidate();
+      utils.costiFissi.invalidate();
       setSelezione(new Set());
       toast.success(`${r.aggiornati} documenti classificati`);
     },
@@ -275,14 +324,38 @@ export default function CostiFicReview({
   });
 
   const termine = cerca.trim().toLowerCase();
-  const daClassificare = tutti.filter(
-    (c: any) => c.classificazione === "dubbio"
+
+  // I conteggi vivono sulla lista completa dell'anno, non sul filtro: servono
+  // proprio a dire quanto c'è dietro ogni filtro prima di aprirlo.
+  const conteggi = useMemo(() => {
+    const per: Record<string, { documenti: number; totale: number }> = {};
+    for (const f of FILTRI) per[f.id] = { documenti: 0, totale: 0 };
+    for (const costo of tutti as any[]) {
+      const importo =
+        (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto;
+      per.tutti.documenti++;
+      per.tutti.totale += importo;
+      const voce = per[costo.classificazione];
+      if (voce) {
+        voce.documenti++;
+        voce.totale += importo;
+      }
+    }
+    return per;
+  }, [tutti]);
+
+  const righeFiltrate = useMemo(
+    () =>
+      (tutti as any[]).filter(costo =>
+        filtro === "tutti" ? true : costo.classificazione === filtro
+      ),
+    [tutti, filtro]
   );
 
   // Il dettaglio dei gruppi viene dalla lista già in pagina: il server manda
   // gli id, non serve una seconda query per mostrare tre righe.
   const gruppiConDettaglio = useMemo(() => {
-    const perId = new Map(tutti.map((c: any) => [c.id, c]));
+    const perId = new Map((tutti as any[]).map(c => [c.id, c]));
     return gruppi
       .filter((g: any) =>
         !termine ? true : String(g.fornitore).toLowerCase().includes(termine)
@@ -293,7 +366,7 @@ export default function CostiFicReview({
       }));
   }, [gruppi, tutti, termine]);
 
-  const righeDocumenti = daClassificare.filter((costo: any) => {
+  const righeDocumenti = righeFiltrate.filter((costo: any) => {
     if (!termine) return true;
     return [costo.fornitoreNome, costo.categoriaFic, costo.descrizione]
       .filter(Boolean)
@@ -314,18 +387,25 @@ export default function CostiFicReview({
 
   const VISTE: Array<[Vista, string, number]> = [
     ["fornitori", "Per fornitore", gruppi.length],
-    ["documenti", "Documento per documento", daClassificare.length],
+    ["documenti", "Documento per documento", righeFiltrate.length],
   ];
+
+  const daClassificare = conteggi.dubbio?.documenti ?? 0;
 
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold">Acquisti</h2>
+          <h2 className="text-base font-semibold">
+            Acquisti {anno} ·{" "}
+            {formatEuroSimbolo(conteggi.tutti?.totale ?? 0)} netti
+          </h2>
           <p className="text-xs text-text-3">
-            {daClassificare.length > 0
-              ? `${daClassificare.length} document${daClassificare.length === 1 ? "o" : "i"} da classificare nel ${anno}, su ${gruppi.length} fornitor${gruppi.length === 1 ? "e" : "i"}. I costi che tornano ogni mese sono già fissi da soli.`
-              : "Tutto classificato."}
+            {conteggi.tutti?.documenti ?? 0} documenti ricevuti da Fatture in
+            Cloud.{" "}
+            {daClassificare > 0
+              ? `${daClassificare} ancora da classificare: finché lo sono, non contano né fra i costi fissi né fra i variabili.`
+              : "Tutti classificati."}
           </p>
         </div>
         <div className="relative">
@@ -338,8 +418,20 @@ export default function CostiFicReview({
             onChange={e => setCerca(e.target.value)}
             placeholder="Cerca fornitore…"
             aria-label="Cerca fra gli acquisti"
-            className="h-10 w-[11rem] pl-8 sm:h-9"
+            className="h-10 w-[11rem] pl-8 pr-8 sm:h-9"
           />
+          {termine && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2"
+              aria-label="Azzera la ricerca"
+              onClick={() => setCerca("")}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -372,26 +464,64 @@ export default function CostiFicReview({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        {VISTE.map(([id, etichetta, conteggio]) => (
+      {/* Filtri come chip: la coda è uno dei perimetri, non l'unico. */}
+      <div
+        role="group"
+        aria-label="Filtra gli acquisti"
+        className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+      >
+        {FILTRI.map(f => (
           <Button
-            key={id}
+            key={f.id}
             type="button"
             size="sm"
-            variant={vista === id ? "default" : "outline"}
-            className="h-9 text-xs"
-            aria-pressed={vista === id}
+            variant={filtro === f.id ? "default" : "outline"}
+            aria-pressed={filtro === f.id}
+            className="h-9 shrink-0"
             onClick={() => {
-              setVista(id);
+              setFiltro(f.id);
               setSelezione(new Set());
             }}
           >
-            {etichetta}
-            <Badge variant="secondary" className="ml-1.5 text-[10px]">
-              {conteggio}
+            {f.label}
+            <Badge
+              variant={filtro === f.id ? "secondary" : "outline"}
+              className="ml-1.5 text-[10px]"
+            >
+              {conteggi[f.id]?.documenti ?? 0}
             </Badge>
           </Button>
         ))}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          {VISTE.map(([id, etichetta, conteggio]) => (
+            <Button
+              key={id}
+              type="button"
+              size="sm"
+              variant={vista === id ? "secondary" : "ghost"}
+              className="h-9 text-xs"
+              aria-pressed={vista === id}
+              onClick={() => {
+                setVista(id);
+                setSelezione(new Set());
+              }}
+            >
+              {etichetta}
+              <Badge variant="outline" className="ml-1.5 text-[10px]">
+                {conteggio}
+              </Badge>
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs tabular-nums text-text-3">
+          totale{" "}
+          <span className="font-semibold text-text-2">
+            {formatEuroSimbolo(conteggi[filtro]?.totale ?? 0)}
+          </span>
+        </p>
       </div>
 
       {/* Barra della selezione: serve per i fornitori con un documento solo,
@@ -447,7 +577,9 @@ export default function CostiFicReview({
             <div className="px-4 py-10 text-center text-sm text-text-3">
               {termine
                 ? `Nessun fornitore per «${cerca.trim()}».`
-                : `Niente da classificare nel ${anno}.`}
+                : filtro === "dubbio"
+                  ? `Niente da classificare nel ${anno}.`
+                  : `Nessun fornitore in questa vista nel ${anno}.`}
             </div>
           ) : (
             <ul className="divide-y divide-border/70">
@@ -460,7 +592,9 @@ export default function CostiFicReview({
           <div className="px-4 py-10 text-center text-sm text-text-3">
             {termine
               ? `Nessun acquisto per «${cerca.trim()}».`
-              : `Niente da classificare nel ${anno}.`}
+              : filtro === "dubbio"
+                ? `Niente da classificare nel ${anno}.`
+                : `Nessun acquisto in questa vista nel ${anno}.`}
           </div>
         ) : (
           <ul className="divide-y divide-border/70">

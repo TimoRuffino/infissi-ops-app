@@ -44,14 +44,6 @@ const fmt = formatEuro;
  * porta comunque scritto dentro, e resta l'unica fonte per i fascicoli
  * vecchi senza data. `createdAt` e' l'ultima spiaggia.
  */
-function annoCommessa(c: any): number | null {
-  const apertura = String(c?.dataApertura ?? "").slice(0, 4);
-  if (/^\d{4}$/.test(apertura)) return Number(apertura);
-  const daCodice = /^COM-(\d{4})-/i.exec(String(c?.codice ?? ""));
-  if (daCodice) return Number(daCodice[1]);
-  const creata = c?.createdAt ? new Date(c.createdAt) : null;
-  return creata && !Number.isNaN(creata.getTime()) ? creata.getFullYear() : null;
-}
 
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso + (String(iso).length === 10 ? "T12:00:00" : "")).toLocaleDateString("it-IT") : "—";
@@ -98,7 +90,7 @@ export default function Pagamenti() {
   const anni = useMemo(() => {
     const trovati = new Set<number>();
     for (const c of tutteAttive as any[]) {
-      const a = annoCommessa(c);
+      const a = (c?.anno ?? null);
       if (a != null) trovati.add(a);
     }
     return Array.from(trovati).sort((a, b) => b - a);
@@ -110,7 +102,7 @@ export default function Pagamenti() {
     () =>
       anno === "tutti"
         ? tutteAttive
-        : tutteAttive.filter((c: any) => annoCommessa(c) === Number(anno)),
+        : tutteAttive.filter((c: any) => (c?.anno ?? null) === Number(anno)),
     [tutteAttive, anno]
   );
 

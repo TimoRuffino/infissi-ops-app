@@ -9,6 +9,7 @@ import {
 import { formatEuroSimbolo } from "@/lib/euro";
 import { statoScostamentoIncassi } from "@/lib/economiaView";
 import { trpc } from "@/lib/trpc";
+import BreakEvenPanel from "./BreakEvenPanel";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -133,7 +134,13 @@ function Caricamento() {
   );
 }
 
-export default function EconomiaPanoramica({ anno }: { anno: number }) {
+export default function EconomiaPanoramica({
+  anno,
+  onVaiAdAcquisti,
+}: {
+  anno: number;
+  onVaiAdAcquisti?: () => void;
+}) {
   const q = trpc.economia.overview.useQuery({ anno });
   const [vistaMensile, setVistaMensile] = useState<"competenza" | "cassa">(
     "competenza"
@@ -214,6 +221,14 @@ export default function EconomiaPanoramica({ anno }: { anno: number }) {
 
   return (
     <div className="space-y-3">
+      {/* Il minimo da fatturare apre la pagina: "come sta andando" senza la
+          soglia sotto cui si perde è una classifica senza linea del traguardo.
+          Vale solo per l'anno corrente — sugli anni chiusi non c'è un mese da
+          coprire. */}
+      {anno === new Date().getFullYear() && (
+        <BreakEvenPanel onReview={() => onVaiAdAcquisti?.()} />
+      )}
+
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="flex flex-wrap items-center gap-2 px-3 py-3 md:px-4">
           <CircleDollarSign className="h-4 w-4 text-text-3" aria-hidden="true" />
@@ -485,37 +500,70 @@ export default function EconomiaPanoramica({ anno }: { anno: number }) {
         )}
       </Banda>
 
+      {/* Il pattuito CRM è più largo del fatturato FiC di proposito: ci sono
+          commesse concordate e non ancora fatturate. Il valore di questa
+          banda è dire QUANTO più largo e perché — un totale unico accanto al
+          fatturato sembrava solo uno dei due numeri sbagliato. */}
       <Banda
-        titolo="Portafoglio CRM attivo"
-        descrizione={`Fotografia all-time di ${d.crm.commesseAttive} commesse attive. Non è confrontabile con i totali annuali FiC.`}
+        titolo={`Commesse ${anno} · CRM`}
+        descrizione={`${d.crm.commesse} commesse dell'anno, archiviate comprese. ${d.crm.commesseSenzaFattura} non hanno ancora una fattura FiC: il loro pattuito è il di più che solo il CRM conosce.`}
         icona={<WalletCards className="h-4 w-4" />}
-        badge={<Badge variant="outline">CRM · all-time</Badge>}
+        badge={
+          <Badge variant="outline">
+            {d.crm.commesseConFattura} fatturate · {d.crm.commesseSenzaFattura}{" "}
+            no
+          </Badge>
+        }
       >
-        <div className="grid grid-cols-2 border-t bg-background/40 md:grid-cols-4 [&>*]:border-b [&>*]:border-r">
+        <div className="grid grid-cols-2 border-t bg-background/40 sm:grid-cols-3 xl:grid-cols-6 [&>*]:border-b [&>*]:border-r">
           <Valore
-            label="Pattuito lordo"
+            label="Pattuito totale"
             value={formatEuroSimbolo(d.crm.pattuito)}
-            meta="Commesse attive · CRM"
+            meta={`${d.crm.commesseConPattuito} commesse con un importo`}
+          />
+          <Valore
+            label="Già fatturato"
+            value={formatEuroSimbolo(d.crm.pattuitoDaFattura)}
+            meta="Pattuito che arriva da FiC (lordo)"
+          />
+          <Valore
+            label="Ancora da fatturare"
+            value={formatEuroSimbolo(d.crm.pattuitoSoloCrm)}
+            meta={`${d.crm.commesseSenzaFattura} commesse senza fattura`}
+            tono={d.crm.pattuitoSoloCrm > 0 ? "attenzione" : "neutro"}
           />
           <Valore
             label="Incassato"
             value={formatEuroSimbolo(d.crm.incassato)}
-            meta="Commesse attive · CRM"
+            meta={`Acconti registrati sul ${anno}`}
             tono="successo"
           />
           <Valore
             label="Residuo"
             value={formatEuroSimbolo(d.crm.residuo)}
-            meta="Commesse attive · CRM"
+            meta="Pattuito meno incassato"
             tono="attenzione"
           />
           <Valore
-            label="Stime costi CRM"
-            value={formatEuroSimbolo(
-              d.crm.costiManualiStimati + d.crm.costoPosaStimato
-            )}
-            meta="Stime operative, non costi FiC"
+            label="Senza importo"
+            value={String(d.crm.commesseSenzaPattuito)}
+            meta="Commesse senza pattuito né fattura"
+            tono={d.crm.commesseSenzaPattuito > 0 ? "attenzione" : "neutro"}
           />
+        </div>
+        {/* Il confronto che la direzione fa a mente, fatto qui una volta e
+            con le unità dichiarate: il pattuito CRM è lordo, il fatturato FiC
+            è imponibile. Accostarli senza dirlo sembra uno scostamento. */}
+        <div className="border-t bg-muted/25 px-3 py-2.5 text-xs text-text-3 md:px-4">
+          Pattuito CRM {formatEuroSimbolo(d.crm.pattuito)} (lordo, IVA
+          inclusa) · fatturato FiC {formatEuroSimbolo(d.vendite.lordo)} (lordo)
+          ·{" "}
+          <span className="font-medium text-text-2">
+            {formatEuroSimbolo(d.crm.pattuito - d.vendite.lordo)}
+          </span>{" "}
+          di differenza. Le due cifre non coincidono mai del tutto: una
+          fattura può essere di una commessa di un altro anno, e una commessa
+          può essere fatturata in più esercizi.
         </div>
       </Banda>
 

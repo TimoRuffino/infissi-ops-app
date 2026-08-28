@@ -1214,6 +1214,26 @@ export const ficFattureRouter = router({
    * immediato e ripetibile a costo zero. Serve dopo un reset del pattuito, o
    * quando cambia la regola di match e si vuole vedere l'effetto subito.
    */
+  /**
+   * Dà una commessa alle fatture che non ne hanno una.
+   *
+   * Il principio è che ogni fattura emessa deve stare su una commessa: senza,
+   * il pattuito non esiste, il PDF non entra in nessun fascicolo e l'incasso
+   * non ha dove riconciliarsi. Quando nessuna commessa combacia, quella
+   * giusta è una nuova.
+   *
+   * Sta su un bottone suo, e non dentro il riallineamento, perché creare
+   * commesse è l'unica delle due azioni che scrive record nuovi: farla
+   * partire di straforo insieme al collegamento automatico significava
+   * scoprire venti commesse create senza averlo chiesto.
+   */
+  creaCommesseMancanti: adminProcedure.mutation(async ({ ctx }) => {
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const esito = await creaCommesseDaFattureFic(sedeId);
+    const pattuito = sincronizzaPattuitoDaFic(sedeId);
+    return { ...esito, pattuitiAggiornati: pattuito.aggiornate };
+  }),
+
   riconciliaOra: adminProcedure.mutation(async ({ ctx }) => {
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
     const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([

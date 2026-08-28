@@ -1,16 +1,18 @@
-// Registro dei costi fissi confermati.
+// Le voci di costo fisso che Fatture in Cloud non può conoscere.
 //
-// Il break-even legge `costiFissi` dalle fatture d'acquisto FiC classificate
-// `fisso`: sui dati veri sono €9.313 al mese, su 37 fornitori. Dentro non c'è
-// una riga di stipendi, né contributi, né tasse, né un affitto pagato con
-// bonifico senza fattura passiva — niente di tutto ciò passa da Fatture in
-// Cloud. Il pareggio calcolato su quel numero è quindi molto più basso del
-// vero, e non c'era modo di correggerlo: non esisteva un posto dove scrivere
-// un costo fisso che FiC non conosce.
+// Il registro dei costi fissi dell'azienda ha due sorgenti, e questa è la
+// seconda. La prima sono le fatture d'acquisto FiC classificate `fisso` nella
+// scheda Acquisti: FiC fa fede, e quella classificazione basta da sola —
+// nessuna seconda registrazione, nessuna conferma da ridare.
 //
-// Questo store è quel posto. Le voci possono essere dichiarate a mano o
-// confermare un candidato FiC, ma entrano nel break-even solo dopo la
-// registrazione esplicita di una persona.
+// Qui vive solo ciò che in FiC non passa e non passerà: stipendi, contributi,
+// tasse, affitti pagati con bonifico senza fattura passiva. Senza queste voci
+// il pareggio girava su €9.313 al mese quando l'azienda ne costa molti di
+// più.
+//
+// La somma delle due sorgenti sta in `_core/costiFissiAzienda.ts`, che è
+// anche il punto in cui si evita di contarle due volte: una voce dichiarata
+// che nomina un fornitore già fisso in FiC lo rimpiazza.
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -18,7 +20,12 @@ import { persistedStore } from "../_core/persistence";
 import { requireDirezioneOAmministrazione } from "../_core/permissions";
 import { protectedProcedure, router } from "../_core/trpc";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import { candidatiFissiPerSede } from "./ficCosti";
+import { ficCosti } from "./ficCosti";
+import {
+  calcolaCostiFissiAzienda,
+  periodoBase,
+  type CostiFissiAzienda,
+} from "../_core/costiFissiAzienda";
 
 export type CadenzaCostoFisso =
   | "mensile"
@@ -103,30 +110,6 @@ export function importoMensile(voce: {
 
 const MESE_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-function indiceMese(mese: string): number {
-  const [anno, numero] = mese.split("-").map(Number);
-  return anno * 12 + (numero - 1);
-}
-
-/**
- * Quanti mesi della voce cadono dentro il periodo indicato.
- *
- * Serve al break-even: un costo aggiunto a marzo non deve pesare sui dodici
- * mesi precedenti, e uno chiuso a giugno non deve pesare su luglio.
- */
-export function mesiNelPeriodo(
-  voce: { dal: string; al: string | null },
-  periodoDa: string,
-  periodoA: string
-): number {
-  const da = Math.max(indiceMese(voce.dal), indiceMese(periodoDa.slice(0, 7)));
-  const a = Math.min(
-    voce.al ? indiceMese(voce.al) : Number.MAX_SAFE_INTEGER,
-    indiceMese(periodoA.slice(0, 7))
-  );
-  return Math.max(0, a - da + 1);
-}
-
 /** Le voci attive di una sede, con il loro peso mensile. */
 export function costiFissiManualiPerSede(sedeId: number): Array<
   CostoFissoManuale & { mensile: number }
@@ -135,6 +118,39 @@ export function costiFissiManualiPerSede(sedeId: number): Array<
     .filter(voce => voce.sedeId === sedeId)
     .map(voce => ({ ...voce, mensile: importoMensile(voce) }))
     .sort((a, b) => b.mensile - a.mensile);
+}
+
+/**
+ * Il registro completo: FiC classificato `fisso` + voci dichiarate a mano.
+ *
+ * È l'unica risposta alla domanda "quanto costa tenere aperta l'azienda ogni
+ * mese". Prima ce n'erano due — la classificazione FiC e questo store — e non
+ * si parlavano: classificare venti fornitori come fissi lasciava il totale a
+ * zero.
+ */
+export function costiFissiAzienda(
+  sedeId: number,
+  riferimento?: { anno: number; mese: number }
+): CostiFissiAzienda {
+  const { periodoDa, periodoA } = periodoBase(riferimento);
+  return calcolaCostiFissiAzienda({
+    costiFic: ficCosti,
+    dichiarati: costiFissiManualiPerSede(sedeId).map(voce => ({
+      id: voce.id,
+      descrizione: voce.descrizione,
+      fornitore: voce.fornitore,
+      importo: voce.importo,
+      mensile: voce.mensile,
+      cadenza: voce.cadenza,
+      categoria: voce.categoria,
+      dal: voce.dal,
+      al: voce.al,
+      note: voce.note,
+    })),
+    sedeId,
+    periodoDa,
+    periodoA,
+  });
 }
 
 /**
@@ -213,17 +229,24 @@ function trova(id: number, sedeId: number | null): CostoFissoManuale {
 }
 
 export const costiFissiRouter = router({
-  list: protectedProcedure.query(({ ctx }) => {
-    requireDirezioneOAmministrazione(ctx.user);
-    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const voci = costiFissiManualiPerSede(sedeId);
-    return {
-      voci,
-      totaleMensile:
-        Math.round(voci.reduce((somma, voce) => somma + voce.mensile, 0) * 100) /
-        100,
-    };
-  }),
+  list: protectedProcedure
+    .input(
+      z
+        .object({ anno: z.number().int(), mese: z.number().int().min(1).max(12) })
+        .optional()
+    )
+    .query(({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const registro = costiFissiAzienda(sedeId, input ?? undefined);
+      return {
+        ...registro,
+        // Le voci dichiarate servono anche nude, per il form che le modifica:
+        // il registro le mostra fuse con quelle FiC e senza le voci scadute.
+        voci: costiFissiManualiPerSede(sedeId),
+        totaleMensile: registro.totaleMensile,
+      };
+    }),
 
   impostazioni: protectedProcedure.query(({ ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
@@ -259,64 +282,6 @@ export const costiFissiRouter = router({
       voce.updatedAt = new Date();
       _impostazioniStore.save();
       return voce;
-    }),
-
-  confermaDaFic: protectedProcedure
-    .input(
-      z.object({
-        chiave: z.string().trim().min(1),
-        descrizione: z.string().trim().min(1).max(200),
-        importo: z.number().positive().optional(),
-        cadenza: cadenzaSchema,
-        dal: meseSchema,
-        al: meseSchema.nullable().optional(),
-        categoria: categoriaSchema,
-      })
-    )
-    .mutation(({ input, ctx }) => {
-      requireDirezioneOAmministrazione(ctx.user);
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-      const esistente = costiFissiManuali.find(
-        item => item.sedeId === sedeId && item.ficChiaveRicorrenza === input.chiave
-      );
-      if (esistente) return { ...esistente, mensile: importoMensile(esistente) };
-
-      const candidato = candidatiFissiPerSede(sedeId).find(
-        item => item.chiave === input.chiave
-      );
-      if (!candidato) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Candidato FiC non trovato.",
-        });
-      }
-      if (input.al && input.al < input.dal) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "La fine non può precedere l'inizio.",
-        });
-      }
-
-      const voce: CostoFissoManuale = {
-        id: costiFissiManuali.reduce((max, item) => Math.max(max, item.id), 0) + 1,
-        sedeId,
-        origine: "fic",
-        ficChiaveRicorrenza: candidato.chiave,
-        descrizione: input.descrizione,
-        fornitore: candidato.fornitore,
-        importo: Math.round((input.importo ?? candidato.importo) * 100) / 100,
-        cadenza: input.cadenza,
-        dal: input.dal,
-        al: input.al ?? null,
-        categoria: input.categoria,
-        note: null,
-        createdBy: ctx.user?.id ?? null,
-        createdAt: new Date(),
-        updatedAt: null,
-      };
-      costiFissiManuali.push(voce);
-      saveCostiFissiManuali();
-      return { ...voce, mensile: importoMensile(voce) };
     }),
 
   create: protectedProcedure

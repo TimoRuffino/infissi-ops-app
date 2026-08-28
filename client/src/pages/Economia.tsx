@@ -32,6 +32,7 @@ import { hasRuolo, isDirezione } from "@/lib/roles";
 import { formatEuroSimbolo } from "@/lib/euro";
 import {
   AlertTriangle,
+  FilePlus2,
   Landmark,
   Link2,
   Unlink,
@@ -382,6 +383,12 @@ function Fatture({ anno }: { anno: number }) {
   const [cerca, setCerca] = useState("");
   const tutte = q.data ?? [];
 
+  const invalidaTutto = () => {
+    utils.ficFatture.invalidate();
+    utils.commesse.invalidate();
+    utils.economia.invalidate();
+    utils.costiFissi.invalidate();
+  };
   const riallinea = trpc.ficFatture.riconciliaOra.useMutation({
     onSuccess: r => {
       toast.success(
@@ -389,9 +396,25 @@ function Fatture({ anno }: { anno: number }) {
           ? `${r.collegate} fatture collegate · ${r.pattuitiAggiornati} pattuiti aggiornati`
           : "Nessuna fattura era collegabile senza ambiguità"
       );
-      utils.ficFatture.invalidate();
-      utils.commesse.invalidate();
-      utils.economia.invalidate();
+      invalidaTutto();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // Creare commesse scrive record nuovi: sta su un bottone suo, con scritto
+  // sopra quante ne creerebbe, e non parte insieme al riallineamento.
+  const creaCommesse = trpc.ficFatture.creaCommesseMancanti.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.create > 0
+          ? `${r.create} commesse create · ${r.pattuitiAggiornati} pattuiti aggiornati`
+          : "Nessuna commessa da creare"
+      );
+      if (r.ambiguous > 0) {
+        toast.warning(
+          `${r.ambiguous} fatture hanno più clienti possibili: vanno decise a mano.`
+        );
+      }
+      invalidaTutto();
     },
     onError: e => toast.error(e.message),
   });
@@ -432,6 +455,16 @@ function Fatture({ anno }: { anno: number }) {
       f.stato === "non_abbinabile" &&
       (f.candidati ?? []).length === 1 &&
       !f.candidati[0].incerto
+  ).length;
+  // Ogni fattura deve stare su una commessa: senza, non c'è pattuito, il PDF
+  // non entra in nessun fascicolo e l'incasso non ha dove riconciliarsi.
+  // Quelle rimaste senza nemmeno un candidato non si collegano da sole — la
+  // commessa giusta va creata, e finora non c'era un modo di chiederlo.
+  const senzaCommessa = tutte.filter(
+    (f: any) => f.stato === "non_abbinabile"
+  ).length;
+  const senzaCandidati = tutte.filter(
+    (f: any) => f.stato === "non_abbinabile" && (f.candidati ?? []).length === 0
   ).length;
 
   return (
@@ -478,6 +511,24 @@ function Fatture({ anno }: { anno: number }) {
               <Sparkles className="mr-1.5 h-3.5 w-3.5" />
             )}
             Collega le {inequivocabili} sicure
+          </Button>
+        )}
+        {senzaCommessa > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant={senzaCandidati > 0 ? "default" : "outline"}
+            className="h-10 shrink-0"
+            disabled={creaCommesse.isPending}
+            title="Crea una commessa nuova per ogni fattura che non ne ha una. Le fatture con più clienti possibili restano da decidere."
+            onClick={() => creaCommesse.mutate()}
+          >
+            {creaCommesse.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FilePlus2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Crea le {senzaCommessa} commesse mancanti
           </Button>
         )}
       </div>
@@ -660,9 +711,11 @@ export default function Economia() {
         </TabsList>
       </Tabs>
 
-      {tab === "panoramica" && <EconomiaPanoramica anno={anno} />}
+      {tab === "panoramica" && (
+        <EconomiaPanoramica anno={anno} onVaiAdAcquisti={() => setTab("acquisti")} />
+      )}
       {tab === "fatture" && <Fatture anno={anno} />}
-      {tab === "fissi" && <CostiFissi />}
+      {tab === "fissi" && <CostiFissi onVaiAdAcquisti={() => setTab("acquisti")} />}
       {tab === "acquisti" && (
         <CostiFicReview anno={anno} onCambiaAnno={setAnno} />
       )}

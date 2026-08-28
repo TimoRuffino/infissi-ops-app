@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
-import { importoMensile, mesiNelPeriodo } from "./costiFissi";
+import { importoMensile } from "./costiFissi";
 import { candidatiFissiPerSede, upsertCostiFic } from "./ficCosti";
 
 function ctx(sedeId: number): TrpcContext {
@@ -38,23 +38,14 @@ describe("mensilizzazione", () => {
     expect(importoMensile({ importo: 900, cadenza: "trimestrale" })).toBe(300);
     expect(importoMensile({ importo: 250, cadenza: "mensile" })).toBe(250);
   });
-
-  it("conta solo i mesi dentro il periodo, non quelli prima o dopo", () => {
-    const voce = { dal: "2026-03", al: "2026-06" };
-    expect(mesiNelPeriodo(voce, "2026-01-01", "2026-12-31")).toBe(4);
-    expect(mesiNelPeriodo(voce, "2026-05-01", "2026-12-31")).toBe(2);
-    expect(mesiNelPeriodo(voce, "2026-07-01", "2026-12-31")).toBe(0);
-    // Senza fine dichiarata la voce corre fino al termine del periodo.
-    expect(
-      mesiNelPeriodo({ dal: "2026-01", al: null }, "2026-01-01", "2026-12-31")
-    ).toBe(12);
-  });
 });
 
 describe("costiFissi router", () => {
-  it("conferma una proposta FiC una sola volta", async () => {
-    // La regressione: due click o due retry non devono raddoppiare il costo
-    // registrato e quindi il punto di pareggio.
+  it("classificare un fornitore come fisso lo mette nel registro e lo toglie dalla coda", async () => {
+    // La regressione riportata: si classificava un costo come fisso e non
+    // succedeva niente. Il totale restava a zero perche' il registro era uno
+    // store separato, e il candidato restava in coda perche' l'esclusione
+    // guardava solo chi era stato dichiarato NON fisso.
     const sedeId = 70;
     const caller = appRouter.createCaller(ctx(sedeId));
     upsertCostiFic(
@@ -76,33 +67,27 @@ describe("costiFissi router", () => {
       sedeId,
       "costi-tim"
     );
-    const candidato = candidatiFissiPerSede(sedeId)[0];
+    const periodo = { anno: 2026, mese: 4 } as const;
 
-    const first = await caller.costiFissi.confermaDaFic({
-      chiave: candidato.chiave,
-      descrizione: "Canone TIM",
-      cadenza: "mensile",
-      categoria: "servizi",
-      dal: "2026-01",
-    });
-    const second = await caller.costiFissi.confermaDaFic({
-      chiave: candidato.chiave,
-      descrizione: "Canone TIM",
-      cadenza: "mensile",
-      categoria: "servizi",
-      dal: "2026-01",
+    expect(candidatiFissiPerSede(sedeId)).toHaveLength(1);
+    expect((await caller.costiFissi.list(periodo)).totaleMensile).toBe(0);
+
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "TIM S.p.A.",
+      classificazione: "fisso",
     });
 
-    expect(first.origine).toBe("fic");
-    expect(first.ficChiaveRicorrenza).toBe(candidato.chiave);
-    expect(second.id).toBe(first.id);
-    expect((await caller.costiFissi.list()).totaleMensile).toBe(candidato.importo);
+    const dopo = await caller.costiFissi.list(periodo);
+    // €2.250 su tre mesi coperti.
+    expect(dopo.totaleFic).toBe(750);
+    expect(dopo.totaleMensile).toBe(750);
+    expect(dopo.righe).toHaveLength(1);
+    expect(dopo.righe[0]).toMatchObject({ fonte: "fic", documenti: 3 });
+    // E sparisce dalla coda: una domanda con risposta non si rifà.
+    expect(candidatiFissiPerSede(sedeId)).toEqual([]);
   });
 
-  it("restituisce la conferma FiC anche dopo che il candidato viene escluso", async () => {
-    // Se un retry cercasse ancora il candidato prima del registro, una
-    // successiva esclusione del fornitore trasformerebbe una conferma già
-    // scritta in un falso NOT_FOUND.
+  it("classificare un fornitore come straordinario lo toglie da entrambe le liste", async () => {
     const sedeId = 75;
     const caller = appRouter.createCaller(ctx(sedeId));
     upsertCostiFic(
@@ -111,9 +96,9 @@ describe("costiFissi router", () => {
         tipo: "expense" as const,
         data: `2026-${mese}-10`,
         fornitoreId: 75,
-        fornitoreNome: "Canone Escluso SRL",
+        fornitoreNome: "Canone Escluso S.r.l.",
         categoriaFic: "Servizi",
-        descrizione: "Canone da confermare",
+        descrizione: "Canone da decidere",
         centro: null,
         numeroDocumento: `ESCLUSO-${mese}`,
         importoNetto: 420,
@@ -124,29 +109,69 @@ describe("costiFissi router", () => {
       sedeId,
       "costi-escluso"
     );
-    const candidato = candidatiFissiPerSede(sedeId)[0];
-    const input = {
-      chiave: candidato.chiave,
-      descrizione: "Canone escluso",
-      cadenza: "mensile" as const,
-      categoria: "servizi" as const,
-      dal: "2026-01",
-    };
-    const confermato = await caller.costiFissi.confermaDaFic(input);
+    expect(candidatiFissiPerSede(sedeId)).toHaveLength(1);
 
     await caller.ficCosti.spostaFornitore({
-      fornitore: "Canone Escluso SRL",
+      fornitore: "Canone Escluso S.r.l.",
       classificazione: "straordinario",
     });
-    expect(candidatiFissiPerSede(sedeId)).toEqual([]);
 
-    const retry = await caller.costiFissi.confermaDaFic(input);
-    expect(retry.id).toBe(confermato.id);
+    expect(candidatiFissiPerSede(sedeId)).toEqual([]);
+    const registro = await caller.costiFissi.list({ anno: 2026, mese: 4 });
+    expect(registro.righe).toEqual([]);
+    expect(registro.totaleMensile).toBe(0);
   });
 
-  it("non restituisce la conferma di un'altra sede con la stessa chiave FiC", async () => {
-    // La chiave ricorrente non contiene la sede: il registro deve quindi
-    // includere sempre lo scope nel controllo di idempotenza.
+  it("una voce dichiarata sullo stesso fornitore non raddoppia il costo", async () => {
+    // L'affitto arriva sia come fattura passiva sia come voce scritta a mano:
+    // sommarli sarebbe pagarlo due volte nel calcolo del pareggio.
+    const sedeId = 78;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    upsertCostiFic(
+      ["01", "02", "03"].map((mese, index) => ({
+        id: 78_001 + index,
+        tipo: "expense" as const,
+        data: `2026-${mese}-05`,
+        fornitoreId: 78,
+        fornitoreNome: "Immobiliare Rossi S.r.l.",
+        categoriaFic: "Affitti",
+        descrizione: "Canone capannone",
+        centro: null,
+        numeroDocumento: `AFF-${mese}`,
+        importoNetto: 1_000,
+        importoIva: 220,
+        importoLordo: 1_220,
+        rate: [],
+      })),
+      sedeId,
+      "costi-affitto"
+    );
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Immobiliare Rossi S.r.l.",
+      classificazione: "fisso",
+    });
+    const periodo = { anno: 2026, mese: 4 } as const;
+    expect((await caller.costiFissi.list(periodo)).totaleMensile).toBe(1_000);
+
+    await caller.costiFissi.create({
+      descrizione: "Affitto capannone",
+      fornitore: "IMMOBILIARE ROSSI SRL",
+      importo: 1_100,
+      cadenza: "mensile",
+      dal: "2025-01",
+      categoria: "immobili",
+    });
+
+    const dopo = await caller.costiFissi.list(periodo);
+    expect(dopo.righe).toHaveLength(1);
+    expect(dopo.righe[0]).toMatchObject({
+      fonte: "dichiarato",
+      sostituisceFic: 1_000,
+    });
+    expect(dopo.totaleMensile).toBe(1_100);
+  });
+
+  it("il registro di una sede non vede i fissi FiC di un'altra", async () => {
     const sedeUno = 76;
     const sedeDue = 77;
     const uno = appRouter.createCaller(ctx(sedeUno));
@@ -169,24 +194,16 @@ describe("costiFissi router", () => {
       }));
     upsertCostiFic(righe(sedeUno), sedeUno, "costi-condivisi-uno");
     upsertCostiFic(righe(sedeDue), sedeDue, "costi-condivisi-due");
-    const candidatoUno = candidatiFissiPerSede(sedeUno)[0];
-    const candidatoDue = candidatiFissiPerSede(sedeDue)[0];
-    expect(candidatoDue.chiave).toBe(candidatoUno.chiave);
 
-    const input = {
-      chiave: candidatoUno.chiave,
-      descrizione: "Canone condiviso",
-      cadenza: "mensile" as const,
-      categoria: "servizi" as const,
-      dal: "2026-01",
-    };
-    const confermatoUno = await uno.costiFissi.confermaDaFic(input);
-    const confermatoDue = await due.costiFissi.confermaDaFic(input);
+    await uno.ficCosti.spostaFornitore({
+      fornitore: "Chiave Condivisa SRL",
+      classificazione: "fisso",
+    });
 
-    expect(confermatoDue.id).not.toBe(confermatoUno.id);
-    expect(confermatoDue.sedeId).toBe(sedeDue);
-    expect((await uno.costiFissi.list()).voci).toHaveLength(1);
-    expect((await due.costiFissi.list()).voci).toHaveLength(1);
+    const periodo = { anno: 2026, mese: 4 } as const;
+    expect((await uno.costiFissi.list(periodo)).totaleMensile).toBe(880);
+    // La regola creata dalla sede 76 non deve classificare i documenti della 77.
+    expect((await due.costiFissi.list(periodo)).totaleMensile).toBe(0);
   });
 
   it("crea, mensilizza, aggiorna e cancella", async () => {

@@ -179,11 +179,20 @@ async function leggiEconomiaCompatta(caller: any, anno: number) {
     },
     contrattiCrm: {
       fonte: "CRM",
+      commesseDellAnno: overview.crm.commesse,
       pattuitoLordo: overview.crm.pattuito,
+      // La differenza fra i due è il motivo per cui il pattuito CRM supera il
+      // fatturato FiC: senza dirla, sembra uno scostamento da spiegare.
+      pattuitoGiaFatturato: overview.crm.pattuitoDaFattura,
+      pattuitoSenzaFattura: overview.crm.pattuitoSoloCrm,
+      commesseSenzaFattura: overview.crm.commesseSenzaFattura,
       incassato: overview.crm.incassato,
       daIncassare: overview.crm.residuo,
       costiManualiStimati: overview.crm.costiManualiStimati,
-      nota: "Valori gestionali stimati, separati dai totali FiC.",
+      nota:
+        "Pattuito lordo (IVA inclusa) delle commesse dell'anno, archiviate " +
+        "comprese. Il fatturato fa fede da FiC ed è imponibile: i due totali " +
+        "non sono confrontabili senza convertirli.",
     },
     venditeFiC: overview.vendite,
     acquistiFiC: overview.acquisti,

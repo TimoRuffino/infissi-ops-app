@@ -285,13 +285,25 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     <p className="mt-1 text-lg font-bold tabular-nums">
                       {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
                     </p>
-                    {/* Se nessuno ha dichiarato stipendi e contributi,
-                        l'obiettivo è calcolato su una parte sola dei costi:
-                        va detto qui, dove il numero si legge. */}
-                    {(data.costiFissiDichiarati ?? 0) === 0 && (
+                    {/* Da dove viene la cifra. Se nessuno ha dichiarato
+                        stipendi e contributi l'obiettivo è calcolato su una
+                        parte sola dei costi, e va detto qui dove si legge. */}
+                    <p className="mt-0.5 text-[11px] leading-tight text-text-3">
+                      {formatEuroSimbolo(data.costiFissiFicMensili ?? 0)} da FiC
+                      ·{" "}
+                      {formatEuroSimbolo(data.costiFissiDichiaratiMensili ?? 0)}{" "}
+                      dichiarato
+                    </p>
+                    {(data.costiFissiDichiaratiMensili ?? 0) === 0 && (
                       <p className="mt-0.5 text-[11px] leading-tight text-warning">
                         Solo fatture d&apos;acquisto: stipendi e contributi non
                         sono dichiarati.
+                      </p>
+                    )}
+                    {(data.fissiDaClassificare ?? 0) > 0 && (
+                      <p className="mt-0.5 text-[11px] leading-tight text-warning">
+                        {data.fissiDaClassificare} acquisti del periodo non sono
+                        ancora classificati.
                       </p>
                     )}
                   </div>

@@ -96,44 +96,49 @@ function normalizzaRegola(value: string | null | undefined): string | null {
 }
 
 /**
- * I fornitori che una persona ha dichiarato NON fissi.
+ * I fornitori la cui natura e' gia' stata decisa.
  *
- * Serve a fermare l'aritmetica della ricorrenza: un trasportatore che
- * fattura la stessa cifra per cinque mesi sembra un canone ma e' manodopera
- * di commessa, e senza questo freno la decisione dell'operatore veniva
- * ribaltata al sync successivo.
+ * Serve a svuotare la coda delle ricorrenze. Prima qui uscivano solo i
+ * fornitori dichiarati NON fissi, quindi un fornitore confermato come fisso
+ * restava in coda per sempre: da fuori sembrava che la conferma non si
+ * salvasse. Una ricorrenza e' una domanda — "questo canone e' struttura?" — e
+ * una domanda con risposta non va piu' fatta, qualunque sia la risposta.
+ *
+ * Si parte SEMPRE dal nome come FiC lo scrive, mai da una chiave gia'
+ * normalizzata. La versione precedente prendeva `regola.fornitoreNormalizzato`
+ * — passato per `normalizzaRegola`, che trasforma i punti in spazi — e gli
+ * applicava la chiave larga, che sa togliere "srl" attaccato ma non "s r l"
+ * spaziato. "ALD Automotive Italia S.r.l." dava "ald automotive italia" dal
+ * candidato e "ald automotive italia s r l" dalla regola: due chiavi diverse,
+ * esclusione mai agganciata. Toccava quasi tutti i fornitori veri, perche' le
+ * ragioni sociali si scrivono col punto.
  */
-export function fornitoriNonFissi(sedeId: number): Set<string> {
-  const esclusi = new Set<string>();
-  // Si parte SEMPRE dal nome come FiC lo scrive, mai da una chiave gia'
-  // normalizzata.
-  //
-  // La versione precedente prendeva `regola.fornitoreNormalizzato` — passato
-  // per `normalizzaRegola`, che trasforma i punti in spazi — e gli applicava
-  // la chiave larga, che sa togliere "srl" attaccato ma non "s r l"
-  // spaziato. Risultato: "ALD Automotive Italia S.r.l." dava
-  // "ald automotive italia" dal candidato e "ald automotive italia s r l"
-  // dalla regola. Le due chiavi non combaciavano, l'esclusione non
-  // agganciava, e il candidato classificato restava in coda. Toccava quasi
-  // tutti i fornitori veri, perche' le ragioni sociali si scrivono col punto.
+export function fornitoriGiaDecisi(sedeId: number): Set<string> {
+  const decisi = new Set<string>();
   for (const costo of ficCosti) {
     if (costo.sedeId !== sedeId) continue;
     const decisoDaPersona =
       costo.fonteClassificazione === "utente" &&
-      costo.classificazione !== "fisso";
-    const daRegola = classificaConRegole(costo);
-    if (decisoDaPersona || (daRegola != null && daRegola !== "fisso")) {
-      esclusi.add(chiaveFornitore(costo.fornitoreNome));
+      costo.classificazione !== "dubbio";
+    if (decisoDaPersona || classificaConRegole(costo) != null) {
+      decisi.add(chiaveFornitore(costo.fornitoreNome));
     }
   }
-  return esclusi;
+  return decisi;
 }
 
-/** Ricorrenze proposte dalla FiC: solo una conferma crea un costo fisso. */
+/**
+ * Ricorrenze ancora senza risposta.
+ *
+ * Non sono costi fissi: sono candidati. Confermarne uno significa
+ * classificare il fornitore come `fisso` in Acquisti — da li' entra nel
+ * registro dei costi fissi da solo, senza una seconda registrazione. Il
+ * doppio passaggio precedente creava due verita' scollegate.
+ */
 export function candidatiFissiPerSede(sedeId: number): GruppoRicorrente[] {
-  const esclusi = fornitoriNonFissi(sedeId);
+  const decisi = fornitoriGiaDecisi(sedeId);
   return rilevaCostiRicorrenti(ficCosti, sedeId).filter(
-    gruppo => !esclusi.has(chiaveFornitore(gruppo.fornitore))
+    gruppo => !decisi.has(chiaveFornitore(gruppo.fornitore))
   );
 }
 
@@ -342,110 +347,6 @@ export const ficCostiRouter = router({
     };
   }),
 
-  /**
-   * I costi fissi che il break-even sta DAVVERO usando, per fornitore.
-   *
-   * La scheda «Costi fissi» mostrava i gruppi ricorrenti rilevati
-   * dall'aritmetica: 26 gruppi. Il break-even somma invece tutti i documenti
-   * classificati `fisso`, che sui dati veri sono 37 fornitori. Due insiemi
-   * diversi, due numeri che si somigliavano per caso — e un elenco che non
-   * spiegava la cifra sotto cui si decide se l'anno regge.
-   *
-   * Qui l'elenco E' la cifra: stesso periodo base del pareggio, stessa
-   * selezione, stesso segno sulle note di credito.
-   */
-  fissiPerFornitore: protectedProcedure.query(({ ctx }) => {
-    requireDirezioneOAmministrazione(ctx.user);
-    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const oggi = new Date();
-    const fine = new Date(Date.UTC(oggi.getUTCFullYear(), oggi.getUTCMonth(), 0));
-    const inizio = new Date(
-      Date.UTC(fine.getUTCFullYear(), fine.getUTCMonth() - 11, 1)
-    );
-    const periodoDa = inizio.toISOString().slice(0, 10);
-    const periodoA = fine.toISOString().slice(0, 10);
-
-    // Perche' questo fornitore risulta fisso. "regola" da solo non lo diceva:
-    // significava sia l'aritmetica della ricorrenza sia una regola creata da
-    // una persona, e la motivazione veniva riscritta a ogni sync — TIM aveva
-    // otto motivazioni diverse sui suoi 72 documenti.
-    const gruppi = new Map<
-      string,
-      {
-        fornitore: string;
-        documenti: number;
-        totale: number;
-        mesi: Set<string>;
-        origini: { ricorrenza: number; regola: number; persona: number; tars: number };
-        spiegazioni: Set<string>;
-        righe: Array<{ id: number; data: string; importo: number; descrizione: string | null }>;
-      }
-    >();
-    const mesiConDati = new Set<string>();
-    for (const costo of ficCosti) {
-      if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
-      if (costo.data < periodoDa || costo.data > periodoA) continue;
-      if (costo.classificazione !== "dubbio") mesiConDati.add(costo.data.slice(0, 7));
-      if (costo.classificazione !== "fisso") continue;
-      const chiave = chiaveFornitore(costo.fornitoreNome) || costo.fornitoreNome;
-      const gruppo = gruppi.get(chiave) ?? {
-        fornitore: costo.fornitoreNome,
-        documenti: 0,
-        totale: 0,
-        mesi: new Set<string>(),
-        origini: { ricorrenza: 0, regola: 0, persona: 0, tars: 0 },
-        spiegazioni: new Set<string>(),
-        righe: [],
-      };
-      gruppo.documenti++;
-      gruppo.totale +=
-        (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto;
-      gruppo.mesi.add(costo.data.slice(0, 7));
-      const daRicorrenza =
-        costo.fonteClassificazione === "regola" &&
-        (costo.motivazione ?? "").startsWith("Stesso importo");
-      if (costo.fonteClassificazione === "utente") gruppo.origini.persona++;
-      else if (costo.fonteClassificazione === "tars") gruppo.origini.tars++;
-      else if (daRicorrenza) gruppo.origini.ricorrenza++;
-      else gruppo.origini.regola++;
-      if (costo.motivazione && gruppo.spiegazioni.size < 3) {
-        gruppo.spiegazioni.add(costo.motivazione);
-      }
-      gruppo.righe.push({
-        id: costo.id,
-        data: costo.data,
-        importo:
-          (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto,
-        descrizione: costo.descrizione ?? costo.categoriaFic,
-      });
-      gruppi.set(chiave, gruppo);
-    }
-
-    const mesiCoperti = Math.max(1, mesiConDati.size);
-    const righe = Array.from(gruppi.values())
-      .map(gruppo => ({
-        fornitore: gruppo.fornitore,
-        documenti: gruppo.documenti,
-        totale: Math.round(gruppo.totale * 100) / 100,
-        mensile: Math.round((gruppo.totale / mesiCoperti) * 100) / 100,
-        mesi: gruppo.mesi.size,
-        origini: gruppo.origini,
-        spiegazioni: Array.from(gruppo.spiegazioni),
-        righe: gruppo.righe.sort((a, b) => b.data.localeCompare(a.data)),
-      }))
-      .sort((a, b) => b.totale - a.totale);
-
-    return {
-      periodoDa,
-      periodoA,
-      mesiCoperti,
-      gruppi: righe,
-      totale: Math.round(righe.reduce((s, r) => s + r.totale, 0) * 100) / 100,
-      totaleMensile:
-        Math.round(righe.reduce((s, r) => s + r.mensile, 0) * 100) / 100,
-    };
-  }),
-
   list: protectedProcedure
     .input(
       z
@@ -498,15 +399,27 @@ export const ficCostiRouter = router({
   }),
 
   /**
-   * I documenti da classificare raggruppati per fornitore.
+   * Gli acquisti raggruppati per fornitore.
    *
    * Un fornitore ha quasi sempre una natura sola, e classificare 265 righe
    * una per una quando i fornitori distinti sono 140 significa fare il doppio
    * del lavoro necessario. Qui la decisione si prende una volta per fornitore
    * e vale per tutti i suoi documenti.
+   *
+   * Senza `classificazione` restituisce TUTTI i fornitori dell'anno, non solo
+   * quelli in coda: la scheda Acquisti mostrava esclusivamente i `dubbio`, e
+   * appena si finiva di classificare la pagina si svuotava — gli acquisti
+   * sparivano invece di diventare un registro consultabile.
    */
-  daClassificarePerFornitore: protectedProcedure
-    .input(z.object({ anno: z.number().int().optional() }).optional())
+  perFornitore: protectedProcedure
+    .input(
+      z
+        .object({
+          anno: z.number().int().optional(),
+          classificazione: classificazioneSchema.optional(),
+        })
+        .optional()
+    )
     .query(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
@@ -516,27 +429,40 @@ export const ficCostiRouter = router({
         {
           fornitore: string;
           ids: number[];
+          idsDubbi: number[];
           totale: number;
           dal: string;
           al: string;
           esempi: string[];
+          classificazioni: Record<string, number>;
         }
       >();
       for (const costo of ficCosti) {
         if (costo.sedeId !== sedeId || !costo.presenteInFic) continue;
-        if (costo.classificazione !== "dubbio") continue;
+        if (
+          input?.classificazione &&
+          costo.classificazione !== input.classificazione
+        ) {
+          continue;
+        }
         if (anno != null && !costo.data.startsWith(String(anno))) continue;
         const chiave = chiaveFornitore(costo.fornitoreNome) || costo.fornitoreNome;
         const gruppo = gruppi.get(chiave) ?? {
           fornitore: costo.fornitoreNome,
           ids: [],
+          idsDubbi: [],
           totale: 0,
           dal: costo.data,
           al: costo.data,
           esempi: [],
+          classificazioni: {},
         };
         gruppo.ids.push(costo.id);
-        gruppo.totale += costo.importoNetto;
+        if (costo.classificazione === "dubbio") gruppo.idsDubbi.push(costo.id);
+        gruppo.totale +=
+          (costo.tipo === "passive_credit_note" ? -1 : 1) * costo.importoNetto;
+        gruppo.classificazioni[costo.classificazione] =
+          (gruppo.classificazioni[costo.classificazione] ?? 0) + 1;
         if (costo.data < gruppo.dal) gruppo.dal = costo.data;
         if (costo.data > gruppo.al) gruppo.al = costo.data;
         const etichetta = costo.descrizione ?? costo.categoriaFic;
@@ -550,8 +476,20 @@ export const ficCostiRouter = router({
           ...gruppo,
           totale: Math.round(gruppo.totale * 100) / 100,
           documenti: gruppo.ids.length,
+          daClassificare: gruppo.idsDubbi.length,
+          // La natura prevalente: serve all'elenco per dire com'è messo un
+          // fornitore senza aprirlo.
+          prevalente:
+            Object.entries(gruppo.classificazioni).sort(
+              (a, b) => b[1] - a[1]
+            )[0]?.[0] ?? "dubbio",
         }))
-        .sort((a, b) => b.documenti - a.documenti || b.totale - a.totale);
+        .sort(
+          (a, b) =>
+            b.daClassificare - a.daClassificare ||
+            b.documenti - a.documenti ||
+            b.totale - a.totale
+        );
     }),
 
   /**

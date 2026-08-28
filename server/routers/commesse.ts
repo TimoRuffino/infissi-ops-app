@@ -32,6 +32,7 @@ import {
   normalizzaPagamentoLegacy,
   ricalcolaImportoIncassato,
 } from "../_core/commessaPayments";
+import { annoCommessa } from "../_core/annoCommessa";
 import {
   MOTIVO_PATTUITO_BLOCCATO,
   backfillPattuito,
@@ -541,6 +542,10 @@ export const commesseRouter = router({
         .map(({ prodotti, pagamenti, ...rest }) => ({
           ...rest,
           nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
+          // L'anno di appartenenza lo decide il server: il filtro per anno
+          // della pagina Pagamenti se lo calcolava da solo con la stessa
+          // euristica scritta due volte, e due copie divergono.
+          anno: annoCommessa(rest as any),
           // Sintesi delle lavorazioni per la colonna in lista: solo nome e
           // quantità, non l'intero prodotto con dimensioni e note.
           prodottiSintesi: (Array.isArray(prodotti) ? prodotti : []).map(

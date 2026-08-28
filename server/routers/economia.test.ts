@@ -222,9 +222,18 @@ describe("economia FiC", () => {
 
     const overview = await caller.economia.overview({ anno: 2026 });
 
-    expect(overview.crm.pattuito).toBe(5_000);
-    expect(overview.crm.incassato).toBe(375);
+    // Il prospetto è dell'anno e include le archiviate: una commessa chiusa
+    // a marzo è lavoro del 2026 come una ancora aperta, e toglierla faceva
+    // calare il pattuito dell'anno mentre l'anno andava avanti.
+    expect(overview.crm.pattuito).toBe(7_000);
+    expect(overview.crm.commesse).toBe(2);
+    expect(overview.crm.incassato).toBe(775);
     expect(overview.crm.costiManualiStimati).toBe(999);
+    // Nessuna delle due ha una fattura FiC collegata: è tutto pattuito che
+    // solo il CRM conosce, ed è il motivo per cui supera il fatturato.
+    expect(overview.crm.commesseSenzaFattura).toBe(2);
+    expect(overview.crm.pattuitoSoloCrm).toBe(7_000);
+    expect(overview.crm.pattuitoDaFattura).toBe(0);
     expect(overview.confrontoIncassi).toMatchObject({
       disponibile: true,
       crm: 700,
@@ -309,7 +318,7 @@ describe("economia FiC", () => {
     });
   });
 
-  it("non usa i costi FiC classificati senza una conferma nel registro", async () => {
+  it("i costi FiC classificati fisso sono il costo fisso dell'azienda", async () => {
     const now = new Date();
     const anno = now.getFullYear();
     const mese = now.getMonth() + 1;
@@ -377,12 +386,86 @@ describe("economia FiC", () => {
 
     const risultato = await caller.economia.breakEven({ anno, mese });
 
+    // Tre fornitori da €1.000 su tre mesi: €333,33 a testa al mese. Il
+    // pareggio li usa senza chiedere una seconda conferma — classificarli in
+    // Acquisti E' la conferma. Prima li ignorava del tutto, e l'obiettivo
+    // restava incalcolabile per chi aveva appena classificato tutto.
     expect(risultato.margineContribuzione).toBeCloseTo(0.6);
-    expect(risultato.daCoprireMensile).toBe(0);
-    // Registro vuoto: nessun minimo da fatturare. Restituire zero avrebbe
-    // detto "obiettivo raggiunto" a chi non ha confermato un solo costo.
-    expect(risultato.stato).toBe("dati_insufficienti");
-    expect(risultato.obiettivoMensile).toBeNull();
-    expect(risultato.motivi.join(" ")).toContain("Nessun costo fisso confermato");
+    expect(risultato.costiFissiFicMensili).toBeCloseTo(1_000, 1);
+    expect(risultato.costiFissiDichiaratiMensili).toBe(0);
+    expect(risultato.daCoprireMensile).toBeCloseTo(1_000, 1);
+    expect(risultato.stato).toBe("disponibile");
+    expect(risultato.obiettivoMensile).toBeCloseTo(1_666.65, 1);
+  });
+
+  it("una voce dichiarata a mano si somma ai fissi FiC nel minimo da fatturare", async () => {
+    // Stipendi e contributi non passano da Fatture in Cloud: senza questa via
+    // il minimo da fatturare esce sistematicamente piu' basso del vero.
+    const now = new Date();
+    const anno = now.getFullYear();
+    const mese = now.getMonth() + 1;
+    const sedeId = 194;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const emessi = [];
+    const costi = [];
+    for (let offset = 3; offset >= 1; offset--) {
+      const data = new Date(Date.UTC(anno, mese - 1 - offset, 10))
+        .toISOString()
+        .slice(0, 10);
+      emessi.push({
+        id: 93300 + offset,
+        tipo: "invoice" as const,
+        numero: `BE93-${offset}`,
+        data,
+        clienteNome: "Cliente",
+        clienteVat: null,
+        clienteCf: null,
+        importoNetto: 10_000,
+        importoIva: 2_200,
+        importoLordo: 12_200,
+        rate: [],
+      });
+      costi.push({
+        id: 93400 + offset,
+        tipo: "expense" as const,
+        data,
+        fornitoreId: null,
+        fornitoreNome: "Materiali SRL",
+        categoriaFic: "Materiali",
+        descrizione: null,
+        centro: null,
+        numeroDocumento: null,
+        importoNetto: 4_000,
+        importoIva: 880,
+        importoLordo: 4_880,
+        rate: [],
+      });
+    }
+    upsertDocumentiEmessi(emessi, sedeId, "be93-emessi");
+    upsertCostiFic(costi, sedeId, "be93-costi");
+    for (const costo of ficCosti.filter(c => c.sedeId === sedeId)) {
+      costo.classificazione = "variabile_commessa";
+      costo.fonteClassificazione = "utente";
+    }
+
+    const prima = await caller.economia.breakEven({ anno, mese });
+    expect(prima.stato).toBe("dati_insufficienti");
+
+    const dalMese = new Date(Date.UTC(anno, mese - 4, 1))
+      .toISOString()
+      .slice(0, 7);
+    await caller.costiFissi.create({
+      descrizione: "Stipendi",
+      importo: 12_000,
+      cadenza: "mensile",
+      dal: dalMese,
+      categoria: "personale",
+    });
+
+    const dopo = await caller.economia.breakEven({ anno, mese });
+    expect(dopo.costiFissiDichiaratiMensili).toBe(12_000);
+    expect(dopo.daCoprireMensile).toBe(12_000);
+    expect(dopo.stato).toBe("disponibile");
+    expect(dopo.obiettivoMensile).toBeCloseTo(20_000, 2);
   });
 });

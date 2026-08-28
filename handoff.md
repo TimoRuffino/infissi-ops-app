@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 26/08/2026<br>
+**Aggiornato:** 28/08/2026<br>
 **Base Git descritta:** `main`, inclusi i flussi Tars operativi del 25/08/2026 e gate active ancora chiusi<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -319,11 +319,65 @@ che risponde a "com'è andata" prima di ogni dettaglio; sotto restano le bande
 di composizione. Se ci sono fatture da riconciliare o costi dubbi, la fascia lo
 dice invece di lasciar credere che i numeri siano definitivi.
 
-I **costi fissi certi** arrivano soltanto dal registro confermato
-`costi_fissi_manuali`. La ricorrenza deterministica (stesso fornitore e stesso
-importo per almeno tre mesi consecutivi, tolleranza 50 centesimi) genera solo
-candidati: non riclassifica documenti, non prevale su una persona e non entra
-nel pareggio finché l'operatore non la conferma.
+### Costi fissi: una risposta sola, due sorgenti (28/08/2026)
+
+Fino a questa versione «costo fisso» significava due cose che non si
+parlavano, ed è la causa diretta delle due segnalazioni *«i costi fissi non
+riesco a salvarli anche se li classifico»* e *«gli acquisti sono spariti»*:
+
+1. la classificazione `fisso` sui documenti FiC, fatta nella scheda Acquisti;
+2. il registro `costi_fissi_manuali`, riempito confermando una ricorrenza in
+   un dialog.
+
+`calcolaBreakEven` leggeva **solo** il secondo. Classificare venti fornitori
+come fissi lasciava quindi il totale a zero e il pareggio a
+`dati_insufficienti`: da fuori sembrava che la classificazione non si
+salvasse. In più `candidatiFissiPerSede` escludeva soltanto i fornitori
+dichiarati **non** fissi, quindi un candidato confermato **restava in coda per
+sempre**.
+
+Ora la somma si fa in un posto solo, `server/_core/costiFissiAzienda.ts`:
+
+| sorgente | cosa contiene | come si mensilizza |
+|---|---|---|
+| **FiC** | documenti d'acquisto classificati `fisso`, raggruppati per fornitore | totale del periodo ÷ mesi con documenti classificati |
+| **Dichiarato** | ciò che in FiC non passa: stipendi, contributi, tasse, affitti senza fattura passiva | `importo ÷ mesi della cadenza`, contato solo se la voce è valida alla fine del periodo |
+
+**Classificare in Acquisti È la conferma.** Non esiste più una seconda
+registrazione: `costiFissi.confermaDaFic` è stato rimosso, e i tre bottoni
+della coda chiamano `ficCosti.spostaFornitore`. `fornitoriNonFissi` è
+diventato `fornitoriGiaDecisi`: una ricorrenza è una domanda, e una domanda
+con risposta non si rifà — qualunque sia la risposta.
+
+**Precedenza, una regola sola:** se una voce dichiarata a mano nomina un
+fornitore che FiC conosce già come fisso, vince la voce dichiarata e
+l'aggregato FiC di quel fornitore sparisce. Chi scrive cadenza e validità sa
+più di una media aritmetica, e sommarli sarebbe contare due volte lo stesso
+affitto. La riga lo dichiara: «Sostituisce €X/mese di fatture FiC dello stesso
+fornitore».
+
+**Periodo base unico.** `periodoBase()` restituisce gli ultimi dodici mesi
+**chiusi** — il mese in corso resta fuori, perché è mezzo mese di documenti e
+mediarlo abbassa il costo fisso proprio nei giorni in cui lo si guarda. Lo
+usano sia il registro sia il pareggio: due finestre diverse davano due totali
+diversi per la stessa azienda. `ficCosti.fissiPerFornitore` è stato rimosso
+per lo stesso motivo — era una seconda aritmetica sullo stesso numero.
+
+`calcolaBreakEven` non legge più i documenti per conto suo: riceve
+`costiFissiMensili` già sommato, più le due quote (`costiFissiFicMensili`,
+`costiFissiDichiaratiMensili`) che servono solo a spiegare il totale nel
+pannello.
+
+**Il totale resta provvisorio finché ci sono dubbi.** La scheda dichiara
+quanti documenti del periodo non sono ancora classificati e per quanto: un
+costo fisso calcolato mentre 265 documenti sono in sospeso può solo salire, e
+tacerlo faceva sembrare definitiva una cifra che non lo era.
+
+**Le voci manuali restano il modo di dichiarare ciò che FiC non conosce** e
+non sono un ripiego: stipendi, contributi e tasse non passeranno mai da
+Fatture in Cloud. Ogni voce ha importo, cadenza (mensile → annuale), validità
+`dal`/`al`, categoria e fornitore facoltativo — quest'ultimo è ciò che
+innesca la regola di precedenza.
 
 **L'esclusione parte sempre dal nome come FiC lo scrive** (corretto il
 28/08/2026). `fornitoriNonFissi` prendeva `regola.fornitoreNormalizzato` —
@@ -337,23 +391,22 @@ scrivono col punto; il test precedente usava «SRL» attaccato e non lo vedeva.
 Ora l'insieme si costruisce dai costi, usando il nome grezzo su entrambi i
 lati, e il test usa una forma puntata.
 
-**Senza registro confermato non c'è un minimo da fatturare.** Con
-`daCoprireMensile` a zero il pannello restituiva `stato: "disponibile"` e
-obiettivo zero, cioè «obiettivo raggiunto» a chi non ha confermato un solo
-costo. Ora è `dati_insufficienti` con il motivo che rimanda al registro.
+**Senza costi fissi non c'è un minimo da fatturare.** Con `daCoprireMensile` a
+zero il pannello restituiva `stato: "disponibile"` e obiettivo zero, cioè
+«obiettivo raggiunto» a chi non ha classificato un solo acquisto. Ora è
+`dati_insufficienti` con il motivo che rimanda ad Acquisti e al registro.
 
 La scheda **non usa tabelle**, e non è una preferenza estetica: la coda dei
 candidati aveva cinque colonne con tre bottoni nell'ultima, misurati 1172px
 contro i 1134px disponibili a 1440 con la sidebar. Il bottone «Straordinario»
 finiva 21px oltre il bordo dello scroll orizzontale, e a 390px la parte
 tagliata era di 816px — la coda si vedeva ma non si poteva smaltire, che è
-esattamente il difetto segnalato («devo scorrere in orizzontale» e «non riesco
-a classificarli» erano lo stesso bug). Ora sono righe flex che vanno a capo:
+esattamente il difetto segnalato. Ora sono righe flex che vanno a capo:
 importo a destra, azioni su una riga propria, verificate a 1440x900 e 390x844
-senza overflow e con tutti i target ≥44px.
+senza scroll orizzontale globale e con tutti i target ≥44px.
 
-**La tolleranza resta stretta di proposito** (rimisurata il 27/08/2026 sui dati
-reali, per non riaprire la questione ogni sei mesi):
+**La tolleranza della ricorrenza resta stretta di proposito** (rimisurata il
+27/08/2026 sui dati reali, per non riaprire la questione ogni sei mesi):
 
 | tolleranza | gruppi | €/mese | cosa entra |
 |---|---|---|---|
@@ -366,23 +419,6 @@ Allargarla fa entrare i fornitori di serramenti fra i costi fissi, e un costo
 variabile contato come fisso sballa **sia** il pareggio **sia** il margine di
 contribuzione — cioè entrambi i termini della divisione.
 
-**La scheda «Costi fissi» ora è la cifra, non un'altra cifra.** Mostrava i 26
-gruppi rilevati dalla ricorrenza mentre il break-even sommava tutti i documenti
-classificati `fisso` — 37 fornitori. Due insiemi diversi con due totali che si
-somigliavano per caso (€9.192 contro €9.313), e un elenco che non spiegava il
-numero sotto cui si decide se l'anno regge. `ficCosti.fissiPerFornitore` usa lo
-stesso periodo base e la stessa selezione del pareggio.
-
-**«Perché è qui», e come toglierlo** (27/08/2026, dopo la segnalazione che
-l'elenco conteneva voci che non dovevano esserci). `fonteClassificazione =
-"regola"` significava due cose molto diverse — l'aritmetica della ricorrenza
-oppure una regola nata da un click su «Tutti Fisso» in Acquisti — e la
-`motivazione` veniva riscritta a ogni sync: TIM aveva otto motivazioni diverse
-sui suoi 72 documenti. `fissiPerFornitore` ora separa le origini
-(`ricorrenza` / `regola` / `persona` / `tars`) con i conteggi, espone le
-spiegazioni e l'elenco dei documenti, e la scheda ha un riquadro «Come si
-calcola questo numero».
-
 Togliere un fornitore richiede una sola azione, `ficCosti.spostaFornitore`, che
 sposta **tutti** i suoi documenti (non solo i `dubbio`, come
 `riclassificaFornitore`: SCIACCA ne aveva 11, TIM 72) e aggiorna la regola per
@@ -390,41 +426,28 @@ sposta **tutti** i suoi documenti (non solo i `dubbio`, come
 chiave larga, le regole la forma scritta, e lasciarne una indietro faceva
 rientrare i documenti nuovi.
 
-Infine `applicaCostiRicorrenti` accetta `fornitoriEsclusi`: se una persona ha
-dichiarato che un fornitore non è fisso, l'aritmetica tace. Senza questo freno
-un trasportatore che fattura la stessa cifra per cinque mesi veniva riportato
-fra i costi fissi al sync successivo, ribaltando la decisione all'infinito —
-`fonteClassificazione = "utente"` protegge il singolo documento, non quelli
-che arrivano dopo.
+**Acquisti è un registro, non una coda (28/08/2026).** Entrambe le viste
+interrogavano solo i documenti `dubbio`. Classificare era quindi l'unico modo
+di far sparire un acquisto dalla pagina: finito il lavoro **gli acquisti
+sparivano tutti** e non restava un posto dove vederli — la segnalazione «gli
+acquisti sono spariti» descriveva esattamente questo. Un registro non può
+svuotarsi perché è in ordine.
 
-**Costi fissi dichiarati a mano** (`server/routers/costiFissi.ts`, store
-`costi_fissi_manuali`). Dentro i €9.313 al mese non c'era una riga di stipendi,
-contributi, tasse o affitti pagati senza fattura passiva: niente di tutto ciò
-passa da Fatture in Cloud, quindi l'obiettivo di pareggio usciva
-sistematicamente più basso del vero e non c'era modo di correggerlo. Ogni voce
-ha importo, **cadenza** (mensile → annuale, mensilizzata dividendo per i mesi
-che copre), validità `dal`/`al` e categoria. `calcolaBreakEven` accetta
-`costiFissiDichiarati` e somma i due addendi **mensilizzandoli in modo
-diverso, di proposito**: le fatture FiC si mediano sui mesi coperti (è una
-media storica, non c'è altro modo di leggerle), le voci dichiarate pesano per
-quanto valgono **oggi** — un canone chiuso a marzo non deve alzare l'obiettivo
-di agosto, uno acceso a luglio deve pesare per intero subito. Se non esiste
-nessuna voce dichiarata il pannello del pareggio lo dice, invece di far
-sembrare completo un numero che non lo è.
+Ora il perimetro è l'anno intero e la coda è uno dei filtri: `Da classificare`
+(preselezionato, perché resta il lavoro da fare), `Fissi`, `Di commessa`,
+`Straordinari`, `Tutti`, ognuno col proprio conteggio e col totale del filtro
+attivo accanto. `ficCosti.daClassificarePerFornitore` è diventato
+`ficCosti.perFornitore`, con `classificazione` opzionale.
 
-**Acquisti, riscritto il 27/08/2026.** La revisione costava il doppio del
-necessario: nel 2025 restavano 265 documenti da classificare su 140 fornitori
-distinti, cioè 265 decisioni per rispondere a 140 domande — un fornitore ha
-quasi sempre una natura sola. E l'arretrato era invisibile: la pagina apre
-sull'anno corrente, dove i dubbi erano 3. Ora il tab ha tre viste:
+Le due viste servono a due lavori diversi:
 
-- **Per fornitore** (`ficCosti.daClassificarePerFornitore`): una riga per
-  fornitore con documenti, totale e periodo; i tre bottoni chiudono l'intero
-  gruppo e scrivono la regola per il futuro. Il raggruppamento e la selezione
-  dei documenti usano la stessa chiave larga di `costiRicorrenti`
+- **Per fornitore**: una riga per fornitore con documenti, totale, periodo e
+  natura prevalente; i tre bottoni chiudono l'intero gruppo. Il raggruppamento
+  e la selezione usano la stessa chiave larga di `costiRicorrenti`
   (`chiaveFornitore`, che ignora SRL/S.r.l.), così un bottone «×9» ne tocca
-  davvero nove; la regola resta salvata sulla forma scritta per non
-  invalidare quelle già in archivio;
+  davvero nove. Il bottone chiama `spostaFornitore` e non
+  `riclassificaFornitore`: il secondo tocca solo i `dubbio`, e su un fornitore
+  già classificato non faceva niente pur dichiarando ×N;
 - **Documento per documento**: selezione multipla e
   `ficCosti.riclassificaMolti` per i casi sparsi — 82 fornitori con un solo
   documento non sono un gruppo, ma insieme si chiudono in un gesto;
@@ -440,13 +463,40 @@ commessa e la posa. Gli acquisti sono classificati `Variabile`, `Straordinario`
 o proposti come fissi aziendali, senza attribuzione a un lavoro.
 
 Ogni fattura emessa FiC non ignorata e non già collegata crea una commessa
-propria. Il cliente viene riusato per P.IVA/CF o intestazione esatta; se manca
+propria. Dal 28/08/2026 l'azione ha un bottone suo,
+`ficFatture.creaCommesseMancanti` («Crea le N commesse mancanti» nella scheda
+Fatture): prima esisteva solo dentro `riconciliaOra`, il cui bottone si
+mostrava **soltanto** se c'era almeno un collegamento automatico da fare —
+quindi le fatture senza nemmeno un candidato non ottenevano mai una commessa.
+Sta su un bottone separato e non dentro il riallineamento perché è l'unica
+delle due azioni che scrive record nuovi. Il cliente viene riusato per P.IVA/CF o intestazione esatta; se manca
 viene creato. `ficSourceRef = fic:<sedeId>:<fatturaId>` impedisce duplicati ai
 sync successivi. Il codice commessa scritto esplicitamente in fattura continua
 a prevalere; note di credito e identità ambigue non creano commesse.
 
+**Il prospetto CRM è dell'anno, non all-time (28/08/2026).** `riepilogoCrm` è
+diventato `riepilogoCommesse(sedeId, anno)` e cambia in due punti, entrambi
+necessari per mettere questi numeri accanto a quelli FiC senza mentire: è
+filtrato sull'anno (prima sommava tutte le commesse attive e il totale finiva
+a fianco di un fatturato annuale — due perimetri diversi presentati come
+confrontabili) e **include le archiviate** (una commessa chiusa a marzo è
+lavoro dell'anno come una ancora aperta, e toglierla faceva calare il pattuito
+mentre l'anno andava avanti).
+
+Il pattuito è diviso per provenienza, perché è la differenza che la direzione
+cerca: `pattuitoDaFattura` è la stessa cifra che sta in FiC, `pattuitoSoloCrm`
+è il di più che solo il CRM conosce — lavoro concordato e non ancora
+fatturato. La banda chiude dichiarando le unità: pattuito CRM **lordo**,
+fatturato FiC **imponibile**; accostarli senza dirlo sembra uno scostamento da
+spiegare.
+
+L'anno di una commessa lo decide il server, `server/_core/annoCommessa.ts`:
+data di apertura, poi il codice `COM-AAAA-`, poi `createdAt`. La pagina
+Pagamenti se lo calcolava da sola con la stessa euristica scritta due volte, e
+due copie divergono; ora `commesse.list` espone `anno`.
+
 Le bande di composizione separano quattro perimetri: controllo incassi annuale,
-Vendite FiC, Acquisti FiC e portafoglio CRM attivo all-time. Il confronto annuale usa
+Vendite FiC, Acquisti FiC e commesse CRM dell'anno. Il confronto annuale usa
 `pagamenti[].data` nel CRM e `rate[].dataPagamento` in FiC, include anche le
 commesse oggi archiviate e mostra `CRM - FiC`; i movimenti senza data restano
 fuori dal periodo e sono esposti come anomalia, senza inventare un mese. Le
@@ -462,9 +512,11 @@ Fatturato e costi canonici sono imponibili al netto delle rispettive note di
 credito; IVA, lordo, rate pagate e rate aperte sono valori distinti. La vecchia
 azione `Ignora` è presentata come `Escludi dalla riconciliazione`: il documento
 resta nei totali FiC e nel break-even, ma non compare nella coda operativa.
-`/pagamenti` mostra Copertura costi fissi: obiettivo netto mensile calcolato dal
-margine di contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi
-dubbi sono esclusi e si revisionano nel tab Acquisti.
+Il pannello del minimo da fatturare sta sia in `/pagamenti` sia in cima ad
+`Andamento`: «come sta andando» senza la soglia sotto cui si perde è una
+classifica senza linea del traguardo. Vale solo per l'anno corrente. I costi
+`dubbio` restano esclusi da fissi e variabili, e il pannello dichiara quanti
+sono.
 
 **Il numero grande è la risposta, non la domanda** (28/08/2026). Il pannello
 mostrava `daCoprireMensile` — il totale dei costi fissi — con sotto scritto

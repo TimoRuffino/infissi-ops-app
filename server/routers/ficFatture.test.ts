@@ -1060,3 +1060,51 @@ describe("fatture orfane → Tars", () => {
     }
   });
 });
+
+describe("ogni fattura deve avere una commessa", () => {
+  it("crea una commessa per le fatture che non ne hanno nessuna", async () => {
+    // Senza commessa una fattura non ha pattuito, il PDF non entra in nessun
+    // fascicolo e l'incasso non ha dove riconciliarsi. Quando nessuna
+    // commessa combacia, quella giusta è una nuova — ma finora l'azione
+    // esisteva solo dentro il riallineamento, che si mostrava soltanto se
+    // c'era almeno un collegamento automatico da fare.
+    const sedeId = 140;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    upsertDocumentiEmessi(
+      [
+        {
+          id: 140_001,
+          tipo: "invoice" as const,
+          numero: "140/A",
+          data: "2026-05-10",
+          clienteNome: "Nuovissimo Cliente",
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 2_000,
+          importoIva: 440,
+          importoLordo: 2_440,
+          rate: [],
+        },
+      ],
+      sedeId,
+      "crea-commesse"
+    );
+
+    const esito = await caller.ficFatture.creaCommesseMancanti();
+    expect(esito.create).toBe(1);
+
+    const dopo = await caller.ficFatture.list({ anno: 2026 });
+    const fattura = dopo.find((f: any) => f.id === 140_001);
+    expect(fattura?.commessaId).not.toBeNull();
+    expect(fattura?.commessaMatch).toBe("automatico_fattura");
+    // E il pattuito della commessa nuova arriva da FiC, non è vuoto.
+    const commessa = await caller.commesse.pattuito(fattura!.commessaId!);
+    expect(commessa.fonte).toBe("fic");
+    expect(commessa.importoTotale).toBe(2_440);
+    expect(commessa.modificabile).toBe(false);
+
+    // Idempotente: richiamarla non raddoppia le commesse.
+    const secondo = await caller.ficFatture.creaCommesseMancanti();
+    expect(secondo.create).toBe(0);
+  });
+});

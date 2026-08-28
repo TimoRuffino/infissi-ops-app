@@ -181,8 +181,18 @@ export type BreakEvenInput = {
   documentiEmessi: readonly DocumentoEconomico[];
   costi?: readonly DocumentoEconomico[];
   documentiRicevuti?: readonly DocumentoEconomico[];
-  /** Voci dichiarate a mano: stipendi, contributi, affitti, tasse. */
-  costiFissiDichiarati?: readonly CostoFissoDichiarato[];
+  /**
+   * Costi fissi dell'azienda al mese, già sommati: fatture d'acquisto FiC
+   * classificate `fisso` più le voci dichiarate a mano. Il calcolo, con la
+   * regola che evita di contare due volte lo stesso fornitore, sta in
+   * `costiFissiAzienda.ts`. Qui arriva un numero solo perché il pareggio non
+   * deve avere una seconda opinione su quanto costa l'azienda.
+   */
+  costiFissiMensili?: number;
+  /** La quota che arriva da FiC. Serve solo a spiegare il totale. */
+  costiFissiFicMensili?: number;
+  /** La quota dichiarata a mano. Serve solo a spiegare il totale. */
+  costiFissiDichiaratiMensili?: number;
   /**
    * Margine di contribuzione imposto (0–1). Quello calcolato esce dagli
    * ultimi dodici mesi: se in quel periodo molti costi erano ancora da
@@ -197,22 +207,6 @@ export type BreakEvenInput = {
   includiStraordinari?: boolean;
 };
 
-/**
- * Una voce di costo fisso dichiarata a mano, gia' mensilizzata.
- *
- * Il break-even leggeva solo le fatture d'acquisto FiC classificate `fisso`:
- * sui dati veri sono €9.313 al mese su 37 fornitori, e dentro non c'e' una
- * riga di stipendi, contributi, tasse o affitti pagati senza fattura
- * passiva. Nessuna di quelle cose passa da Fatture in Cloud, quindi
- * l'obiettivo di pareggio usciva sistematicamente piu' basso del vero.
- */
-export type CostoFissoDichiarato = {
-  mensile: number;
-  dal?: string; // "YYYY-MM"
-  al?: string | null;
-  mesiNelPeriodo?: number;
-};
-
 export type BreakEvenResult = {
   stato: "disponibile" | "dati_insufficienti";
   affidabilita: "alta" | "media" | "insufficiente";
@@ -221,9 +215,11 @@ export type BreakEvenResult = {
   periodoA: string;
   fatturatoBase: number;
   costiVariabili: number;
+  /** Costi fissi del periodo base, per confronto con fatturato e variabili. */
   costiFissi: number;
-  /** Quota dei fissi che arriva dalle voci dichiarate a mano. */
-  costiFissiDichiarati: number;
+  /** Le due quote del costo fisso mensile, per spiegare da dove viene. */
+  costiFissiFicMensili: number;
+  costiFissiDichiaratiMensili: number;
   /** Straordinari del periodo: dentro il conto solo se richiesto. */
   costiStraordinari: number;
   straordinariInclusi: boolean;
@@ -244,26 +240,6 @@ export type BreakEvenResult = {
 
 function chiaveMese(data: Date): string {
   return `${data.getUTCFullYear()}-${String(data.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-function indiceMese(mese: string): number {
-  const [anno, numero] = mese.slice(0, 7).split("-").map(Number);
-  return anno * 12 + (numero - 1);
-}
-
-/** Mesi di sovrapposizione fra la validita' di una voce e il periodo base. */
-function mesiAttivi(
-  voce: CostoFissoDichiarato,
-  periodoDa: string,
-  periodoA: string
-): number {
-  if (!voce.dal) return 1;
-  const da = Math.max(indiceMese(voce.dal), indiceMese(periodoDa));
-  const a = Math.min(
-    voce.al ? indiceMese(voce.al) : Number.MAX_SAFE_INTEGER,
-    indiceMese(periodoA)
-  );
-  return Math.max(0, a - da + 1);
 }
 
 function dataInIntervallo(data: string, da: string, a: string): boolean {
@@ -312,20 +288,10 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
         somma + segnoDocumento(documento.tipo) * documento.importoNetto,
       0
     );
-  // Le righe FiC classificate `fisso` non sono una fonte certa.
-  // Le voci dichiarate pesano per i mesi in cui erano attive dentro il
-  // periodo base: un costo aperto a marzo non grava sui dodici mesi
-  // precedenti, e uno chiuso a giugno non grava su luglio.
-  const costiFissiDichiarati =
-    Math.round(
-      (input.costiFissiDichiarati ?? []).reduce(
-        (somma, voce) =>
-          somma +
-          voce.mensile *
-            (voce.mesiNelPeriodo ?? mesiAttivi(voce, periodoDa, periodoA)),
-        0
-      ) * 100
-    ) / 100;
+  const costiFissiFicMensili =
+    Math.round((input.costiFissiFicMensili ?? 0) * 100) / 100;
+  const costiFissiDichiaratiMensili =
+    Math.round((input.costiFissiDichiaratiMensili ?? 0) * 100) / 100;
   const costiStraordinari = costiBase
     .filter(documento => documento.classificazione === "straordinario")
     .reduce(
@@ -334,8 +300,6 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       0
     );
   const straordinariInclusi = input.includiStraordinari === true;
-  const costiFissi =
-    costiFissiDichiarati + (straordinariInclusi ? costiStraordinari : 0);
   const dubbi = costiBase.filter(
     documento => documento.classificazione === "dubbio"
   );
@@ -372,23 +336,22 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   // Quanto costa esistere ogni mese. Non dipende dal margine, quindi si
   // calcola prima: e' la risposta anche quando l'obiettivo non e'
   // calcolabile, ed e' il numero che la direzione chiedeva di vedere nudo.
-  const dichiaratiOggi =
+  const fissiMensili =
     Math.round(
-      (input.costiFissiDichiarati ?? [])
-        .filter(
-          voce =>
-            (voce.mesiNelPeriodo ?? mesiAttivi(voce, periodoA, periodoA)) > 0
-        )
-        .reduce((somma, voce) => somma + voce.mensile, 0) * 100
+      (input.costiFissiMensili ??
+        costiFissiFicMensili + costiFissiDichiaratiMensili) * 100
     ) / 100;
   const daCoprireMensile =
     Math.round(
-      (dichiaratiOggi +
+      (fissiMensili +
         (straordinariInclusi && mesiCoperti > 0
           ? costiStraordinari / mesiCoperti
           : 0)) *
         100
     ) / 100;
+  // Il costo fisso sull'intero periodo base: serve solo per leggerlo accanto
+  // al fatturato e ai variabili, che sono anch'essi totali di periodo.
+  const costiFissi = Math.round(fissiMensili * mesiCoperti * 100) / 100;
 
   const motivi: string[] = [];
   // Senza costi fissi confermati il minimo da fatturare varrebbe zero, e il
@@ -396,7 +359,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
   // uno stipendio. Uno zero rassicurante e' peggio di un numero mancante.
   if (daCoprireMensile <= 0) {
     motivi.push(
-      "Nessun costo fisso confermato: conferma le ricorrenze o aggiungi stipendi, contributi e affitti in Contabilità → Costi fissi."
+      "Nessun costo fisso: classifica come «Fisso» gli acquisti che tornano ogni mese, e aggiungi stipendi, contributi e affitti in Contabilità → Costi fissi."
     );
   }
   if (mesiCoperti < 3) {
@@ -437,7 +400,8 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       fatturatoBase,
       costiVariabili,
       costiFissi,
-      costiFissiDichiarati,
+      costiFissiFicMensili,
+      costiFissiDichiaratiMensili,
       costiStraordinari,
       straordinariInclusi,
       margineCalcolato,
@@ -473,7 +437,8 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     fatturatoBase,
     costiVariabili,
     costiFissi,
-    costiFissiDichiarati,
+    costiFissiFicMensili,
+    costiFissiDichiaratiMensili,
     costiStraordinari,
     straordinariInclusi,
     margineCalcolato,

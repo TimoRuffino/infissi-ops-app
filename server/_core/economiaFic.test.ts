@@ -163,7 +163,7 @@ describe("aggregati economici FiC", () => {
 });
 
 describe("break-even mensile", () => {
-  it("esclude dal break-even i costi FiC fissi non presenti nel registro", () => {
+  it("senza costi fissi non esiste un minimo da fatturare", () => {
     const emessi = [1, 2, 3].map(mese =>
       documento("invoice", `2026-0${mese}-10`, 10_000, { ignorato: true })
     );
@@ -185,16 +185,17 @@ describe("break-even mensile", () => {
 
     expect(risultato.fatturatoBase).toBe(30_000);
     expect(risultato.costiFissiMensili).toBe(0);
-    // Senza registro confermato non c'e' un minimo da fatturare: dire zero
-    // significherebbe "obiettivo raggiunto" a chi non ha registrato niente.
+    // Dire zero significherebbe "obiettivo raggiunto" a chi non ha ancora
+    // classificato un acquisto ne' dichiarato uno stipendio.
     expect(risultato.stato).toBe("dati_insufficienti");
     expect(risultato.obiettivoMensile).toBeNull();
-    expect(risultato.motivi.join(" ")).toContain("Nessun costo fisso confermato");
+    expect(risultato.motivi.join(" ")).toContain("Nessun costo fisso");
   });
 
-  it("i costi fissi dichiarati a mano entrano nell'obiettivo", () => {
-    // Stipendi e contributi non passano da Fatture in Cloud: senza questa
-    // via il pareggio girava su una parte sola dei costi fissi.
+  it("il costo fisso arriva gia' sommato: FiC classificato piu' dichiarato", () => {
+    // Il pareggio non ha una seconda opinione su quanto costa l'azienda: la
+    // somma la fa `costiFissiAzienda`, che e' anche l'unico punto in cui si
+    // evita di contare due volte lo stesso fornitore.
     const emessi = [1, 2, 3].map(mese =>
       documento("invoice", `2026-0${mese}-10`, 10_000)
     );
@@ -218,21 +219,24 @@ describe("break-even mensile", () => {
       mese: 4,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati: [{ mensile: 5_000, dal: "2026-01", al: null }],
+      costiFissiMensili: 5_000,
+      costiFissiFicMensili: 1_000,
+      costiFissiDichiaratiMensili: 4_000,
     });
 
     expect(senza.stato).toBe("dati_insufficienti");
-    expect(senza.costiFissiDichiarati).toBe(0);
-    expect(con.costiFissiDichiarati).toBe(15_000);
-    // Il peso di oggi arriva solo dal registro: 5.000 dichiarati.
+    expect(senza.costiFissiMensili).toBe(0);
     expect(con.costiFissiMensili).toBeCloseTo(5_000, 2);
-    // Senza registro l'obiettivo non esiste; col registro vale
-    // 5.000 / 60% di margine.
+    // Le due quote restano leggibili accanto al totale: una cifra che non si
+    // sa da dove viene non si usa per decidere.
+    expect(con.costiFissiFicMensili).toBe(1_000);
+    expect(con.costiFissiDichiaratiMensili).toBe(4_000);
+    // Senza costi fissi l'obiettivo non esiste; con 5.000 vale 5.000 / 60%.
     expect(senza.obiettivoMensile).toBeNull();
     expect(con.obiettivoMensile).toBeCloseTo(8_333.33, 2);
   });
 
-  it("una voce gia' chiusa non alza l'obiettivo di oggi", () => {
+  it("il costo fisso del periodo e' il mensile moltiplicato per i mesi coperti", () => {
     const emessi = [1, 2, 3].map(mese =>
       documento("invoice", `2026-0${mese}-10`, 10_000)
     );
@@ -250,12 +254,14 @@ describe("break-even mensile", () => {
       mese: 4,
       documentiEmessi: emessi,
       costi,
-      // Chiusa a gennaio: pesa sul totale del periodo, non sul mese corrente.
-      costiFissiDichiarati: [{ mensile: 5_000, dal: "2026-01", al: "2026-01" }],
+      costiFissiMensili: 5_000,
     });
 
-    expect(risultato.costiFissiDichiarati).toBe(5_000);
-    expect(risultato.costiFissiMensili).toBe(0);
+    // Serve solo a leggerlo accanto a fatturato e variabili, che sono anche
+    // loro totali di periodo.
+    expect(risultato.mesiCoperti).toBe(3);
+    expect(risultato.costiFissi).toBe(15_000);
+    expect(risultato.costiFissiMensili).toBe(5_000);
   });
 
   it("usa margine di contribuzione e costi fissi degli ultimi dodici mesi", () => {
@@ -310,7 +316,7 @@ describe("break-even mensile", () => {
       mese: 8,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati: [{ mensile: 3_000, dal: "2025-08", al: null }],
+      costiFissiMensili: 3_000,
     });
 
     expect(risultato.stato).toBe("disponibile");
@@ -346,7 +352,7 @@ describe("break-even mensile", () => {
       mese: 6,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati: [{ mensile: 1_600, dal: "2026-03", al: null }],
+      costiFissiMensili: 1_600,
     });
 
     expect(risultato.stato).toBe("disponibile");
@@ -393,21 +399,17 @@ describe("break-even: cosa coprire e con quale margine", () => {
         classificazione: "straordinario",
       }),
     ]);
-    return {
-      emessi,
-      costi,
-      costiFissiDichiarati: [{ mensile: 1_000, dal: "2026-01", al: null }],
-    };
+    return { emessi, costi, costiFissiMensili: 1_000 };
   };
 
   it("mostra i costi da coprire separati dal fatturato che serve", () => {
-    const { emessi, costi, costiFissiDichiarati } = scenario();
+    const { emessi, costi, costiFissiMensili } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati,
+      costiFissiMensili,
     });
     // 1.000 al mese di costi fissi, margine 60%: servono 1.666 di fatturato.
     expect(r.daCoprireMensile).toBeCloseTo(1_000, 2);
@@ -419,13 +421,13 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("gli straordinari possono entrare fra i costi da coprire", () => {
-    const { emessi, costi, costiFissiDichiarati } = scenario();
+    const { emessi, costi, costiFissiMensili } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati,
+      costiFissiMensili,
       includiStraordinari: true,
     });
     expect(r.straordinariInclusi).toBe(true);
@@ -434,13 +436,13 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("un margine fissato a mano prevale, e resta detto quale era il calcolato", () => {
-    const { emessi, costi, costiFissiDichiarati } = scenario();
+    const { emessi, costi, costiFissiMensili } = scenario();
     const r = calcolaBreakEven({
       anno: 2026,
       mese: 4,
       documentiEmessi: emessi,
       costi,
-      costiFissiDichiarati,
+      costiFissiMensili,
       margineManuale: 0.25,
     });
     expect(r.margineFonte).toBe("manuale");
@@ -450,14 +452,14 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 
   it("un margine fuori scala viene ignorato invece di produrre un obiettivo assurdo", () => {
-    const { emessi, costi, costiFissiDichiarati } = scenario();
+    const { emessi, costi, costiFissiMensili } = scenario();
     for (const margine of [0, -0.5, 1.5]) {
       const r = calcolaBreakEven({
         anno: 2026,
         mese: 4,
         documentiEmessi: emessi,
         costi,
-        costiFissiDichiarati,
+        costiFissiMensili,
         margineManuale: margine,
       });
       expect(r.margineFonte).toBe("calcolato");
@@ -466,14 +468,20 @@ describe("break-even: cosa coprire e con quale margine", () => {
   });
 });
 
-describe("break-even: totale certo", () => {
-  it("usa solo il registro confermato e ignora i documenti FiC fissi legacy", () => {
+describe("break-even: da dove viene il costo fisso", () => {
+  it("non ricalcola i documenti FiC: prende il totale che gli viene dato", () => {
+    // Il pareggio leggeva da solo i documenti classificati `fisso`, e li
+    // mensilizzava con una finestra sua: due totali diversi per la stessa
+    // azienda, a seconda della pagina aperta. Ora la somma si fa in un posto
+    // solo e qui arriva gia' fatta.
     const result = calcolaBreakEven({
       periodoDa: "2025-09-01",
       periodoA: "2026-08-31",
       documentiEmessi: [],
-      documentiRicevuti: [{ classificazione: "fisso", importoNetto: 99_000 }],
-      costiFissiDichiarati: [{ mensile: 2_500, mesiNelPeriodo: 12 }],
+      documentiRicevuti: [
+        { classificazione: "fisso", importoNetto: 99_000 } as any,
+      ],
+      costiFissiMensili: 2_500,
     } as any);
 
     expect(result.costiFissiMensili).toBe(2_500);
