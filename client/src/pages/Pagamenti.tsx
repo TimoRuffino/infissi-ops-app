@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Banknote, Search, Plus, CheckCircle2 } from "lucide-react";
+import { Banknote, Search, Plus, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -48,7 +48,40 @@ const fmt = formatEuro;
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso + (String(iso).length === 10 ? "T12:00:00" : "")).toLocaleDateString("it-IT") : "—";
 
+/**
+ * Guardia della vista cassa (slice 2, decisione 1): la pagina richiede
+ * `pagamento.read`. Il componente autorizzato monta le sue query solo dopo
+ * il via libera, così un deep-link non autorizzato non produce nemmeno le
+ * chiamate che il server rifiuterebbe. Il confine vero resta il server.
+ */
 export default function Pagamenti() {
+  const capacitaQ = trpc.permessi.mie.useQuery();
+  const [, setLocation] = useLocation();
+  if (capacitaQ.isLoading) return null;
+  if (!(capacitaQ.data ?? []).includes("pagamento.read")) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] p-4">
+        <div className="max-w-sm w-full text-center space-y-4 p-6 rounded-lg border bg-muted/30">
+          <ShieldAlert className="h-10 w-10 text-muted-foreground mx-auto" />
+          <div className="space-y-1">
+            <p className="font-semibold">Accesso riservato</p>
+            <p className="text-sm text-muted-foreground">
+              La vista cassa richiede il permesso{" "}
+              <span className="font-medium">lettura pagamenti</span>. Se ti
+              serve per lavoro, chiedi alla direzione.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setLocation("/")}>
+            Torna alla dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return <PagamentiAutorizzata />;
+}
+
+function PagamentiAutorizzata() {
   const [, setLocation] = useLocation();
   const commesse = trpc.commesse.list.useQuery({});
   const recenti = trpc.commesse.pagamentiRecenti.useQuery({ limit: 12 });

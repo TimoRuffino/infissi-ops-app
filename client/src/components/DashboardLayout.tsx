@@ -82,6 +82,9 @@ type MenuItem = {
   direzioneOnly?: boolean;
   // Solo direzione e amministrazione (superfici economiche).
   economiaOnly?: boolean;
+  // Richiede la capability `pagamento.read` (vista cassa, slice 2). Finché
+  // le capability non sono caricate vale il fallback di ruolo.
+  pagamentiOnly?: boolean;
   // Un gruppo: la voce apre/chiude le figlie invece di navigare.
   children?: MenuItem[];
 };
@@ -116,7 +119,7 @@ const menuItems: MenuItem[] = [
     path: "/economia",
     children: [
       { icon: Landmark, label: "Contabilità", path: "/economia", economiaOnly: true },
-      { icon: Banknote, label: "Pagamenti", path: "/pagamenti" },
+      { icon: Banknote, label: "Pagamenti", path: "/pagamenti", pagamentiOnly: true },
       { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
     ],
   },
@@ -138,12 +141,23 @@ const menuItems: MenuItem[] = [
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
 
-// Chi vede una voce: i vincoli di ruolo rispecchiano quelli del server
-// (il server resta l'autorità — qui si evita solo il link morto).
-function visibile(item: MenuItem, user: unknown): boolean {
+// Chi vede una voce: i vincoli rispecchiano quelli del server (il server
+// resta l'autorità — qui si evita solo il link morto). Le voci a capability
+// usano `permessi.mie` quando disponibile; prima del caricamento vale il
+// fallback di ruolo, così direzione e amministrazione non vedono lampeggi e
+// un override individuale compare appena la risposta arriva.
+function visibile(
+  item: MenuItem,
+  user: unknown,
+  capacita: ReadonlySet<string> | null
+): boolean {
   if (item.direzioneOnly && !isDirezione(user)) return false;
   if (item.economiaOnly && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
     return false;
+  }
+  if (item.pagamentiOnly) {
+    if (capacita) return capacita.has("pagamento.read");
+    return isDirezione(user) || hasRuolo(user, "amministrazione");
   }
   return true;
 }
@@ -202,6 +216,10 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const capacitaQ = trpc.permessi.mie.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+  const capacita = capacitaQ.data ? new Set(capacitaQ.data) : null;
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -326,12 +344,16 @@ function DashboardLayoutContent({
                   item.children
                     ? {
                         ...item,
-                        children: item.children.filter((c) => visibile(c, user)),
+                        children: item.children.filter((c) =>
+                          visibile(c, user, capacita)
+                        ),
                       }
                     : item
                 )
                 .filter((item) =>
-                  item.children ? item.children.length > 0 : visibile(item, user)
+                  item.children
+                    ? item.children.length > 0
+                    : visibile(item, user, capacita)
                 )
                 .map((item) => {
                   const figlie = item.children ?? [];

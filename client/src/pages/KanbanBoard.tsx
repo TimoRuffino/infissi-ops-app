@@ -517,13 +517,16 @@ export default function KanbanBoard() {
                                     })()}
 
                                     {(() => {
+                                      // Sul Board niente cifre: solo il bit
+                                      // `daSaldare` del server (slice 2,
+                                      // decisione direzione 28/08/2026). Gli
+                                      // importi vivono in /pagamenti e nella
+                                      // scheda, dietro capability.
                                       const FASI_SALDO = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
-                                      const tot = (c as any).importoTotale;
-                                      const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
-                                      if (!tot || residuo <= 0 || !FASI_SALDO.includes(c.stato)) return null;
+                                      if (!(c as any).daSaldare || !FASI_SALDO.includes(c.stato)) return null;
                                       return (
                                         <div className="flex items-center gap-1 text-[11px] font-semibold text-danger bg-danger-soft rounded px-1.5 py-0.5">
-                                          Da saldare {formatEuroSimbolo(residuo)}
+                                          Da saldare
                                         </div>
                                       );
                                     })()}

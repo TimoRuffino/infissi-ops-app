@@ -2583,6 +2583,12 @@ function PagamentiCard({
   const pattuitoQ = trpc.commesse.pattuito.useQuery(commessaId);
   const pattuitoDaFic = pattuitoQ.data?.fonte === "fic";
   const motivoBlocco = pattuitoQ.data?.motivoBlocco ?? null;
+  // Capability effettive (ruoli + override individuali): decidono se offrire
+  // i comandi di registrazione. Il registro stesso segue il payload: se il
+  // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
+  // di sicurezza resta comunque il server (slice 2).
+  const capacitaQ = trpc.permessi.mie.useQuery();
+  const puoRegistrare = (capacitaQ.data ?? []).includes("pagamento.record");
 
   const addPagamento = trpc.commesse.addPagamento.useMutation({
     onSuccess: () => {
@@ -2965,7 +2971,7 @@ function PagamentiCard({
               </Button>
             </div>
           </div>
-        ) : (
+        ) : puoRegistrare ? (
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -2995,7 +3001,7 @@ function PagamentiCard({
               </>
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
