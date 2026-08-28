@@ -103,6 +103,8 @@ export type ConversazioneWhatsApp = {
   clienteId: number | null;
   commessaId: number | null;
   matchConfidenza: Comunicazione["matchConfidenza"];
+  /** Il collegamento l'ha deciso una persona, non il match automatico. */
+  collegamentoManuale: boolean;
 };
 
 export type ThreadWhatsApp = {
@@ -162,31 +164,56 @@ export function escapeRicercaSql(ricerca: string): string {
 
 export const escapeRicercaWhatsApp = escapeRicercaSql;
 
-type AliasConversazioneWhatsApp = {
+/**
+ * Quello che una persona ha deciso a mano su una conversazione WhatsApp.
+ *
+ * Due cose, e stanno insieme perché hanno la stessa chiave e la stessa
+ * durata: il nome con cui vuole vederla in elenco, e il cliente/commessa a
+ * cui appartiene.
+ *
+ * Il collegamento vive QUI e non solo sulle righe `comunicazioni` perché
+ * deve valere anche per i messaggi che devono ancora arrivare: riscrivere lo
+ * storico aggancia il passato, non il futuro, e alla prima risposta del
+ * cliente la conversazione tornava scollegata.
+ */
+type OverrideConversazioneWhatsApp = {
   sedeId: number;
   casellaId: number;
   controparte: string;
-  nome: string;
+  nome: string | null;
+  clienteId: number | null;
+  commessaId: number | null;
 };
 
-const _aliasConversazioniWhatsApp = persistedStore<AliasConversazioneWhatsApp>(
+const _aliasConversazioniWhatsApp = persistedStore<OverrideConversazioneWhatsApp>(
+  // Chiave storica: prima teneva solo il nome. I record vecchi si leggono
+  // ancora, con i due campi nuovi a null.
   "whatsapp_conversation_aliases",
   aliases => {
     const chiavi = new Set<string>();
     for (let index = aliases.length - 1; index >= 0; index -= 1) {
-      const alias = aliases[index] as Partial<AliasConversazioneWhatsApp>;
+      const alias = aliases[index] as Partial<OverrideConversazioneWhatsApp>;
       const controparte =
         typeof alias.controparte === "string"
           ? normalizzaControparteWhatsApp(alias.controparte)
           : "";
       const nome = typeof alias.nome === "string" ? alias.nome.trim() : "";
+      const clienteId = Number.isInteger(alias.clienteId)
+        ? (alias.clienteId as number)
+        : null;
+      const commessaId = Number.isInteger(alias.commessaId)
+        ? (alias.commessaId as number)
+        : null;
+      // Una riga senza nome E senza collegamento non dice niente: si butta.
+      // Prima bastava il nome mancante, ma ora una riga può esistere per il
+      // solo collegamento.
       if (
         !Number.isInteger(alias.sedeId) ||
         !Number.isInteger(alias.casellaId) ||
         alias.sedeId! <= 0 ||
         alias.casellaId! <= 0 ||
         !controparte ||
-        !nome
+        (!nome && clienteId == null && commessaId == null)
       ) {
         aliases.splice(index, 1);
         continue;
@@ -201,26 +228,85 @@ const _aliasConversazioniWhatsApp = persistedStore<AliasConversazioneWhatsApp>(
         sedeId: alias.sedeId!,
         casellaId: alias.casellaId!,
         controparte,
-        nome,
+        nome: nome || null,
+        clienteId,
+        commessaId,
       };
     }
   }
 );
 const aliasConversazioniWhatsApp = _aliasConversazioniWhatsApp.items;
 
-function aliasConversazioneWhatsApp(
+function overrideConversazioneWhatsApp(
   sedeId: number,
   casellaId: number,
   controparte: string
-): string | null {
+): OverrideConversazioneWhatsApp | null {
   return (
     aliasConversazioniWhatsApp.find(
       alias =>
         alias.sedeId === sedeId &&
         alias.casellaId === casellaId &&
         alias.controparte === controparte
-    )?.nome ?? null
+    ) ?? null
   );
+}
+
+function aliasConversazioneWhatsApp(
+  sedeId: number,
+  casellaId: number,
+  controparte: string
+): string | null {
+  return overrideConversazioneWhatsApp(sedeId, casellaId, controparte)?.nome ?? null;
+}
+
+/**
+ * Il collegamento deciso a mano su una conversazione, se c'è.
+ *
+ * Esportato perché lo consulta anche l'ingestione WhatsApp: un messaggio
+ * nuovo su una conversazione già agganciata a mano non deve ripassare dal
+ * match automatico, che ricomincerebbe da capo e potrebbe scollegarla.
+ */
+export function collegamentoManualeWhatsApp(
+  sedeId: number,
+  casellaId: number,
+  controparte: string
+): { clienteId: number | null; commessaId: number | null } | null {
+  const override = overrideConversazioneWhatsApp(
+    sedeId,
+    casellaId,
+    normalizzaControparteWhatsApp(controparte)
+  );
+  if (!override) return null;
+  if (override.clienteId == null && override.commessaId == null) return null;
+  return { clienteId: override.clienteId, commessaId: override.commessaId };
+}
+
+function scriviOverrideWhatsApp(
+  chiave: { sedeId: number; casellaId: number; controparte: string },
+  patch: Partial<Pick<OverrideConversazioneWhatsApp, "nome" | "clienteId" | "commessaId">>
+): void {
+  const indice = aliasConversazioniWhatsApp.findIndex(
+    alias =>
+      alias.sedeId === chiave.sedeId &&
+      alias.casellaId === chiave.casellaId &&
+      alias.controparte === chiave.controparte
+  );
+  const corrente: OverrideConversazioneWhatsApp =
+    indice >= 0
+      ? aliasConversazioniWhatsApp[indice]
+      : { ...chiave, nome: null, clienteId: null, commessaId: null };
+  const prossimo: OverrideConversazioneWhatsApp = { ...corrente, ...patch };
+  const vuoto =
+    !prossimo.nome && prossimo.clienteId == null && prossimo.commessaId == null;
+  if (vuoto) {
+    if (indice >= 0) aliasConversazioniWhatsApp.splice(indice, 1);
+  } else if (indice >= 0) {
+    aliasConversazioniWhatsApp[indice] = prossimo;
+  } else {
+    aliasConversazioniWhatsApp.push(prossimo);
+  }
+  _aliasConversazioniWhatsApp.save();
 }
 
 // ── Fallback in memoria (nessun DATABASE_URL) ───────────────────────────────
@@ -1205,15 +1291,27 @@ function toConversazioneWhatsApp(
   gruppo: GruppoWhatsApp
 ): ConversazioneWhatsApp {
   const messaggio = gruppo.messaggioRecente;
-  const collegamento = gruppo.messaggioCollegato ?? messaggio;
-  const aliasOperatore = aliasConversazioneWhatsApp(
+  const override = overrideConversazioneWhatsApp(
     sedeId,
     gruppo.casellaId,
     gruppo.controparte
   );
+  const aliasOperatore = override?.nome ?? null;
+  // Il collegamento deciso a mano vince su quello dedotto dai messaggi: è
+  // l'unico che sopravvive all'arrivo di un messaggio nuovo, che ripasserebbe
+  // dal match automatico.
+  const dedotto = gruppo.messaggioCollegato ?? messaggio;
+  const manuale =
+    override && (override.clienteId != null || override.commessaId != null);
+  const clienteId = manuale ? override!.clienteId : dedotto.clienteId;
+  const commessaId = manuale ? override!.commessaId : dedotto.commessaId;
+  // L'alias viene PRIMA del nome del cliente. Prima era il contrario, quindi
+  // su una conversazione collegata il nome scritto a mano non si vedeva mai
+  // — ed è proprio lì che serve: il profilo WhatsApp dice «Mario», il CRM
+  // dice «Rossi Mario», e in elenco si vuole leggere «Rossi — Via Verdi».
   const nomeProfilo =
-    nomeClienteConversazione(sedeId, collegamento.clienteId) ??
     aliasOperatore ??
+    nomeClienteConversazione(sedeId, clienteId) ??
     gruppo.messaggioProfilo?.mittenteNome?.trim() ??
     gruppo.controparte;
   return {
@@ -1227,9 +1325,10 @@ function toConversazioneWhatsApp(
     direzioneUltimoMessaggio: messaggio.direzione,
     nonLetti: gruppo.nonLetti,
     totaleMessaggi: gruppo.totaleMessaggi,
-    clienteId: collegamento.clienteId,
-    commessaId: collegamento.commessaId,
-    matchConfidenza: collegamento.matchConfidenza,
+    clienteId,
+    commessaId,
+    matchConfidenza: manuale ? "alta" : dedotto.matchConfidenza,
+    collegamentoManuale: manuale === true,
   };
 }
 
@@ -1526,7 +1625,7 @@ export async function listConversazioniWhatsApp(input: {
   const aliasMatch = query
     ? aliasConversazioniWhatsApp
         .filter(alias => alias.sedeId === input.sedeId)
-        .filter(alias => alias.nome.toLowerCase().includes(query.toLowerCase()))
+        .filter(alias => (alias.nome ?? "").toLowerCase().includes(query.toLowerCase()))
         .map(
           alias =>
             sql`(a.casella_id = ${alias.casellaId} AND a.controparte = ${alias.controparte})`
@@ -1719,26 +1818,124 @@ export async function rinominaConversazioneWhatsApp(input: {
   );
   if (!conversazione) return null;
 
-  const nome = input.nome.trim();
-  const indice = aliasConversazioniWhatsApp.findIndex(
-    alias =>
-      alias.sedeId === input.sedeId &&
-      alias.casellaId === input.casellaId &&
-      alias.controparte === controparte
+  // Il nome scritto a mano vince su quello del cliente CRM: se una persona
+  // lo scrive è perché in elenco vuole leggere quello. Il collegamento resta
+  // dov'è — rinominare non scollega.
+  scriviOverrideWhatsApp(
+    { sedeId: input.sedeId, casellaId: input.casellaId, controparte },
+    { nome: input.nome.trim() || null }
   );
-  if (nome) {
-    const alias = {
-      sedeId: input.sedeId,
-      casellaId: input.casellaId,
-      controparte,
-      nome,
-    };
-    if (indice >= 0) aliasConversazioniWhatsApp[indice] = alias;
-    else aliasConversazioniWhatsApp.push(alias);
-  } else if (indice >= 0) {
-    aliasConversazioniWhatsApp.splice(indice, 1);
+
+  return getConversazioneWhatsApp(input.sedeId, input.casellaId, controparte);
+}
+
+/**
+ * Collega (o scollega) a mano una conversazione WhatsApp a cliente e commessa.
+ *
+ * Fa due cose insieme, e servono entrambe:
+ *
+ *   1. scrive l'override, che vale anche per i messaggi che devono ancora
+ *      arrivare — riscrivere solo lo storico aggancia il passato e alla prima
+ *      risposta del cliente la conversazione tornava scollegata;
+ *   2. riscrive le righe `comunicazioni` già esistenti, perché Inbox, Tars e
+ *      le proposte leggono da lì: senza, la scheda WhatsApp avrebbe detto una
+ *      cosa e il resto del CRM un'altra.
+ *
+ * Scollegare passa `null` su entrambi e cancella l'override.
+ */
+export async function collegaConversazioneWhatsApp(input: {
+  sedeId: number;
+  casellaId: number;
+  controparte: string;
+  clienteId: number | null;
+  commessaId: number | null;
+  motivo: string;
+}): Promise<ConversazioneWhatsApp | null> {
+  const controparte = normalizzaControparteWhatsApp(input.controparte);
+  const conversazione = await getConversazioneWhatsApp(
+    input.sedeId,
+    input.casellaId,
+    controparte
+  );
+  if (!conversazione) return null;
+
+  scriviOverrideWhatsApp(
+    { sedeId: input.sedeId, casellaId: input.casellaId, controparte },
+    { clienteId: input.clienteId, commessaId: input.commessaId }
+  );
+
+  const collega = input.commessaId != null;
+  const confidenza: Comunicazione["matchConfidenza"] =
+    input.clienteId == null && input.commessaId == null ? "nessuna" : "alta";
+  const motivo =
+    input.clienteId == null && input.commessaId == null ? null : input.motivo;
+
+  if (!kvSql) {
+    for (const messaggio of memRows) {
+      if (
+        messaggio.sedeId !== input.sedeId ||
+        messaggio.canale !== "whatsapp" ||
+        messaggio.casellaId !== input.casellaId ||
+        messaggio.deletedAt ||
+        normalizzaControparteWhatsApp(messaggio.mittente) !== controparte
+      ) {
+        continue;
+      }
+      messaggio.clienteId = input.clienteId;
+      messaggio.commessaId = input.commessaId;
+      messaggio.matchConfidenza = confidenza;
+      messaggio.matchMotivo = motivo;
+      if (collega) messaggio.stato = "gestita";
+      else if (
+        messaggio.stato === "gestita" &&
+        !categoriaEsclusa(messaggio.categoria)
+      ) {
+        messaggio.stato = "vista";
+      }
+    }
+    return getConversazioneWhatsApp(input.sedeId, input.casellaId, controparte);
   }
-  _aliasConversazioniWhatsApp.save();
+
+  await ensureComunicazioniSchema();
+  await kvSql`
+    WITH estratti AS (
+      SELECT id, mittente, regexp_replace(mittente, '[^0-9]', '', 'g') AS cifre
+      FROM comunicazioni
+      WHERE sede_id = ${input.sedeId}
+        AND canale = 'whatsapp'
+        AND casella_id = ${input.casellaId}
+        AND deleted_at IS NULL
+    ), normalizzati AS (
+      SELECT id, CASE
+        WHEN cifre = '' THEN btrim(mittente)
+        WHEN char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) < 10 THEN btrim(mittente)
+        ELSE '+' || CASE
+          WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) NOT LIKE '39%'
+            OR char_length(CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) <= 10
+          THEN CASE
+            WHEN (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '3%'
+              OR (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END) LIKE '0%'
+            THEN '39' || (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+            ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+          END
+          ELSE (CASE WHEN cifre LIKE '00%' THEN substr(cifre, 3) ELSE cifre END)
+        END
+      END AS controparte
+      FROM estratti
+    )
+    UPDATE comunicazioni AS c
+    SET cliente_id = ${input.clienteId},
+        commessa_id = ${input.commessaId},
+        match_confidenza = ${confidenza},
+        match_motivo = ${motivo},
+        stato = CASE
+          WHEN ${collega} THEN 'gestita'
+          WHEN stato = 'gestita'
+            AND categoria NOT IN ('offerta_marketing', 'spam') THEN 'vista'
+          ELSE stato
+        END
+    FROM normalizzati AS n
+    WHERE c.id = n.id AND n.controparte = ${controparte}`;
 
   return getConversazioneWhatsApp(input.sedeId, input.casellaId, controparte);
 }

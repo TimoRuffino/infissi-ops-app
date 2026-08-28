@@ -1099,7 +1099,13 @@ describe("conversazioni WhatsApp", () => {
     );
   });
 
-  it("risolve e cerca l'alias operatore senza oltrepassare cliente CRM o account", async () => {
+  it("l'alias operatore vince sul nome del cliente CRM, e resta per account", async () => {
+    // Precedenza invertita il 28/08/2026. Prima il nome del cliente CRM
+    // copriva l'alias, quindi su una conversazione collegata il nome scritto
+    // a mano non si vedeva mai — ed è proprio lì che serve: il profilo
+    // WhatsApp dice «Mario», il CRM dice «Rossi Mario», e in elenco si vuole
+    // leggere «Rossi — cantiere Via Verdi». Il cliente resta scritto nel
+    // pannello Contesto, quindi non si perde niente.
     await rinominaConversazioneWhatsApp({
       sedeId: 1,
       casellaId: 8,
@@ -1114,7 +1120,7 @@ describe("conversazioni WhatsApp", () => {
     expect(perAlias).toEqual([
       expect.objectContaining({
         casellaId: 8,
-        nomeProfilo: "Cliente CRM Lia",
+        nomeProfilo: "Casa Bianchi",
         aliasOperatore: "Casa Bianchi",
       }),
     ]);
@@ -1137,7 +1143,7 @@ describe("conversazioni WhatsApp", () => {
     const perAccount = await listConversazioniWhatsApp({ sedeId: 1 });
     expect(perAccount.find(conversazione => conversazione.casellaId === 8)).toMatchObject({
       aliasOperatore: "Casa Bianchi",
-      nomeProfilo: "Cliente CRM Lia",
+      nomeProfilo: "Casa Bianchi",
     });
     expect(perAccount.find(conversazione => conversazione.casellaId === 9)).toMatchObject({
       aliasOperatore: "Seconda linea",
@@ -1155,6 +1161,13 @@ describe("conversazioni WhatsApp", () => {
         conversazione => conversazione.casellaId === 9
       )
     ).toMatchObject({ aliasOperatore: null, nomeProfilo: "Profilo alternativo" });
+
+    // Tolto l'alias, torna a comandare il cliente CRM dove c'è.
+    expect(
+      (await listConversazioniWhatsApp({ sedeId: 1 })).find(
+        conversazione => conversazione.casellaId === 8
+      )
+    ).toMatchObject({ nomeProfilo: "Casa Bianchi" });
   });
 
   it("pagina il thread con un cursore composto senza buchi sui timestamp uguali", async () => {

@@ -23,6 +23,7 @@ import {
   trovaCasellaWhatsAppStorica,
   type Allegato,
   type NuovaComunicazione,
+  collegamentoManualeWhatsApp,
 } from "./comunicazioni";
 import { matchComunicazione } from "./match";
 import { getClientiStore } from "../routers/clienti";
@@ -852,14 +853,26 @@ async function registraMessaggio(
   if (!numero) throw new Error("controparte non determinabile");
   const testo = testoDaMessaggio(m);
   const allegati = allegatiDaMessaggio(m);
-  const match = matchComunicazione({
-    mittente: numero,
-    oggetto: "",
-    testo,
-    clienti: ctx.clienti,
-    commesse: ctx.commesse,
-    canale: "whatsapp",
-  });
+  // Un collegamento deciso a mano vince sul match automatico, sempre. Senza
+  // questo, il primo messaggio nuovo dopo il collegamento ripassava dal
+  // matcher e riportava la conversazione a com'era: agganciarla a mano
+  // durava fino alla risposta successiva del cliente.
+  const manuale = collegamentoManualeWhatsApp(config.sedeId, config.id, numero);
+  const match = manuale
+    ? {
+        clienteId: manuale.clienteId,
+        commessaId: manuale.commessaId,
+        confidenza: "alta" as const,
+        motivo: "Collegamento deciso dall'operatore sulla conversazione.",
+      }
+    : matchComunicazione({
+        mittente: numero,
+        oggetto: "",
+        testo,
+        clienti: ctx.clienti,
+        commesse: ctx.commesse,
+        canale: "whatsapp",
+      });
 
   // Fuori dalla coda dell'agente: lo storico importato, gli echo (li ha
   // scritti l'ufficio, non c'è nulla da proporre) e le cortesie brevi su

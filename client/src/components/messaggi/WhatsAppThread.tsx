@@ -203,9 +203,10 @@ export default function WhatsAppThread({
                 <h2 className="truncate text-sm font-bold">{conversation.nomeProfilo ?? conversation.controparte}</h2>
                 <p className="truncate text-xs text-text-3">{conversation.controparte}</p>
               </div>
-              {conversation.clienteId == null && (
-                <Button size="icon" variant="ghost" className="size-11 shrink-0" onClick={() => setEditingName(true)} aria-label="Rinomina conversazione" title="Rinomina conversazione"><Pencil className="size-4" /></Button>
-              )}
+              {/* Sempre, anche con un cliente collegato: l'alias è
+                  l'etichetta dell'operatore e ora vince sul nome CRM, che
+                  resta comunque scritto nel pannello Contesto. */}
+              <Button size="icon" variant="ghost" className="size-11 shrink-0" onClick={() => setEditingName(true)} aria-label="Rinomina conversazione" title="Rinomina conversazione"><Pencil className="size-4" /></Button>
             </div>
           )}
         </div>

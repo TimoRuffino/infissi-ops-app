@@ -40,6 +40,7 @@ import {
   type ConfigWhatsApp,
 } from "../tars/whatsapp";
 import {
+  collegaConversazioneWhatsApp,
   deleteComunicazione,
   deleteComunicazioniByCasella,
   getComunicazione,
@@ -63,6 +64,7 @@ import {
 } from "../tars/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
 import { getClientiStore } from "./clienti";
+import { getCommesseStore } from "./commesse";
 import {
   archiviaAllegatoComunicazione,
   StorageAllegatoTemporaneamenteNonDisponibile,
@@ -130,6 +132,13 @@ const whatsappRenameInput = z.object({
   casellaId: z.number(),
   controparte: z.string().min(1).max(100),
   nome: z.string().max(100),
+});
+
+const whatsappCollegaInput = z.object({
+  casellaId: z.number(),
+  controparte: z.string().min(1).max(100),
+  clienteId: z.number().int().positive().nullable(),
+  commessaId: z.number().int().positive().nullable(),
 });
 
 export const mailRouter = router({
@@ -343,6 +352,65 @@ export const mailRouter = router({
         return result;
       }),
 
+    /**
+     * Collega o scollega a mano cliente e commessa di una conversazione.
+     *
+     * Il match automatico sbaglia o non trova: un numero nuovo, un cliente
+     * che scrive dal telefono della moglie, una commessa il cui codice non
+     * compare mai nei messaggi. Senza un modo di deciderlo a mano, la
+     * conversazione restava senza contesto per sempre — niente appuntamenti,
+     * niente ticket, niente proposte Tars.
+     */
+    collegaConversazione: protectedProcedure
+      .input(whatsappCollegaInput)
+      .mutation(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? 1;
+        // Isolamento sede: un record di un'altra sede deve dare NOT_FOUND,
+        // mai un errore che ne confermi l'esistenza.
+        let clienteId = input.clienteId;
+        if (input.commessaId != null) {
+          const commessa = getCommesseStore().find(
+            (c: any) => c.id === input.commessaId && c.sedeId === sedeId
+          );
+          if (!commessa) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Commessa non trovata.",
+            });
+          }
+          // Il cliente lo detta la commessa: due verità diverse sulla stessa
+          // conversazione non servono a nessuno.
+          clienteId = (commessa as any).clienteId ?? input.clienteId ?? null;
+        }
+        if (clienteId != null) {
+          const cliente = getClientiStore().find(
+            (c: any) => c.id === clienteId && (c.sedeId ?? 1) === sedeId
+          );
+          if (!cliente) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Cliente non trovato.",
+            });
+          }
+        }
+
+        const result = await collegaConversazioneWhatsApp({
+          casellaId: input.casellaId,
+          controparte: input.controparte,
+          sedeId,
+          clienteId,
+          commessaId: input.commessaId,
+          motivo: `Collegata a mano da ${ctx.user?.name ?? "un operatore"}.`,
+        });
+        if (!result) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Conversazione non trovata.",
+          });
+        }
+        return result;
+      }),
+
     segnaVista: protectedProcedure
       .input(
         z.object({
@@ -379,12 +447,12 @@ export const mailRouter = router({
             message: "Conversazione non trovata.",
           });
         }
-        if (thread.conversazione.clienteId != null) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "La conversazione è collegata a un cliente CRM.",
-          });
-        }
+        // Rinominare non era permesso su una conversazione collegata, perché
+        // il nome veniva dal cliente CRM. Ma è proprio lì che serve: il
+        // profilo WhatsApp dice «Mario», il CRM dice «Rossi Mario», e in
+        // elenco si vuole leggere «Rossi — cantiere Via Verdi». L'alias ora
+        // vince sul nome CRM, e il cliente resta scritto nel pannello
+        // Contesto: non si perde niente.
         const result = await rinominaConversazioneWhatsApp({
           ...input,
           sedeId: ctx.sedeId ?? 1,

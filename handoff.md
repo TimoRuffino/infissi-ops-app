@@ -631,6 +631,43 @@ OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.
 criteri separati di competenza/cassa, confronto incassi, aggregati mensili e
 affidabilità, senza documenti contabili completi.
 
+**WhatsApp: rinominare e collegare a mano** (28/08/2026). Due cose che
+mancavano nella scheda `/messaggi/whatsapp`.
+
+*Rinominare* esisteva ma era vietato su una conversazione già collegata a un
+cliente, perché il nome veniva dal CRM. Era il contrario del bisogno: il
+profilo WhatsApp dice «Mario», il CRM dice «Rossi Mario», e in elenco si vuole
+leggere «Rossi — cantiere Via Verdi». La precedenza è ora
+`alias → cliente CRM → profilo WhatsApp → numero`, il divieto è caduto e la
+matita si vede sempre. Il nome del cliente resta scritto nel pannello
+Contesto, quindi non si perde niente.
+
+*Collegare* non esisteva affatto: `clienteId`/`commessaId` arrivavano solo dal
+match automatico sui singoli messaggi, e quando quello sbagliava o non trovava
+— un numero nuovo, il cliente che scrive dal telefono della moglie, una
+commessa il cui codice non compare mai nei messaggi — la conversazione restava
+senza contesto per sempre: niente appuntamenti, niente ticket, niente proposte
+Tars. Ora `mail.whatsapp.collegaConversazione` fa le due cose che servono
+insieme:
+
+1. scrive un **override** nello store `whatsapp_conversation_aliases` (che da
+   nome-soltanto è diventato nome + `clienteId` + `commessaId`, con i record
+   vecchi leggibili e i campi nuovi a `null`). Vale anche per i messaggi che
+   devono ancora arrivare: `registraMessaggio` lo consulta PRIMA del matcher,
+   perché riscrivere solo lo storico aggancia il passato e alla prima risposta
+   del cliente la conversazione tornava scollegata;
+2. riscrive le righe `comunicazioni` già esistenti, perché Inbox, Tars e le
+   proposte leggono da lì — senza, la scheda WhatsApp avrebbe detto una cosa e
+   il resto del CRM un'altra.
+
+Collegare una commessa detta anche il cliente, preso dalla commessa: due
+verità sulla stessa conversazione non servono a nessuno. Scollegare il cliente
+scollega anche la commessa. Cliente e commessa di un'altra sede danno
+`NOT_FOUND`, mai un errore che ne confermi l'esistenza. Il pannello Contesto
+dichiara con un badge se il collegamento è «a mano» o «automatico»: il matcher
+può sbagliare, una persona no, e chi legge deve sapere quale dei due sta
+guardando.
+
 **Azione produzione obbligatoria dopo il deploy:** ogni sede deve premere
 `Ricollega e aggiorna permessi` in Integrazioni, completare OAuth e poi
 `Sincronizza ora`. I token esistenti non acquisiscono automaticamente i nuovi

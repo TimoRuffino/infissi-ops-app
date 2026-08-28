@@ -296,6 +296,144 @@ describe("mail channel APIs", () => {
     ).resolves.toMatchObject({ aliasOperatore: null });
   });
 
+  it("rinomina anche una conversazione collegata a un cliente", async () => {
+    // Il divieto precedente era esattamente al contrario del bisogno: il
+    // profilo WhatsApp dice «Mario», il CRM dice «Rossi Mario», e in elenco
+    // si vuole leggere «Rossi — cantiere Via Verdi».
+    const clienti = getClientiStore();
+    const cliente = {
+      id: 90_001,
+      sedeId: 1,
+      cognome: "Rossi",
+      nome: "Mario",
+      telefono: "+393331112222",
+    } as any;
+    clienti.push(cliente);
+    try {
+      await insertComunicazione(
+        nuovoMessaggioWhatsApp({ clienteId: cliente.id, matchConfidenza: "alta" })
+      );
+      const caller = appRouter.createCaller(createContext(1));
+
+      await expect(
+        caller.mail.whatsapp.rinominaConversazione({
+          casellaId: 8,
+          controparte: "+393331112222",
+          nome: "Rossi — cantiere Via Verdi",
+        })
+      ).resolves.toMatchObject({
+        aliasOperatore: "Rossi — cantiere Via Verdi",
+        // L'alias vince sul nome CRM: è il motivo per cui lo si scrive.
+        nomeProfilo: "Rossi — cantiere Via Verdi",
+        clienteId: cliente.id,
+      });
+    } finally {
+      clienti.splice(clienti.indexOf(cliente), 1);
+    }
+  });
+
+  it("collega a mano cliente e commessa, e il collegamento vale per i messaggi nuovi", async () => {
+    const clienti = getClientiStore();
+    const commesse = getCommesseStore();
+    const cliente = {
+      id: 90_002,
+      sedeId: 1,
+      cognome: "Bianchi",
+      nome: "Luca",
+    } as any;
+    const commessa = {
+      id: 90_003,
+      sedeId: 1,
+      codice: "COM-2026-9003",
+      cliente: "Bianchi Luca",
+      clienteId: cliente.id,
+    } as any;
+    clienti.push(cliente);
+    commesse.push(commessa);
+    try {
+      const primo = await insertComunicazione(nuovoMessaggioWhatsApp());
+      const caller = appRouter.createCaller(createContext(1));
+
+      const collegata = await caller.mail.whatsapp.collegaConversazione({
+        casellaId: 8,
+        controparte: "333 111 2222",
+        clienteId: null,
+        commessaId: commessa.id,
+      });
+      // Collegare la commessa detta anche il cliente: due verità sulla
+      // stessa conversazione non servono a nessuno.
+      expect(collegata).toMatchObject({
+        clienteId: cliente.id,
+        commessaId: commessa.id,
+        collegamentoManuale: true,
+      });
+
+      // Lo storico è riscritto: Inbox, Tars e proposte leggono da lì.
+      expect(await getComunicazione(primo!.id, 1)).toMatchObject({
+        clienteId: cliente.id,
+        commessaId: commessa.id,
+        stato: "gestita",
+      });
+
+      // E un messaggio che arriva DOPO resta agganciato, senza ripassare dal
+      // match automatico: era il difetto che rendeva il collegamento inutile.
+      await insertComunicazione(
+        nuovoMessaggioWhatsApp({
+          messageId: "wa-dopo-collegamento",
+          testo: "Messaggio successivo",
+          receivedAt: new Date("2026-08-23T10:00:00Z"),
+        })
+      );
+      const dopo = await caller.mail.whatsapp.conversazioni({ limit: 20 });
+      expect(
+        dopo.find(c => c.casellaId === 8 && c.controparte === "+393331112222")
+      ).toMatchObject({ commessaId: commessa.id, collegamentoManuale: true });
+
+      // Scollegare riporta tutto a zero.
+      await expect(
+        caller.mail.whatsapp.collegaConversazione({
+          casellaId: 8,
+          controparte: "+393331112222",
+          clienteId: null,
+          commessaId: null,
+        })
+      ).resolves.toMatchObject({
+        clienteId: null,
+        commessaId: null,
+        collegamentoManuale: false,
+      });
+    } finally {
+      clienti.splice(clienti.indexOf(cliente), 1);
+      commesse.splice(commesse.indexOf(commessa), 1);
+    }
+  });
+
+  it("non collega una conversazione a una commessa di un'altra sede", async () => {
+    const commesse = getCommesseStore();
+    const commessa = {
+      id: 90_004,
+      sedeId: 2,
+      codice: "COM-2026-9004",
+      cliente: "Altra sede",
+      clienteId: null,
+    } as any;
+    commesse.push(commessa);
+    try {
+      await insertComunicazione(nuovoMessaggioWhatsApp());
+      const caller = appRouter.createCaller(createContext(1));
+      await expect(
+        caller.mail.whatsapp.collegaConversazione({
+          casellaId: 8,
+          controparte: "+393331112222",
+          clienteId: null,
+          commessaId: commessa.id,
+        })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    } finally {
+      commesse.splice(commesse.indexOf(commessa), 1);
+    }
+  });
+
   it("segna vista solo la conversazione WhatsApp di sede account e controparte", async () => {
     const target = await insertComunicazione(nuovoMessaggioWhatsApp());
     const altroAccount = await insertComunicazione(
