@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.1 - Riconciliazione documentale post-rimozione: le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54). Tutto il resto è comportamento corrente.
+**Versione:** 5.2 - Autorizzazioni sui dati economici (§37.5) sopra la riconciliazione documentale della v5.1: le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54). Tutto il resto è comportamento corrente.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -374,7 +374,7 @@ Mostra: codice, badge priorità, cliente, città, indicatore di consegna (data c
 - **Bordo sinistro 3 px** colorato per priorità (urgente rosso, alta ambra, media blu, bassa grigio).
 - **Chip "fermo N gg"** quando la commessa non riceve update da ≥5 giorni (ambra) o ≥10 (rossa).
 - **Blocco prodotti magazzino**: primi 2 prodotti con data consegna corta (✓ verde arrivato, rosso in ritardo) + "+N altri prodotti" (vedi §36).
-- **Chip "Da saldare € N"** (rossa) nelle fasi `attesa_posa`/`finiture_saldo`/`interventi_regolazioni` quando il residuo pagamenti è > 0 (vedi §37).
+- **Chip "Da saldare"** (rossa, senza importo) nelle fasi `attesa_posa`/`finiture_saldo`/`interventi_regolazioni` quando il residuo pagamenti è > 0. Dal 28/08/2026 il Board non trasporta cifre: il chip usa il solo booleano `daSaldare` del server, e gli importi vivono nella scheda e in `/pagamenti`, dietro capability (§37.5).
 
 ### 11.2‑bis Colonne con overflow
 Ogni colonna mostra al massimo **5 card**; oltre compare il toggle tratteggiato "Mostra altre N" / "Mostra meno" per non forzare scroll infiniti.
@@ -663,7 +663,9 @@ responsabile, scadenza o revisione, evidenze e una sola prossima azione.
 ### 25.2 Segnali e deduplica
 Il motore puro raccoglie aging per priorità, passaggi bottleneck, routing per
 ruolo, consegna mancante, saldo residuo, garanzia, ticket e intervento senza
-squadra. Segnali della stessa commessa confluiscono in un solo caso canonico;
+squadra. I casi sono superfici condivise: il segnale del saldo non contiene
+importi e il suo fingerprint usa la versione del registro pagamenti, mai il
+residuo (§37.3, §37.5). Segnali della stessa commessa confluiscono in un solo caso canonico;
 ticket, garanzie e interventi senza commessa mantengono un caso autonomo. La
 priorità più alta non viene mai scartata e le altre cause restano come evidenze.
 
@@ -720,7 +722,7 @@ retry. Cambio sede e logout azzerano la cache prima di cambiare principal.
 - Fonti, ordinate per urgenza e cap a 8 voci:
   1. Interventi di **oggi senza squadra** (CTA "Apri calendario").
   2. Commesse **urgenti** / ticket urgenti / garanzie scadute.
-  3. **Da incassare € N** — residuo pagamenti nelle fasi finali.
+  3. **Da incassare** — residuo pagamenti nelle fasi finali. L'importo compare solo per chi ha `pagamento.read` (il server lo omette agli altri, che leggono «Da incassare il saldo», §37.5).
   4. **Consegne da confermare** (CTA "Conferma consegna").
   5. Ticket aperti sulle proprie commesse.
   6. Garanzie in scadenza 30 gg (direzione/amministrazione).
@@ -882,6 +884,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.2 (28/08/2026)** - Slice 2 «dati economici dietro capability» (§37.5): registro pagamenti, costi e margine viaggiano solo con `pagamento.read`/`economia.read` (payload sagomati, mai errori sulla parte operativa); scritture acconti dietro `pagamento.record` con override individuale auditato; `/pagamenti` riservata; Board, liste, Dashboard, Centro Azioni e notifiche senza importi (bit `daSaldare` e versione del registro al posto delle cifre); `permessi.mie` per la parità di policy nella UI. La matrice vale identica in ogni `policyMode` (`legacyAllowed: "capability"`).
 - **v5.1 (28/08/2026)** - Riconciliazione documentale post-rimozione: §51 e §53 riscritti sul comportamento corrente (nessuna classificazione automatica, nessuna proposta, flag di sola lettura, limite noto sugli allegati WhatsApp); §40.4-40.5 allineati alla riconciliazione senza agente; nuova sezione §54 con la visione del futuro agente, marcata non implementata, inclusa la Document Intelligence decisa dalla direzione (§54.6, decisione D7): comprensione verificabile dei documenti — priorità alle conferme d'ordine PDF — da realizzare dopo la slice authz e prima delle capacità operative avanzate; correzioni minori (poller IMAP a 5 minuti, route legacy). Il PDF `PRD_infissi_ops_v4.pdf` resta il riferimento storico della v4.
 - **v5.0 (28/08/2026)** - Tars rimosso per intero su richiesta della direzione: va rifatto da zero. L'infrastruttura comunicazioni (tabella, IMAP, WhatsApp, caselle, matcher, filtri) è stata spostata in `server/comunicazioni/` perché non era l'agente; la Conoscenza aziendale ha un router suo. I dati dell'agente sono stati esportati e cancellati. Smistamento automatico, proposte, classificazione AI dei costi e analisi dei casi non esistono più (§50).
 - **v4.33 (26/08/2026)** - Un promemoria con data e ora complete genera direttamente una sola proposta approvabile; Tars chiede soltanto i dati temporali mancanti e non aggiunge una conferma preliminare (§50.11).
@@ -1021,9 +1024,34 @@ chiave sorgente, stato remoto e date di sync/storno.
 - Accent warning sulla card finché c'è residuo.
 
 ### 37.3 Propagazione
-- Board: chip "Da saldare € N" nelle fasi finali (§11.2).
-- Dashboard: voce "Da incassare € N" nel feed personalizzato (§26.2).
-- Notifiche: fonte 4b (§25.2) — l'id embedde il residuo, un incasso parziale ri‑notifica il nuovo valore.
+- Board: chip "Da saldare" senza importo nelle fasi finali (§11.2).
+- Dashboard: voce "Da incassare" nel feed personalizzato (§26.2), con importo solo per chi ha `pagamento.read`.
+- Notifiche e Centro Azioni: il testo condiviso non contiene importi («Saldo residuo da incassare»); id e fingerprint usano la **versione del registro** (conteggio movimenti attivi + timestamp ultima modifica, `versioneRegistroPagamenti`), così un incasso parziale ri‑notifica e risveglia il caso senza che dall'identificativo si possa ricostruire una cifra.
+
+### 37.5 Autorizzazioni sui dati economici (28/08/2026)
+La matrice confermata dalla direzione (dettagli e decisioni in
+`docs/reports/slice-2-authz-economia-proposta.md`) è applicata **lato server**
+in ogni `policyMode`; la UI è solo la seconda protezione:
+
+- il registro `pagamenti[]` richiede `pagamento.read`; `costi[]`,
+  `costoPosaStimato` e il margine richiedono `economia.read`. `commesse.byId`
+  e le risposte delle mutation **omettono** i campi non autorizzati (nessun
+  errore: la parte operativa resta usabile, con `nPagamenti` come conteggio);
+- la sintesi della scheda — pattuito, incassato, residuo, piano rate — resta
+  visibile a chi lavora la commessa;
+- `commesse.list` e `commesse.byPriorita` non trasmettono cifre agli utenti
+  senza `pagamento.read`: espongono il solo booleano `daSaldare` (e non
+  trasportano mai registro, costi o prodotti);
+- registrare, modificare, rimuovere o correggere un acconto richiede
+  `pagamento.record`: amministrazione e direzione dal ruolo, gli altri solo
+  con un **override individuale** (`permessi.updateOverride`, motivato e
+  auditato in `policy_change_events`) — mai assegnato all'intero ruolo
+  commerciale;
+- la pagina `/pagamenti` («vista cassa di sede») e `pagamentiRecenti`
+  richiedono `pagamento.read`; la voce di sidebar segue la stessa policy via
+  `permessi.mie`;
+- le superfici condivise (Board, feed, casi operativi, notifiche) non
+  contengono importi né valori da cui ricostruirli (§37.3).
 
 ### 37.4 Pagina Pagamenti (`/pagamenti`)
 Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no archiviate).

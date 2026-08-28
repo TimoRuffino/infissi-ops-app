@@ -888,6 +888,53 @@ percorso di archiviazione allegati; `commesse.correggiPagamento` non ha UI.
 Verifica: `pnpm check` (con `scripts/`), `pnpm test` 61 file / 501 test,
 `pnpm build` — tutti verdi in locale.
 
+### Slice 2 — dati economici dietro capability (28/08/2026, notte) — COMPLETATA
+
+Chiude R4 e R5 del dossier secondo la matrice confermata dalla direzione
+(`docs/reports/slice-2-authz-economia-proposta.md`, ora marcata
+implementata). Contratto completo nel PRD §37.5. In sintesi:
+
+- `commesse.byId`, `list`, `byPriorita` e le risposte di ogni mutation sono
+  **sagomate**: registro `pagamenti[]` solo con `pagamento.read`, `costi[]` e
+  `costoPosaStimato` solo con `economia.read`; campi omessi, mai errori. La
+  sintesi della scheda (pattuito, incassato, residuo, piano rate,
+  `nPagamenti`) resta per chi lavora la commessa. Liste e Board trasportano
+  il solo booleano `daSaldare`.
+- `addPagamento`/`updatePagamento`/`removePagamento`/`correggiPagamento` e
+  `pagamentiRecenti` passano da `authorizeCoreOperation` con il nuovo regime
+  `legacyAllowed: "capability"`: la decisione del motore (ruoli + override
+  individuali) vale in OGNI `policyMode`, quindi un override su
+  `pagamento.record` (creato da `permessi.updateOverride`, motivato e
+  auditato) abilita il singolo utente anche oggi in `legacy`. Il ruolo
+  commerciale NON riceve la capability.
+- `/pagamenti` è riservata a `pagamento.read` (guardia pagina + voce sidebar
+  via la nuova query `permessi.mie`); il chip «Da saldare» del Board è
+  binario senza cifra per chiunque; il feed Dashboard mostra l'importo solo
+  agli autorizzati.
+- **Superfici condivise bonificate** (stessa classe di R4): il caso saldo del
+  Centro Azioni e la notifica legacy dicono «Saldo residuo da incassare»
+  senza cifre; id e fingerprint usano `versioneRegistroPagamenti`
+  (conteggio+timestamp) così l'incasso parziale ri-notifica ma nessun importo
+  è ricostruibile dal payload. Sweep sulle altre superfici (notifiche
+  persistenti, chat, eventi, promemoria): nessun altro importo trovato.
+- Test: `authzEconomia.test.ts`, 17 casi — shaping e leak-check sul
+  serializzato, scritture negate/consentite, override con audit, deny che
+  prevale sul ruolo, parità in `enforce`, cross-sede, superfici condivise
+  (fingerprint che si risveglia a ogni incasso, notifica senza cifre che
+  sparisce a saldo). Suite: 62 file / 518 test verdi; `pnpm check` e build ok.
+- Verifica visiva su run demo: direzione con registro/comandi e /pagamenti
+  completa; commerciale con sintesi senza registro, sidebar senza vista
+  cassa, /pagamenti «Accesso riservato», Board binario, notifica saldo senza
+  importo; controllo di rete della sessione non autorizzata: nessuna cifra
+  nei payload, `pagamentiRecenti` 403.
+
+Effetti visibili da comunicare alle sedi: il Board non mostra più l'importo
+del saldo (la cifra sta in scheda e in /pagamenti); i ruoli operativi non
+vedono più registro e costi via API; chi registrava acconti senza essere
+amministrazione va censito e abilitato con un override individuale. Le
+notifiche saldo esistenti cambiano id al primo ricalcolo (una ri-notifica una
+tantum).
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
@@ -1081,11 +1128,10 @@ pnpm storage:dry-run
    database.
 9. Verifica su Railway delle query PostgreSQL della chat aziendale: le suite
    locali esercitano solo il fallback in memoria.
-10. **Slice 2 authz (R4/R5), approvata e non ancora implementata**: capability
-    su dati economici e registro pagamenti. Spec con matrice confermata dalla
-    direzione in `docs/reports/slice-2-authz-economia-proposta.md`
-    (`/pagamenti` dietro `pagamento.read`; chip Board senza importi; acconti
-    per override individuale con audit).
+10. ~~Slice 2 authz (R4/R5)~~ **COMPLETATA il 28/08/2026** (v. §7, «Slice 2 —
+    dati economici dietro capability»). Resta l'azione operativa: censire chi
+    registrava acconti senza essere amministrazione e creare gli override
+    individuali da Permessi.
 11. Fotografia read-only della produzione secondo
     `docs/runbooks/verifica-produzione-readonly.md` (nessuna modifica senza
     autorizzazione esplicita).

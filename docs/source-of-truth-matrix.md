@@ -48,6 +48,7 @@ operatore prevale sul match o sul sync e non viene riscritta.
 | Classificazione costi FiC | Operatore in Acquisti (`ficCosti`) | Nessun modello dal 28/08/2026; `dubbio` escluso dal pareggio |
 | Break-even | Server: `calcolaBreakEven` su periodo base unico | `margineManuale` e `includiStraordinari` per sede |
 | Margine di commessa | **Stima CRM**: `costi[]` embedded + `costoPosaStimato` | Non è contabilità; gli ordini fornitore non alimentano il margine |
+| Visibilità dei dati economici | Capability (`pagamento.read`, `pagamento.record`, `economia.read`) applicate dal server in ogni `policyMode` (PRD §37.5) | I payload omettono i campi non autorizzati; la sintesi della scheda resta operativa; le superfici condivise (Board, liste, casi, notifiche) non trasportano importi ma solo bit operativi (`daSaldare`, versione registro) |
 | `CostoFic.commessaId` | Campo legacy, nessuna API/UI lo scrive | Non usarlo |
 
 ## Comunicazioni e documenti

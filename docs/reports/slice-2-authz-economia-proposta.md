@@ -1,10 +1,12 @@
-# Slice 2 — Dati economici e pagamenti dietro capability (spec approvata)
+# Slice 2 — Dati economici e pagamenti dietro capability (IMPLEMENTATA)
 
-> Spec della slice autorizzata con la decisione D3 e **matrice confermata
-> dalla direzione il 28/08/2026** (punti 1–5 in fondo). Chiude i rischi R4 e
-> R5 del Discovery Dossier usando il capability layer esistente, senza ruoli
-> hardcoded. **Non ancora implementata**: prossima slice in coda, prima della
-> Document Intelligence (D7).
+> Spec autorizzata con la decisione D3, matrice confermata dalla direzione il
+> 28/08/2026 e **implementata lo stesso giorno**, incluso il perimetro
+> aggiuntivo richiesto: bonifica delle superfici condivise (caso saldo del
+> Centro Azioni e notifica legacy senza importi, ri-notifica via
+> `versioneRegistroPagamenti`). Comportamento canonico documentato nel PRD
+> §37.5; registro operativo nell'handoff («Slice 2 — dati economici dietro
+> capability»). Questo file resta come spec e motivazioni delle decisioni.
 
 ## Problema (VERIFICATO)
 
