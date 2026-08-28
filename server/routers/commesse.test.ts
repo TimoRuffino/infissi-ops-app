@@ -1,0 +1,329 @@
+// Test del dominio centrale: state machine, doc gate, cleanup di rollback,
+// regime del pattuito (FiC vs manuale), registro pagamenti e isolamento sede.
+// Sono le invarianti I1-I6 del discovery dossier (28/08/2026): prima di
+// questa suite il router non aveva un file di test proprio.
+
+import { describe, expect, it, vi } from "vitest";
+
+// L'upload dei documenti passa dal layer storage: nei test i byte non devono
+// finire su disco. Stesso pattern di preventiviContratti.test.ts.
+vi.mock("../_core/fileStorage", async importOriginal => {
+  const actual = await importOriginal<typeof import("../_core/fileStorage")>();
+  return {
+    ...actual,
+    putFile: vi.fn(async () => ({
+      storageKey: "preventivi_documenti/test/doc.pdf",
+      checksum: "a".repeat(64),
+    })),
+  };
+});
+
+import type { TrpcContext } from "../_core/context";
+import { appRouter } from "../routers";
+import {
+  STATI_COMMESSA,
+  applicaPattuitoDaFic,
+  getCommessaById,
+} from "./commesse";
+import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
+
+const SEDE = 90101;
+const ALTRA_SEDE = 90102;
+
+function context(
+  userId: number,
+  roles: string[] = ["direzione"],
+  sedeId = SEDE
+): TrpcContext {
+  return {
+    user: {
+      id: userId,
+      role: roles.includes("direzione") ? "admin" : "user",
+      ruolo: roles[0],
+      ruoli: roles,
+      name: `Utente ${userId}`,
+    } as any,
+    req: { protocol: "http", headers: {} } as any,
+    res: {} as any,
+    sedeId,
+    sediIds: [sedeId],
+  };
+}
+
+const direzione = (sedeId = SEDE) =>
+  appRouter.createCaller(context(90111, ["direzione"], sedeId));
+
+/** Porta una commessa allo stato voluto passo per passo, con force. */
+async function portaAllo(
+  caller: ReturnType<typeof direzione>,
+  id: number,
+  targetIdx: number
+) {
+  for (let step = 1; step <= targetIdx; step++) {
+    await caller.commesse.update({
+      id,
+      stato: STATI_COMMESSA[step],
+      force: true,
+    });
+  }
+}
+
+describe("state machine della commessa", () => {
+  it("consente esattamente le transizioni adiacenti, nei due versi, anche con force", async () => {
+    const caller = direzione();
+    for (let from = 0; from < STATI_COMMESSA.length; from++) {
+      for (let to = 0; to < STATI_COMMESSA.length; to++) {
+        if (from === to) continue;
+        const commessa = await caller.commesse.create({
+          cliente: `SM ${from}->${to}`,
+        });
+        await portaAllo(caller, commessa.id, from);
+
+        const tentativo = caller.commesse.update({
+          id: commessa.id,
+          stato: STATI_COMMESSA[to],
+          force: true,
+        });
+        if (Math.abs(to - from) === 1) {
+          await expect(tentativo).resolves.toMatchObject({
+            stato: STATI_COMMESSA[to],
+          });
+        } else {
+          // `force` salta solo il doc gate: la forma del workflow resta.
+          await expect(tentativo).rejects.toThrow(
+            /Transizione non consentita/
+          );
+        }
+      }
+    }
+  });
+
+  it("entrare in archiviata imposta dataChiusura; tornare indietro la azzera", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Chiusura" });
+    await portaAllo(caller, commessa.id, STATI_COMMESSA.length - 1);
+    const archiviata = getCommessaById(commessa.id) as any;
+    expect(archiviata.stato).toBe("archiviata");
+    expect(archiviata.dataChiusura).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const riaperta = await caller.commesse.update({
+      id: commessa.id,
+      stato: "interventi_regolazioni",
+    });
+    expect(riaperta.stato).toBe("interventi_regolazioni");
+    expect(riaperta.dataChiusura).toBeNull();
+  });
+
+  it("uscire all'indietro da produzione azzera la consegna confermata", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Consegna" });
+    await portaAllo(caller, commessa.id, STATI_COMMESSA.indexOf("produzione"));
+    await caller.commesse.confermaDataConsegna({
+      id: commessa.id,
+      dataConsegna: "2026-09-15",
+    });
+
+    const indietro = await caller.commesse.update({
+      id: commessa.id,
+      stato: "da_ordinare",
+    });
+    expect(indietro.dataConsegnaConfermata).toBeNull();
+
+    // In avanti la consegna confermata non viene toccata.
+    await caller.commesse.confermaDataConsegna({
+      id: commessa.id,
+      dataConsegna: "2026-09-20",
+    });
+    const avanti = await caller.commesse.update({
+      id: commessa.id,
+      stato: "produzione",
+      force: true,
+    });
+    expect(avanti.dataConsegnaConfermata).toBe("2026-09-20");
+  });
+});
+
+describe("doc gate", () => {
+  it("blocca l'avanzamento senza documento, con marker riconoscibile, e force lo supera", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Gate" });
+
+    await expect(
+      caller.commesse.update({ id: commessa.id, stato: "misure_esecutive" })
+    ).rejects.toThrow(/DOC_GATE_BLOCKED/);
+
+    await expect(
+      caller.commesse.update({
+        id: commessa.id,
+        stato: "misure_esecutive",
+        force: true,
+      })
+    ).resolves.toMatchObject({ stato: "misure_esecutive" });
+  });
+
+  it("un documento del tipo richiesto, caricato nello stato corrente, apre il gate senza force", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Gate Doc" });
+    await caller.preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+
+    await expect(
+      caller.commesse.update({ id: commessa.id, stato: "misure_esecutive" })
+    ).resolves.toMatchObject({ stato: "misure_esecutive" });
+
+    // Il preventivo caricato in `preventivo` non soddisfa il gate dello
+    // stato successivo (`misure_esecutive` richiede `misure`).
+    await expect(
+      caller.commesse.update({
+        id: commessa.id,
+        stato: "aggiornamento_contratto",
+      })
+    ).rejects.toThrow(/DOC_GATE_BLOCKED/);
+  });
+});
+
+describe("pattuito: fonte FiC contro manuale", () => {
+  const documentoFic: DocumentoFicPerPiano = {
+    id: 990001,
+    tipo: "invoice",
+    numero: "TEST 1/2026",
+    data: "2026-01-10",
+    importoLordo: 1000,
+    rate: [
+      {
+        id: 1,
+        sourceKey: "fic:test:990001:1",
+        importo: 1000,
+        scadenza: "2026-02-01",
+        stato: "not_paid",
+        dataPagamento: null,
+      },
+    ],
+  };
+
+  it("con una fattura collegata pattuito e rate non sono scrivibili, nemmeno dalla direzione", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Fonte FiC" });
+    applicaPattuitoDaFic(commessa.id, [documentoFic]);
+
+    const pattuito = await caller.commesse.pattuito(commessa.id);
+    expect(pattuito.fonte).toBe("fic");
+    expect(pattuito.modificabile).toBe(false);
+    expect(pattuito.importoTotale).toBe(1000);
+
+    await expect(
+      caller.commesse.update({ id: commessa.id, importoTotale: 99999 })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(
+      caller.commesse.addRata({ commessaId: commessa.id, importo: 500 })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  it("senza fatture collegate la commessa torna manuale e scrivibile", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Fonte manuale" });
+    applicaPattuitoDaFic(commessa.id, [documentoFic]);
+    applicaPattuitoDaFic(commessa.id, []);
+
+    const pattuito = await caller.commesse.pattuito(commessa.id);
+    expect(pattuito.fonte).toBe("manuale");
+    expect(pattuito.modificabile).toBe(true);
+    // Le rate derivate da FiC spariscono; l'importo mostrato resta.
+    expect(pattuito.rate.filter(r => r.origine === "fic")).toHaveLength(0);
+
+    await expect(
+      caller.commesse.update({ id: commessa.id, importoTotale: 2000 })
+    ).resolves.toMatchObject({ importoTotale: 2000 });
+    const rate = await caller.commesse.addRata({
+      commessaId: commessa.id,
+      importo: 800,
+      scadenza: "2026-03-01",
+    });
+    expect(rate).toHaveLength(1);
+    expect(rate[0].origine).toBe("manuale");
+  });
+});
+
+describe("registro pagamenti", () => {
+  it("importoIncassato è la somma dei soli movimenti attivi", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Incassi" });
+    await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 300,
+      data: "2026-08-01",
+    });
+    const dopo = await caller.commesse.addPagamento({
+      commessaId: commessa.id,
+      importo: 200,
+      data: "2026-08-10",
+    });
+    expect(dopo.importoIncassato).toBe(500);
+  });
+
+  it("i movimenti origine=fic sono immutabili dalle mutation manuali", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Movimenti FiC" });
+    const record = getCommessaById(commessa.id) as any;
+    record.pagamenti.push({
+      id: 501,
+      importo: 400,
+      data: "2026-08-05",
+      metodo: null,
+      note: null,
+      origine: "fic",
+      stato: "attivo",
+      ficDocumentoId: 990002,
+      ficRataId: 1,
+      ficSourceKey: "fic:test:990002:1",
+      ficStato: "paid",
+      ficUltimoSyncAt: new Date(),
+      stornatoAt: null,
+      createdAt: new Date(),
+      updatedAt: null,
+    });
+
+    await expect(
+      caller.commesse.updatePagamento({
+        commessaId: commessa.id,
+        pagamentoId: 501,
+        importo: 1,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(
+      caller.commesse.removePagamento({
+        commessaId: commessa.id,
+        pagamentoId: 501,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+});
+
+describe("isolamento sede", () => {
+  it("una commessa di un'altra sede non esiste: null in lettura, NOT_FOUND in scrittura", async () => {
+    const locale = direzione(SEDE);
+    const remoto = direzione(ALTRA_SEDE);
+    const commessa = await locale.commesse.create({ cliente: "Solo sede A" });
+
+    await expect(remoto.commesse.byId(commessa.id)).resolves.toBeNull();
+    await expect(
+      remoto.commesse.update({ id: commessa.id, note: "intrusione" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      remoto.commesse.addPagamento({ commessaId: commessa.id, importo: 10 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(remoto.commesse.archive(commessa.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    // La lista dell'altra sede non lo contiene.
+    const lista = await remoto.commesse.list({});
+    expect(lista.some(c => c.id === commessa.id)).toBe(false);
+  });
+});
