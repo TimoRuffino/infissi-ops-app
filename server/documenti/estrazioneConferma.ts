@@ -141,6 +141,31 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Cerca un riferimento testuale esatto (case-insensitive) nelle pagine e
+ * restituisce l'evidenza della prima occorrenza. È il mattone del
+ * collegamento assistito (slice 2): ogni segnale di un candidato deve poter
+ * citare pagina e frammento, come i campi dell'estrazione.
+ */
+export function trovaRiferimentoTesto(
+  pagine: readonly string[],
+  testo: string,
+  confidenza: Evidenza["confidenza"] = "alta"
+): Evidenza | null {
+  const pulito = testo.trim();
+  if (pulito.length < 3) return null;
+  const [primo] = cercaSuPagine(pagine, new RegExp(escapeRegex(pulito), "gi"));
+  if (!primo) return null;
+  return evidenza(
+    pagine,
+    primo.pagina,
+    primo.match.index,
+    primo.match[0].length,
+    "riferimento_certo",
+    confidenza
+  );
+}
+
 export function estraiConfermaOrdine(
   pagine: readonly string[],
   contesto: ContestoEstrazione

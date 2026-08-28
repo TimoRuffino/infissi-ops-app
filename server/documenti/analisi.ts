@@ -97,7 +97,7 @@ export type DocumentoDaAnalizzare = {
   dataBase64?: string | null;
 };
 
-async function leggiByteDocumento(
+export async function leggiByteDocumento(
   documento: DocumentoDaAnalizzare
 ): Promise<Buffer> {
   if (documento.storageKey) {

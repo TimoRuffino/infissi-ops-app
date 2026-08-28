@@ -16,14 +16,23 @@ vi.mock("../_core/fileStorage", async importOriginal => {
   let progressivo = 0;
   return {
     ...actual,
-    putFile: vi.fn(async (categoria: string, _nome: string, bytes: Buffer) => {
-      const storageKey = `${categoria}/test/${++progressivo}`;
-      memoriaStorage.set(storageKey, Buffer.from(bytes));
-      return {
-        storageKey,
-        checksum: createHash("sha256").update(bytes).digest("hex"),
-      };
-    }),
+    putFile: vi.fn(
+      async (
+        collection: string,
+        _parentId: number,
+        _recordId: number,
+        _originalName: string,
+        buffer: Buffer,
+        _mimeType: string
+      ) => {
+        const storageKey = `${collection}/test/${++progressivo}`;
+        memoriaStorage.set(storageKey, Buffer.from(buffer));
+        return {
+          storageKey,
+          checksum: createHash("sha256").update(buffer).digest("hex"),
+        };
+      }
+    ),
     getFile: vi.fn(async (storageKey: string) =>
       memoriaStorage.get(storageKey) ?? null
     ),

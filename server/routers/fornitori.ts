@@ -136,6 +136,19 @@ export function getOrdineFornitoreById(id: number) {
   };
 }
 
+// Collegamento assistito (D7 slice 2): tutti gli ordini della sede con il
+// fornitore risolto — il bacino dei candidati per un documento.
+export function getOrdiniFornitoreDiSede(sedeId: number) {
+  return ordini
+    .filter((o) => ((o as any).sedeId ?? 1) === sedeId)
+    .map((ordine) => ({
+      ordine,
+      fornitoreNome:
+        fornitori.find((f) => f.id === ordine.fornitoreId)?.ragioneSociale ??
+        null,
+    }));
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const fornitoriRouter = router({
