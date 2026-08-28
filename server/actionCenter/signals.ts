@@ -193,17 +193,27 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
     const total = commessa.importoTotale ?? 0;
     const residual = total - commessa.importoIncassato;
     if (FINAL_BALANCE_STATES.has(commessa.stato) && total > 0 && residual > 0) {
+      // Il caso è condiviso e può raggiungere utenti senza `pagamento.read`:
+      // niente cifre nel testo, e il fingerprint usa la versione del registro
+      // (conteggio+timestamp) invece del residuo — un incasso parziale
+      // risveglia comunque il caso, ma dall'oggetto serializzato non si
+      // ricostruisce alcun importo (slice 2).
       signals.push({
         ...base,
         sourceKey: `balance:${commessa.id}`,
         kind: "saldo",
-        summary: `Saldo residuo di ${residual.toFixed(2)} euro`,
+        summary: "La commessa ha un saldo residuo da incassare",
         actionLabel: "Verifica e incassa il saldo residuo",
         priority: "alta",
         priorityScore: 78,
         targetRole: "amministrazione",
         dueAt: input.now,
-        fingerprint: fingerprint(["balance", commessa.id, commessa.stato, residual]),
+        fingerprint: fingerprint([
+          "balance",
+          commessa.id,
+          commessa.stato,
+          commessa.registroVersione ?? "-",
+        ]),
       });
     }
   }

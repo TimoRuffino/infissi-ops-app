@@ -115,6 +115,9 @@ export type ActionCommessaSnapshot = {
   dataConsegnaConfermata: string | null;
   importoTotale: number | null;
   importoIncassato: number;
+  // Versione non economica del registro pagamenti (conteggio+timestamp):
+  // alimenta il fingerprint del caso saldo senza esporre importi.
+  registroVersione?: string | null;
 };
 
 export type ActionTicketSnapshot = {

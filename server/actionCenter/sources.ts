@@ -1,3 +1,4 @@
+import { versioneRegistroPagamenti } from "../_core/commessaPayments";
 import { getCommesseStore } from "../routers/commesse";
 import { getGaranzieStore } from "../routers/garanzie";
 import { getInterventiStore } from "../routers/interventi";
@@ -32,6 +33,7 @@ export function collectCurrentSignals(
       dataConsegnaConfermata: item.dataConsegnaConfermata ?? null,
       importoTotale: item.importoTotale ?? null,
       importoIncassato: item.importoIncassato ?? 0,
+      registroVersione: versioneRegistroPagamenti(item.pagamenti),
     })),
     tickets: getTicketStore().map((item: any) => ({
       id: item.id,
