@@ -308,6 +308,13 @@ export const economiaRouter = router({
       });
       return {
         ...calcolaBreakEven({
+          // `anno` e `mese` NON erano passati, e senza di loro
+          // `meseRiferimento` ripiegava sulla fine del periodo base — cioè
+          // l'ULTIMO MESE CHIUSO. Il pannello scriveva «Agosto» in testa e
+          // sotto mostrava il fatturato di luglio: «già fatturato netto non
+          // coincide col vero fatturato netto di FiC», ed era vero.
+          anno: input.anno,
+          mese: input.mese,
           periodoDa: fissi.periodoDa,
           periodoA: fissi.periodoA,
           documentiEmessi: documentiEmessi(sedeId),

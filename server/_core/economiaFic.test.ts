@@ -488,3 +488,81 @@ describe("break-even: da dove viene il costo fisso", () => {
     expect(result.daCoprireMensile).toBe(2_500);
   });
 });
+
+describe("il fatturato del mese è di QUEL mese", () => {
+  it("misura il mese chiesto, non la fine del periodo base", () => {
+    // La regressione: `economia.breakEven` passava solo periodoDa/periodoA,
+    // quindi `meseRiferimento` ripiegava sulla fine del periodo — l'ultimo
+    // mese CHIUSO. Il pannello scriveva «Agosto» in testa e sotto mostrava il
+    // fatturato di luglio: «già fatturato netto non coincide col vero
+    // fatturato netto di FiC», ed era vero.
+    const emessi = [
+      documento("invoice", "2026-05-10", 10_000),
+      documento("invoice", "2026-06-10", 10_000),
+      documento("invoice", "2026-07-10", 44_000),
+      documento("invoice", "2026-08-05", 7_000),
+    ];
+    const costi = [5, 6, 7].map(m =>
+      documento("expense", `2026-0${m}-12`, 4_000, {
+        classificazione: "variabile_commessa",
+      })
+    );
+
+    const r = calcolaBreakEven({
+      anno: 2026,
+      mese: 8,
+      periodoDa: "2025-08-01",
+      periodoA: "2026-07-31",
+      documentiEmessi: emessi,
+      documentiRicevuti: costi,
+      costiFissiMensili: 5_000,
+    });
+
+    expect(r.meseFatturato).toBe("2026-08");
+    expect(r.fatturatoMese).toBe(7_000);
+  });
+
+  it("senza anno e mese resta il comportamento vecchio, ma lo dichiara", () => {
+    const r = calcolaBreakEven({
+      periodoDa: "2025-08-01",
+      periodoA: "2026-07-31",
+      documentiEmessi: [documento("invoice", "2026-07-10", 3_000)],
+      documentiRicevuti: [],
+      costiFissiMensili: 1_000,
+    });
+    expect(r.meseFatturato).toBe("2026-07");
+    expect(r.fatturatoMese).toBe(3_000);
+  });
+
+  it("la catena da leggere è una somma che torna", () => {
+    // La divisione mostrata con la percentuale arrotondata non riproduceva
+    // il risultato mostrato: chi la rifaceva sulla calcolatrice trovava un
+    // numero diverso. Variabili + fissi = obiettivo, sempre.
+    const emessi = [1, 2, 3].map(m =>
+      documento("invoice", `2026-0${m}-10`, 10_000)
+    );
+    const costi = [1, 2, 3].map(m =>
+      documento("expense", `2026-0${m}-12`, 6_600, {
+        classificazione: "variabile_commessa",
+      })
+    );
+    const r = calcolaBreakEven({
+      anno: 2026,
+      mese: 4,
+      documentiEmessi: emessi,
+      documentiRicevuti: costi,
+      costiFissiMensili: 10_000,
+    });
+
+    const variabiliNellObiettivo = r.obiettivoMensile! - r.daCoprireMensile!;
+    expect(variabiliNellObiettivo + r.daCoprireMensile!).toBeCloseTo(
+      r.obiettivoMensile!,
+      6
+    );
+    // E la quota variabile è davvero (1 − margine) dell'obiettivo.
+    expect(variabiliNellObiettivo / r.obiettivoMensile!).toBeCloseTo(
+      1 - r.margineContribuzione!,
+      6
+    );
+  });
+});

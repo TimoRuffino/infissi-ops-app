@@ -231,7 +231,12 @@ export type BreakEvenResult = {
   margineContribuzione: number | null;
   costiFissiMensili: number | null;
   obiettivoMensile: number | null;
+  /** Fatturato netto FiC del mese di riferimento. */
   fatturatoMese: number;
+  /** Quale mese è, in "YYYY-MM". Il pannello lo etichetta con questo, non
+   *  con la data di oggi: quando i due divergevano il numero sembrava
+   *  sbagliato invece che di un altro mese. */
+  meseFatturato: string;
   ancoraDaFatturare: number | null;
   documentiDubbi: number;
   importoDubbio: number;
@@ -411,6 +416,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
       costiFissiMensili: daCoprireMensile,
       obiettivoMensile: null,
       fatturatoMese,
+      meseFatturato: meseRiferimento,
       ancoraDaFatturare: null,
       documentiDubbi: dubbi.length,
       importoDubbio,
@@ -448,6 +454,7 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     costiFissiMensili,
     obiettivoMensile,
     fatturatoMese,
+    meseFatturato: meseRiferimento,
     ancoraDaFatturare: Math.max(0, obiettivoMensile - fatturatoMese),
     documentiDubbi: dubbi.length,
     importoDubbio,

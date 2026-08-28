@@ -550,6 +550,32 @@ classifica senza linea del traguardo. Vale solo per l'anno corrente. I costi
 `dubbio` restano esclusi da fissi e variabili, e il pannello dichiara quanti
 sono.
 
+**Il fatturato mostrato era di un altro mese** (28/08/2026). `economia.breakEven`
+riceve `anno` e `mese` ma passava a `calcolaBreakEven` soltanto
+`periodoDa`/`periodoA`. Senza `anno`/`mese`, `meseRiferimento` ripiegava sulla
+**fine del periodo base** — cioè l'ultimo mese CHIUSO — mentre l'intestazione
+del pannello usava l'orologio del browser. Ad agosto si leggeva «Agosto» in
+testa e il fatturato di luglio sotto: la segnalazione «su già fatturato netto
+non coincide con il vero fatturato netto di FiC» era esatta. Ora il mese viene
+passato, e la risposta espone `meseFatturato`: il pannello etichetta la cifra
+con **quel** mese, non con la data di oggi.
+
+**La catena è una somma, non una divisione** (28/08/2026). Il pannello
+scriveva «€18.337 ÷ 34% = €54.198», ma il 34% è arrotondato: chi rifaceva la
+divisione sulla calcolatrice trovava €53.932 e smetteva di fidarsi
+dell'intero pannello. Una divisione con la percentuale arrotondata non può
+riprodurre il risultato esatto, quindi la catena è diventata additiva —
+«per coprire €18.337 devi fatturare €54.198: €35.861 escono subito come
+materiale e posa, il resto copre i costi fissi» — e i tre importi tornano
+sempre, perché variabili + fissi = obiettivo per costruzione.
+
+Sotto, in euro, da dove esce la percentuale: fatturato base meno acquisti di
+commessa sui mesi coperti. Era l'unico numero della catena da prendere per
+buono, ed è quello che sposta di più l'obiettivo. Se restano documenti
+`dubbio` il pannello dichiara quanti e per quanto, e in che direzione
+sbaglia: fuori dal conto dei variabili il margine risulta più alto del vero,
+quindi l'obiettivo mostrato è più basso del vero.
+
 **Il numero grande è la risposta, non la domanda** (28/08/2026). Il pannello
 mostrava `daCoprireMensile` — il totale dei costi fissi — con sotto scritto
 «da fatturare», e la riga di sintesi diceva «Fatturato da fare per coprire i

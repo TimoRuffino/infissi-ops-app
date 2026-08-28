@@ -38,6 +38,14 @@ const MESI = [
   "Dicembre",
 ];
 
+/** "2026-08" → "Agosto 2026". Il mese lo dichiara il server, non l'orologio. */
+function etichettaMese(mese: string | null | undefined): string | null {
+  if (!mese) return null;
+  const [anno, numero] = mese.split("-");
+  const nome = MESI[Number(numero) - 1];
+  return nome ? `${nome} ${anno}` : null;
+}
+
 /**
  * Le due leve del pareggio.
  *
@@ -225,7 +233,8 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
               <div className="min-w-0">
                 <p className="text-sm font-semibold">Minimo da fatturare</p>
                 <p className="text-xs text-text-3">
-                  {MESI[mese - 1]} · solo per coprire i costi fissi
+                  {etichettaMese(data.meseFatturato) ?? MESI[mese - 1]} · solo
+                  per coprire i costi fissi
                 </p>
               </div>
             </div>
@@ -269,7 +278,10 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
-                    <p className="eyebrow">Già fatturato netto</p>
+                    <p className="eyebrow">
+                      Fatturato netto ·{" "}
+                      {etichettaMese(data.meseFatturato) ?? MESI[mese - 1]}
+                    </p>
                     <p className="mt-1 text-lg font-bold tabular-nums text-success">
                       {formatEuroSimbolo(data.fatturatoMese)}
                     </p>
@@ -327,17 +339,29 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                   ) : (
                     <Calculator className="h-4 w-4 text-primary" />
                   )}
+                  {/* Una SOMMA, non una divisione. La divisione mostrata con
+                      la percentuale arrotondata non riproduceva il risultato
+                      mostrato — chi la rifaceva sulla calcolatrice trovava un
+                      numero diverso e smetteva di fidarsi. Questi tre importi
+                      tornano sempre: variabili + fissi = obiettivo. */}
                   <span className="text-text-2">
+                    Per coprire{" "}
                     {formatEuroSimbolo(data.daCoprireMensile ?? 0)} di costi
-                    fissi ÷{" "}
-                    {Math.round((data.margineContribuzione ?? 0) * 100)}% di
-                    margine ={" "}
+                    fissi devi fatturare{" "}
                     <strong>
                       {formatEuroSimbolo(data.obiettivoMensile ?? 0)}
-                    </strong>{" "}
-                    da fatturare. Di ogni euro fatturato,{" "}
-                    {100 - Math.round((data.margineContribuzione ?? 0) * 100)}
-                    % riesce subito come materiale e posa.
+                    </strong>
+                    : {formatEuroSimbolo(
+                      Math.round(
+                        ((data.obiettivoMensile ?? 0) -
+                          (data.daCoprireMensile ?? 0)) *
+                          100
+                      ) / 100
+                    )}{" "}
+                    escono subito come materiale e posa (
+                    {(100 - (data.margineContribuzione ?? 0) * 100).toFixed(1)}%
+                    del fatturato, misurato su {data.mesiCoperti} mesi), il
+                    resto copre i costi fissi. Nessun utile dentro.
                   </span>
                   {data.margineFonte === "manuale" && (
                     <Badge variant="outline" className="text-[10px]">
@@ -345,6 +369,42 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     </Badge>
                   )}
                 </div>
+                {/* Da dove esce la percentuale, in euro. Senza i due addendi
+                    il margine era l'unico numero della catena che bisognava
+                    prendere per buono, ed è quello che sposta l'obiettivo di
+                    più: a parità di costi fissi, dal 34% al 40% l'obiettivo
+                    cala di un sesto. */}
+                <p className="mt-1.5 pl-6 text-[11px] leading-snug text-text-3">
+                  {data.margineFonte === "manuale" ? (
+                    <>
+                      Percentuale fissata a mano. I documenti degli ultimi{" "}
+                      {data.mesiCoperti} mesi direbbero{" "}
+                      {((data.margineCalcolato ?? 0) * 100).toFixed(1)}%:{" "}
+                      {formatEuroSimbolo(data.fatturatoBase)} di fatturato meno{" "}
+                      {formatEuroSimbolo(data.costiVariabili)} di acquisti di
+                      commessa.
+                    </>
+                  ) : (
+                    <>
+                      La percentuale viene da{" "}
+                      {formatEuroSimbolo(data.fatturatoBase)} di fatturato meno{" "}
+                      {formatEuroSimbolo(data.costiVariabili)} di acquisti di
+                      commessa, sugli ultimi {data.mesiCoperti} mesi.
+                    </>
+                  )}
+                  {(data.documentiDubbi ?? 0) > 0 && (
+                    <>
+                      {" "}
+                      <span className="text-warning">
+                        {data.documentiDubbi} documenti per{" "}
+                        {formatEuroSimbolo(data.importoDubbio)} non sono
+                        classificati e restano fuori da questo conto: il
+                        margine vero è più basso, quindi l&apos;obiettivo è più
+                        alto.
+                      </span>
+                    </>
+                  )}
+                </p>
                 <ImpostazioniPareggio data={data} />
               </>
             ) : (

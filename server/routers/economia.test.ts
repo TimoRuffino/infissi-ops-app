@@ -470,3 +470,84 @@ describe("economia FiC", () => {
     expect(dopo.obiettivoMensile).toBeCloseTo(20_000, 2);
   });
 });
+
+describe("il minimo da fatturare parla del mese in corso", () => {
+  it("«già fatturato netto» è il mese chiesto, non l'ultimo mese chiuso", async () => {
+    // La segnalazione: «su già fatturato netto non coincide con il vero
+    // fatturato netto di FiC». Non era un errore di somma: era il mese
+    // sbagliato. `economia.breakEven` non passava anno/mese al calcolo,
+    // quindi il fatturato mostrato era quello dell'ultimo mese CHIUSO mentre
+    // l'intestazione diceva il mese corrente.
+    const now = new Date();
+    const anno = now.getFullYear();
+    const mese = now.getMonth() + 1;
+    const sedeId = 195;
+    const caller = appRouter.createCaller(ctx(sedeId));
+
+    const fattura = (id: number, data: string, netto: number) => ({
+      id,
+      tipo: "invoice" as const,
+      numero: `M-${id}`,
+      data,
+      clienteNome: "Cliente mese",
+      clienteVat: null,
+      clienteCf: null,
+      importoNetto: netto,
+      importoIva: netto * 0.22,
+      importoLordo: netto * 1.22,
+      rate: [],
+    });
+    const giorno = (offsetMesi: number, giorno: number) =>
+      new Date(Date.UTC(anno, mese - 1 - offsetMesi, giorno))
+        .toISOString()
+        .slice(0, 10);
+
+    upsertDocumentiEmessi(
+      [
+        fattura(195_001, giorno(3, 10), 10_000),
+        fattura(195_002, giorno(2, 10), 10_000),
+        // Ultimo mese chiuso: la cifra che compariva per sbaglio.
+        fattura(195_003, giorno(1, 10), 44_000),
+        // Mese in corso: la cifra giusta.
+        fattura(195_004, giorno(0, 3), 7_000),
+      ],
+      sedeId,
+      "mese-corrente"
+    );
+    upsertCostiFic(
+      [3, 2, 1].map(offset => ({
+        id: 195_100 + offset,
+        tipo: "expense" as const,
+        data: giorno(offset, 12),
+        fornitoreId: null,
+        fornitoreNome: "Materiali SRL",
+        categoriaFic: "Materiali",
+        descrizione: null,
+        centro: null,
+        numeroDocumento: null,
+        importoNetto: 4_000,
+        importoIva: 880,
+        importoLordo: 4_880,
+        rate: [],
+      })),
+      sedeId,
+      "mese-corrente-costi"
+    );
+    for (const costo of ficCosti.filter(c => c.sedeId === sedeId)) {
+      costo.classificazione = "variabile_commessa";
+      costo.fonteClassificazione = "utente";
+    }
+    await caller.costiFissi.create({
+      descrizione: "Stipendi",
+      importo: 9_000,
+      cadenza: "mensile",
+      dal: new Date(Date.UTC(anno, mese - 4, 1)).toISOString().slice(0, 7),
+      categoria: "personale",
+    });
+
+    const r = await caller.economia.breakEven({ anno, mese });
+    expect(r.meseFatturato).toBe(`${anno}-${String(mese).padStart(2, "0")}`);
+    expect(r.fatturatoMese).toBe(7_000);
+    expect(r.ancoraDaFatturare).toBeCloseTo(r.obiettivoMensile! - 7_000, 2);
+  });
+});
