@@ -391,6 +391,14 @@ export function calcolaBreakEven(input: BreakEvenInput): BreakEvenResult {
     ) / 100;
 
   const motivi: string[] = [];
+  // Senza costi fissi confermati il minimo da fatturare varrebbe zero, e il
+  // pannello direbbe "obiettivo raggiunto" a chi non ha ancora registrato
+  // uno stipendio. Uno zero rassicurante e' peggio di un numero mancante.
+  if (daCoprireMensile <= 0) {
+    motivi.push(
+      "Nessun costo fisso confermato: conferma le ricorrenze o aggiungi stipendi, contributi e affitti in Contabilità → Costi fissi."
+    );
+  }
   if (mesiCoperti < 3) {
     motivi.push("Servono almeno tre mesi di dati economici.");
   }

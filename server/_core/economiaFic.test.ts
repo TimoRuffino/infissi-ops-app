@@ -183,10 +183,13 @@ describe("break-even mensile", () => {
       costi,
     });
 
-    expect(risultato.stato).toBe("disponibile");
     expect(risultato.fatturatoBase).toBe(30_000);
     expect(risultato.costiFissiMensili).toBe(0);
-    expect(risultato.obiettivoMensile).toBe(0);
+    // Senza registro confermato non c'e' un minimo da fatturare: dire zero
+    // significherebbe "obiettivo raggiunto" a chi non ha registrato niente.
+    expect(risultato.stato).toBe("dati_insufficienti");
+    expect(risultato.obiettivoMensile).toBeNull();
+    expect(risultato.motivi.join(" ")).toContain("Nessun costo fisso confermato");
   });
 
   it("i costi fissi dichiarati a mano entrano nell'obiettivo", () => {
@@ -218,11 +221,15 @@ describe("break-even mensile", () => {
       costiFissiDichiarati: [{ mensile: 5_000, dal: "2026-01", al: null }],
     });
 
+    expect(senza.stato).toBe("dati_insufficienti");
     expect(senza.costiFissiDichiarati).toBe(0);
     expect(con.costiFissiDichiarati).toBe(15_000);
     // Il peso di oggi arriva solo dal registro: 5.000 dichiarati.
     expect(con.costiFissiMensili).toBeCloseTo(5_000, 2);
-    expect(con.obiettivoMensile).toBeGreaterThan(senza.obiettivoMensile!);
+    // Senza registro l'obiettivo non esiste; col registro vale
+    // 5.000 / 60% di margine.
+    expect(senza.obiettivoMensile).toBeNull();
+    expect(con.obiettivoMensile).toBeCloseTo(8_333.33, 2);
   });
 
   it("una voce gia' chiusa non alza l'obiettivo di oggi", () => {

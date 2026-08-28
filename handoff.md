@@ -325,6 +325,23 @@ importo per almeno tre mesi consecutivi, tolleranza 50 centesimi) genera solo
 candidati: non riclassifica documenti, non prevale su una persona e non entra
 nel pareggio finché l'operatore non la conferma.
 
+**L'esclusione parte sempre dal nome come FiC lo scrive** (corretto il
+28/08/2026). `fornitoriNonFissi` prendeva `regola.fornitoreNormalizzato` —
+già passato per `normalizzaRegola`, che trasforma i punti in spazi — e gli
+riapplicava la chiave larga, che sa togliere `srl` attaccato ma non `s r l`
+spaziato. «ALD Automotive Italia S.r.l.» dava `ald automotive italia` dal
+candidato e `ald automotive italia s r l` dalla regola: chiavi diverse,
+esclusione che non aggancia, candidato classificato che **resta in coda**. Il
+difetto toccava quasi tutti i fornitori veri, perché le ragioni sociali si
+scrivono col punto; il test precedente usava «SRL» attaccato e non lo vedeva.
+Ora l'insieme si costruisce dai costi, usando il nome grezzo su entrambi i
+lati, e il test usa una forma puntata.
+
+**Senza registro confermato non c'è un minimo da fatturare.** Con
+`daCoprireMensile` a zero il pannello restituiva `stato: "disponibile"` e
+obiettivo zero, cioè «obiettivo raggiunto» a chi non ha confermato un solo
+costo. Ora è `dati_insufficienti` con il motivo che rimanda al registro.
+
 La scheda **non usa tabelle**, e non è una preferenza estetica: la coda dei
 candidati aveva cinque colonne con tre bottoni nell'ultima, misurati 1172px
 contro i 1134px disponibili a 1440 con la sidebar. Il bottone «Straordinario»
@@ -448,6 +465,15 @@ resta nei totali FiC e nel break-even, ma non compare nella coda operativa.
 `/pagamenti` mostra Copertura costi fissi: obiettivo netto mensile calcolato dal
 margine di contribuzione e dai costi fissi FiC degli ultimi 12 mesi. I costi
 dubbi sono esclusi e si revisionano nel tab Acquisti.
+
+**Il numero grande è la risposta, non la domanda** (28/08/2026). Il pannello
+mostrava `daCoprireMensile` — il totale dei costi fissi — con sotto scritto
+«da fatturare», e la riga di sintesi diceva «Fatturato da fare per coprire i
+costi fissi = €18.337»: due grandezze diverse sotto la stessa etichetta.
+Fatturare l'equivalente dei costi fissi non li paga, perché il 66% di ogni
+euro esce subito come materiale e posa. Ora in evidenza c'è
+`obiettivoMensile` (costi ÷ margine), con sotto quanto copre, e la voce
+«Come viene calcolato» spiega le tre grandezze una per una.
 
 **La catena è esplicita dal 27/08/2026.** Il pannello mostrava solo
 l'obiettivo e, in piccolo, il margine usato: sembrava che dentro ci fosse un

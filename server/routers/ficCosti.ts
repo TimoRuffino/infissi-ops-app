@@ -105,13 +105,26 @@ function normalizzaRegola(value: string | null | undefined): string | null {
  */
 export function fornitoriNonFissi(sedeId: number): Set<string> {
   const esclusi = new Set<string>();
-  for (const regola of ficRegoleCosti) {
-    if (regola.sedeId !== sedeId || !regola.attiva) continue;
-    if (regola.classificazione === "fisso") continue;
-    if (!regola.fornitoreNormalizzato) continue;
-    // La regola e' salvata sulla forma scritta; l'aritmetica ragiona sulla
-    // chiave larga. Serve tradurre, o l'esclusione non aggancia.
-    esclusi.add(chiaveFornitore(regola.fornitoreNormalizzato));
+  // Si parte SEMPRE dal nome come FiC lo scrive, mai da una chiave gia'
+  // normalizzata.
+  //
+  // La versione precedente prendeva `regola.fornitoreNormalizzato` — passato
+  // per `normalizzaRegola`, che trasforma i punti in spazi — e gli applicava
+  // la chiave larga, che sa togliere "srl" attaccato ma non "s r l"
+  // spaziato. Risultato: "ALD Automotive Italia S.r.l." dava
+  // "ald automotive italia" dal candidato e "ald automotive italia s r l"
+  // dalla regola. Le due chiavi non combaciavano, l'esclusione non
+  // agganciava, e il candidato classificato restava in coda. Toccava quasi
+  // tutti i fornitori veri, perche' le ragioni sociali si scrivono col punto.
+  for (const costo of ficCosti) {
+    if (costo.sedeId !== sedeId) continue;
+    const decisoDaPersona =
+      costo.fonteClassificazione === "utente" &&
+      costo.classificazione !== "fisso";
+    const daRegola = classificaConRegole(costo);
+    if (decisoDaPersona || (daRegola != null && daRegola !== "fisso")) {
+      esclusi.add(chiaveFornitore(costo.fornitoreNome));
+    }
   }
   return esclusi;
 }

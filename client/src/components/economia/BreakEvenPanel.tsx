@@ -223,22 +223,33 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                 <Target className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-semibold">Costi fissi da coprire</p>
+                <p className="text-sm font-semibold">Minimo da fatturare</p>
                 <p className="text-xs text-text-3">
-                  Totale mensile confermato · {MESI[mese - 1].toLowerCase()}
+                  {MESI[mese - 1]} · solo per coprire i costi fissi
                 </p>
               </div>
             </div>
+            {/* Il numero grande e' la RISPOSTA, non la domanda.
+                Prima qui compariva il totale dei costi fissi con sotto
+                scritto "da fatturare": due grandezze diverse sotto la stessa
+                etichetta. Il minimo da fatturare e' il costo diviso il
+                margine, perche' una parte di ogni euro fatturato riesce
+                subito come materiale. */}
             <div className="mt-4 flex items-end gap-2">
               <span className="text-2xl font-bold tabular-nums sm:text-3xl">
-                {data.daCoprireMensile == null
+                {data.obiettivoMensile == null
                   ? "—"
-                  : formatEuroSimbolo(data.daCoprireMensile)}
+                  : formatEuroSimbolo(data.obiettivoMensile)}
               </span>
-              {data.stato === "disponibile" && (
-                <span className="pb-1 text-xs text-text-3">da fatturare</span>
-              )}
+              <span className="pb-1 text-xs text-text-3">al mese</span>
             </div>
+            {data.obiettivoMensile != null && (
+              <p className="mt-1 text-xs leading-snug text-text-2">
+                Copre {formatEuroSimbolo(data.daCoprireMensile ?? 0)} di costi
+                fissi. Nessun utile dentro: sopra questa cifra si guadagna,
+                sotto si perde.
+              </p>
+            )}
             <Badge
               variant={
                 data.affidabilita === "alta"
@@ -270,7 +281,7 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     </p>
                   </div>
                   <div>
-                    <p className="eyebrow">Costi fissi confermati</p>
+                    <p className="eyebrow">Costi fissi al mese</p>
                     <p className="mt-1 text-lg font-bold tabular-nums">
                       {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
                     </p>
@@ -305,12 +316,16 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     <Calculator className="h-4 w-4 text-primary" />
                   )}
                   <span className="text-text-2">
-                    Fatturato da fare per coprire i costi fissi ={" "}
+                    {formatEuroSimbolo(data.daCoprireMensile ?? 0)} di costi
+                    fissi ÷{" "}
+                    {Math.round((data.margineContribuzione ?? 0) * 100)}% di
+                    margine ={" "}
                     <strong>
-                      {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
-                    </strong>
-                    . Il totale è il mensile confermato; il margine è uno
-                    scenario separato, non un costo aggiunto.
+                      {formatEuroSimbolo(data.obiettivoMensile ?? 0)}
+                    </strong>{" "}
+                    da fatturare. Di ogni euro fatturato,{" "}
+                    {100 - Math.round((data.margineContribuzione ?? 0) * 100)}
+                    % riesce subito come materiale e posa.
                   </span>
                   {data.margineFonte === "manuale" && (
                     <Badge variant="outline" className="text-[10px]">
@@ -327,7 +342,7 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                     <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div>
                       <p className="text-sm font-semibold">
-                        Obiettivo non ancora affidabile
+                        Minimo non calcolabile
                       </p>
                       <p className="mt-1 text-xs text-text-2">
                         {data.motivi.join(" ")}
@@ -338,11 +353,11 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
                 {/* Il costo di esistere non dipende dal margine: si sa anche
                     quando l'obiettivo non è calcolabile, ed è metà della
                     risposta. Nasconderlo lasciava la pagina muta. */}
-                {data.daCoprireMensile != null && (
+                {(data.daCoprireMensile ?? 0) > 0 && (
                   <p className="mt-3 text-sm text-text-2">
-                    Intanto: coprire i costi fissi costa{" "}
+                    Intanto i costi fissi confermati sono{" "}
                     <strong className="tabular-nums">
-                      {formatEuroSimbolo(data.daCoprireMensile)}
+                      {formatEuroSimbolo(data.daCoprireMensile ?? 0)}
                     </strong>{" "}
                     al mese.
                   </p>
@@ -358,13 +373,29 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
             <summary className="min-h-11 cursor-pointer py-3 font-medium text-text-1">
               Come viene calcolato
             </summary>
-            <p className="max-w-3xl pb-3 leading-relaxed">
-              L&apos;importo principale da coprire è il totale dei costi fissi
-              mensili confermati nel registro, attivi nel periodo. IVA esclusa.
-              Fatturare non equivale a incassare. Il margine di contribuzione
-              resta disponibile solo come scenario opzionale per stimare il
-              fatturato necessario, ma non modifica il totale certo.
-            </p>
+            <div className="max-w-3xl space-y-2 pb-3 leading-relaxed">
+              <p>
+                <strong>Costi fissi al mese</strong>: somma delle voci del
+                registro confermato attive in questo mese. Solo quelle: una
+                ricorrenza non confermata non pesa.
+              </p>
+              <p>
+                <strong>Minimo da fatturare</strong> = costi fissi ÷ margine di
+                contribuzione. Serve la divisione perché una parte di ogni euro
+                fatturato esce subito come materiale e posa: fatturare
+                l&apos;equivalente dei costi fissi non basta a pagarli.
+              </p>
+              <p>
+                <strong>Margine di contribuzione</strong> = (fatturato − costi
+                variabili) ÷ fatturato, sugli ultimi {data.mesiCoperti} mesi
+                disponibili, dal {data.periodoDa} al {data.periodoA}. Si può
+                fissare a mano da «Come calcolarlo» quando il periodo contiene
+                troppi costi ancora da classificare.
+              </p>
+              <p className="text-text-3">
+                IVA esclusa. Fatturare non equivale a incassare.
+              </p>
+            </div>
           </details>
           {data.documentiDubbi > 0 && (
             <Button variant="outline" className="min-h-11" onClick={onReview}>

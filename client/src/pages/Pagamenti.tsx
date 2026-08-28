@@ -36,6 +36,23 @@ const METODO_LABEL: Record<string, string> = {
 };
 
 const fmt = formatEuro;
+
+/**
+ * L'anno di una commessa.
+ *
+ * `dataApertura` e' il dato giusto quando c'e'; il codice `COM-2026-035` lo
+ * porta comunque scritto dentro, e resta l'unica fonte per i fascicoli
+ * vecchi senza data. `createdAt` e' l'ultima spiaggia.
+ */
+function annoCommessa(c: any): number | null {
+  const apertura = String(c?.dataApertura ?? "").slice(0, 4);
+  if (/^\d{4}$/.test(apertura)) return Number(apertura);
+  const daCodice = /^COM-(\d{4})-/i.exec(String(c?.codice ?? ""));
+  if (daCodice) return Number(daCodice[1]);
+  const creata = c?.createdAt ? new Date(c.createdAt) : null;
+  return creata && !Number.isNaN(creata.getTime()) ? creata.getFullYear() : null;
+}
+
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso + (String(iso).length === 10 ? "T12:00:00" : "")).toLocaleDateString("it-IT") : "—";
 
@@ -47,6 +64,9 @@ export default function Pagamenti() {
 
   const [search, setSearch] = useState("");
   const [filtro, setFiltro] = useState<string>("residuo");
+  // "tutti" resta il default: questa pagina serve a incassare, e un residuo
+  // del 2025 e' esattamente quello che non va nascosto per distrazione.
+  const [anno, setAnno] = useState<string>("tutti");
   // Quick-register dialog target.
   const [regFor, setRegFor] = useState<any>(null);
   const [pForm, setPForm] = useState({
@@ -67,12 +87,31 @@ export default function Pagamenti() {
     onError: (e) => toast.error(e.message ?? "Registrazione non riuscita"),
   });
 
-  const attive = useMemo(
+  const tutteAttive = useMemo(
     () =>
       (commesse.data ?? []).filter(
         (c: any) => !c.archivedAt && c.stato !== "archiviata"
       ),
     [commesse.data]
+  );
+
+  const anni = useMemo(() => {
+    const trovati = new Set<number>();
+    for (const c of tutteAttive as any[]) {
+      const a = annoCommessa(c);
+      if (a != null) trovati.add(a);
+    }
+    return Array.from(trovati).sort((a, b) => b - a);
+  }, [tutteAttive]);
+
+  // Anno scelto: filtra TUTTO, righe e KPI insieme. Un totale che parla di
+  // un perimetro diverso dall'elenco sotto e' peggio di nessun totale.
+  const attive = useMemo(
+    () =>
+      anno === "tutti"
+        ? tutteAttive
+        : tutteAttive.filter((c: any) => annoCommessa(c) === Number(anno)),
+    [tutteAttive, anno]
   );
 
   const rows = useMemo(() => {
@@ -142,7 +181,9 @@ export default function Pagamenti() {
             Pagamenti
           </h1>
           <p className="text-text-2 text-sm mt-1">
-            Incassi e saldi di tutte le commesse attive della sede
+            Incassi e saldi delle commesse attive della sede
+            {anno === "tutti" ? ", tutti gli anni" : `, aperte nel ${anno}`} ·{" "}
+            {attive.length} {attive.length === 1 ? "commessa" : "commesse"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -222,6 +263,19 @@ export default function Pagamenti() {
             className="pl-9 h-9"
           />
         </div>
+        <Select value={anno} onValueChange={setAnno}>
+          <SelectTrigger className="h-9 w-[130px]" aria-label="Anno di apertura">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tutti">Tutti gli anni</SelectItem>
+            {anni.map(a => (
+              <SelectItem key={a} value={String(a)}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-surface-2">
           {[
             ["residuo", "Con residuo"],

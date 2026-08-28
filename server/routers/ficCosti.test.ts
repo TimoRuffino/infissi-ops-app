@@ -79,10 +79,13 @@ describe("registro costi FiC", () => {
     // decisione dell'operatore varrebbe zero.
     const sedeId = 83;
     const caller = appRouter.createCaller(ctx(sedeId));
+    // Ragione sociale col PUNTO, di proposito: e' la forma in cui FiC
+    // scrive quasi tutti i fornitori veri, ed e' quella che rompeva
+    // l'esclusione. Con "SRL" attaccato il bug non si vedeva.
     const rate = ["01", "02", "03"].map((m, i) =>
       costo(83_001 + i, {
         data: `2026-${m}-10`,
-        fornitoreNome: "Sciacca Trasporti SRL",
+        fornitoreNome: "ALD Automotive Italia S.r.l.",
         importoNetto: 1_850,
       })
     );
@@ -90,8 +93,8 @@ describe("registro costi FiC", () => {
     expect((await caller.ficCosti.ricorrenti()).gruppi).toHaveLength(1);
 
     await caller.ficCosti.spostaFornitore({
-      fornitore: "Sciacca Trasporti SRL",
-      classificazione: "variabile_commessa",
+      fornitore: "ALD Automotive Italia S.r.l.",
+      classificazione: "straordinario",
     });
     expect((await caller.ficCosti.ricorrenti()).gruppi).toHaveLength(0);
 
@@ -100,7 +103,7 @@ describe("registro costi FiC", () => {
       [
         costo(83_004, {
           data: "2026-04-10",
-          fornitoreNome: "SCIACCA TRASPORTI S.R.L.",
+          fornitoreNome: "ALD AUTOMOTIVE ITALIA SRL",
           importoNetto: 1_850,
         }),
       ],

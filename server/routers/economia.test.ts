@@ -377,10 +377,12 @@ describe("economia FiC", () => {
 
     const risultato = await caller.economia.breakEven({ anno, mese });
 
-    expect(risultato.stato).toBe("disponibile");
-    expect(risultato.affidabilita).toBe("media");
     expect(risultato.margineContribuzione).toBeCloseTo(0.6);
     expect(risultato.daCoprireMensile).toBe(0);
-    expect(risultato.obiettivoMensile).toBe(0);
+    // Registro vuoto: nessun minimo da fatturare. Restituire zero avrebbe
+    // detto "obiettivo raggiunto" a chi non ha confermato un solo costo.
+    expect(risultato.stato).toBe("dati_insufficienti");
+    expect(risultato.obiettivoMensile).toBeNull();
+    expect(risultato.motivi.join(" ")).toContain("Nessun costo fisso confermato");
   });
 });
