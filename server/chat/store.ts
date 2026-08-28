@@ -6,9 +6,9 @@
 // in memoria con la stessa API, così il dev server resta usabile.
 //
 // Tre canali possibili:
-//   generale   uno per sede, non si lascia. È dove finiscono le azioni di
-//              Tars e le approvazioni degli operatori: un registro leggibile
-//              da tutti, non una notifica che sparisce.
+//   generale   uno per sede, non si lascia. Nato come registro delle azioni
+//              dell'agente (rimosso il 28/08/2026); oggi è il canale comune
+//              della sede, leggibile da tutti, non una notifica che sparisce.
 //   diretto    fra due persone. La chiave è la coppia ordinata di id, così
 //              A→B e B→A sono la stessa conversazione.
 //   commessa   agganciato a una commessa, per chi ci lavora.
@@ -35,7 +35,7 @@ export type MessaggioChatAziendale = {
   id: number;
   sedeId: number;
   canaleId: number;
-  autoreId: number | null; // null = sistema (Tars, eventi CRM)
+  autoreId: number | null; // null = mittente di sistema (eventi CRM)
   autoreNome: string;
   testo: string;
   // Contesto opzionale: rende il messaggio cliccabile senza doverlo parsare.

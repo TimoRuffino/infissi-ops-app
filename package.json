@@ -10,8 +10,6 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "tars:eval": "tsx scripts/run-tars-evals.ts --mode=recorded",
-    "tars:eval:live": "tsx scripts/run-tars-evals.ts --mode=live",
     "storage:check": "tsx scripts/check-storage.ts",
     "storage:dry-run": "tsx scripts/migrate-documents-to-storage.ts",
     "storage:migrate": "tsx scripts/migrate-documents-to-storage.ts --apply",

@@ -673,9 +673,10 @@ export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
  *   3. il pattuito viene ricalcolato sulle fatture rimaste.
  *
  * La commessa finisce fra quelle escluse: e' un giudizio dell'operatore, e
- * senza memoria il match automatico rifaceva lo stesso errore. La fattura
- * torna in coda a Tars (`tarsAnalizzata = false`) perche' possa proporre la
- * commessa giusta, o proporre di crearla.
+ * senza memoria il match automatico rifaceva lo stesso errore. Il campo
+ * `tarsAnalizzata` viene riportato a false come marcatore di compatibilita'
+ * (oggi senza consumatore: l'agente e' stato rimosso il 28/08/2026); la
+ * fattura resta in coda e si ricollega a mano o col bottone dedicato.
  */
 export async function scollegaFatturaDaCommessa(input: {
   fattura: FatturaFic;

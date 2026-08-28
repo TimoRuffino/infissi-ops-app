@@ -1,8 +1,8 @@
 // /chat — la chat interna dell'ufficio.
 //
 // Due tipi di conversazione, e la differenza conta:
-//   Generale  registro di sede. Ci finiscono le azioni che Tars esegue da
-//             solo e le decisioni degli operatori sulle proposte. Si legge
+//   Generale  registro di sede. Nato per le azioni dell'agente (rimosso il
+//             28/08/2026); oggi è il canale comune della sede. Si legge
 //             per sapere cosa è successo, non per chiacchierare.
 //   Diretta   fra due persone, di qualunque sede. Non appartiene a uno
 //             showroom: segue le persone.

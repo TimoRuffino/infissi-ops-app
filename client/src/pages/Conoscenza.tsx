@@ -1,7 +1,7 @@
-// /conoscenza — la memoria aziendale di Tars (solo direzione).
-// Regole scritte a mano, mai dedotte: ogni voce viene iniettata nel system
-// prompt dell'agente. Una voce nuova ogni volta che si rifiuta una proposta
-// per un motivo che il sistema non poteva sapere.
+// /conoscenza — il registro delle regole aziendali (solo direzione).
+// Regole scritte a mano, mai dedotte. Nata per alimentare il prompt del
+// vecchio agente (rimosso il 28/08/2026): oggi è consultazione interna, e il
+// futuro agente la rileggerà da qui.
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -120,9 +120,10 @@ export default function Conoscenza() {
       </div>
 
       <p className="text-sm text-muted-foreground max-w-2xl">
-        Ogni voce attiva viene letta da Tars a ogni esecuzione e prevale sulle
-        sue assunzioni generali. Aggiungi una voce ogni volta che rifiuti una
-        proposta per un motivo che Tars non poteva sapere.
+        Il registro delle regole e convenzioni aziendali, scritto dalle
+        persone: procedure, fornitori, accordi, terminologia. Oggi è
+        consultazione interna; quando il nuovo agente sarà attivo, leggerà da
+        qui le regole che prevalgono sulle sue assunzioni.
       </p>
 
       {rows.length === 0 && !voci.isLoading && (

@@ -559,22 +559,25 @@ export async function insertComunicazione(
         commessaId: c.commessaId,
         segnali: c.segnaliFiltro,
       });
-  const richiedeClassificazioneTars =
+  // Dal 28/08/2026 non esiste più una classificazione automatica: ogni email
+  // e WhatsApp in ingresso resta `da_classificare` finché un operatore non
+  // decide, e il filtro locale fornisce soltanto il punteggio preliminare.
+  // Storico ed echo possono dichiararsi già analizzati in fase di import.
+  const attendeClassificazioneManuale =
     (c.canale === "email" || c.canale === "whatsapp") &&
     c.direzione === "in" &&
     c.tarsAnalizzata !== true &&
     c.categoria === undefined;
-  const classificazioneIniziale = richiedeClassificazioneTars
+  const classificazioneIniziale = attendeClassificazioneManuale
     ? {
         categoria: "da_classificare" as const,
         score: classificazione.score,
-        motivo: `Controllo preliminare: ${classificazione.motivo} In attesa della classificazione automatica di Tars.`,
+        motivo: `Controllo preliminare: ${classificazione.motivo} Da classificare a mano.`,
         fonte: "regole" as const,
       }
     : classificazione;
-  // Email e WhatsApp nuovi passano sempre da Tars, compresi quelli che le
-  // regole locali sospettano essere spam. Storico ed echo possono continuare
-  // a dichiararsi già analizzati esplicitamente in fase di importazione.
+  // `tarsAnalizzata` resta come campo di compatibilità, oggi senza consumatore
+  // (docs/tars-rimosso-2026-08-28.md): il futuro agente deciderà se riusarlo.
   const tarsAnalizzata = c.tarsAnalizzata ?? false;
 
   if (!kvSql) {
@@ -837,11 +840,17 @@ export async function deleteComunicazione(
   return rows.length > 0;
 }
 
+// ── Residui dell'agente (rimosso il 28/08/2026) ─────────────────────────────
+// `listDaAnalizzare`, `statoCodaTars`, `sediConCodaTars` e `markAnalizzate`
+// non hanno più alcun chiamante: erano la coda di analisi dell'agente. La
+// colonna `tars_analizzata` continua a essere scritta (esclusioni → true,
+// classificazione utente → false) come compatibilità per il futuro agente.
+// Non rimuovere campi o funzioni senza una matrice campo→consumer e una
+// decisione di migrazione (docs/tars-rimosso-2026-08-28.md).
+
 /**
- * Mail non eliminate e mai esaminate da Tars: la coda di analisi.
- * Anche quelle GIÀ collegate: su una mail agganciata Tars non deve più
- * proporre il collegamento, ma può proporre la gestione (un ticket, una
- * data di consegna aggiornata, una rata da registrare).
+ * Comunicazioni non eliminate e mai marcate analizzate: era la coda
+ * dell'agente. Senza consumatore dal 28/08/2026.
  */
 export async function listDaAnalizzare(
   sedeId: number,

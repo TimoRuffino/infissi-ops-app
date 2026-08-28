@@ -22,6 +22,9 @@ export const CAPABILITIES = [
   "pagamento.read",
   "pagamento.record",
   "economia.read",
+  // Capability storiche dell'agente rimosso il 28/08/2026. Restano perché
+  // `tars.manage_policy` governa i permessi stessi: rinominarla significa
+  // migrare le regole già salvate. Le altre non compaiono più nella UI.
   "tars.use",
   "tars.approve_low_risk",
   "tars.approve_high_risk",
