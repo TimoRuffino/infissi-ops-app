@@ -340,7 +340,7 @@ Ora la somma si fa in un posto solo, `server/_core/costiFissiAzienda.ts`:
 
 | sorgente | cosa contiene | come si mensilizza |
 |---|---|---|
-| **FiC** | documenti d'acquisto classificati `fisso`, raggruppati per fornitore | totale del periodo ÷ mesi con documenti classificati |
+| **FiC** | documenti d'acquisto classificati `fisso`, raggruppati per fornitore, **ancora in forza** | totale ÷ (occorrenze × intervallo della sua cadenza) |
 | **Dichiarato** | ciò che in FiC non passa: stipendi, contributi, tasse, affitti senza fattura passiva | `importo ÷ mesi della cadenza`, contato solo se la voce è valida alla fine del periodo |
 
 **Classificare in Acquisti È la conferma.** Non esiste più una seconda
@@ -355,6 +355,38 @@ l'aggregato FiC di quel fornitore sparisce. Chi scrive cadenza e validità sa
 più di una media aritmetica, e sommarli sarebbe contare due volte lo stesso
 affitto. La riga lo dichiara: «Sostituisce €X/mese di fatture FiC dello stesso
 fornitore».
+
+**Solo i costi ancora in forza (28/08/2026, seconda passata).** La prima
+versione divideva il totale del fornitore per i mesi del periodo, e sbagliava
+in due direzioni opposte: un canone acceso a maggio veniva spalmato su dodici
+mesi (€1.500 spesi in tre diventavano €125 invece di €500) e **un canone
+chiuso a ottobre 2025 continuava a pesare sul mese di oggi**, perché i suoi
+documenti cadono comunque dentro la finestra. La segnalazione era esattamente
+questa: «vengono conteggiati anche costi del 2025, ma se non ci sono più che
+senso ha conteggiarli».
+
+Ora ogni fornitore dichiara il proprio ritmo, misurato sui **mesi** in cui ha
+fatturato (non sui documenti: chi fattura due linee lo stesso mese ha una
+ricorrenza mensile, e contare i documenti ne dimezzava il peso; le note di
+credito sono rettifiche, non occorrenze):
+
+- `intervallo = round((ultimoMese − primoMese) / (occorrenze − 1))`, minimo 1;
+- `mensile = totale / (occorrenze × intervallo)` — per un mensile è la media
+  di sempre, per un trimestrale è finalmente un terzo;
+- **in forza** se il silenzio dall'ultima fattura è ≤ `intervallo + 1`: un
+  mensile tollera due mesi di ritardo, un trimestrale quattro. Una fattura in
+  ritardo non è un contratto chiuso.
+
+Chi resta fuori **non sparisce**: finisce in `fuoriTotale` con il motivo e
+l'ultima data, in una sezione «Fuori dal totale» a bordo tratteggiato, e resta
+riclassificabile. Un fornitore con **un documento solo** ci finisce anche lui:
+un documento non stabilisce un ritmo, e indovinarlo è pericoloso in entrambe
+le direzioni — un premio annuo da €12.000 letto come mensile gonfierebbe
+l'obiettivo di dodici volte. Se il costo esiste davvero, va dichiarato a mano
+con la sua cadenza, ed è per questo che la scheda lo dice riga per riga.
+
+Una voce dichiarata **non** rimpiazza un fornitore già fuori dal totale:
+`sostituisceFic` resta `null`, perché non c'era nessuna cifra da sottrarre.
 
 **Periodo base unico.** `periodoBase()` restituisce gli ultimi dodici mesi
 **chiusi** — il mese in corso resta fuori, perché è mezzo mese di documenti e

@@ -268,3 +268,61 @@ describe("costiFissi router", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("costi fissi ancora in forza", () => {
+  it("non conta un canone che ha smesso di fatturare l'anno prima", async () => {
+    // La segnalazione: nel costo fisso mensile pesavano ancora canoni del
+    // 2025. I loro documenti cadono dentro il periodo base degli ultimi
+    // dodici mesi, quindi la media li contava — ma un canone chiuso a ottobre
+    // non è un costo di luglio.
+    const sedeId = 79;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const riga = (id: number, fornitore: string, data: string, netto: number) => ({
+      id,
+      tipo: "expense" as const,
+      data,
+      fornitoreId: 79,
+      fornitoreNome: fornitore,
+      categoriaFic: "Servizi",
+      descrizione: "Canone",
+      centro: null,
+      numeroDocumento: `F-${id}`,
+      importoNetto: netto,
+      importoIva: netto * 0.22,
+      importoLordo: netto * 1.22,
+      rate: [],
+    });
+    upsertCostiFic(
+      [
+        riga(79_001, "Canone Chiuso S.r.l.", "2025-08-10", 600),
+        riga(79_002, "Canone Chiuso S.r.l.", "2025-09-10", 600),
+        riga(79_003, "Canone Chiuso S.r.l.", "2025-10-10", 600),
+        riga(79_101, "Canone Vivo S.r.l.", "2026-05-10", 500),
+        riga(79_102, "Canone Vivo S.r.l.", "2026-06-10", 500),
+        riga(79_103, "Canone Vivo S.r.l.", "2026-07-10", 500),
+      ],
+      sedeId,
+      "costi-in-forza"
+    );
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Canone Chiuso S.r.l.",
+      classificazione: "fisso",
+    });
+    await caller.ficCosti.spostaFornitore({
+      fornitore: "Canone Vivo S.r.l.",
+      classificazione: "fisso",
+    });
+
+    // Periodo base 2025-08 → 2026-07.
+    const registro = await caller.costiFissi.list({ anno: 2026, mese: 8 });
+    expect(registro.righe.map(r => r.fornitore)).toEqual(["Canone Vivo S.r.l."]);
+    expect(registro.totaleMensile).toBe(500);
+    // Non sparisce: resta visibile col motivo.
+    expect(registro.fuoriTotale).toHaveLength(1);
+    expect(registro.fuoriTotale[0]).toMatchObject({
+      fornitore: "Canone Chiuso S.r.l.",
+      inForza: false,
+      mensile: 0,
+    });
+  });
+});

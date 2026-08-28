@@ -270,10 +270,21 @@ function RigaFic({ riga }: { riga: any }) {
         <div className="min-w-[12rem] flex-1">
           <p className="truncate text-sm font-medium">{riga.descrizione}</p>
           <p className="truncate text-xs text-text-3">
-            {riga.documenti} document{riga.documenti === 1 ? "o" : "i"} in{" "}
-            {riga.mesi} mes{riga.mesi === 1 ? "e" : "i"} ·{" "}
+            {riga.documenti} document{riga.documenti === 1 ? "o" : "i"} ·{" "}
+            {riga.intervalloMesi === 1
+              ? "ogni mese"
+              : riga.intervalloMesi != null
+                ? `ogni ${riga.intervalloMesi} mesi`
+                : "senza una cadenza"}{" "}
+            · ultima {etichettaMese(riga.ultimoMese)} ·{" "}
             {formatEuroSimbolo(riga.totalePeriodo)} nel periodo
           </p>
+          {/* Il peso mensile non è la media sul periodo: è il totale diviso
+              per i mesi che le sue fatture coprono davvero. Senza scriverlo,
+              un trimestrale sembrava sbagliato. */}
+          {riga.motivoFuori && (
+            <p className="text-xs text-warning">{riga.motivoFuori}</p>
+          )}
         </div>
         <Badge variant="outline" className="shrink-0 text-[10px]">
           Da FiC
@@ -582,6 +593,7 @@ export default function CostiFissi({
   const gruppi = candidati.data?.gruppi ?? [];
   const totale = d?.totaleMensile ?? 0;
   const daFic = righe.filter(r => r.fonte === "fic");
+  const fuoriTotale: any[] = d?.fuoriTotale ?? [];
   const dichiarate = righe.filter(r => r.fonte === "dichiarato");
 
   const salvaManuale = (value: Bozza) => {
@@ -617,9 +629,9 @@ export default function CostiFissi({
               Costa {formatEuroSimbolo(totale)} al mese tenere aperta l&apos;azienda
             </h2>
             <p className="text-xs text-text-3">
-              Media sugli ultimi {d?.mesiCoperti ?? 0} mesi con documenti
-              ({d?.periodoDa} → {d?.periodoA}). È questo il numero che il
-              minimo da fatturare deve coprire.
+              Solo i costi ancora in forza, su {d?.periodoDa} → {d?.periodoA}.
+              Ogni fornitore pesa per la sua cadenza, non spalmato sui dodici
+              mesi. È questo il numero che il minimo da fatturare deve coprire.
             </p>
           </div>
           <div className="text-right">
@@ -757,6 +769,33 @@ export default function CostiFissi({
           </p>
         )}
       </section>
+
+      {/* ── Non più in forza ───────────────────────────────────────────── */}
+      {/* Non sparisce niente in silenzio: quello che non pesa più si vede,
+          col motivo e con l'ultima fattura, e resta riclassificabile. */}
+      {fuoriTotale.length > 0 && (
+        <section aria-labelledby="fuori-totale" className="space-y-2">
+          <div className="min-w-0">
+            <h2 id="fuori-totale" className="text-base font-semibold">
+              Fuori dal totale
+              <Badge variant="outline" className="ml-2 text-[10px]">
+                {fuoriTotale.length}
+              </Badge>
+            </h2>
+            <p className="text-xs text-text-3">
+              Fornitori classificati «Fisso» che oggi non pesano: hanno smesso
+              di fatturare, oppure hanno un documento solo e non basta a
+              stabilire una cadenza. Se il costo esiste ancora, dichiaralo a
+              mano qui sopra con la sua cadenza.
+            </p>
+          </div>
+          <ul className="divide-y divide-border/70 overflow-hidden rounded-lg border border-dashed border-border bg-surface">
+            {fuoriTotale.map((riga: any) => (
+              <RigaFic key={riga.chiave} riga={riga} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ── Da Fatture in Cloud ────────────────────────────────────────── */}
       <section aria-labelledby="da-fic" className="space-y-2">

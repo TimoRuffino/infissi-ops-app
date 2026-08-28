@@ -348,7 +348,7 @@ describe("economia FiC", () => {
           tipo: "expense" as const,
           data,
           fornitoreId: null,
-          fornitoreNome: `Fisso ${offset}`,
+          fornitoreNome: "Canone Fisso SRL",
           categoriaFic: "Utenze",
           descrizione: null,
           centro: null,
@@ -363,7 +363,7 @@ describe("economia FiC", () => {
           tipo: "expense" as const,
           data,
           fornitoreId: null,
-          fornitoreNome: `Variabile ${offset}`,
+          fornitoreNome: "Materiali Variabili SRL",
           categoriaFic: "Materiali",
           descrizione: null,
           centro: null,
@@ -378,7 +378,7 @@ describe("economia FiC", () => {
     upsertDocumentiEmessi(emessi, sedeId, "break-even-emessi");
     upsertCostiFic(costi, sedeId, "break-even-costi");
     for (const costo of ficCosti.filter(c => c.sedeId === sedeId)) {
-      costo.classificazione = costo.fornitoreNome.startsWith("Fisso")
+      costo.classificazione = costo.fornitoreNome.startsWith("Canone")
         ? "fisso"
         : "variabile_commessa";
       costo.fonteClassificazione = "utente";
@@ -386,10 +386,11 @@ describe("economia FiC", () => {
 
     const risultato = await caller.economia.breakEven({ anno, mese });
 
-    // Tre fornitori da €1.000 su tre mesi: €333,33 a testa al mese. Il
-    // pareggio li usa senza chiedere una seconda conferma — classificarli in
-    // Acquisti E' la conferma. Prima li ignorava del tutto, e l'obiettivo
-    // restava incalcolabile per chi aveva appena classificato tutto.
+    // Un canone da €1.000 al mese per tre mesi consecutivi, l'ultimo nel mese
+    // appena chiuso: è in forza, e vale €1.000 al mese. Il pareggio lo usa
+    // senza chiedere una seconda conferma — classificarlo in Acquisti E' la
+    // conferma. Prima lo ignorava del tutto, e l'obiettivo restava
+    // incalcolabile per chi aveva appena classificato tutto.
     expect(risultato.margineContribuzione).toBeCloseTo(0.6);
     expect(risultato.costiFissiFicMensili).toBeCloseTo(1_000, 1);
     expect(risultato.costiFissiDichiaratiMensili).toBe(0);

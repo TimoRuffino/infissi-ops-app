@@ -60,12 +60,25 @@ export type RigaCostoFisso = {
   fonte: "fic" | "dichiarato";
   descrizione: string;
   fornitore: string | null;
-  /** Quanto pesa al mese. È questo che si somma. */
+  /** Quanto pesa al mese. È questo che si somma — zero se non è più in forza. */
   mensile: number;
+  /**
+   * Il costo esiste ancora oggi? Un canone chiuso a ottobre 2025 non è un
+   * costo di agosto 2026, ma restava nella media perché i suoi documenti
+   * cadono comunque dentro il periodo base.
+   */
+  inForza: boolean;
+  /** Perché è fuori dal totale. `null` quando ci sta dentro. */
+  motivoFuori: string | null;
   /** FiC: quanto è stato speso davvero nel periodo base. */
   totalePeriodo: number | null;
   documenti: number | null;
   mesi: number | null;
+  /** FiC: mesi fra un documento e il successivo — 1 mensile, 3 trimestrale. */
+  intervalloMesi: number | null;
+  /** FiC: primo e ultimo mese fatturato dentro il periodo. */
+  primoMese: string | null;
+  ultimoMese: string | null;
   /** Dichiarato: identità e validità della voce. */
   id: number | null;
   cadenza: string | null;
@@ -82,7 +95,10 @@ export type CostiFissiAzienda = {
   periodoA: string;
   /** Mesi con dati d'acquisto utilizzabili: il divisore della parte FiC. */
   mesiCoperti: number;
+  /** Solo le voci in forza: sono queste che fanno il totale. */
   righe: RigaCostoFisso[];
+  /** Le voci escluse, con il motivo. Non spariscono: si vedono e si spiegano. */
+  fuoriTotale: RigaCostoFisso[];
   totaleFic: number;
   totaleDichiarato: number;
   totaleMensile: number;
@@ -115,6 +131,12 @@ export function periodoBase(riferimento?: {
     periodoDa: inizio.toISOString().slice(0, 10),
     periodoA: fine.toISOString().slice(0, 10),
   };
+}
+
+/** "YYYY-MM" → progressivo di mesi, per sottrarre due mesi fra loro. */
+function indiceMese(mese: string): number {
+  const [anno, numero] = mese.slice(0, 7).split("-").map(Number);
+  return anno * 12 + (numero - 1);
 }
 
 function arrotonda(valore: number): number {
@@ -182,7 +204,11 @@ export function calcolaCostiFissiAzienda(input: {
     const importo = segno(costo.tipo) * costo.importoNetto;
     gruppo.totale += importo;
     gruppo.documenti++;
-    gruppo.mesi.add(costo.data.slice(0, 7));
+    // Le occorrenze si contano in MESI, non in documenti: un fornitore che
+    // fattura due linee lo stesso mese ha una ricorrenza mensile, non
+    // quindicinale, e contare i documenti ne dimezzava il peso.
+    // Le note di credito non sono occorrenze: sono rettifiche.
+    if (costo.tipo === "expense") gruppo.mesi.add(costo.data.slice(0, 7));
     gruppo.righe.push({
       id: costo.id,
       data: costo.data,
@@ -197,40 +223,66 @@ export function calcolaCostiFissiAzienda(input: {
   const vive = input.dichiarati.filter(voce => attivaA(voce, meseFine));
 
   const righe: RigaCostoFisso[] = [];
-  for (const voce of vive) {
-    const chiave = voce.fornitore ? chiaveFornitore(voce.fornitore) : "";
-    const gruppo = chiave ? perFornitore.get(chiave) : undefined;
-    const sostituito = gruppo ? arrotonda(gruppo.totale / mesiCoperti) : null;
-    if (gruppo && chiave) perFornitore.delete(chiave);
-    righe.push({
-      chiave: `dichiarato:${voce.id}`,
-      fonte: "dichiarato",
-      descrizione: voce.descrizione,
-      fornitore: voce.fornitore,
-      mensile: arrotonda(voce.mensile),
-      totalePeriodo: null,
-      documenti: null,
-      mesi: null,
-      id: voce.id,
-      cadenza: voce.cadenza,
-      categoria: voce.categoria,
-      dal: voce.dal,
-      al: voce.al,
-      sostituisceFic: sostituito,
-      righe: [],
-    });
-  }
+  const fuoriTotale: RigaCostoFisso[] = [];
 
-  for (const [chiave, gruppo] of Array.from(perFornitore.entries())) {
-    righe.push({
+  /**
+   * Da un gruppo FiC alla sua riga: ritmo, peso mensile e se è ancora in
+   * forza.
+   *
+   * Il peso NON è più `totale / mesi del periodo`. Quella formula sbagliava
+   * due volte: spalmava su dodici mesi un canone acceso a maggio (che pesa
+   * per intero, non per un quarto) e continuava a contare un canone spento a
+   * ottobre. Ora ogni occorrenza copre `intervallo` mesi, quindi il peso è
+   * `totale / (occorrenze × intervallo)` — che per un mensile è la media di
+   * sempre, e per un trimestrale è finalmente un terzo.
+   */
+  const rigaFic = (chiave: string, gruppo: GruppoFic): RigaCostoFisso => {
+    const mesi = Array.from(gruppo.mesi).sort();
+    const primoMese = mesi[0] ?? null;
+    const ultimoMese = mesi[mesi.length - 1] ?? null;
+    const occorrenze = mesi.length;
+    const intervallo =
+      occorrenze >= 2
+        ? Math.max(
+            1,
+            Math.round(
+              (indiceMese(ultimoMese!) - indiceMese(primoMese!)) /
+                (occorrenze - 1)
+            )
+          )
+        : null;
+    const mesiDiSilenzio =
+      ultimoMese == null ? null : indiceMese(meseFine) - indiceMese(ultimoMese);
+
+    let motivoFuori: string | null = null;
+    if (occorrenze === 0) {
+      motivoFuori = "Solo note di credito nel periodo.";
+    } else if (intervallo == null) {
+      // Un documento solo non stabilisce un ritmo, e indovinarlo è pericoloso
+      // in entrambe le direzioni: un premio annuo da €12.000 letto come
+      // mensile gonfierebbe l'obiettivo di dodici volte.
+      motivoFuori = `Un solo documento (${ultimoMese}): non basta a stabilire una ricorrenza. Se è un costo periodico, dichiaralo a mano con la sua cadenza.`;
+    } else if (mesiDiSilenzio! > intervallo + 1) {
+      motivoFuori = `Ultima fattura ${ultimoMese}, ${mesiDiSilenzio} mesi fa: un costo che non arriva più non pesa sul mese di oggi.`;
+    }
+
+    return {
       chiave: `fic:${chiave}`,
       fonte: "fic",
       descrizione: gruppo.fornitore,
       fornitore: gruppo.fornitore,
-      mensile: arrotonda(gruppo.totale / mesiCoperti),
+      mensile:
+        motivoFuori == null
+          ? arrotonda(gruppo.totale / (occorrenze * intervallo!))
+          : 0,
+      inForza: motivoFuori == null,
+      motivoFuori,
       totalePeriodo: arrotonda(gruppo.totale),
       documenti: gruppo.documenti,
-      mesi: gruppo.mesi.size,
+      mesi: occorrenze,
+      intervalloMesi: intervallo,
+      primoMese,
+      ultimoMese,
       id: null,
       cadenza: null,
       categoria: null,
@@ -238,10 +290,50 @@ export function calcolaCostiFissiAzienda(input: {
       al: null,
       sostituisceFic: null,
       righe: gruppo.righe.sort((a, b) => b.data.localeCompare(a.data)),
+    };
+  };
+
+  for (const voce of vive) {
+    const chiave = voce.fornitore ? chiaveFornitore(voce.fornitore) : "";
+    const gruppo = chiave ? perFornitore.get(chiave) : undefined;
+    // Il rimpiazzo si dichiara solo se c'era davvero qualcosa da rimpiazzare:
+    // un fornitore già fuori dal totale non è una cifra sottratta.
+    const sostituito = gruppo ? rigaFic(chiave, gruppo) : null;
+    if (gruppo && chiave) perFornitore.delete(chiave);
+    righe.push({
+      chiave: `dichiarato:${voce.id}`,
+      fonte: "dichiarato",
+      descrizione: voce.descrizione,
+      fornitore: voce.fornitore,
+      mensile: arrotonda(voce.mensile),
+      inForza: true,
+      motivoFuori: null,
+      totalePeriodo: null,
+      documenti: null,
+      mesi: null,
+      intervalloMesi: null,
+      primoMese: null,
+      ultimoMese: null,
+      id: voce.id,
+      cadenza: voce.cadenza,
+      categoria: voce.categoria,
+      dal: voce.dal,
+      al: voce.al,
+      sostituisceFic:
+        sostituito && sostituito.inForza ? sostituito.mensile : null,
+      righe: [],
     });
   }
 
+  for (const [chiave, gruppo] of Array.from(perFornitore.entries())) {
+    const riga = rigaFic(chiave, gruppo);
+    (riga.inForza ? righe : fuoriTotale).push(riga);
+  }
+
   righe.sort((a, b) => b.mensile - a.mensile);
+  fuoriTotale.sort(
+    (a, b) => (b.ultimoMese ?? "").localeCompare(a.ultimoMese ?? "")
+  );
 
   const totaleFic = arrotonda(
     righe.filter(r => r.fonte === "fic").reduce((s, r) => s + r.mensile, 0)
@@ -255,6 +347,7 @@ export function calcolaCostiFissiAzienda(input: {
     periodoA,
     mesiCoperti,
     righe,
+    fuoriTotale,
     totaleFic,
     totaleDichiarato,
     totaleMensile: arrotonda(totaleFic + totaleDichiarato),
