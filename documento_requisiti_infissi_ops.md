@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.3 - Analisi delle conferme d'ordine PDF (§19.4, prima slice della Document Intelligence §54.6) sopra le autorizzazioni economiche della v5.2 (§37.5). Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.4 - Collegamento assistito documento→ordine (§19.4, seconda slice della Document Intelligence) sopra l'analisi delle conferme della v5.3. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -582,6 +582,35 @@ fascicolo della commessa dell'ordine:
   o di formato non supportato producono gli stati espliciti `illeggibile` /
   `non_supportato` con il motivo.
 
+**Collegamento assistito documento → ordine (28/08/2026, seconda slice).**
+Da «File e documenti» della scheda commessa, l'azione «Collega a un ordine
+fornitore» su un PDF apre il dialog dei candidati:
+
+- i candidati sono generati **deterministicamente** su tutti gli ordini
+  della sede, con un punteggio spiegabile per segnali in ordine di forza —
+  codice d'ordine citato (100), codice commessa (60), fornitore (40),
+  codici articolo (15 l'uno, massimo 45), data di consegna coincidente (15),
+  totale coincidente (15, senza esporre cifre CRM) — ognuno con la sua
+  evidenza (pagina e frammento);
+- l'esito è uno di quattro stati espliciti: `certa` (un solo ordine citato
+  per codice), `candidata` (plausibile, da confermare), `ambigua` (più
+  ordini equivalenti: MAI un collegamento automatico), `assente`. Anche con
+  `certa` il collegamento nasce SOLO dalla conferma umana;
+- il collegamento è un dato separato (`documenti_collegamenti_ordini`) che
+  non altera documento, ordine o commessa; è idempotente, rileva i
+  duplicati per impronta, e porta un audit append-only di conferme, rifiuti
+  e annullamenti (utente, momento, motivo). La correzione è annulla +
+  riconferma; un candidato rifiutato non viene più proposto come certo
+  finché un umano non lo riconferma esplicitamente;
+- autorizzazione via capability `commessa.manage_documents` decisa dal
+  motore in ogni `policyMode` (direzione dal ruolo, gli altri sulla
+  commessa posseduta o assegnata, override individuali inclusi): nessun
+  ruolo hardcoded. Sedi isolate: documento e ordine di un'altra sede sono
+  `NOT_FOUND`;
+- un documento collegato può essere analizzato dall'ordine (§19.4) anche se
+  archiviato nel fascicolo di un'altra commessa: la decisione umana prevale
+  sulla posizione del file, che comunque non viene spostato.
+
 ---
 
 ## 20. Produzione (`/produzione`, direzione‑only)
@@ -917,6 +946,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.4 (28/08/2026)** - Seconda slice della Document Intelligence (§19.4): collegamento assistito documento→ordine con candidati deterministici a punteggio spiegabile (codice ordine > commessa > fornitore > articoli > date > totali), quattro stati espliciti (certa/candidata/ambigua/assente), conferma umana obbligatoria, rifiuti e annullamenti auditati, idempotenza e duplicati per impronta, capability `commessa.manage_documents` senza ruoli hardcoded. Il collegamento non modifica documento, ordine o commessa.
 - **v5.3 (28/08/2026)** - Prima slice della Document Intelligence (§19.4): analisi deterministica delle conferme d'ordine PDF dalla scheda ordine — registro parser, estrazione con evidenze per pagina, confronto con l'ordine per gravità, run idempotenti con impronta e versioni. Nessuna scrittura su dati autorevoli. Limite dichiarato: le scansioni senza testo producono uno stato esplicito e non vengono comprese finché non esiste un OCR.
 - **v5.2 (28/08/2026)** - Slice 2 «dati economici dietro capability» (§37.5): registro pagamenti, costi e margine viaggiano solo con `pagamento.read`/`economia.read` (payload sagomati, mai errori sulla parte operativa); scritture acconti dietro `pagamento.record` con override individuale auditato; `/pagamenti` riservata; Board, liste, Dashboard, Centro Azioni e notifiche senza importi (bit `daSaldare` e versione del registro al posto delle cifre); `permessi.mie` per la parità di policy nella UI. La matrice vale identica in ogni `policyMode` (`legacyAllowed: "capability"`).
 - **v5.1 (28/08/2026)** - Riconciliazione documentale post-rimozione: §51 e §53 riscritti sul comportamento corrente (nessuna classificazione automatica, nessuna proposta, flag di sola lettura, limite noto sugli allegati WhatsApp); §40.4-40.5 allineati alla riconciliazione senza agente; nuova sezione §54 con la visione del futuro agente, marcata non implementata, inclusa la Document Intelligence decisa dalla direzione (§54.6, decisione D7): comprensione verificabile dei documenti — priorità alle conferme d'ordine PDF — da realizzare dopo la slice authz e prima delle capacità operative avanzate; correzioni minori (poller IMAP a 5 minuti, route legacy). Il PDF `PRD_infissi_ops_v4.pdf` resta il riferimento storico della v4.

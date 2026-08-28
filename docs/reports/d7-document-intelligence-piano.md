@@ -79,9 +79,12 @@
    differenze classificate, run idempotenti, UI nella scheda ordine
    (direzione), test con PDF digitali/scansionati/corrotti/duplicati/
    ambigui/con variazioni/con injection.
-2. Collegamento assistito: analisi dal documento senza ordine scelto,
-   candidati deterministici (codice ordine/commessa/fornitore), conferma
-   umana, riuso del collegamento verificato.
+2. **[FATTA il 28/08/2026]** Collegamento assistito: candidati
+   deterministici dal documento senza ordine scelto (codice ordine >
+   commessa > fornitore > articoli > date > totali), punteggio spiegabile
+   con evidenze, stati certa/candidata/ambigua/assente, conferma umana
+   obbligatoria, rifiuti/annullamenti auditati, idempotenza + duplicati per
+   impronta, capability `commessa.manage_documents`. Dettagli: PRD §19.4.
 3. Azioni proposte con approval gateway: aggiorna `dataConsegnaPrevista`,
    segnala incompatibilità con posa pianificata (caso operativo), apri
    anomalia/contestazione. Nessuna applicazione automatica.

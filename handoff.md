@@ -978,8 +978,36 @@ ricognizione, gap e piano in `docs/reports/d7-document-intelligence-piano.md`).
   esplicito `scansione_senza_testo`: senza OCR il loro contenuto NON viene
   compreso, e la UI non le presenta mai come analisi riuscite (campi e
   confronto compaiono solo con stato `analizzata`). Righe best-effort a
-  confidenza bassa; collegamento assistito e azioni proposte alle slice 2-3
-  del piano.
+  confidenza bassa.
+
+**Slice 2 — collegamento assistito documento→ordine (28/08/2026, stessa
+notte)**, contratto completo nel PRD §19.4:
+
+- candidati deterministici su tutti gli ordini della sede con punteggio
+  spiegabile (codice ordine 100 > commessa 60 > fornitore 40 > articoli
+  15×3 > data 15 > totale 15), ogni segnale con evidenza pagina/frammento;
+  stati espliciti certa/candidata/ambigua/assente e MAI un collegamento
+  automatico — anche «certa» aspetta la conferma umana;
+- store `documenti_collegamenti_ordini`: collegamento come dato separato
+  (documento, ordine e commessa restano intatti), idempotente, con audit
+  append-only di conferma/rifiuto/annullamento e rilevazione dei duplicati
+  per impronta SHA-256; correzione = annulla + riconferma; un rifiuto toglie
+  il candidato dal calcolo dello stato finché non viene riconfermato;
+- authz via capability `commessa.manage_documents` col motore in ogni
+  policyMode (direzione da ruolo, altri su commesse possedute/assegnate,
+  override inclusi): nessun `requireDirezione` nuovo; sedi isolate;
+- il documento collegato diventa analizzabile dall'ordine anche da un altro
+  fascicolo (la decisione umana prevale sulla posizione del file);
+- UI: azione «Collega a un ordine fornitore» sui PDF di «File e documenti»
+  nella scheda commessa, dialog con candidati/punteggi/motivazioni/evidenze,
+  rifiuto e annullamento con motivo;
+- test: `server/documenti/collegamentoOrdine.test.ts`, 12 scenari (esatto,
+  mancante, ambiguo, fornitore errato, commessa incoerente, omonimi
+  cross-sede, duplicato, flusso completo con audit, cross-sede, capability
+  senza ruoli, nessuna modifica ai dati autorevoli, ponte con l'analisi
+  slice 1) + mutation test sul filtro di sede. Verifica funzionale sul demo:
+  dialog con «Corrispondenza certa, punteggio 215» spiegato segnale per
+  segnale, conferma e stato collegato, zero errori applicativi in console.
 
 ## 7-bis. Chat aziendale (26/08/2026)
 
