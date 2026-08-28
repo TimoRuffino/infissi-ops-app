@@ -1,11 +1,24 @@
-# Runbook eventi e notifiche Tars
+# Runbook eventi e notifiche
+
+> Era `tars-eventi-notifiche.md`: il nome citava l'agente, ma questa
+> infrastruttura non era l'agente ed è viva. Rinominato il 28/08/2026.
 
 ## Scopo
 
 Procedura per attivare e controllare registro eventi, proiezione notifiche,
 realtime SSE e Web Push senza perdere eventi o duplicare avvisi. Eseguire una
-sede alla volta. La diagnostica e disponibile alla direzione tramite
+sede alla volta. La diagnostica è disponibile alla direzione tramite
 `diagnostica.snapshot` e non contiene payload cliente.
+
+## Come si cambiano i flag (limite attuale)
+
+Dal 28/08/2026 **non esiste più un'API per modificare i flag di piattaforma**:
+l'unico endpoint era `tars.config.setPlatformFlags`, rimosso con l'agente, e
+`platform.flags` è di sola lettura. I flag restano quindi congelati ai valori
+salvati per sede. Fino alla reintroduzione di un endpoint direzione con audit
+(lavoro tracciato nel dossier), un cambio richiede un intervento pianificato a
+servizio fermo — mai una scrittura sul database con l'istanza viva — e va
+registrato qui con data, autore e motivo.
 
 ## Ordine di attivazione
 
@@ -18,9 +31,6 @@ sede alla volta. La diagnostica e disponibile alla direzione tramite
 6. Attivare `webPushEnabled=true` solo dopo consenso browser e test su un
    destinatario interno.
 
-Ogni cambio passa da `tars.config.setPlatformFlags`, richiede direzione e una
-motivazione di almeno 10 caratteri. Controllare l'audit subito dopo.
-
 ## Controlli
 
 - `diagnostica.snapshot.events.consumers`: `pending` deve tornare verso zero.
@@ -28,11 +38,11 @@ motivazione di almeno 10 caratteri. Controllare l'audit subito dopo.
 - `notifications.pending` deve essere coerente con il Centro Notifiche.
 - `sseConnections` cresce all'apertura e torna a zero alla chiusura.
 - Una riassegnazione produce una sola notifica canonica al nuovo assegnatario.
-- Presa in carico o risposta Tars risolve il gruppo, non crea un duplicato.
+- Presa in carico o completamento risolve il gruppo, non crea un duplicato.
 
 ## Recovery
 
-- Worker riavviato: i lease stale tornano `pending`; il consumer e idempotente.
+- Worker riavviato: i lease stale tornano `pending`; il consumer è idempotente.
 - Evento duplicato: `dedupe_key` restituisce il record esistente.
 - SSE disconnessa: non cancellare notifiche; il reconnect esegue replay dal
   cursore e il polling resta fallback.
@@ -43,5 +53,5 @@ motivazione di almeno 10 caratteri. Controllare l'audit subito dopo.
 
 Disattivare in ordine inverso: Web Push, SSE, notifiche active verso shadow,
 eventi active verso shadow. Non cancellare eventi, processing o notifiche:
-servono per audit e replay. Il flusso legacy resta disponibile finche il gate
-di rollout non e firmato.
+servono per audit e replay. Il flusso legacy resta disponibile finché il gate
+di rollout non è firmato.

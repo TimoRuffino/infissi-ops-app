@@ -82,22 +82,24 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - I segreti cifrati dipendono da `MAIL_ENCRYPTION_KEY`.
 - Non loggare access token, refresh token, password o payload cliente completi.
 
-## Tars
+## Agente AI
 
-- Conservare il principio "propone, non esegue".
-- Preferire il profilo strumenti del trigger al catalogo completo.
-- Quando è noto `commessaId`, usare `leggi_fascicolo_commessa`/preload invece di
-  molte letture frammentate.
-- Le cache degli strumenti sono per singolo run; non condividerle tra utenti o
-  esecuzioni.
-- Le letture trasversali devono restare sede-scoped; organizzazione ed economia
-  rispettano sempre i permessi del ruolo corrente.
-- Una proposta non va ricreata se la stessa azione è pendente, approvata,
-  rifiutata, risposta o già gestita: mantenere la chiave d'azione canonica.
-- L'audit processi deve proporre pattern misurabili, non reagire a casi isolati,
-  e non può eseguire mutazioni autonome.
-- Modifiche a prompt, tool schema o caching richiedono test in
-  `server/tars/tars.test.ts` e controllo dei metadati di esecuzione.
+- Non esiste: Tars è stato rimosso per intero il 28/08/2026 e verrà rifatto da
+  zero come progetto separato. Storia e decisioni aperte in
+  `docs/tars-rimosso-2026-08-28.md`; ricognizione, invarianti e vincoli in
+  `docs/discovery-dossier-2026-08-28.md` e `docs/source-of-truth-matrix.md`.
+- Ogni automatismo attuale è deterministico: match, regole e aritmetica.
+  Nessun LLM in percorsi di stato, permessi, importi o scadenze.
+- Non rimuovere i residui di compatibilità senza una decisione registrata e
+  una matrice campo→consumer: colonne `tars_*` su `comunicazioni`,
+  `fic_fatture.tarsAnalizzata`, capability `tars.*` (in particolare
+  `tars.manage_policy`, che governa regole già salvate), flag
+  `contextEngineMode`/`plannerMode`/`semanticSearchMode`/`autonomyCapabilities`.
+- `server/_core/llm.ts`, `voiceTranscription.ts` e `imageGeneration.ts` sono
+  infrastruttura candidata senza consumatori attivi: tenerli, sostituirli o
+  eliminarli si decide durante il design del nuovo agente.
+- Il futuro agente si appoggerà a contratti dati/eventi tipizzati e ad
+  approvazione umana: non anticiparne pezzi dentro i router business.
 
 ## Definizione di completato
 

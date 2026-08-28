@@ -30,7 +30,7 @@ pagine quando esiste già un token semantico.
 | Comunicazioni | tabella PostgreSQL `comunicazioni`, con fallback in memoria locale |
 | Azioni operative | tabelle PostgreSQL `azioni_operative` e `azioni_operative_eventi`, fallback in memoria locale |
 | File | driver `local` oppure object storage S3-compatible/R2 |
-| AI | OpenAI Responses API con function calling, proposta con approvazione umana |
+| AI | nessuna: agente rimosso il 28/08/2026 (§6); ogni automatismo è deterministico |
 | PDF | jsPDF/autotable client e server |
 
 ### Persistenza
@@ -245,18 +245,16 @@ dal fascicolo (`preventiviContratti.delete` su un documento `source = "fic"`):
   create dalla prima versione — marcate `ficStato = "scollegata"` — vengono
   ripulite dall'`onLoad` di `commesse`;
 - pattuito e piano rate vengono riderivati dalle fatture rimaste;
-- la fattura torna in coda a Tars (`tarsAnalizzata = false`).
+- la fattura torna nella coda di riconciliazione. `tarsAnalizzata` viene
+  riportato a `false` come marcatore di compatibilità: dal 28/08/2026 non ha
+  consumatori (§6).
 
-**Tars sulle fatture orfane.** Il trigger `riconciliazione_fatture` riceve ora
-i candidati scartati dal match con il dubbio scritto, i contatti in fattura e
-l'elenco delle commesse già rifiutate. Il prompt gli chiede di collegare solo
-quando è sicuro, di usare `chiedi_chiarimento` quando il dato non torna invece
-di scegliere la commessa più somigliante, e — se il cliente fatturato non ha
-nessuna commessa nel CRM — di usare `proponi_nuovo_lead` con `ficId`:
-all'approvazione nascono cliente e commessa e la fattura ci si attacca da
-sola. Il profilo strumenti include perciò `leggi_assegnatari` e
-`proponi_nuovo_lead`; la chiave d'azione di `crea_lead` nato da fattura è il
-`ficId`, per non produrre due proposte per lo stesso documento.
+**Fatture orfane (dal 28/08/2026).** Nessuna proposta automatica: la coda
+espone i candidati del match con il dubbio scritto e le commesse già
+rifiutate. Si collega a mano dopo conferma, si esclude dalla riconciliazione,
+oppure — se il cliente non ha commesse — si usa «Crea le N commesse
+mancanti». (Storico: il trigger `riconciliazione_fatture` dell'agente
+proponeva collegamento o nuovo lead con chiave `ficId`.)
 
 Il resto del contratto resta invariato:
 
@@ -265,16 +263,17 @@ Il resto del contratto resta invariato:
 - il sync scrive e aggiorna automaticamente soltanto movimenti con
   `origine = fic`, usando una chiave sorgente stabile e senza duplicarli;
 - i pagamenti manuali non vengono mai mutati dal sync: una discordanza produce
-  una proposta Tars `correzione_pagamento` da approvare;
+  una segnalazione tipizzata nell'esito del sync (`correggi_manuale` /
+  `scegli_manuale`) e la fattura resta `da_riconciliare`; la correzione è
+  manuale (o via `commesse.correggiPagamento`, oggi senza UI);
 - un movimento FiC annullato resta nel registro come `stornato`, conserva
   l'audit e non alimenta `importoIncassato`;
 - snapshot FiC incompleti non stornano movimenti assenti dalla risposta.
 
-Le proposte di correzione usano una chiave d'azione canonica. Se più pagamenti
-manuali sono compatibili, l'operatore deve scegliere la riga prima di poter
-approvare. Una proposta già soddisfatta o sostituita diventa `superata` e non
-espone più azioni decisionali; fingerprint e guardie no-op impediscono di
-applicare una correzione su dati cambiati nel frattempo.
+`commesse.correggiPagamento` rivalida fingerprint del pagamento, rata FiC e
+link prima di scrivere: su dati cambiati risponde `PRECONDITION_FAILED` senza
+toccare il registro. (Storico: le proposte approvabili con chiave d'azione
+canonica e stato `superata` erano dell'agente rimosso.)
 
 Il vincolo di riconciliazione e ora uno-a-uno in entrambe le direzioni: un
 pagamento manuale non puo essere riutilizzato per due rate FiC. Il sync ripara
@@ -283,15 +282,11 @@ creando, quando necessario, un movimento FiC distinto per la rata restante.
 La scelta resta deterministica anche se FiC restituisce le rate in ordine
 diverso e copre i link duplicati tra fatture; un movimento FiC persistito senza
 link viene recuperato senza duplicarlo. Se più link puntano alla stessa rata,
-il movimento FiC perdente viene stornato; un manuale perdente genera invece una
-proposta di neutralizzazione che non sposta il link canonico. Una nota FiC
-multirata incompatibile con tutte le rate sospende i nuovi importi di quella
-fattura fino alla decisione dell'operatore, senza sospendere aggiornamenti o
-storni dei movimenti già esistenti. L'approvazione rivalida la rata FiC
-viva, la source key, il link e il pagamento prima di qualsiasi scrittura: una
-proposta vecchia diventa `superata`, senza errore né modifica. La card Tars
-confronta `Nel CRM ora` con `FiC propone`, dichiara l'effetto sull'incassato e
-nasconde il comando quando i dati di confronto non sono leggibili.
+il movimento FiC perdente viene stornato; un manuale perdente genera invece
+una segnalazione di storno da applicare a mano, senza spostare il link
+canonico. Una nota FiC multirata incompatibile con tutte le rate sospende i
+nuovi importi di quella fattura fino alla decisione dell'operatore, senza
+sospendere aggiornamenti o storni dei movimenti già esistenti.
 
 Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
 essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.
@@ -539,12 +534,9 @@ della Dashboard restavano accesi per sempre.
 Ora `statoFattura` distingue `attesa_incasso` (collegata, nessuna rata `paid`
 in FiC) da `da_riconciliare` (almeno una rata `paid` senza acconto
 corrispondente in commessa). L'ordine di valutazione è: `ignorata` →
-`non_abbinabile` → `riconciliata` → `proposta` → `attesa_incasso` →
-`da_riconciliare`; una proposta Tars pendente vince sull'attesa, perché quella
-è lavoro. Il filtro è diventato due chip, e badge e Dashboard contano solo
-`non_abbinabile` + `da_riconciliare`. Lo strumento Tars `leggi_fatture_cloud`
-con `soloNonRiconciliate` tiene invece dentro anche `attesa_incasso`: per una
-lettura una fattura non pagata è pertinente, per una coda operativa no.
+`non_abbinabile` → `riconciliata` → `attesa_incasso` → `da_riconciliare`.
+Il filtro è diventato due chip, e badge e Dashboard contano solo
+`non_abbinabile` + `da_riconciliare`.
 
 Fatturato e costi canonici sono imponibili al netto delle rispettive note di
 credito; IVA, lordo, rate pagate e rate aperte sono valori distinti. La vecchia
@@ -612,12 +604,10 @@ davanti allo stesso obiettivo devono leggere lo stesso numero):
   resta fuori; contarli porta l'obiettivo da €26.868 a €54.198. Se siano una
   tantum o struttura sotto un altro nome lo decide chi conosce l'azienda.
 
-Tars classifica in batch i nuovi costi FiC con output strutturato e cache key
-per sede/modello. Le correzioni utente e le regole esplicite prevalgono. Errori
-OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.
-`leggi_economia` usa gli stessi totali FiC e restituisce a Tars soltanto fonte,
-criteri separati di competenza/cassa, confronto incassi, aggregati mensili e
-affidabilità, senza documenti contabili completi.
+Dal 28/08/2026 nessun modello classifica i costi FiC: un documento nuovo entra
+`dubbio` e si classifica in Acquisti. Le regole per fornitore confermate da un
+operatore si applicano deterministicamente anche durante il sync; una
+classificazione manuale non viene mai sovrascritta.
 
 **WhatsApp: rinominare e collegare a mano** (28/08/2026). Due cose che
 mancavano nella scheda `/messaggi/whatsapp`.
@@ -634,9 +624,8 @@ Contesto, quindi non si perde niente.
 match automatico sui singoli messaggi, e quando quello sbagliava o non trovava
 — un numero nuovo, il cliente che scrive dal telefono della moglie, una
 commessa il cui codice non compare mai nei messaggi — la conversazione restava
-senza contesto per sempre: niente appuntamenti, niente ticket, niente proposte
-Tars. Ora `mail.whatsapp.collegaConversazione` fa le due cose che servono
-insieme:
+senza contesto per sempre: niente appuntamenti, niente ticket. Ora
+`mail.whatsapp.collegaConversazione` fa le due cose che servono insieme:
 
 1. scrive un **override** nello store `whatsapp_conversation_aliases` (che da
    nome-soltanto è diventato nome + `clienteId` + `commessaId`, con i record
@@ -644,8 +633,8 @@ insieme:
    devono ancora arrivare: `registraMessaggio` lo consulta PRIMA del matcher,
    perché riscrivere solo lo storico aggancia il passato e alla prima risposta
    del cliente la conversazione tornava scollegata;
-2. riscrive le righe `comunicazioni` già esistenti, perché Inbox, Tars e le
-   proposte leggono da lì — senza, la scheda WhatsApp avrebbe detto una cosa e
+2. riscrive le righe `comunicazioni` già esistenti, perché Inbox e il resto
+   del CRM leggono da lì — senza, la scheda WhatsApp avrebbe detto una cosa e
    il resto del CRM un'altra.
 
 Collegare una commessa detta anche il cliente, preso dalla commessa: due
@@ -662,9 +651,8 @@ guardando.
 scope. Prima di considerare affidabile il pareggio, confrontare due mesi chiusi
 e revisionare tutti i costi dubbi.
 
-Il collegamento esplicito o approvato da Tars scarica il PDF ufficiale e lo
-archivia come documento `fattura` della commessa **dopo** aver persistito il
-collegamento. Ogni sync ripara i collegamenti storici rimasti senza file:
+Il collegamento esplicito scarica il PDF ufficiale e lo archivia come
+documento `fattura` della commessa **dopo** aver persistito il collegamento. Ogni sync ripara i collegamenti storici rimasti senza file:
 controlla soltanto fatture con `commessaId`, deduplica per sorgente FiC,
 continua sulle altre se un download fallisce e ritenta al giro successivo. Un
 errore del PDF non annulla collegamento o riconciliazione economica e non crea
@@ -713,6 +701,10 @@ permessi stessi: rinominarla vorrebbe dire migrare le regole salvate. Le altre
 tre non compaiono più nella UI dei permessi.
 
 ## 7. Modifiche code-complete del 14/08/2026
+
+> Registro storico per data. Le voci che citano Tars raccontano un sistema
+> rimosso per intero il 28/08/2026 (§6): restano come cronaca di cosa è stato
+> fatto e quando, non come comportamento corrente.
 
 - Backup Drive corretto per file già migrati a `storageKey`.
 - Probe storage, script di verifica e runbook Cloudflare R2.
@@ -842,6 +834,60 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   di un rollout multi-istanza va aggiunto il claim PostgreSQL indicato nel
   checklist `docs/reports/tars-brain-rollout-checklist.md`.
 
+### Slice 1 — «La verità torna una sola» (28/08/2026, sera)
+
+Riconciliazione documentale e blindatura della state machine dopo la
+rimozione di Tars, autorizzata dalla direzione sul Discovery Dossier
+(`docs/discovery-dossier-2026-08-28.md`). Nessun cambiamento di comportamento
+runtime, con tre eccezioni deliberate di solo testo/etichetta:
+
+- il motivo preliminare delle comunicazioni nuove non promette più «la
+  classificazione automatica di Tars» (dice «Da classificare a mano»);
+- i messaggi di sistema in chat sono firmati «Sistema» invece di «Tars»; i
+  canali diretti creati prima conservano il vecchio nome nel DB finché non si
+  decide una migrazione;
+- il copy di `/conoscenza` descrive la scheda per quello che è oggi.
+
+Fatto:
+
+- **PRD v5.1**: §51 e §53 riscritti sul comportamento corrente; §40.4-40.5
+  allineati (segnalazioni tipizzate al posto delle proposte, regole costi
+  deterministiche); nuova sezione §54 con la visione del futuro agente,
+  marcata NON IMPLEMENTATA; correzioni minori (IMAP 5 min, route legacy).
+- **handoff**: §5 ripulito dai flussi Tars al presente; §7 marcato registro
+  storico; checklist §10 allineata; questo registro.
+- **AGENTS.md / CLAUDE.md**: sezione «Tars» sostituita da «Agente AI»
+  (non esiste; residui protetti; infrastruttura candidata).
+- **Pulizia**: rimossi `tars:eval`/`tars:eval:live` da package.json e gli
+  script rotti `run-tars-evals.ts` e `rebuild-tars-context.ts` (importavano
+  `server/tars/*`, e `scripts/` era fuori dal typecheck); rimossa la pagina
+  orfana `ComponentShowcase.tsx` (zero riferimenti); rimossi i due annunci
+  chat senza chiamanti che linkavano `/tars`. Tutto recuperabile da git.
+- **tsconfig**: `scripts/` incluso nel typecheck; aggiunto `target: ES2022`
+  (prima il default ES5 rifiutava i top-level await degli script legittimi).
+- **Annotazioni di compatibilità** (nessuna rimozione, decisione D5):
+  colonne e funzioni `tars*` in `comunicazioni.ts`, `ficFatture.tarsAnalizzata`,
+  capability `tars.*`, e header «infrastruttura candidata» su `_core/llm.ts`,
+  `voiceTranscription.ts`, `imageGeneration.ts` (zero consumatori: la
+  decisione spetta al design del nuovo agente).
+- **Runbook**: `tars-eventi-notifiche.md` → `eventi-notifiche.md`;
+  `tars-recovery.md` riscritto come `piattaforma-recovery.md` sul boot reale;
+  il report `tars-brain-rollout-checklist.md` marcato storico.
+- **Test nuovi** (`commesse.test.ts`, `crossSede.test.ts`, +12): proprietà
+  della state machine su tutte le 110 coppie di stati (force non salta la
+  sequenza), cleanup di rollback (consegna confermata, data chiusura), doc
+  gate con `statoAtUpload`, blocco del pattuito fonte FiC, immutabilità dei
+  movimenti `origine=fic`, negativi cross-sede su commesse/clienti/ticket.
+  Verificato che il test della state machine fallisca davvero su una
+  transizione allargata ad arte (mutation test, poi ripristinato).
+
+Limiti documentati (non risolti qui, tracciati nel PRD §31 e nel dossier):
+`platform.flags` è di sola lettura (flag congelati); WhatsApp non ha un
+percorso di archiviazione allegati; `commesse.correggiPagamento` non ha UI.
+
+Verifica: `pnpm check` (con `scripts/`), `pnpm test` 61 file / 501 test,
+`pnpm build` — tutti verdi in locale.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
@@ -945,9 +991,10 @@ Poi verificare nel browser, desktop e mobile:
 
 - login, cambio sede e permessi direzione;
 - Clienti e Commesse senza prima riga coperta o scroll orizzontale pagina;
-- Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
-  collegamento confermato, preventivi sempre visibili, scelta assegnatario e
-  creazione lead approvata;
+- Comunicazioni (Email): code e conteggi, selezione multipla,
+  esclusione/ripristino, classificazione manuale e collegamento manuale
+  confermato (dal 28/08/2026 non esistono proposte né creazione lead
+  assistita);
 - WhatsApp: conversazioni raggruppate, direzione in/out, diagnostica
   `smb_message_echoes` dopo un invio dall'app primaria, rinomina di una
   conversazione già collegata a un cliente e collegamento a mano di cliente e
@@ -991,6 +1038,12 @@ pnpm storage:dry-run
 |---|---|
 | `documento_requisiti_infissi_ops.md` | PRD funzionale aggiornato |
 | `PRD_infissi_ops_v4.pdf` | versione PDF del PRD |
+| `docs/discovery-dossier-2026-08-28.md` | ricognizione Fase 0 post-rimozione: baseline, invarianti, contraddizioni, rischi, roadmap e registro decisioni D1-D6 |
+| `docs/source-of-truth-matrix.md` | matrice viva delle fonti autorevoli e delle regole di conflitto |
+| `docs/reports/slice-2-authz-economia-proposta.md` | spec approvata (D3) per capability su dati economici e pagamenti — da implementare |
+| `docs/runbooks/verifica-produzione-readonly.md` | checklist di sola lettura per fotografare Railway (D4) |
+| `docs/runbooks/eventi-notifiche.md` | rollout e recovery di eventi, notifiche, SSE e push |
+| `docs/runbooks/piattaforma-recovery.md` | boot, guasti tipici e recovery del CRM |
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -1003,7 +1056,9 @@ pnpm storage:dry-run
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
 5. Progettazione del nuovo agente: prima cosa deve fare, poi come. Le domande
-   aperte stanno in `docs/tars-rimosso-2026-08-28.md`.
+   aperte stanno in `docs/tars-rimosso-2026-08-28.md`; la visione approvata è
+   nel PRD §54 e la sequenza decisa (D1) nel dossier §11: prima contratti
+   dati/eventi, poi il workstream agente in parallelo agli altri domini.
 6. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 7. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
@@ -1026,6 +1081,21 @@ pnpm storage:dry-run
    database.
 9. Verifica su Railway delle query PostgreSQL della chat aziendale: le suite
    locali esercitano solo il fallback in memoria.
+10. **Slice 2 authz (R4/R5), approvata e non ancora implementata**: capability
+    su dati economici e registro pagamenti. Spec con matrice confermata dalla
+    direzione in `docs/reports/slice-2-authz-economia-proposta.md`
+    (`/pagamenti` dietro `pagamento.read`; chip Board senza importi; acconti
+    per override individuale con audit).
+11. Fotografia read-only della produzione secondo
+    `docs/runbooks/verifica-produzione-readonly.md` (nessuna modifica senza
+    autorizzazione esplicita).
+12. **Document Intelligence (decisione D7 del 28/08/2026), non ancora
+    progettata**: comprensione verificabile dei documenti con priorità alle
+    conferme d'ordine PDF dei fornitori — pipeline testo/tabelle/OCR/visione,
+    evidenze per campo, confronto con l'ordine, collegamenti ambigui a
+    conferma umana, nessuna modifica automatica di dati critici. Requisiti
+    completi nel PRD §54.6; in roadmap dopo la Slice 2 authz e prima delle
+    capacità operative avanzate del futuro agente.
 
 ## 13. Cosa resta della piattaforma
 
@@ -1034,6 +1104,13 @@ funzionano: non erano l'agente, erano l'infrastruttura sotto. I flag di
 piattaforma vivono ora in `platform.flags` (`server/routers/platform.ts`);
 prima uscivano da `tars.config.get`, e con Tars sarebbe sparito anche lo
 stream SSE delle notifiche.
+
+**Limite noto:** `platform.flags` è di sola lettura. L'unico endpoint di
+scrittura (`tars.config.setPlatformFlags`) è stato rimosso con l'agente,
+quindi i flag sono congelati ai valori salvati per sede finché non verrà
+reintrodotto un endpoint direzione con motivazione e audit. Un cambio urgente
+richiede una finestra a servizio fermo — mai scritture sul DB con l'istanza
+viva (§12.8).
 
 Alcuni flag non hanno più un consumer — `contextEngineMode`, `plannerMode`,
 `semanticSearchMode`, `autonomyCapabilities` — e sono rimasti nel tipo perché
