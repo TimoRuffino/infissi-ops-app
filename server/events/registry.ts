@@ -1,7 +1,5 @@
 import type { BusinessEvent } from "./types";
 import { createNotificationProjectorConsumer } from "../notifications/projector";
-import { createContextEventConsumer } from "../tars/context/consumer";
-import { createSearchEventConsumer } from "../tars/search/consumer";
 import { createChatAssignmentConsumer } from "../chat/consumer";
 
 export type BusinessEventConsumer = {
@@ -41,6 +39,4 @@ export function registerEventConsumer(consumer: BusinessEventConsumer): void {
 }
 
 registerEventConsumer(createNotificationProjectorConsumer());
-registerEventConsumer(createContextEventConsumer());
-registerEventConsumer(createSearchEventConsumer());
 registerEventConsumer(createChatAssignmentConsumer());

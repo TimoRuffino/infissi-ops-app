@@ -153,7 +153,7 @@ export default function CaselleEmailCard() {
           Il CRM legge la posta in <strong>sola lettura</strong>: apre la
           cartella senza marcare i messaggi come letti, e non invia né cancella
           nulla. Le mail vengono agganciate a cliente e commessa e diventano
-          contesto per Tars.
+          contesto operativo.
         </p>
 
         {!chiaveOk && (

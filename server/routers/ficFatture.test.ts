@@ -1,6 +1,6 @@
 // Riconciliazione FIC: le regole di match devono essere noiose e
 // prevedibili — sono soldi. E il dedupe deve reggere ai rilanci: il sync
-// gira ogni 6 ore, le proposte no.
+// gira ogni 6 ore.
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
@@ -18,8 +18,6 @@ import {
   upsertFatture,
 } from "./ficFatture";
 import { riconciliaPagamentiFic } from "./ficPagamenti";
-import { toOpenAIResponse } from "../tars/openaiTestHelpers";
-import { proposte } from "../tars/stores";
 import { normalizzaRate, runFicSync } from "./fattureInCloud";
 import {
   deleteDocumentoFic,
@@ -394,14 +392,6 @@ describe("riconciliazione FIC", () => {
         ficDocumentoId: 9001,
       }),
     ]);
-    expect(
-      proposte.some(
-        p =>
-          p.trigger === "riconciliazione_fic" &&
-          p.commessaId === commessaId &&
-          (p.tipo === "pagamento" || p.tipo === "modifica_commessa")
-      )
-    ).toBe(false);
   });
 
   it("il pattuito e il piano rate arrivano dalla fattura, senza proposte", async () => {
@@ -421,14 +411,6 @@ describe("riconciliazione FIC", () => {
         ficDocumentoId: 9001,
       }),
     ]);
-    expect(
-      proposte.some(
-        p =>
-          p.trigger === "riconciliazione_fic" &&
-          p.commessaId === commessaId &&
-          p.tipo === "modifica_commessa"
-      )
-    ).toBe(false);
   });
 
   it("una commessa con fattura rifiuta la scrittura manuale del pattuito", async () => {
@@ -453,23 +435,18 @@ describe("riconciliazione FIC", () => {
     void commesse;
   });
 
-  it("cliente con più commesse senza importo distintivo → nessuna proposta", async () => {
+  it("cliente con più commesse senza importo distintivo → non abbinabile", async () => {
     await caller.commesse.create({ clienteId }); // seconda commessa attiva
     upsertFatture(
       [fatturaBase(9002, { numero: "9002/A", importoLordo: 555 })],
       1
     );
-    const perQuesta = proposte.filter(p =>
-      JSON.stringify(p.payload).includes("9002/A")
-    );
-    expect(perQuesta).toHaveLength(0);
-
     const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
     const f = ficFatture.find(x => x.id === 9002)!;
     expect(statoFattura(f, commesse).stato).toBe("non_abbinabile");
   });
 
-  it("cliente sconosciuto → non abbinabile, mai proposte al buio", () => {
+  it("cliente sconosciuto → non abbinabile, mai un aggancio al buio", async () => {
     upsertFatture(
       [
         fatturaBase(9003, {
@@ -479,9 +456,9 @@ describe("riconciliazione FIC", () => {
       ],
       1
     );
-    expect(
-      proposte.some(p => JSON.stringify(p.payload).includes("9003/A"))
-    ).toBe(false);
+    const commesse = (await caller.commesse.list({ archived: "all" })) as any[];
+    const f = ficFatture.find(x => x.id === 9003)!;
+    expect(statoFattura(f, commesse).stato).toBe("non_abbinabile");
   });
 
   it("l'upsert aggiorna lo stato delle rate senza duplicare la fattura", () => {
@@ -898,168 +875,6 @@ describe("collegamento fattura e PDF", () => {
   });
 });
 
-// Le fatture che il motore deterministico NON sa abbinare vanno a Tars:
-// lui indaga e propone il collegamento; l'approvazione collega davvero e
-// fa partire le proposte su pattuito e incassi. Il giro si paga una volta.
-describe("fatture orfane → Tars", () => {
-  beforeAll(() => {
-    _setScaricaFatturaPdfForTests(async () =>
-      Buffer.from("%PDF-1.4\n%%EOF", "ascii")
-    );
-  });
-
-  afterAll(() => _setScaricaFatturaPdfForTests(null));
-
-  it("orfana → proposta di collegamento → approvazione collega e riconcilia", async () => {
-    const { vi } = await import("vitest");
-    const { getTarsConfig } = await import("../tars/stores");
-    const { smistaFatture } = await import("../tars/smistamento");
-    const realFetch = global.fetch;
-    process.env.OPENAI_API_KEY = "test-key";
-    getTarsConfig().attivo = true;
-
-    try {
-      const caller = appRouter.createCaller(makeCtx());
-      // La commessa giusta esiste, ma il nome in fattura non è in anagrafica.
-      const cliente = await caller.clienti.create({
-        nome: " ",
-        cognome: "Condominio Girasole",
-        tipo: "condominio",
-      });
-      const commessa = await caller.commesse.create({ clienteId: cliente.id });
-
-      upsertFatture(
-        [
-          fatturaBase(9100, {
-            numero: "9100/A",
-            // Grafia diversa: il match per nome fallisce, Tars deve capire.
-            clienteNome: "COND. GIRASOLE - AMM. BRUNI",
-            importoLordo: 7320,
-            rate: [
-              {
-                importo: 7320,
-                scadenza: "2026-07-31",
-                stato: "paid",
-                dataPagamento: "2026-07-25",
-              },
-            ],
-          }),
-        ],
-        1
-      );
-
-      let i = 0;
-      const risposte = [
-        {
-          stop_reason: "tool_use",
-          usage: { input_tokens: 100, output_tokens: 50 },
-          content: [
-            {
-              type: "tool_use",
-              id: "t1",
-              name: "cerca_clienti",
-              input: { query: "Girasole" },
-            },
-          ],
-        },
-        {
-          stop_reason: "tool_use",
-          usage: { input_tokens: 100, output_tokens: 50 },
-          content: [
-            {
-              type: "tool_use",
-              id: "t2",
-              name: "proponi_collegamento_fattura",
-              input: {
-                ficId: 9100,
-                commessaId: commessa.id,
-                titolo: `Collega la fattura 9100/A a ${commessa.codice} (Condominio Girasole)`,
-                motivazione:
-                  "Il nome in fattura è il Condominio Girasole scritto con l'amministratore; l'importo è compatibile.",
-                confidenza: "media",
-              },
-            },
-          ],
-        },
-        {
-          stop_reason: "end_turn",
-          usage: { input_tokens: 100, output_tokens: 50 },
-          content: [{ type: "text", text: "Proposto un collegamento." }],
-        },
-      ];
-      global.fetch = vi.fn(async () => ({
-        ok: true,
-        json: async () =>
-          toOpenAIResponse(risposte[Math.min(i++, risposte.length - 1)]),
-        text: async () => "",
-      })) as any;
-
-      await smistaFatture(1);
-
-      const proposta = proposte.find(
-        p => p.tipo === "collega_fattura" && p.payload?.ficId === 9100
-      );
-      expect(proposta).toBeDefined();
-      expect(ficFatture.find(f => f.id === 9100)!.tarsAnalizzata).toBe(true);
-      const elenco = await caller.ficFatture.list({ anno: 2026 });
-      expect(elenco.find(f => f.id === 9100)).toMatchObject({
-        stato: "proposta",
-        propostaTars: {
-          id: proposta!.id,
-          tipo: "collega_fattura",
-          stato: "pendente",
-          commessaId: commessa.id,
-        },
-      });
-
-      // Approvazione (direzione) → collegata + sync FiC deterministico.
-      await caller.tars.proposte.approva({ id: proposta!.id });
-      const f = ficFatture.find(x => x.id === 9100)!;
-      expect(f.commessaId).toBe(commessa.id);
-      const docs = await caller.preventiviContratti.byCommessa(commessa.id);
-      const fatture = docs.filter((d: any) => d.source === "fic");
-      expect(fatture).toHaveLength(1);
-      expect(fatture[0]).toMatchObject({
-        nome: "Fattura 9100-A.pdf",
-        tipo: "fattura",
-        mimeType: "application/pdf",
-        hasData: true,
-      });
-
-      await caller.ficFatture.collega({ ficId: 9100, commessaId: commessa.id });
-      const docsDopo = await caller.preventiviContratti.byCommessa(commessa.id);
-      expect(docsDopo.filter((d: any) => d.source === "fic")).toHaveLength(1);
-      expect((await caller.commesse.byId(commessa.id))?.pagamenti).toEqual([
-        expect.objectContaining({
-          origine: "fic",
-          stato: "attivo",
-          ficDocumentoId: 9100,
-        }),
-      ]);
-
-      // Già esaminata: il secondo giro non richiama l'API.
-      const spy = vi.fn();
-      global.fetch = spy as any;
-      await smistaFatture(1);
-      expect(spy).not.toHaveBeenCalled();
-
-      // Scollegare porta via anche il PDF dal fascicolo: lasciarlo li'
-      // significava che il sync successivo lo ritrovava e riattaccava la
-      // fattura alla stessa commessa.
-      await caller.ficFatture.collega({ ficId: 9100, commessaId: null });
-      const docsScollegati = await caller.preventiviContratti.byCommessa(
-        commessa.id
-      );
-      expect(docsScollegati.some((d: any) => d.source === "fic")).toBe(false);
-      expect((await caller.commesse.byId(commessa.id))?.importoTotale).toBeNull();
-    } finally {
-      global.fetch = realFetch;
-      deleteDocumentoFic(1, 9100);
-      delete process.env.OPENAI_API_KEY;
-      getTarsConfig().attivo = false;
-    }
-  });
-});
 
 describe("ogni fattura deve avere una commessa", () => {
   it("crea una commessa per le fatture che non ne hanno nessuna", async () => {

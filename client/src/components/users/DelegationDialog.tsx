@@ -31,8 +31,6 @@ const DELEGABLE = [
   ["intervento.assign", "Assegnare interventi"],
   ["pagamento.read", "Consultare pagamenti"],
   ["economia.read", "Consultare economia"],
-  ["tars.approve_low_risk", "Approvare azioni Tars ordinarie"],
-  ["tars.approve_high_risk", "Approvare azioni Tars sensibili"],
 ] as const;
 
 function localDateTime(date: Date) {

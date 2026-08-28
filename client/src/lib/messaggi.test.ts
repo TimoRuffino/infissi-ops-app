@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   emailMessageHref,
   legacyMessageRedirect,
-  legacyTarsRedirect,
   parseConversationKey,
   parseEmailMessageId,
   parseEmailView,
@@ -22,15 +21,6 @@ describe("legacy navigation redirects", () => {
     ).toBe("/messaggi/email?view=lead&messaggio=42");
   });
 
-  it("keeps only the requested Tars tab on the canonical route", () => {
-    expect(legacyTarsRedirect("/inbox?tab=registro&debug=true")).toBe(
-      "/tars?tab=registro"
-    );
-    expect(legacyTarsRedirect("/inbox?tab=oggi")).toBe("/tars?tab=oggi");
-    expect(legacyTarsRedirect("/inbox?tab=proposte")).toBe(
-      "/tars?tab=proposte"
-    );
-  });
 });
 
 describe("parseEmailView", () => {

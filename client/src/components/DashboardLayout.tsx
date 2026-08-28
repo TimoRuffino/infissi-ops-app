@@ -57,7 +57,6 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import NotificheDropdown from "./NotificheDropdown";
-import { TarsChatFloating } from "./TarsChat";
 import { PromemoriaPopupHost } from "./PromemoriaPopupHost";
 import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
@@ -134,7 +133,6 @@ const menuItems: MenuItem[] = [
       { icon: MessageSquare, label: "Chat aziendale", path: "/chat" },
     ],
   },
-  { icon: Bot, label: "Tars", path: "/tars" },
   { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
   { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
@@ -189,8 +187,6 @@ export default function DashboardLayout({
       <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
         {children}
       </DashboardLayoutContent>
-      {/* Tars sempre a portata di mano, su ogni pagina (solo se attivo). */}
-      <TarsChatFloating />
       <PromemoriaPopupHost />
     </SidebarProvider>
   );

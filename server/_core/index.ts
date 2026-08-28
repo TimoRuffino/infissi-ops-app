@@ -59,22 +59,6 @@ async function startServer() {
   await getBusinessEventRepository().ensureSchema();
   const { getPolicyRepository } = await import("../authz/repository");
   await getPolicyRepository().ensureSchema();
-  const { getTarsPlanRepository } = await import("../tars/planner/repository");
-  await getTarsPlanRepository().ensureSchema();
-  const { registerBuiltInWorkflows } = await import(
-    "../tars/workflows/registry"
-  );
-  registerBuiltInWorkflows();
-  const { getSediStore } = await import("../routers/sedi");
-  const { getFeatureFlags } = await import("../platform/featureFlags");
-  if (
-    getSediStore().some(
-      sede => sede.attiva && getFeatureFlags(sede.id).plannerMode === "active"
-    )
-  ) {
-    const { startPlanWorker } = await import("../tars/planner/runner");
-    startPlanWorker();
-  }
   const { getNotificationRepository } = await import(
     "../notifications/repository"
   );
@@ -97,25 +81,8 @@ async function startServer() {
   startFicScheduler();
 
   // Ingestione posta IMAP (ogni 5 minuti, solo per le caselle attive).
-  const { avviaPollerMail } = await import("../tars/imap");
+  const { avviaPollerMail } = await import("../comunicazioni/imap");
   avviaPollerMail();
-
-  // Recupera le comunicazioni rimaste in coda dopo deploy, pause API o
-  // trigger sovrapposti, anche quando non arriva subito una nuova mail.
-  const { avviaRecuperoSmistamento } = await import("../tars/smistamento");
-  avviaRecuperoSmistamento();
-
-  // Tars osserva gli indicatori trasversali una volta al giorno e propone
-  // miglioramenti di processo alla direzione, senza applicarli da solo.
-  const { avviaAuditProcessiScheduler } = await import("../tars/auditProcessi");
-  avviaAuditProcessiScheduler();
-
-  // Gli esperimenti approvati vengono rimisurati alla scadenza usando gli
-  // indicatori reali del CRM e chiudono il relativo presidio operativo.
-  const { startProcessExperimentReviewScheduler } = await import(
-    "../tars/processExperimentReview"
-  );
-  startProcessExperimentReviewScheduler();
 
   const app = express();
   const server = createServer(app);
@@ -150,7 +117,7 @@ async function startServer() {
   // valida). Anonimo per necessità — è Meta a chiamare — ma ogni POST
   // passa dalla verifica della firma prima di essere guardato.
   app.get("/api/webhook/whatsapp", async (req, res) => {
-    const { verifyTokenValido } = await import("../tars/whatsapp");
+    const { verifyTokenValido } = await import("../comunicazioni/whatsapp");
     const mode = String(req.query["hub.mode"] ?? "");
     const token = String(req.query["hub.verify_token"] ?? "");
     const challenge = String(req.query["hub.challenge"] ?? "");
@@ -171,7 +138,7 @@ async function startServer() {
         configWhatsApp,
         appSecretPer,
         tutteLeAppWhatsApp,
-      } = await import("../tars/whatsapp");
+      } = await import("../comunicazioni/whatsapp");
       const { decryptSecret } = await import("./secretBox");
       const raw: Buffer = Buffer.isBuffer(req.body)
         ? req.body

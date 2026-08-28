@@ -1,6 +1,6 @@
 // Card «WhatsApp Business» in Impostazioni (solo direzione).
 //
-// Sola lettura: i messaggi entrano nel CRM e diventano contesto per Tars.
+// Sola lettura: i messaggi entrano nel CRM come cronologia del cliente.
 // Nessun invio — quello sarà un passo separato, con template approvati da
 // Meta e approvazione esplicita.
 
@@ -327,7 +327,7 @@ export default function WhatsAppCard() {
         <p className="text-muted-foreground">
           I messaggi in arrivo entrano nel CRM e vengono agganciati alla
           commessa <strong>tramite il numero di telefono</strong>, diventando
-          contesto per Tars. <strong>Solo ricezione:</strong> il CRM non invia
+          cronologia del cliente. <strong>Solo ricezione:</strong> il CRM non invia
           nulla, e il numero resta usabile dall'app sul telefono (coexistence).
         </p>
 

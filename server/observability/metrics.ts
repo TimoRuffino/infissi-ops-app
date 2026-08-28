@@ -1,8 +1,6 @@
 import { kvSql } from "../_core/persistence";
 import { eventConsumerRegistry } from "../events/registry";
 import { getSseConnectionCount } from "../notifications/sse";
-import { getTarsPlanRepository } from "../tars/planner/repository";
-import { esecuzioni } from "../tars/stores";
 
 const ALLOWED_LABELS = new Set([
   "sede",
@@ -79,50 +77,10 @@ async function pendingNotifications(sedeId: number): Promise<number> {
 }
 
 export async function collectOperationalDiagnostics(sedeId: number) {
-  const [consumers, notificationPending, plans] = await Promise.all([
+  const [consumers, notificationPending] = await Promise.all([
     eventMetrics(sedeId),
     pendingNotifications(sedeId),
-    getTarsPlanRepository().listBySite({ sedeId, limit: 10_000 }),
   ]);
-  const planCounts = new Map<string, number>();
-  for (const plan of plans) {
-    planCounts.set(plan.status, (planCounts.get(plan.status) ?? 0) + 1);
-  }
-  const workflowGroups = new Map<
-    string,
-    {
-      workflow: string;
-      version: string;
-      status: string;
-      runs: number;
-      cacheHits: number;
-      tokensIn: number;
-      tokensOut: number;
-      tokensCacheRead: number;
-    }
-  >();
-  for (const execution of esecuzioni.filter(item => item.sedeId === sedeId)) {
-    const workflow = execution.trigger;
-    const version = execution.workflowVersion ?? "legacy";
-    const status = execution.esito;
-    const key = `${workflow}:${version}:${status}`;
-    const metric = workflowGroups.get(key) ?? {
-      workflow,
-      version,
-      status,
-      runs: 0,
-      cacheHits: 0,
-      tokensIn: 0,
-      tokensOut: 0,
-      tokensCacheRead: 0,
-    };
-    metric.runs += 1;
-    metric.cacheHits += execution.toolCacheHits ?? 0;
-    metric.tokensIn += execution.tokensIn ?? 0;
-    metric.tokensOut += execution.tokensOut ?? 0;
-    metric.tokensCacheRead += execution.tokensCacheRead ?? 0;
-    workflowGroups.set(key, metric);
-  }
   return {
     generatedAt: new Date(),
     events: {
@@ -133,13 +91,5 @@ export async function collectOperationalDiagnostics(sedeId: number) {
       pending: notificationPending,
       sseConnections: getSseConnectionCount(sedeId),
     },
-    plans: Array.from(planCounts.entries())
-      .map(([status, count]) => ({ status, count }))
-      .sort((a, b) => a.status.localeCompare(b.status)),
-    workflows: Array.from(workflowGroups.values()).sort((a, b) =>
-      `${a.workflow}:${a.version}:${a.status}`.localeCompare(
-        `${b.workflow}:${b.version}:${b.status}`
-      )
-    ),
   };
 }

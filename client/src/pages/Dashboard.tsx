@@ -313,13 +313,8 @@ export default function Dashboard() {
   // Sources for the personalized "Da fare oggi" feed.
   const ticketListQ = trpc.ticket.list.useQuery({}, liveOpts);
   const garanzieListQ = trpc.garanzie.list.useQuery({}, liveOpts);
-  // Il lavoro nuovo: proposte dell'agente, posta, fatture da riconciliare.
-  // retry:false — per i ruoli senza accesso il server rifiuta e la riga
-  // semplicemente non compare.
-  const tarsStats = trpc.tars.proposte.stats.useQuery(undefined, {
-    ...liveOpts,
-    retry: false,
-  });
+  // Il lavoro nuovo: posta e fatture da riconciliare. retry:false — per i
+  // ruoli senza accesso il server rifiuta e la riga semplicemente non compare.
   const comStats = trpc.mail.comunicazioni.stats.useQuery(undefined, {
     ...liveOpts,
     retry: false,
@@ -514,30 +509,6 @@ export default function Dashboard() {
 
     // 6. Il lavoro nuovo, aggregato in una riga per fonte: le proposte di
     //    Tars da decidere, la posta non letta, le fatture senza riscontro.
-    const pendentiTars = tarsStats.data?.pendenti ?? 0;
-    if (pendentiTars > 0) {
-      items.push({
-        key: "tars-pendenti",
-        rank: 0.5,
-        icon: Bot,
-        iconClass: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-500",
-        title: `Tars ha ${pendentiTars} propost${pendentiTars === 1 ? "a" : "e"} in attesa di una tua decisione`,
-        cta: "Decidi",
-        onClick: () => setLocation("/inbox"),
-      });
-    }
-    const nuoveCom = comStats.data?.nuove ?? 0;
-    if (nuoveCom > 0) {
-      items.push({
-        key: "com-nuove",
-        rank: 3.5,
-        icon: MailIcon,
-        iconClass: "bg-info-soft text-info",
-        title: `${nuoveCom} comunicazion${nuoveCom === 1 ? "e nuova" : "i nuove"} da leggere`,
-        cta: "Apri",
-        onClick: () => setLocation("/comunicazioni"),
-      });
-    }
     const daRiconciliare = (ficListQ.data ?? []).filter(
       (fa: any) => fa.stato === "da_riconciliare" || fa.stato === "non_abbinabile"
     ).length;
@@ -560,7 +531,6 @@ export default function Dashboard() {
     interventiOggi.data,
     ticketListQ.data,
     garanzieListQ.data,
-    tarsStats.data,
     comStats.data,
     ficListQ.data,
     direzione,
@@ -756,17 +726,6 @@ export default function Dashboard() {
               icon={AlertTriangle}
               accentClass="bg-danger"
               onClick={() => setLocation("/commesse")}
-            />
-          ),
-          (tarsStats.data?.pendenti ?? 0) > 0 && (
-            <StatCard
-              key="tars"
-              title="Proposte di Tars"
-              value={tarsStats.data!.pendenti}
-              subtitle="in attesa di decisione"
-              icon={Bot}
-              accentClass="bg-amber-500"
-              onClick={() => setLocation("/inbox")}
             />
           ),
           (comStats.data?.nuove ?? 0) > 0 && (

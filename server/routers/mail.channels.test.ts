@@ -46,7 +46,7 @@ import {
   _resetComunicazioniInMemoria,
   getComunicazione,
   insertComunicazione,
-} from "../tars/comunicazioni";
+} from "../comunicazioni/comunicazioni";
 import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
 import {
@@ -54,7 +54,6 @@ import {
   deleteDocumentiByCommessa,
 } from "./preventiviContratti";
 import { deleteFileQuiet, putFile } from "../_core/fileStorage";
-import { proposte } from "../tars/stores";
 
 async function attendiProbe(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -368,7 +367,7 @@ describe("mail channel APIs", () => {
         collegamentoManuale: true,
       });
 
-      // Lo storico è riscritto: Inbox, Tars e proposte leggono da lì.
+      // Lo storico è riscritto: l'Inbox legge da lì.
       expect(await getComunicazione(primo!.id, 1)).toMatchObject({
         clienteId: cliente.id,
         commessaId: commessa.id,
@@ -467,76 +466,6 @@ describe("mail channel APIs", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("filtra le proposte Tars sulle comunicazioni caricate nel thread", async () => {
-    const messaggio = await insertComunicazione(
-      nuovoMessaggioWhatsApp({ commessaId: 953_001, clienteId: 953_101 })
-    );
-    const base = {
-      sedeId: 1,
-      tipo: "segnalazione" as const,
-      motivazione: "Test",
-      confidenza: "alta" as const,
-      commessaId: 953_001,
-      clienteId: 953_101,
-      opzioni: null,
-      risposta: null,
-      esito: null,
-      motivoRifiuto: null,
-      esecuzioneId: null,
-      trigger: "gestione_comunicazione",
-      createdAt: new Date("2026-08-22T16:00:00Z"),
-      decisaAt: null,
-      decisaDa: null,
-      decisaDaNome: null,
-      seguitoAt: null,
-      seguitoEsecuzioneId: null,
-      chiaveAzione: "test",
-    };
-    const origine = {
-      ...base,
-      id: 953_101,
-      titolo: "Origine thread",
-      payload: { comunicazioneId: messaggio!.id },
-      stato: "approvata" as const,
-      origineId: null,
-    };
-    const collegata = {
-      ...base,
-      id: 953_102,
-      titolo: "Collegata al thread",
-      payload: {},
-      stato: "pendente" as const,
-      origineId: origine.id,
-    };
-    const estranea = {
-      ...base,
-      id: 953_103,
-      titolo: "Altra fonte stessa commessa",
-      payload: { comunicazioneId: 999_999 },
-      stato: "pendente" as const,
-      origineId: null,
-    };
-    proposte.push(origine, collegata, estranea);
-
-    try {
-      const rows = await appRouter
-        .createCaller(createContext(1))
-        .tars.proposte.list({
-          stato: "pendente",
-          commessaId: 953_001,
-          comunicazioneIds: [
-            messaggio!.id,
-            ...Array.from({ length: 249 }, (_, index) => 980_000 + index),
-          ],
-        });
-      expect(rows.map(row => row.id)).toEqual([collegata.id]);
-    } finally {
-      for (const id of [origine.id, collegata.id, estranea.id]) {
-        const index = proposte.findIndex(proposta => proposta.id === id);
-        if (index >= 0) proposte.splice(index, 1);
-      }
-    }
-  });
 
   it("collega una comunicazione a un cliente della sede senza inventare una commessa", async () => {
     const clienteId = 951_101;

@@ -45,15 +45,15 @@ type Editing =
 
 export default function Conoscenza() {
   const utils = trpc.useUtils();
-  const voci = trpc.tars.conoscenza.list.useQuery();
+  const voci = trpc.conoscenza.list.useQuery();
   const [editing, setEditing] = useState<Editing>(null);
   const [daEliminare, setDaEliminare] = useState<any>(null);
   const [categoria, setCategoria] = useState("convenzioni");
   const [titolo, setTitolo] = useState("");
   const [contenuto, setContenuto] = useState("");
 
-  const invalidate = () => utils.tars.conoscenza.invalidate();
-  const create = trpc.tars.conoscenza.create.useMutation({
+  const invalidate = () => utils.conoscenza.invalidate();
+  const create = trpc.conoscenza.create.useMutation({
     onSuccess: () => {
       toast.success("Voce aggiunta");
       setEditing(null);
@@ -61,14 +61,14 @@ export default function Conoscenza() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const update = trpc.tars.conoscenza.update.useMutation({
+  const update = trpc.conoscenza.update.useMutation({
     onSuccess: () => {
       setEditing(null);
       invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
-  const remove = trpc.tars.conoscenza.delete.useMutation({
+  const remove = trpc.conoscenza.delete.useMutation({
     onSuccess: () => {
       toast.success("Voce eliminata");
       setDaEliminare(null);

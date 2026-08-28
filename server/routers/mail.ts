@@ -17,14 +17,14 @@ import {
   proteggiPassword,
   saveCaselle,
   type Casella,
-} from "../tars/caselle";
+} from "../comunicazioni/caselle";
 import {
   importaStorico,
   riavviaWatchers,
   sincronizzaCasella,
   sincronizzaTutte,
   testaCasella,
-} from "../tars/imap";
+} from "../comunicazioni/imap";
 import {
   appPubblica,
   completaOnboarding,
@@ -38,7 +38,7 @@ import {
   saveConfigWhatsApp,
   sincronizzaStorico,
   type ConfigWhatsApp,
-} from "../tars/whatsapp";
+} from "../comunicazioni/whatsapp";
 import {
   collegaConversazioneWhatsApp,
   deleteComunicazione,
@@ -55,13 +55,13 @@ import {
   setMatchComunicazione,
   setStatoComunicazione,
   statsComunicazioni,
-} from "../tars/comunicazioni";
+} from "../comunicazioni/comunicazioni";
 import {
   CATEGORIE_COMUNICAZIONE,
   eliminaRegolaMittente,
   regoleFiltroMittente,
   salvaRegolaMittente,
-} from "../tars/filtroComunicazioni";
+} from "../comunicazioni/filtroComunicazioni";
 import { getCommessaById } from "./commesse";
 import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
@@ -69,8 +69,7 @@ import {
   archiviaAllegatoComunicazione,
   StorageAllegatoTemporaneamenteNonDisponibile,
 } from "./preventiviContratti";
-import { leggiAllegatoRaw } from "../tars/allegati";
-import { leggiStatoSmistamento } from "../tars/smistamento";
+import { leggiAllegatoRaw } from "../comunicazioni/allegati";
 
 function trovaCasella(id: number, sedeId: number | null): Casella {
   const c = caselle.find(x => x.id === id);
@@ -856,10 +855,6 @@ export const mailRouter = router({
 
     stats: protectedProcedure.query(async ({ ctx }) => {
       return statsComunicazioni(ctx.sedeId ?? 1);
-    }),
-
-    statoTars: protectedProcedure.query(async ({ ctx }) => {
-      return leggiStatoSmistamento(ctx.sedeId ?? 1);
     }),
 
     setStato: protectedProcedure

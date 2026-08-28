@@ -959,19 +959,6 @@ export const notificheRouter = router({
         }
       }),
 
-    requestTarsAnalysis: protectedProcedure
-      .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input, ctx }) => {
-        const context = actionContext(ctx);
-        const record = await context.repository.findById(context.sedeId, input.id);
-        if (!record) actionServiceError(new Error("NOT_FOUND"));
-        const scope = context.roles.includes("direzione") ? "site" : "mine";
-        if (!canAccessActionCase(record, context.userId, context.roles, scope)) {
-          actionServiceError(new Error("FORBIDDEN"));
-        }
-        const { scheduleCaseAnalysis } = await import("../actionCenter/tars");
-        return scheduleCaseAnalysis(context.sedeId, input.id);
-      }),
   }),
 
   brief: protectedProcedure.query(async ({ ctx }) => {

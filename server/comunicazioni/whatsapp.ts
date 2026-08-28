@@ -29,7 +29,6 @@ import { matchComunicazione } from "./match";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
-import { programmaSmistamento } from "./smistamento";
 
 const GRAPH_VERSION = "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -925,7 +924,6 @@ async function registraMessaggio(
  */
 export async function ingestisciWebhook(payload: any): Promise<number> {
   let registrati = 0;
-  const sediDaSmistare = new Set<number>();
   let daSalvare = false;
 
   for (const entry of payload?.entry ?? []) {
@@ -1054,9 +1052,6 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
               if (!origine.storico && origine.direzione === "out") {
                 diagnostica.messaggiEchoRegistrati += 1;
               }
-              if (!origine.storico && origine.direzione === "in") {
-                sediDaSmistare.add(sedeId);
-              }
             }
           } catch (e: any) {
             if (e?.message === "controparte non determinabile") {
@@ -1095,10 +1090,5 @@ export async function ingestisciWebhook(payload: any): Promise<number> {
   }
 
   if (daSalvare) saveConfigWhatsApp();
-  // Lo smistamento parte solo per i messaggi veri in arrivo: lo storico e
-  // gli echo non generano proposte.
-  for (const sedeId of Array.from(sediDaSmistare)) {
-    programmaSmistamento(sedeId);
-  }
   return registrati;
 }

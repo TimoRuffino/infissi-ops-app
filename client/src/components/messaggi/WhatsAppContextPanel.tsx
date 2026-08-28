@@ -1,4 +1,3 @@
-import TarsPropostaCard from "@/components/TarsPropostaCard";
 import SearchSelect from "@/components/SearchSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +34,7 @@ function contextDate(value: string | null | undefined): string {
  * Il match automatico sbaglia o non trova: un numero nuovo, un cliente che
  * scrive dal telefono della moglie, una commessa il cui codice non compare
  * mai nei messaggi. Senza questo la conversazione restava senza contesto per
- * sempre — niente appuntamenti, niente ticket, niente proposte Tars.
+ * sempre — niente appuntamenti e niente ticket.
  */
 function Collegamento({
   conversation,
@@ -63,7 +62,6 @@ function Collegamento({
       setAperto(false);
       setScelta(null);
       void utils.mail.whatsapp.invalidate();
-      void utils.tars.proposte.invalidate();
     },
     onError: error => toast.error(error.message),
   });
@@ -216,17 +214,6 @@ export default function WhatsAppContextPanel({
   const job = trpc.commesse.byId.useQuery(conversation.commessaId ?? 0, {
     enabled: conversation.commessaId != null,
   });
-  const proposals = trpc.tars.proposte.list.useQuery(
-    {
-      stato: "pendente",
-      commessaId: conversation.commessaId ?? 0,
-      comunicazioneIds: communicationIds,
-    },
-    {
-      enabled: conversation.commessaId != null && communicationIds.length > 0,
-      retry: false,
-    }
-  );
   const appointments = trpc.interventi.list.useQuery(
     { commessaId: conversation.commessaId ?? 0 },
     { enabled: conversation.commessaId != null, retry: false }
@@ -351,31 +338,6 @@ export default function WhatsAppContextPanel({
           </div>
         </section>
 
-        <section>
-          <h3 className="text-xs font-bold uppercase text-text-3">Proposte Tars</h3>
-          <div className="mt-2 space-y-2">
-            {conversation.commessaId == null ? (
-              <p className="text-sm text-text-2">Nessuna commessa collegata</p>
-            ) : proposals.isLoading ? (
-              <Skeleton className="h-16 w-full" />
-            ) : proposals.isError ? (
-              <p className="flex gap-2 text-xs leading-5 text-destructive" role="alert">
-                <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-                Proposte non disponibili
-              </p>
-            ) : (
-              proposals.data?.slice(0, 3).map(proposal => <TarsPropostaCard key={proposal.id} proposta={proposal} />)
-            )}
-            {conversation.commessaId != null && !proposals.isLoading && !proposals.isError && (proposals.data?.length ?? 0) === 0 && (
-              <p className="text-sm text-text-2">Nessuna proposta pendente</p>
-            )}
-          </div>
-        </section>
-      </div>
-      <div className="shrink-0 border-t border-border-soft p-3">
-        <Button asChild className="min-h-11 w-full">
-          <Link href="/tars">Gestisci con Tars</Link>
-        </Button>
       </div>
     </aside>
   );

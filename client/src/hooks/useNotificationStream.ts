@@ -16,12 +16,12 @@ export function useNotificationStream(): {
   state: StreamState;
   lastEventId: string | null;
 } {
-  const config = trpc.tars.config.get.useQuery(undefined, {
+  const flags = trpc.platform.flags.useQuery(undefined, {
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
   const utils = trpc.useUtils();
-  const enabled = config.data?.platformFlags.realtimeNotifications === true;
+  const enabled = flags.data?.realtimeNotifications === true;
   const [state, setState] = useState<StreamState>("disabled");
   const [lastEventId, setLastEventId] = useState<string | null>(null);
   const lastEventIdRef = useRef<string | null>(null);

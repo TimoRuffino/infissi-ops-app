@@ -7,7 +7,6 @@ import EmailMessageList, {
   type EmailCategory,
 } from "@/components/messaggi/EmailMessageList";
 import EmailMessageReader from "@/components/messaggi/EmailMessageReader";
-import TarsAvatar from "@/components/TarsAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,14 +24,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { emailPaneVisibility, emailShouldEnterFocus } from "@/lib/emailLayout";
+import { emailPaneVisibility } from "@/lib/emailLayout";
 import {
   EMAIL_VIEWS,
   emailBulkExclusionCopy,
   parseEmailMessageId,
   parseEmailView,
   type EmailMessage,
-  type TarsProposal,
   type EmailView,
 } from "@/lib/messaggi";
 import { isDirezione } from "@/lib/roles";
@@ -159,10 +157,6 @@ export default function EmailPage() {
   }, [compact]);
 
   const stats = trpc.mail.email.stats.useQuery();
-  const queue = trpc.mail.comunicazioni.statoTars.useQuery(undefined, {
-    refetchInterval: query =>
-      (query.state.data?.inAttesa ?? 0) > 0 ? 15_000 : 60_000,
-  });
   const mailboxOptions = trpc.mail.caselle.opzioni.useQuery();
   const jobs = trpc.commesse.list.useQuery();
   const users = trpc.utenti.list.useQuery();
@@ -188,11 +182,6 @@ export default function EmailPage() {
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
-  const pendingProposals = trpc.tars.proposte.list.useQuery(
-    { stato: "pendente" },
-    { retry: false }
-  );
-
   const relevantAssigneeIds = useMemo(
     () =>
       new Set(
@@ -211,31 +200,6 @@ export default function EmailPage() {
         ),
     [relevantAssigneeIds, users.data]
   );
-  const proposalsByMessage = useMemo(() => {
-    const map = new Map<number, TarsProposal[]>();
-    for (const proposal of pendingProposals.data ?? []) {
-      const id = proposal.payload?.comunicazioneId;
-      if (id == null) continue;
-      map.set(id, [...(map.get(id) ?? []), proposal]);
-    }
-    return map;
-  }, [pendingProposals.data]);
-
-  const selectedProposals =
-    selectedId == null ? [] : (proposalsByMessage.get(selectedId) ?? []);
-
-  useEffect(() => {
-    if (
-      emailShouldEnterFocus({
-        compact,
-        hasTarsProposals: selectedProposals.length > 0,
-        analysisRequested: false,
-      })
-    ) {
-      setFocusMode(true);
-    }
-  }, [compact, selectedId, selectedProposals.length]);
-
   const rawMessages = rows.data ?? [];
   const messages = rawMessages;
 
@@ -332,25 +296,6 @@ export default function EmailPage() {
     gestite: stats.data?.gestite ?? null,
     escluse: stats.data?.escluse ?? null,
   };
-  const queueBlocked = [
-    "disattivato",
-    "chiave_mancante",
-    "budget_esaurito",
-    "pausa_errore",
-  ].includes(queue.data?.stato ?? "");
-  const queueTitle =
-    queue.data?.stato === "in_elaborazione"
-      ? "Tars sta analizzando la coda"
-      : queue.data?.stato === "pausa_errore"
-        ? "Tars riprovera automaticamente"
-        : queue.data?.stato === "disattivato"
-          ? "Tars e disattivato"
-          : queue.data?.stato === "chiave_mancante"
-            ? "Chiave AI non configurata"
-            : queue.data?.stato === "budget_esaurito"
-              ? "Budget Tars esaurito"
-              : "Analisi Tars programmata";
-  const oldestWait = waitLabel(queue.data?.piuVecchiaAt);
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
@@ -473,51 +418,6 @@ export default function EmailPage() {
           >
             Riprova
           </Button>
-        </div>
-      )}
-
-      {(queue.data?.inAttesa ?? 0) > 0 && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={cn(
-            "flex shrink-0 items-center gap-3 rounded-md border px-3 py-2.5",
-            queueBlocked
-              ? "border-warning/35 bg-warning/10"
-              : "border-primary/20 bg-primary-soft/45"
-          )}
-        >
-          {queueBlocked ? (
-            <AlertTriangle className="size-5 shrink-0 text-warning-foreground" />
-          ) : (
-            <TarsAvatar
-              size="md"
-              className={cn(
-                queue.data?.stato === "in_elaborazione" &&
-                  "motion-safe:animate-pulse"
-              )}
-            />
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-bold">{queueTitle}</div>
-            <p className="text-xs leading-5 text-text-2">
-              {queue.data!.inAttesa}{" "}
-              {queue.data!.inAttesa === 1
-                ? "email in attesa"
-                : "email in attesa"}
-              {oldestWait ? ` - la piu vecchia da ${oldestWait}` : ""}
-            </p>
-          </div>
-          {queueBlocked && isDirezione(user) && (
-            <Button
-              asChild
-              size="sm"
-              variant="outline"
-              className="hidden sm:inline-flex"
-            >
-              <Link href="/integrazioni">Controlla Tars</Link>
-            </Button>
-          )}
         </div>
       )}
 
@@ -682,7 +582,6 @@ export default function EmailPage() {
           <EmailMessageList
             messages={messages}
             selectedId={selectedId}
-            proposalsByMessage={proposalsByMessage}
             viewLabel={VIEW_LABELS[view]}
             loading={rows.isLoading}
             fetching={rows.isFetching}
@@ -732,22 +631,10 @@ export default function EmailPage() {
             <EmailMessageReader
               key={selectedId}
               messageId={selectedId}
-              proposals={selectedProposals}
               mobile={compact}
               focus={focusMode}
               canFocus={canFocus}
               onToggleFocus={() => setFocusMode(value => !value)}
-              onOpenTarsWorkspace={() => {
-                if (
-                  emailShouldEnterFocus({
-                    compact,
-                    hasTarsProposals: false,
-                    analysisRequested: true,
-                  })
-                ) {
-                  setFocusMode(true);
-                }
-              }}
               selectionRemoved={selectionRemoved}
               canManageRules={isDirezione(user)}
               onBack={closeMessage}

@@ -12,8 +12,6 @@ import {
 import { runReminderWorkerOnce } from "../reminders/worker";
 import { appRouter } from "../routers";
 import { getUtentiStore } from "./utenti";
-import { proposte } from "../tars/stores";
-import { eseguiStrumento, type ToolRuntime } from "../tars/tools";
 
 const now = new Date("2026-08-26T10:00:00.000Z");
 
@@ -149,7 +147,11 @@ describe("promemoria API", () => {
     });
   });
 
-  it("copre approvazione Tars, consegna, popup, notifica e completamento", async () => {
+  it("copre consegna, popup, notifica e completamento", async () => {
+    // La catena partiva da una proposta Tars approvata. Rimosso l'agente il
+    // promemoria si crea direttamente: quello che questo test protegge è il
+    // resto della catena — worker, feed notifiche, non letti, completamento —
+    // che non dipendeva dall'agente e resta invariato.
     vi.useFakeTimers();
     let currentTime = new Date("2026-08-26T10:00:00.000Z");
     vi.setSystemTime(currentTime);
@@ -179,52 +181,21 @@ describe("promemoria API", () => {
       createdAt: currentTime,
       updatedAt: currentTime,
     });
-    const createdProposalIds: number[] = [];
 
     try {
-      const questionRuntime: ToolRuntime = {
-        ctx,
-        esecuzioneId: 990_105_001,
-        trigger: "chat",
-        maxProposte: 3,
-        proposteIds: [],
-        terminato: null,
-        origineId: null,
-        risultatiCache: new Map(),
-      };
-      await eseguiStrumento(questionRuntime, "chiedi_chiarimento", {
-        domanda: "Quando vuoi che te lo ricordi?",
-        contesto: "Serve una data e un'ora esatte.",
-        intent: "promemoria",
-        requestedText: "Inviare il preventivo di prova",
-      });
-      const questionId = questionRuntime.proposteIds[0];
-      createdProposalIds.push(questionId);
-      const question = proposte.find((item) => item.id === questionId)!;
-      question.seguitoAt = currentTime;
-      await caller.tars.proposte.rispondi({
-        id: questionId,
-        risposta: "Oggi alle 12:01",
-      });
-
-      const proposalRuntime: ToolRuntime = {
-        ...questionRuntime,
-        esecuzioneId: 990_105_002,
-        trigger: "seguito",
-        proposteIds: [],
-        origineId: questionId,
-      };
-      await eseguiStrumento(proposalRuntime, "proponi_promemoria", {
+      await reminders.create({
+        sedeId,
+        recipientUserId: userId,
+        createdByUserId: userId,
+        sourceProposalId: null,
+        canonicalKey: "reminder:990105:79005:preventivo",
         text: "Inviare il preventivo di prova",
-        remindAtIso: "2026-08-26T12:01:00+02:00",
+        remindAt: new Date("2026-08-26T10:01:00.000Z"),
         timezone: "Europe/Rome",
-        titolo: "Invia il preventivo",
-        motivazione: "Data e ora confermate dall'operatore.",
-        confidenza: "alta",
+        clienteId: null,
+        commessaId: null,
+        now: currentTime,
       });
-      const proposalId = proposalRuntime.proposteIds[0];
-      createdProposalIds.push(proposalId);
-      await caller.tars.proposte.approva({ id: proposalId });
 
       currentTime = new Date("2026-08-26T10:02:00.000Z");
       vi.setSystemTime(currentTime);
@@ -265,10 +236,6 @@ describe("promemoria API", () => {
         ).items,
       ).toHaveLength(1);
     } finally {
-      for (const id of createdProposalIds) {
-        const index = proposte.findIndex((item) => item.id === id);
-        if (index >= 0) proposte.splice(index, 1);
-      }
       const userIndex = users.findIndex((user: any) => Number(user.id) === userId);
       if (userIndex >= 0) users.splice(userIndex, 1);
     }

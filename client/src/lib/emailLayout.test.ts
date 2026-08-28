@@ -41,30 +41,4 @@ describe("layout email", () => {
     ).toEqual({ showList: true, showReader: false, canFocus: false });
   });
 
-  it("espande il lettore desktop quando Tars ha lavoro operativo", async () => {
-    const modulePath = "./emailLayout";
-    const layout = await import(modulePath).catch(() => null);
-
-    expect(
-      layout?.emailShouldEnterFocus({
-        compact: false,
-        hasTarsProposals: true,
-        analysisRequested: false,
-      })
-    ).toBe(true);
-    expect(
-      layout?.emailShouldEnterFocus({
-        compact: false,
-        hasTarsProposals: false,
-        analysisRequested: true,
-      })
-    ).toBe(true);
-    expect(
-      layout?.emailShouldEnterFocus({
-        compact: true,
-        hasTarsProposals: true,
-        analysisRequested: true,
-      })
-    ).toBe(false);
-  });
 });

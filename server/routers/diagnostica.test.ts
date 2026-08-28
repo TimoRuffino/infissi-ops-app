@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
-import { esecuzioni } from "../tars/stores";
 
 function context(role: "direzione" | "commerciale"): TrpcContext {
   return {
@@ -26,47 +25,9 @@ describe("diagnostica operativa", () => {
     ).rejects.toThrow();
   });
 
-  it("espone metriche aggregate senza payload o dati personali", async () => {
-    esecuzioni.push({
-      id: 997_701,
-      sedeId: 977,
-      trigger: "on_demand",
-      modello: "gpt-test",
-      richiesta: "scrivi a mario@example.it telefono 3331234567",
-      riepilogo: "contenuto mail privato",
-      strumenti: [],
-      proposteIds: [],
-      commessaId: null,
-      comunicazioneId: null,
-      profiloStrumenti: "completo",
-      strumentiDisponibili: 3,
-      toolCacheHits: 4,
-      proposteDuplicateBloccate: 0,
-      comunicazioniClassificateIds: [],
-      fascicoloPrecaricato: false,
-      contextFingerprint: null,
-      contextScope: "direzione",
-      contextCacheHit: true,
-      evidenceRefs: [],
-      factsRead: 2,
-      factsRevalidated: 2,
-      tokensIn: 120,
-      tokensOut: 30,
-      tokensCacheRead: 80,
-      tokensCacheWrite5m: 0,
-      tokensCacheWrite1h: 0,
-      durataMs: 50,
-      esito: "ok",
-      errore: null,
-      utenteId: 1,
-      utenteNome: "Mario Rossi",
-      promptVersion: "p1",
-      toolRegistryVersion: "t1",
-      workflowVersion: "w1",
-      policyVersion: "policy1",
-      createdAt: new Date(),
-    });
-
+  it("espone metriche aggregate di eventi e notifiche", async () => {
+    // Piani e workflow uscivano dal registro esecuzioni di Tars, rimosso il
+    // 28/08/2026. Qui restano gli aggregati che non dipendono dall'agente.
     const result = await appRouter
       .createCaller(context("direzione"))
       .diagnostica.snapshot();
@@ -80,19 +41,7 @@ describe("diagnostica operativa", () => {
           pending: expect.any(Number),
           sseConnections: expect.any(Number),
         }),
-        plans: expect.any(Array),
-        workflows: expect.arrayContaining([
-          expect.objectContaining({
-            workflow: "on_demand",
-            tokensIn: 120,
-            cacheHits: 4,
-          }),
-        ]),
       })
-    );
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toMatch(
-      /mario@example|3331234567|contenuto mail|Mario Rossi/
     );
   });
 });

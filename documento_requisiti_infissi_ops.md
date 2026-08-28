@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (26/08/2026).
-**Versione:** 4.31 - Autorità FiC su rate e storni, correzioni Tars e PDF idempotenti.
+**Versione:** 5.0 - Tars rimosso: il CRM torna interamente deterministico.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -16,7 +16,7 @@
 ---
 
 ## 1. Visione del prodotto
-**Ruffino Flow** è lo strumento operativo centrale di **Ruffino Immobiliare S.R.L.** Collega ufficio, laboratorio di produzione e cantiere, accompagnando ogni cliente dalla prima richiesta fino alla garanzia post‑vendita. Non è un semplice database: è un assistente proattivo che ricorda le scadenze, blocca i passaggi di stato senza i documenti richiesti, unifica le comunicazioni e affianca gli operatori con proposte Tars sempre verificabili.
+**Ruffino Flow** è lo strumento operativo centrale di **Ruffino Immobiliare S.R.L.** Collega ufficio, laboratorio di produzione e cantiere, accompagnando ogni cliente dalla prima richiesta fino alla garanzia post‑vendita. Non è un semplice database: è un assistente proattivo che ricorda le scadenze, blocca i passaggi di stato senza i documenti richiesti, unifica le comunicazioni e mostra a ogni ruolo il lavoro che gli tocca.
 
 Pilastri:
 1. **Una commessa = un percorso tracciato.** Stato, documenti, interventi, anomalie e firme convivono in un unico fascicolo.
@@ -31,10 +31,10 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), audit processi Tars (controllo ogni 6 h, massimo un run per sede ogni circa 24 h), verifica esperimenti Tars (ogni 60 min, primo giro dopo circa 2 min), promemoria personali (giro immediato e poi ogni 15 s), watcher IMAP (ogni 60 s), recupero code Tars (ogni 60 s, primo controllo circa 5 s dopo il bootstrap) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), promemoria personali (giro immediato e poi ogni 15 s), watcher IMAP (ogni 60 s) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
-- **Agente AI.** Tars usa OpenAI Responses API con function calling, strumenti read-only e proposte persistite. Ogni modifica richiede approvazione umana e passa dalle mutation applicative (§50).
+- **Nessun agente AI.** Tars è stato rimosso il 28/08/2026 e va rifatto da zero (§50). Ogni automatismo attuale è deterministico: match, regole e aritmetica, senza modelli.
 
 ---
 
@@ -285,7 +285,7 @@ aggiunti il 26/08/2026 perché una commessa raccoglie anche documenti che non
 fanno avanzare niente — un documento d'identità, una visura, una planimetria —
 e classificarli tutti come `altro` li rendeva indistinguibili al momento di
 ritrovarli. L'elenco è unico: `DOC_TIPI` alimenta schema server, dropdown UI e
-schema degli strumenti di Tars.
+schema dei dati esposti agli operatori.
 
 ### 8.2 Storage e schema
 - Persistito in `preventivi_documenti` (kv_store JSONB).
@@ -657,7 +657,7 @@ La pagina `/classifica`, l'endpoint `commesse.classificaVenditori` e la voce di 
 La campanella non misura tutto ciò che il CRM conosce. In modalità `active`
 mostra soltanto eccezioni personali critiche o alte già esigibili; massimo tre
 righe nel dropdown e badge visuale `9+`. La coda completa vive in
-`/tars?tab=oggi`. Leggere non equivale a gestire: ogni caso possiede stato,
+`/notifiche`. Leggere non equivale a gestire: ogni caso possiede stato,
 responsabile, scadenza o revisione, evidenze e una sola prossima azione.
 
 ### 25.2 Segnali e deduplica
@@ -694,7 +694,7 @@ conteggi aggregati, mentre la campanella conserva `notifiche.list/count` e lo
 store `notifiche_read`. In `active` la campanella usa il nuovo summary. Il
 fallback legacy resta disponibile finché il confronto produzione non è chiuso.
 
-### 25.6 Promemoria personali Tars
+### 25.6 Promemoria personali
 I promemoria sono personali, sede-scoped e visibili soltanto al richiedente.
 Alla scadenza il worker crea una notifica persistente di tipo `reminder` e il
 CRM aperto mostra un dialog globale, una scadenza per volta. La consegna usa SSE
@@ -765,7 +765,7 @@ Integrazione richiesta al fornitore (import automatico clienti/preventivi/commes
 
 ### 28.1 KV store
 - Tabella `kv_store(key text primary key, data jsonb, updated_at timestamptz)`.
-- Ogni router business possiede una o più raccolte persistite, tra cui `clienti`, `commesse`, `tickets`, `ticket_allegati`, `preventivi_documenti`, `utenti`, `sedi`, `backup_*`, `fic_config`, `fic_fatture`, `caselle_email`, `whatsapp_*`, `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config` e `tars_chat`.
+- Ogni router business possiede una o più raccolte persistite, tra cui `clienti`, `commesse`, `tickets`, `ticket_allegati`, `preventivi_documenti`, `utenti`, `sedi`, `backup_*`, `fic_config`, `fic_fatture`, `caselle_email`, `whatsapp_*`, e `conoscenza_aziendale`.
 
 La tabella `comunicazioni` è separata dal KV store: insert idempotente per `(casella_id, canale, message_id)`, indici per lista e tombstone per le eliminazioni dal CRM (§51).
 
@@ -848,7 +848,6 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 31.2 Ottimizzazione
 - **Attivazione object storage:** il layer per-file è completo; restano configurazione R2 su Railway, probe, backup Drive, dry-run sui dati reali e apply (§47). Il dry-run locale senza `DATABASE_URL` non è una verifica della produzione.
 - Aggregato dashboard in un unico endpoint per ridurre il fan‑out lato client.
-- Monitoraggio del rapporto `cache_read_input_tokens`/input token e del costo per trigger Tars dopo il deploy (§50).
 
 ### 31.3 UX
 - Drag&drop diretto sulle colonne del Kanban (oggi solo bottoni avanza/indietro).
@@ -878,6 +877,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.0 (28/08/2026)** - Tars rimosso per intero su richiesta della direzione: va rifatto da zero. L'infrastruttura comunicazioni (tabella, IMAP, WhatsApp, caselle, matcher, filtri) è stata spostata in `server/comunicazioni/` perché non era l'agente; la Conoscenza aziendale ha un router suo. I dati dell'agente sono stati esportati e cancellati. Smistamento automatico, proposte, classificazione AI dei costi e analisi dei casi non esistono più (§50).
 - **v4.33 (26/08/2026)** - Un promemoria con data e ora complete genera direttamente una sola proposta approvabile; Tars chiede soltanto i dati temporali mancanti e non aggiunge una conferma preliminare (§50.11).
 - **v4.32 (26/08/2026)** - Le proposte Tars pendenti o fallite possono essere eliminate dalla vista personale con conferma; restano nello store per audit e deduplicazione e continuano a essere visibili agli altri utenti autorizzati (§50.1).
 - **v4.31 (26/08/2026)** - FiC diventa fonte autorevole per rate, date e storni; il pattuito resta nel CRM, i movimenti FiC sono idempotenti e auditabili, Tars propone soltanto correzioni dei manuali e i PDF fattura vengono collegati con retry sicuro (§37, §40.4, §50).
@@ -1177,7 +1177,7 @@ alla sincronizzazione successiva. Le sole corrispondenze ipotetiche non generano
 documenti. Un errore storage non crea nuovi blob base64 e non annulla il
 collegamento o la riconciliazione economica già completati.
 
-### 40.5 Snapshot, costi e classificazione Tars
+### 40.5 Snapshot e classificazione dei costi
 `fic_fatture` mantiene documenti emessi, tipo, imponibile, IVA, lordo e stato
 di presenza. `fic_costi` mantiene documenti ricevuti e classificazione
 `fisso | variabile_commessa | straordinario | dubbio`. Ogni flusso ha uno
@@ -1416,250 +1416,57 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 
 ---
 
-## 50. Tars — agente operativo con approvazione umana
+## 50. Agente operativo — rimosso il 28/08/2026
 
-### 50.0 Autonomia operativa (26/08/2026)
-Il principio "propone, non esegue" è configurabile per sede dalla direzione.
-`agente_config.autonomia` porta `attiva`, `killSwitch`, `tipiConsentiti[]` e
-`principalUserId`. Con l'autonomia attiva, al termine di ogni esecuzione le
-proposte dei tipi consentiti vengono approvate dal server passando dallo stesso
-percorso di un click umano: stesse guardie, stesso doc gate, stessi permessi.
+Tars è stato **rimosso per intero** su richiesta della direzione: va rifatto da
+zero. Questa sezione non descrive più un sistema esistente; resta per dire
+cosa c'era, cosa è sopravvissuto e cosa il prossimo agente dovrà decidere.
 
-Tre confini non sono negoziabili da configurazione:
+**Cosa è stato tolto.** Loop agentico, proposte con approvazione, chat,
+Command Center `/tars`, smistamento automatico di email e fatture,
+classificazione AI dei costi FiC, audit processi ed esperimenti, planner,
+motore di contesto, ricerca semantica, autonomia per capability, evals,
+registro esecuzioni e budget. In tutto ~27.000 righe.
 
-1. i **tipi irreversibili** (`chiudi_commessa`, `domanda`) non entrano mai in
-   whitelist. Il criterio non è il rischio ma l'esistenza di un ritorno: un
-   pagamento si storna, un avanzamento si arretra, una chiusura no;
-2. l'esecuzione è attribuita a un **utente reale** della sede, con i suoi
-   permessi. Senza responsabile configurato l'autonomia non parte;
-3. ogni esecuzione autonoma viene **annunciata** nella chat aziendale, con
-   azione ed esito. È la condizione che tiene l'autonomia reversibile: nessuno
-   può annullare quello che non ha visto.
+**Cosa è rimasto, perché non era l'agente** e viveva nella stessa cartella per
+ragioni storiche: la tabella `comunicazioni` con Inbox e conversazioni, IMAP,
+l'integrazione WhatsApp, le caselle, il matcher deterministico
+cliente/commessa (usato anche dalle fatture FiC) e le regole filtro mittente.
+Tutto spostato in `server/comunicazioni/`. È rimasta anche la **Conoscenza
+aziendale** (`/conoscenza`), che è una scheda scritta da persone e non il
+cervello di nessuno: ora ha il suo router.
 
-`killSwitch` nega tutto senza perdere la configurazione. Il Registro Tars
-distingue le esecuzioni che hanno agito da quelle che hanno solo proposto.
+**Cosa NON funziona più**, ed è voluto:
 
-### 50.0-bis Intake dei file in arrivo (26/08/2026)
-Nome file e oggetto vengono letti da una pre-analisi deterministica prima del
-modello: tipo probabile del documento, nomi candidati, codice commessa citato e
-un segnale esplicito quando il nome non porta informazione. Un nome parlante
-("misure Rossi.pdf") permette a Tars di verificare la corrispondenza e proporre
-subito l'archiviazione; un nome muto ("IMG_4821.jpg", "scan0003.pdf") impone la
-lettura del contenuto invece di un'ipotesi. Da un nome muto il tipo non viene
-mai dedotto: le sue stesse parole sono rumore.
+- le comunicazioni in arrivo non vengono più classificate né collegate
+  automaticamente: entrano col match deterministico e restano da lavorare;
+- le fatture FiC senza commessa non generano più proposte: si collegano a
+  mano, oppure si crea la commessa col bottone dedicato (§40.4);
+- i costi FiC non vengono più classificati dal modello: si classificano in
+  Acquisti, che è comunque diventata la fonte del costo fisso (§40.5);
+- il Centro Azioni non ha più l'analisi automatica del caso;
+- la diagnostica non espone più piani e workflow.
 
-Nome e contenuto restano dati esterni non fidati. In presenza di più clienti o
-commesse plausibili la scelta resta a un operatore.
+**I dati.** Gli store dell'agente sono stati esportati prima della rimozione —
+498 proposte, 999 esecuzioni, 95 esiti, 6 chat, config e snapshot di processo,
+1.610 record in tutto — e poi cancellati da `kv_store`. Le colonne
+`tars_*` della tabella `comunicazioni` sono rimaste: costano nulla e il
+prossimo agente probabilmente le rivuole. Le capability `tars.*` restano in
+`authz/capabilities.ts` perché `tars.manage_policy` governa i permessi stessi
+e rinominarla vorrebbe dire migrare le regole salvate.
 
-Quando da una comunicazione emerge una data di consegna di un prodotto già a
-magazzino, Tars può proporne l'aggiornamento direttamente dallo smistamento:
-la data scritta dal fornitore è il dato più aggiornato disponibile.
+**Domande aperte per il prossimo.** Nessuna è stata decisa:
 
-### 50.1 Principio di sicurezza
-Tars **propone, non esegue**. Il modello non possiede strumenti di scrittura diretta sui dati business: crea record in `azioni_suggerite`; un operatore approva o rifiuta; l'esecutore applica la proposta tramite la stessa mutation tRPC usata dall'interfaccia. Pagamenti, avanzamenti di stato, bozze di risposta e collegamenti fattura richiedono ruoli elevati.
+1. Cosa deve fare, in concreto, prima di essere considerato utile? Il vecchio
+   faceva diciassette tipi di proposta e nessuno di questi era stato scelto:
+   erano cresciuti uno alla volta.
+2. Propone e basta, o esegue? Il vecchio aveva entrambe le modalità e
+   l'autonomia è rimasta spenta per sempre, il che dice qualcosa.
+3. Dove vive il punto di ingresso: una pagina sua, oppure dentro le schede in
+   cui il lavoro succede davvero?
+4. Quanto può costare al mese, e chi se ne accorge se sfora?
+5. Cosa succede quando sbaglia — chi lo scopre, e come si torna indietro?
 
-Ogni proposta possiede una chiave d'azione canonica derivata da tipo, target e campi significativi del payload. La stessa azione non deve tornare in coda riscritta con parole diverse quando è pendente, approvata, rifiutata, risposta, fallita o già gestita. La similarità del titolo funge da controllo aggiuntivo e il motivo del rifiuto viene restituito al modello.
-
-Una proposta in stato `pendente` o `errore` può essere eliminata dalla vista
-personale dopo conferma. L'operazione registra l'utente in `hiddenForUserIds` e la esclude da
-chat, Centro Azioni, scheda commessa e statistiche soltanto per quell'utente;
-non cancella il record, non altera la chiave d'azione e conserva audit,
-deduplicazione e visibilità per gli altri operatori autorizzati. Proposte
-già decise o appartenenti a un'altra sede non sono eliminabili.
-
-Per FiC, `correzione_pagamento` è l'unica proposta che può modificare un
-pagamento manuale: payload, candidato scelto e fingerprint vengono rivalidati
-all'approvazione insieme alla rata FiC viva e al collegamento uno-a-uno. Se la
-correzione non è più necessaria o la fonte è cambiata, l'esecutore non duplica
-né forza la scrittura; la proposta passa a `superata` quando l'azione è già
-soddisfatta, sostituita o non più valida. `proponi_pagamento` e `proponi_modifica_commessa`
-rifiutano inoltre i no-op e non possono ricreare importi già presenti o derivare
-il pattuito da FiC.
-
-### 50.2 Trigger e profili strumenti
-Il catalogo tool inviato alla OpenAI Responses API dipende dal trigger:
-
-- `riconciliazione_fatture`: solo FiC, commesse, clienti e pagamenti necessari;
-- `smistamento`: classificazione di ogni comunicazione, ricerca, collegamento verificato e proposta di archiviazione degli allegati operativi; 9 strumenti, senza scritture automatiche;
-- `gestione_comunicazione`: analisi puntuale di un messaggio con contesto minimo, allegati, collegamento, nuovo lead, ticket e bozza risposta;
-- `on_demand`: profilo operativo mirato;
-- `audit_processi`: quadro aziendale e strumenti di proposta per miglioramenti misurabili;
-- `chat` e `seguito`: catalogo completo quando l'operatore richiede esplorazione.
-
-Su richiesta esplicita dell'operatore, `chat` e il relativo `seguito` possono
-usare `proponi_nuovo_lead` senza `comunicazioneId`: Tars cerca prima clienti e
-commesse, legge gli assegnatari e prepara una sola proposta che crea cliente e
-prima commessa in `preventivo`. Nei trigger automatici l'assenza della
-comunicazione resta bloccante.
-
-L'ordine dei tool è stabile per rendere riutilizzabile la cache del provider. Ogni run registra `profiloStrumenti` e `strumentiDisponibili`. Il default è `gpt-5.6-sol` per chat e richieste umane e `gpt-5.6-terra` per i trigger automatici; entrambi sono configurabili per sede. `gpt-5.6-luna` è disponibile per volumi elevati dopo validazione su un campione reale.
-
-### 50.3 Quadro aziendale e confini di accesso
-Tars DEVE poter incrociare anagrafiche, commesse, cantiere, economia, comunicazioni, inventario, produzione, qualità e storico delle proprie decisioni. `leggi_quadro_azienda` restituisce una sintesi compatta della sede con KPI, pratiche ferme, scadenze, anomalie e qualità decisionale dell'agente. Gli strumenti verticali permettono di approfondire contenuto documentale, produzione e qualità.
-
-L'accesso ampio non costituisce un bypass: ogni lettura usa il `ctx` applicativo, rimane sede-scoped e rispetta il ruolo. `leggi_organizzazione` e i dati economici richiedono la direzione; credenziali, token e segreti non sono mai restituiti. Il contenuto dei documenti è marcato come fonte esterna non fidata.
-
-`cerca_comunicazioni` restituisce per ogni email o messaggio WhatsApp la
-`direzione` (`in`/`out`), l'`autore` (`cliente`/`ufficio`), la controparte e i
-campi leggibili `da`/`a`. Tars DEVE usare questi attributi quando ricostruisce
-uno scambio e non può attribuire al cliente un testo scritto dall'ufficio. Lo
-stesso contratto vale per gli outbound storici importati dalla coexistence.
-
-### 50.4 Fascicolo commessa
-`leggi_fascicolo_commessa` raccoglie in parallelo dati commessa, timeline, documenti e doc gate, ordini fornitori, magazzino, ticket, interventi e garanzie, restituendo soltanto i campi utili al ragionamento.
-
-Quando `commessaId` è noto all'avvio, il loop precarica il fascicolo nel primo messaggio (`fascicoloPrecaricato=true`), evitando il primo round-trip modello → tool. Una lettura identica successiva è assorbita dalla cache del run.
-
-### 50.5 Riduzione token e cache
-La riduzione token DEVE avvenire senza riusare dati tra utenti o tra esecuzioni:
-
-1. **Prompt caching OpenAI:** prefisso stabile composto da istruzioni, profilo strumenti e cronologia; `prompt_cache_key` versionato e deterministico per sede, profilo e modello. Su GPT-5.6 il messaggio developer termina con un breakpoint esplicito e usa modalità `explicit` con TTL 30 minuti; `gpt-5.4-mini` usa il caching implicito. `store=false` evita la conservazione della risposta applicativa; verbosity bassa e contesto reasoning `all_turns` riducono output e ricostruzioni, mentre gli item `reasoning.encrypted_content` vengono ripassati nei turni di function calling stateless.
-2. **Cache strumenti per run:** ogni `leggi_*` e `cerca_*` usa una chiave JSON stabile; due richieste identiche, anche contemporanee, condividono la stessa Promise. Gli errori non restano in cache.
-3. **Profilo minimo:** i trigger automatici non pagano lo schema di strumenti irrilevanti.
-4. **Fascicolo compatto:** una lettura aggregata sostituisce numerose chiamate frammentate e output ripetuti.
-
-Lo smistamento usa un prompt dedicato e 9 tool: il prefisso fisso resta molto più compatto del catalogo completo. Le decisioni recenti non vengono inviate a questo trigger perché non informano la classificazione. Nel lotto automatico Tars può soltanto classificare, cercare il contesto, proporre il collegamento e proporre l'archiviazione di un allegato con commessa e tipo verificati; lead, ticket, pagamenti e risposte restano nel profilo puntuale `gestione_comunicazione`.
-
-L'audit salva input, output, cache read, cache write, cache hit strumenti, costo stimato ed esito. Il consumo restituito dal provider viene contabilizzato anche per risposte incomplete o fallite. I campi storici `cache write 5m/1h` restano compatibili con le esecuzioni precedenti; le scritture OpenAI sono contabilizzate nel bucket a moltiplicatore 1,25. La Inbox Tars espone modello, token totali, percentuale cache, scritture, costo, profilo e preload; errori della query non vengono presentati come registro vuoto. Le risposte HTTP del provider sono sanitizzate prima del log e non possono esporre frammenti della chiave API.
-
-### 50.6 Audit continuo dei processi
-Quando Tars e l'audit sono abilitati, lo scheduler può eseguire una revisione per sede ogni circa 24 ore. Il run automatico usa il profilo minimo `audit_processi`, legge prima il quadro aziendale e DEVE:
-
-- proporre al massimo un esperimento, scegliendo il pattern piu forte;
-- basarsi su pattern ricorrenti o indicatori misurabili, non su un singolo caso;
-- usare una metrica server con baseline e denominatore non modificabili dal modello;
-- descrivere una singola azione, un target migliorativo, un responsabile valido
-  della sede e una data di verifica tra 7 e 90 giorni;
-- evitare azioni già proposte o decise.
-
-`leggi_quadro_azienda` salva al massimo una fotografia giornaliera per sede in
-`tars_process_snapshots`, con retention 90 giorni e soli indicatori compatti e
-riferimenti numerici ai casi. Il tool `proponi_miglioramento_processo` rifiuta
-baseline inventate, campioni sotto due, target non migliorativi, responsabili
-fuori sede e date non valide. La chiave `processo:<sedeId>:<metricKey>` impedisce
-due esperimenti aperti sulla stessa metrica.
-
-La direzione può avviare l'audit manualmente e abilitarlo per sede nelle
-Integrazioni. L'approvazione non cambia il processo: crea un record in
-`tars_process_experiments` e un caso `process_experiment` assegnato nel Centro
-Azioni. Alla scadenza un worker rilegge gli indicatori senza chiamare OpenAI,
-classifica l'esito come `migliorato`, `invariato` o `peggiorato` e risolve il
-presidio conservando baseline, target e valore misurato nel registro eventi.
-
-Finché la proposta è pendente, l'operatore può correggere direttamente nella
-card azione, target, responsabile e data di verifica, indicando obbligatoriamente
-cosa Tars ha valutato male. Metrica e baseline non sono modificabili. La mutation
-server rivalida baseline corrente, direzione migliorativa del target, utente
-attivo della sede e scadenza tra 7 e 90 giorni; conserva prima/dopo, autore, data
-e feedback in `azioni_suggerite`. L'approvazione successiva usa esclusivamente i
-valori corretti e assegna il caso al nuovo responsabile. Le correzioni recenti
-sono mostrate a Tars nel blocco decisionale dinamico, escluso dallo smistamento e
-dal prefisso cache stabile, senza trasformarle automaticamente in regole
-aziendali.
-
-### 50.7 Store e budget
-Gli store principali sono `azioni_suggerite`, `conoscenza_aziendale`, `agente_esecuzioni`, `agente_config`, `tars_chat`, `tars_process_snapshots` e `tars_process_experiments`. Il budget mensile e i limiti di esecuzione vengono controllati lato server; l'assenza o il superamento del budget non può degradare in scritture non tracciate.
-
-La configurazione richiede `OPENAI_API_KEY`; `ANTHROPIC_API_KEY` non è più letta. Al raggiungimento di `maxToolCalls`, il loop concede esattamente un turno conclusivo senza strumenti e termina anche se il provider restituisce una risposta anomala: nessun trigger può restare in esecuzione indefinitamente.
-
-Se uno smistamento automatico non parte perché Tars è disattivato, manca la
-chiave OpenAI o il budget mensile è esaurito, la coda resta integra. Il server
-registra soltanto le transizioni di blocco e di ripresa, senza ripetere lo
-stesso warning a ogni controllo periodico.
-
-### 50.8 Analisi di una commessa
-Il trigger `on_demand`, avviato dall'operatore con «Analizza» sul banner della commessa, parte dal fascicolo e DEVE chiudersi in uno di tre modi, mai in silenzio:
-
-- una o più proposte, quando i fatti le reggono;
-- `chiedi_chiarimento` con le opzioni possibili, quando manca un dato per decidere;
-- `nessuna_azione` motivata, dichiarando cosa è stato verificato e perché non serve nulla.
-
-La domanda è la via d'uscita quando non ci sono basi per proporre: è preferibile sia a una proposta debole sia a una chiusura muta. La regola anti-rumore «meglio zero che tre mediocri» resta valida, ma vincola le proposte e non autorizza a non dire niente.
-
-Il motivo di `nessuna_azione` diventa il riepilogo mostrato sulla commessa, quindi DEVE nominare i fatti controllati — stato, saldo, documenti, consegne, ticket — e non limitarsi a dichiarare che è tutto a posto. Il server rifiuta una chiusura senza motivazione sostanziale su questo trigger e restituisce l'errore al modello, che deve motivare o chiedere. Il vincolo vale solo per `on_demand`: i trigger automatici, come lo smistamento che chiude un lotto, restano liberi di terminare senza motivo.
-
-Quando l'operatore dichiara che il lavoro e finito, Tars non DEVE proporre un
-avanzamento alla fase successiva. `verifica_chiusura_commessa` controlla insieme
-saldo residuo, gruppi documentali richiesti fino all'archivio, step timeline in
-corso, ticket e interventi aperti. Se il fascicolo e pronto, una sola proposta
-`chiudi_commessa` porta la commessa ad `archiviata` dopo approvazione e nuova
-verifica del fingerprint; in presenza di blocchi Tars li espone e non crea una
-chiusura falsa.
-
-### 50.9 Command Center
-La route `/tars` DEVE aprire sulla vista `Oggi`; le altre viste sono
-`Proposte`, `Analisi`, `Chat` e `Registro`. `Registro` resta visibile solo alla
-direzione. La chat è uno strumento della cabina operativa e non la vista
-iniziale. Email e WhatsApp mantengono workspace separati e non vengono
-incorporati come inbox dentro Tars.
-
-Una richiesta diretta di creazione anagrafica non autorizza una scrittura
-immediata. Se i dati obbligatori non bastano, Tars usa `chiedi_chiarimento`; se
-la proposta è completa, la card mostra cliente, assegnatario e dati della prima
-commessa. Solo l'approvazione chiama `clienti.create` e `commesse.create` con il
-contesto sede e ruolo dell'operatore.
-
-`tars.commandCenter.get` DEVE applicare `sedeId`, considerare soltanto proposte
-pendenti della sede e produrre un massimo configurabile di priorità. Il ranking
-è deterministico e combina urgenza, impatto e confidenza; a parità usa scadenza
-e chiave canonica. La stessa `chiaveAzione` compare una volta sola. Una priorità
-senza almeno una prova verificabile non viene mostrata come certezza.
-
-Ogni priorità mostra conclusione, motivazione, confidenza e fino a tre prove
-verso comunicazione, cliente, commessa, fattura o esecuzione. Il brief e le
-metriche derivano da proposte ed esecuzioni persistite e NON effettuano una
-chiamata OpenAI all'apertura o all'aggiornamento della pagina. Questa scelta
-riduce latenza e token senza alterare le proposte. Le azioni continuano a
-richiedere approvazione esplicita tramite le mutation esistenti.
-
-Le proposte generate come seguito di una domanda o approvazione nata in chat
-DEVONO comparire nello stesso thread. Il server idrata ricorsivamente i
-discendenti tramite `origineId`, con protezione dai cicli e scope sede; il client
-aggiorna la conversazione a intervalli brevi finche il seguito ha prodotto una
-domanda, una proposta o un esito. La tab Proposte resta una vista globale, non
-un passaggio obbligatorio per completare il lavoro iniziato in chat.
-
-La vista `Oggi` include il Centro Azioni persistente (§25), con casi
-deterministici, ciclo di vita ed evidenze trasversali. I casi nuovi o cambiati
-di priorità alta/critica accodano il trigger economico `centro_azioni`: massimo
-tre per lotto, profilo strumenti ridotto, fascicolo precaricato quando esiste
-`commessaId`, prompt cache separata per sede/profilo/modello. Il risultato salva
-riepilogo, esecuzione e id delle proposte. Errori OpenAI non nascondono né
-declassano il caso; le modifiche restano proposte da approvare.
-
-### 50.10 Conoscenza aziendale (`/conoscenza`)
-La pagina `/conoscenza`, riservata alla direzione, gestisce le regole persistite
-che Tars deve conoscere: fornitori, processo, clienti, terminologia,
-convenzioni e preferenze di comunicazione. Ogni voce ha titolo, contenuto,
-categoria e stato attivo; può essere creata, modificata, disattivata o rimossa.
-Solo le voci attive entrano nel prompt. La conoscenza è scritta e governata
-dall'azienda: non viene dedotta automaticamente da un singolo caso o da una
-proposta rifiutata.
-
-### 50.11 Promemoria personali
-Quando l'operatore dice “ricordami” o esprime una richiesta equivalente, Tars
-DEVE trattarla come promemoria personale e non come nota timeline, evento di
-calendario o attività generica. Se la richiesta contiene già data e ora
-complete, Tars usa direttamente `proponi_promemoria`: la card approvabile è
-l'unica conferma e non deve essere preceduta da una domanda. Se manca la data o
-l'ora, `chiedi_chiarimento(intent=promemoria)` domanda soltanto il dato mancante
-e conserva il testo richiesto; una risposta ancora insufficiente può produrre
-un ulteriore chiarimento temporale senza aprire catene automatiche generiche.
-
-Tars usa `proponi_promemoria` soltanto con un istante futuro esplicito e timezone
-`Europe/Rome`, ricavato dalla richiesta completa o dalla risposta temporale.
-`requestedByUserId` deriva dal contesto autenticato e non è controllabile dal
-modello. La proposta è visibile e decidibile dallo stesso richiedente; per altri
-utenti rispondere, approvare o rifiutare restituisce `NOT_FOUND`.
-L'approvazione rivalida utente attivo, sede, cliente e commessa e crea il record
-in modo idempotente.
-
-Le API `promemoria.due`, `dismissPopup`, `complete`, `snooze` e `cancel` sono
-personali e sede-scoped. Il parsing rifiuta istanti passati, orari locali
-inesistenti o ambigui nei cambi di ora legale. La v4.30 non invia Web Push o
-email: popup e notifica sono disponibili con CRM aperto o al successivo focus.
-
----
 
 ## 51. Comunicazioni (Email e WhatsApp)
 
@@ -1893,7 +1700,7 @@ Lo script Umami viene installato soltanto in produzione, con endpoint HTTP(S) va
 
 ---
 
-## 53. Piattaforma operativa Tars
+## 53. Piattaforma operativa
 
 ### 53.1 Eventi e notifiche
 Le modifiche business rilevanti producono eventi sede-scoped con chiave di

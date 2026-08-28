@@ -48,16 +48,9 @@ const CAPABILITY_META: Record<string, { label: string; group: string }> = {
   "pagamento.read": { label: "Consultare pagamenti", group: "Economia" },
   "pagamento.record": { label: "Registrare pagamenti", group: "Economia" },
   "economia.read": { label: "Consultare economia", group: "Economia" },
-  "tars.use": { label: "Usare Tars", group: "Tars" },
-  "tars.approve_low_risk": {
-    label: "Approvare azioni ordinarie",
-    group: "Tars",
-  },
-  "tars.approve_high_risk": {
-    label: "Approvare azioni sensibili",
-    group: "Tars",
-  },
-  "tars.manage_policy": { label: "Gestire permessi", group: "Tars" },
+  // Nome storico, funzione attuale: è il permesso che governa i permessi.
+  // Rinominare la stringa significherebbe migrare le regole salvate.
+  "tars.manage_policy": { label: "Gestire permessi", group: "Permessi" },
 };
 
 type OverrideEffect = "allow" | "deny" | "inherit";

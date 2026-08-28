@@ -45,10 +45,6 @@ export async function runActionReconcile(sedeId: number): Promise<void> {
         ...result,
       });
     }
-    if (result.queuedForTars > 0) {
-      const { scheduleCaseAnalysisQueue } = await import("./tars");
-      scheduleCaseAnalysisQueue(sedeId);
-    }
   } catch (error) {
     console.error("[action-center] reconcile failed", {
       sedeId,

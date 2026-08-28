@@ -36,7 +36,6 @@ import {
   type CommessaPerMatch,
 } from "./ficMatch";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import { proposte } from "../tars/stores";
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
@@ -802,24 +801,10 @@ function esisteRataInCommessa(
   );
 }
 
-function esisteCorrezionePendente(
-  fattura: FatturaFic,
-  commessaId: number
-): boolean {
-  return proposte.some(
-    p =>
-      p.tipo === "correzione_pagamento" &&
-      p.commessaId === commessaId &&
-      p.stato === "pendente" &&
-      p.payload?.ficDocumentoId === fattura.id
-  );
-}
-
 // ── Stato riconciliazione (derivato, mai scritto) ───────────────────────────
 
 export type StatoRiconciliazione =
   | "riconciliata" // ogni rata pagata ha il suo pagamento in commessa
-  | "proposta" // c'è una proposta pendente che la riguarda
   | "attesa_incasso" // collegata, ma in FiC non risulta ancora pagato niente
   | "da_riconciliare" // FiC dice pagato, il CRM non ha l'acconto
   | "non_abbinabile" // cliente/commessa non individuabili
@@ -841,10 +826,6 @@ export function statoFattura(
     ratePagate.length > 0 &&
     ratePagate.every(r => esisteRataInCommessa(commessa, r, f.numero));
   if (tutte) return { stato: "riconciliata", commessa, motivo };
-
-  if (esisteCorrezionePendente(f, commessa.id)) {
-    return { stato: "proposta", commessa, motivo };
-  }
 
   // Due situazioni molto diverse stavano sotto la stessa etichetta «Incassi
   // da registrare»: il cliente non ha ancora pagato, e il cliente ha pagato
@@ -1058,17 +1039,6 @@ export const ficFattureRouter = router({
       const clientiSede = getClientiStore().filter(
         (cliente: any) => (cliente.sedeId ?? DEFAULT_SEDE_ID) === sede
       );
-      const proposteCollegamento = new Map(
-        proposte
-          .filter(
-            p =>
-              p.sedeId === sede &&
-              p.tipo === "collega_fattura" &&
-              p.stato === "pendente" &&
-              typeof p.payload?.ficId === "number"
-          )
-          .map(p => [p.payload.ficId as number, p])
-      );
       return ficFatture
         .filter(
           f =>
@@ -1083,10 +1053,6 @@ export const ficFattureRouter = router({
             f.commessaId == null && !f.ignorata
               ? analisiAggancioFattura(f, commesseAgganciabili, clientiSede)
               : { candidati: [] as CandidatoFattura[], motivo: null };
-          const propostaCollegamento = proposteCollegamento.get(f.id);
-          const commessaProposta = propostaCollegamento
-            ? commesse.find(c => c.id === propostaCollegamento.commessaId)
-            : null;
           const incassato = f.rate
             .filter(r => r.stato === "paid")
             .reduce((sum, r) => sum + r.importo, 0);
@@ -1097,10 +1063,8 @@ export const ficFattureRouter = router({
             clienteNome: f.clienteNome,
             importoLordo: f.importoLordo,
             incassato,
-            stato: propostaCollegamento ? ("proposta" as const) : s.stato,
-            motivo: propostaCollegamento
-              ? "Tars ha individuato una possibile commessa."
-              : (analisi.motivo ?? s.motivo),
+            stato: s.stato,
+            motivo: analisi.motivo ?? s.motivo,
             commessaId: f.commessaId,
             commessaCodice: s.commessa?.codice ?? null,
             commessaCliente: s.commessa?.cliente ?? null,
@@ -1112,23 +1076,13 @@ export const ficFattureRouter = router({
                 ? null
                 : avvisoCollegamento(f, commesse, clientiSede),
             pdfSync: f.pdfSync,
-            propostaTars: propostaCollegamento
-              ? {
-                  ...propostaCollegamento,
-                  commessaCodice:
-                    propostaCollegamento.payload?.commessaCodice ??
-                    commessaProposta?.codice ??
-                    null,
-                  commessaCliente: commessaProposta?.cliente ?? null,
-                }
-              : null,
           };
         })
         .sort((a, b) => b.data.localeCompare(a.data));
     }),
 
-  // Collegamento manuale: l'operatore decide, la riconciliazione riparte
-  // subito e produce le proposte per quella commessa.
+  // Collegamento manuale: l'operatore decide e la riconciliazione riparte
+  // subito su quella commessa.
   collega: protectedProcedure
     .input(z.object({ ficId: z.number(), commessaId: z.number().nullable() }))
     .mutation(async ({ input, ctx }) => {
@@ -1246,10 +1200,7 @@ export const ficFattureRouter = router({
 
   riconciliaOra: adminProcedure.mutation(async ({ ctx }) => {
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
-      import("./ficPagamenti"),
-      import("../tars/ficPaymentProposals"),
-    ]);
+    const { riconciliaPagamentiFic } = await import("./ficPagamenti");
     // L'ordine e' vincolante: senza collegamento non c'e' pattuito da
     // derivare, e senza pattuito la riconciliazione degli incassi lavora su
     // commesse a zero.
@@ -1260,11 +1211,6 @@ export const ficFattureRouter = router({
       sedeId,
       snapshotCompleto: false,
     });
-    const corrections = correctionHelpers.creaProposteCorrezionePagamento(
-      payments.issues,
-      sedeId
-    );
-    const proposteSuperate = correctionHelpers.superaProposteFicObsolete(sedeId);
     return {
       collegate: collegamenti.collegate,
       ambigue: collegamenti.ambigue,
@@ -1272,8 +1218,6 @@ export const ficFattureRouter = router({
       commesseCreate,
       pattuitiAggiornati: pattuito.aggiornate,
       paymentStats: payments.stats,
-      correzioniProposte: corrections.create,
-      proposteSuperate,
     };
   }),
 });

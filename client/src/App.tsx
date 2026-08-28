@@ -7,7 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
 import RequireDirezione from "./components/RequireDirezione";
-import { legacyMessageRedirect, legacyTarsRedirect } from "./lib/messaggi";
+import { legacyMessageRedirect } from "./lib/messaggi";
 
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -39,7 +39,6 @@ const PreventivatorePuntoDelSerramento = lazy(
 );
 const Archivio = lazy(() => import("./pages/Archivio"));
 const SediList = lazy(() => import("./pages/SediList"));
-const TarsCommandCenter = lazy(() => import("./pages/TarsCommandCenter"));
 const ChatAziendale = lazy(() => import("./pages/ChatAziendale"));
 const Conoscenza = lazy(() => import("./pages/Conoscenza"));
 const Economia = lazy(() => import("./pages/Economia"));
@@ -157,12 +156,8 @@ function Router() {
           </Route>
           <Route path="/messaggi/email" component={EmailPage} />
           <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
-          <Route path="/tars" component={TarsCommandCenter} />
           <Route path="/chat" component={ChatAziendale} />
           <Route path="/notifiche" component={Notifiche} />
-          <Route path="/inbox">
-            {() => <LegacyRedirect redirect={legacyTarsRedirect} />}
-          </Route>
           <Route path="/comunicazioni">
             {() => <LegacyRedirect redirect={legacyMessageRedirect} />}
           </Route>

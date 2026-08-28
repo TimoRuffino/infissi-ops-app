@@ -6,7 +6,6 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type EmailMessage = RouterOutputs["mail"]["email"]["list"][number];
 export type EmailDetail = RouterOutputs["mail"]["email"]["byId"];
 export type EmailAttachment = EmailDetail["allegati"][number];
-export type TarsProposal = RouterOutputs["tars"]["proposte"]["list"][number];
 export type WhatsAppConversation =
   RouterOutputs["mail"]["whatsapp"]["conversazioni"][number];
 export type WhatsAppThread = RouterOutputs["mail"]["whatsapp"]["thread"];
@@ -58,25 +57,6 @@ export function legacyMessageRedirect(location: string): string {
   return redirectWithQuery("/messaggi/email", params);
 }
 
-const TARS_TAB_SET = new Set([
-  "oggi",
-  "proposte",
-  "analisi",
-  "chat",
-  "pendenti",
-  "decise",
-  "registro",
-]);
-
-export function legacyTarsRedirect(location: string): string {
-  const url = new URL(location, "https://ruffino-flow.local");
-  const params = new URLSearchParams();
-  const tab = url.searchParams.get("tab");
-
-  if (tab && TARS_TAB_SET.has(tab)) params.set("tab", tab);
-
-  return redirectWithQuery("/tars", params);
-}
 
 export type WhatsAppConversationKey = {
   casellaId: number;

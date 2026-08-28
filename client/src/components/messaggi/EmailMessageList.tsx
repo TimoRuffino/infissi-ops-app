@@ -1,9 +1,8 @@
-import TarsAvatar from "@/components/TarsAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { EmailMessage, TarsProposal } from "@/lib/messaggi";
+import type { EmailMessage } from "@/lib/messaggi";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
@@ -68,30 +67,18 @@ export const EMAIL_CATEGORY_UI: Record<
 
 export function EmailCategoryBadge({
   categoria,
-  fonte,
-  analizzata,
 }: {
   categoria: EmailCategory;
-  fonte?: string | null;
-  analizzata?: boolean;
 }) {
   const meta =
     EMAIL_CATEGORY_UI[categoria] ?? EMAIL_CATEGORY_UI.da_classificare;
-  const inAttesa = categoria === "da_classificare" && analizzata === false;
-  const dubbioTars = categoria === "da_classificare" && fonte === "tars";
 
   return (
     <Badge
       variant="outline"
       className={cn("h-5 max-w-full px-1.5 text-[10px]", meta.className)}
     >
-      <span className="truncate">
-        {inAttesa
-          ? "In attesa di Tars"
-          : dubbioTars
-            ? "Dubbio Tars"
-            : meta.label}
-      </span>
+      <span className="truncate">{meta.label}</span>
     </Badge>
   );
 }
@@ -127,14 +114,12 @@ function MessageRow({
   message,
   selected,
   checked,
-  hasTarsProposal,
   onOpen,
   onCheckedChange,
 }: {
   message: EmailMessage;
   selected: boolean;
   checked: boolean;
-  hasTarsProposal: boolean;
   onOpen: () => void;
   onCheckedChange: (checked: boolean) => void;
 }) {
@@ -227,8 +212,6 @@ function MessageRow({
           <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
             <EmailCategoryBadge
               categoria={message.categoria ?? "da_classificare"}
-              fonte={message.classificazioneFonte}
-              analizzata={message.tarsAnalizzata}
             />
             {(message.allegati?.length ?? 0) > 0 && (
               <span className="inline-flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5">
@@ -240,12 +223,6 @@ function MessageRow({
               <span className="inline-flex items-center gap-1 rounded-sm bg-success/10 px-1.5 py-0.5 text-success">
                 <Link2 className="size-3" />
                 Collegata
-              </span>
-            )}
-            {hasTarsProposal && (
-              <span className="inline-flex items-center gap-1 rounded-sm bg-primary-soft px-1.5 py-0.5 text-primary">
-                <TarsAvatar size="sm" className="size-4" />
-                Tars
               </span>
             )}
             {message.stato === "gestita" && (
@@ -360,7 +337,6 @@ function ListSkeleton() {
 export default function EmailMessageList({
   messages,
   selectedId,
-  proposalsByMessage,
   viewLabel,
   loading,
   fetching,
@@ -383,7 +359,6 @@ export default function EmailMessageList({
 }: {
   messages: EmailMessage[];
   selectedId: number | null;
-  proposalsByMessage: Map<number, TarsProposal[]>;
   viewLabel: string;
   loading: boolean;
   fetching: boolean;
@@ -481,7 +456,6 @@ export default function EmailMessageList({
               message={message}
               selected={message.id === selectedId}
               checked={selectedIds.has(message.id)}
-              hasTarsProposal={proposalsByMessage.has(message.id)}
               onOpen={() => onOpen(message)}
               onCheckedChange={checked => onToggleSelected(message.id, checked)}
             />

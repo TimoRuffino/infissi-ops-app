@@ -29,7 +29,8 @@ import { backupRouter } from "./routers/backup";
 import { magazzinoRouter } from "./routers/magazzino";
 import { fattureInCloudRouter } from "./routers/fattureInCloud";
 import { fileStorageAdminRouter } from "./routers/fileStorageAdmin";
-import { tarsRouter } from "./routers/tars";
+import { conoscenzaRouter } from "./routers/conoscenza";
+import { platformRouter } from "./routers/platform";
 import { mailRouter } from "./routers/mail";
 import { ficFattureRouter } from "./routers/ficFatture";
 import { ficCostiRouter } from "./routers/ficCosti";
@@ -188,7 +189,8 @@ export const appRouter = router({
   magazzino: magazzinoRouter,
   fattureInCloud: fattureInCloudRouter,
   fileStorage: fileStorageAdminRouter,
-  tars: tarsRouter,
+  conoscenza: conoscenzaRouter,
+  platform: platformRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,

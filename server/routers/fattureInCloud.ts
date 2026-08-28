@@ -886,59 +886,19 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     // Il pattuito è FiC: appena i collegamenti sono aggiornati, importo e
     // piano rate delle commesse vengono riallineati alle fatture emesse.
     const pattuito = sincronizzaPattuitoDaFic(sedeId);
-    const [{ riconciliaPagamentiFic }, correctionHelpers] = await Promise.all([
-      import("./ficPagamenti"),
-      import("../tars/ficPaymentProposals"),
-    ]);
+    const { riconciliaPagamentiFic } = await import("./ficPagamenti");
     const payments = riconciliaPagamentiFic({
       sedeId,
       snapshotCompleto: fattureComplete,
     });
-    const corrections = correctionHelpers.creaProposteCorrezionePagamento(
-      payments.issues,
-      sedeId
-    );
-    const superseded = correctionHelpers.superaProposteFicObsolete(sedeId);
     const pdf = await archiviaPdfFattureCollegate(sedeId, controller.signal);
-    payments.stats.correzioniProposte = corrections.create;
-    payments.stats.proposteSuperate = superseded;
     payments.stats.pdfArchiviati = pdf.archiviate;
     payments.stats.pdfFalliti = pdf.fallite;
     if (controller.signal.aborted) throw controller.signal.reason;
 
-    let classificazione = {
-      classificati: 0,
-      dubbi: 0,
-      errore: null as string | null,
-    };
-    if (idsCostiDaClassificare.length > 0) {
-      const { classificaCostiFic } = await import("../tars/classificaCostiFic");
-      classificazione = await classificaCostiFic(
-        sedeId,
-        idsCostiDaClassificare,
-        controller.signal
-      );
-    }
     if (controller.signal.aborted) throw controller.signal.reason;
 
-    // Le orfane (cliente sconosciuto o ambiguo) vanno a Tars, che indaga e
-    // propone il collegamento. Fire-and-forget col suo debounce: il sync
-    // non deve aspettare l'agente.
-    if (
-      ficFatture.some(
-        fattura =>
-          fattura.sedeId === sedeId &&
-          fattura.tipo === "invoice" &&
-          fattura.presenteInFic &&
-          fattura.commessaId == null &&
-          !fattura.tarsAnalizzata
-      )
-    ) {
-      const { programmaSmistamentoFatture } = await import("../tars/smistamento");
-      programmaSmistamentoFatture(sedeId);
-    }
-
-    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · commesse +${commesseCreate.create} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · correzioni ${corrections.create} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}/classificati ${classificazione.classificati}`;
+    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · commesse +${commesseCreate.create} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };

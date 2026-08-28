@@ -27,7 +27,6 @@ import { matchComunicazione } from "./match";
 import { caselle, saveCaselle, type Casella } from "./caselle";
 import { getCommesseStore } from "../routers/commesse";
 import { getClientiStore } from "../routers/clienti";
-import { programmaSmistamento } from "./smistamento";
 
 // Prima sincronizzazione e importazione storico: per DATA, non per numero.
 // Sei mesi di posta, con un tetto duro a protezione del server (e nostra).
@@ -383,8 +382,6 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
     casella.updatedAt = new Date();
     saveCaselle();
 
-    // Nuova posta non collegata → Tars la esamina e propone i collegamenti.
-    if (esito.importate > 0) programmaSmistamento(sedeId);
   } catch (e: any) {
     esito.errore = messaggioErrore(e);
     casella.ultimoErrore = esito.errore;

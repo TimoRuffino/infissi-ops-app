@@ -87,15 +87,7 @@ function ActionRow({
   const take = trpc.notifiche.cases.take.useMutation({ onSuccess: refresh, onError });
   const snooze = trpc.notifiche.cases.snooze.useMutation({ onSuccess: refresh, onError });
   const resolve = trpc.notifiche.cases.resolve.useMutation({ onSuccess: refresh, onError });
-  const analyze = trpc.notifiche.cases.requestTarsAnalysis.useMutation({
-    onSuccess: () => {
-      refresh();
-      toast.success("Tars analizzerà il caso in background");
-    },
-    onError,
-  });
-  const pending = take.isPending || snooze.isPending || resolve.isPending || analyze.isPending;
-  const analysis = item.tarsAnalysis as any;
+  const pending = take.isPending || snooze.isPending || resolve.isPending;
 
   const snoozeDays = (days: number) => {
     const until = new Date();
@@ -123,18 +115,7 @@ function ActionRow({
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{item.signals.length} {item.signals.length === 1 ? "evidenza" : "evidenze"}</span>
             {assigneeName && <span>Responsabile: {assigneeName}</span>}
-            {item.tarsAnalysisStatus === "in_coda" || item.tarsAnalysisStatus === "in_corso" ? (
-              <span className="inline-flex items-center gap-1 text-primary">
-                <Loader2 className="h-3 w-3 animate-spin" /> Tars sta analizzando
-              </span>
-            ) : null}
           </div>
-          {analysis?.summary && (
-            <div className="mt-2 flex gap-2 border-l-2 border-primary/35 pl-2.5 text-xs leading-relaxed text-muted-foreground">
-              <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-              <span>{analysis.summary}</span>
-            </div>
-          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2 self-end lg:self-start">
@@ -163,9 +144,6 @@ function ActionRow({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onWait(item)}>
                 <Pause /> Metti in attesa
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => analyze.mutate({ id: item.id })}>
-                <Sparkles /> Chiedi a Tars
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => resolve.mutate({ id: item.id, expectedFingerprint: item.signalFingerprint })}>
@@ -231,7 +209,7 @@ export function ActionCenter({ direction }: { direction: boolean }) {
               {items.length === 0 ? "Nessuna azione urgente" : `${items.length} azioni da governare`}
             </h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {counts.critical} critiche, {counts.high} alte · Tars correla le evidenze senza eseguire modifiche.
+              {counts.critical} critiche, {counts.high} alte
             </p>
           </div>
           {direction && (

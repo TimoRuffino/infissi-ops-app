@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/select";
 import SearchSelect from "@/components/SearchSelect";
 import { Input } from "@/components/ui/input";
-import TarsPropostaCard from "@/components/TarsPropostaCard";
 import CostiFicReview from "@/components/economia/CostiFicReview";
 import CostiFissi from "@/components/economia/CostiFissi";
 import EconomiaPanoramica from "@/components/economia/EconomiaPanoramica";
@@ -50,7 +49,6 @@ import { cn } from "@/lib/utils";
 
 const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
   riconciliata: { label: "Riconciliata", classe: "bg-success hover:bg-success" },
-  proposta: { label: "Proposta Tars", classe: "bg-warning hover:bg-warning" },
   da_riconciliare: { label: "Incasso da registrare", classe: "" },
   attesa_incasso: { label: "In attesa di pagamento", classe: "" },
   non_abbinabile: { label: "Senza commessa", classe: "" },
@@ -71,7 +69,7 @@ const FILTRI = [
     // commessa non conosce, quindi residuo e Pagamenti sballati.
     id: "da_riconciliare",
     label: "Incassi da registrare",
-    tiene: (f: any) => f.stato === "da_riconciliare" || f.stato === "proposta",
+    tiene: (f: any) => f.stato === "da_riconciliare",
   },
   {
     // Il cliente non ha ancora pagato. Non è lavoro: è il corso normale di
@@ -133,7 +131,6 @@ function RigaFattura({ f }: { f: any }) {
       utils.economia.invalidate();
       utils.commesse.invalidate();
       utils.preventiviContratti.invalidate();
-      utils.tars.proposte.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -364,7 +361,6 @@ function RigaFattura({ f }: { f: any }) {
           </div>
         )}
 
-        {f.propostaTars && <TarsPropostaCard proposta={f.propostaTars} />}
       </CardContent>
     </Card>
   );

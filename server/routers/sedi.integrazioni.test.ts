@@ -10,12 +10,11 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
 import { upsertFatture, ficFatture } from "./ficFatture";
-import { getTarsConfig } from "../tars/stores";
 import {
   getAppWhatsApp,
   verifyTokenValido,
   tutteLeAppWhatsApp,
-} from "../tars/whatsapp";
+} from "../comunicazioni/whatsapp";
 
 function ctxSede(sedeId: number): TrpcContext {
   return {
@@ -88,20 +87,6 @@ describe("integrazioni separate per sede", () => {
     );
   });
 
-  it("Tars si accende su una sede sola", async () => {
-    await appRouter
-      .createCaller(ctxSede(1))
-      .tars.config.setAttivo({ attivo: true });
-    expect(getTarsConfig(1).attivo).toBe(true);
-    expect(getTarsConfig(2).attivo).toBe(false);
-
-    // E il modello è una scelta per sede.
-    await appRouter
-      .createCaller(ctxSede(2))
-      .tars.config.setModello({ modello: "gpt-5.6-terra" });
-    expect(getTarsConfig(2).modello).toBe("gpt-5.6-terra");
-    expect(getTarsConfig(1).modello).toBe("gpt-5.6-sol");
-  });
 
   it("ogni sede ha la sua app Meta, e il webhook accetta entrambe", () => {
     const uno = getAppWhatsApp(1);

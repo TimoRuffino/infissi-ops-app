@@ -1,7 +1,5 @@
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SearchSelect from "@/components/SearchSelect";
-import TarsAvatar from "@/components/TarsAvatar";
-import TarsPropostaCard from "@/components/TarsPropostaCard";
 import {
   EMAIL_CATEGORIES,
   EMAIL_CATEGORY_UI,
@@ -26,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import type { EmailDetail, TarsProposal } from "@/lib/messaggi";
+import type { EmailDetail } from "@/lib/messaggi";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
@@ -107,23 +105,19 @@ function ReaderSkeleton({
 
 export default function EmailMessageReader({
   messageId,
-  proposals,
   mobile,
   focus,
   canFocus,
   onToggleFocus,
-  onOpenTarsWorkspace,
   selectionRemoved,
   canManageRules,
   onBack,
 }: {
   messageId: number;
-  proposals: TarsProposal[];
   mobile: boolean;
   focus: boolean;
   canFocus: boolean;
   onToggleFocus: () => void;
-  onOpenTarsWorkspace: () => void;
   selectionRemoved: boolean;
   canManageRules: boolean;
   onBack: () => void;
@@ -197,20 +191,6 @@ export default function EmailMessageReader({
       toast.success("Eliminata dal CRM - resta nella casella di posta");
       setConfirmDelete(false);
       onBack();
-      invalidate();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const analyze = trpc.tars.analizzaComunicazione.useMutation({
-    onSuccess: result => {
-      setLatestSummary(result.riepilogo);
-      setInstruction("");
-      toast.success(
-        result.proposte.length > 0
-          ? `${result.proposte.length} ${result.proposte.length === 1 ? "proposta pronta" : "proposte pronte"}`
-          : "Analisi completata"
-      );
-      void utils.tars.proposte.invalidate();
       invalidate();
     },
     onError: error => toast.error(error.message),
@@ -311,14 +291,6 @@ export default function EmailMessageReader({
           },
         ];
 
-  const runAnalysis = () => {
-    onOpenTarsWorkspace();
-    analyze.mutate({
-      comunicazioneId: message.id,
-      istruzione: instruction.trim(),
-    });
-  };
-
   return (
     <article className="flex h-full min-h-0 min-w-0 flex-col bg-card">
       <header className="shrink-0 border-b border-border-soft px-4 py-4 sm:px-5">
@@ -358,8 +330,6 @@ export default function EmailMessageReader({
               </span>
               <EmailCategoryBadge
                 categoria={message.categoria ?? "da_classificare"}
-                fonte={message.classificazioneFonte}
-                analizzata={message.tarsAnalizzata}
               />
             </div>
             {message.mittenteNome && (
@@ -626,13 +596,7 @@ export default function EmailMessageReader({
             <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" />
             <div className="min-w-0 text-xs leading-5 text-text-2">
               <span className="font-semibold text-foreground">
-                {message.classificazioneFonte === "tars"
-                  ? message.categoria === "da_classificare"
-                    ? "Tars chiede una verifica"
-                    : `Classificata da Tars - ${message.classificazioneScore}%`
-                  : message.tarsAnalizzata
-                    ? "Classificazione preliminare"
-                    : "In attesa di Tars"}
+                Classificazione automatica
               </span>{" "}
               {message.classificazioneMotivo}
             </div>
@@ -641,72 +605,6 @@ export default function EmailMessageReader({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <section className="order-2 border-t border-primary/15 bg-primary-soft/35 px-4 py-4 sm:px-5">
-          <div className="mx-auto w-full max-w-5xl">
-            <div className="flex items-center gap-2">
-              <TarsAvatar size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-bold">
-                  Affida questa email a Tars
-                </div>
-                <div className="text-xs text-text-2">
-                  Verifica i dati e prepara azioni da approvare
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {presets.map(preset => (
-                <Button
-                  key={preset.label}
-                  size="sm"
-                  variant="outline"
-                  className="h-8 bg-card/75 text-xs"
-                  onClick={() => setInstruction(preset.text)}
-                >
-                  <preset.icon className="size-3.5" />
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-            <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor={`tars-instruction-${message.id}`}
-                  className="mb-1.5 block text-xs font-semibold text-text-2"
-                >
-                  Istruzione per Tars
-                </label>
-                <Textarea
-                  id={`tars-instruction-${message.id}`}
-                  value={instruction}
-                  onChange={event => setInstruction(event.target.value)}
-                  placeholder="Es. Verifica se e un nuovo lead e prepara cio che serve."
-                  className="min-h-[74px] min-w-0 resize-none bg-card"
-                />
-              </div>
-              <Button
-                className="shrink-0"
-                disabled={instruction.trim().length < 2 || analyze.isPending}
-                onClick={runAnalysis}
-              >
-                {analyze.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                {analyze.isPending
-                  ? "Tars sta verificando..."
-                  : "Analizza e prepara"}
-              </Button>
-            </div>
-            {(latestSummary || message.tarsRiepilogo) && (
-              <div className="mt-3 whitespace-pre-wrap break-words border-l-2 border-primary pl-3 text-sm leading-6 text-text-1 [overflow-wrap:anywhere]">
-                {latestSummary ?? message.tarsRiepilogo}
-              </div>
-            )}
-          </div>
-        </section>
-
         <div className="order-1 px-4 py-5 sm:px-5">
           <div className="mx-auto w-full max-w-5xl space-y-5">
             <div className="max-w-[78ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
@@ -760,16 +658,6 @@ export default function EmailMessageReader({
                 </div>
               </section>
             )}
-            {proposals.length > 0 && (
-              <section aria-label="Proposte Tars" className="space-y-3">
-                <div className="text-xs font-bold uppercase text-text-3">
-                  Azioni preparate da Tars
-                </div>
-                {proposals.map(proposal => (
-                  <TarsPropostaCard key={proposal.id} proposta={proposal} />
-                ))}
-              </section>
-            )}
           </div>
         </div>
       </div>
@@ -794,8 +682,7 @@ export default function EmailMessageReader({
                 : "Escludere come newsletter inutile?"}
             </DialogTitle>
             <DialogDescription>
-              Il messaggio uscira dalla coda operativa e non consumera analisi
-              automatiche di Tars.
+              Il messaggio uscira dalla coda operativa.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-between">
