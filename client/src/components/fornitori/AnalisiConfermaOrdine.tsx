@@ -25,16 +25,25 @@ const GRAVITA_CLASSI: Record<string, string> = {
   bassa: "bg-surface-2 text-text-3",
 };
 
-// Etichette oneste: un PDF senza testo NON è stato analizzato — è stato
-// riconosciuto come scansione e fermato. Senza OCR il suo contenuto resta
-// non compreso, e non va mai presentato come un'analisi riuscita.
+// Etichette oneste: un PDF senza testo riconosciuto NON è stato
+// analizzato. Con l'OCR locale (slice 4) una scansione può diventare
+// «Analizzata (OCR)», sempre con le sue confidenze; se resta senza testo,
+// il motivo spiega perché e non viene mai presentata come riuscita.
 const STATO_LABEL: Record<string, string> = {
   analizzata: "Analizzata",
-  scansione_senza_testo: "Scansione: contenuto NON analizzato (serve OCR)",
+  scansione_senza_testo: "Scansione: contenuto NON analizzato",
   illeggibile: "File illeggibile: contenuto NON analizzato",
   non_supportato: "Formato non supportato: contenuto NON analizzato",
   errore: "Errore",
 };
+
+function etichettaStato(run: any): string {
+  if (run.stato !== "analizzata") return STATO_LABEL[run.stato] ?? run.stato;
+  if (run.parser !== "pdf-ocr") return "Analizzata";
+  return run.daVerificare
+    ? "Analizzata con OCR — DA VERIFICARE"
+    : "Analizzata con OCR";
+}
 
 function Evidenza({ evidenza }: { evidenza: any }) {
   if (!evidenza) return null;
@@ -170,14 +179,24 @@ export default function AnalisiConfermaOrdine({
         <div className="space-y-2">
           <p className="text-xs">
             <span className="font-medium">{ultimo.documentoNome}</span>{" "}
-            <span className="text-text-3">
-              · {STATO_LABEL[ultimo.stato] ?? ultimo.stato}
+            <span
+              className={
+                ultimo.daVerificare ? "text-warning" : "text-text-3"
+              }
+            >
+              · {etichettaStato(ultimo)}
               {ultimo.pagine ? ` · ${ultimo.pagine} pagine` : ""}
+              {ultimo.ocr ? ` · confidenza ${ultimo.ocr.confidenzaMedia}%` : ""}
             </span>
           </p>
           {ultimo.motivoStato && (
             <p className="text-xs text-warning">{ultimo.motivoStato}</p>
           )}
+          {(ultimo.avvertenze ?? []).map((avvertenza: string, i: number) => (
+            <p key={i} className="text-[11px] text-warning">
+              {avvertenza}
+            </p>
+          ))}
 
           {estrazione && (
             <div className="grid gap-1 text-xs sm:grid-cols-2">
