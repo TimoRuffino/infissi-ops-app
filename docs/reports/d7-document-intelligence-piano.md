@@ -85,9 +85,17 @@
    con evidenze, stati certa/candidata/ambigua/assente, conferma umana
    obbligatoria, rifiuti/annullamenti auditati, idempotenza + duplicati per
    impronta, capability `commessa.manage_documents`. Dettagli: PRD §19.4.
-3. Azioni proposte con approval gateway: aggiorna `dataConsegnaPrevista`,
-   segnala incompatibilità con posa pianificata (caso operativo), apri
-   anomalia/contestazione. Nessuna applicazione automatica.
+3. **[FATTA il 29/08/2026]** Azioni proposte con approval gateway
+   (`server/proposte/`): fondazione generale e tipizzata separata dai
+   router business, registro chiuso (unica azione:
+   `ordine_fornitore.aggiorna_data_consegna`), stati
+   proposta→approvata→applicata/fallita + rifiutata/annullata/scaduta/
+   obsoleta, doppia capability (`documento.approve_proposals` +
+   `fornitore.manage_ordini`), freschezza ricontrollata prima di ogni
+   decisione, conferma esplicita in due passi. Il conflitto con la posa è
+   un caso del Centro Azioni (`consegna_fornitore`) — su decisione della
+   direzione NIENTE nuova entità anomalia né ciclo di contestazione al
+   fornitore. Nessuna applicazione automatica. Dettagli: PRD §19.4.
 4. Formati: XLSX/CSV listini e conferme, EML/allegati diretti, ZIP;
    OCR/visione per le scansioni (richiede servizio esterno: decisione e
    credenziali della direzione); estrattore AI opzionale dietro evidenza.

@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.4 - Collegamento assistito documento→ordine (§19.4, seconda slice della Document Intelligence) sopra l'analisi delle conferme della v5.3. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.5 - Approval gateway delle proposte documentali (§19.4, terza slice della Document Intelligence) sopra il collegamento assistito della v5.4. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -611,6 +611,43 @@ fornitore» su un PDF apre il dialog dei candidati:
   archiviato nel fascicolo di un'altra commessa: la decisione umana prevale
   sulla posizione del file, che comunque non viene spostato.
 
+**Approval gateway delle proposte documentali (29/08/2026, terza slice).**
+Le differenze rilevate dall'analisi possono diventare **proposte di
+azione**, mai effetti diretti. Il gateway (`server/proposte/gateway.ts`) è
+una fondazione generale e tipizzata, separata dai router business, la
+stessa su cui poggerà il futuro agente:
+
+- **registro chiuso dei tipi di azione**: l'unico oggi è
+  `ordine_fornitore.aggiorna_data_consegna` (la data di consegna prevista
+  dell'ordine fornitore). Niente prezzi, quantità, righe, stati o
+  configurazioni;
+- ogni proposta porta documento, evidenza (pagina e frammento), valore
+  corrente al momento della generazione, valore proposto, motivazione,
+  versioni dei componenti, autore `sistema`, sede/commessa/ordine, chiave
+  d'idempotenza, scadenza (30 giorni) e cronologia append-only;
+- macchina a stati: `proposta → approvata → applicata | fallita`, con
+  `rifiutata`, `annullata`, `scaduta` (tempo) e `obsoleta` (il valore
+  corrente non corrisponde più allo snapshot: serve una nuova revisione,
+  controllata PRIMA di ogni approvazione e applicazione);
+- **doppio requisito di capability** per approvare e applicare:
+  `documento.approve_proposals` (dedicata alle proposte) E la capability
+  dell'operazione finale dichiarata dal tipo (`fornitore.manage_ordini`).
+  Default: direzione e ruolo `ordini`; gli altri con override individuali.
+  Nessun ruolo hardcoded nei router; sedi isolate con `NOT_FOUND`;
+- l'applicazione riesegue autorizzazione, sede e freschezza, mostra
+  l'effetto esatto («10/09/2026 → 24/09/2026, nessun altro campo viene
+  modificato») e chiede una conferma esplicita in due passi. Un errore
+  produce `fallita` col motivo, mai un effetto parziale nascosto;
+- l'applicazione NON sposta posa, appuntamenti o stati della commessa: se
+  la nuova consegna cade dopo una posa pianificata, il **Centro Azioni**
+  apre/aggiorna un caso (`consegna_fornitore`, priorità alta o critica se
+  la posa è entro 7 giorni) con l'evidenza documentale e l'azione «Rivedi
+  la pianificazione della posa» — che propone la revisione, senza
+  eseguirla. Il caso si risolve da solo quando il conflitto sparisce;
+- UI nella scheda ordine (`/fornitori`): pannello «Proposte dall'analisi»
+  con stato, evidenza, motivazione ed effetto esatto; la generazione parte
+  dal run di analisi («Proponi l'aggiornamento della data di consegna»).
+
 ---
 
 ## 20. Produzione (`/produzione`, direzione‑only)
@@ -946,6 +983,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.5 (29/08/2026)** - Terza slice della Document Intelligence (§19.4): approval gateway generale e tipizzato (`server/proposte/`) con registro chiuso delle azioni, stati espliciti (proposta/approvata/rifiutata/applicata/fallita/annullata/scaduta/obsoleta), idempotenza, scadenza e cronologia append-only. Prima azione applicabile: aggiornare la data di consegna prevista dell'ordine fornitore, con doppia capability (`documento.approve_proposals` + `fornitore.manage_ordini`), verifica di freschezza e conferma esplicita in due passi. Il conflitto con la posa diventa un caso del Centro Azioni (`consegna_fornitore`); nessuna ripianificazione automatica.
 - **v5.4 (28/08/2026)** - Seconda slice della Document Intelligence (§19.4): collegamento assistito documento→ordine con candidati deterministici a punteggio spiegabile (codice ordine > commessa > fornitore > articoli > date > totali), quattro stati espliciti (certa/candidata/ambigua/assente), conferma umana obbligatoria, rifiuti e annullamenti auditati, idempotenza e duplicati per impronta, capability `commessa.manage_documents` senza ruoli hardcoded. Il collegamento non modifica documento, ordine o commessa.
 - **v5.3 (28/08/2026)** - Prima slice della Document Intelligence (§19.4): analisi deterministica delle conferme d'ordine PDF dalla scheda ordine — registro parser, estrazione con evidenze per pagina, confronto con l'ordine per gravità, run idempotenti con impronta e versioni. Nessuna scrittura su dati autorevoli. Limite dichiarato: le scansioni senza testo producono uno stato esplicito e non vengono comprese finché non esiste un OCR.
 - **v5.2 (28/08/2026)** - Slice 2 «dati economici dietro capability» (§37.5): registro pagamenti, costi e margine viaggiano solo con `pagamento.read`/`economia.read` (payload sagomati, mai errori sulla parte operativa); scritture acconti dietro `pagamento.record` con override individuale auditato; `/pagamenti` riservata; Board, liste, Dashboard, Centro Azioni e notifiche senza importi (bit `daSaldare` e versione del registro al posto delle cifre); `permessi.mie` per la parità di policy nella UI. La matrice vale identica in ogni `policyMode` (`legacyAllowed: "capability"`).

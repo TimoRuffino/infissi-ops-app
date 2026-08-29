@@ -1009,6 +1009,50 @@ notte)**, contratto completo nel PRD §19.4:
   dialog con «Corrispondenza certa, punteggio 215» spiegato segnale per
   segnale, conferma e stato collegato, zero errori applicativi in console.
 
+**Slice 3 — approval gateway delle proposte (29/08/2026)**, contratto nel
+PRD §19.4:
+
+- `server/proposte/gateway.ts`: fondazione GENERALE e tipizzata, separata
+  dai router business (è la stessa su cui poggerà il futuro agente).
+  Registro chiuso dei tipi di azione — oggi solo
+  `ordine_fornitore.aggiorna_data_consegna` — store kv `proposte_azioni`,
+  stati `proposta → approvata → applicata|fallita` più
+  rifiutata/annullata/scaduta (30 giorni)/obsoleta, chiave d'idempotenza,
+  cronologia append-only. La freschezza (valore corrente ≡ snapshot) è
+  ricontrollata a ogni lettura e PRIMA di approvare/applicare;
+- l'azione registrata (`azioni/ordineDataConsegna.ts`) applica SOLO la
+  data di consegna prevista via `aggiornaDataConsegnaOrdine` di
+  fornitori.ts (l'unico comando che la scrive dopo la creazione). La
+  generazione (`generazione.ts`) parte dal run di analisi della slice 1 e
+  fotografa evidenza, valore corrente e versioni; autore sempre `sistema`;
+- doppia capability per approvare/applicare: `documento.approve_proposals`
+  + `fornitore.manage_ordini` (nuove nel registro chiuso; default:
+  direzione e ruolo `ordini`, override individuali per gli altri, motore
+  in ogni policyMode). Router `proposte.*` sottile: valida, autorizza,
+  invoca comandi tipizzati; sedi isolate NOT_FOUND;
+- il conflitto con la posa NON viene risolto: segnale
+  `consegna_fornitore` nel Centro Azioni (da proposte APPLICATE con
+  valore ancora corrente, posa `pianificato` precedente alla consegna),
+  priorità alta o critica se la posa è entro 7 giorni, caso «Rivedi la
+  pianificazione della posa» che si auto-risolve quando il conflitto
+  sparisce. Su decisione della direzione: nessuna nuova entità anomalia,
+  nessun ciclo di contestazione al fornitore;
+- UI: pannello «Proposte dall'analisi» nella scheda ordine (stato,
+  evidenza, motivazione, effetto esatto, applica in due passi con
+  conferma) + pulsante «Proponi l'aggiornamento della data di consegna»
+  nel pannello analisi; dopo l'applicazione la lista ordini si aggiorna;
+- test: `server/proposte/gateway.test.ts` (11: macchina a stati pura,
+  fallimento reale d'applicazione) e `server/routers/proposte.test.ts`
+  (12: generazione con evidenza, doppio requisito, metà requisito
+  respinto, override che abilitano un non-ordini, applicazione che tocca
+  SOLO la data con snapshot prima/dopo di commessa e interventi, doppia
+  applicazione idempotente, obsoleta, scaduta, cross-sede, audit, caso
+  Centro Azioni che nasce e si spegne). Mutation test: rimosso il secondo
+  requisito di capability → il test dedicato fallisce. Verifica sul demo:
+  flusso completo genera→approva→applica dalla UI, toast del conflitto
+  posa, caso reale nel Centro Azioni via scheduler, mobile 375px senza
+  scroll orizzontale, zero errori console.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
