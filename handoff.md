@@ -1090,6 +1090,34 @@ PRD §19.4:
   pulizia tmpdir verificata, cache, scala completa dell'idempotenza
   (assente → disponibile → riuso).
 
+**Slice 5 — framework di valutazione (29/08/2026)**, contratto nel PRD
+§19.4:
+
+- `server/documenti/eval/`: 16 fixture costruite in codice — PDF nativi
+  (riferimento esatto, inglese, multipagina, tabella spezzata, valori
+  discordanti, ambiguità, codici ordine/articolo simili, injection,
+  duplicato, corrotto) e scansioni VERE (pulita, storta 3°, 75 DPI,
+  multipagina, timeout OCR) prodotte con testo→pdftoppm→immagine;
+- runner (`pnpm eval:documenti`) sulla STESSA pipeline di produzione;
+  metriche separate: correttezza/copertura per campo, precisione
+  collegamento con contatore «certa sbagliata» (deve restare 0),
+  precisione differenze, falsi positivi, confidenza OCR, ms/pagina, % da
+  rivedere. Report baseline: `docs/reports/d7-eval-2026-08-29.md`
+  (16/16, campi 100% corretti sugli estratti, copertura 93% con le
+  lacune dichiarate, 0 certa sbagliate, OCR ~91% conf media, ~465
+  ms/pagina con lingue locali solo eng);
+- `eval.test.ts` (8) inchioda solo il deterministico: nativo perfetto,
+  injection inerte, ambigua mai «certa», codice esatto batte il simile,
+  corrotto illeggibile, timeout esplicito, metriche OCR riportate SENZA
+  soglie. Nessuna accuratezza produttiva dichiarata dai sintetici;
+- casi reali anonimizzati: cartella `server/documenti/eval/casi-reali/`
+  in `.gitignore` (PDF + `atteso.json`, caricamento automatico del
+  runner); procedura e quantità minime nel report baseline;
+- primo dividendo dell'eval: scoperto il match dei riferimenti SENZA
+  confini (ORD-EV-10 riconosciuto dentro ORD-EV-100 → ambiguità finta;
+  FIN-100 dentro FIN-1000 → riga citata finta), corretto con lookaround
+  in `trovaRiferimentoTesto` e nel riscontro righe.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:

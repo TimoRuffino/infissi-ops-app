@@ -105,8 +105,16 @@
    cloud (decisione direzione 29/08). Restano futuri: XLSX/CSV listini e
    conferme, EML/allegati diretti, ZIP, estrattore AI opzionale dietro
    evidenza.
-5. Dataset di valutazione anonimizzato da conferme reali + metriche per
-   campo (precisione, collegamento, differenze, falsi aggiornamenti).
+5. **[FATTA il 29/08/2026]** Framework di valutazione
+   (`server/documenti/eval/`, `pnpm eval:documenti`): 16 fixture
+   sintetiche (incluse scansioni vere, storte e a bassa risoluzione,
+   tabella spezzata, ambiguità, codici simili, injection, duplicato,
+   corrotto, timeout), metriche separate per campo / collegamento /
+   differenze / OCR / tempi / % da rivedere, report baseline in
+   `docs/reports/d7-eval-2026-08-29.md`. Nessuna soglia dichiarata sui
+   sintetici; `casi-reali/` (gitignored) pronto per le conferme reali
+   anonimizzate con `atteso.json`. Primo dividendo: scoperto e corretto
+   il match dei riferimenti senza confini (ORD-10 in ORD-100).
 
 ## 5. Esito della slice 1 (28/08/2026)
 

@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.6 - OCR locale Tesseract per le scansioni (§19.4, quarta slice della Document Intelligence) sopra l'approval gateway della v5.5. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.7 - Framework di valutazione della Document Intelligence (§19.4, quinta slice) sopra l'OCR locale della v5.6. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -686,6 +686,31 @@ nessuna credenziale, i byte non lasciano la macchina.
   servono `tesseract` e `poppler` (Homebrew); le lingue non installate
   degradano con avvertenza.
 
+**Framework di valutazione (29/08/2026, quinta slice).**
+`server/documenti/eval/` misura la pipeline su fixture sintetiche
+costruite in codice (PDF nativi e scansioni VERE: testo → rendering →
+immagine): riferimento esatto, inglese, multipagina, tabella spezzata,
+valori discordanti, ordine ambiguo, codici ordine e articolo simili,
+prompt injection, duplicato, file corrotto, scansione pulita/storta/bassa
+risoluzione/multipagina, timeout OCR.
+
+- **Metriche separate**: correttezza e copertura per campo, precisione
+  del collegamento (con il contatore delle «certa» sbagliate, che deve
+  restare 0), precisione delle differenze, falsi positivi, confidenza
+  OCR, tempo per pagina, percentuale di documenti da rivedere;
+- `pnpm eval:documenti` genera il report in `docs/reports/`; i test
+  (`eval.test.ts`) inchiodano SOLO i comportamenti deterministici
+  (nativo perfetto, injection inerte, ambiguità mai «certa», corrotto
+  illeggibile, timeout esplicito) e NON asseriscono soglie OCR;
+- **i numeri sintetici non sono accuratezza produttiva**: la misura vera
+  arriverà dai casi reali anonimizzati in
+  `server/documenti/eval/casi-reali/` (cartella in `.gitignore`, mai nel
+  repository), con `atteso.json` accanto a ogni PDF — procedura nel
+  report baseline;
+- il framework ha già ripagato: ha scoperto il match senza confini dei
+  riferimenti (ORD-EV-10 riconosciuto dentro ORD-EV-100, FIN-100 dentro
+  FIN-1000), corretto in `trovaRiferimentoTesto` e nel riscontro righe.
+
 ---
 
 ## 20. Produzione (`/produzione`, direzione‑only)
@@ -1021,6 +1046,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.7 (29/08/2026)** - Quinta slice della Document Intelligence (§19.4): framework di valutazione (`server/documenti/eval/`, `pnpm eval:documenti`) con 16 fixture sintetiche (nativi, scansioni vere anche storte/a bassa risoluzione, tabella spezzata, ambiguità, codici simili, injection, duplicato, corrotto, timeout) e metriche separate per campo/collegamento/differenze/OCR/tempi/revisione. Nessuna soglia dichiarata sui sintetici; predisposto `casi-reali/` (gitignored) per i documenti veri anonimizzati. L'eval ha scoperto e fatto correggere il match senza confini dei riferimenti (ORD-10 dentro ORD-100, FIN-100 dentro FIN-1000).
 - **v5.6 (29/08/2026)** - Quarta slice della Document Intelligence (§19.4): OCR locale con Tesseract 5 come fallback esplicito per i PDF scansionati — rendering pagina per pagina via poppler, TSV con confidenze, lingue configurabili (`OCR_LINGUE`, default `ita+eng`, `deu` predisposto), limiti su dimensione/pagine/tempo/concorrenza, esiti espliciti per binario mancante/lingua mancante/timeout/OCR fallito, marcatura «da verificare» sotto soglia di confidenza, firma OCR nell'idempotenza dei run. Nessun servizio cloud; immagine di deploy +~60-80 MB (apt: tesseract-ocr ita/eng/deu, poppler-utils).
 - **v5.5 (29/08/2026)** - Terza slice della Document Intelligence (§19.4): approval gateway generale e tipizzato (`server/proposte/`) con registro chiuso delle azioni, stati espliciti (proposta/approvata/rifiutata/applicata/fallita/annullata/scaduta/obsoleta), idempotenza, scadenza e cronologia append-only. Prima azione applicabile: aggiornare la data di consegna prevista dell'ordine fornitore, con doppia capability (`documento.approve_proposals` + `fornitore.manage_ordini`), verifica di freschezza e conferma esplicita in due passi. Il conflitto con la posa diventa un caso del Centro Azioni (`consegna_fornitore`); nessuna ripianificazione automatica.
 - **v5.4 (28/08/2026)** - Seconda slice della Document Intelligence (§19.4): collegamento assistito documento→ordine con candidati deterministici a punteggio spiegabile (codice ordine > commessa > fornitore > articoli > date > totali), quattro stati espliciti (certa/candidata/ambigua/assente), conferma umana obbligatoria, rifiuti e annullamenti auditati, idempotenza e duplicati per impronta, capability `commessa.manage_documents` senza ruoli hardcoded. Il collegamento non modifica documento, ordine o commessa.
