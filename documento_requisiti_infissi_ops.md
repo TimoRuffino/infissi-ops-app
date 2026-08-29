@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.8 - Release hardening: rimossa la pagina UI Produzione inutilizzata (§20) con redirect al Board; backend BOM/fasi/NC intatto e annotato come candidato a bonifica. Sopra l'eval della v5.7. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.9 - Release hardening: kill switch della Document Intelligence (§19.4) spenti di default in produzione, runbook di rollout/rollback; sopra la rimozione della pagina Produzione della v5.8. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -711,6 +711,18 @@ risoluzione/multipagina, timeout OCR.
   riferimenti (ORD-EV-10 riconosciuto dentro ORD-EV-100, FIN-100 dentro
   FIN-1000), corretto in `trovaRiferimentoTesto` e nel riscontro righe.
 
+**Kill switch (29/08/2026, release hardening).** Tre interruttori
+indipendenti via env (`server/platform/interruttori.ts`), **spenti di
+default in produzione** e accesi in sviluppo/test:
+`FLAG_DOCUMENT_INTELLIGENCE` (analisi + collegamento),
+`FLAG_PROPOSTE` (approval gateway), `FLAG_OCR` (fallback OCR, che a flag
+spento produce `scansione_senza_testo` con motivo e firma `assente`).
+Il confine è il server: ogni endpoint verifica il proprio interruttore e
+risponde `PRECONDITION_FAILED` a flag spento, per qualunque ruolo — i
+test dimostrano che l'API non si aggira. La UI legge
+`platform.interruttori` e nasconde le superfici spente. Rollout
+progressivo e rollback: `docs/runbooks/rollout-document-intelligence.md`.
+
 ---
 
 ## 20. Produzione (backend senza pagina; UI rimossa il 29/08/2026)
@@ -1063,6 +1075,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.9 (29/08/2026)** - Release hardening: kill switch `FLAG_DOCUMENT_INTELLIGENCE` / `FLAG_PROPOSTE` / `FLAG_OCR` (§19.4), disattivati di default in produzione e verificati non aggirabili via API (`server/platform/interruttori.test.ts`); query `platform.interruttori` per la UI; runbook `docs/runbooks/rollout-document-intelligence.md` con rollout progressivo, rollback via flag, checklist post-deploy e nota sulla ri-notifica saldo una tantum.
 - **v5.8 (29/08/2026)** - Release hardening: rimossa la pagina UI `/produzione` (inutilizzata) con la card dell'hub Gestione; la vecchia route reindirizza al Board (`/kanban`, colonna Produzione). Backend BOM/fasi/NC conservato e annotato come candidato a bonifica (dati potenzialmente presenti negli store, contratto di dominio §20). Stati commessa, trigger §6.4, gate e magazzino invariati, con test dedicati.
 - **v5.7 (29/08/2026)** - Quinta slice della Document Intelligence (§19.4): framework di valutazione (`server/documenti/eval/`, `pnpm eval:documenti`) con 16 fixture sintetiche (nativi, scansioni vere anche storte/a bassa risoluzione, tabella spezzata, ambiguità, codici simili, injection, duplicato, corrotto, timeout) e metriche separate per campo/collegamento/differenze/OCR/tempi/revisione. Nessuna soglia dichiarata sui sintetici; predisposto `casi-reali/` (gitignored) per i documenti veri anonimizzati. L'eval ha scoperto e fatto correggere il match senza confini dei riferimenti (ORD-10 dentro ORD-100, FIN-100 dentro FIN-1000).
 - **v5.6 (29/08/2026)** - Quarta slice della Document Intelligence (§19.4): OCR locale con Tesseract 5 come fallback esplicito per i PDF scansionati — rendering pagina per pagina via poppler, TSV con confidenze, lingue configurabili (`OCR_LINGUE`, default `ita+eng`, `deu` predisposto), limiti su dimensione/pagine/tempo/concorrenza, esiti espliciti per binario mancante/lingua mancante/timeout/OCR fallito, marcatura «da verificare» sotto soglia di confidenza, firma OCR nell'idempotenza dei run. Nessun servizio cloud; immagine di deploy +~60-80 MB (apt: tesseract-ocr ita/eng/deu, poppler-utils).

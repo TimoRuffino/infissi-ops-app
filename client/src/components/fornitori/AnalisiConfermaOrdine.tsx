@@ -64,6 +64,11 @@ export default function AnalisiConfermaOrdine({
   const [aperto, setAperto] = useState(false);
   const [documentoId, setDocumentoId] = useState<string>("");
   const utils = trpc.useUtils();
+  // Kill switch: superficie nascosta quando la DI è spenta (il server
+  // rifiuta comunque ogni chiamata con PRECONDITION_FAILED).
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
 
   const runs = trpc.analisiDocumenti.perOrdine.useQuery(
     { ordineId },
@@ -102,6 +107,8 @@ export default function AnalisiConfermaOrdine({
   );
   const ultimo: any = runs.data?.[0] ?? null;
   const estrazione = ultimo?.estrazione ?? null;
+
+  if (!interruttori.data?.documentIntelligence) return null;
 
   if (!aperto) {
     return (

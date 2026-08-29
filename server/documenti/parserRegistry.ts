@@ -11,6 +11,7 @@
 // buffer ricevuto.
 
 import { extractText, getDocumentProxy } from "unpdf";
+import { interruttoreAttivo } from "../platform/interruttori";
 import {
   OCR_VERSIONE,
   configOcrDefault,
@@ -134,6 +135,13 @@ async function tentaOcr(
   scansione: Extract<EsitoParser, { esito: "scansione_senza_testo" }>,
   config?: Partial<ConfigOcr>
 ): Promise<EsitoParser> {
+  if (!interruttoreAttivo("ocr")) {
+    return {
+      ...scansione,
+      motivo:
+        "OCR disattivato dalla configurazione (FLAG_OCR): senza OCR il contenuto non viene compreso.",
+    };
+  }
   const disponibilita = await disponibilitaOcr(
     { ...configOcrDefault().binari, ...config?.binari }
   );

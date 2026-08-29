@@ -19,6 +19,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { interruttoreAttivo } from "../platform/interruttori";
 
 const execFileAsync = promisify(execFile);
 
@@ -163,6 +164,7 @@ export function lingueEffettive(
 export async function firmaOcrCorrente(
   config = configOcrDefault()
 ): Promise<string> {
+  if (!interruttoreAttivo("ocr")) return "assente";
   const disponibilita = await disponibilitaOcr(config.binari);
   if (!disponibilita.disponibile) return "assente";
   const { effettive } = lingueEffettive(

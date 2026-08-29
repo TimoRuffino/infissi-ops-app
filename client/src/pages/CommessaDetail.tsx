@@ -138,6 +138,10 @@ export default function CommessaDetail() {
   const commessaId = parseInt(params.id ?? "0");
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
+  // Kill switch Document Intelligence: la UI nasconde, il server decide.
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
   // commesse without a clienteId; in that case we fall back to editing only
@@ -1283,7 +1287,8 @@ export default function CommessaDetail() {
                       >
                         <Download className="h-3.5 w-3.5" />
                       </Button>
-                      {(d.mimeType ?? "").toLowerCase().includes("pdf") && (
+                      {(d.mimeType ?? "").toLowerCase().includes("pdf") &&
+                        interruttori.data?.documentIntelligence && (
                         <Button
                           variant="ghost"
                           size="icon"

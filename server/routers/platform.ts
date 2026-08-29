@@ -6,6 +6,7 @@
 
 import { protectedProcedure, router } from "../_core/trpc";
 import { getFeatureFlags } from "../platform/featureFlags";
+import { statoInterruttori } from "../platform/interruttori";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
 export const platformRouter = router({
@@ -13,4 +14,11 @@ export const platformRouter = router({
   flags: protectedProcedure.query(({ ctx }) =>
     getFeatureFlags(ctx.sedeId ?? DEFAULT_SEDE_ID)
   ),
+
+  /**
+   * Kill switch della Document Intelligence (release hardening): la UI
+   * nasconde le superfici spente, ma il confine resta il server — ogni
+   * endpoint verifica il proprio interruttore da solo.
+   */
+  interruttori: protectedProcedure.query(() => statoInterruttori()),
 });

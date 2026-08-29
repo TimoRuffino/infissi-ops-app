@@ -33,6 +33,7 @@ import { analisiPerOrdine } from "../documenti/analisi";
 import { getOrdineFornitoreById } from "./fornitori";
 import { getInterventiStore } from "./interventi";
 import { DEFAULT_SEDE_ID } from "./sedi";
+import { assicuraInterruttore } from "../platform/interruttori";
 import "../proposte/azioni/ordineDataConsegna";
 
 function ordineInSede(ordineId: number, sedeId: number) {
@@ -132,6 +133,7 @@ export const proposteRouter = router({
   perOrdine: protectedProcedure
     .input(z.object({ ordineId: z.number() }))
     .query(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       if (!ordineInSede(input.ordineId, sedeId)) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
@@ -170,6 +172,7 @@ export const proposteRouter = router({
   genera: protectedProcedure
     .input(z.object({ ordineId: z.number(), documentoId: z.number() }))
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const trovato = ordineInSede(input.ordineId, sedeId);
       if (!trovato) {
@@ -213,6 +216,7 @@ export const proposteRouter = router({
   approva: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.approva", proposta);
@@ -232,6 +236,7 @@ export const proposteRouter = router({
   rifiuta: protectedProcedure
     .input(z.object({ id: z.number(), motivo: z.string().max(300).optional() }))
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await authorizeCoreOperation({
@@ -259,6 +264,7 @@ export const proposteRouter = router({
   annulla: protectedProcedure
     .input(z.object({ id: z.number(), motivo: z.string().max(300).optional() }))
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await authorizeCoreOperation({
@@ -292,6 +298,7 @@ export const proposteRouter = router({
   applica: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.applica", proposta);

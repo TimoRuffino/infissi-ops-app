@@ -11,6 +11,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { requireDirezione } from "../_core/permissions";
+import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation } from "../authz/enforcement";
 import { getCommessaById } from "./commesse";
 import {
@@ -105,6 +106,7 @@ export const analisiDocumentiRouter = router({
   perOrdine: protectedProcedure
     .input(z.object({ ordineId: z.number() }))
     .query(({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       requireDirezione(ctx.user);
       const trovato = ordineInSede(input.ordineId, ctx.sedeId);
       if (!trovato) {
@@ -127,6 +129,7 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       requireDirezione(ctx.user);
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
 
@@ -213,6 +216,7 @@ export const analisiDocumentiRouter = router({
   candidati: protectedProcedure
     .input(z.object({ documentoId: z.number() }))
     .query(async ({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const trovato = documentoInSede(input.documentoId, sedeId);
       if (!trovato) {
@@ -312,6 +316,7 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
       const trovatoOrdine = ordineInSede(input.ordineId, ctx.sedeId);
@@ -404,6 +409,7 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
       const trovatoOrdine = ordineInSede(input.ordineId, ctx.sedeId);
@@ -443,6 +449,7 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("documentIntelligence");
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
       if (!trovatoDoc) {

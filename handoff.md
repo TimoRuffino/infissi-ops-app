@@ -1118,6 +1118,23 @@ PRD §19.4:
   FIN-100 dentro FIN-1000 → riga citata finta), corretto con lookaround
   in `trovaRiferimentoTesto` e nel riscontro righe.
 
+**Release hardening (29/08/2026)** — kill switch e rollout:
+
+- tre interruttori env indipendenti (`server/platform/interruttori.ts`),
+  SPENTI di default in produzione, accesi in dev/test:
+  `FLAG_DOCUMENT_INTELLIGENCE`, `FLAG_PROPOSTE`, `FLAG_OCR`. Guardia
+  `assicuraInterruttore` su TUTTI gli endpoint `analisiDocumenti.*` e
+  `proposte.*` (PRECONDITION_FAILED, nessun ruolo lo aggira — test in
+  `server/platform/interruttori.test.ts`); l'OCR spento lascia le
+  scansioni in `scansione_senza_testo` con motivo `FLAG_OCR` e firma
+  `assente` (rianalizzabili all'accensione);
+- UI: `platform.interruttori` (query protetta) + superfici nascoste a
+  flag spento (pannelli analisi/proposte, azione Collega);
+- rollout progressivo in tre fasi e rollback via flag:
+  `docs/runbooks/rollout-document-intelligence.md`, con checklist
+  post-deploy e nota sulla ri-notifica saldo una tantum (fingerprint
+  cambiati dalla slice 2 authz).
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:

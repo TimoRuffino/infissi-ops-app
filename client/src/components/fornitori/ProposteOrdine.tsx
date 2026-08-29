@@ -36,6 +36,11 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
   const [confermaId, setConfermaId] = useState<number | null>(null);
   const [motivo, setMotivo] = useState("");
   const utils = trpc.useUtils();
+  // Kill switch: superficie nascosta quando le proposte sono spente (il
+  // server rifiuta comunque ogni chiamata con PRECONDITION_FAILED).
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
 
   const vista = trpc.proposte.perOrdine.useQuery(
     { ordineId },
@@ -84,6 +89,8 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
     },
     onError: e => toast.error(e.message ?? "Annullamento non riuscito"),
   });
+
+  if (!interruttori.data?.proposte) return null;
 
   if (!aperto) {
     return (
