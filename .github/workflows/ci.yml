@@ -1,0 +1,125 @@
+# CI di Ruffino Flow (release hardening 29/08/2026).
+#
+# Job «verifica»: BLOCCANTE — installazione deterministica, typecheck,
+# test mirati Document Intelligence (con Tesseract/Poppler e lingue reali
+# sul runner), suite completa, build, e la prova che i test non sporcano
+# il working tree. Job «eval-informativo»: NON bloccante — l'eval
+# sintetica della pipeline documentale è un benchmark di regressione, non
+# un gate (i numeri sintetici non dichiarano accuratezza produttiva).
+#
+# Nessun segreto: i test esterni usano fixture/mock e senza DATABASE_URL
+# gli store degradano in memoria per progetto.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Su main ogni push è già un deploy Railway: il run non va cancellato,
+  # o un commit distribuito resterebbe senza verdetto.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verifica:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dipendenze OCR (Tesseract, Poppler, lingue ita/eng/deu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng \
+            tesseract-ocr-deu poppler-utils
+
+      - name: Verifica binari e lingue OCR
+        run: |
+          command -v tesseract pdftoppm
+          tesseract --version | head -1
+          pdftoppm -v 2>&1 | head -1 || true
+          LINGUE="$(tesseract --list-langs 2>/dev/null)"
+          echo "$LINGUE"
+          for lingua in ita eng deu; do
+            echo "$LINGUE" | grep -qx "$lingua" || { echo "Lingua OCR mancante: $lingua"; exit 1; }
+          done
+
+      - name: pnpm (versione dal packageManager)
+        uses: pnpm/action-setup@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Installazione deterministica
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Test mirati Document Intelligence e kill switch
+        run: pnpm vitest run server/documenti server/platform server/routers/proposte.test.ts server/proposte
+
+      - name: Suite completa
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Il working tree resta pulito dopo i test
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "I test o la build hanno modificato file versionati:"
+            git status --porcelain
+            git diff | head -100
+            exit 1
+          fi
+
+  eval-informativo:
+    name: Eval Document Intelligence (benchmark, non bloccante)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dipendenze OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng \
+            tesseract-ocr-deu poppler-utils
+
+      - name: pnpm (versione dal packageManager)
+        uses: pnpm/action-setup@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Installazione deterministica
+        run: pnpm install --frozen-lockfile
+
+      - name: Eval sintetica pipeline documentale
+        run: pnpm eval:documenti
+
+      - name: Pubblica il report come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-document-intelligence
+          path: docs/reports/d7-eval-*.md
+          if-no-files-found: warn
+          retention-days: 30
