@@ -41,6 +41,8 @@ function capabilityLabel(value: string) {
     .replace("approve_low_risk", "approvazione ordinaria")
     .replace("approve_high_risk", "approvazione sensibile")
     .replace("manage_policy", "gestione permessi")
+    .replace("approve_proposals", "approvazione proposte")
+    .replace("manage_ordini", "gestione ordini")
     .replace(/[._]/g, " ");
 }
 

@@ -74,6 +74,19 @@ export default function AnalisiConfermaOrdine({
     },
     onError: e => toast.error(e.message ?? "Analisi non riuscita"),
   });
+  const genera = trpc.proposte.genera.useMutation({
+    onSuccess: ({ motivo, proposte }) => {
+      utils.proposte.perOrdine.invalidate({ ordineId });
+      if (motivo) toast.info(motivo);
+      else
+        toast.success(
+          proposte[0]?.riusata
+            ? "Proposta già esistente: decidila dal pannello «Proposte dall'analisi»"
+            : "Proposta creata: approvala e applicala dal pannello «Proposte dall'analisi»"
+        );
+    },
+    onError: e => toast.error(e.message ?? "Generazione non riuscita"),
+  });
 
   const pdfDelFascicolo = (documenti.data ?? []).filter((doc: any) =>
     (doc.mimeType ?? "").toLowerCase().includes("pdf")
@@ -245,6 +258,24 @@ export default function AnalisiConfermaOrdine({
                 L'analisi non modifica ordine o commessa: verifica le
                 differenze e aggiorna i dati dalle schede.
               </p>
+              {ultimo.differenze.some(
+                (d: any) => d.tipo === "consegna_diversa"
+              ) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={genera.isPending}
+                  onClick={() =>
+                    genera.mutate({
+                      ordineId,
+                      documentoId: ultimo.documentoId,
+                    })
+                  }
+                >
+                  Proponi l'aggiornamento della data di consegna
+                </Button>
+              )}
             </div>
           )}
         </div>

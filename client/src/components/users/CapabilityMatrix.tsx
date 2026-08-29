@@ -48,6 +48,14 @@ const CAPABILITY_META: Record<string, { label: string; group: string }> = {
   "pagamento.read": { label: "Consultare pagamenti", group: "Economia" },
   "pagamento.record": { label: "Registrare pagamenti", group: "Economia" },
   "economia.read": { label: "Consultare economia", group: "Economia" },
+  "documento.approve_proposals": {
+    label: "Approvare proposte documentali",
+    group: "Documenti",
+  },
+  "fornitore.manage_ordini": {
+    label: "Gestire ordini fornitori",
+    group: "Documenti",
+  },
   // Nome storico, funzione attuale: è il permesso che governa i permessi.
   // Rinominare la stringa significherebbe migrare le regole salvate.
   "tars.manage_policy": { label: "Gestire permessi", group: "Permessi" },
