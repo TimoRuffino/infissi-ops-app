@@ -22,6 +22,13 @@ export const CAPABILITIES = [
   "pagamento.read",
   "pagamento.record",
   "economia.read",
+  // D7 slice 3: il doppio requisito dell'approval gateway documentale.
+  // `documento.approve_proposals` approva le proposte generate dai
+  // documenti; `fornitore.manage_ordini` è l'operazione finale sull'ordine
+  // fornitore (oggi: aggiornare la data di consegna prevista). Approvare e
+  // applicare richiedono ENTRAMBE.
+  "documento.approve_proposals",
+  "fornitore.manage_ordini",
   // Capability storiche dell'agente rimosso il 28/08/2026. Restano perché
   // `tars.manage_policy` governa i permessi stessi: rinominarla significa
   // migrare le regole già salvate. Le altre non compaiono più nella UI.
@@ -111,6 +118,11 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "commessa.manage_documents",
     "ticket.manage",
     "tars.approve_low_risk",
+    // Chi gestisce gli ordini fornitori approva le proposte documentali e
+    // può eseguirne l'operazione finale (decisione D7 slice 3). Gli altri
+    // ruoli arrivano qui solo con un override individuale.
+    "documento.approve_proposals",
+    "fornitore.manage_ordini",
   ],
 };
 

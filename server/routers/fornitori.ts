@@ -149,6 +149,32 @@ export function getOrdiniFornitoreDiSede(sedeId: number) {
     }));
 }
 
+// Centro Azioni (D7 slice 3): lettura degli ordini per i segnali di
+// conflitto consegna/posa. MAI mutare da fuori.
+export function getOrdiniFornitoriStore(): readonly OrdineFornitore[] {
+  return ordini;
+}
+
+// Approval gateway (D7 slice 3): l'UNICO comando che aggiorna la data di
+// consegna prevista di un ordine dopo la creazione. Non è un endpoint: lo
+// invoca soltanto `applicaProposta` del gateway, dopo approvazione umana
+// con doppia capability e con lo snapshot ancora fresco. Non tocca stato,
+// righe, prezzi o quantità.
+export function aggiornaDataConsegnaOrdine(
+  ordineId: number,
+  sedeId: number,
+  nuovaData: string
+): OrdineFornitore {
+  const ordine = ordini.find(
+    (o) => o.id === ordineId && ((o as any).sedeId ?? 1) === sedeId
+  );
+  if (!ordine) throw new Error("Ordine non trovato.");
+  ordine.dataConsegnaPrevista = nuovaData;
+  ordine.updatedAt = new Date();
+  _ordiniStore.save();
+  return ordine;
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export const fornitoriRouter = router({

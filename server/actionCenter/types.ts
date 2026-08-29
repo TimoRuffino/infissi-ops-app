@@ -20,6 +20,7 @@ export type ActionSignalKind =
   | "stato_daily"
   | "stato_role"
   | "consegna"
+  | "consegna_fornitore"
   | "saldo"
   | "garanzia"
   | "ticket"
@@ -159,6 +160,27 @@ export type ActionInterventoSnapshot = {
   updatedAt: Date;
 };
 
+export type ActionOrdineFornitoreSnapshot = {
+  id: number;
+  sedeId: number;
+  commessaId: number | null;
+  codiceOrdine: string;
+  stato: string;
+  dataConsegnaPrevista: string | null;
+  updatedAt: Date;
+};
+
+// Proposta documentale APPLICATA (D7 slice 3): alimenta il caso di
+// conflitto consegna/posa. Solo date e riferimenti, mai importi.
+export type ActionPropostaApplicataSnapshot = {
+  id: number;
+  sedeId: number;
+  ordineId: number;
+  valoreApplicato: string;
+  documentoNome: string;
+  applicataAt: Date;
+};
+
 export type ActionSignalInput = {
   sedeId: number;
   now: Date;
@@ -166,4 +188,6 @@ export type ActionSignalInput = {
   tickets: ActionTicketSnapshot[];
   garanzie: ActionGaranziaSnapshot[];
   interventi: ActionInterventoSnapshot[];
+  ordiniFornitore?: ActionOrdineFornitoreSnapshot[];
+  proposteApplicate?: ActionPropostaApplicataSnapshot[];
 };

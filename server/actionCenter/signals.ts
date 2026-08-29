@@ -351,6 +351,71 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
     });
   }
 
+  // Conflitto consegna fornitore ↔ posa pianificata (D7 slice 3): quando
+  // una proposta documentale APPLICATA ha spostato la consegna prevista di
+  // un ordine oltre una posa pianificata della stessa commessa, il caso
+  // chiede di rivedere la pianificazione — NON la esegue. Solo date e
+  // riferimenti nel testo; il segnale si spegne da solo quando la posa
+  // viene ripianificata o la consegna cambia di nuovo (auto_risolta).
+  const ordiniFornitoreById = new Map(
+    (input.ordiniFornitore ?? []).map(ordine => [ordine.id, ordine] as const)
+  );
+  const inSevenDays = toDateString(new Date(input.now.getTime() + 7 * 86_400_000));
+  const ordiniSegnalati = new Set<number>();
+  const applicateRecentiPrima = [...(input.proposteApplicate ?? [])].sort(
+    (a, b) => b.applicataAt.getTime() - a.applicataAt.getTime()
+  );
+  for (const proposta of applicateRecentiPrima) {
+    if (proposta.sedeId !== input.sedeId) continue;
+    if (ordiniSegnalati.has(proposta.ordineId)) continue;
+    const ordine = ordiniFornitoreById.get(proposta.ordineId);
+    if (!ordine || ordine.sedeId !== input.sedeId) continue;
+    // Il conflitto esiste solo se la data applicata è ancora quella
+    // corrente dell'ordine e la merce non è già arrivata.
+    if (ordine.dataConsegnaPrevista !== proposta.valoreApplicato) continue;
+    if (ordine.stato === "ricevuto") continue;
+    const commessa = ordine.commessaId == null
+      ? null
+      : commessaById.get(ordine.commessaId) ?? null;
+    if (!commessa || commessa.stato === "archiviata" || commessa.archivedAt) continue;
+    const posa = input.interventi
+      .filter(
+        intervento =>
+          intervento.sedeId === input.sedeId &&
+          intervento.commessaId === ordine.commessaId &&
+          intervento.tipo === "posa" &&
+          intervento.stato === "pianificato" &&
+          intervento.dataPianificata != null &&
+          intervento.dataPianificata < proposta.valoreApplicato
+      )
+      .sort((a, b) =>
+        (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? "")
+      )[0];
+    if (!posa?.dataPianificata) continue;
+    ordiniSegnalati.add(proposta.ordineId);
+    const imminente = posa.dataPianificata <= inSevenDays;
+    signals.push({
+      ...commessaBase(commessa),
+      occurredAt: proposta.applicataAt,
+      sourceKey: `supplier-delivery:${ordine.id}`,
+      kind: "consegna_fornitore",
+      summary: `La consegna confermata dell'ordine ${ordine.codiceOrdine} (${proposta.valoreApplicato}) arriva dopo la posa pianificata del ${posa.dataPianificata} — conferma: ${proposta.documentoNome}`,
+      actionLabel: "Rivedi la pianificazione della posa",
+      priority: imminente ? "critica" : "alta",
+      priorityScore: imminente ? 97 : 88,
+      targetRole: null,
+      dueAt: dateAtNoon(posa.dataPianificata),
+      fingerprint: fingerprint([
+        "supplier-delivery",
+        ordine.id,
+        proposta.valoreApplicato,
+        posa.id,
+        posa.dataPianificata,
+        proposta.id,
+      ]),
+    });
+  }
+
   return signals;
 }
 
