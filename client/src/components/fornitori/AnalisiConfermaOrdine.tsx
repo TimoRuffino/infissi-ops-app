@@ -7,6 +7,7 @@
 // proposte con approvazione sono una slice successiva del piano D7).
 
 import { trpc } from "@/lib/trpc";
+import { formatEuroSimbolo } from "@/lib/euro";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -232,9 +233,14 @@ export default function AnalisiConfermaOrdine({
                     <Evidenza evidenza={estrazione.dateConsegna[0].evidenza} />
                   </>
                 ) : estrazione.settimaneConsegna[0] ? (
-                  <span className="font-medium">
-                    settimana {estrazione.settimaneConsegna[0].valore}
-                  </span>
+                  <>
+                    <span className="font-medium">
+                      settimana {estrazione.settimaneConsegna[0].valore}
+                    </span>
+                    <Evidenza
+                      evidenza={estrazione.settimaneConsegna[0].evidenza}
+                    />
+                  </>
                 ) : (
                   <span className="text-text-3">non trovata</span>
                 )}
@@ -251,7 +257,7 @@ export default function AnalisiConfermaOrdine({
                 <div>
                   <span className="text-text-3">Totale documento: </span>
                   <span className="font-medium tabular-nums">
-                    {estrazione.totaleDocumento.valore.toFixed(2)}
+                    {formatEuroSimbolo(estrazione.totaleDocumento.valore)}
                   </span>
                   <Evidenza evidenza={estrazione.totaleDocumento.evidenza} />
                 </div>

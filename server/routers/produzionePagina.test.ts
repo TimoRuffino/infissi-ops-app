@@ -67,7 +67,7 @@ describe("pagina Produzione rimossa — navigazione e collegamenti", () => {
     // L'unico riferimento ammesso è la route di App.tsx che reindirizza.
     expect(occorrenze).toEqual([path.join(RADICE_CLIENT, "App.tsx")]);
     const app = await fs.readFile(path.join(RADICE_CLIENT, "App.tsx"), "utf8");
-    const blocco = app.slice(app.indexOf('path="/produzione"'), app.indexOf('path="/produzione"') + 300);
+    const blocco = app.slice(app.indexOf('path="/produzione'), app.indexOf('path="/produzione') + 300);
     expect(blocco).toContain("LegacyRedirect");
     expect(blocco).toContain("produzioneRedirect");
     // La sidebar e l'hub Gestione non hanno più l'etichetta «Produzione».

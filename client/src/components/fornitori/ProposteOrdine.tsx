@@ -34,7 +34,9 @@ const STATO_BADGE: Record<string, { label: string; classe: string }> = {
 export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
   const [aperto, setAperto] = useState(false);
   const [confermaId, setConfermaId] = useState<number | null>(null);
-  const [motivo, setMotivo] = useState("");
+  // Un motivo PER PROPOSTA: un campo condiviso attaccherebbe all'audit il
+  // testo digitato per un'altra proposta (rilievo della revisione).
+  const [motivi, setMotivi] = useState<Record<number, string>>({});
   const utils = trpc.useUtils();
   // Kill switch: superficie nascosta quando le proposte sono spente (il
   // server rifiuta comunque ogni chiamata con PRECONDITION_FAILED).
@@ -74,17 +76,17 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
     },
   });
   const rifiuta = trpc.proposte.rifiuta.useMutation({
-    onSuccess: () => {
+    onSuccess: (_dati, variabili) => {
       ricarica();
-      setMotivo("");
+      setMotivi(prima => ({ ...prima, [variabili.id]: "" }));
       toast.success("Proposta rifiutata");
     },
     onError: e => toast.error(e.message ?? "Rifiuto non riuscito"),
   });
   const annulla = trpc.proposte.annulla.useMutation({
-    onSuccess: () => {
+    onSuccess: (_dati, variabili) => {
       ricarica();
-      setMotivo("");
+      setMotivi(prima => ({ ...prima, [variabili.id]: "" }));
       toast.success("Proposta annullata");
     },
     onError: e => toast.error(e.message ?? "Annullamento non riuscito"),
@@ -188,8 +190,13 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
                   Approva
                 </Button>
                 <Input
-                  value={motivo}
-                  onChange={e => setMotivo(e.target.value)}
+                  value={motivi[proposta.id] ?? ""}
+                  onChange={e =>
+                    setMotivi(prima => ({
+                      ...prima,
+                      [proposta.id]: e.target.value,
+                    }))
+                  }
                   className="h-7 text-xs flex-1 min-w-[140px]"
                   placeholder="Motivo del rifiuto (facoltativo)"
                 />
@@ -201,7 +208,7 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
                   onClick={() =>
                     rifiuta.mutate({
                       id: proposta.id,
-                      motivo: motivo.trim() || undefined,
+                      motivo: (motivi[proposta.id] ?? "").trim() || undefined,
                     })
                   }
                 >
@@ -246,8 +253,13 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
                       Applica…
                     </Button>
                     <Input
-                      value={motivo}
-                      onChange={e => setMotivo(e.target.value)}
+                      value={motivi[proposta.id] ?? ""}
+                      onChange={e =>
+                        setMotivi(prima => ({
+                          ...prima,
+                          [proposta.id]: e.target.value,
+                        }))
+                      }
                       className="h-7 text-xs flex-1 min-w-[140px]"
                       placeholder="Motivo dell'annullamento (facoltativo)"
                     />
@@ -259,7 +271,7 @@ export default function ProposteOrdine({ ordineId }: { ordineId: number }) {
                       onClick={() =>
                         annulla.mutate({
                           id: proposta.id,
-                          motivo: motivo.trim() || undefined,
+                          motivo: (motivi[proposta.id] ?? "").trim() || undefined,
                         })
                       }
                     >

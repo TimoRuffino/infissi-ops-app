@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -42,35 +43,37 @@ export default function CollegaOrdineDialog({
     { documentoId: documento?.id ?? 0 },
     { enabled: aperto }
   );
-  const ricarica = () =>
-    utils.analisiDocumenti.candidati.invalidate({
-      documentoId: documento?.id ?? 0,
-    });
+  // L'id arriva dalle variables della mutation: se l'operatore chiude il
+  // dialog prima della risposta, l'invalidazione colpisce comunque il
+  // documento giusto (rilievo della revisione).
+  const ricarica = (documentoId: number) =>
+    utils.analisiDocumenti.candidati.invalidate({ documentoId });
 
   const collega = trpc.analisiDocumenti.collega.useMutation({
-    onSuccess: ({ riusato }) => {
-      ricarica();
+    onSuccess: ({ riusato }, variabili) => {
+      ricarica(variabili.documentoId);
       setMotivo("");
       toast.success(riusato ? "Era già collegato a questo ordine" : "Collegato");
     },
     onError: e => toast.error(e.message ?? "Collegamento non riuscito"),
   });
   const rifiuta = trpc.analisiDocumenti.rifiuta.useMutation({
-    onSuccess: () => {
-      ricarica();
+    onSuccess: (_dati, variabili) => {
+      ricarica(variabili.documentoId);
       toast.success("Candidato rifiutato: non verrà più proposto come certo");
     },
     onError: e => toast.error(e.message ?? "Rifiuto non registrato"),
   });
   const annulla = trpc.analisiDocumenti.annulla.useMutation({
-    onSuccess: () => {
-      ricarica();
+    onSuccess: (_dati, variabili) => {
+      ricarica(variabili.documentoId);
       setMotivo("");
       toast.success("Collegamento annullato");
     },
     onError: e => toast.error(e.message ?? "Annullamento non riuscito"),
   });
 
+  const documentoId = documento?.id ?? null;
   const dati = candidati.data;
   const esito = dati?.esito ?? null;
   const badge = esito ? STATO_BADGE[esito.stato] : null;
@@ -78,7 +81,15 @@ export default function CollegaOrdineDialog({
     collega.isPending || rifiuta.isPending || annulla.isPending;
 
   return (
-    <Dialog open={aperto} onOpenChange={open => !open && onClose()}>
+    <Dialog
+      open={aperto}
+      onOpenChange={open => {
+        if (!open) {
+          setMotivo("");
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -87,7 +98,9 @@ export default function CollegaOrdineDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <p className="text-sm text-text-3 -mt-2">{documento?.nome}</p>
+        <DialogDescription className="text-sm text-text-3 -mt-2">
+          {documento?.nome}
+        </DialogDescription>
 
         {candidati.isLoading && (
           <div className="py-6 grid place-items-center">
@@ -129,8 +142,9 @@ export default function CollegaOrdineDialog({
                 className="h-8"
                 disabled={occupato}
                 onClick={() =>
+                  documentoId != null &&
                   annulla.mutate({
-                    documentoId: documento!.id,
+                    documentoId,
                     motivo: motivo.trim() || undefined,
                   })
                 }
@@ -210,8 +224,9 @@ export default function CollegaOrdineDialog({
                     className="h-7 text-xs"
                     disabled={occupato}
                     onClick={() =>
+                      documentoId != null &&
                       collega.mutate({
-                        documentoId: documento!.id,
+                        documentoId,
                         ordineId: candidato.ordineId,
                       })
                     }
@@ -225,8 +240,9 @@ export default function CollegaOrdineDialog({
                       className="h-7 text-xs"
                       disabled={occupato}
                       onClick={() =>
+                        documentoId != null &&
                         rifiuta.mutate({
-                          documentoId: documento!.id,
+                          documentoId,
                           ordineId: candidato.ordineId,
                         })
                       }
