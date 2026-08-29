@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.5 - Approval gateway delle proposte documentali (§19.4, terza slice della Document Intelligence) sopra il collegamento assistito della v5.4. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.6 - OCR locale Tesseract per le scansioni (§19.4, quarta slice della Document Intelligence) sopra l'approval gateway della v5.5. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -574,10 +574,13 @@ fascicolo della commessa dell'ordine:
 - **Nessuna scrittura su dati autorevoli**: l'analisi non tocca commesse,
   ordini, righe, prezzi, date o stati. L'operatore legge le differenze e
   aggiorna i dati dalle schede.
-- **Limite corrente, dichiarato**: solo i PDF con testo nativo vengono
-  analizzati. Un PDF scansionato viene riconosciuto e fermato con lo stato
-  esplicito `scansione_senza_testo`: senza OCR il contenuto NON viene
-  compreso e il documento non viene mai presentato come analizzato (campi e
+- **Scansioni (aggiornato dalla quarta slice, 29/08/2026)**: un PDF senza
+  testo nativo passa dal **fallback OCR locale** (v. sotto). Se l'OCR
+  riconosce testo, il run diventa `analizzata` con parser `pdf-ocr`,
+  confidenze dichiarate e — sotto soglia — marcatura «DA VERIFICARE». Se
+  l'OCR non è disponibile, fallisce, va in timeout o non riconosce nulla,
+  il documento resta `scansione_senza_testo` con il MOTIVO esplicito: il
+  contenuto non compreso non viene mai presentato come analizzato (campi e
   confronto compaiono solo con stato `analizzata`). File corrotti, cifrati
   o di formato non supportato producono gli stati espliciti `illeggibile` /
   `non_supportato` con il motivo.
@@ -647,6 +650,41 @@ stessa su cui poggerà il futuro agente:
 - UI nella scheda ordine (`/fornitori`): pannello «Proposte dall'analisi»
   con stato, evidenza, motivazione ed effetto esatto; la generazione parte
   dal run di analisi («Proponi l'aggiornamento della data di consegna»).
+
+**OCR locale per le scansioni (29/08/2026, quarta slice).** Tesseract 5
+eseguito in locale (`server/documenti/ocr.ts`): nessun servizio cloud,
+nessuna credenziale, i byte non lasciano la macchina.
+
+- **Sequenza**: prima l'estrazione del testo nativo; solo se assente, le
+  pagine vengono renderizzate in PNG con `pdftoppm` (Tesseract non legge i
+  PDF) e riconosciute una per una in TSV, conservando pagina e confidenza
+  per parola; il testo passa poi dallo stesso estrattore deterministico e
+  dallo stesso confronto del testo nativo;
+- **lingue configurabili** via `OCR_LINGUE` (default `ita+eng`, tedesco
+  predisposto): si usa l'intersezione tra richieste e installate, con
+  avvertenza per le mancanti; nessuna lingua utilizzabile = fallimento
+  esplicito;
+- **limiti e sicurezza**: 15 MB, 20 pagine, 300 DPI, timeout per pagina
+  (30 s) e complessivo (120 s), una pipeline alla volta; processi avviati
+  con `execFile` e argomenti fissi (mai shell), directory temporanee
+  isolate e SEMPRE ripulite; il testo OCR resta input non fidato e inerte;
+- **niente fallback silenziosi**: binario mancante, lingua mancante,
+  timeout, rendering fallito e «nessun testo riconosciuto» sono esiti
+  espliciti con motivo, e il documento resta `scansione_senza_testo`;
+- **confidenza**: media per pagina dichiarata nel run; sotto le soglie
+  (media < 80, o una pagina < 60) il run è marcato **da verificare** e la
+  UI lo mostra («Analizzata con OCR — DA VERIFICARE»); una proposta
+  generata da un run OCR a bassa confidenza porta l'avvertenza nella
+  motivazione. Nessun valore estratto viene mai applicato in automatico
+  (vale il gateway della terza slice);
+- **idempotenza**: la firma OCR (versione, lingue effettive, DPI) fa parte
+  della chiave dei run: una scansione ferma per OCR assente torna
+  analizzabile quando l'OCR compare o cambia configurazione, senza perdere
+  lo storico;
+- **deploy**: `nixpacks.toml` installa via apt `tesseract-ocr` con
+  `ita/eng/deu` e `poppler-utils` (~60-80 MB di immagine). In locale
+  servono `tesseract` e `poppler` (Homebrew); le lingue non installate
+  degradano con avvertenza.
 
 ---
 
@@ -983,6 +1021,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.6 (29/08/2026)** - Quarta slice della Document Intelligence (§19.4): OCR locale con Tesseract 5 come fallback esplicito per i PDF scansionati — rendering pagina per pagina via poppler, TSV con confidenze, lingue configurabili (`OCR_LINGUE`, default `ita+eng`, `deu` predisposto), limiti su dimensione/pagine/tempo/concorrenza, esiti espliciti per binario mancante/lingua mancante/timeout/OCR fallito, marcatura «da verificare» sotto soglia di confidenza, firma OCR nell'idempotenza dei run. Nessun servizio cloud; immagine di deploy +~60-80 MB (apt: tesseract-ocr ita/eng/deu, poppler-utils).
 - **v5.5 (29/08/2026)** - Terza slice della Document Intelligence (§19.4): approval gateway generale e tipizzato (`server/proposte/`) con registro chiuso delle azioni, stati espliciti (proposta/approvata/rifiutata/applicata/fallita/annullata/scaduta/obsoleta), idempotenza, scadenza e cronologia append-only. Prima azione applicabile: aggiornare la data di consegna prevista dell'ordine fornitore, con doppia capability (`documento.approve_proposals` + `fornitore.manage_ordini`), verifica di freschezza e conferma esplicita in due passi. Il conflitto con la posa diventa un caso del Centro Azioni (`consegna_fornitore`); nessuna ripianificazione automatica.
 - **v5.4 (28/08/2026)** - Seconda slice della Document Intelligence (§19.4): collegamento assistito documento→ordine con candidati deterministici a punteggio spiegabile (codice ordine > commessa > fornitore > articoli > date > totali), quattro stati espliciti (certa/candidata/ambigua/assente), conferma umana obbligatoria, rifiuti e annullamenti auditati, idempotenza e duplicati per impronta, capability `commessa.manage_documents` senza ruoli hardcoded. Il collegamento non modifica documento, ordine o commessa.
 - **v5.3 (28/08/2026)** - Prima slice della Document Intelligence (§19.4): analisi deterministica delle conferme d'ordine PDF dalla scheda ordine — registro parser, estrazione con evidenze per pagina, confronto con l'ordine per gravità, run idempotenti con impronta e versioni. Nessuna scrittura su dati autorevoli. Limite dichiarato: le scansioni senza testo producono uno stato esplicito e non vengono comprese finché non esiste un OCR.

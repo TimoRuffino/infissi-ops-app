@@ -96,9 +96,15 @@
    un caso del Centro Azioni (`consegna_fornitore`) — su decisione della
    direzione NIENTE nuova entità anomalia né ciclo di contestazione al
    fornitore. Nessuna applicazione automatica. Dettagli: PRD §19.4.
-4. Formati: XLSX/CSV listini e conferme, EML/allegati diretti, ZIP;
-   OCR/visione per le scansioni (richiede servizio esterno: decisione e
-   credenziali della direzione); estrattore AI opzionale dietro evidenza.
+4. **[OCR FATTO il 29/08/2026]** OCR locale Tesseract 5 come fallback
+   esplicito del testo nativo (`server/documenti/ocr.ts`): rendering
+   pdftoppm pagina per pagina, TSV con confidenze, lingue configurabili
+   (`OCR_LINGUE`, default ita+eng, deu predisposto), limiti e timeout,
+   esiti espliciti, «da verificare» sotto soglia, firma OCR
+   nell'idempotenza. Deploy: aptPkgs in nixpacks.toml. Nessun servizio
+   cloud (decisione direzione 29/08). Restano futuri: XLSX/CSV listini e
+   conferme, EML/allegati diretti, ZIP, estrattore AI opzionale dietro
+   evidenza.
 5. Dataset di valutazione anonimizzato da conferme reali + metriche per
    campo (precisione, collegamento, differenze, falsi aggiornamenti).
 
@@ -110,12 +116,14 @@ ordine di FornitoriList, suite `server/documenti/analisiConferma.test.ts`
 con PDF generati in-test (jsPDF). Nessuna scrittura su dati autorevoli;
 nessuna migrazione.
 
-**Limite corrente, dichiarato ovunque (UI, PRD §19.4, handoff):**
+**Limite dichiarato della slice 1 (superato il 29/08/2026 dalla slice 4):**
 
 - i PDF con testo nativo vengono analizzati;
-- i PDF scansionati vengono riconosciuti e producono lo stato esplicito
-  `scansione_senza_testo`;
-- senza OCR il loro contenuto NON viene compreso;
-- un documento senza contenuto estratto non viene mai presentato come
+- i PDF scansionati passano ora dal fallback OCR locale (slice 4): se il
+  testo viene riconosciuto il run è `analizzata` con parser `pdf-ocr` e
+  confidenze dichiarate («da verificare» sotto soglia);
+- se l'OCR è assente, fallisce o non riconosce nulla, il contenuto NON
+  viene compreso e lo stato resta `scansione_senza_testo` col motivo;
+- un documento senza contenuto riconosciuto non viene MAI presentato come
   «analizzato con successo»: campi e confronto compaiono solo per lo stato
   `analizzata`.

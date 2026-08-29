@@ -1053,6 +1053,43 @@ PRD §19.4:
   posa, caso reale nel Centro Azioni via scheduler, mobile 375px senza
   scroll orizzontale, zero errori console.
 
+**Slice 4 — OCR locale Tesseract 5 (29/08/2026)**, contratto nel PRD
+§19.4:
+
+- `server/documenti/ocr.ts`: pdftoppm rende le pagine in PNG (Tesseract
+  non legge i PDF), tesseract le riconosce in TSV (pagina + confidenza per
+  parola); `execFile` con argomenti fissi, MAI shell; tmpdir isolata
+  sempre ripulita (anche su errore/timeout); una pipeline alla volta;
+  cache in memoria per impronta+firma (solo testo). Limiti: 15 MB, 20
+  pagine, 300 DPI, 30 s/pagina, 120 s totali;
+- lingue via `OCR_LINGUE` (default `ita+eng`, `deu` predisposto):
+  intersezione richieste∩installate con avvertenza per le mancanti;
+  binario mancante / lingua mancante / timeout / rendering fallito /
+  nessun testo riconosciuto = esiti ESPLICITI, il documento resta
+  `scansione_senza_testo` col motivo — mai fallback silenziosi, mai
+  «analizzato» senza testo riconosciuto;
+- fallback dichiarato nel registro parser (`estraiTestoDocumento`):
+  nativo prima, OCR solo su `scansione_senza_testo`; successo →
+  `estratto` con parser `pdf-ocr`, avvertenze e confidenze; sotto soglia
+  (media<80 o pagina<60) il run è «DA VERIFICARE» (UI: «Analizzata con
+  OCR — DA VERIFICARE») e le proposte generate portano l'avvertenza in
+  motivazione. Il collegamento assistito (slice 2) beneficia dello stesso
+  fallback;
+- idempotenza: `ocrFirma` (versione|lingue effettive|DPI, o «assente»)
+  entra nella chiave dei run per scansioni e run OCR, con backfill
+  `onLoad`: le scansioni ferme si rianalizzano quando l'OCR compare o
+  cambia configurazione, senza perdere storico;
+- deploy: `nixpacks.toml` + aptPkgs (tesseract-ocr, ita/eng/deu,
+  poppler-utils), impatto immagine ~60-80 MB. In locale: `brew install
+  tesseract poppler` (solo eng di default: l'italiano locale richiede
+  `tesseract-lang`; in produzione apt installa ita+deu);
+- test: `server/documenti/ocr.test.ts`, 10 scenari — binario mancante,
+  troppe pagine, lingue effettive, soglie di revisione, firma «assente»,
+  e con i binari reali (skip automatico se assenti): scansione vera
+  riconosciuta via OCR con evidenze, lingua inesistente, timeout con
+  pulizia tmpdir verificata, cache, scala completa dell'idempotenza
+  (assente → disponibile → riuso).
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
