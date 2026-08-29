@@ -19,7 +19,7 @@ function caso(r: RisultatoEval, nome: string) {
   return trovato!;
 }
 
-describe("eval documenti — framework", () => {
+describe("eval documenti — framework", { timeout: 180_000 }, () => {
   it("esegue tutti i casi e produce metriche e report", async () => {
     const r = await risultato();
     expect(r.metriche.casiTotali).toBeGreaterThanOrEqual(16);

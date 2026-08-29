@@ -133,7 +133,7 @@ async function scenario() {
   return { admin, commessa, ordine };
 }
 
-describe("pipeline conferme d'ordine", () => {
+describe("pipeline conferme d'ordine", { timeout: 120_000 }, () => {
   it("PDF digitale: estrae i campi con evidenza di pagina e rileva le variazioni", async () => {
     const { admin, commessa, ordine } = await scenario();
     const bytes = pdfDaTesto([

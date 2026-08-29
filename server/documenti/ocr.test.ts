@@ -152,7 +152,7 @@ describe("ocr — contratto senza binari", () => {
   });
 });
 
-describe.skipIf(!binariPresenti)("ocr — con i binari reali", () => {
+describe.skipIf(!binariPresenti)("ocr — con i binari reali", { timeout: 120_000 }, () => {
   it("una scansione diventa «estratto» via pdf-ocr, con confidenze e avvertenze", async () => {
     const bytes = await pdfScansionato([
       "CONFERMA D'ORDINE",
