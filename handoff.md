@@ -1135,6 +1135,18 @@ PRD §19.4:
   post-deploy e nota sulla ri-notifica saldo una tantum (fingerprint
   cambiati dalla slice 2 authz).
 
+**Revisione indipendente (29/08/2026)** — quattro revisori sull'intero
+diff `origin/main..slice-3-document-intelligence`; tutti i rilievi
+Critical/Important corretti, più i minori a basso costo (dettaglio nel
+changelog PRD v5.10). I più rilevanti: oracolo del totale chiuso
+(segnale solo con `economia.read`), kill switch fail-closed e in base
+procedure, `proposte.genera` con coerenza viva documento↔ordine,
+confini su TUTTE le ricerche di riferimento, idempotenza dei run legata
+anche al contenuto dell'ordine (storico max 10 run/coppia), motivo
+per-proposta nella UI. Scelte consapevoli non cambiate: fingerprint
+saldo (privacy slice 2), niente quattro-occhi oltre la doppia
+capability, dedup `parseEuro`→`shared/` lasciato come candidato.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:

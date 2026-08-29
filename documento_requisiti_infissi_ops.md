@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.9 - Release hardening: kill switch della Document Intelligence (§19.4) spenti di default in produzione, runbook di rollout/rollback; sopra la rimozione della pagina Produzione della v5.8. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.10 - Release hardening: revisione indipendente dell'intero branch con correzione dei rilievi (oracolo del totale chiuso, kill switch fail-closed, coerenza viva documento→ordine nella generazione); sopra i kill switch della v5.9. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -593,8 +593,10 @@ fornitore» su un PDF apre il dialog dei candidati:
   della sede, con un punteggio spiegabile per segnali in ordine di forza —
   codice d'ordine citato (100), codice commessa (60), fornitore (40),
   codici articolo (15 l'uno, massimo 45), data di consegna coincidente (15),
-  totale coincidente (15, senza esporre cifre CRM) — ognuno con la sua
-  evidenza (pagina e frammento);
+  totale coincidente (15) — ognuno con la sua evidenza (pagina e
+  frammento). Il segnale sul totale è calcolato SOLO per chi ha
+  `economia.read`: la sua presenza è un oracolo di uguaglianza sugli
+  importi, e per gli altri ruoli non esiste (v5.10);
 - l'esito è uno di quattro stati espliciti: `certa` (un solo ordine citato
   per codice), `candidata` (plausibile, da confermare), `ambigua` (più
   ordini equivalenti: MAI un collegamento automatico), `assente`. Anche con
@@ -1075,6 +1077,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.10 (29/08/2026)** - Revisione indipendente dell'intero diff (quattro revisori: correttezza server, sicurezza authz, client/convenzioni, qualità) e correzione di TUTTI i rilievi Critical/Important più i minori a basso costo: confini obbligatori su ogni ricerca di riferimento (ORD-10 mai dentro ORD-100, anche per riferimentoOrdine/fornitoreCitato); segnale «totale coincidente» calcolato solo per chi ha `economia.read` (chiuso l'oracolo di uguaglianza sugli importi); kill switch FAIL-CLOSED (accesi solo con NODE_ENV development/test) e spostati nella base procedure (`procedureConInterruttore`); `proposte.genera` riverifica la coerenza VIVA documento↔ordine (un collegamento annullato non genera più proposte); idempotenza dei run estesa al contenuto dell'ordine (`ordineFirma`) con storico limitato a 10 run per coppia e guardia anti-doppio-click; date di calendario validate (31/02 rifiutato), importi con punteggiatura e migliaia all'italiana, priorità della consegna sulla spedizione; motivo per-proposta nella UI (audit corretto), importi via helper euro, dialog con descrizione accessibile; predicato del conflitto posa condiviso fra Centro Azioni e avviso post-applicazione; `/produzione/*` coperto dal redirect. Consapevolmente NON cambiati: fingerprint saldo (decisione privacy slice 2), nessun vincolo quattro-occhi proponente/approvatore (doppia capability è il contratto), dedup parseEuro in `shared/` (candidato a bonifica).
 - **v5.9 (29/08/2026)** - Release hardening: kill switch `FLAG_DOCUMENT_INTELLIGENCE` / `FLAG_PROPOSTE` / `FLAG_OCR` (§19.4), disattivati di default in produzione e verificati non aggirabili via API (`server/platform/interruttori.test.ts`); query `platform.interruttori` per la UI; runbook `docs/runbooks/rollout-document-intelligence.md` con rollout progressivo, rollback via flag, checklist post-deploy e nota sulla ri-notifica saldo una tantum.
 - **v5.8 (29/08/2026)** - Release hardening: rimossa la pagina UI `/produzione` (inutilizzata) con la card dell'hub Gestione; la vecchia route reindirizza al Board (`/kanban`, colonna Produzione). Backend BOM/fasi/NC conservato e annotato come candidato a bonifica (dati potenzialmente presenti negli store, contratto di dominio §20). Stati commessa, trigger §6.4, gate e magazzino invariati, con test dedicati.
 - **v5.7 (29/08/2026)** - Quinta slice della Document Intelligence (§19.4): framework di valutazione (`server/documenti/eval/`, `pnpm eval:documenti`) con 16 fixture sintetiche (nativi, scansioni vere anche storte/a bassa risoluzione, tabella spezzata, ambiguità, codici simili, injection, duplicato, corrotto, timeout) e metriche separate per campo/collegamento/differenze/OCR/tempi/revisione. Nessuna soglia dichiarata sui sintetici; predisposto `casi-reali/` (gitignored) per i documenti veri anonimizzati. L'eval ha scoperto e fatto correggere il match senza confini dei riferimenti (ORD-10 dentro ORD-100, FIN-100 dentro FIN-1000).
