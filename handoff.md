@@ -1135,6 +1135,30 @@ PRD §19.4:
   post-deploy e nota sulla ri-notifica saldo una tantum (fingerprint
   cambiati dalla slice 2 authz).
 
+**Chiusura PR #1 (29/08/2026 sera)** — checklist read-only, CI, immagine:
+
+- `pnpm storage:check` NON scrive più: sola configurazione + GET su chiave
+  `_health/` inesistente (prova endpoint e credenziali). La sonda completa
+  put/get/checksum/delete è `pnpm storage:probe-write --scrivi`, separata,
+  fuori dalla checklist read-only; `server/_core/checklistReadOnly.test.ts`
+  blocca regressioni (allowlist dei comandi citati dal runbook, sorgente
+  dello script senza sonda di scrittura, prova comportamentale che la
+  sonda read-only non chiama mai put/delete);
+- prima CI GitHub in `.github/workflows/ci.yml`: job bloccante
+  (install frozen, typecheck, test mirati DI/kill switch, suite completa,
+  build, binari e lingue OCR verificati sul runner, working tree pulito) +
+  job eval NON bloccante con report come artifact;
+- immagine Nixpacks confrontata con la baseline di `main` costruita in
+  locale: contenuto compresso 547 MB (main) → 771 MB (branch), ma l'unico
+  layer di PRODUZIONE aggiunto è l'apt OCR da **163 MB unpacked (~+7%)**;
+  il resto del delta locale è il layer COPY che in locale include
+  `node_modules` (nixpacks non onora `.dockerignore`; su Railway il
+  contesto è il checkout git ≈ 9 MB, come su main). Nessuna dipendenza
+  npm nuova; devDependencies presenti in ENTRAMBE le immagini (status quo
+  di main; prune possibile come ottimizzazione futura). Build locali:
+  fredda ~15-20 min (VM), calda ~7 min; baseline calda 42 s con layer
+  condivisi.
+
 **Revisione indipendente (29/08/2026)** — quattro revisori sull'intero
 diff `origin/main..slice-3-document-intelligence`; tutti i rilievi
 Critical/Important corretti, più i minori a basso costo (dettaglio nel
