@@ -500,6 +500,40 @@ describe("isolamento e autorizzazioni", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
+  it("il segnale sul totale è riservato a chi ha economia.read: niente oracolo sugli importi", async () => {
+    const s = await scenario();
+    const commessaOwner = await s.admin.commesse.create({
+      cliente: "Oracolo Totale",
+      assegnatoA: OWNER_ID,
+    });
+    // ordineA vale 800 € (2 × 400): il documento cita codice E totale.
+    const documento = await caricaPdf(
+      commessaOwner.id,
+      "oracolo.pdf",
+      pdfDaTesto(["Vs. ordine ORD-A-100", "Totale documento: EUR 800,00"])
+    );
+
+    const perDirezione = await direzione().analisiDocumenti.candidati({
+      documentoId: documento.id,
+    });
+    const candidatoDirezione = perDirezione.esito!.candidati.find(
+      c => c.ordineId === s.ordineA.id
+    )!;
+    expect(candidatoDirezione.segnali.map(x => x.tipo)).toContain("totale");
+
+    // L'assegnatario commerciale NON ha economia.read: stesso candidato,
+    // nessun segnale sul totale — l'API non conferma importi a chi non
+    // può leggerli (revisione, slice 2 authz).
+    const perOwner = await owner().analisiDocumenti.candidati({
+      documentoId: documento.id,
+    });
+    const candidatoOwner = perOwner.esito!.candidati.find(
+      c => c.ordineId === s.ordineA.id
+    )!;
+    expect(candidatoOwner.segnali.map(x => x.tipo)).not.toContain("totale");
+    expect(perOwner.esito!.stato).toBe("certa"); // il codice basta comunque
+  });
+
   it("capability, non ruoli: l'assegnatario collega, l'estraneo no, senza requireDirezione", async () => {
     const s = await scenario();
     const commessaOwner = await s.admin.commesse.create({

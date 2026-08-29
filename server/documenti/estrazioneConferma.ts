@@ -95,13 +95,43 @@ function normalizzaData(giorno: string, mese: string, anno: string): string | nu
   if (!(g >= 1 && g <= 31) || !(m >= 1 && m <= 12) || a < 2000 || a > 2100) {
     return null;
   }
+  // Validazione di CALENDARIO: un 31/02 (tipico errore OCR) non deve mai
+  // diventare una data proposta e poi scritta sull'ordine (revisione).
+  const prova = new Date(Date.UTC(a, m - 1, g));
+  if (
+    prova.getUTCFullYear() !== a ||
+    prova.getUTCMonth() !== m - 1 ||
+    prova.getUTCDate() !== g
+  ) {
+    return null;
+  }
   return `${a}-${String(m).padStart(2, "0")}-${String(g).padStart(2, "0")}`;
 }
 
 const DATA_RE = /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/g;
 
+/**
+ * Regex di un riferimento esatto con CONFINI obbligatori: «ORD-10» non
+ * deve farsi trovare dentro «ORD-100» né «FIN-100» dentro «FIN-1000»
+ * (difetto scovato dall'eval e dalla revisione indipendente: vale per
+ * TUTTE le ricerche di riferimento, non solo per trovaRiferimentoTesto).
+ */
+function regexRiferimento(testo: string): RegExp {
+  return new RegExp(
+    `(?<![A-Za-z0-9])${escapeRegex(testo)}(?![A-Za-z0-9])`,
+    "gi"
+  );
+}
+
 function parseImporto(grezzo: string): number | null {
-  const testo = grezzo.trim();
+  // La cattura può trascinarsi punteggiatura di frase («1.234,50.») che
+  // renderebbe NaN il numero; e «1.234» senza decimali è la scrittura
+  // italiana di milleduecentotrentaquattro, non 1,234 (revisione).
+  const testo = grezzo.trim().replace(/[.,]+$/, "");
+  if (/^\d{1,3}(\.\d{3})+$/.test(testo)) {
+    const valore = Number(testo.replace(/\./g, ""));
+    return Number.isFinite(valore) ? valore : null;
+  }
   // Stessa logica di lettura "italiana" di parseEuro: ultima fra virgola e
   // punto è il decimale quando ci sono entrambi.
   const virgola = testo.lastIndexOf(",");
@@ -157,13 +187,7 @@ export function trovaRiferimentoTesto(
   // Confini obbligatori: «ORD-10» non deve farsi trovare DENTRO
   // «ORD-100» (difetto scovato dall'eval, slice 5). Un riferimento vale
   // solo se non è incollato ad altre lettere o cifre.
-  const [primo] = cercaSuPagine(
-    pagine,
-    new RegExp(
-      `(?<![A-Za-z0-9])${escapeRegex(pulito)}(?![A-Za-z0-9])`,
-      "gi"
-    )
-  );
+  const [primo] = cercaSuPagine(pagine, regexRiferimento(pulito));
   if (!primo) return null;
   return evidenza(
     pagine,
@@ -193,7 +217,7 @@ export function estraiConfermaOrdine(
 
   // ── Riferimento certo al NOSTRO ordine ─────────────────────────────────
   if (contesto.codiceOrdine) {
-    const re = new RegExp(escapeRegex(contesto.codiceOrdine), "gi");
+    const re = regexRiferimento(contesto.codiceOrdine);
     const [primo] = cercaSuPagine(pagine, re);
     if (primo) {
       risultato.riferimentoOrdine = {
@@ -233,7 +257,7 @@ export function estraiConfermaOrdine(
 
   // ── Fornitore citato (nome noto dall'anagrafica) ───────────────────────
   if (contesto.fornitoreNome && contesto.fornitoreNome.trim().length >= 3) {
-    const re = new RegExp(escapeRegex(contesto.fornitoreNome.trim()), "gi");
+    const re = regexRiferimento(contesto.fornitoreNome.trim());
     const [primo] = cercaSuPagine(pagine, re);
     if (primo) {
       risultato.fornitoreCitato = {
@@ -274,6 +298,10 @@ export function estraiConfermaOrdine(
   // ── Date: documento e consegna ─────────────────────────────────────────
   const PAROLE_CONSEGNA =
     /(consegna|spedizione|delivery|liefer|prevista|settimana|kw)/i;
+  // Fra più date candidate, quelle nel contesto di CONSEGNA vera battono
+  // quelle di sola spedizione: dateConsegna[0] alimenta confronto e
+  // proposte, e una data di spedizione non deve scavalcarla (revisione).
+  const PAROLE_CONSEGNA_FORTI = /(consegna|delivery|liefer)/i;
   for (const { pagina, match } of cercaSuPagine(pagine, DATA_RE)) {
     const iso = normalizzaData(match[1], match[2], match[3]);
     if (!iso) continue;
@@ -292,11 +320,18 @@ export function estraiConfermaOrdine(
     if (PAROLE_CONSEGNA.test(contorno)) {
       if (!risultato.dateConsegna.some(d => d.valore === iso)) {
         risultato.dateConsegna.push({ valore: iso, evidenza: ev });
+        (risultato.dateConsegna.at(-1) as any).__forte =
+          PAROLE_CONSEGNA_FORTI.test(contorno);
       }
     } else if (!risultato.dataDocumento) {
       risultato.dataDocumento = { valore: iso, evidenza: ev };
     }
   }
+  // Ordinamento stabile: prima le date con contesto di consegna forte.
+  risultato.dateConsegna.sort(
+    (a: any, b: any) => Number(b.__forte ?? false) - Number(a.__forte ?? false)
+  );
+  for (const data of risultato.dateConsegna) delete (data as any).__forte;
 
   // ── Settimana di consegna dichiarata (sett. 37, KW 37) ─────────────────
   for (const { pagina, match } of cercaSuPagine(
@@ -367,10 +402,7 @@ export function estraiConfermaOrdine(
     if (codice.length < 3) continue;
     // Stessi confini del riferimento ordine: FIN-100 non è «citato» se il
     // documento parla di FIN-1000 (difetto scovato dall'eval, slice 5).
-    const re = new RegExp(
-      `(?<![A-Za-z0-9])${escapeRegex(codice)}(?![A-Za-z0-9])`,
-      "gi"
-    );
+    const re = regexRiferimento(codice);
     const [primo] = cercaSuPagine(pagine, re);
     if (!primo) {
       risultato.righe.push({

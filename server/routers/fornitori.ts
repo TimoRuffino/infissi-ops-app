@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { DEFAULT_SEDE_ID } from "./sedi";
 import { assertSedeScope } from "../_core/permissions";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -136,11 +137,23 @@ export function getOrdineFornitoreById(id: number) {
   };
 }
 
+// L'UNICO modo giusto di risolvere un ordine dentro una sede: fallisce
+// chiuso (null) su qualunque mismatch. Usato da router e azioni del
+// gateway al posto delle copie locali con `?? 1` (revisione).
+export function getOrdineFornitoreInSede(id: number, sedeId: number) {
+  const trovato = getOrdineFornitoreById(id);
+  if (!trovato) return null;
+  if (((trovato.ordine as any).sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
+    return null;
+  }
+  return trovato;
+}
+
 // Collegamento assistito (D7 slice 2): tutti gli ordini della sede con il
 // fornitore risolto — il bacino dei candidati per un documento.
 export function getOrdiniFornitoreDiSede(sedeId: number) {
   return ordini
-    .filter((o) => ((o as any).sedeId ?? 1) === sedeId)
+    .filter((o) => ((o as any).sedeId ?? DEFAULT_SEDE_ID) === sedeId)
     .map((ordine) => ({
       ordine,
       fornitoreNome:
@@ -166,7 +179,7 @@ export function aggiornaDataConsegnaOrdine(
   nuovaData: string
 ): OrdineFornitore {
   const ordine = ordini.find(
-    (o) => o.id === ordineId && ((o as any).sedeId ?? 1) === sedeId
+    (o) => o.id === ordineId && ((o as any).sedeId ?? DEFAULT_SEDE_ID) === sedeId
   );
   if (!ordine) throw new Error("Ordine non trovato.");
   ordine.dataConsegnaPrevista = nuovaData;

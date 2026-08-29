@@ -8,8 +8,8 @@
 //   FLAG_PROPOSTE               approval gateway (genera/approva/applica…)
 //   FLAG_OCR                    fallback OCR locale nel registro parser
 //
-// Default: **disattivati in produzione** (NODE_ENV === "production"),
-// attivi in sviluppo e test. Valori accettati: on/true/1 e off/false/0;
+// Default FAIL-CLOSED: attivi SOLO con NODE_ENV development/test; in
+// produzione, in staging o con NODE_ENV assente sono spenti. Valori accettati: on/true/1 e off/false/0;
 // qualunque altro valore ricade sul default d'ambiente. Il confine è il
 // SERVER: ogni endpoint verifica il proprio interruttore e la UI si limita
 // a nascondere le superfici spente. Rollout e rollback:
@@ -38,7 +38,12 @@ export function interruttoreAttivo(nome: Interruttore): boolean {
   const grezzo = process.env[VARIABILE[nome]]?.trim().toLowerCase();
   if (grezzo && VALORI_ON.has(grezzo)) return true;
   if (grezzo && VALORI_OFF.has(grezzo)) return false;
-  return process.env.NODE_ENV !== "production";
+  // FAIL CLOSED (revisione): il default è acceso SOLO negli ambienti di
+  // lavoro dichiarati. Un NODE_ENV assente, «staging» o scritto male vale
+  // produzione: tutto spento finché un flag non dice il contrario.
+  return (
+    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+  );
 }
 
 /** Stato complessivo per la UI (che nasconde, ma non è mai il confine). */

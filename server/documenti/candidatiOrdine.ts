@@ -13,6 +13,7 @@
 
 import type { EstrazioneConferma, Evidenza } from "./estrazioneConferma";
 import { trovaRiferimentoTesto } from "./estrazioneConferma";
+import { TOLLERANZA_TOTALE_EURO } from "./confrontoOrdine";
 
 export type TipoSegnaleCandidato =
   | "codice_ordine"
@@ -35,7 +36,6 @@ const PESO: Record<TipoSegnaleCandidato, number> = {
 // una data o un totale coincidente capitano per caso.
 export const PUNTEGGIO_MINIMO_CANDIDATO = 40;
 const MAX_PUNTI_ARTICOLI = 45;
-const TOLLERANZA_TOTALE_EURO = 0.5;
 
 export type SegnaleCandidato = {
   tipo: TipoSegnaleCandidato;
@@ -82,6 +82,13 @@ export function generaCandidatiOrdine(input: {
   ordini: readonly OrdinePerCandidatura[];
   documentoCommessaId: number;
   ordiniRifiutati: ReadonlySet<number>;
+  /**
+   * Il segnale «totale coincidente» confronta importi CRM: la sua stessa
+   * presenza è un oracolo di uguaglianza (±0,50 €) su cifre che chi non ha
+   * `economia.read` non può leggere altrove (revisione slice 2). Si
+   * calcola quindi solo quando il chiamante ha la capability.
+   */
+  segnaliEconomici: boolean;
 }): EsitoCandidatura {
   const candidati: CandidatoOrdine[] = [];
 
@@ -161,6 +168,7 @@ export function generaCandidatiOrdine(input: {
     }
 
     if (
+      input.segnaliEconomici &&
       ordine.importoTotale != null &&
       ordine.importoTotale > 0 &&
       input.estrazione.totaleDocumento &&

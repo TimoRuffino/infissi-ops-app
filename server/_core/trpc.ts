@@ -1,6 +1,10 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
+import {
+  assicuraInterruttore,
+  type Interruttore,
+} from "../platform/interruttori";
 import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -26,6 +30,18 @@ const requireUser = t.middleware(async opts => {
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
+
+// Release hardening: procedura protetta che verifica ANCHE un kill switch
+// prima di qualunque lavoro. I router della Document Intelligence si
+// costruiscono da qui, così un endpoint nuovo nasce già dietro il flag
+// invece di dover ricordare la guardia a mano (revisione).
+export const procedureConInterruttore = (nome: Interruttore) =>
+  protectedProcedure.use(
+    t.middleware(({ next }) => {
+      assicuraInterruttore(nome);
+      return next();
+    })
+  );
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

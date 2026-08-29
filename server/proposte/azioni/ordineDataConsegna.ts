@@ -8,24 +8,14 @@
 
 import {
   aggiornaDataConsegnaOrdine,
-  getOrdineFornitoreById,
+  getOrdineFornitoreInSede,
 } from "../../routers/fornitori";
+import { dataItaliana } from "../../documenti/confrontoOrdine";
 import { registraAzioneProposta, type PropostaAzione } from "../gateway";
 
-function dataLeggibile(iso: string | null): string {
-  if (!iso) return "nessuna data";
-  const [anno, mese, giorno] = iso.split("-");
-  return giorno && mese && anno ? `${giorno}/${mese}/${anno}` : iso;
-}
-
 function leggiOrdine(proposta: PropostaAzione) {
-  const trovato = getOrdineFornitoreById(proposta.ordineId);
-  if (
-    !trovato ||
-    ((trovato.ordine as any).sedeId ?? 1) !== proposta.sedeId
-  ) {
-    throw new Error("Ordine non trovato.");
-  }
+  const trovato = getOrdineFornitoreInSede(proposta.ordineId, proposta.sedeId);
+  if (!trovato) throw new Error("Ordine non trovato.");
   return trovato.ordine;
 }
 
@@ -38,7 +28,7 @@ registraAzioneProposta({
   },
   descriviEffetto(proposta) {
     const ordine = leggiOrdine(proposta);
-    return `Data di consegna prevista dell'ordine ${ordine.codiceOrdine}: ${dataLeggibile(proposta.valoreCorrente)} → ${dataLeggibile(proposta.valoreProposto)}. Nessun altro campo viene modificato.`;
+    return `Data di consegna prevista dell'ordine ${ordine.codiceOrdine}: ${dataItaliana(proposta.valoreCorrente)} → ${dataItaliana(proposta.valoreProposto)}. Nessun altro campo viene modificato.`;
   },
   applica(proposta) {
     aggiornaDataConsegnaOrdine(

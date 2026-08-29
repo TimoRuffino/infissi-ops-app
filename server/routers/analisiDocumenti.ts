@@ -4,18 +4,22 @@
 // l'operatore SCEGLIE l'ordine e il documento del fascicolo da analizzare —
 // il collegamento assistito con candidati è la slice 2 del piano. Il router
 // non scrive mai su dati autorevoli: restituisce campi con evidenza e
-// differenze da rivedere.
+// differenze da rivedere. Ogni procedura NASCE dietro l'interruttore
+// FLAG_DOCUMENT_INTELLIGENCE: la base procedure guardata (release
+// hardening) copre anche gli endpoint futuri di questo router.
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { procedureConInterruttore, router } from "../_core/trpc";
 import { requireDirezione } from "../_core/permissions";
-import { assicuraInterruttore } from "../platform/interruttori";
-import { authorizeCoreOperation } from "../authz/enforcement";
+import {
+  authorizeCoreOperation,
+  effectiveCapabilitySet,
+} from "../authz/enforcement";
 import { getCommessaById } from "./commesse";
 import {
-  getOrdineFornitoreById,
+  getOrdineFornitoreInSede,
   getOrdiniFornitoreDiSede,
 } from "./fornitori";
 import { getDocumentoRecordById } from "./preventiviContratti";
@@ -23,6 +27,7 @@ import {
   analisiPerOrdine,
   eseguiAnalisiConferma,
   leggiByteDocumento,
+  type DocumentoDaAnalizzare,
 } from "../documenti/analisi";
 import { estraiTestoDocumento } from "../documenti/parserRegistry";
 import { estraiConfermaOrdine } from "../documenti/estrazioneConferma";
@@ -40,12 +45,8 @@ import {
 } from "../documenti/collegamenti";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
-function ordineInSede(ordineId: number, sedeId: number | null) {
-  const trovato = getOrdineFornitoreById(ordineId);
-  if (!trovato) return null;
-  const ordineSede = (trovato.ordine as any).sedeId ?? DEFAULT_SEDE_ID;
-  if (sedeId != null && ordineSede !== sedeId) return null;
-  return trovato;
+function sedeCorrente(ctx: { sedeId: number | null }): number {
+  return ctx.sedeId ?? DEFAULT_SEDE_ID;
 }
 
 function documentoInSede(documentoId: number, sedeId: number) {
@@ -101,18 +102,98 @@ function ordiniCandidabili(sedeId: number): OrdinePerCandidatura[] {
   }));
 }
 
+function comeDocumentoDaAnalizzare(documento: any): DocumentoDaAnalizzare {
+  return {
+    id: documento.id,
+    commessaId: documento.commessaId,
+    nome: documento.nome,
+    mimeType: documento.mimeType,
+    storageKey: documento.storageKey ?? null,
+    dataBase64: documento.dataBase64 ?? null,
+  };
+}
+
+// I messaggi di leggiByteDocumento sono pensati per l'operatore; qualunque
+// altro errore (storage, parsing) NON deve arrivare grezzo al client
+// (revisione: può contenere dettagli d'infrastruttura).
+const MESSAGGI_OPERATORE = [
+  "File non disponibile nello storage.",
+  "Il documento non ha byte leggibili (né storage né inline).",
+];
+
+function comePreconditionSanificata(errore: any): never {
+  const messaggio = String(errore?.message ?? "");
+  if (!MESSAGGI_OPERATORE.includes(messaggio)) {
+    console.error("[analisiDocumenti] errore non previsto:", errore);
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: MESSAGGI_OPERATORE.includes(messaggio)
+      ? messaggio
+      : "Documento non analizzabile in questo momento.",
+  });
+}
+
+/**
+ * La pipeline dei candidati, UNICA per la query `candidati` e per la
+ * fotografia al momento della conferma (revisione: due copie divergevano
+ * facilmente). `segnaliEconomici` governa il segnale sul totale: la sua
+ * presenza è un oracolo sugli importi, riservato a chi ha `economia.read`.
+ */
+async function candidatiPerDocumento(input: {
+  documento: any;
+  sedeId: number;
+  ordiniRifiutati: ReadonlySet<number>;
+  segnaliEconomici: boolean;
+}) {
+  const bytes = await leggiByteDocumento(
+    comeDocumentoDaAnalizzare(input.documento)
+  );
+  const byteChecksum = createHash("sha256").update(bytes).digest("hex");
+  const esitoParser = await estraiTestoDocumento(
+    bytes,
+    input.documento.mimeType,
+    input.documento.nome
+  );
+  if (esitoParser.esito !== "estratto") {
+    return { byteChecksum, esitoParser, esito: null } as const;
+  }
+  const estrazione = estraiConfermaOrdine(esitoParser.pagine, {
+    codiceOrdine: null,
+    fornitoreNome: null,
+    righeOrdine: [],
+  });
+  const esito = generaCandidatiOrdine({
+    pagine: esitoParser.pagine,
+    estrazione,
+    ordini: ordiniCandidabili(input.sedeId),
+    documentoCommessaId: input.documento.commessaId,
+    ordiniRifiutati: input.ordiniRifiutati,
+    segnaliEconomici: input.segnaliEconomici,
+  });
+  return { byteChecksum, esitoParser, esito } as const;
+}
+
+async function conSegnaliEconomici(
+  ctx: Parameters<typeof effectiveCapabilitySet>[0]
+): Promise<boolean> {
+  const caps = await effectiveCapabilitySet(ctx, ["economia.read"]);
+  return caps.has("economia.read");
+}
+
+const procedura = procedureConInterruttore("documentIntelligence");
+
 export const analisiDocumentiRouter = router({
   /** I run già eseguiti su un ordine, dal più recente. */
-  perOrdine: protectedProcedure
+  perOrdine: procedura
     .input(z.object({ ordineId: z.number() }))
     .query(({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
       requireDirezione(ctx.user);
-      const trovato = ordineInSede(input.ordineId, ctx.sedeId);
-      if (!trovato) {
+      const sedeId = sedeCorrente(ctx);
+      if (!getOrdineFornitoreInSede(input.ordineId, sedeId)) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
       }
-      return analisiPerOrdine(ctx.sedeId ?? DEFAULT_SEDE_ID, input.ordineId);
+      return analisiPerOrdine(sedeId, input.ordineId);
     }),
 
   /**
@@ -120,7 +201,7 @@ export const analisiDocumentiRouter = router({
    * Idempotente: stesso file + stesse versioni → stesso run; `forza`
    * rielabora conservando i run precedenti.
    */
-  analizzaConferma: protectedProcedure
+  analizzaConferma: procedura
     .input(
       z.object({
         ordineId: z.number(),
@@ -129,30 +210,23 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
       requireDirezione(ctx.user);
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const sedeId = sedeCorrente(ctx);
 
-      const trovato = ordineInSede(input.ordineId, ctx.sedeId);
+      const trovato = getOrdineFornitoreInSede(input.ordineId, sedeId);
       if (!trovato) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
       }
       const { ordine, fornitoreNome } = trovato;
 
-      const documento = getDocumentoRecordById(input.documentoId);
-      const commessaDoc = documento
-        ? getCommessaById(documento.commessaId)
-        : null;
-      if (
-        !documento ||
-        !commessaDoc ||
-        (commessaDoc as any).sedeId !== sedeId
-      ) {
+      const trovatoDoc = documentoInSede(input.documentoId, sedeId);
+      if (!trovatoDoc) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Documento non trovato.",
         });
       }
+      const { documento } = trovatoDoc;
       // Coerenza del fascicolo: si analizzano documenti della stessa
       // commessa dell'ordine, OPPURE documenti che un umano ha già
       // collegato a questo ordine (slice 2): il collegamento confermato è
@@ -173,14 +247,7 @@ export const analisiDocumentiRouter = router({
       try {
         return await eseguiAnalisiConferma({
           sedeId,
-          documento: {
-            id: documento.id,
-            commessaId: documento.commessaId,
-            nome: documento.nome,
-            mimeType: documento.mimeType,
-            storageKey: documento.storageKey ?? null,
-            dataBase64: documento.dataBase64 ?? null,
-          },
+          documento: comeDocumentoDaAnalizzare(documento),
           ordine: {
             id: ordine.id,
             codiceOrdine: ordine.codiceOrdine,
@@ -194,14 +261,7 @@ export const analisiDocumentiRouter = router({
           forza: input.forza,
         });
       } catch (errore: any) {
-        // Byte irrecuperabili (storage assente, record inconsistente): un
-        // esito esplicito, non un 500 anonimo.
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: String(
-            errore?.message ?? "Documento non analizzabile in questo momento."
-          ),
-        });
+        comePreconditionSanificata(errore);
       }
     }),
 
@@ -213,11 +273,10 @@ export const analisiDocumentiRouter = router({
    * esplicito (certa/candidata/ambigua/assente) e sempre una conferma
    * umana. Un PDF senza testo non produce candidati: produce il suo stato.
    */
-  candidati: protectedProcedure
+  candidati: procedura
     .input(z.object({ documentoId: z.number() }))
     .query(async ({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const sedeId = sedeCorrente(ctx);
       const trovato = documentoInSede(input.documentoId, sedeId);
       if (!trovato) {
         throw new TRPCError({
@@ -233,29 +292,22 @@ export const analisiDocumentiRouter = router({
 
       const collegamento = collegamentoAttivo(sedeId, input.documentoId);
 
-      let bytes: Buffer;
+      let pipeline: Awaited<ReturnType<typeof candidatiPerDocumento>>;
       try {
-        bytes = await leggiByteDocumento({
-          id: trovato.documento.id,
-          commessaId: trovato.documento.commessaId,
-          nome: trovato.documento.nome,
-          mimeType: trovato.documento.mimeType,
-          storageKey: trovato.documento.storageKey ?? null,
-          dataBase64: trovato.documento.dataBase64 ?? null,
+        pipeline = await candidatiPerDocumento({
+          documento: trovato.documento,
+          sedeId,
+          ordiniRifiutati: ordiniRifiutatiPerDocumento(
+            sedeId,
+            input.documentoId
+          ),
+          segnaliEconomici: await conSegnaliEconomici(ctx),
         });
       } catch (errore: any) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: String(errore?.message ?? "Documento non leggibile."),
-        });
+        comePreconditionSanificata(errore);
       }
-      const byteChecksum = createHash("sha256").update(bytes).digest("hex");
-      const esitoParser = await estraiTestoDocumento(
-        bytes,
-        trovato.documento.mimeType,
-        trovato.documento.nome
-      );
-      if (esitoParser.esito !== "estratto") {
+      const { byteChecksum, esitoParser, esito } = pipeline;
+      if (esitoParser.esito !== "estratto" || !esito) {
         return {
           statoDocumento: esitoParser.esito,
           motivoDocumento:
@@ -270,21 +322,6 @@ export const analisiDocumentiRouter = router({
         };
       }
 
-      const estrazione = estraiConfermaOrdine(esitoParser.pagine, {
-        codiceOrdine: null,
-        fornitoreNome: null,
-        righeOrdine: [],
-      });
-      const esito = generaCandidatiOrdine({
-        pagine: esitoParser.pagine,
-        estrazione,
-        ordini: ordiniCandidabili(sedeId),
-        documentoCommessaId: trovato.documento.commessaId,
-        ordiniRifiutati: ordiniRifiutatiPerDocumento(
-          sedeId,
-          input.documentoId
-        ),
-      });
       const duplicato = collegamentoDuplicatoPerChecksum(
         sedeId,
         byteChecksum,
@@ -307,7 +344,7 @@ export const analisiDocumentiRouter = router({
     }),
 
   /** Conferma umana del collegamento. Idempotente; non tocca ordine né commessa. */
-  collega: protectedProcedure
+  collega: procedura
     .input(
       z.object({
         documentoId: z.number(),
@@ -316,10 +353,9 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const sedeId = sedeCorrente(ctx);
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
-      const trovatoOrdine = ordineInSede(input.ordineId, ctx.sedeId);
+      const trovatoOrdine = getOrdineFornitoreInSede(input.ordineId, sedeId);
       if (!trovatoDoc || !trovatoOrdine) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -333,46 +369,26 @@ export const analisiDocumentiRouter = router({
       );
 
       // Fotografia del perché: si ricalcolano i candidati al momento della
-      // conferma, così il collegamento registra punteggio e motivazioni
-      // veri, non quelli di una schermata vecchia.
+      // conferma (stessa pipeline della query), così il collegamento
+      // registra punteggio e motivazioni veri, non quelli di una schermata
+      // vecchia.
       let punteggio: number | null = null;
       let motivazioni: string[] = ["Collegamento confermato manualmente."];
       let byteChecksum: string | null = null;
       try {
-        const bytes = await leggiByteDocumento({
-          id: trovatoDoc.documento.id,
-          commessaId: trovatoDoc.documento.commessaId,
-          nome: trovatoDoc.documento.nome,
-          mimeType: trovatoDoc.documento.mimeType,
-          storageKey: trovatoDoc.documento.storageKey ?? null,
-          dataBase64: trovatoDoc.documento.dataBase64 ?? null,
+        const pipeline = await candidatiPerDocumento({
+          documento: trovatoDoc.documento,
+          sedeId,
+          ordiniRifiutati: new Set(),
+          segnaliEconomici: await conSegnaliEconomici(ctx),
         });
-        byteChecksum = createHash("sha256").update(bytes).digest("hex");
-        const esitoParser = await estraiTestoDocumento(
-          bytes,
-          trovatoDoc.documento.mimeType,
-          trovatoDoc.documento.nome
+        byteChecksum = pipeline.byteChecksum;
+        const candidato = pipeline.esito?.candidati.find(
+          c => c.ordineId === input.ordineId
         );
-        if (esitoParser.esito === "estratto") {
-          const estrazione = estraiConfermaOrdine(esitoParser.pagine, {
-            codiceOrdine: null,
-            fornitoreNome: null,
-            righeOrdine: [],
-          });
-          const esito = generaCandidatiOrdine({
-            pagine: esitoParser.pagine,
-            estrazione,
-            ordini: ordiniCandidabili(sedeId),
-            documentoCommessaId: trovatoDoc.documento.commessaId,
-            ordiniRifiutati: new Set(),
-          });
-          const candidato = esito.candidati.find(
-            c => c.ordineId === input.ordineId
-          );
-          if (candidato) {
-            punteggio = candidato.punteggio;
-            motivazioni = candidato.segnali.map(s => s.dettaglio);
-          }
+        if (candidato) {
+          punteggio = candidato.punteggio;
+          motivazioni = candidato.segnali.map(s => s.dettaglio);
         }
       } catch {
         // Byte momentaneamente illeggibili: il collegamento resta possibile
@@ -400,7 +416,7 @@ export const analisiDocumentiRouter = router({
     }),
 
   /** Rifiuto registrato di un candidato: non verrà più proposto come certo. */
-  rifiuta: protectedProcedure
+  rifiuta: procedura
     .input(
       z.object({
         documentoId: z.number(),
@@ -409,10 +425,9 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const sedeId = sedeCorrente(ctx);
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
-      const trovatoOrdine = ordineInSede(input.ordineId, ctx.sedeId);
+      const trovatoOrdine = getOrdineFornitoreInSede(input.ordineId, sedeId);
       if (!trovatoDoc || !trovatoOrdine) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -441,7 +456,7 @@ export const analisiDocumentiRouter = router({
     }),
 
   /** Annulla il collegamento confermato (correzione = annulla + conferma). */
-  annulla: protectedProcedure
+  annulla: procedura
     .input(
       z.object({
         documentoId: z.number(),
@@ -449,8 +464,7 @@ export const analisiDocumentiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("documentIntelligence");
-      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const sedeId = sedeCorrente(ctx);
       const trovatoDoc = documentoInSede(input.documentoId, sedeId);
       if (!trovatoDoc) {
         throw new TRPCError({

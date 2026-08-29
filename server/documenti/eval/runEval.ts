@@ -223,6 +223,7 @@ async function eseguiCaso(
       ordini: caso.collegamento.ordini,
       documentoCommessaId: -1,
       ordiniRifiutati: new Set(),
+      segnaliEconomici: true,
     });
     esito.collegamentoStato = candidati.stato;
     esito.collegamentoStatoCorretto =

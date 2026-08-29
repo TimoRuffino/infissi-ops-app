@@ -44,7 +44,15 @@ export type Differenza = {
   evidenza: Evidenza | null;
 };
 
-const TOLLERANZA_TOTALE_EURO = 0.5;
+/** Unica soglia per «totale coincide» (candidati) e «totale_diverso»
+ * (confronto): due facce dello stesso numero, mai da divaricare. */
+export const TOLLERANZA_TOTALE_EURO = 0.5;
+
+export function dataItaliana(iso: string | null): string {
+  if (!iso) return "nessuna data";
+  const [anno, mese, giorno] = iso.split("-");
+  return giorno && mese && anno ? `${giorno}/${mese}/${anno}` : iso;
+}
 
 function dettaglioData(iso: string): string {
   const [anno, mese, giorno] = iso.split("-");

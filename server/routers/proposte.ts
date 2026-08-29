@@ -8,11 +8,12 @@
 // dichiarata dal tipo di azione (oggi `fornitore.manage_ordini`). Il
 // motore decide in ogni policyMode: direzione dal ruolo, ruolo `ordini`
 // dai default, gli altri con override individuali. Sedi isolate:
-// NOT_FOUND, mai dettagli.
+// NOT_FOUND, mai dettagli. Ogni procedura nasce dietro l'interruttore
+// FLAG_PROPOSTE (base procedure, release hardening).
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { procedureConInterruttore, router } from "../_core/trpc";
 import {
   authorizeCoreOperation,
   effectiveCapabilitySet,
@@ -30,20 +31,16 @@ import {
 } from "../proposte/gateway";
 import { generaProposteDaAnalisi } from "../proposte/generazione";
 import { analisiPerOrdine } from "../documenti/analisi";
-import { getOrdineFornitoreById } from "./fornitori";
+import { collegamentoAttivo } from "../documenti/collegamenti";
+import { primaPosaInConflitto } from "../actionCenter/signals";
+import { getCommessaById } from "./commesse";
+import { getDocumentoRecordById } from "./preventiviContratti";
+import { getOrdineFornitoreInSede } from "./fornitori";
 import { getInterventiStore } from "./interventi";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import { assicuraInterruttore } from "../platform/interruttori";
 import "../proposte/azioni/ordineDataConsegna";
 
-function ordineInSede(ordineId: number, sedeId: number) {
-  const trovato = getOrdineFornitoreById(ordineId);
-  if (!trovato) return null;
-  if (((trovato.ordine as any).sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
-    return null;
-  }
-  return trovato;
-}
+const procedura = procedureConInterruttore("proposte");
 
 function sedeCorrente(ctx: { sedeId: number | null }): number {
   return ctx.sedeId ?? DEFAULT_SEDE_ID;
@@ -107,35 +104,36 @@ function comeBadRequest(errore: any): never {
 /**
  * Dopo l'applicazione: la nuova consegna cade dopo una posa pianificata
  * della commessa? Nessun automatismo — è solo l'avviso che il Centro
- * Azioni aprirà/aggiornerà il caso per rivedere la pianificazione.
+ * Azioni aprirà/aggiornerà il caso per rivedere la pianificazione. Stesso
+ * predicato del segnale (`primaPosaInConflitto`) e stesse esclusioni:
+ * commessa archiviata o merce già ricevuta non aprono alcun caso, quindi
+ * niente avviso (revisione: le due copie divergevano).
  */
 function avvisoPosa(proposta: PropostaAzione): string | null {
   if (proposta.commessaId == null) return null;
-  const posa = getInterventiStore()
-    .filter(
-      (i: any) =>
-        i.sedeId === proposta.sedeId &&
-        i.commessaId === proposta.commessaId &&
-        i.tipo === "posa" &&
-        i.stato === "pianificato" &&
-        typeof i.dataPianificata === "string" &&
-        i.dataPianificata < proposta.valoreProposto
-    )
-    .sort((a: any, b: any) =>
-      a.dataPianificata.localeCompare(b.dataPianificata)
-    )[0];
+  const commessa: any = getCommessaById(proposta.commessaId);
+  if (!commessa || commessa.stato === "archiviata" || commessa.archivedAt) {
+    return null;
+  }
+  const ordine = getOrdineFornitoreInSede(proposta.ordineId, proposta.sedeId);
+  if (!ordine || ordine.ordine.stato === "ricevuto") return null;
+  const posa = primaPosaInConflitto(
+    getInterventiStore() as any,
+    proposta.sedeId,
+    proposta.commessaId,
+    proposta.valoreProposto
+  );
   if (!posa) return null;
   return `La nuova consegna (${proposta.valoreProposto}) cade dopo la posa pianificata del ${posa.dataPianificata}: il Centro Azioni segnala il conflitto e propone di rivedere la pianificazione. Nessuna data di posa è stata modificata.`;
 }
 
 export const proposteRouter = router({
   /** Le proposte di un ordine, con freschezza rivalutata a ogni lettura. */
-  perOrdine: protectedProcedure
+  perOrdine: procedura
     .input(z.object({ ordineId: z.number() }))
     .query(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
-      if (!ordineInSede(input.ordineId, sedeId)) {
+      if (!getOrdineFornitoreInSede(input.ordineId, sedeId)) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
       }
       const caps = await effectiveCapabilitySet(ctx, [
@@ -169,12 +167,11 @@ export const proposteRouter = router({
    * ordine. Deterministico e idempotente: nessuna applicazione, solo
    * record di proposta con evidenza e snapshot del valore corrente.
    */
-  genera: protectedProcedure
+  genera: procedura
     .input(z.object({ ordineId: z.number(), documentoId: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
-      const trovato = ordineInSede(input.ordineId, sedeId);
+      const trovato = getOrdineFornitoreInSede(input.ordineId, sedeId);
       if (!trovato) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
       }
@@ -186,6 +183,36 @@ export const proposteRouter = router({
         resource: { sedeId },
         legacyAllowed: "capability",
       });
+      // Coerenza VIVA fra documento e ordine (revisione): il run resta in
+      // archivio anche se il collegamento è stato annullato o il documento
+      // apparteneva a un'altra commessa — ma una proposta si genera solo
+      // se OGGI il documento è del fascicolo dell'ordine o gli è
+      // esplicitamente collegato.
+      const documento = getDocumentoRecordById(input.documentoId);
+      const commessaDoc = documento
+        ? getCommessaById(documento.commessaId)
+        : null;
+      if (
+        !documento ||
+        !commessaDoc ||
+        (commessaDoc as any).sedeId !== sedeId
+      ) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Documento non trovato.",
+        });
+      }
+      const collegato = collegamentoAttivo(sedeId, documento.id);
+      if (
+        documento.commessaId !== trovato.ordine.commessaId &&
+        collegato?.ordineId !== trovato.ordine.id
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Il documento non appartiene alla commessa dell'ordine e non gli è collegato: nessuna proposta da questo run.",
+        });
+      }
       const run = analisiPerOrdine(sedeId, input.ordineId).find(
         item => item.documentoId === input.documentoId
       );
@@ -213,10 +240,9 @@ export const proposteRouter = router({
     }),
 
   /** Approvazione umana: doppia capability, freschezza ricontrollata. */
-  approva: protectedProcedure
+  approva: procedura
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.approva", proposta);
@@ -233,10 +259,9 @@ export const proposteRouter = router({
       }
     }),
 
-  rifiuta: protectedProcedure
+  rifiuta: procedura
     .input(z.object({ id: z.number(), motivo: z.string().max(300).optional() }))
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await authorizeCoreOperation({
@@ -261,10 +286,9 @@ export const proposteRouter = router({
       }
     }),
 
-  annulla: protectedProcedure
+  annulla: procedura
     .input(z.object({ id: z.number(), motivo: z.string().max(300).optional() }))
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await authorizeCoreOperation({
@@ -295,10 +319,9 @@ export const proposteRouter = router({
    * comando tipizzato. Posa, appuntamenti e stati della commessa non si
    * muovono: l'eventuale conflitto diventa un caso del Centro Azioni.
    */
-  applica: protectedProcedure
+  applica: procedura
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      assicuraInterruttore("proposte");
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.applica", proposta);

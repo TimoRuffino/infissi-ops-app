@@ -222,13 +222,24 @@ export function creaProposta(input: {
 
   // Idempotenza: una proposta APERTA con la stessa chiave non si duplica.
   // Gli esiti terminali restano in cronologia; una proposta identica già
-  // applicata non viene rigenerata (l'effetto esiste già).
+  // applicata non viene rigenerata (l'effetto esiste già). Il riuso passa
+  // PRIMA dalla freschezza (revisione): una proposta rimasta aperta su
+  // dati nel frattempo cambiati diventa obsoleta/scaduta qui, e al suo
+  // posto ne nasce una nuova con lo snapshot aggiornato.
   const esistente = proposte.find(
     p =>
       p.chiaveIdempotenza === chiave &&
       (STATI_APERTI.has(p.stato) || p.stato === "applicata")
   );
-  if (esistente) return { proposta: esistente, riusata: true };
+  if (esistente) {
+    const fresca =
+      esistente.stato === "applicata"
+        ? esistente
+        : verificaFreschezza(esistente, input.now);
+    if (STATI_APERTI.has(fresca.stato) || fresca.stato === "applicata") {
+      return { proposta: fresca, riusata: true };
+    }
+  }
 
   const now = input.now ?? new Date();
   const proposta: PropostaAzione = {

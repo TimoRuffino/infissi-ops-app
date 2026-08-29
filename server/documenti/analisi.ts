@@ -77,6 +77,13 @@ export type AnalisiDocumento = {
   ocrFirma: string | null;
   /** Metadati OCR (lingue, confidenze) quando il testo viene dall'OCR. */
   ocr: MetadatiOcr | null;
+  /**
+   * Impronta del contenuto dell'ordine al momento del run (codice, data
+   * consegna, totale, righe): le differenze sono calcolate CONTRO questo
+   * contenuto, quindi se l'ordine cambia il run non è più riusabile
+   * (revisione). null nei run precedenti = jolly, si riusano come prima.
+   */
+  ordineFirma: string | null;
   /** Confidenza OCR insufficiente: revisione umana obbligatoria. */
   daVerificare: boolean;
   createdBy: number | null;
@@ -99,6 +106,7 @@ const _analisiStore = persistedStore<AnalisiDocumento>(
       }
       if (run.ocr === undefined) run.ocr = null;
       if (run.daVerificare === undefined) run.daVerificare = false;
+      if (run.ordineFirma === undefined) run.ordineFirma = null;
     }
   }
 );
@@ -138,7 +146,64 @@ export async function leggiByteDocumento(
   throw new Error("Il documento non ha byte leggibili (né storage né inline).");
 }
 
+function firmaOrdine(ordine: OrdinePerConfronto): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        codice: ordine.codiceOrdine,
+        commessa: ordine.commessaCodice,
+        consegna: ordine.dataConsegnaPrevista,
+        totale: ordine.importoTotale,
+        righe: ordine.righe.map(riga => [
+          riga.codiceArticolo ?? "",
+          riga.quantita,
+        ]),
+      })
+    )
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/** Quanti run conservare per coppia (documento, ordine): lo storico utile
+ * senza far crescere all'infinito la riga JSONB dello store (revisione). */
+const MAX_RUN_PER_COPPIA = 10;
+
+// Due analisi concorrenti sullo stesso (sede, documento, ordine) — doppio
+// click, due operatori — condividono lo stesso run invece di duplicarlo:
+// il controllo d'idempotenza avviene PRIMA dell'OCR, che può durare minuti
+// (revisione: TOCTOU).
+const analisiInCorso = new Map<
+  string,
+  Promise<{ run: AnalisiDocumento; riusata: boolean }>
+>();
+
 export async function eseguiAnalisiConferma(input: {
+  sedeId: number;
+  documento: DocumentoDaAnalizzare;
+  ordine: OrdinePerConfronto & { fornitoreNome: string | null };
+  createdBy: number | null;
+  forza?: boolean;
+}): Promise<{ run: AnalisiDocumento; riusata: boolean }> {
+  const chiaveInCorso = [
+    input.sedeId,
+    input.documento.id,
+    input.ordine.id,
+    input.forza ? "forza" : "",
+  ].join("|");
+  const inCorso = analisiInCorso.get(chiaveInCorso);
+  if (inCorso) {
+    return inCorso.then(esito => ({ run: esito.run, riusata: true }));
+  }
+  const esecuzione = eseguiAnalisiConfermaInterna(input);
+  analisiInCorso.set(chiaveInCorso, esecuzione);
+  try {
+    return await esecuzione;
+  } finally {
+    analisiInCorso.delete(chiaveInCorso);
+  }
+}
+
+async function eseguiAnalisiConfermaInterna(input: {
   sedeId: number;
   documento: DocumentoDaAnalizzare;
   ordine: OrdinePerConfronto & { fornitoreNome: string | null };
@@ -159,6 +224,7 @@ export async function eseguiAnalisiConferma(input: {
   // (slice 4): un `scansione_senza_testo` fermo per OCR assente torna
   // analizzabile quando l'OCR compare o cambia lingue/configurazione.
   const firmaOcr = await firmaOcrCorrente();
+  const firmaOrdineCorrente = firmaOrdine(input.ordine);
   if (!input.forza) {
     const esistente = analisi.find(
       run =>
@@ -168,6 +234,7 @@ export async function eseguiAnalisiConferma(input: {
         run.byteChecksum === byteChecksum &&
         run.estrattoreVersione === ESTRATTORE_CONFERMA_VERSIONE &&
         run.confrontoVersione === CONFRONTO_ORDINE_VERSIONE &&
+        (run.ordineFirma == null || run.ordineFirma === firmaOrdineCorrente) &&
         (run.stato === "scansione_senza_testo" || run.parser === "pdf-ocr"
           ? (run.ocrFirma ?? "assente") === firmaOcr
           : true)
@@ -185,6 +252,7 @@ export async function eseguiAnalisiConferma(input: {
     commessaId: input.documento.commessaId ?? null,
     estrattoreVersione: ESTRATTORE_CONFERMA_VERSIONE,
     confrontoVersione: CONFRONTO_ORDINE_VERSIONE,
+    ordineFirma: firmaOrdineCorrente,
     createdBy: input.createdBy,
     createdAt: new Date(),
   };
@@ -194,6 +262,25 @@ export async function eseguiAnalisiConferma(input: {
     input.documento.mimeType,
     input.documento.nome
   );
+
+  function registraRun(run: AnalisiDocumento) {
+    analisi.push(run);
+    // Storico limitato per coppia: si potano i run più vecchi oltre il cap.
+    const stessi = analisi
+      .filter(
+        r =>
+          r.sedeId === run.sedeId &&
+          r.documentoId === run.documentoId &&
+          r.ordineId === run.ordineId
+      )
+      .sort((a, b) => a.id - b.id);
+    while (stessi.length > MAX_RUN_PER_COPPIA) {
+      const vecchio = stessi.shift()!;
+      const indice = analisi.indexOf(vecchio);
+      if (indice >= 0) analisi.splice(indice, 1);
+    }
+    _analisiStore.save();
+  }
 
   if (esitoParser.esito !== "estratto") {
     const run: AnalisiDocumento = {
@@ -221,8 +308,7 @@ export async function eseguiAnalisiConferma(input: {
       ocr: null,
       daVerificare: false,
     };
-    analisi.push(run);
-    _analisiStore.save();
+    registraRun(run);
     return { run, riusata: false };
   }
 
@@ -255,7 +341,6 @@ export async function eseguiAnalisiConferma(input: {
     ocr: esitoParser.ocr ?? null,
     daVerificare: esitoParser.ocr?.daVerificare ?? false,
   };
-  analisi.push(run);
-  _analisiStore.save();
+  registraRun(run);
   return { run, riusata: false };
 }

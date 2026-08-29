@@ -378,20 +378,16 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
       ? null
       : commessaById.get(ordine.commessaId) ?? null;
     if (!commessa || commessa.stato === "archiviata" || commessa.archivedAt) continue;
-    const posa = input.interventi
-      .filter(
-        intervento =>
-          intervento.sedeId === input.sedeId &&
-          intervento.commessaId === ordine.commessaId &&
-          intervento.tipo === "posa" &&
-          intervento.stato === "pianificato" &&
-          intervento.dataPianificata != null &&
-          intervento.dataPianificata < proposta.valoreApplicato
-      )
-      .sort((a, b) =>
-        (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? "")
-      )[0];
-    if (!posa?.dataPianificata) continue;
+    const posa =
+      ordine.commessaId == null
+        ? null
+        : primaPosaInConflitto(
+            input.interventi,
+            input.sedeId,
+            ordine.commessaId,
+            proposta.valoreApplicato
+          );
+    if (!posa) continue;
     ordiniSegnalati.add(proposta.ordineId);
     const imminente = posa.dataPianificata <= inSevenDays;
     signals.push({
@@ -417,6 +413,43 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
   }
 
   return signals;
+}
+
+/**
+ * La prima posa pianificata della commessa che cade PRIMA della consegna:
+ * l'unico predicato del conflitto consegna/posa, condiviso fra il segnale
+ * del Centro Azioni e l'avviso post-applicazione delle proposte
+ * (revisione: due copie erano già divergenti).
+ */
+export function primaPosaInConflitto(
+  interventi: ReadonlyArray<{
+    id: number;
+    sedeId: number;
+    commessaId: number | null;
+    tipo: string;
+    stato: string;
+    dataPianificata: string | null;
+  }>,
+  sedeId: number,
+  commessaId: number,
+  dataConsegna: string
+): { id: number; dataPianificata: string } | null {
+  const posa = interventi
+    .filter(
+      intervento =>
+        intervento.sedeId === sedeId &&
+        intervento.commessaId === commessaId &&
+        intervento.tipo === "posa" &&
+        intervento.stato === "pianificato" &&
+        intervento.dataPianificata != null &&
+        intervento.dataPianificata < dataConsegna
+    )
+    .sort((a, b) =>
+      (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? "")
+    )[0];
+  return posa?.dataPianificata
+    ? { id: posa.id, dataPianificata: posa.dataPianificata }
+    : null;
 }
 
 function canonicalKeyFor(signal: ActionSignal): string {

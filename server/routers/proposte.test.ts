@@ -202,10 +202,40 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
     expect(secondo.proposte[0].proposta.id).toBe(proposta.id);
   });
 
-  it("senza analisi non genera: serve prima il run della conferma", async () => {
-    const { ordine } = await casoConferma();
+  it("senza analisi non genera; documento inesistente → NOT_FOUND", async () => {
+    const { commessa, ordine } = await casoConferma();
+    // Documento del fascicolo MA mai analizzato su questo ordine.
+    const senzaAnalisi = await caricaPdf(
+      commessa.id,
+      `mai-analizzato-${ordine.id}.pdf`,
+      pdfDaTesto(["Documento qualunque"])
+    );
+    await expect(
+      direzione().proposte.genera({
+        ordineId: ordine.id,
+        documentoId: senzaAnalisi.id,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(
       direzione().proposte.genera({ ordineId: ordine.id, documentoId: 999999 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("un documento di un'altra commessa senza collegamento attivo non genera proposte", async () => {
+    const { ordine } = await casoConferma();
+    const altra = await direzione().commesse.create({
+      cliente: "Fascicolo Estraneo",
+    });
+    const estraneo = await caricaPdf(
+      altra.id,
+      `estraneo-${ordine.id}.pdf`,
+      pdfDaTesto(["CONFERMA D'ORDINE", "Consegna prevista: 24/09/2026"])
+    );
+    await expect(
+      direzione().proposte.genera({
+        ordineId: ordine.id,
+        documentoId: estraneo.id,
+      })
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
@@ -399,6 +429,45 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
     expect(
       (getOrdineFornitoreById(ordine.id)!.ordine as any).dataConsegnaPrevista
     ).toBe("2026-10-05");
+  });
+
+  it("collegamento annullato → il run resta ma non genera più proposte", async () => {
+    const admin = direzione();
+    const { ordine } = await casoConferma();
+    // Documento in un ALTRO fascicolo, collegato esplicitamente all'ordine.
+    const altra = await admin.commesse.create({ cliente: "Fascicolo B" });
+    const documento = await caricaPdf(
+      altra.id,
+      `collegato-${ordine.id}.pdf`,
+      pdfDaTesto([
+        "CONFERMA D'ORDINE",
+        `Vs. ordine: ${ordine.codiceOrdine}`,
+        "Consegna prevista: 24/09/2026",
+      ])
+    );
+    await admin.analisiDocumenti.collega({
+      documentoId: documento.id,
+      ordineId: ordine.id,
+    });
+    await admin.analisiDocumenti.analizzaConferma({
+      ordineId: ordine.id,
+      documentoId: documento.id,
+    });
+    // Col collegamento attivo la generazione funziona.
+    const prima = await admin.proposte.genera({
+      ordineId: ordine.id,
+      documentoId: documento.id,
+    });
+    expect(prima.proposte).toHaveLength(1);
+    await admin.proposte.annulla({ id: prima.proposte[0].proposta.id });
+
+    // L'umano annulla il collegamento: il run resta in archivio, ma da un
+    // documento che NON appartiene più all'ordine non nascono proposte
+    // (rilievo della revisione indipendente).
+    await admin.analisiDocumenti.annulla({ documentoId: documento.id });
+    await expect(
+      admin.proposte.genera({ ordineId: ordine.id, documentoId: documento.id })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
   it("annulla con motivo e audit completo degli eventi", async () => {
