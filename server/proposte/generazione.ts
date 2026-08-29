@@ -60,7 +60,11 @@ export function generaProposteDaAnalisi(input: {
     commessaId: run.commessaId,
     valoreCorrente: corrente,
     valoreProposto: consegna.valore,
-    motivazione: `La conferma «${run.documentoNome}» dichiara la consegna al ${consegna.valore}, l'ordine registra ${corrente ?? "nessuna data"}.`,
+    motivazione:
+      `La conferma «${run.documentoNome}» dichiara la consegna al ${consegna.valore}, l'ordine registra ${corrente ?? "nessuna data"}.` +
+      (run.daVerificare
+        ? " ATTENZIONE: testo ricavato con OCR a bassa confidenza — verificare la data sul documento originale prima di approvare."
+        : ""),
     versioni: {
       parser: run.parserVersione,
       estrattore: run.estrattoreVersione,

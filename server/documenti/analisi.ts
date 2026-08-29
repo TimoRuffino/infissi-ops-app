@@ -18,7 +18,9 @@ import { getFile } from "../_core/fileStorage";
 import {
   estraiTestoDocumento,
   type EsitoParser,
+  type MetadatiOcr,
 } from "./parserRegistry";
+import { firmaOcrCorrente } from "./ocr";
 import {
   ESTRATTORE_CONFERMA_VERSIONE,
   estraiConfermaOrdine,
@@ -64,6 +66,19 @@ export type AnalisiDocumento = {
   pagine: number | null;
   estrazione: EstrazioneConferma | null;
   differenze: Differenza[];
+  /**
+   * Firma della configurazione OCR rilevante per il run (slice 4):
+   * "assente" quando l'OCR non poteva girare, la firma completa quando il
+   * testo è arrivato dall'OCR, null per i run su testo nativo. Entra
+   * nell'idempotenza: se l'OCR diventa disponibile o cambia
+   * lingua/configurazione, un run `scansione_senza_testo` non viene
+   * riusato.
+   */
+  ocrFirma: string | null;
+  /** Metadati OCR (lingue, confidenze) quando il testo viene dall'OCR. */
+  ocr: MetadatiOcr | null;
+  /** Confidenza OCR insufficiente: revisione umana obbligatoria. */
+  daVerificare: boolean;
   createdBy: number | null;
   createdAt: Date;
 };
@@ -75,6 +90,16 @@ const _analisiStore = persistedStore<AnalisiDocumento>(
     nextAnalisiId = items.length
       ? Math.max(...items.map(item => item.id)) + 1
       : 1;
+    // Backfill slice 4: i run precedenti all'OCR non hanno i campi nuovi.
+    // Le scansioni ferme senza OCR valgono "assente", così diventano
+    // rianalizzabili appena l'OCR è disponibile.
+    for (const run of items) {
+      if (run.ocrFirma === undefined) {
+        run.ocrFirma = run.stato === "scansione_senza_testo" ? "assente" : null;
+      }
+      if (run.ocr === undefined) run.ocr = null;
+      if (run.daVerificare === undefined) run.daVerificare = false;
+    }
   }
 );
 const analisi = _analisiStore.items;
@@ -130,6 +155,10 @@ export async function eseguiAnalisiConferma(input: {
 
   // Idempotenza: lo stesso file, con le stesse versioni, sullo stesso
   // ordine, non produce un secondo run (né attività duplicate a valle).
+  // La firma OCR fa parte della chiave per i run che dipendono dall'OCR
+  // (slice 4): un `scansione_senza_testo` fermo per OCR assente torna
+  // analizzabile quando l'OCR compare o cambia lingue/configurazione.
+  const firmaOcr = await firmaOcrCorrente();
   if (!input.forza) {
     const esistente = analisi.find(
       run =>
@@ -138,7 +167,10 @@ export async function eseguiAnalisiConferma(input: {
         run.ordineId === input.ordine.id &&
         run.byteChecksum === byteChecksum &&
         run.estrattoreVersione === ESTRATTORE_CONFERMA_VERSIONE &&
-        run.confrontoVersione === CONFRONTO_ORDINE_VERSIONE
+        run.confrontoVersione === CONFRONTO_ORDINE_VERSIONE &&
+        (run.stato === "scansione_senza_testo" || run.parser === "pdf-ocr"
+          ? (run.ocrFirma ?? "assente") === firmaOcr
+          : true)
     );
     if (esistente) return { run: esistente, riusata: true };
   }
@@ -175,7 +207,8 @@ export async function eseguiAnalisiConferma(input: {
       stato: esitoParser.esito,
       motivoStato:
         esitoParser.esito === "scansione_senza_testo"
-          ? "PDF senza testo estraibile: probabilmente una scansione. Serve l'OCR (non ancora disponibile) o una verifica manuale del documento."
+          ? (esitoParser.motivo ??
+            "PDF senza testo estraibile: probabilmente una scansione. Senza OCR il contenuto non viene compreso.")
           : "motivo" in esitoParser
             ? esitoParser.motivo
             : null,
@@ -183,6 +216,10 @@ export async function eseguiAnalisiConferma(input: {
       pagine: null,
       estrazione: null,
       differenze: [],
+      ocrFirma:
+        esitoParser.esito === "scansione_senza_testo" ? firmaOcr : null,
+      ocr: null,
+      daVerificare: false,
     };
     analisi.push(run);
     _analisiStore.save();
@@ -214,6 +251,9 @@ export async function eseguiAnalisiConferma(input: {
     pagine: esitoParser.pagine.length,
     estrazione,
     differenze,
+    ocrFirma: esitoParser.parser === "pdf-ocr" ? firmaOcr : null,
+    ocr: esitoParser.ocr ?? null,
+    daVerificare: esitoParser.ocr?.daVerificare ?? false,
   };
   analisi.push(run);
   _analisiStore.save();

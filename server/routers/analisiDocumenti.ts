@@ -255,10 +255,10 @@ export const analisiDocumentiRouter = router({
         return {
           statoDocumento: esitoParser.esito,
           motivoDocumento:
-            esitoParser.esito === "scansione_senza_testo"
-              ? "PDF senza testo estraibile: senza OCR il contenuto non viene compreso e non è possibile proporre candidati."
-              : "motivo" in esitoParser
-                ? esitoParser.motivo
+            "motivo" in esitoParser && esitoParser.motivo
+              ? `${esitoParser.motivo} Impossibile proporre candidati.`
+              : esitoParser.esito === "scansione_senza_testo"
+                ? "PDF senza testo estraibile: senza OCR il contenuto non viene compreso e non è possibile proporre candidati."
                 : null,
           esito: null,
           collegamento,

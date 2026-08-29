@@ -1,5 +1,15 @@
 [phases.setup]
 nixPkgs = ["nodejs_20", "pnpm"]
+# OCR locale (D7 slice 4): Tesseract 5 con italiano/inglese/tedesco e
+# poppler-utils per il rendering PDF→PNG. Nessun servizio esterno.
+# Impatto immagine: ~60-80 MB (motore, leptonica, traineddata, poppler).
+aptPkgs = [
+  "tesseract-ocr",
+  "tesseract-ocr-ita",
+  "tesseract-ocr-eng",
+  "tesseract-ocr-deu",
+  "poppler-utils",
+]
 
 [start]
 cmd = "node dist/index.js"
