@@ -1332,6 +1332,27 @@ pnpm storage:dry-run
 | `CLAUDE.md` | guida operativa per agenti di coding |
 | `guida_pubblicazione.md` | pubblicazione e deploy |
 
+## 11-ter. Base D7 in produzione e Tars v2 avviato (29/08/2026)
+
+Merge PR #1 autorizzato ed eseguito (`84717e2`, merge commit, 31 commit
+atomici conservati; CI verde su branch e su main). Produzione verificata
+senza credenziali: nuovo build live (v. marcatore `platform.interruttori`
+401 vs 404), 10 router sondati vivi (incluso `produzione.*` backend),
+SPA e `/produzione/*` in fallback 200, `auth.login` con errore sanificato,
+JWT_SECRET provato presente dal gate d'avvio production. **Tutti i flag
+DI/OCR/proposte SPENTI** (fail-closed + nessuna FLAG_* su Railway). Da
+pannello Railway (occhio umano, checklist read-only): commit distribuito,
+log di build/avvio, nomi variabili, `tesseract --list-langs` nel
+container. Rollout DI: separato, quando ci saranno conferme anonimizzate
+e perimetro pilota (runbook dedicato).
+
+Tars v2: branch `feature/tars-v2` da `84717e2`; contratti T0 in
+`docs/tars/architettura-tars-v2.md`; PRD §54 ora progetto attivo. Regole
+chiave: provider OpenAI dietro adapter con DI + fake deterministico
+(NESSUNA chiamata reale fino al gate chiave/budget della direzione),
+`FLAG_TARS*` fail-closed, riuso di gateway proposte/reminders/eventi/
+Centro Azioni/DI, cache C0-C2 misurate in T1.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

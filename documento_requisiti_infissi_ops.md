@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.11 - Release hardening finale: checklist read-only davvero senza scritture (sonda storage separata con guardia di regressione), CI GitHub con OCR reale, misure d'immagine contro la baseline di main; sopra la revisione indipendente della v5.10. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.12 - Base D7 MERGIATA e distribuita (`84717e2`, flag spenti); avviato il workstream Tars v2 (§54 ora progetto attivo, contratti T0 in docs/tars/architettura-tars-v2.md); sopra l'hardening della v5.11. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -1077,6 +1077,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.12 (29/08/2026)** - Merge della PR #1 su `main` (`84717e2`, 31 commit conservati) autorizzato dalla direzione e verificato in produzione: nuovo build live (marcatore `platform.interruttori`), 10 router sondati vivi, SPA e fallback `/produzione/*` OK, auth con errori sanificati, kill switch DI/OCR/proposte SPENTI (default fail-closed, nessuna variabile FLAG_* impostata). Avviato Tars v2: branch `feature/tars-v2`, T0 in `docs/tars/architettura-tars-v2.md` (§54 aggiornata a progetto attivo). Decisioni T0: orchestratore unico, provider dietro DI con fake deterministico e ZERO chiamate OpenAI reali fino al gate chiave/budget, `llm.ts` superseded, gateway proposte D7 esteso come gateway L3/L4 di Tars, riuso integrale di reminders/eventi/Centro Azioni.
 - **v5.11 (29/08/2026)** - Chiusura della PR #1: (1) `pnpm storage:check` è ora SOLA LETTURA (configurazione + GET su chiave inesistente); la sonda put/get/delete è lo script separato `storage:probe-write` con flag `--scrivi` obbligatorio, e `server/_core/checklistReadOnly.test.ts` impedisce staticamente e comportamentalmente che la checklist read-only torni a contenere scritture non dichiarate. (2) Prima CI GitHub (`.github/workflows/ci.yml`): install deterministico, typecheck, test mirati DI, suite completa, build, verifica di Tesseract/Poppler e lingue ita/eng/deu sul runner, working tree pulito dopo i test; job eval separato e non bloccante con artifact. (3) Immagine Nixpacks misurata contro la baseline di `main` (f0bb919): l'unico layer di produzione aggiunto è l'apt OCR da 163 MB unpacked (~+7%); nessuna dipendenza npm nuova; le devDependencies nell'immagine sono lo status quo di main (ottimizzazione futura possibile, non applicata). (4) Risposte documentate ai rilievi Graphify: `annunciaAzioniAutonome`/`annunciaDecisioneProposta` rimossi con zero consumer già su main (annunci del vecchio Tars), `annunciaAssegnazione` vivo e conservato; ComponentShowcase rimosso in 1310001 senza route/import residui; `daSaldare` decisione di policy (§37.5) con test dedicati.
 - **v5.10 (29/08/2026)** - Revisione indipendente dell'intero diff (quattro revisori: correttezza server, sicurezza authz, client/convenzioni, qualità) e correzione di TUTTI i rilievi Critical/Important più i minori a basso costo: confini obbligatori su ogni ricerca di riferimento (ORD-10 mai dentro ORD-100, anche per riferimentoOrdine/fornitoreCitato); segnale «totale coincidente» calcolato solo per chi ha `economia.read` (chiuso l'oracolo di uguaglianza sugli importi); kill switch FAIL-CLOSED (accesi solo con NODE_ENV development/test) e spostati nella base procedure (`procedureConInterruttore`); `proposte.genera` riverifica la coerenza VIVA documento↔ordine (un collegamento annullato non genera più proposte); idempotenza dei run estesa al contenuto dell'ordine (`ordineFirma`) con storico limitato a 10 run per coppia e guardia anti-doppio-click; date di calendario validate (31/02 rifiutato), importi con punteggiatura e migliaia all'italiana, priorità della consegna sulla spedizione; motivo per-proposta nella UI (audit corretto), importi via helper euro, dialog con descrizione accessibile; predicato del conflitto posa condiviso fra Centro Azioni e avviso post-applicazione; `/produzione/*` coperto dal redirect. Consapevolmente NON cambiati: fingerprint saldo (decisione privacy slice 2), nessun vincolo quattro-occhi proponente/approvatore (doppia capability è il contratto), dedup parseEuro in `shared/` (candidato a bonifica).
 - **v5.9 (29/08/2026)** - Release hardening: kill switch `FLAG_DOCUMENT_INTELLIGENCE` / `FLAG_PROPOSTE` / `FLAG_OCR` (§19.4), disattivati di default in produzione e verificati non aggirabili via API (`server/platform/interruttori.test.ts`); query `platform.interruttori` per la UI; runbook `docs/runbooks/rollout-document-intelligence.md` con rollout progressivo, rollback via flag, checklist post-deploy e nota sulla ri-notifica saldo una tantum.
@@ -1976,13 +1977,21 @@ user id o entity id come label metrica.
 
 ---
 
-## 54. Progetto futuro — il nuovo agente operativo
+## 54. Tars v2 — progetto ATTIVO (workstream avviato il 29/08/2026)
 
-> **QUESTA SEZIONE NON DESCRIVE SOFTWARE ESISTENTE.** È la visione, approvata
-> dalla direzione il 28/08/2026, del progetto che sostituirà l'agente rimosso
-> (§50). Nessun requisito qui dentro è implementato; niente di questa sezione
-> autorizza a costruire pezzi dell'agente dentro i router business. Il
-> workstream parte solo dopo la stabilizzazione della verità (documenti,
+> **AGGIORNAMENTO 29/08/2026**: con il merge della base (`84717e2`) e il
+> mandato Tars v2 della direzione, il workstream è PARTITO sul branch
+> `feature/tars-v2`. I contratti vincolanti (architettura a orchestratore
+> unico, OpenAI Responses API dietro adapter con DI e `store:false`,
+> livelli L0-L5 mappati sulle capability esistenti, riuso di gateway
+> proposte/reminders/eventi/Centro Azioni/DI, caching C0-C6, threat
+> model, modello dati, eval, kill switch `FLAG_TARS*` fail-closed, slice
+> T0-T9) sono in **`docs/tars/architettura-tars-v2.md`** (T0), che in
+> caso di divergenza prevale su questa sezione storica. Resta valido:
+> niente pezzi dell'agente nei router business.
+
+> Visione originaria approvata il 28/08/2026 (storia sotto). Il
+> workstream partiva solo dopo la stabilizzazione della verità (documenti,
 > invarianti, test, sicurezza) e la definizione dei contratti dati/eventi, e
 > procede poi in parallelo all'evoluzione degli altri domini.
 

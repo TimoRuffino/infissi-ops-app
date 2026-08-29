@@ -1,0 +1,373 @@
+# Tars v2 — architettura e contratti (T0)
+
+> Redatto il 29/08/2026 sul mandato Tars v2 della direzione, dopo il merge
+> della base (`84717e2`: authz economica, Document Intelligence D7,
+> approval gateway, kill switch). Questo documento è la SPEC di T1-T9:
+> ogni slice implementa ciò che qui è deciso, e ogni divergenza va
+> registrata qui prima del codice. Il prompt runtime NON è questo
+> documento: sarà compatto, versionato e valutato con eval.
+
+## 1. Identità e perimetro
+
+Tars è il cervello operativo di Ruffino Flow: comprende la situazione
+aziendale attraverso strumenti tipizzati e autorizzati, collega i dati dei
+reparti, risponde con evidenze, individua anomalie, prepara e coordina il
+lavoro, esegue direttamente le azioni sicure richieste. Non è un chatbot,
+non è un superutente, non sostituisce state machine, FiC o i configuratori
+dei produttori, non è un secondo database. «Nessuna azione» è un risultato
+valido.
+
+**Architettura a orchestratore centrale UNICO** (decisione di mandato):
+niente rete di agenti nel primo rilascio; una eventuale evoluzione
+multi-agent richiede eval che dimostrino un limite preciso del singolo
+orchestratore.
+
+## 2. Collocazione nel codice
+
+```
+server/tars/
+  openai/adapter.ts        ← unico punto di contatto col provider (DI)
+  openai/fake.ts           ← provider deterministico per test/eval
+  orchestratore.ts         ← loop del run: contesto→modello→tool→risposta
+  profili.ts               ← profili strumenti (piccoli, per superficie)
+  strumenti/               ← definizioni tipizzate (registro chiuso)
+  contesto.ts              ← principal, sede, capability fingerprint, budget
+  conversazioni.ts         ← persistenza conversazioni/turni (CRM-side)
+  cache/                   ← C0 fingerprint, C1 per-run, C2 prompt caching
+  telemetria.ts            ← metriche run/cache senza PII
+  prompt/v1.ts             ← prompt di sistema versionato
+server/routers/tars.ts     ← router tRPC sottile (valida, autorizza, invoca)
+client/src/pages/Tars.tsx  ← pagina /tars (T1 minimale)
+```
+
+Regole: il router non contiene logica; l'orchestratore non conosce tRPC;
+gli strumenti non conoscono il modello; NIENTE nei router business.
+
+## 3. Provider OpenAI
+
+- **Responses API server-side** (ragionamento, function calling,
+  Structured Outputs, streaming). La documentazione corrente si consulta
+  al momento dell'implementazione: nessun parametro copiato dal vecchio
+  `server/_core/llm.ts`.
+- **`store:false` come obiettivo iniziale**: conversazioni e stato SOLO
+  nel CRM; replay controllato della cronologia necessaria; gestione degli
+  eventuali reasoning item cifrati come blob opachi legati al run;
+  compaction dopo milestone. Nessun vector store del provider, nessun
+  upload permanente di documenti senza decisione privacy esplicita.
+- `safety_identifier` stabile e privacy-preserving: hash HMAC di
+  (utenteId, sedeId) con chiave server, mai dati leggibili.
+- **Adapter con dependency injection**: `TarsProvider` è un'interfaccia
+  (`rispondi(run) → stream eventi`); l'implementazione OpenAI legge la
+  chiave SOLO da env al momento della chiamata; il fake deterministico
+  (script di scenari) serve test, eval offline e sviluppo. Con
+  `FLAG_TARS=off` o chiave assente l'adapter reale non viene MAI
+  istanziato: nessuna chiamata involontaria. L'uso reale della chiave
+  residua di produzione è un gate della direzione (modello, budget,
+  momento) — fino ad allora solo fake.
+- Modelli e budget da configurazione, mai slug nel codice:
+  `TARS_MODEL_INTERACTIVE`, `TARS_MODEL_AUTOMATION`,
+  `TARS_REASONING_INTERACTIVE`, `TARS_REASONING_AUTOMATION`, budget
+  output/tool-call, timeout, fallback. Scelte definitive solo dopo eval
+  comparativi su due configurazioni; reasoning elevato solo dove gli eval
+  mostrano guadagno; snapshot stabili in produzione; modello e config
+  registrati per ogni run.
+
+## 4. Fonti autorevoli e conflitti
+
+Vale `docs/source-of-truth-matrix.md`. In sintesi operativa: le regole
+software (state machine, gate, permessi, formule, idempotenza) sono
+deterministiche e il modello non le reinterpreta; FiC è autorevole per il
+fiscale; i configuratori dei produttori per le configurazioni tecniche;
+l'ordine CRM per l'ordine emesso; la conferma originale per il ricevuto;
+il confronto è derivato e mostra le prove; le comunicazioni originali per
+ciò che il mittente ha scritto; le correzioni umane verificate battono le
+inferenze; le inferenze di Tars sono il livello meno autorevole. Conflitto
+fra fonti autorevoli = mostrato, mai risolto in silenzio: fonti
+identificate, processo aziendale indicato, azione proposta secondo il
+rischio, decisione umana tracciata.
+
+## 5. Autorizzazione
+
+- Il principal del run è l'utente autenticato: `sedeId`, ruoli, capability
+  effettive via `effectiveCapabilitySet`/`authorizeCoreOperation` con
+  `legacyAllowed:"capability"` (stesso motore della base, override e deny
+  inclusi). Tars non ha MAI capability proprie.
+- Applicazione: prima della query, nella costruzione del contesto, prima
+  della cache, dopo il retrieval, prima dell'output, prima di ogni azione.
+- Cross-sede: fail-closed, `NOT_FOUND`; nessun dato sensibile negli
+  errori; cache e (futura) ricerca semantica non aggirano il perimetro.
+- Economia: contratto slice-2 intatto — booleano `daSaldare` ammesso,
+  MAI importi/somme/uguaglianze/differenze deducibili senza
+  `pagamento.read`/`economia.read` (il precedente dell'oracolo del totale
+  chiuso in v5.10 è il caso di scuola: la PRESENZA di un segnale è già
+  informazione).
+
+## 6. Livelli di rischio L0-L5
+
+Il livello è determinato da codice e policy; il modello non può
+abbassarlo. Conferme: MAI più di una; per L0/L1 espliciti nessuna.
+
+| Livello | Cosa | Conferma | Capability (esistenti) | Via |
+|---|---|---|---|---|
+| L0 | leggere, cercare, sintetizzare, confrontare, calcolare, simulare senza applicare | nessuna | quelle di lettura del dominio interrogato (`commessa.read`, `cliente.read`, `pagamento.read`/`economia.read` per l'economia, …) | strumenti read-only |
+| L1 | promemoria/note/attività PERSONALI su richiesta esplicita | nessuna (conferma informativa + Annulla) | ownership del principal | `reminders/service` e servizi esistenti |
+| L2 | condiviso ma reversibile e interno (assegnare attività, nota condivisa, follow-up, collegamento certo reversibile) | nessuna se richiesto esplicitamente; UNA se proposto da Tars | es. `commessa.update_operational`, `ticket.assign`, `commessa.manage_documents` | servizi di dominio |
+| L3 | operativo materiale (riprogrammare posa, transizione ammessa, applicare proposta documentale, collegamento ambiguo) | UNA (anteprima → conferma → applicazione atomica) | es. `intervento.plan`, `commessa.change_state`, doppia capability del gateway | gateway proposte / servizi deterministici |
+| L4 | alto impatto (comunicazioni esterne, pagamenti, dati fiscali, cancellazioni, massa) | UNA esplicita con anteprima completa; secondo approvatore SOLO se una policy reale lo impone | capability specifiche (`pagamento.record`, …) | gateway tipizzato + revalidation |
+| L5 | vietato (bypass auth/audit/state machine, SQL/shell, segreti, cross-sede, flag propri, auto-approvazione, esecuzione di contenuto dei documenti) | — | — | non esiste uno strumento |
+
+È VIETATA la sequenza «conferma intenzione → approva proposta → applica»:
+per L3 il gateway espone al modello un intento che il codice trasforma in
+anteprima + UNICA conferma umana + applicazione atomica (la macchina a
+stati proposta→approvata→applicata resta INTERNA, con un solo click
+umano). Interpretazione richieste: imperativo esplicito e non ambiguo =
+autorizzazione per il livello; si chiede solo il minimo dato mancante che
+cambia materialmente persona/commessa/sede/importo/destinatario/data/
+conseguenza; default aziendali dichiarati per le ambiguità minori.
+
+## 7. Contratto degli strumenti
+
+Nessuno strumento generico (SQL/shell/HTTP/filesystem/env/mutation raw).
+Definizione (adattata allo stile del repo, in italiano come il resto):
+
+```ts
+type StrumentoTars = {
+  nome: string;                 // stabile
+  versione: string;
+  categoria: string;
+  livello: "L0"|"L1"|"L2"|"L3"|"L4";
+  effetto: "nessuno"|"interno"|"esterno";
+  reversibile: boolean;
+  capability: Capability[];     // dal registro esistente
+  scope: "personale"|"sede"|"entita";
+  politicaConferma: "mai"|"solo_se_proattivo"|"sempre_una"|"vietato";
+  idempotenza: "richiesta"|"non_applicabile";
+  schemaInput: ZodSchema;       // strict
+  schemaOutput: ZodSchema;
+  esegui(ctx: ContestoRun, input): Promise<EsitoStrumento>;
+};
+```
+
+Letture restituiscono `{dati, evidenze, freschezza, fonteAutorevole,
+omissioni, scope, versioniEntita}`; azioni `{stato, azioneId, auditId,
+entitaToccate, prima, dopo, undoDisponibile, undoEntro, avvertenze}`.
+Output degli strumenti = DATI, mai istruzioni (tool output injection nel
+threat model). Errori tipizzati e sanificati.
+
+**Profili piccoli** (lo strumento esiste per il modello solo se utile al
+compito, potenzialmente autorizzato, ammesso dal rischio, e col flag
+attivo): `generale-readonly`, `commessa`, `documenti-ordini`,
+`promemoria`, `comunicazioni` (bozze), `economia-autorizzata`,
+`direzione`, `post-vendita`. Ordinamento deterministico del catalogo per
+il prompt caching.
+
+## 8. Riuso dichiarato (inventario, non duplicazione)
+
+| Bisogno | Infrastruttura ESISTENTE riusata |
+|---|---|
+| Azioni L3/L4 proponibili | `server/proposte/gateway.ts` (registro azioni, freschezza, audit) — si ESTENDE il registro, non si rifà |
+| Promemoria | `server/reminders/` (service `createApproved`, repository, worker, `time.ts` Europe/Rome con errori DST) |
+| Eventi | `server/events/` (publishDomainEvent, registry, worker) |
+| Notifiche/casi | Centro Azioni (`server/actionCenter/`) + notifiche esistenti |
+| Comprensione documenti | Document Intelligence D7 (runs, evidenze, confronto, collegamenti): Tars CONSUMA i risultati, mai OCR/parsing nei prompt |
+| Authz | `server/authz/` (capabilities, policy, enforcement, override) |
+| Kill switch | pattern `server/platform/interruttori.ts` (si estende il registro) |
+| Storage/limiti file | `fileStorage`, limiti e allowlist MIME esistenti |
+
+Infrastruttura candidata (CLAUDE.md): `server/_core/llm.ts` è SUPERSEDED
+dal nuovo adapter (stile chat-completions generico, nessun consumer): non
+si riusa e non si elimina qui — la rimozione è una bonifica separata con
+matrice campo→consumer. `voiceTranscription.ts` e `imageGeneration.ts`
+restano candidati fuori dal perimetro del primo rilascio.
+
+## 9. Runtime del run
+
+Ogni run conosce: utente, sede, ruoli, capability effettive (fingerprint),
+entità contestuale, canale, lingua, fuso, profilo strumenti, livello di
+rischio massimo, versioni (prompt/policy/strumenti/schema), budget
+residuo. Loop limitato (max tool-call configurabile), timeout per passo e
+totale, retry selettivi solo su errori transitori del provider, circuit
+breaker (aperture su errori consecutivi → degradazione), streaming verso
+il client, idempotency key per le azioni, risposta finale anche in
+degradazione («non ho potuto completare X; ecco cosa so e cosa manca»).
+Con OpenAI irraggiungibile o `FLAG_TARS=off`: il CRM non se ne accorge
+(nessuna dipendenza di avvio), la UI mostra stato comprensibile, i
+processi deterministici continuano.
+
+## 10. Caching C0-C6
+
+Obiettivo: latenza, costo, token, query e stabilità SENZA toccare
+autorizzazione, freschezza, isolamento, audit. L'autorizzazione si
+verifica prima di leggere la cache e prima di restituire.
+
+- **C0 (T1)** — evitare il modello: fingerprint del contesto rilevante
+  (entità+versioni+capability+prompt/tool version); se nulla è cambiato e
+  la domanda è deterministica → risposta senza model call («zero model
+  call» è il miglior hit). Matching deterministico prima del modello.
+- **C1 (T1)** — per-run: dedup delle tool call identiche (chiave:
+  tool+versione+input normalizzato+sede+principal+capability
+  fingerprint+versioni entità), promise deduplication, niente errori
+  cachati, vita = il run.
+- **C2 (T1)** — prompt caching OpenAI: prefisso stabile (istruzioni →
+  catalogo strumenti ordinato → contesto dinamico in coda), profili
+  piccoli versionati, chiave
+  `tars:<env>:<model>:<promptV>:<toolProfileV>:<policyV>:<capHash>` senza
+  PII; misurare `cached_tokens`/`cache_write_tokens`/hit/costo/latenza
+  PRIMA di attivare breakpoint espliciti ovunque.
+- **C3 (T3)** — fascicoli sintetici persistenti per entità (fatti
+  strutturati + fonti + versioni + open questions + fingerprint);
+  ricostruzione solo su input cambiati; su errore si conserva l'ultima
+  versione valida marcata stale, mai usata per azioni critiche.
+- **C4 (T3)** — cache cross-run con chiave minima
+  sede+principal+authzFingerprint+scope+toolV+schemaV+policyV+promptV+
+  inputHash+entityVersions; condivisione fra utenti SOLO con shaping
+  identico provato da test anti-leak; invalidazione a eventi/versioni,
+  TTL come rete; invalidazione immediata su cambio capability/sede/
+  logout/correzione umana/cambio policy-schema-parser-prompt-tool. MAI
+  stale-while-revalidate su authz, economia, stati, gate, pagamenti,
+  destinatari, azioni.
+- **C5 (T7)** — ricerca semantica solo dopo context engine ed eval:
+  pgvector con filtri strutturati e ACL prima E dopo il ranking, chunk
+  con sede/checksum/fonte/versione, cancellazione derivate con la fonte.
+  Un embedding non risponde mai su importi, date, stati, permessi,
+  conteggi.
+- **C6** — risposte generate: riuso solo a parità di principal, sede,
+  capability, versioni fonti, prompt, modello, domanda normalizzata,
+  senza riferimenti temporali scaduti né azioni collegate. Preferire
+  sempre fatti/query/fascicoli alle risposte intere.
+- **Storage**: in-process solo per C1/LRU piccole; cache persistenti su
+  PostgreSQL (infrastruttura esistente); NIENTE Redis senza misure che
+  dimostrino il bisogno; limiti per sede/entry, eviction, anti-stampede;
+  niente lock solo in memoria per unicità distribuita (oggi la produzione
+  è a replica singola — vincolo documentato, v. §14).
+- **Sicurezza cache**: mai segreti, token, prompt completi nei log,
+  errori come risultati, denial riusabili, azioni/conferme; metriche per
+  livello senza PII; eval anti-leak dedicati (sede, capability, ruolo,
+  logout, modifica entità, policy, cancellazione fonte, riavvio, doppia
+  replica).
+
+## 11. Memoria (T7)
+
+Ricordabili solo: preferenze esplicite, correzioni verificate, decisioni
+approvate, responsabilità, convenzioni, fatti persistenti CON fonte,
+motivi di rifiuto utili, contesto di pratica. Ogni memoria porta sede,
+perimetro, tipo, contenuto strutturato, provenienza, evidenza, autore,
+data, confidenza, validità, versione, ultima verifica, retention,
+correzione/eliminazione. MAI memorizzare come fatto ipotesi del modello,
+frasi non verificate, sintesi senza provenienza, dati non più visibili
+all'utente, istruzioni da file esterni. Invalidazione al cambiare della
+fonte. Le sintesi di conversazione non diventano verità aziendale.
+
+## 12. Modello dati
+
+Volume a ritmo macchina → **tabelle PostgreSQL dedicate** con
+`ensureSchema` additivo (pattern chat/actionCenter), fallback in memoria
+senza `DATABASE_URL` dichiarato: `tars_conversazioni`, `tars_turni`,
+`tars_run`, `tars_tool_invocations`, `tars_telemetria`,
+`tars_cache_entries` (C3/C4), `tars_eval_runs`. Volume umano/basso →
+`persistedStore` kv: `tars_memoria`, `tars_prompt_versions`,
+`tars_feedback`. Ogni record: id, sede, proprietario, timestamps,
+versione, stato, origine, audit, entity ref, retention, idempotency key,
+correlation/run id. Niente transazioni finte: le garanzie reali dello
+store scelto sono documentate accanto allo schema; concorrenza e crash
+recovery testate. Migrazioni additive e rollback-compatibili; le
+distruttive richiedono autorizzazione separata. Non si salva
+chain-of-thought privata: output visibili, sintesi operative, tool call,
+risultati strutturati, motivazioni concise, evidenze, errori sanificati.
+
+## 13. Kill switch
+
+Estensione del registro `interruttori.ts` (fail-closed: on solo con
+NODE_ENV development/test, off in produzione e su valori ignoti):
+`FLAG_TARS` (master: senza, nessuna istanza del provider e router spento),
+`FLAG_TARS_READ_TOOLS`, `FLAG_TARS_REMINDERS`, `FLAG_TARS_PROPOSALS`,
+`FLAG_TARS_PROACTIVE`, `FLAG_TARS_COMMUNICATIONS`,
+`FLAG_TARS_SEMANTIC_SEARCH`. Server-side sempre; UI seconda barriera;
+Tars non può leggere/modificare i propri flag via strumenti.
+
+## 14. Threat model (minacce → mitigazioni)
+
+| Minaccia | Mitigazione |
+|---|---|
+| Prompt injection da PDF/email/allegati | contenuto = dato inerte; nessuna istruzione da tool output; frasi ostili restano frammenti di evidenza (già provato dagli eval D7); eval adversarial dedicati |
+| Tool output injection | schema output strict, testo mai promosso a istruzione, sanificazione |
+| Cross-sede / escalation capability | motore authz a ogni passo, NOT_FOUND, capability fingerprint nelle chiavi cache, eval leakage |
+| Deduzione economica (oracoli) | shaping prima dell'output, niente segnali la cui presenza riveli cifre (precedente v5.10), eval di deduzione |
+| Cache poisoning/confusion | chiavi con versioni+authz, niente errori cachati, invalidazione a eventi, test anti-leak |
+| Replay / doppia applicazione / azioni stale | idempotency key, freschezza del gateway, revalidation all'applicazione, conferme non riusabili |
+| Race su repliche | oggi replica singola (vincolo verificato in checklist); lease persistenti prima di ogni scale-out (T2 scheduler) |
+| Cost/DoS | budget token e tool-call per run, rate limit per utente e sede, timeout, circuit breaker |
+| Log sensibili | telemetria senza PII, prompt mai nei log, errori sanificati |
+| Allucinazione | evidenze obbligatorie per le affermazioni rilevanti, «dato mancante» come esito, mai «nessun problema» per assenza di dati |
+| Indisponibilità OpenAI | degradazione totale, CRM indipendente, risposta di stato |
+| File malevoli (zip, macro, path traversal, SSRF) | registro parser allowlist, nessuna esecuzione contenuti, limiti tempo/memoria/pagine, niente HTTP arbitrario |
+
+## 15. Osservabilità
+
+Per run: run/trace id, sede anonimizzata, profilo, modello, reasoning,
+versioni (prompt/tool/policy), strumenti usati, tempi, retry, token
+(cached/write inclusi), costo stimato, stato, errore tipizzato, numero
+evidenze, azioni proposte/eseguite, conferme richieste/evitate, undo,
+feedback. Mai come label: email, telefoni, nomi, testi, prompt, entity id
+ad alta cardinalità. Viste diagnostiche per direzione (run falliti, code,
+cache, costi, latenza, qualità, kill switch, rollout).
+
+## 16. Eval
+
+Dataset versionato; fake provider deterministico per il grosso; casi
+OpenAI reali SOLO su autorizzazione (gate chiave/budget). Categorie:
+capacità (fatti, ricerca, fascicolo, state machine, gate, confronto
+documenti, cross-domain, scelta strumenti e NON-uso, promemoria, bozze,
+proposte, rifiuti, evidenze, dati mancanti, conflitti), autorizzazione
+(ruoli, override, cambio sede/ruolo, record inesistenti/altrui, economia
+omessa e deduzioni, cache di altri, semantica non autorizzata),
+promemoria (date relative, DST, ricorrenze, concorrenza, downtime,
+doppio evento), sicurezza (injection, SQL/segreti richiesti, replay,
+stale, doppia applicazione, costi, loop, offline), **attrito** (misurato:
+promemoria esplicito=0 conferme, personale=0, condivisa esplicita
+reversibile=0/1 da policy, proposta da Tars=1, materiale=1, esterno=1,
+vietato=0+rifiuto; un aumento ingiustificato delle conferme è una
+regressione). Metriche: groundedness, precision/recall anomalie, tool
+selection/argument accuracy, authorization leakage, action success,
+idempotenza, FP/FN, utilità, domande inutili, numero conferme, latenza,
+costo, token, cache hit, undo rate, feedback. I sintetici non dichiarano
+accuratezza reale.
+
+## 17. UX
+
+Pagina `/tars` (T1: conversazione + stato funzioni + azioni eseguite;
+poi briefing/situazioni/promemoria/proposte) + pannello contestuale nelle
+superfici principali (T3+). Risposte: conclusione prima, poi prove;
+freschezza e omissioni dichiarate; pulsante Annulla dove disponibile;
+UNICA conferma dove richiesta; italiano; tono diretto, calmo, operativo,
+mai teatrale né servile; errori riconosciuti con fonte corretta.
+Accessibilità e responsive come da CLAUDE.md; superfici nuove ispezionate
+visivamente.
+
+## 18. Piano T1-T9 (exit criteria nel mandato §33)
+
+T1 runtime read-only (adapter+orchestratore+conversazioni+strumenti
+L0+evidenze+telemetria+budget+kill switch+C0/C1/C2+`/tars`); T2
+promemoria L1 su `server/reminders` (zero approvazioni, DST, scheduler,
+idempotenza, undo, attrito); T3 fascicoli+C3/C4+pannello contestuale; T4
+briefing/situazioni/proattività shadow; T5 azioni L2 + gateway L3/L4
+(UNA conferma); T6 strumenti DI+comunicazioni (invio L4); T7 memoria+
+ricerca ibrida; T8 shadow+pilot; T9 rollout per capability con soglie,
+osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
+
+## 19. Decisioni registrate in T0
+
+1. Orchestratore unico, niente multi-agent nel primo rilascio.
+2. `store:false`; stato nel CRM; tabelle PG dedicate per il volume
+   macchina, kv per il volume umano.
+3. `llm.ts` superseded dal nuovo adapter (rimozione = bonifica separata);
+   `voiceTranscription`/`imageGeneration` fuori perimetro.
+4. Kill switch Tars nel registro `interruttori.ts` esistente.
+5. Provider dietro DI con fake deterministico; NESSUNA chiamata reale
+   fino al gate chiave/budget della direzione.
+6. Il gateway proposte D7 è IL gateway di Tars per L3/L4: si estende il
+   registro azioni (un intento → una conferma → applicazione atomica).
+7. Promemoria: si riusa `server/reminders` così com'è; il parsing
+   temporale di Tars produce input per quel service, non un nuovo motore.
+8. Replica singola come vincolo di produzione corrente: ogni componente
+   nuovo che assuma di più (lease, lock) lo dichiara e lo testa.
