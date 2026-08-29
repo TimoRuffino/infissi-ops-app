@@ -1,3 +1,13 @@
+// CANDIDATO A BONIFICA FUTURA (29/08/2026). La pagina UI «Produzione» è
+// stata rimossa perché inutilizzata (release hardening, PRD §20): questo
+// router non ha più consumatori nel client. Resta INTATTO di proposito:
+// gli store kv `produzione_distinte` / `produzione_fasi` / `produzione_nc`
+// possono contenere dati reali su Railway, e il contratto BOM/fasi/NC di
+// §20 è una regola di dominio. Rimuoverlo richiede una decisione
+// registrata, una matrice campo→consumer e la sorte dei dati (CLAUDE.md).
+// Gli stati della commessa («produzione» inclusa), i gate documentali e le
+// logiche di magazzino NON dipendono da questo file.
+
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";

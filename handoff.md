@@ -30,7 +30,7 @@ pagine quando esiste già un token semantico.
 | Comunicazioni | tabella PostgreSQL `comunicazioni`, con fallback in memoria locale |
 | Azioni operative | tabelle PostgreSQL `azioni_operative` e `azioni_operative_eventi`, fallback in memoria locale |
 | File | driver `local` oppure object storage S3-compatible/R2 |
-| AI | OpenAI Responses API con function calling, proposta con approvazione umana |
+| AI | nessuna: agente rimosso il 28/08/2026 (§6); ogni automatismo è deterministico |
 | PDF | jsPDF/autotable client e server |
 
 ### Persistenza
@@ -245,18 +245,16 @@ dal fascicolo (`preventiviContratti.delete` su un documento `source = "fic"`):
   create dalla prima versione — marcate `ficStato = "scollegata"` — vengono
   ripulite dall'`onLoad` di `commesse`;
 - pattuito e piano rate vengono riderivati dalle fatture rimaste;
-- la fattura torna in coda a Tars (`tarsAnalizzata = false`).
+- la fattura torna nella coda di riconciliazione. `tarsAnalizzata` viene
+  riportato a `false` come marcatore di compatibilità: dal 28/08/2026 non ha
+  consumatori (§6).
 
-**Tars sulle fatture orfane.** Il trigger `riconciliazione_fatture` riceve ora
-i candidati scartati dal match con il dubbio scritto, i contatti in fattura e
-l'elenco delle commesse già rifiutate. Il prompt gli chiede di collegare solo
-quando è sicuro, di usare `chiedi_chiarimento` quando il dato non torna invece
-di scegliere la commessa più somigliante, e — se il cliente fatturato non ha
-nessuna commessa nel CRM — di usare `proponi_nuovo_lead` con `ficId`:
-all'approvazione nascono cliente e commessa e la fattura ci si attacca da
-sola. Il profilo strumenti include perciò `leggi_assegnatari` e
-`proponi_nuovo_lead`; la chiave d'azione di `crea_lead` nato da fattura è il
-`ficId`, per non produrre due proposte per lo stesso documento.
+**Fatture orfane (dal 28/08/2026).** Nessuna proposta automatica: la coda
+espone i candidati del match con il dubbio scritto e le commesse già
+rifiutate. Si collega a mano dopo conferma, si esclude dalla riconciliazione,
+oppure — se il cliente non ha commesse — si usa «Crea le N commesse
+mancanti». (Storico: il trigger `riconciliazione_fatture` dell'agente
+proponeva collegamento o nuovo lead con chiave `ficId`.)
 
 Il resto del contratto resta invariato:
 
@@ -265,16 +263,17 @@ Il resto del contratto resta invariato:
 - il sync scrive e aggiorna automaticamente soltanto movimenti con
   `origine = fic`, usando una chiave sorgente stabile e senza duplicarli;
 - i pagamenti manuali non vengono mai mutati dal sync: una discordanza produce
-  una proposta Tars `correzione_pagamento` da approvare;
+  una segnalazione tipizzata nell'esito del sync (`correggi_manuale` /
+  `scegli_manuale`) e la fattura resta `da_riconciliare`; la correzione è
+  manuale (o via `commesse.correggiPagamento`, oggi senza UI);
 - un movimento FiC annullato resta nel registro come `stornato`, conserva
   l'audit e non alimenta `importoIncassato`;
 - snapshot FiC incompleti non stornano movimenti assenti dalla risposta.
 
-Le proposte di correzione usano una chiave d'azione canonica. Se più pagamenti
-manuali sono compatibili, l'operatore deve scegliere la riga prima di poter
-approvare. Una proposta già soddisfatta o sostituita diventa `superata` e non
-espone più azioni decisionali; fingerprint e guardie no-op impediscono di
-applicare una correzione su dati cambiati nel frattempo.
+`commesse.correggiPagamento` rivalida fingerprint del pagamento, rata FiC e
+link prima di scrivere: su dati cambiati risponde `PRECONDITION_FAILED` senza
+toccare il registro. (Storico: le proposte approvabili con chiave d'azione
+canonica e stato `superata` erano dell'agente rimosso.)
 
 Il vincolo di riconciliazione e ora uno-a-uno in entrambe le direzioni: un
 pagamento manuale non puo essere riutilizzato per due rate FiC. Il sync ripara
@@ -283,15 +282,11 @@ creando, quando necessario, un movimento FiC distinto per la rata restante.
 La scelta resta deterministica anche se FiC restituisce le rate in ordine
 diverso e copre i link duplicati tra fatture; un movimento FiC persistito senza
 link viene recuperato senza duplicarlo. Se più link puntano alla stessa rata,
-il movimento FiC perdente viene stornato; un manuale perdente genera invece una
-proposta di neutralizzazione che non sposta il link canonico. Una nota FiC
-multirata incompatibile con tutte le rate sospende i nuovi importi di quella
-fattura fino alla decisione dell'operatore, senza sospendere aggiornamenti o
-storni dei movimenti già esistenti. L'approvazione rivalida la rata FiC
-viva, la source key, il link e il pagamento prima di qualsiasi scrittura: una
-proposta vecchia diventa `superata`, senza errore né modifica. La card Tars
-confronta `Nel CRM ora` con `FiC propone`, dichiara l'effetto sull'incassato e
-nasconde il comando quando i dati di confronto non sono leggibili.
+il movimento FiC perdente viene stornato; un manuale perdente genera invece
+una segnalazione di storno da applicare a mano, senza spostare il link
+canonico. Una nota FiC multirata incompatibile con tutte le rate sospende i
+nuovi importi di quella fattura fino alla decisione dell'operatore, senza
+sospendere aggiornamenti o storni dei movimenti già esistenti.
 
 Il sync espone ora lo stato attivo per sede in `fattureInCloud.status` e può
 essere fermato da Integrazioni anche dopo un refresh tramite `annullaSync`.
@@ -539,12 +534,9 @@ della Dashboard restavano accesi per sempre.
 Ora `statoFattura` distingue `attesa_incasso` (collegata, nessuna rata `paid`
 in FiC) da `da_riconciliare` (almeno una rata `paid` senza acconto
 corrispondente in commessa). L'ordine di valutazione è: `ignorata` →
-`non_abbinabile` → `riconciliata` → `proposta` → `attesa_incasso` →
-`da_riconciliare`; una proposta Tars pendente vince sull'attesa, perché quella
-è lavoro. Il filtro è diventato due chip, e badge e Dashboard contano solo
-`non_abbinabile` + `da_riconciliare`. Lo strumento Tars `leggi_fatture_cloud`
-con `soloNonRiconciliate` tiene invece dentro anche `attesa_incasso`: per una
-lettura una fattura non pagata è pertinente, per una coda operativa no.
+`non_abbinabile` → `riconciliata` → `attesa_incasso` → `da_riconciliare`.
+Il filtro è diventato due chip, e badge e Dashboard contano solo
+`non_abbinabile` + `da_riconciliare`.
 
 Fatturato e costi canonici sono imponibili al netto delle rispettive note di
 credito; IVA, lordo, rate pagate e rate aperte sono valori distinti. La vecchia
@@ -612,12 +604,10 @@ davanti allo stesso obiettivo devono leggere lo stesso numero):
   resta fuori; contarli porta l'obiettivo da €26.868 a €54.198. Se siano una
   tantum o struttura sotto un altro nome lo decide chi conosce l'azienda.
 
-Tars classifica in batch i nuovi costi FiC con output strutturato e cache key
-per sede/modello. Le correzioni utente e le regole esplicite prevalgono. Errori
-OpenAI o bassa confidenza lasciano il record `dubbio` senza bloccare il sync.
-`leggi_economia` usa gli stessi totali FiC e restituisce a Tars soltanto fonte,
-criteri separati di competenza/cassa, confronto incassi, aggregati mensili e
-affidabilità, senza documenti contabili completi.
+Dal 28/08/2026 nessun modello classifica i costi FiC: un documento nuovo entra
+`dubbio` e si classifica in Acquisti. Le regole per fornitore confermate da un
+operatore si applicano deterministicamente anche durante il sync; una
+classificazione manuale non viene mai sovrascritta.
 
 **WhatsApp: rinominare e collegare a mano** (28/08/2026). Due cose che
 mancavano nella scheda `/messaggi/whatsapp`.
@@ -634,9 +624,8 @@ Contesto, quindi non si perde niente.
 match automatico sui singoli messaggi, e quando quello sbagliava o non trovava
 — un numero nuovo, il cliente che scrive dal telefono della moglie, una
 commessa il cui codice non compare mai nei messaggi — la conversazione restava
-senza contesto per sempre: niente appuntamenti, niente ticket, niente proposte
-Tars. Ora `mail.whatsapp.collegaConversazione` fa le due cose che servono
-insieme:
+senza contesto per sempre: niente appuntamenti, niente ticket. Ora
+`mail.whatsapp.collegaConversazione` fa le due cose che servono insieme:
 
 1. scrive un **override** nello store `whatsapp_conversation_aliases` (che da
    nome-soltanto è diventato nome + `clienteId` + `commessaId`, con i record
@@ -644,8 +633,8 @@ insieme:
    devono ancora arrivare: `registraMessaggio` lo consulta PRIMA del matcher,
    perché riscrivere solo lo storico aggancia il passato e alla prima risposta
    del cliente la conversazione tornava scollegata;
-2. riscrive le righe `comunicazioni` già esistenti, perché Inbox, Tars e le
-   proposte leggono da lì — senza, la scheda WhatsApp avrebbe detto una cosa e
+2. riscrive le righe `comunicazioni` già esistenti, perché Inbox e il resto
+   del CRM leggono da lì — senza, la scheda WhatsApp avrebbe detto una cosa e
    il resto del CRM un'altra.
 
 Collegare una commessa detta anche il cliente, preso dalla commessa: due
@@ -662,9 +651,8 @@ guardando.
 scope. Prima di considerare affidabile il pareggio, confrontare due mesi chiusi
 e revisionare tutti i costi dubbi.
 
-Il collegamento esplicito o approvato da Tars scarica il PDF ufficiale e lo
-archivia come documento `fattura` della commessa **dopo** aver persistito il
-collegamento. Ogni sync ripara i collegamenti storici rimasti senza file:
+Il collegamento esplicito scarica il PDF ufficiale e lo archivia come
+documento `fattura` della commessa **dopo** aver persistito il collegamento. Ogni sync ripara i collegamenti storici rimasti senza file:
 controlla soltanto fatture con `commessaId`, deduplica per sorgente FiC,
 continua sulle altre se un download fallisce e ritenta al giro successivo. Un
 errore del PDF non annulla collegamento o riconciliazione economica e non crea
@@ -713,6 +701,10 @@ permessi stessi: rinominarla vorrebbe dire migrare le regole salvate. Le altre
 tre non compaiono più nella UI dei permessi.
 
 ## 7. Modifiche code-complete del 14/08/2026
+
+> Registro storico per data. Le voci che citano Tars raccontano un sistema
+> rimosso per intero il 28/08/2026 (§6): restano come cronaca di cosa è stato
+> fatto e quando, non come comportamento corrente.
 
 - Backup Drive corretto per file già migrati a `storageKey`.
 - Probe storage, script di verifica e runbook Cloudflare R2.
@@ -842,6 +834,343 @@ Prima di pubblicare queste modifiche eseguire l'intera checklist di §10.
   di un rollout multi-istanza va aggiunto il claim PostgreSQL indicato nel
   checklist `docs/reports/tars-brain-rollout-checklist.md`.
 
+### Slice 1 — «La verità torna una sola» (28/08/2026, sera)
+
+Riconciliazione documentale e blindatura della state machine dopo la
+rimozione di Tars, autorizzata dalla direzione sul Discovery Dossier
+(`docs/discovery-dossier-2026-08-28.md`). Nessun cambiamento di comportamento
+runtime, con tre eccezioni deliberate di solo testo/etichetta:
+
+- il motivo preliminare delle comunicazioni nuove non promette più «la
+  classificazione automatica di Tars» (dice «Da classificare a mano»);
+- i messaggi di sistema in chat sono firmati «Sistema» invece di «Tars»; i
+  canali diretti creati prima conservano il vecchio nome nel DB finché non si
+  decide una migrazione;
+- il copy di `/conoscenza` descrive la scheda per quello che è oggi.
+
+Fatto:
+
+- **PRD v5.1**: §51 e §53 riscritti sul comportamento corrente; §40.4-40.5
+  allineati (segnalazioni tipizzate al posto delle proposte, regole costi
+  deterministiche); nuova sezione §54 con la visione del futuro agente,
+  marcata NON IMPLEMENTATA; correzioni minori (IMAP 5 min, route legacy).
+- **handoff**: §5 ripulito dai flussi Tars al presente; §7 marcato registro
+  storico; checklist §10 allineata; questo registro.
+- **AGENTS.md / CLAUDE.md**: sezione «Tars» sostituita da «Agente AI»
+  (non esiste; residui protetti; infrastruttura candidata).
+- **Pulizia**: rimossi `tars:eval`/`tars:eval:live` da package.json e gli
+  script rotti `run-tars-evals.ts` e `rebuild-tars-context.ts` (importavano
+  `server/tars/*`, e `scripts/` era fuori dal typecheck); rimossa la pagina
+  orfana `ComponentShowcase.tsx` (zero riferimenti); rimossi i due annunci
+  chat senza chiamanti che linkavano `/tars`. Tutto recuperabile da git.
+- **tsconfig**: `scripts/` incluso nel typecheck; aggiunto `target: ES2022`
+  (prima il default ES5 rifiutava i top-level await degli script legittimi).
+- **Annotazioni di compatibilità** (nessuna rimozione, decisione D5):
+  colonne e funzioni `tars*` in `comunicazioni.ts`, `ficFatture.tarsAnalizzata`,
+  capability `tars.*`, e header «infrastruttura candidata» su `_core/llm.ts`,
+  `voiceTranscription.ts`, `imageGeneration.ts` (zero consumatori: la
+  decisione spetta al design del nuovo agente).
+- **Runbook**: `tars-eventi-notifiche.md` → `eventi-notifiche.md`;
+  `tars-recovery.md` riscritto come `piattaforma-recovery.md` sul boot reale;
+  il report `tars-brain-rollout-checklist.md` marcato storico.
+- **Test nuovi** (`commesse.test.ts`, `crossSede.test.ts`, +12): proprietà
+  della state machine su tutte le 110 coppie di stati (force non salta la
+  sequenza), cleanup di rollback (consegna confermata, data chiusura), doc
+  gate con `statoAtUpload`, blocco del pattuito fonte FiC, immutabilità dei
+  movimenti `origine=fic`, negativi cross-sede su commesse/clienti/ticket.
+  Verificato che il test della state machine fallisca davvero su una
+  transizione allargata ad arte (mutation test, poi ripristinato).
+
+Limiti documentati (non risolti qui, tracciati nel PRD §31 e nel dossier):
+`platform.flags` è di sola lettura (flag congelati); WhatsApp non ha un
+percorso di archiviazione allegati; `commesse.correggiPagamento` non ha UI.
+
+Verifica: `pnpm check` (con `scripts/`), `pnpm test` 61 file / 501 test,
+`pnpm build` — tutti verdi in locale.
+
+### Slice 2 — dati economici dietro capability (28/08/2026, notte) — COMPLETATA
+
+Chiude R4 e R5 del dossier secondo la matrice confermata dalla direzione
+(`docs/reports/slice-2-authz-economia-proposta.md`, ora marcata
+implementata). Contratto completo nel PRD §37.5. In sintesi:
+
+- `commesse.byId`, `list`, `byPriorita` e le risposte di ogni mutation sono
+  **sagomate**: registro `pagamenti[]` solo con `pagamento.read`, `costi[]` e
+  `costoPosaStimato` solo con `economia.read`; campi omessi, mai errori. La
+  sintesi della scheda (pattuito, incassato, residuo, piano rate,
+  `nPagamenti`) resta per chi lavora la commessa. Liste e Board trasportano
+  il solo booleano `daSaldare`.
+- `addPagamento`/`updatePagamento`/`removePagamento`/`correggiPagamento` e
+  `pagamentiRecenti` passano da `authorizeCoreOperation` con il nuovo regime
+  `legacyAllowed: "capability"`: la decisione del motore (ruoli + override
+  individuali) vale in OGNI `policyMode`, quindi un override su
+  `pagamento.record` (creato da `permessi.updateOverride`, motivato e
+  auditato) abilita il singolo utente anche oggi in `legacy`. Il ruolo
+  commerciale NON riceve la capability.
+- `/pagamenti` è riservata a `pagamento.read` (guardia pagina + voce sidebar
+  via la nuova query `permessi.mie`); il chip «Da saldare» del Board è
+  binario senza cifra per chiunque; il feed Dashboard mostra l'importo solo
+  agli autorizzati.
+- **Superfici condivise bonificate** (stessa classe di R4): il caso saldo del
+  Centro Azioni e la notifica legacy dicono «Saldo residuo da incassare»
+  senza cifre; id e fingerprint usano `versioneRegistroPagamenti`
+  (conteggio+timestamp) così l'incasso parziale ri-notifica ma nessun importo
+  è ricostruibile dal payload. Sweep sulle altre superfici (notifiche
+  persistenti, chat, eventi, promemoria): nessun altro importo trovato.
+- Test: `authzEconomia.test.ts`, 17 casi — shaping e leak-check sul
+  serializzato, scritture negate/consentite, override con audit, deny che
+  prevale sul ruolo, parità in `enforce`, cross-sede, superfici condivise
+  (fingerprint che si risveglia a ogni incasso, notifica senza cifre che
+  sparisce a saldo). Suite: 62 file / 518 test verdi; `pnpm check` e build ok.
+- Verifica visiva su run demo: direzione con registro/comandi e /pagamenti
+  completa; commerciale con sintesi senza registro, sidebar senza vista
+  cassa, /pagamenti «Accesso riservato», Board binario, notifica saldo senza
+  importo; controllo di rete della sessione non autorizzata: nessuna cifra
+  nei payload, `pagamentiRecenti` 403.
+
+Effetti visibili da comunicare alle sedi: il Board non mostra più l'importo
+del saldo (la cifra sta in scheda e in /pagamenti); i ruoli operativi non
+vedono più registro e costi via API; chi registrava acconti senza essere
+amministrazione va censito e abilitato con un override individuale. Le
+notifiche saldo esistenti cambiano id al primo ricalcolo (una ri-notifica una
+tantum).
+
+### D7 Document Intelligence — slice 1 (28/08/2026, notte) — code-complete, in revisione
+
+Prima vertical slice della Document Intelligence decisa con D7 (PRD §54.6;
+ricognizione, gap e piano in `docs/reports/d7-document-intelligence-piano.md`).
+**Non ancora committata**: in attesa di revisione della direzione.
+
+- `server/documenti/`: registro parser (`pdf-testo-nativo` su unpdf, testo
+  PER PAGINA; scansioni, file corrotti e formati non supportati producono
+  stati espliciti, mai errori muti), estrattore deterministico delle
+  conferme d'ordine (riferimento ordine, codici commessa, fornitore, numero
+  e data conferma, date/settimane di consegna, totale con letture
+  alternative, riscontro righe per codice articolo — ogni valore con
+  evidenza: pagina, frammento, metodo, confidenza), confronto con l'ordine
+  fornitore (differenze tipizzate per gravità) e run persistiti in
+  `documenti_analisi` (impronta SHA-256 dei byte + versioni parser/
+  estrattore/confronto: idempotente, `forza` rielabora conservando lo
+  storico).
+- Router `analisiDocumenti` (direzione): `analizzaConferma` e `perOrdine`.
+  Nessuna scrittura su commesse, ordini, date o importi: la slice produce
+  solo letture verificabili — le azioni proposte con approval gateway sono
+  la slice 3 del piano. I byte restano nelle fonti esistenti (storage/
+  inline): nessuna seconda fonte di verità, nessuna migrazione.
+- UI: pannello «Conferma d'ordine (PDF)» nella scheda ordine di
+  `/fornitori` — scelta del PDF dal fascicolo della commessa dell'ordine,
+  campi con evidenze citate, differenze con badge di gravità, rianalisi
+  esplicita.
+- Sicurezza: contenuti trattati come non fidati (nessun modello, testo
+  inerte; un prompt injection nel PDF resta un frammento di evidenza),
+  limiti di dimensione, cifrato/corrotto → `illeggibile` col motivo.
+- Test (`server/documenti/analisiConferma.test.ts`, 6 scenari con PDF
+  generati in-test): digitale multi-pagina con variazioni di consegna/
+  totale/quantità e riga mancante; scansione senza testo; corrotto; formato
+  non supportato; duplicato idempotente + `forza`; commessa incoerente vs
+  doppia citazione; injection inerte con verifica «nessuna modifica
+  critica»; authz (solo direzione, cross-sede NOT_FOUND, fascicolo
+  coerente). Verifica visiva sul run demo: analisi dal pannello, campi ed
+  evidenze a video, differenze ALTA/MEDIA, risultato persistito dopo il
+  reload, console pulita.
+- Limiti dichiarati della slice: **solo i PDF con testo nativo vengono
+  analizzati**. Le scansioni vengono riconosciute e fermate con lo stato
+  esplicito `scansione_senza_testo`: senza OCR il loro contenuto NON viene
+  compreso, e la UI non le presenta mai come analisi riuscite (campi e
+  confronto compaiono solo con stato `analizzata`). Righe best-effort a
+  confidenza bassa.
+
+**Slice 2 — collegamento assistito documento→ordine (28/08/2026, stessa
+notte)**, contratto completo nel PRD §19.4:
+
+- candidati deterministici su tutti gli ordini della sede con punteggio
+  spiegabile (codice ordine 100 > commessa 60 > fornitore 40 > articoli
+  15×3 > data 15 > totale 15), ogni segnale con evidenza pagina/frammento;
+  stati espliciti certa/candidata/ambigua/assente e MAI un collegamento
+  automatico — anche «certa» aspetta la conferma umana;
+- store `documenti_collegamenti_ordini`: collegamento come dato separato
+  (documento, ordine e commessa restano intatti), idempotente, con audit
+  append-only di conferma/rifiuto/annullamento e rilevazione dei duplicati
+  per impronta SHA-256; correzione = annulla + riconferma; un rifiuto toglie
+  il candidato dal calcolo dello stato finché non viene riconfermato;
+- authz via capability `commessa.manage_documents` col motore in ogni
+  policyMode (direzione da ruolo, altri su commesse possedute/assegnate,
+  override inclusi): nessun `requireDirezione` nuovo; sedi isolate;
+- il documento collegato diventa analizzabile dall'ordine anche da un altro
+  fascicolo (la decisione umana prevale sulla posizione del file);
+- UI: azione «Collega a un ordine fornitore» sui PDF di «File e documenti»
+  nella scheda commessa, dialog con candidati/punteggi/motivazioni/evidenze,
+  rifiuto e annullamento con motivo;
+- test: `server/documenti/collegamentoOrdine.test.ts`, 12 scenari (esatto,
+  mancante, ambiguo, fornitore errato, commessa incoerente, omonimi
+  cross-sede, duplicato, flusso completo con audit, cross-sede, capability
+  senza ruoli, nessuna modifica ai dati autorevoli, ponte con l'analisi
+  slice 1) + mutation test sul filtro di sede. Verifica funzionale sul demo:
+  dialog con «Corrispondenza certa, punteggio 215» spiegato segnale per
+  segnale, conferma e stato collegato, zero errori applicativi in console.
+
+**Slice 3 — approval gateway delle proposte (29/08/2026)**, contratto nel
+PRD §19.4:
+
+- `server/proposte/gateway.ts`: fondazione GENERALE e tipizzata, separata
+  dai router business (è la stessa su cui poggerà il futuro agente).
+  Registro chiuso dei tipi di azione — oggi solo
+  `ordine_fornitore.aggiorna_data_consegna` — store kv `proposte_azioni`,
+  stati `proposta → approvata → applicata|fallita` più
+  rifiutata/annullata/scaduta (30 giorni)/obsoleta, chiave d'idempotenza,
+  cronologia append-only. La freschezza (valore corrente ≡ snapshot) è
+  ricontrollata a ogni lettura e PRIMA di approvare/applicare;
+- l'azione registrata (`azioni/ordineDataConsegna.ts`) applica SOLO la
+  data di consegna prevista via `aggiornaDataConsegnaOrdine` di
+  fornitori.ts (l'unico comando che la scrive dopo la creazione). La
+  generazione (`generazione.ts`) parte dal run di analisi della slice 1 e
+  fotografa evidenza, valore corrente e versioni; autore sempre `sistema`;
+- doppia capability per approvare/applicare: `documento.approve_proposals`
+  + `fornitore.manage_ordini` (nuove nel registro chiuso; default:
+  direzione e ruolo `ordini`, override individuali per gli altri, motore
+  in ogni policyMode). Router `proposte.*` sottile: valida, autorizza,
+  invoca comandi tipizzati; sedi isolate NOT_FOUND;
+- il conflitto con la posa NON viene risolto: segnale
+  `consegna_fornitore` nel Centro Azioni (da proposte APPLICATE con
+  valore ancora corrente, posa `pianificato` precedente alla consegna),
+  priorità alta o critica se la posa è entro 7 giorni, caso «Rivedi la
+  pianificazione della posa» che si auto-risolve quando il conflitto
+  sparisce. Su decisione della direzione: nessuna nuova entità anomalia,
+  nessun ciclo di contestazione al fornitore;
+- UI: pannello «Proposte dall'analisi» nella scheda ordine (stato,
+  evidenza, motivazione, effetto esatto, applica in due passi con
+  conferma) + pulsante «Proponi l'aggiornamento della data di consegna»
+  nel pannello analisi; dopo l'applicazione la lista ordini si aggiorna;
+- test: `server/proposte/gateway.test.ts` (11: macchina a stati pura,
+  fallimento reale d'applicazione) e `server/routers/proposte.test.ts`
+  (12: generazione con evidenza, doppio requisito, metà requisito
+  respinto, override che abilitano un non-ordini, applicazione che tocca
+  SOLO la data con snapshot prima/dopo di commessa e interventi, doppia
+  applicazione idempotente, obsoleta, scaduta, cross-sede, audit, caso
+  Centro Azioni che nasce e si spegne). Mutation test: rimosso il secondo
+  requisito di capability → il test dedicato fallisce. Verifica sul demo:
+  flusso completo genera→approva→applica dalla UI, toast del conflitto
+  posa, caso reale nel Centro Azioni via scheduler, mobile 375px senza
+  scroll orizzontale, zero errori console.
+
+**Slice 4 — OCR locale Tesseract 5 (29/08/2026)**, contratto nel PRD
+§19.4:
+
+- `server/documenti/ocr.ts`: pdftoppm rende le pagine in PNG (Tesseract
+  non legge i PDF), tesseract le riconosce in TSV (pagina + confidenza per
+  parola); `execFile` con argomenti fissi, MAI shell; tmpdir isolata
+  sempre ripulita (anche su errore/timeout); una pipeline alla volta;
+  cache in memoria per impronta+firma (solo testo). Limiti: 15 MB, 20
+  pagine, 300 DPI, 30 s/pagina, 120 s totali;
+- lingue via `OCR_LINGUE` (default `ita+eng`, `deu` predisposto):
+  intersezione richieste∩installate con avvertenza per le mancanti;
+  binario mancante / lingua mancante / timeout / rendering fallito /
+  nessun testo riconosciuto = esiti ESPLICITI, il documento resta
+  `scansione_senza_testo` col motivo — mai fallback silenziosi, mai
+  «analizzato» senza testo riconosciuto;
+- fallback dichiarato nel registro parser (`estraiTestoDocumento`):
+  nativo prima, OCR solo su `scansione_senza_testo`; successo →
+  `estratto` con parser `pdf-ocr`, avvertenze e confidenze; sotto soglia
+  (media<80 o pagina<60) il run è «DA VERIFICARE» (UI: «Analizzata con
+  OCR — DA VERIFICARE») e le proposte generate portano l'avvertenza in
+  motivazione. Il collegamento assistito (slice 2) beneficia dello stesso
+  fallback;
+- idempotenza: `ocrFirma` (versione|lingue effettive|DPI, o «assente»)
+  entra nella chiave dei run per scansioni e run OCR, con backfill
+  `onLoad`: le scansioni ferme si rianalizzano quando l'OCR compare o
+  cambia configurazione, senza perdere storico;
+- deploy: `nixpacks.toml` + aptPkgs (tesseract-ocr, ita/eng/deu,
+  poppler-utils), impatto immagine ~60-80 MB. In locale: `brew install
+  tesseract poppler` (solo eng di default: l'italiano locale richiede
+  `tesseract-lang`; in produzione apt installa ita+deu);
+- test: `server/documenti/ocr.test.ts`, 10 scenari — binario mancante,
+  troppe pagine, lingue effettive, soglie di revisione, firma «assente»,
+  e con i binari reali (skip automatico se assenti): scansione vera
+  riconosciuta via OCR con evidenze, lingua inesistente, timeout con
+  pulizia tmpdir verificata, cache, scala completa dell'idempotenza
+  (assente → disponibile → riuso).
+
+**Slice 5 — framework di valutazione (29/08/2026)**, contratto nel PRD
+§19.4:
+
+- `server/documenti/eval/`: 16 fixture costruite in codice — PDF nativi
+  (riferimento esatto, inglese, multipagina, tabella spezzata, valori
+  discordanti, ambiguità, codici ordine/articolo simili, injection,
+  duplicato, corrotto) e scansioni VERE (pulita, storta 3°, 75 DPI,
+  multipagina, timeout OCR) prodotte con testo→pdftoppm→immagine;
+- runner (`pnpm eval:documenti`) sulla STESSA pipeline di produzione;
+  metriche separate: correttezza/copertura per campo, precisione
+  collegamento con contatore «certa sbagliata» (deve restare 0),
+  precisione differenze, falsi positivi, confidenza OCR, ms/pagina, % da
+  rivedere. Report baseline: `docs/reports/d7-eval-2026-08-29.md`
+  (16/16, campi 100% corretti sugli estratti, copertura 93% con le
+  lacune dichiarate, 0 certa sbagliate, OCR ~91% conf media, ~465
+  ms/pagina con lingue locali solo eng);
+- `eval.test.ts` (8) inchioda solo il deterministico: nativo perfetto,
+  injection inerte, ambigua mai «certa», codice esatto batte il simile,
+  corrotto illeggibile, timeout esplicito, metriche OCR riportate SENZA
+  soglie. Nessuna accuratezza produttiva dichiarata dai sintetici;
+- casi reali anonimizzati: cartella `server/documenti/eval/casi-reali/`
+  in `.gitignore` (PDF + `atteso.json`, caricamento automatico del
+  runner); procedura e quantità minime nel report baseline;
+- primo dividendo dell'eval: scoperto il match dei riferimenti SENZA
+  confini (ORD-EV-10 riconosciuto dentro ORD-EV-100 → ambiguità finta;
+  FIN-100 dentro FIN-1000 → riga citata finta), corretto con lookaround
+  in `trovaRiferimentoTesto` e nel riscontro righe.
+
+**Release hardening (29/08/2026)** — kill switch e rollout:
+
+- tre interruttori env indipendenti (`server/platform/interruttori.ts`),
+  SPENTI di default in produzione, accesi in dev/test:
+  `FLAG_DOCUMENT_INTELLIGENCE`, `FLAG_PROPOSTE`, `FLAG_OCR`. Guardia
+  `assicuraInterruttore` su TUTTI gli endpoint `analisiDocumenti.*` e
+  `proposte.*` (PRECONDITION_FAILED, nessun ruolo lo aggira — test in
+  `server/platform/interruttori.test.ts`); l'OCR spento lascia le
+  scansioni in `scansione_senza_testo` con motivo `FLAG_OCR` e firma
+  `assente` (rianalizzabili all'accensione);
+- UI: `platform.interruttori` (query protetta) + superfici nascoste a
+  flag spento (pannelli analisi/proposte, azione Collega);
+- rollout progressivo in tre fasi e rollback via flag:
+  `docs/runbooks/rollout-document-intelligence.md`, con checklist
+  post-deploy e nota sulla ri-notifica saldo una tantum (fingerprint
+  cambiati dalla slice 2 authz).
+
+**Chiusura PR #1 (29/08/2026 sera)** — checklist read-only, CI, immagine:
+
+- `pnpm storage:check` NON scrive più: sola configurazione + GET su chiave
+  `_health/` inesistente (prova endpoint e credenziali). La sonda completa
+  put/get/checksum/delete è `pnpm storage:probe-write --scrivi`, separata,
+  fuori dalla checklist read-only; `server/_core/checklistReadOnly.test.ts`
+  blocca regressioni (allowlist dei comandi citati dal runbook, sorgente
+  dello script senza sonda di scrittura, prova comportamentale che la
+  sonda read-only non chiama mai put/delete);
+- prima CI GitHub in `.github/workflows/ci.yml`: job bloccante
+  (install frozen, typecheck, test mirati DI/kill switch, suite completa,
+  build, binari e lingue OCR verificati sul runner, working tree pulito) +
+  job eval NON bloccante con report come artifact;
+- immagine Nixpacks confrontata con la baseline di `main` costruita in
+  locale: contenuto compresso 547 MB (main) → 771 MB (branch), ma l'unico
+  layer di PRODUZIONE aggiunto è l'apt OCR da **163 MB unpacked (~+7%)**;
+  il resto del delta locale è il layer COPY che in locale include
+  `node_modules` (nixpacks non onora `.dockerignore`; su Railway il
+  contesto è il checkout git ≈ 9 MB, come su main). Nessuna dipendenza
+  npm nuova; devDependencies presenti in ENTRAMBE le immagini (status quo
+  di main; prune possibile come ottimizzazione futura). Build locali:
+  fredda ~15-20 min (VM), calda ~7 min; baseline calda 42 s con layer
+  condivisi.
+
+**Revisione indipendente (29/08/2026)** — quattro revisori sull'intero
+diff `origin/main..slice-3-document-intelligence`; tutti i rilievi
+Critical/Important corretti, più i minori a basso costo (dettaglio nel
+changelog PRD v5.10). I più rilevanti: oracolo del totale chiuso
+(segnale solo con `economia.read`), kill switch fail-closed e in base
+procedure, `proposte.genera` con coerenza viva documento↔ordine,
+confini su TUTTE le ricerche di riferimento, idempotenza dei run legata
+anche al contenuto dell'ordine (storico max 10 run/coppia), motivo
+per-proposta nella UI. Scelte consapevoli non cambiate: fingerprint
+saldo (privacy slice 2), niente quattro-occhi oltre la doppia
+capability, dedup `parseEuro`→`shared/` lasciato come candidato.
+
 ## 7-bis. Chat aziendale (26/08/2026)
 
 Route `/chat`, voce di menu sotto **Messaggi**. È la comunicazione *interna*:
@@ -945,9 +1274,10 @@ Poi verificare nel browser, desktop e mobile:
 
 - login, cambio sede e permessi direzione;
 - Clienti e Commesse senza prima riga coperta o scroll orizzontale pagina;
-- Comunicazioni: cinque code, selezione multipla, esclusione/ripristino,
-  collegamento confermato, preventivi sempre visibili, scelta assegnatario e
-  creazione lead approvata;
+- Comunicazioni (Email): code e conteggi, selezione multipla,
+  esclusione/ripristino, classificazione manuale e collegamento manuale
+  confermato (dal 28/08/2026 non esistono proposte né creazione lead
+  assistita);
 - WhatsApp: conversazioni raggruppate, direzione in/out, diagnostica
   `smb_message_echoes` dopo un invio dall'app primaria, rinomina di una
   conversazione già collegata a un cliente e collegamento a mano di cliente e
@@ -991,6 +1321,12 @@ pnpm storage:dry-run
 |---|---|
 | `documento_requisiti_infissi_ops.md` | PRD funzionale aggiornato |
 | `PRD_infissi_ops_v4.pdf` | versione PDF del PRD |
+| `docs/discovery-dossier-2026-08-28.md` | ricognizione Fase 0 post-rimozione: baseline, invarianti, contraddizioni, rischi, roadmap e registro decisioni D1-D6 |
+| `docs/source-of-truth-matrix.md` | matrice viva delle fonti autorevoli e delle regole di conflitto |
+| `docs/reports/slice-2-authz-economia-proposta.md` | spec approvata (D3) per capability su dati economici e pagamenti — da implementare |
+| `docs/runbooks/verifica-produzione-readonly.md` | checklist di sola lettura per fotografare Railway (D4) |
+| `docs/runbooks/eventi-notifiche.md` | rollout e recovery di eventi, notifiche, SSE e push |
+| `docs/runbooks/piattaforma-recovery.md` | boot, guasti tipici e recovery del CRM |
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -1003,7 +1339,9 @@ pnpm storage:dry-run
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
 5. Progettazione del nuovo agente: prima cosa deve fare, poi come. Le domande
-   aperte stanno in `docs/tars-rimosso-2026-08-28.md`.
+   aperte stanno in `docs/tars-rimosso-2026-08-28.md`; la visione approvata è
+   nel PRD §54 e la sequenza decisa (D1) nel dossier §11: prima contratti
+   dati/eventi, poi il workstream agente in parallelo agli altri domini.
 6. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 7. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
@@ -1026,6 +1364,27 @@ pnpm storage:dry-run
    database.
 9. Verifica su Railway delle query PostgreSQL della chat aziendale: le suite
    locali esercitano solo il fallback in memoria.
+10. ~~Slice 2 authz (R4/R5)~~ **COMPLETATA il 28/08/2026** (v. §7, «Slice 2 —
+    dati economici dietro capability»). Resta l'azione operativa: censire chi
+    registrava acconti senza essere amministrazione e creare gli override
+    individuali da Permessi.
+11. Fotografia read-only della produzione secondo
+    `docs/runbooks/verifica-produzione-readonly.md` (nessuna modifica senza
+    autorizzazione esplicita).
+12. ~~Document Intelligence (decisione D7 del 28/08/2026)~~ **COMPLETATA
+    il 29/08/2026** — tutte e cinque le slice del piano (analisi conferme,
+    collegamento assistito, approval gateway, OCR locale, eval): v. §7 e
+    PRD §19.4. Restano operativi: raccolta di ~20+ conferme reali
+    anonimizzate per `server/documenti/eval/casi-reali/` (misura vera
+    dell'accuratezza) e, volendo l'italiano OCR anche in locale,
+    `brew install tesseract-lang` (in produzione l'apt lo installa già).
+13. **Router `produzione` (BOM/fasi/NC) candidato a bonifica**: la pagina
+    UI è stata rimossa il 29/08/2026 (release hardening, PRD §20) e il
+    router non ha più consumatori, ma gli store kv possono contenere dati
+    reali. Prima di rimuoverlo servono: decisione registrata, matrice
+    campo→consumer, sorte dei dati. Annotazione in
+    `server/routers/produzione.ts`; la vecchia route reindirizza a
+    `/kanban` (test in `server/routers/produzionePagina.test.ts`).
 
 ## 13. Cosa resta della piattaforma
 
@@ -1034,6 +1393,13 @@ funzionano: non erano l'agente, erano l'infrastruttura sotto. I flag di
 piattaforma vivono ora in `platform.flags` (`server/routers/platform.ts`);
 prima uscivano da `tars.config.get`, e con Tars sarebbe sparito anche lo
 stream SSE delle notifiche.
+
+**Limite noto:** `platform.flags` è di sola lettura. L'unico endpoint di
+scrittura (`tars.config.setPlatformFlags`) è stato rimosso con l'agente,
+quindi i flag sono congelati ai valori salvati per sede finché non verrà
+reintrodotto un endpoint direzione con motivazione e audit. Un cambio urgente
+richiede una finestra a servizio fermo — mai scritture sul DB con l'istanza
+viva (§12.8).
 
 Alcuni flag non hanno più un consumer — `contextEngineMode`, `plannerMode`,
 `semanticSearchMode`, `autonomyCapabilities` — e sono rimasti nel tipo perché

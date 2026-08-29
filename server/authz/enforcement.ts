@@ -12,7 +12,11 @@ export async function authorizeCoreOperation(input: {
   capability: Capability;
   resourceType: string;
   resource?: PolicyResource | null;
-  legacyAllowed?: boolean;
+  // `"capability"`: anche in policyMode legacy/audit la decisione è quella
+  // del motore (ruoli + override individuali). È il regime degli endpoint
+  // economici (slice 2): la matrice vale identica in ogni modalità, e un
+  // override per utente funziona senza aspettare `enforce`.
+  legacyAllowed?: boolean | "capability";
 }): Promise<void> {
   const sedeId = input.ctx.sedeId;
   const userId = input.ctx.user?.id;
@@ -37,7 +41,11 @@ export async function authorizeCoreOperation(input: {
     overrides,
   };
   const proposed = can(policyInput);
-  const legacyAllowed = input.legacyAllowed ?? true;
+  const seguiCapability = input.legacyAllowed === "capability";
+  const legacyAllowed: boolean =
+    input.legacyAllowed === "capability"
+      ? proposed.allowed
+      : (input.legacyAllowed ?? true);
 
   if (flags.policyMode === "audit") {
     await comparePolicyDecision({
@@ -51,7 +59,7 @@ export async function authorizeCoreOperation(input: {
     });
   }
 
-  if (flags.policyMode === "enforce") {
+  if (flags.policyMode === "enforce" || seguiCapability) {
     requireCapability(policyInput);
     return;
   }
@@ -61,4 +69,37 @@ export async function authorizeCoreOperation(input: {
       message: "Operazione non consentita dal profilo corrente.",
     });
   }
+}
+
+/**
+ * Le capability effettive dell'utente corrente (ruoli + override/deleghe
+ * attivi), calcolate una volta per richiesta. Serve alle letture che devono
+ * SAGOMARE il payload invece di rifiutarlo: i campi non autorizzati non
+ * partono proprio (slice 2, decisioni 4-5). Nessun throw: fuori sessione la
+ * risposta è l'insieme vuoto.
+ */
+export async function effectiveCapabilitySet(
+  ctx: Pick<TrpcContext, "user" | "sedeId" | "sediIds">,
+  capabilities: readonly Capability[]
+): Promise<Set<Capability>> {
+  const result = new Set<Capability>();
+  const sedeId = ctx.sedeId;
+  const userId = ctx.user?.id;
+  if (sedeId == null || userId == null) return result;
+  const overrides = await getPolicyRepository().listEffectiveOverrides({
+    sedeId,
+    userId,
+    now: new Date(),
+  });
+  const user = { ...ctx.user, attivo: true, sediIds: ctx.sediIds };
+  for (const capability of capabilities) {
+    const decision = can({
+      user,
+      capability,
+      activeSedeId: sedeId,
+      overrides,
+    });
+    if (decision.allowed) result.add(capability);
+  }
+  return result;
 }

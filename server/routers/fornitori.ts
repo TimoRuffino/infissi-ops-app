@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { DEFAULT_SEDE_ID } from "./sedi";
 import { assertSedeScope } from "../_core/permissions";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -121,6 +122,70 @@ export function getOrdiniPerMargine(commessaId: number, sedeId: number | null) {
       stato: o.stato,
       importoTotale: o.importoTotale ?? 0,
     }));
+}
+
+// Analisi documentale (D7): l'ordine con il nome del fornitore risolto,
+// senza passare dal router. Chi chiama applica lo scope di sede.
+export function getOrdineFornitoreById(id: number) {
+  const ordine = ordini.find((o) => o.id === id);
+  if (!ordine) return null;
+  return {
+    ordine,
+    fornitoreNome:
+      fornitori.find((f) => f.id === ordine.fornitoreId)?.ragioneSociale ??
+      null,
+  };
+}
+
+// L'UNICO modo giusto di risolvere un ordine dentro una sede: fallisce
+// chiuso (null) su qualunque mismatch. Usato da router e azioni del
+// gateway al posto delle copie locali con `?? 1` (revisione).
+export function getOrdineFornitoreInSede(id: number, sedeId: number) {
+  const trovato = getOrdineFornitoreById(id);
+  if (!trovato) return null;
+  if (((trovato.ordine as any).sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
+    return null;
+  }
+  return trovato;
+}
+
+// Collegamento assistito (D7 slice 2): tutti gli ordini della sede con il
+// fornitore risolto — il bacino dei candidati per un documento.
+export function getOrdiniFornitoreDiSede(sedeId: number) {
+  return ordini
+    .filter((o) => ((o as any).sedeId ?? DEFAULT_SEDE_ID) === sedeId)
+    .map((ordine) => ({
+      ordine,
+      fornitoreNome:
+        fornitori.find((f) => f.id === ordine.fornitoreId)?.ragioneSociale ??
+        null,
+    }));
+}
+
+// Centro Azioni (D7 slice 3): lettura degli ordini per i segnali di
+// conflitto consegna/posa. MAI mutare da fuori.
+export function getOrdiniFornitoriStore(): readonly OrdineFornitore[] {
+  return ordini;
+}
+
+// Approval gateway (D7 slice 3): l'UNICO comando che aggiorna la data di
+// consegna prevista di un ordine dopo la creazione. Non è un endpoint: lo
+// invoca soltanto `applicaProposta` del gateway, dopo approvazione umana
+// con doppia capability e con lo snapshot ancora fresco. Non tocca stato,
+// righe, prezzi o quantità.
+export function aggiornaDataConsegnaOrdine(
+  ordineId: number,
+  sedeId: number,
+  nuovaData: string
+): OrdineFornitore {
+  const ordine = ordini.find(
+    (o) => o.id === ordineId && ((o as any).sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
+  if (!ordine) throw new Error("Ordine non trovato.");
+  ordine.dataConsegnaPrevista = nuovaData;
+  ordine.updatedAt = new Date();
+  _ordiniStore.save();
+  return ordine;
 }
 
 // ── Router ──────────────────────────────────────────────────────────────────

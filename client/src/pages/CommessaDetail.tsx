@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import CollegaOrdineDialog from "@/components/documenti/CollegaOrdineDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -52,6 +53,7 @@ import {
   TrendingUp,
   ChevronDown,
   HardHat,
+  Link2,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
@@ -136,6 +138,10 @@ export default function CommessaDetail() {
   const commessaId = parseInt(params.id ?? "0");
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
+  // Kill switch Document Intelligence: la UI nasconde, il server decide.
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
   // commesse without a clienteId; in that case we fall back to editing only
@@ -216,6 +222,8 @@ export default function CommessaDetail() {
   // legittimo, e finora si poteva correggere solo ricaricando il file.
   const [rinominaDoc, setRinominaDoc] = useState<any>(null);
   const [rinominaForm, setRinominaForm] = useState({ nome: "", tipo: "altro" });
+  // Collegamento assistito documento → ordine fornitore (D7 slice 2).
+  const [collegaDoc, setCollegaDoc] = useState<any>(null);
 
   // Nuovo cliente inline
   const [nuovoClienteDialog, setNuovoClienteDialog] = useState(false);
@@ -1279,6 +1287,19 @@ export default function CommessaDetail() {
                       >
                         <Download className="h-3.5 w-3.5" />
                       </Button>
+                      {(d.mimeType ?? "").toLowerCase().includes("pdf") &&
+                        interruttori.data?.documentIntelligence && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Collega a un ordine fornitore"
+                          aria-label={`Collega ${d.nome} a un ordine fornitore`}
+                          onClick={() => setCollegaDoc(d)}
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -2180,6 +2201,12 @@ export default function CommessaDetail() {
         onDownload={() => previewDoc && downloadDocumento(previewDoc.id)}
       />
 
+      {/* Collegamento assistito documento → ordine fornitore */}
+      <CollegaOrdineDialog
+        documento={collegaDoc}
+        onClose={() => setCollegaDoc(null)}
+      />
+
       {/* Email preventivo dialog (mailto + auto-download) */}
       <Dialog
         open={!!rinominaDoc}
@@ -2583,6 +2610,12 @@ function PagamentiCard({
   const pattuitoQ = trpc.commesse.pattuito.useQuery(commessaId);
   const pattuitoDaFic = pattuitoQ.data?.fonte === "fic";
   const motivoBlocco = pattuitoQ.data?.motivoBlocco ?? null;
+  // Capability effettive (ruoli + override individuali): decidono se offrire
+  // i comandi di registrazione. Il registro stesso segue il payload: se il
+  // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
+  // di sicurezza resta comunque il server (slice 2).
+  const capacitaQ = trpc.permessi.mie.useQuery();
+  const puoRegistrare = (capacitaQ.data ?? []).includes("pagamento.record");
 
   const addPagamento = trpc.commesse.addPagamento.useMutation({
     onSuccess: () => {
@@ -2965,7 +2998,7 @@ function PagamentiCard({
               </Button>
             </div>
           </div>
-        ) : (
+        ) : puoRegistrare ? (
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
@@ -2995,7 +3028,7 @@ function PagamentiCard({
               </>
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

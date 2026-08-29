@@ -1,3 +1,7 @@
+// INFRASTRUTTURA CANDIDATA — nessun consumatore attivo dal 28/08/2026.
+// Helper LLM generico del template originale; l'agente che lo usava è stato
+// rimosso (docs/tars-rimosso-2026-08-28.md). Mantenerlo, sostituirlo o
+// eliminarlo è una decisione del design del nuovo agente, non una pulizia.
 import { ENV } from "./env";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";

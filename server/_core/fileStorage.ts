@@ -258,7 +258,19 @@ function makeS3Driver(cfg: S3Config): StorageDriver {
     },
     async get(key) {
       const res = await s3Request(cfg, "GET", key);
-      if (res.status === 404) return null;
+      if (res.status === 404) {
+        // S3/R2 rispondono 404 sia per chiave assente (NoSuchKey) sia per
+        // BUCKET assente o sbagliato (NoSuchBucket): il secondo non è un
+        // "file mancante", è una configurazione rotta — e la sonda
+        // read-only non deve dichiararla OK (revisione hardening).
+        const corpo = res.body.toString("utf8");
+        if (corpo.includes("NoSuchBucket")) {
+          throw new Error(
+            `STORAGE S3: bucket inesistente o errato (404 NoSuchBucket): ${corpo.slice(0, 200)}`
+          );
+        }
+        return null;
+      }
       if (res.status < 200 || res.status >= 300) {
         throw new Error(
           `STORAGE S3: lettura fallita (${res.status}): ${res.body.toString("utf8").slice(0, 300)}`
@@ -356,6 +368,38 @@ export type StorageProbeResult = {
   latencyMs: number;
   bytes: number;
 };
+
+export type StorageReadOnlyProbeResult = {
+  driver: StorageDriver["name"];
+  ok: true;
+  latencyMs: number;
+};
+
+/**
+ * Sonda di SOLA LETTURA: un GET su una chiave `_health/` inesistente prova
+ * endpoint, credenziali ed esistenza del bucket (404 NoSuchBucket lancia;
+ * la chiave mancante risponde null) senza scrivere MAI nulla. Nota per
+ * AWS con policy minime senza `s3:ListBucket`: il GET di una chiave
+ * assente può rispondere 403 → la sonda fallisce in modo CAUTO (falso
+ * allarme, mai falso OK); su R2 il 404 è la norma. La sonda completa
+ * put/get/delete resta `probeStorage`, separata e dichiarata
+ * (`pnpm storage:probe-write`).
+ */
+export async function probeStorageReadOnly(
+  driver: StorageDriver = getStorageDriver()
+): Promise<StorageReadOnlyProbeResult> {
+  assertDurableDriver(driver);
+  const started = Date.now();
+  const chiave = `_health/readonly-probe-${crypto.randomUUID()}.txt`;
+  const letto = await driver.get(chiave);
+  if (letto != null) {
+    // Non dovrebbe esistere: non lo tocchiamo, ma lo segnaliamo.
+    throw new Error(
+      `STORAGE: la chiave sonda ${chiave} esiste già — verifica manuale richiesta`
+    );
+  }
+  return { driver: driver.name, ok: true, latencyMs: Date.now() - started };
+}
 
 /** Put → get → checksum → delete, without leaving application data behind. */
 export async function probeStorage(

@@ -12,6 +12,7 @@ import {
   assertAdministrativeContinuity,
   getPolicyRepository,
 } from "../authz/repository";
+import { effectiveCapabilitySet } from "../authz/enforcement";
 import { getUtentiStore } from "./utenti";
 
 const capabilitySchema = z.enum(CAPABILITIES);
@@ -93,6 +94,23 @@ async function revokeActiveOverrides(input: {
 }
 
 export const permessiRouter = router({
+  /**
+   * Le capability effettive dell'utente autenticato nella sede attiva
+   * (ruoli + override/deleghe correnti). Serve alla UI per mostrare o
+   * nascondere superfici economiche con la STESSA policy del server —
+   * che resta comunque l'unico confine di sicurezza (slice 2).
+   */
+  mie: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.sedeId == null || ctx.user?.id == null) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Sessione non valida.",
+      });
+    }
+    const caps = await effectiveCapabilitySet(ctx, CAPABILITIES);
+    return Array.from(caps).sort();
+  }),
+
   preview: protectedProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input, ctx }) => {

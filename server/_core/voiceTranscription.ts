@@ -1,4 +1,7 @@
 /**
+ * INFRASTRUTTURA CANDIDATA — nessun consumatore attivo dal 28/08/2026.
+ * Decidere se tenerla durante il design del nuovo agente.
+ *
  * Voice transcription helper using internal Speech-to-Text service
  *
  * Frontend implementation guide:

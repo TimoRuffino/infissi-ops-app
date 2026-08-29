@@ -129,3 +129,6 @@ data/
 
 # Generated code knowledge graph (rebuild locally with /graphify)
 graphify-out/
+
+# Eval D7: documenti reali anonimizzati, MAI nel repository
+server/documenti/eval/casi-reali/

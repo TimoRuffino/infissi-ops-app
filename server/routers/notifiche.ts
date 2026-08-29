@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { versioneRegistroPagamenti } from "../_core/commessaPayments";
 import { getCommesseStore } from "./commesse";
 import { getInterventiStore } from "./interventi";
 import { getTicketStore } from "./ticket";
@@ -307,8 +308,14 @@ export function buildNotifichePerUtente(
     const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
     if (!tot || residuo <= 0) continue;
     if (!(isOwnerOf(c) || isDirezione || ruoli.includes("amministrazione"))) continue;
+    // Notifica condivisa che può raggiungere un assegnatario senza
+    // `pagamento.read`: niente cifre nel testo, e l'id usa la versione del
+    // registro (conteggio+timestamp) al posto del residuo — un incasso
+    // parziale genera un id nuovo e quindi ri-notifica, ma dall'id non si
+    // ricostruisce alcun importo (slice 2). Le cifre vivono nella scheda e
+    // in /pagamenti, dietro capability.
     out.push({
-      id: `saldo-${c.id}-${residuo}`,
+      id: `saldo-${c.id}-${versioneRegistroPagamenti((c as any).pagamenti)}`,
       commessaId: c.id,
       commessaCodice: c.codice,
       cliente: c.cliente,
@@ -316,7 +323,7 @@ export function buildNotifichePerUtente(
       statoLabel: STATO_LABEL[c.stato] ?? c.stato,
       priorita: c.priorita,
       type: "consegna",
-      message: `Saldo residuo €${residuo.toLocaleString("it-IT")} su €${(tot as number).toLocaleString("it-IT")}`,
+      message: "Saldo residuo da incassare",
       severity: "warning",
       link: `/commesse/${c.id}`,
       createdAt: new Date(c.updatedAt),

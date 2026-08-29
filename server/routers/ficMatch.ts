@@ -3,7 +3,7 @@
 // La regola operativa è quella dettata dalla direzione: se anche UNO SOLO
 // fra telefono, nome, cognome, indirizzo o email della fattura coincide con
 // la commessa, la fattura le va allegata. Deterministico e spiegabile, come
-// `tars/match.ts` per le comunicazioni: nessun modello qui dentro.
+// `comunicazioni/match.ts` per le comunicazioni: nessun modello qui dentro.
 //
 // Ma "un segnale basta" vale solo finché nessun ALTRO dato dice il
 // contrario. Dal 27/08/2026 il matcher guarda anche le contraddizioni:

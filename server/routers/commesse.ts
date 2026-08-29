@@ -26,7 +26,12 @@ import {
 import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
-import { authorizeCoreOperation } from "../authz/enforcement";
+import {
+  authorizeCoreOperation,
+  effectiveCapabilitySet,
+} from "../authz/enforcement";
+import type { Capability } from "../authz/capabilities";
+import type { TrpcContext } from "../_core/context";
 import {
   fingerprintPagamento,
   normalizzaPagamentoLegacy,
@@ -103,6 +108,50 @@ function validateTransizione(statoAttuale: string, nuovoStato: string): void {
 }
 
 let nextId = 1;
+
+// ── Sagomatura economica (slice 2, R4) ──────────────────────────────────────
+// La matrice confermata dalla direzione il 28/08/2026
+// (docs/reports/slice-2-authz-economia-proposta.md): il registro pagamenti
+// richiede `pagamento.read`, costi e costo posa `economia.read`; la sintesi
+// della scheda (pattuito, incassato, piano rate) resta operativa per tutti.
+// I campi non autorizzati NON partono nel payload — il confine è il server,
+// la UI è solo la seconda protezione.
+
+const CAPACITA_ECONOMICHE: readonly Capability[] = [
+  "pagamento.read",
+  "economia.read",
+];
+
+function capacitaEconomiche(
+  ctx: Pick<TrpcContext, "user" | "sedeId" | "sediIds">
+): Promise<Set<Capability>> {
+  return effectiveCapabilitySet(ctx, CAPACITA_ECONOMICHE);
+}
+
+/** C'è ancora qualcosa da incassare? Un bit, mai una cifra. */
+function residuoPositivo(c: any): boolean {
+  const totale = Number(c?.importoTotale ?? 0);
+  if (!(totale > 0)) return false;
+  return totale - Number(c?.importoIncassato ?? 0) > 0;
+}
+
+/**
+ * La commessa come la può vedere questo utente. Con entrambe le capability
+ * l'oggetto passa intero (identico a prima della slice 2); senza, i dettagli
+ * vengono OMESSI — mai errori: la parte operativa resta usabile.
+ */
+function sagomaDettaglio(c: any, caps: ReadonlySet<Capability>): any {
+  const vedeRegistro = caps.has("pagamento.read");
+  const vedeCosti = caps.has("economia.read");
+  if (vedeRegistro && vedeCosti) return c;
+  const { pagamenti, costi, costoPosaStimato, ...resto } = c;
+  return {
+    ...resto,
+    nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
+    ...(vedeRegistro ? { pagamenti } : {}),
+    ...(vedeCosti ? { costi, costoPosaStimato } : {}),
+  };
+}
 
 // Per-commessa monotonic prodotto id counter (lives in memory; ids are unique
 // within a single commessa.prodotti array, which is all we need).
@@ -506,7 +555,7 @@ export const commesseRouter = router({
         archived: z.enum(["exclude", "only", "all"]).optional(),
       }).optional()
     )
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       let result = commesse.filter((c) => c.sedeId === ctx.sedeId);
       const scope = input?.archived ?? "exclude";
       if (scope === "exclude") {
@@ -534,32 +583,47 @@ export const commesseRouter = router({
       }
       // Strip the heavy `prodotti` array from list responses — list pages
       // never read it; only commesse.byId needs the full object.
+      const caps = await capacitaEconomiche(ctx);
+      const vedeCifre = caps.has("pagamento.read");
       return result
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        // prodotti/pagamenti restano fuori per non appesantire la lista, ma
-        // il CONTEGGIO degli acconti serve alla pagina Pagamenti per proporre
-        // la rata successiva: senza, suggeriva sempre "1° acconto".
-        .map(({ prodotti, pagamenti, ...rest }) => ({
-          ...rest,
-          nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
-          // L'anno di appartenenza lo decide il server: il filtro per anno
-          // della pagina Pagamenti se lo calcolava da solo con la stessa
-          // euristica scritta due volte, e due copie divergono.
-          anno: annoCommessa(rest as any),
-          // Sintesi delle lavorazioni per la colonna in lista: solo nome e
-          // quantità, non l'intero prodotto con dimensioni e note.
-          prodottiSintesi: (Array.isArray(prodotti) ? prodotti : []).map(
-            (p: any) => ({ nome: p.nome, quantita: p.quantita ?? 1 })
-          ),
-        }));
+        // prodotti/pagamenti/costi restano fuori per non appesantire la
+        // lista (nessuna pagina di lista li legge), ma il CONTEGGIO degli
+        // acconti serve alla pagina Pagamenti per proporre la rata
+        // successiva: senza, suggeriva sempre "1° acconto".
+        .map(({ prodotti, pagamenti, costi, costoPosaStimato, ...rest }) => {
+          void costi;
+          void costoPosaStimato;
+          const base = {
+            ...rest,
+            nPagamenti: Array.isArray(pagamenti) ? pagamenti.length : 0,
+            // Il chip «Da saldare» del Board usa SOLO questo bit: sul Board
+            // non viaggiano cifre (decisione direzione 28/08/2026).
+            daSaldare: residuoPositivo(rest),
+            // L'anno di appartenenza lo decide il server: il filtro per anno
+            // della pagina Pagamenti se lo calcolava da solo con la stessa
+            // euristica scritta due volte, e due copie divergono.
+            anno: annoCommessa(rest as any),
+            // Sintesi delle lavorazioni per la colonna in lista: solo nome e
+            // quantità, non l'intero prodotto con dimensioni e note.
+            prodottiSintesi: (Array.isArray(prodotti) ? prodotti : []).map(
+              (p: any) => ({ nome: p.nome, quantita: p.quantita ?? 1 })
+            ),
+          };
+          if (vedeCifre) return base;
+          const { importoTotale, importoIncassato, ...senzaCifre } = base;
+          void importoTotale;
+          void importoIncassato;
+          return senzaCifre;
+        });
     }),
 
-  byId: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+  byId: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
     const commessa = commesse.find((c) => c.id === input);
     // Cross-sede isolation: only return the commessa if it belongs to the
     // active sede. Mismatch → null (treated as "not found" by the client).
     if (!commessa || commessa.sedeId !== ctx.sedeId) return null;
-    return commessa;
+    return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
   }),
 
   create: protectedProcedure
@@ -703,7 +767,7 @@ export const commesseRouter = router({
         updatedAt: now,
         link: `/commesse/${commessa.id}`,
       });
-      return commessa;
+      return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
     }),
 
   update: protectedProcedure
@@ -908,13 +972,13 @@ export const commesseRouter = router({
           link: `/commesse/${commesse[idx].id}`,
         });
       }
-      return commesse[idx];
+      return sagomaDettaglio(commesse[idx], await capacitaEconomiche(ctx));
     }),
 
   // Dedicated endpoint for confirming delivery date when stato hits produzione
   confermaDataConsegna: protectedProcedure
     .input(z.object({ id: z.number(), dataConsegna: z.string() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
@@ -924,7 +988,7 @@ export const commesseRouter = router({
         updatedAt: new Date(),
       };
       _store.save();
-      return commesse[idx];
+      return sagomaDettaglio(commesse[idx], await capacitaEconomiche(ctx));
     }),
 
   delete: protectedProcedure
@@ -967,9 +1031,17 @@ export const commesseRouter = router({
 
   // Latest acconti across the sede — feeds the Pagamenti page "ultimi
   // incassi" strip without shipping every register in commesse.list.
+  // Vista cassa: richiede `pagamento.read` in ogni policyMode (slice 2).
   pagamentiRecenti: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(50).default(15) }).optional())
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.pagamentiRecenti",
+        capability: "pagamento.read",
+        resourceType: "commessa",
+        legacyAllowed: "capability",
+      });
       const out: any[] = [];
       for (const c of commesse) {
         if (c.sedeId !== ctx.sedeId) continue;
@@ -1346,10 +1418,21 @@ export const commesseRouter = router({
       tipo: z.enum(["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"]).nullable().optional(),
       note: z.string().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      // Scrivere denaro richiede `pagamento.record` in ogni policyMode:
+      // amministrazione/direzione dal ruolo, gli altri solo con un override
+      // individuale con audit (slice 2, decisione 3).
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.addPagamento",
+        capability: "pagamento.record",
+        resourceType: "commessa",
+        resource: { sedeId: commesse[idx].sedeId, sensitivity: "economic" },
+        legacyAllowed: "capability",
+      });
       const c = commesse[idx];
       if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
       const nextPid = c.pagamenti.length
@@ -1376,7 +1459,9 @@ export const commesseRouter = router({
       ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
-      return c;
+      // Chi ha solo l'override `record` non possiede `read`: la risposta
+      // torna sagomata come qualsiasi lettura.
+      return sagomaDettaglio(c, await capacitaEconomiche(ctx));
     }),
 
   updatePagamento: protectedProcedure
@@ -1389,10 +1474,18 @@ export const commesseRouter = router({
       tipo: z.enum(["acconto_1", "acconto_2", "acconto_3", "acconto_4", "acconto_5", "saldo"]).nullable().optional(),
       note: z.string().nullable().optional(),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.updatePagamento",
+        capability: "pagamento.record",
+        resourceType: "commessa",
+        resource: { sedeId: commesse[idx].sedeId, sensitivity: "economic" },
+        legacyAllowed: "capability",
+      });
       const c = commesse[idx];
       const p = (c.pagamenti ?? []).find((x: any) => x.id === input.pagamentoId);
       if (!p) throw new Error("Acconto non trovato");
@@ -1412,7 +1505,9 @@ export const commesseRouter = router({
       ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
-      return c;
+      // Chi ha solo l'override `record` non possiede `read`: la risposta
+      // torna sagomata come qualsiasi lettura.
+      return sagomaDettaglio(c, await capacitaEconomiche(ctx));
     }),
 
   correggiPagamento: protectedProcedure
@@ -1433,12 +1528,22 @@ export const commesseRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
-      requireDirezioneOAmministrazione(ctx.user);
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Commessa non trovata" });
       }
       assertSedeScope(commesse[idx], ctx.sedeId);
+      // Stessa capability delle altre scritture sul registro: il perimetro
+      // di ruolo resta amministrazione/direzione, l'override individuale
+      // può estenderlo con audit (slice 2).
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.correggiPagamento",
+        capability: "pagamento.record",
+        resourceType: "commessa",
+        resource: { sedeId: commesse[idx].sedeId, sensitivity: "economic" },
+        legacyAllowed: "capability",
+      });
       const commessa = commesse[idx];
       const pagamento = (commessa.pagamenti ?? []).find(
         (item: any) => item.id === input.pagamentoId
@@ -1549,15 +1654,23 @@ export const commesseRouter = router({
           pagamentoId: input.pagamentoId,
         });
       }
-      return commessa;
+      return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
     }),
 
   removePagamento: protectedProcedure
     .input(z.object({ commessaId: z.number(), pagamentoId: z.number() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "commesse.removePagamento",
+        capability: "pagamento.record",
+        resourceType: "commessa",
+        resource: { sedeId: commesse[idx].sedeId, sensitivity: "economic" },
+        legacyAllowed: "capability",
+      });
       const c = commesse[idx];
       if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
       const pi = c.pagamenti.findIndex((p: any) => p.id === input.pagamentoId);
@@ -1573,7 +1686,9 @@ export const commesseRouter = router({
       ricalcolaImportoIncassato(c);
       c.updatedAt = new Date();
       _store.save();
-      return c;
+      // Chi ha solo l'override `record` non possiede `read`: la risposta
+      // torna sagomata come qualsiasi lettura.
+      return sagomaDettaglio(c, await capacitaEconomiche(ctx));
     }),
 
   // ── Prodotti desiderati (embedded list on commessa) ────────────────────────
@@ -1665,13 +1780,36 @@ export const commesseRouter = router({
   }),
 
   // Aggregated by priority for dashboard card
-  byPriorita: protectedProcedure.query(({ ctx }) => {
+  byPriorita: protectedProcedure.query(async ({ ctx }) => {
+    const caps = await capacitaEconomiche(ctx);
+    const vedeCifre = caps.has("pagamento.read");
     const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
     for (const c of commesse) {
       if (c.sedeId !== ctx.sedeId) continue;
       if (c.archivedAt) continue;
       if (c.stato === "archiviata") continue;
-      if (buckets[c.priorita]) buckets[c.priorita].push(c);
+      if (!buckets[c.priorita]) continue;
+      // La Dashboard non legge mai registro, costi o prodotti: fuori dal
+      // payload per tutti. Le cifre viaggiano solo con `pagamento.read`;
+      // per gli altri resta il bit `daSaldare` (slice 2).
+      const {
+        pagamenti,
+        costi,
+        costoPosaStimato,
+        prodotti,
+        importoTotale,
+        importoIncassato,
+        ...resto
+      } = c;
+      void pagamenti;
+      void costi;
+      void costoPosaStimato;
+      void prodotti;
+      buckets[c.priorita].push({
+        ...resto,
+        daSaldare: residuoPositivo(c),
+        ...(vedeCifre ? { importoTotale, importoIncassato } : {}),
+      });
     }
     // Sort each bucket newest first
     for (const k of Object.keys(buckets)) {
@@ -1693,34 +1831,36 @@ export const commesseRouter = router({
   // clears the flag. Safe to re-archive after restore.
   archive: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
+      const caps = await capacitaEconomiche(ctx);
       // Archive is the safe, reversible path — open to anyone in the sede.
-      if (commesse[idx].archivedAt) return commesse[idx];
+      if (commesse[idx].archivedAt) return sagomaDettaglio(commesse[idx], caps);
       commesse[idx] = {
         ...commesse[idx],
         archivedAt: new Date().toISOString(),
         updatedAt: new Date(),
       };
       _store.save();
-      return commesse[idx];
+      return sagomaDettaglio(commesse[idx], caps);
     }),
 
   restore: protectedProcedure
     .input(z.number())
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
       if (idx === -1) throw new Error("Commessa non trovata");
       assertSedeScope(commesse[idx], ctx.sedeId);
-      if (!commesse[idx].archivedAt) return commesse[idx];
+      const caps = await capacitaEconomiche(ctx);
+      if (!commesse[idx].archivedAt) return sagomaDettaglio(commesse[idx], caps);
       commesse[idx] = {
         ...commesse[idx],
         archivedAt: null,
         updatedAt: new Date(),
       };
       _store.save();
-      return commesse[idx];
+      return sagomaDettaglio(commesse[idx], caps);
     }),
 });

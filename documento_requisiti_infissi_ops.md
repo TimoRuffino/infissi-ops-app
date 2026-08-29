@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (26/08/2026).
-**Versione:** 5.0 - Tars rimosso: il CRM torna interamente deterministico.
+**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
+**Versione:** 5.11 - Release hardening finale: checklist read-only davvero senza scritture (sonda storage separata con guardia di regressione), CI GitHub con OCR reale, misure d'immagine contro la baseline di main; sopra la revisione indipendente della v5.10. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -31,7 +31,7 @@ Pilastri:
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
 - **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
-- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), promemoria personali (giro immediato e poi ogni 15 s), watcher IMAP (ogni 60 s) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
+- **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), promemoria personali (giro immediato e poi ogni 15 s), poller IMAP (ogni 5 minuti, più watcher IDLE) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
 - **Nessun agente AI.** Tars è stato rimosso il 28/08/2026 e va rifatto da zero (§50). Ogni automatismo attuale è deterministico: match, regole e aritmetica, senza modelli.
@@ -97,7 +97,7 @@ Su ogni risposta HTTP:
 ## 4. Ruoli, permessi e gating
 
 ### 4.1 Set di ruoli
-- `direzione` — ammessi accesso completo + gestione utenti + sezioni gated (Squadre, Garanzie, Fornitori, Produzione, Utenti, Integrazioni avanzate).
+- `direzione` — ammessi accesso completo + gestione utenti + sezioni gated (Squadre, Garanzie, Fornitori, Utenti, Integrazioni avanzate).
 - `amministrazione` — focus su fatturazione, finiture, saldo.
 - `commerciale` — gestione clienti e commesse commerciali.
 - `tecnico_rilievi` — rilievi e misure.
@@ -112,7 +112,7 @@ Ogni utente ha `ruoli: string[]` (1–3 valori). Il campo legacy `ruolo` continu
 
 ### 4.3 Gating
 - **Lato server.** `protectedProcedure` su tutto il business; `adminProcedure` su mutazioni `utenti` e `system.notifyOwner`.
-- **Lato client.** Componente `RequireDirezione` su rotte `Garanzie`, `Squadre`, `Fornitori`, `Produzione`, `Utenti`. Le voci di sidebar corrispondenti sono filtrate con il flag `direzioneOnly`.
+- **Lato client.** Componente `RequireDirezione` su rotte `Garanzie`, `Squadre`, `Fornitori`, `Utenti`. Le voci di sidebar corrispondenti sono filtrate con il flag `direzioneOnly`.
 
 ---
 
@@ -374,7 +374,7 @@ Mostra: codice, badge priorità, cliente, città, indicatore di consegna (data c
 - **Bordo sinistro 3 px** colorato per priorità (urgente rosso, alta ambra, media blu, bassa grigio).
 - **Chip "fermo N gg"** quando la commessa non riceve update da ≥5 giorni (ambra) o ≥10 (rossa).
 - **Blocco prodotti magazzino**: primi 2 prodotti con data consegna corta (✓ verde arrivato, rosso in ritardo) + "+N altri prodotti" (vedi §36).
-- **Chip "Da saldare € N"** (rossa) nelle fasi `attesa_posa`/`finiture_saldo`/`interventi_regolazioni` quando il residuo pagamenti è > 0 (vedi §37).
+- **Chip "Da saldare"** (rossa, senza importo) nelle fasi `attesa_posa`/`finiture_saldo`/`interventi_regolazioni` quando il residuo pagamenti è > 0. Dal 28/08/2026 il Board non trasporta cifre: il chip usa il solo booleano `daSaldare` del server, e gli importi vivono nella scheda e in `/pagamenti`, dietro capability (§37.5).
 
 ### 11.2‑bis Colonne con overflow
 Ogni colonna mostra al massimo **5 card**; oltre compare il toggle tratteggiato "Mostra altre N" / "Mostra meno" per non forzare scroll infiniti.
@@ -549,9 +549,202 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 - Campi: `fornitoreId, nome, versione, dataValidita, nomeFile, tipo (pdf|excel|altro), note?`.
 - I listini sono solo metadati: il file effettivo viene gestito altrove (cartella condivisa o sezione documenti separata).
 
+### 19.4 Analisi delle conferme d'ordine (PDF) — 28/08/2026
+Prima slice della Document Intelligence (visione completa in §54.6; piano in
+`docs/reports/d7-document-intelligence-piano.md`). Dalla scheda ordine
+(direzione) il pannello «Conferma d'ordine (PDF)» analizza un documento del
+fascicolo della commessa dell'ordine:
+
+- **Pipeline**: registro parser estendibile; oggi un solo parser,
+  `pdf-testo-nativo` (unpdf, testo per pagina). Il run è persistito in
+  `documenti_analisi` con impronta SHA-256 dei byte e versioni di
+  parser/estrattore/confronto: lo stesso file non produce due run
+  (idempotente); la rielaborazione esplicita conserva lo storico.
+- **Estrazione deterministica** con evidenza obbligatoria per ogni valore
+  (pagina, frammento, metodo, confidenza, eventuali letture alternative):
+  riferimento al nostro ordine, codici commessa citati, fornitore, numero e
+  data della conferma, date/settimane di consegna, totale documento,
+  riscontro delle righe per codice articolo (best-effort, confidenza bassa).
+  Nessun modello: il testo del documento è un dato inerte, e un prompt
+  injection nel PDF resta un frammento di evidenza.
+- **Confronto con l'ordine**: differenze tipizzate e ordinate per gravità —
+  consegna diversa o non dichiarata, totale diverso (tolleranza 50
+  centesimi), riferimento ordine assente, commessa incoerente, riga non
+  citata, quantità diversa.
+- **Nessuna scrittura su dati autorevoli**: l'analisi non tocca commesse,
+  ordini, righe, prezzi, date o stati. L'operatore legge le differenze e
+  aggiorna i dati dalle schede.
+- **Scansioni (aggiornato dalla quarta slice, 29/08/2026)**: un PDF senza
+  testo nativo passa dal **fallback OCR locale** (v. sotto). Se l'OCR
+  riconosce testo, il run diventa `analizzata` con parser `pdf-ocr`,
+  confidenze dichiarate e — sotto soglia — marcatura «DA VERIFICARE». Se
+  l'OCR non è disponibile, fallisce, va in timeout o non riconosce nulla,
+  il documento resta `scansione_senza_testo` con il MOTIVO esplicito: il
+  contenuto non compreso non viene mai presentato come analizzato (campi e
+  confronto compaiono solo con stato `analizzata`). File corrotti, cifrati
+  o di formato non supportato producono gli stati espliciti `illeggibile` /
+  `non_supportato` con il motivo.
+
+**Collegamento assistito documento → ordine (28/08/2026, seconda slice).**
+Da «File e documenti» della scheda commessa, l'azione «Collega a un ordine
+fornitore» su un PDF apre il dialog dei candidati:
+
+- i candidati sono generati **deterministicamente** su tutti gli ordini
+  della sede, con un punteggio spiegabile per segnali in ordine di forza —
+  codice d'ordine citato (100), codice commessa (60), fornitore (40),
+  codici articolo (15 l'uno, massimo 45), data di consegna coincidente (15),
+  totale coincidente (15) — ognuno con la sua evidenza (pagina e
+  frammento). Il segnale sul totale è calcolato SOLO per chi ha
+  `economia.read`: la sua presenza è un oracolo di uguaglianza sugli
+  importi, e per gli altri ruoli non esiste (v5.10);
+- l'esito è uno di quattro stati espliciti: `certa` (un solo ordine citato
+  per codice), `candidata` (plausibile, da confermare), `ambigua` (più
+  ordini equivalenti: MAI un collegamento automatico), `assente`. Anche con
+  `certa` il collegamento nasce SOLO dalla conferma umana;
+- il collegamento è un dato separato (`documenti_collegamenti_ordini`) che
+  non altera documento, ordine o commessa; è idempotente, rileva i
+  duplicati per impronta, e porta un audit append-only di conferme, rifiuti
+  e annullamenti (utente, momento, motivo). La correzione è annulla +
+  riconferma; un candidato rifiutato non viene più proposto come certo
+  finché un umano non lo riconferma esplicitamente;
+- autorizzazione via capability `commessa.manage_documents` decisa dal
+  motore in ogni `policyMode` (direzione dal ruolo, gli altri sulla
+  commessa posseduta o assegnata, override individuali inclusi): nessun
+  ruolo hardcoded. Sedi isolate: documento e ordine di un'altra sede sono
+  `NOT_FOUND`;
+- un documento collegato può essere analizzato dall'ordine (§19.4) anche se
+  archiviato nel fascicolo di un'altra commessa: la decisione umana prevale
+  sulla posizione del file, che comunque non viene spostato.
+
+**Approval gateway delle proposte documentali (29/08/2026, terza slice).**
+Le differenze rilevate dall'analisi possono diventare **proposte di
+azione**, mai effetti diretti. Il gateway (`server/proposte/gateway.ts`) è
+una fondazione generale e tipizzata, separata dai router business, la
+stessa su cui poggerà il futuro agente:
+
+- **registro chiuso dei tipi di azione**: l'unico oggi è
+  `ordine_fornitore.aggiorna_data_consegna` (la data di consegna prevista
+  dell'ordine fornitore). Niente prezzi, quantità, righe, stati o
+  configurazioni;
+- ogni proposta porta documento, evidenza (pagina e frammento), valore
+  corrente al momento della generazione, valore proposto, motivazione,
+  versioni dei componenti, autore `sistema`, sede/commessa/ordine, chiave
+  d'idempotenza, scadenza (30 giorni) e cronologia append-only;
+- macchina a stati: `proposta → approvata → applicata | fallita`, con
+  `rifiutata`, `annullata`, `scaduta` (tempo) e `obsoleta` (il valore
+  corrente non corrisponde più allo snapshot: serve una nuova revisione,
+  controllata PRIMA di ogni approvazione e applicazione);
+- **doppio requisito di capability** per approvare e applicare:
+  `documento.approve_proposals` (dedicata alle proposte) E la capability
+  dell'operazione finale dichiarata dal tipo (`fornitore.manage_ordini`).
+  Default: direzione e ruolo `ordini`; gli altri con override individuali.
+  Nessun ruolo hardcoded nei router; sedi isolate con `NOT_FOUND`;
+- l'applicazione riesegue autorizzazione, sede e freschezza, mostra
+  l'effetto esatto («10/09/2026 → 24/09/2026, nessun altro campo viene
+  modificato») e chiede una conferma esplicita in due passi. Un errore
+  produce `fallita` col motivo, mai un effetto parziale nascosto;
+- l'applicazione NON sposta posa, appuntamenti o stati della commessa: se
+  la nuova consegna cade dopo una posa pianificata, il **Centro Azioni**
+  apre/aggiorna un caso (`consegna_fornitore`, priorità alta o critica se
+  la posa è entro 7 giorni) con l'evidenza documentale e l'azione «Rivedi
+  la pianificazione della posa» — che propone la revisione, senza
+  eseguirla. Il caso si risolve da solo quando il conflitto sparisce;
+- UI nella scheda ordine (`/fornitori`): pannello «Proposte dall'analisi»
+  con stato, evidenza, motivazione ed effetto esatto; la generazione parte
+  dal run di analisi («Proponi l'aggiornamento della data di consegna»).
+
+**OCR locale per le scansioni (29/08/2026, quarta slice).** Tesseract 5
+eseguito in locale (`server/documenti/ocr.ts`): nessun servizio cloud,
+nessuna credenziale, i byte non lasciano la macchina.
+
+- **Sequenza**: prima l'estrazione del testo nativo; solo se assente, le
+  pagine vengono renderizzate in PNG con `pdftoppm` (Tesseract non legge i
+  PDF) e riconosciute una per una in TSV, conservando pagina e confidenza
+  per parola; il testo passa poi dallo stesso estrattore deterministico e
+  dallo stesso confronto del testo nativo;
+- **lingue configurabili** via `OCR_LINGUE` (default `ita+eng`, tedesco
+  predisposto): si usa l'intersezione tra richieste e installate, con
+  avvertenza per le mancanti; nessuna lingua utilizzabile = fallimento
+  esplicito;
+- **limiti e sicurezza**: 15 MB, 20 pagine, 300 DPI, timeout per pagina
+  (30 s) e complessivo (120 s), una pipeline alla volta; processi avviati
+  con `execFile` e argomenti fissi (mai shell), directory temporanee
+  isolate e SEMPRE ripulite; il testo OCR resta input non fidato e inerte;
+- **niente fallback silenziosi**: binario mancante, lingua mancante,
+  timeout, rendering fallito e «nessun testo riconosciuto» sono esiti
+  espliciti con motivo, e il documento resta `scansione_senza_testo`;
+- **confidenza**: media per pagina dichiarata nel run; sotto le soglie
+  (media < 80, o una pagina < 60) il run è marcato **da verificare** e la
+  UI lo mostra («Analizzata con OCR — DA VERIFICARE»); una proposta
+  generata da un run OCR a bassa confidenza porta l'avvertenza nella
+  motivazione. Nessun valore estratto viene mai applicato in automatico
+  (vale il gateway della terza slice);
+- **idempotenza**: la firma OCR (versione, lingue effettive, DPI) fa parte
+  della chiave dei run: una scansione ferma per OCR assente torna
+  analizzabile quando l'OCR compare o cambia configurazione, senza perdere
+  lo storico;
+- **deploy**: `nixpacks.toml` installa via apt `tesseract-ocr` con
+  `ita/eng/deu` e `poppler-utils` (~60-80 MB di immagine). In locale
+  servono `tesseract` e `poppler` (Homebrew); le lingue non installate
+  degradano con avvertenza.
+
+**Framework di valutazione (29/08/2026, quinta slice).**
+`server/documenti/eval/` misura la pipeline su fixture sintetiche
+costruite in codice (PDF nativi e scansioni VERE: testo → rendering →
+immagine): riferimento esatto, inglese, multipagina, tabella spezzata,
+valori discordanti, ordine ambiguo, codici ordine e articolo simili,
+prompt injection, duplicato, file corrotto, scansione pulita/storta/bassa
+risoluzione/multipagina, timeout OCR.
+
+- **Metriche separate**: correttezza e copertura per campo, precisione
+  del collegamento (con il contatore delle «certa» sbagliate, che deve
+  restare 0), precisione delle differenze, falsi positivi, confidenza
+  OCR, tempo per pagina, percentuale di documenti da rivedere;
+- `pnpm eval:documenti` genera il report in `docs/reports/`; i test
+  (`eval.test.ts`) inchiodano SOLO i comportamenti deterministici
+  (nativo perfetto, injection inerte, ambiguità mai «certa», corrotto
+  illeggibile, timeout esplicito) e NON asseriscono soglie OCR;
+- **i numeri sintetici non sono accuratezza produttiva**: la misura vera
+  arriverà dai casi reali anonimizzati in
+  `server/documenti/eval/casi-reali/` (cartella in `.gitignore`, mai nel
+  repository), con `atteso.json` accanto a ogni PDF — procedura nel
+  report baseline;
+- il framework ha già ripagato: ha scoperto il match senza confini dei
+  riferimenti (ORD-EV-10 riconosciuto dentro ORD-EV-100, FIN-100 dentro
+  FIN-1000), corretto in `trovaRiferimentoTesto` e nel riscontro righe.
+
+**Kill switch (29/08/2026, release hardening).** Tre interruttori
+indipendenti via env (`server/platform/interruttori.ts`), **spenti di
+default in produzione** e accesi in sviluppo/test:
+`FLAG_DOCUMENT_INTELLIGENCE` (analisi + collegamento),
+`FLAG_PROPOSTE` (approval gateway), `FLAG_OCR` (fallback OCR, che a flag
+spento produce `scansione_senza_testo` con motivo e firma `assente`).
+Il confine è il server: ogni endpoint verifica il proprio interruttore e
+risponde `PRECONDITION_FAILED` a flag spento, per qualunque ruolo — i
+test dimostrano che l'API non si aggira. La UI legge
+`platform.interruttori` e nasconde le superfici spente. Rollout
+progressivo e rollback: `docs/runbooks/rollout-document-intelligence.md`.
+
 ---
 
-## 20. Produzione (`/produzione`, direzione‑only)
+## 20. Produzione (backend senza pagina; UI rimossa il 29/08/2026)
+
+**La pagina UI `/produzione` è stata rimossa** (release hardening v5.8):
+non veniva utilizzata. La vecchia route **reindirizza al Board
+(`/kanban`)** — la colonna «Produzione» è la superficie operativa dove si
+seguono le commesse in quello stato, quindi i segnalibri salvati atterrano
+nel posto giusto invece che su una pagina vuota (`produzioneRedirect` in
+`client/src/lib/navigation.ts`, pattern `LegacyRedirect`).
+
+**Il backend resta intatto ed è CANDIDATO A BONIFICA FUTURA** (annotato in
+`server/routers/produzione.ts`): gli store `produzione_distinte` /
+`produzione_fasi` / `produzione_nc` possono contenere dati reali e il
+contratto BOM/fasi/NC è una regola di dominio — rimuoverlo richiede
+decisione registrata, matrice campo→consumer e sorte dei dati. Nulla di
+ciò che segue dipende dalla pagina: stato `produzione` della commessa,
+trigger §6.4, gate documentali e logiche di magazzino sono invariati
+(test: `server/routers/produzionePagina.test.ts`).
+
 Tre sotto‑router: `bom` (distinte base), `fasi`, `nc` (non conformità).
 
 ### 20.1 Distinte base (BOM)
@@ -663,7 +856,9 @@ responsabile, scadenza o revisione, evidenze e una sola prossima azione.
 ### 25.2 Segnali e deduplica
 Il motore puro raccoglie aging per priorità, passaggi bottleneck, routing per
 ruolo, consegna mancante, saldo residuo, garanzia, ticket e intervento senza
-squadra. Segnali della stessa commessa confluiscono in un solo caso canonico;
+squadra. I casi sono superfici condivise: il segnale del saldo non contiene
+importi e il suo fingerprint usa la versione del registro pagamenti, mai il
+residuo (§37.3, §37.5). Segnali della stessa commessa confluiscono in un solo caso canonico;
 ticket, garanzie e interventi senza commessa mantengono un caso autonomo. La
 priorità più alta non viene mai scartata e le altre cause restano come evidenze.
 
@@ -685,7 +880,7 @@ La vista personale include casi assegnati all'utente e casi non assegnati
 destinati a uno dei suoi ruoli. La vista `Tutta la sede` è riservata alla
 direzione. Ogni lookup applica `sedeId`; un id di altra sede restituisce
 `NOT_FOUND`. Le API sono `notifiche.summary`, `notifiche.cases.*` e
-`notifiche.brief`. Liste e apertura pagina non chiamano OpenAI.
+`notifiche.brief`. Liste e apertura pagina non chiamano alcun provider AI.
 
 ### 25.5 Rollout e fallback
 `ACTION_CENTER_MODE` accetta `legacy`, `shadow`, `active` e vale `shadow` se
@@ -720,7 +915,7 @@ retry. Cambio sede e logout azzerano la cache prima di cambiare principal.
 - Fonti, ordinate per urgenza e cap a 8 voci:
   1. Interventi di **oggi senza squadra** (CTA "Apri calendario").
   2. Commesse **urgenti** / ticket urgenti / garanzie scadute.
-  3. **Da incassare € N** — residuo pagamenti nelle fasi finali.
+  3. **Da incassare** — residuo pagamenti nelle fasi finali. L'importo compare solo per chi ha `pagamento.read` (il server lo omette agli altri, che leggono «Da incassare il saldo», §37.5).
   4. **Consegne da confermare** (CTA "Conferma consegna").
   5. Ticket aperti sulle proprie commesse.
   6. Garanzie in scadenza 30 gg (direzione/amministrazione).
@@ -736,7 +931,7 @@ Slot 7 giorni con eventi per tipo (filtri per calendario) + navigazione settiman
 
 ## 27. Integrazioni esterne (`/integrazioni` = Impostazioni)
 
-La pagina Impostazioni ospita l'hub **Gestione** (direzione‑only: Fornitori, Produzione, Squadre, Garanzie, Preventivatori) e le card integrazioni:
+La pagina Impostazioni ospita l'hub **Gestione** (direzione‑only: Fornitori, Squadre, Garanzie, Preventivatori) e le card integrazioni:
 
 ### 27.1 Backup notturno su Google Drive
 Vedi §39. Card con stato collegamento, ultimo backup, prossima esecuzione, "Esegui ora", collega/scollega account.
@@ -819,7 +1014,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - **Header delle schede** (commessa, cliente): su viewport < `sm` il titolo e la riga di azioni si impilano (`flex-col` → `sm:flex-row`) e i bottoni vanno a capo (`flex-wrap`) invece di uscire dallo schermo.
 - **Tabelle di lista** (Commesse, Clienti): le colonne secondarie sono nascoste progressivamente con `hidden {sm|md|lg|xl}:table-cell`, così su telefono restano solo le essenziali — Codice/Cliente/Stato per le commesse, Nome/Telefono per i clienti — con padding ridotto (`px-3`) sulle colonne mantenute. **Non** viene usato un wrapper `overflow-x-auto`: creerebbe un contenitore di scroll che romperebbe gli header `sticky` (regressione già occorsa e corretta in passato).
 - Board, Calendario, Dashboard, Pagamenti e Magazzino riflowano nativamente (griglie responsive + `flex-wrap`); nessuno scroll orizzontale di pagina.
-- Le tabelle delle sezioni direzione‑only a bassa frequenza (Fornitori, Produzione) restano larghe: sono pensate per l'uso da desktop.
+- Le tabelle delle sezioni direzione‑only a bassa frequenza (Fornitori) restano larghe: sono pensate per l'uso da desktop.
 
 ### 29.4 Empty states
 - Tutte le pagine principali hanno empty state esplicito con istruzioni sul prossimo passo.
@@ -848,6 +1043,9 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 31.2 Ottimizzazione
 - **Attivazione object storage:** il layer per-file è completo; restano configurazione R2 su Railway, probe, backup Drive, dry-run sui dati reali e apply (§47). Il dry-run locale senza `DATABASE_URL` non è una verifica della produzione.
 - Aggregato dashboard in un unico endpoint per ridurre il fan‑out lato client.
+- **Flag di piattaforma:** reintrodurre un endpoint direzione con motivazione e
+  audit — `platform.flags` è di sola lettura dal 28/08/2026 e i flag sono
+  congelati ai valori salvati (§53.2).
 
 ### 31.3 UX
 - Drag&drop diretto sulle colonne del Kanban (oggi solo bottoni avanza/indietro).
@@ -859,6 +1057,8 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - Esportazione CSV/Excel commesse, clienti, anomalie.
 - Web Push e avvisi email per i promemoria a CRM chiuso (fuori ambito v4.30).
 - UI di restore dal backup Drive.
+- Mutation manuale di archiviazione allegati WhatsApp nel fascicolo: il
+  percorso passava dalle proposte dell'agente rimosso (§51.3, limite noto).
 
 ---
 
@@ -877,6 +1077,17 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.11 (29/08/2026)** - Chiusura della PR #1: (1) `pnpm storage:check` è ora SOLA LETTURA (configurazione + GET su chiave inesistente); la sonda put/get/delete è lo script separato `storage:probe-write` con flag `--scrivi` obbligatorio, e `server/_core/checklistReadOnly.test.ts` impedisce staticamente e comportamentalmente che la checklist read-only torni a contenere scritture non dichiarate. (2) Prima CI GitHub (`.github/workflows/ci.yml`): install deterministico, typecheck, test mirati DI, suite completa, build, verifica di Tesseract/Poppler e lingue ita/eng/deu sul runner, working tree pulito dopo i test; job eval separato e non bloccante con artifact. (3) Immagine Nixpacks misurata contro la baseline di `main` (f0bb919): l'unico layer di produzione aggiunto è l'apt OCR da 163 MB unpacked (~+7%); nessuna dipendenza npm nuova; le devDependencies nell'immagine sono lo status quo di main (ottimizzazione futura possibile, non applicata). (4) Risposte documentate ai rilievi Graphify: `annunciaAzioniAutonome`/`annunciaDecisioneProposta` rimossi con zero consumer già su main (annunci del vecchio Tars), `annunciaAssegnazione` vivo e conservato; ComponentShowcase rimosso in 1310001 senza route/import residui; `daSaldare` decisione di policy (§37.5) con test dedicati.
+- **v5.10 (29/08/2026)** - Revisione indipendente dell'intero diff (quattro revisori: correttezza server, sicurezza authz, client/convenzioni, qualità) e correzione di TUTTI i rilievi Critical/Important più i minori a basso costo: confini obbligatori su ogni ricerca di riferimento (ORD-10 mai dentro ORD-100, anche per riferimentoOrdine/fornitoreCitato); segnale «totale coincidente» calcolato solo per chi ha `economia.read` (chiuso l'oracolo di uguaglianza sugli importi); kill switch FAIL-CLOSED (accesi solo con NODE_ENV development/test) e spostati nella base procedure (`procedureConInterruttore`); `proposte.genera` riverifica la coerenza VIVA documento↔ordine (un collegamento annullato non genera più proposte); idempotenza dei run estesa al contenuto dell'ordine (`ordineFirma`) con storico limitato a 10 run per coppia e guardia anti-doppio-click; date di calendario validate (31/02 rifiutato), importi con punteggiatura e migliaia all'italiana, priorità della consegna sulla spedizione; motivo per-proposta nella UI (audit corretto), importi via helper euro, dialog con descrizione accessibile; predicato del conflitto posa condiviso fra Centro Azioni e avviso post-applicazione; `/produzione/*` coperto dal redirect. Consapevolmente NON cambiati: fingerprint saldo (decisione privacy slice 2), nessun vincolo quattro-occhi proponente/approvatore (doppia capability è il contratto), dedup parseEuro in `shared/` (candidato a bonifica).
+- **v5.9 (29/08/2026)** - Release hardening: kill switch `FLAG_DOCUMENT_INTELLIGENCE` / `FLAG_PROPOSTE` / `FLAG_OCR` (§19.4), disattivati di default in produzione e verificati non aggirabili via API (`server/platform/interruttori.test.ts`); query `platform.interruttori` per la UI; runbook `docs/runbooks/rollout-document-intelligence.md` con rollout progressivo, rollback via flag, checklist post-deploy e nota sulla ri-notifica saldo una tantum.
+- **v5.8 (29/08/2026)** - Release hardening: rimossa la pagina UI `/produzione` (inutilizzata) con la card dell'hub Gestione; la vecchia route reindirizza al Board (`/kanban`, colonna Produzione). Backend BOM/fasi/NC conservato e annotato come candidato a bonifica (dati potenzialmente presenti negli store, contratto di dominio §20). Stati commessa, trigger §6.4, gate e magazzino invariati, con test dedicati.
+- **v5.7 (29/08/2026)** - Quinta slice della Document Intelligence (§19.4): framework di valutazione (`server/documenti/eval/`, `pnpm eval:documenti`) con 16 fixture sintetiche (nativi, scansioni vere anche storte/a bassa risoluzione, tabella spezzata, ambiguità, codici simili, injection, duplicato, corrotto, timeout) e metriche separate per campo/collegamento/differenze/OCR/tempi/revisione. Nessuna soglia dichiarata sui sintetici; predisposto `casi-reali/` (gitignored) per i documenti veri anonimizzati. L'eval ha scoperto e fatto correggere il match senza confini dei riferimenti (ORD-10 dentro ORD-100, FIN-100 dentro FIN-1000).
+- **v5.6 (29/08/2026)** - Quarta slice della Document Intelligence (§19.4): OCR locale con Tesseract 5 come fallback esplicito per i PDF scansionati — rendering pagina per pagina via poppler, TSV con confidenze, lingue configurabili (`OCR_LINGUE`, default `ita+eng`, `deu` predisposto), limiti su dimensione/pagine/tempo/concorrenza, esiti espliciti per binario mancante/lingua mancante/timeout/OCR fallito, marcatura «da verificare» sotto soglia di confidenza, firma OCR nell'idempotenza dei run. Nessun servizio cloud; immagine di deploy +~60-80 MB (apt: tesseract-ocr ita/eng/deu, poppler-utils).
+- **v5.5 (29/08/2026)** - Terza slice della Document Intelligence (§19.4): approval gateway generale e tipizzato (`server/proposte/`) con registro chiuso delle azioni, stati espliciti (proposta/approvata/rifiutata/applicata/fallita/annullata/scaduta/obsoleta), idempotenza, scadenza e cronologia append-only. Prima azione applicabile: aggiornare la data di consegna prevista dell'ordine fornitore, con doppia capability (`documento.approve_proposals` + `fornitore.manage_ordini`), verifica di freschezza e conferma esplicita in due passi. Il conflitto con la posa diventa un caso del Centro Azioni (`consegna_fornitore`); nessuna ripianificazione automatica.
+- **v5.4 (28/08/2026)** - Seconda slice della Document Intelligence (§19.4): collegamento assistito documento→ordine con candidati deterministici a punteggio spiegabile (codice ordine > commessa > fornitore > articoli > date > totali), quattro stati espliciti (certa/candidata/ambigua/assente), conferma umana obbligatoria, rifiuti e annullamenti auditati, idempotenza e duplicati per impronta, capability `commessa.manage_documents` senza ruoli hardcoded. Il collegamento non modifica documento, ordine o commessa.
+- **v5.3 (28/08/2026)** - Prima slice della Document Intelligence (§19.4): analisi deterministica delle conferme d'ordine PDF dalla scheda ordine — registro parser, estrazione con evidenze per pagina, confronto con l'ordine per gravità, run idempotenti con impronta e versioni. Nessuna scrittura su dati autorevoli. Limite dichiarato: le scansioni senza testo producono uno stato esplicito e non vengono comprese finché non esiste un OCR.
+- **v5.2 (28/08/2026)** - Slice 2 «dati economici dietro capability» (§37.5): registro pagamenti, costi e margine viaggiano solo con `pagamento.read`/`economia.read` (payload sagomati, mai errori sulla parte operativa); scritture acconti dietro `pagamento.record` con override individuale auditato; `/pagamenti` riservata; Board, liste, Dashboard, Centro Azioni e notifiche senza importi (bit `daSaldare` e versione del registro al posto delle cifre); `permessi.mie` per la parità di policy nella UI. La matrice vale identica in ogni `policyMode` (`legacyAllowed: "capability"`).
+- **v5.1 (28/08/2026)** - Riconciliazione documentale post-rimozione: §51 e §53 riscritti sul comportamento corrente (nessuna classificazione automatica, nessuna proposta, flag di sola lettura, limite noto sugli allegati WhatsApp); §40.4-40.5 allineati alla riconciliazione senza agente; nuova sezione §54 con la visione del futuro agente, marcata non implementata, inclusa la Document Intelligence decisa dalla direzione (§54.6, decisione D7): comprensione verificabile dei documenti — priorità alle conferme d'ordine PDF — da realizzare dopo la slice authz e prima delle capacità operative avanzate; correzioni minori (poller IMAP a 5 minuti, route legacy). Il PDF `PRD_infissi_ops_v4.pdf` resta il riferimento storico della v4.
 - **v5.0 (28/08/2026)** - Tars rimosso per intero su richiesta della direzione: va rifatto da zero. L'infrastruttura comunicazioni (tabella, IMAP, WhatsApp, caselle, matcher, filtri) è stata spostata in `server/comunicazioni/` perché non era l'agente; la Conoscenza aziendale ha un router suo. I dati dell'agente sono stati esportati e cancellati. Smistamento automatico, proposte, classificazione AI dei costi e analisi dei casi non esistono più (§50).
 - **v4.33 (26/08/2026)** - Un promemoria con data e ora complete genera direttamente una sola proposta approvabile; Tars chiede soltanto i dati temporali mancanti e non aggiunge una conferma preliminare (§50.11).
 - **v4.32 (26/08/2026)** - Le proposte Tars pendenti o fallite possono essere eliminate dalla vista personale con conferma; restano nello store per audit e deduplicazione e continuano a essere visibili agli altri utenti autorizzati (§50.1).
@@ -1015,9 +1226,34 @@ chiave sorgente, stato remoto e date di sync/storno.
 - Accent warning sulla card finché c'è residuo.
 
 ### 37.3 Propagazione
-- Board: chip "Da saldare € N" nelle fasi finali (§11.2).
-- Dashboard: voce "Da incassare € N" nel feed personalizzato (§26.2).
-- Notifiche: fonte 4b (§25.2) — l'id embedde il residuo, un incasso parziale ri‑notifica il nuovo valore.
+- Board: chip "Da saldare" senza importo nelle fasi finali (§11.2).
+- Dashboard: voce "Da incassare" nel feed personalizzato (§26.2), con importo solo per chi ha `pagamento.read`.
+- Notifiche e Centro Azioni: il testo condiviso non contiene importi («Saldo residuo da incassare»); id e fingerprint usano la **versione del registro** (conteggio movimenti attivi + timestamp ultima modifica, `versioneRegistroPagamenti`), così un incasso parziale ri‑notifica e risveglia il caso senza che dall'identificativo si possa ricostruire una cifra.
+
+### 37.5 Autorizzazioni sui dati economici (28/08/2026)
+La matrice confermata dalla direzione (dettagli e decisioni in
+`docs/reports/slice-2-authz-economia-proposta.md`) è applicata **lato server**
+in ogni `policyMode`; la UI è solo la seconda protezione:
+
+- il registro `pagamenti[]` richiede `pagamento.read`; `costi[]`,
+  `costoPosaStimato` e il margine richiedono `economia.read`. `commesse.byId`
+  e le risposte delle mutation **omettono** i campi non autorizzati (nessun
+  errore: la parte operativa resta usabile, con `nPagamenti` come conteggio);
+- la sintesi della scheda — pattuito, incassato, residuo, piano rate — resta
+  visibile a chi lavora la commessa;
+- `commesse.list` e `commesse.byPriorita` non trasmettono cifre agli utenti
+  senza `pagamento.read`: espongono il solo booleano `daSaldare` (e non
+  trasportano mai registro, costi o prodotti);
+- registrare, modificare, rimuovere o correggere un acconto richiede
+  `pagamento.record`: amministrazione e direzione dal ruolo, gli altri solo
+  con un **override individuale** (`permessi.updateOverride`, motivato e
+  auditato in `policy_change_events`) — mai assegnato all'intero ruolo
+  commerciale;
+- la pagina `/pagamenti` («vista cassa di sede») e `pagamentiRecenti`
+  richiedono `pagamento.read`; la voce di sidebar segue la stessa policy via
+  `permessi.mie`;
+- le superfici condivise (Board, feed, casi operativi, notifiche) non
+  contengono importi né valori da cui ricostruirli (§37.3).
 
 ### 37.4 Pagina Pagamenti (`/pagamenti`)
 Vista cassa di sede, in sidebar dopo Magazzino. Mostra solo commesse attive (no archiviate).
@@ -1135,39 +1371,43 @@ FiC pagate sincronizzano in modo deterministico e idempotente soltanto movimenti
 stornato resta auditabile e non alimenta `importoIncassato`. Una risposta
 incompleta non può stornare rate mancanti.
 
-Il sync non modifica mai i pagamenti manuali. Se un manuale compatibile è
-discordante, Tars crea una proposta `correzione_pagamento` approvabile; se i
-candidati sono più di uno, l'operatore seleziona la riga prima
-dell'approvazione. Le proposte soddisfatte o sostituite passano a `superata` e
-le guardie su fingerprint rendono no-op sicuri i dati già corretti o cambiati.
+Il sync non modifica mai i pagamenti manuali. Una discordanza fra un manuale
+compatibile e la rata FiC produce una **segnalazione tipizzata** nell'esito
+della sincronizzazione (`correggi_manuale`, oppure `scegli_manuale` quando i
+candidati sono più di uno) e la fattura resta `da_riconciliare`: decide
+l'operatore, modificando o rimuovendo il pagamento manuale. Esiste anche
+l'endpoint di correzione guidata `commesse.correggiPagamento`
+(direzione/amministrazione), che rivalida fingerprint del pagamento, rata FiC
+e link prima di scrivere; dal 28/08/2026 non ha una UI dedicata.
 La riconciliazione è uno-a-uno in entrambe le direzioni: una rata FiC ha un solo
 link attivo e lo stesso pagamento manuale non può rappresentare due rate, anche
 tra fatture diverse. Il risanamento sceglie il link più compatibile con importo
 e data indipendentemente dall'ordine delle rate; un pagamento FiC già persistito
 ma rimasto senza link viene recuperato senza crearne un secondo. I movimenti FiC
 associati ai link storici perdenti vengono stornati prima di superare il link;
-per un manuale perdente Tars propone invece una neutralizzazione separata senza
-spostare il collegamento canonico.
+per un manuale perdente il sync emette invece una segnalazione di storno da
+applicare a mano, senza spostare il collegamento canonico.
 
 Su una fattura multirata, una nota FiC esplicita ma incompatibile con tutte le
-rate blocca l'import automatico delle altre rate: Tars propone il riallineamento
-del manuale e il registro resta invariato finché l'operatore non decide. In
-questo modo l'incassato non contiene contemporaneamente il manuale discordante
-e nuovi movimenti FiC della stessa fattura. Il blocco riguarda soltanto nuove
-righe: aggiornamenti, storni e risanamento dei link già presenti continuano.
+rate blocca l'import automatico delle altre rate: la segnalazione indica il
+manuale da riallineare e il registro resta invariato finché l'operatore non
+decide. In questo modo l'incassato non contiene contemporaneamente il manuale
+discordante e nuovi movimenti FiC della stessa fattura. Il blocco riguarda
+soltanto nuove righe: aggiornamenti, storni e risanamento dei link già
+presenti continuano.
 
-Prima di ogni approvazione vengono riletti la rata FiC corrente, il pagamento
-CRM e il link attivo. Se importo, data, stato, sorgente o destinazione sono
-cambiati, la proposta passa a `superata` senza modificare il registro né
-generare un errore ripetibile. La card confronta `Nel CRM ora` con `FiC propone`,
-mostra l'effetto esatto su `importoIncassato` e non espone il comando se i dati
-di confronto non sono leggibili.
+Prima di applicare `correggiPagamento` vengono riletti la rata FiC corrente,
+il pagamento CRM e il link attivo: se importo, data, stato, sorgente o
+destinazione sono cambiati, la richiesta viene rifiutata con
+`PRECONDITION_FAILED` senza modificare il registro. Nessuna correzione può
+scrivere su dati diversi da quelli su cui è stata calcolata.
 
 Il documento PDF ufficiale, quando disponibile, viene archiviato nel fascicolo
 della commessa come file `fattura` dopo aver persistito il collegamento.
-Le fatture non abbinate entrano nel trigger `riconciliazione_fatture`: Tars può
-proporre un collegamento verificato oppure lasciarle non abbinate/ignorarle;
-non può applicare la scelta senza approvazione.
+Le fatture non abbinate restano in coda con i candidati del match esposti,
+compreso il motivo di scarto o d'incertezza (§40.4): si collegano a mano dopo
+conferma esplicita, si escludono dalla riconciliazione, oppure — se il cliente
+non ha commesse — si crea la commessa con «Crea le N commesse mancanti».
 
 Ogni sincronizzazione FiC ripara inoltre le fatture già collegate che non hanno
 ancora il PDF nel fascicolo. Il recupero considera soltanto collegamenti
@@ -1186,21 +1426,17 @@ snapshot indipendente: soltanto una paginazione completa può marcare
 collegamenti. Questo impedisce che documenti rimossi da FiC continuino a
 gonfiare i KPI.
 
-Tars classifica in lotto soltanto costi nuovi o variati, con output JSON
-strutturato e cache key stabile per sede/modello. Le regole confermate da un
-operatore prevalgono sul modello. Confidenza sotto soglia, risposta mancante o
-errore provider lasciano il costo `dubbio`, escluso dal pareggio e visibile
-nella revisione. La checkbox `Ricorda regola` è sempre una scelta esplicita.
+Dal 28/08/2026 nessun modello classifica i costi. Un documento nuovo entra
+`dubbio` e si classifica nella scheda Acquisti; le regole per fornitore
+confermate da un operatore (`Ricorda regola`, sempre una scelta esplicita) si
+applicano deterministicamente ai documenti successivi dello stesso fornitore,
+anche durante il sync. Un costo `dubbio` resta escluso dal pareggio e visibile
+nella revisione. Una classificazione manuale non viene mai sovrascritta.
 
 Il fatturato canonico è imponibile fatture meno imponibile note di credito. I
 costi canonici sono imponibile spese meno imponibile note passive. Solo rate
 `paid` alimentano incassi/uscite e solo `not_paid` alimentano aperti; altri
 stati sono esclusi finché non mappati esplicitamente.
-
-Lo strumento Tars `leggi_economia` riceve lo stesso contratto in forma compatta:
-fonte, periodo, contratti CRM separati, vendite/acquisti FiC, andamento mensile
-e affidabilità della copertura costi fissi, senza dump dei singoli documenti.
-
 
 ### 40.6 Pattuito e piano rate — fonte FiC (26/08/2026)
 Il pattuito (`importoTotale`) e il piano rate (`pianoRate[]`) di una commessa
@@ -1228,8 +1464,8 @@ rate non copre il pattuito.
 La ricorrenza (stesso fornitore e importo per almeno tre mesi consecutivi,
 tolleranza 50 centesimi) è solo una proposta. Un costo entra nel totale fisso
 e nel fatturato necessario a coprirlo soltanto dopo conferma nel registro
-aziendale, con importo, cadenza e validità. Tars e sync non possono confermare
-né sovrascrivere questa decisione.
+aziendale, con importo, cadenza e validità. Il sync non può confermare né
+sovrascrivere questa decisione.
 
 ### 40.8 Reset del pattuito (operazione una tantum)
 `scripts/reset-pattuiti.ts` azzera `importoTotale`, `pattuitoFonte`,
@@ -1471,7 +1707,7 @@ e rinominarla vorrebbe dire migrare le regole salvate.
 ## 51. Comunicazioni (Email e WhatsApp)
 
 ### 51.1 Modello e ingestione
-Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. Oltre a canale, mittente, contenuto, allegati, cliente/commessa, stato e data, ogni riga persiste categoria, score, motivazione e fonte della classificazione, più l'ultimo riepilogo Tars richiesto dall'operatore.
+Email e WhatsApp confluiscono nella tabella `comunicazioni`. La chiave `(casella_id, canale, message_id)` rende idempotente la sincronizzazione. Oltre a canale, mittente, contenuto, allegati, cliente/commessa, stato e data, ogni riga persiste categoria, score, motivazione e fonte della classificazione, più le colonne `tars_*` conservate come compatibilità per il futuro agente (senza consumatore dal 28/08/2026).
 
 Gli stati sono `nuova`, `vista`, `gestita`. L'eliminazione dal CRM usa `deleted_at`: il messaggio resta nella casella sorgente e il tombstone impedisce che venga importato di nuovo.
 
@@ -1480,53 +1716,53 @@ Il collegamento esplicito a una commessa DEVE portare la comunicazione in `gesti
 ### 51.2 Classificazione e filtro anti-rumore
 Le categorie sono `operativa`, `nuovo_lead`, `amministrativa`, `fornitore`, `da_classificare`, `offerta_marketing` e `spam`. `spam` e `offerta_marketing` sono escluse dalla coda e dai conteggi operativi dopo la classificazione, ma restano consultabili nella vista Escluse.
 
-Ogni nuova Email e ogni WhatsApp in ingresso non triviale DEVE passare dalla classificazione automatica di Tars. Per Email il filtro locale usa anche gli header del server mail (`X-Spam-*`, `List-Unsubscribe`, `Precedence`); per entrambi i canali considera mittente, linguaggio, allegati, regole persistenti e match CRM. Il suo esito e soltanto una pre-analisi non vincolante. Prima della decisione AI la comunicazione resta `da_classificare` e visibile. L'unica eccezione WhatsApp è un testo breve di cortesia, già collegato con certezza a una commessa e senza allegati: può nascere già analizzato per non consumare un run inutile. La presenza di qualunque allegato disattiva sempre questa eccezione.
+Dal 28/08/2026 **non esiste alcuna classificazione automatica**. Ogni Email e
+ogni WhatsApp in ingresso nasce `da_classificare`: il filtro locale
+deterministico — header del server mail (`X-Spam-*`, `List-Unsubscribe`,
+`Precedence`), mittente, linguaggio, allegati, regole persistenti e match CRM —
+calcola soltanto un punteggio e un motivo preliminari, registrati sulla riga
+(`Controllo preliminare: …`). La scelta della categoria è dell'operatore, e una
+classificazione manuale non viene mai sovrascritta da un automatismo. Fanno
+eccezione i soli record che entrano già dichiarati analizzati in fase di
+importazione (storico, echo outbound): per quelli vale l'esito del filtro
+deterministico.
 
-Tars DEVE chiamare `classifica_comunicazione` una volta per ogni elemento del lotto, registrando categoria, confidenza, presenza di dubbi e motivazione concreta. `spam` e `offerta_marketing` possono essere applicate automaticamente soltanto con confidenza alta e `dubbio=false`; altrimenti il server forza `da_classificare`. Una classificazione manuale dell'operatore non puo essere sovrascritta dall'automazione. Se Tars salta un id, la comunicazione resta visibile e viene ritentata dopo un minuto; dopo un errore API il retry avviene al termine della pausa di sicurezza di 15 minuti. In assenza di configurazione o budget la comunicazione non viene nascosta.
+La direzione può memorizzare una regola esatta per mittente; ogni regola è
+sede-scoped e revocabile. Le regole alimentano punteggio e motivo preliminari
+e la vista Escluse, non decidono da sole la categoria di un messaggio nuovo.
 
-Lo scheduler DEVE preservare il risveglio della coda quando un messaggio arriva durante un run o durante una pausa API. Ogni run elabora al massimo 10 messaggi; se il lotto è completo e restano elementi, il successivo parte dopo circa 500 ms. Il primo trigger è debounciato per circa 5 secondi. Un controllo di recupero ogni minuto cerca code residue di tutte le sedi e il bootstrap esegue il primo controllo dopo circa 5 secondi, quindi un deploy o un timer perso non richiedono l'arrivo di una nuova email. Riattivare Tars o modificare il budget risveglia subito la coda.
+### 51.3 Matching deterministico e gestione manuale
+Il matching deterministico dell'ingestione prova riferimenti a
+commessa/cliente (codice, telefono, email, nome, alias WhatsApp) e registra
+confidenza e motivazione. Un collegamento manuale dell'operatore prevale
+sempre sul match automatico e porta la comunicazione in `gestita` (§51.1); il
+match automatico dell'arrivo non marca gestita. Corpo, nomi file e contenuti
+restano fonti esterne non fidate: sono dati da leggere, mai istruzioni.
 
-Una richiesta esplicita di preventivo, sopralluogo, appuntamento o contatto commerciale concreto DEVE essere valutata prima di header spam, segnali newsletter e regole mittente. Se può portare lavoro resta `nuovo_lead`, oppure `operativa` quando il cliente è già riconosciuto, anche se arriva da un indirizzo aziendale o da un portale usato anche per invii massivi. La direzione può memorizzare una regola esatta per mittente; ogni regola è sede-scoped e revocabile, ma non può nascondere una successiva opportunità esplicita.
+Dal 28/08/2026 non esistono proposte automatiche: niente creazione lead
+assistita, niente archiviazione allegati suggerita, niente gestione proposta.
+Il lavoro sulle comunicazioni è dell'operatore, con gli strumenti manuali di
+§51.5.
 
-### 51.3 Matching e gestione Tars
-Il matching deterministico prova riferimenti a commessa/cliente e registra confidenza e motivazione. Tutte le nuove Email e i WhatsApp in ingresso non triviali entrano nello smistamento per essere prima classificati da Tars; dopo la classificazione, solo quelli operativi proseguono con proposte di collegamento, archiviazione allegato o gestione.
-
-Il run automatico si limita a classificare e, su corrispondenza certa, proporre il collegamento a una commessa e l'eventuale archiviazione degli allegati operativi. Dal lettore l'operatore può impartire a Tars un'istruzione sulla singola comunicazione. Il corpo è delimitato come contenuto esterno non fidato e il profilo `gestione_comunicazione` espone soltanto gli strumenti necessari. Se non esiste una commessa, Tars può proporre un ticket senza commessa, una bozza o `proponi_nuovo_lead`.
-
-Per un nuovo lead Tars DEVE prima cercare clienti e commesse esistenti e leggere `leggi_assegnatari`, che restituisce soltanto utenti attivi della sede. Se l'istruzione non indica già una persona in modo inequivocabile, Tars usa `chiedi_chiarimento` e mostra i nomi come opzioni. La risposta riapre una sola volta l'analisi mantenendo il contenuto originale della comunicazione. `proponi_nuovo_lead` rifiuta un assegnatario mancante o non valido.
-
-L'approvazione crea cliente e commessa in stato `preventivo`, imposta lo stesso `assegnatoA` su entrambi e collega la comunicazione tramite le mutation applicative. La card mostra il nome scelto prima dell'approvazione. La chiave canonica usa `comunicazioneId`, quindi lo stesso lead non può essere proposto due volte.
-
-Un allegato operativo puo generare `archivia_allegato` soltanto dopo aver
-verificato comunicazione, indice, nome/MIME atteso, tipo documento e una sola
-commessa plausibile nella stessa sede. Nomi file e contenuti restano fonti
-esterne non fidate. Dopo approvazione il server rivalida tutto, collega la
-comunicazione alla commessa, legge i byte da IMAP o Meta e crea un documento normale del
+Un allegato Email si archivia nel fascicolo con `mail.email.archiviaAllegato`:
+il server rilegge i byte dalla casella IMAP e crea un documento normale del
 fascicolo con storage e checksum standard. La chiave
 `sedeId:comunicazioneId:allegatoIndex` rende l'operazione idempotente; il file
 risultante DEVE essere apribile e scaricabile come un upload manuale.
-Per WhatsApp il download avviene usando il `mediaId` ricevuto dal webhook. Se
-Meta non rende più disponibile il media, l'approvazione fallisce in modo
-esplicito e non crea documenti parziali o record duplicati.
 
-In chat l'operatore PUÒ indicare la sorgente e la destinazione in linguaggio
-naturale, per esempio “allega il file inviato dal numero +39 … alla commessa
-Mario Rossi” oppure la stessa richiesta con un indirizzo Email. Tars DEVE
-cercare la comunicazione per identificativo esatto, restituire gli indici reali
-degli allegati e la categoria corrente, cercare la commessa per cliente e
-preparare una sola proposta. Se un WhatsApp è ancora `da_classificare`, Tars
-DEVE classificarlo prima della proposta.
-Se più messaggi, file o commesse sono plausibili, DEVE usare
-`chiedi_chiarimento` senza scegliere il primo risultato.
+**Limite noto (dal 28/08/2026):** per WhatsApp non esiste un percorso di
+archiviazione attivo. L'helper server sa scaricare i media da Meta tramite
+`mediaId`, ma l'unico punto d'ingresso era la proposta dell'agente rimosso;
+la reintroduzione di una mutation manuale equivalente è lavoro tracciato
+(§31.4).
 
 ### 51.4 Route e compatibilita
-Le route canoniche sono `/messaggi/email`, `/messaggi/whatsapp` e `/tars`.
-`/comunicazioni` e `/inbox` DEVONO restare redirect legacy con `replace`: il
-primo va a `/messaggi/email` e conserva solo `view` consentito e `messaggio`
-numerico positivo; il secondo va a `/tars` e conserva solo `tab` tra `oggi`,
-`proposte`, `analisi`, `chat`, `registro` e i valori legacy `pendenti`/`decise`,
-normalizzati a `proposte` dalla pagina. Parametri non riconosciuti non devono
-essere propagati.
+Le route canoniche sono `/messaggi/email` e `/messaggi/whatsapp`.
+`/comunicazioni` DEVE restare un redirect legacy con `replace` verso
+`/messaggi/email`, conservando solo `view` consentito e `messaggio` numerico
+positivo; parametri non riconosciuti non devono essere propagati. Le route
+storiche `/tars` e `/inbox` non esistono più: sono state rimosse il
+28/08/2026 insieme all'agente e rispondono con la pagina non trovata.
 
 ### 51.5 API per canale e scope
 `mail.email.list`, `mail.email.byId`, `mail.email.stats` e
@@ -1537,14 +1773,12 @@ lo archivia nel fascicolo della commessa. Il router storico
 `mail.comunicazioni.*` resta compatibile per azioni condivise e consumatori
 esistenti.
 
-Il tool Tars `proponi_archivia_allegato` e il relativo esecutore approvato
-accettano comunicazioni Email e WhatsApp della sede attiva. WhatsApp non espone
-una mutation manuale equivalente: il percorso passa dalla proposta Tars e
-dall'approvazione umana. Per WhatsApp sono ammessi soltanto messaggi in ingresso
-già classificati in una categoria di lavoro; echo, storico, spam e casi ancora
-`da_classificare` vengono rifiutati. MIME e limite reale di 10 MB sono validati
-prima di collegare la comunicazione; un errore di storage ripristina il
-collegamento precedente.
+`mail.email.archiviaAllegato` richiede che l'email sia già collegata alla
+commessa indicata («Collega prima l'email alla commessa selezionata»), valida
+MIME e limite reale di 10 MB prima di scrivere e archivia il documento con
+tipo `altro`, riclassificabile e rinominabile dalla scheda commessa (§8.4).
+Un errore di storage non lascia collegamenti parziali. Per WhatsApp non
+esiste una mutation equivalente (§51.3, limite noto).
 
 `mail.whatsapp.conversazioni` e `mail.whatsapp.thread` sono API di sola lettura
 e applicano sempre `sedeId`; una conversazione o un thread fuori sede deve
@@ -1554,28 +1788,20 @@ invio WhatsApp o Email in questa fase.
 
 ### 51.6 Workspace Email
 Email offre code Da gestire, Nuovi lead, Gestite ed Escluse, ricerca e lettore
-operativo con stato Tars, classificazione, collegamento, proposte, allegati e
-corpo. Nel dettaglio il corpo completo precede allegati, proposte e campo
-istruzioni Tars; in lista l'anteprima usa due righe e badge testuali per
-allegati, collegamento e stato. L'operatore puo richiedere a Tars istruzioni su una singola email; le
-azioni che modificano il CRM mantengono il normale flusso di proposta e
-approvazione. Eliminare dal CRM non tocca la casella IMAP: la riga diventa un
-tombstone per evitare una re-importazione.
+operativo con classificazione, collegamento, allegati e corpo. Nel dettaglio
+il corpo completo precede gli allegati; in lista l'anteprima usa due righe e
+badge testuali per allegati, collegamento e stato. Eliminare dal CRM non tocca
+la casella IMAP: la riga diventa un tombstone per evitare una re-importazione.
 
 Su desktop da 1280 px la lista ha una larghezza stabile e il lettore occupa
 tutto lo spazio residuo. Il comando `Espandi email` nasconde temporaneamente la
 lista senza cambiare messaggio, filtri o URL; `Mostra elenco email` ripristina
-la vista affiancata. Quando l'operatore avvia un'analisi Tars o la mail contiene
-proposte pendenti, il lettore entra automaticamente in modalità estesa; il
-ritorno alla vista affiancata resta sempre disponibile. Sotto 1280 px elenco e
-lettore non vengono compressi in due
-colonne: si mostra una vista alla volta con ritorno esplicito all'elenco. Corpo,
-allegati e azioni Tars usano contenitori distinti: il testo resta entro una
-misura leggibile, mentre gli strumenti operativi possono sfruttare il pannello
-più ampio. Mittente, indirizzi, collegamenti CRM, nomi degli allegati, riepiloghi
-e contenuti delle proposte sono sempre accessibili nel dettaglio tramite testo
-a capo, senza ellissi distruttive. Nessuna delle tre modalità introduce scroll
-orizzontale globale.
+la vista affiancata. Sotto 1280 px elenco e lettore non vengono compressi in
+due colonne: si mostra una vista alla volta con ritorno esplicito all'elenco.
+Corpo e allegati usano contenitori distinti: il testo resta entro una misura
+leggibile. Mittente, indirizzi, collegamenti CRM e nomi degli allegati sono
+sempre accessibili nel dettaglio tramite testo a capo, senza ellissi
+distruttive. Nessuna modalità introduce scroll orizzontale globale.
 
 ### 51.7 Workspace WhatsApp
 WhatsApp raggruppa i messaggi in una sola conversazione per account e numero
@@ -1588,10 +1814,9 @@ sovrascrivere il cliente CRM.
 
 Il thread e cronologico e paginato; media e allegati sono metadati
 ispezionabili. Il workspace e esplicitamente di sola lettura: nessun invio di
-messaggi o media, nessuna modifica alla fonte WhatsApp. Questa limitazione non
-impedisce a Tars di proporre l'archiviazione di un allegato in ingresso nel
-fascicolo CRM; il download da Meta e la scrittura nello storage avvengono solo
-dopo approvazione. Su desktop la lista e
+messaggi o media, nessuna modifica alla fonte WhatsApp, e — dal 28/08/2026 —
+nessun percorso di archiviazione degli allegati nel fascicolo (§51.3, limite
+noto). Su desktop la lista e
 il dettaglio usano colonne con `min-width: 0`; su mobile si mostra una vista
 alla volta. Nessun testo, numero o allegato deve introdurre scroll orizzontale
 di pagina.
@@ -1663,19 +1888,22 @@ che parlano con i clienti. Persistita in tabelle PostgreSQL dedicate
 `DATABASE_URL`.
 
 ### 51-bis.2 Canali
-- `generale`: uno per sede, non si lascia. Riceve le azioni che Tars esegue in
-  autonomia e tutte le decisioni degli operatori sulle proposte, con nome di
-  chi ha deciso. È un registro, non una notifica.
+- `generale`: uno per sede, non si lascia. Nato come registro delle azioni
+  dell'agente (rimosso il 28/08/2026); oggi è il canale comune della sede.
 - `diretto`: fra due persone. La chiave è la coppia ordinata di id, quindi la
-  conversazione è la stessa nei due versi. L'id 0 è riservato a Tars.
+  conversazione è la stessa nei due versi. L'id 0 è riservato al mittente di
+  sistema («Sistema»; i canali creati prima del 28/08/2026 possono conservare
+  il vecchio nome «Tars» finché non si decide una migrazione).
 - `commessa`: previsto nel modello, non ancora esposto.
 
 ### 51-bis.3 Notifiche di assegnazione
 Assegnare una commessa, un cliente, un ticket o un intervento a un'altra
-persona produce un messaggio nella sua conversazione diretta con Tars. Il
-consumer è separato dal proiettore delle notifiche: la campanella dipende da
-`notificationMode`, il messaggio in chat arriva comunque. Assegnarsi qualcosa
-da soli non produce messaggio.
+persona produce un messaggio nella sua conversazione diretta col mittente di
+sistema. Il consumer è separato dal proiettore delle notifiche: la campanella
+dipende da `notificationMode`, il messaggio in chat no. Entrambi però passano
+dal bus eventi: con `eventBusMode=off` per la sede (default, §53.1) l'evento
+di assegnazione non viene pubblicato e non arriva né notifica né messaggio.
+Assegnarsi qualcosa da soli non produce messaggio.
 
 ### 51-bis.4 Vincoli
 Scope sede su ogni lettura e scrittura; un canale di un'altra sede risponde
@@ -1713,53 +1941,210 @@ Le notifiche realtime usano SSE con replay da `Last-Event-ID`; il polling resta
 fallback. L'attivazione avviene per sede nell'ordine eventi shadow,
 notifiche shadow, notifiche active, SSE e infine Web Push.
 
-### 53.2 Contesto, planner e workflow
-Tars usa fascicoli materializzati separati per sede, entita e visibility scope.
-I piani sono persistenti, versionati, riprendibili dopo domanda o approvazione
-e idempotenti dopo riavvio. Il workflow cliente + prima commessa conserva ogni
-operazione riuscita e riparte dal primo passo incompleto senza duplicare dati.
-Le mutation restano quelle applicative e richiedono approvazione dell'utente.
+### 53.2 Predisposizioni per il futuro agente (spente)
+I flag `contextEngineMode`, `plannerMode` e `semanticSearchMode` restano nel
+modello dei feature flag (default `off`) ma **non hanno più alcun consumer**:
+il codice di contesto, planner e ricerca ibrida è stato rimosso il 28/08/2026
+insieme all'agente. Il server continua a rifiutare `active` su questi flag e a
+degradare a `shadow` eventuali valori storici al bootstrap (fail-closed).
+`autonomyCapabilities` resta una whitelist vuota senza consumer.
 
-Stato rollout: il contesto e il planner restano in `off`/`shadow`. Il server
-rifiuta `contextEngineMode=active` finché email, WhatsApp, documenti, fatture,
-pagamenti e appuntamenti non pubblicano tutti gli eventi necessari; rifiuta
-`plannerMode=active` finché non sono registrati gli executor di produzione.
-Un valore `active` salvato da versioni precedenti viene degradato a `shadow` al
-bootstrap. Il workflow cliente + commessa approvato continua a funzionare
-attraverso la saga applicativa esistente, indipendente dal worker planner.
+**Limite noto (dal 28/08/2026):** non esiste alcuna API per modificare i flag
+di piattaforma. L'unico endpoint di scrittura era `tars.config.setPlatformFlags`,
+rimosso con l'agente; `platform.flags` è di sola lettura. I flag restano
+congelati ai valori salvati per sede finché non verrà reintrodotto un endpoint
+direzione con motivazione e audit (§31.2).
 
-### 53.3 Ricerca ibrida
-`ricerca_ibrida` indicizza fonti versionate da email, WhatsApp, clienti,
-commesse, note, documenti estratti e conoscenza. Ogni chunk conserva sede,
-scope, checksum, versione e riferimenti entita. Il ranking privilegia
-identificatori e riferimenti strutturati, poi testo e vettori; la policy della
-fonte viene ricontrollata dopo il ranking. Sono restituiti al massimo otto
-frammenti con evidence ref. Se `pgvector` non e presente, nessuna estensione
-viene installata e la ricerca testuale continua con la parte semantica `off`.
+### 53.3 Ricerca ibrida — rimossa
+Il codice di indicizzazione e ricerca ibrida è stato rimosso con l'agente.
+Non esiste alcun indice semantico né lessicale trasversale: la ricerca del CRM
+è quella delle singole pagine, su testo e metadati, sempre sede-scoped. I
+requisiti di un eventuale indice futuro (ACL prima e dopo il ranking, chunk
+versionati, evidence ref) restano descritti in §54.
 
-Stato rollout: chunking, ACL, versioni, delete e fallback lessicale sono
-implementati; producer completi ed embedding reali di indice/query non lo sono.
-Per questo `semanticSearchMode=active` e rifiutato e Tars usa i reader CRM
-strutturati. La denominazione semantica non deve essere presentata come attiva
-prima della chiusura di entrambi i requisiti.
-
-### 53.4 Apprendimento e autonomia
-Approvazioni, modifiche, rifiuti, undo, verifiche e incidenti generano esiti
-strutturati per capability e versione. Il testo libero non viene promosso a
-regola aziendale. Fa eccezione il feedback esplicito con cui un operatore
-corregge una proposta di esperimento: entra, con limite e audit, nel solo blocco
-dinamico delle decisioni recenti per evitare che Tars ripeta lo stesso errore;
-non modifica prompt di sistema, conoscenza aziendale o gate di autonomia. Non
-esiste una media generale abilitante.
-
-Autonomia e negata per default e la whitelist iniziale e vuota. La singola
-capability richiede almeno sei settimane, cento esiti, accuratezza >=98%, zero
-incidenti, eval allegato, decisione della direzione, feature flag, undo e
-principal minimo. Rischio alto, irreversibilita, kill switch o cambio di
-modello, prompt o workflow negano o revocano immediatamente la qualifica.
+### 53.4 Apprendimento e autonomia — rimossi
+Nessun meccanismo di learning o autonomia esiste nel prodotto. I principi che
+regolavano la qualifica di autonomia (default negato, soglie di accuratezza,
+decisione della direzione, undo, kill switch) restano il punto di partenza del
+progetto futuro (§54).
 
 ### 53.5 Diagnostica
 `diagnostica.snapshot` e accessibile solo alla direzione. Mostra code eventi
-per consumer, dead-letter, notifiche pendenti, connessioni SSE, piani per stato,
-cache e token per workflow. Non espone prompt, corpi di comunicazioni, numeri,
-email, token, user id o entity id come label metrica.
+per consumer con relative dead-letter, notifiche pendenti e connessioni SSE
+della sede. Non espone prompt, corpi di comunicazioni, numeri, email, token,
+user id o entity id come label metrica.
+
+---
+
+## 54. Progetto futuro — il nuovo agente operativo
+
+> **QUESTA SEZIONE NON DESCRIVE SOFTWARE ESISTENTE.** È la visione, approvata
+> dalla direzione il 28/08/2026, del progetto che sostituirà l'agente rimosso
+> (§50). Nessun requisito qui dentro è implementato; niente di questa sezione
+> autorizza a costruire pezzi dell'agente dentro i router business. Il
+> workstream parte solo dopo la stabilizzazione della verità (documenti,
+> invarianti, test, sicurezza) e la definizione dei contratti dati/eventi, e
+> procede poi in parallelo all'evoluzione degli altri domini.
+
+### 54.1 Missione
+Non una chat, non un classificatore, non un generatore di proposte sparse: una
+rappresentazione coerente di ciò che accade in azienda, capace di rispondere a
+«cosa richiede attenzione adesso, perché, chi se ne occupa, entro quando». Il
+modello mentale è il **caso operativo** con ciclo di vita, evidenze
+(`EvidenceRef` verso fonti autorevoli), fingerprint anti-stale e una sola next
+best action; `nessuna_azione` e `chiedi_chiarimento` sono esiti validi.
+
+### 54.2 Tre livelli
+1. **Realtà deterministica** — tutto ciò che il server sa esattamente resta
+   deterministico: state machine, gate, somme, scadenze, permessi, matching
+   con identificativi certi. Mai un LLM per aritmetica o enforcement.
+2. **Contesto operativo** — snapshot e dossier per entità che collegano
+   cliente, commessa, documenti, ordini, produzione, calendario, pagamenti,
+   comunicazioni e post-vendita nello stesso caso.
+3. **Ragionamento** — solo qui il modello: interpreta il non strutturato,
+   collega fatti, riconosce conflitti, sceglie strumenti, spiega perché.
+
+### 54.3 Orchestrare, non replicare
+Principio fissato dalla direzione: Ruffino Flow governa il lavoro del
+rivenditore, non sostituisce i sistemi autorevoli altrui.
+- **Configurazioni tecniche, listini e compatibilità** restano nei software
+  dei produttori: il CRM li **importa e collega** alla commessa tramite
+  adapter (PDF, Excel, XML, CSV, API), senza ricalcolarli con motori propri
+  meno affidabili.
+- **Fatture in Cloud resta la fonte fiscale autorevole**: il CRM governa
+  fatture, incassi, residui e marginalità attraverso l'integrazione, senza
+  diventare un secondo software fiscale.
+- Il modello tecnico `apertura → configurazione → commessa → ordine → posa →
+  garanzia` accoglie i dati autorevoli dei produttori, non ne replica i
+  configuratori.
+- L'agente stesso segue la regola: legge fatti dalle fonti autorevoli, non ne
+  inventa (`docs/source-of-truth-matrix.md`).
+
+### 54.4 Sicurezza e governo
+- Proposta ≠ esecuzione: ogni modifica della verità business passa da un
+  approval gateway umano; l'autonomia è negata per default, qualificabile solo
+  per capability con soglie misurate (eval, accuratezza, undo, kill switch,
+  decisione della direzione) e revocabile all'istante.
+- Enforcement server-side, mai nel prompt: `sedeId`, ACL, `NOT_FOUND`
+  cross-sede, budget, timeout, idempotenza, audit per run.
+- Email, WhatsApp, PDF e allegati sono dati non fidati: un prompt injection
+  nel contenuto non può cambiare policy né eseguire azioni.
+- Comandi di dominio tipizzati che passano dalle stesse mutation
+  dell'applicazione: nessun accesso SQL, nessuna mutation generica.
+- Rollout in shadow per sede, reversibile, con eval end-to-end prima di ogni
+  autonomia; costi e budget osservabili per sede.
+
+### 54.5 Prerequisiti e materiale
+Read-API tipizzate e autorizzate, eventi affidabili, evidence/fingerprint,
+casi persistenti, dataset di eval. I residui conservati apposta (colonne
+`tars_*`, capability `tars.*`, flag §53.2) si riusano o si migrano solo con
+una matrice campo→consumer e una decisione registrata. Le domande aperte e la
+storia della rimozione: `docs/tars-rimosso-2026-08-28.md`; la ricognizione:
+`docs/discovery-dossier-2026-08-28.md`.
+
+### 54.6 Document Intelligence — comprensione dei documenti
+
+> Stato: la **prima slice è implementata** — analisi deterministica delle
+> conferme d'ordine PDF con testo nativo, comportamento corrente documentato
+> in §19.4. Tutto il resto di questa sezione (OCR, visione, altri formati,
+> collegamento assistito, azioni proposte, dataset di valutazione) resta da
+> costruire secondo il piano in
+> `docs/reports/d7-document-intelligence-piano.md`.
+
+Decisione della direzione del 28/08/2026 (dossier §13, D7): la comprensione
+dei documenti non è una funzione accessoria ma una **fondazione del futuro
+agente**, da progettare e implementare dopo le fondamenta di sicurezza e
+autorizzazione (slice 2 authz) e **prima delle capacità operative avanzate**.
+Senza comprensione documentale verificabile, l'agente non può essere
+considerato il cervello operativo dell'azienda. Come tutto il §54: NON
+IMPLEMENTATA.
+
+**Priorità assoluta: le conferme d'ordine dei fornitori in PDF**, digitali e
+scansionate. L'estrattore dedicato deve saper riconoscere, quando presenti:
+fornitore; numero e data della conferma; riferimento al nostro ordine e a
+cliente/commessa; righe e posizioni con codici articolo, descrizioni,
+quantità, misure, colori e finiture; prezzi, sconti e totali; data o
+settimana di consegna promessa e consegne parziali; variazioni richieste dal
+fornitore; note, esclusioni e condizioni; pagina e sezione di provenienza di
+ogni informazione.
+
+**Architettura**: un registro di parser estendibile, senza promettere un
+supporto universale non verificato. Priorità dei formati: PDF nativi con
+testo e tabelle, PDF scansionati, fotografie e scansioni; poi DOCX e Office,
+XLSX/CSV e listini, XML/JSON, EML con allegati, archivi ZIP, formati tecnici
+o proprietari dei fornitori tramite parser dedicati. File cifrati, corrotti,
+illeggibili o non supportati producono uno stato esplicito che richiede
+assistenza umana: mai fallimenti silenziosi.
+
+**Pipeline con stati osservabili**
+`ricevuto → validato → estratto → classificato → collegato/ambiguo →
+revisionato → applicato`. Per ogni documento: originale conservato immutato;
+impronta univoca per rilevare i duplicati; provenienza, autore, data di
+ricezione, nome, formato e allegati registrati; tipo reale, dimensione,
+sicurezza e integrità verificati; PDF digitale distinto dalla scansione;
+estrazione che combina testo nativo, analisi delle tabelle, rendering delle
+pagine, OCR e visione; classificazione del tipo; estrazione dei campi;
+tentativo di collegamento a commessa, ordine e fornitore; confronto con i
+dati già nel CRM; anomalie, proposte ed evidenze; approvazione obbligatoria
+prima di toccare dati autorevoli.
+
+**Confronto con l'ordine originario**: articoli mancanti o aggiunti,
+differenze di quantità, prezzo, misura, colore o configurazione, data di
+consegna modificata o incompatibile con produzione e posa, riferimenti
+commessa assenti o incoerenti, duplicati, righe non riconosciute, condizioni
+commerciali cambiate — classificati per gravità e impatto operativo.
+
+**Evidenze e affidabilità**: ogni valore estratto porta documento sorgente,
+numero di pagina, area della pagina quando disponibile, frammento di testo
+di supporto, metodo di estrazione, livello di confidenza ed eventuali
+interpretazioni alternative. Distinzione obbligatoria fra dato esplicito nel
+documento, dato calcolato, collegamento inferito, ipotesi, conflitto e
+informazione mancante. Un'informazione priva di evidenza non viene
+presentata come certa.
+
+**Collegamento alle commesse**: prima i riferimenti deterministici (numero
+ordine, codice commessa, fornitore, identificativi esterni). Un solo
+collegamento affidabile si propone; più commesse compatibili si presentano
+come candidati senza scegliere. Il collegamento manuale diventa un dato
+verificato e riutilizzabile, senza modificare retroattivamente il documento
+originale.
+
+**Azioni operative**: la lettura può produrre aggiornamenti proposti,
+attività, scadenze, anomalie, richieste di verifica, notifiche, casi
+operativi e suggerimenti di ripianificazione. Nessuna estrazione AI modifica
+automaticamente date, importi, quantità, stato della commessa, ordini o
+appuntamenti: la proposta passa dall'approval gateway (§54.4) mostrando
+conseguenze ed evidenze. Esempio canonico: la conferma sposta la consegna
+dal 3 al 10 settembre e la posa è prevista il 12 — l'agente collega il PDF
+all'ordine corretto, mostra la frase e la pagina che provano la nuova data,
+valuta il rischio e propone verifica o ripianificazione; non sposta la posa
+da solo.
+
+**Idempotenza e tracciabilità**: lo stesso file non crea due volte attività
+o aggiornamenti. Ogni elaborazione registra impronta del documento, versione
+del parser e del modello, data, risultati, correzioni umane e azioni
+approvate o rifiutate; una rielaborazione con versioni nuove non perde i
+risultati precedenti.
+
+**Sicurezza**: i contenuti dei file sono input non attendibili — protezione
+da malware, prompt injection incorporata nei documenti, contenuti
+ingannevoli e istruzioni rivolte all'AI presenti nel testo. Le
+configurazioni tecniche del produttore e i relativi documenti restano fonti
+autorevoli (§54.3): l'agente non le inventa, non le reinterpreta
+arbitrariamente e non le sostituisce.
+
+**Valutazione obbligatoria** su un dataset anonimizzato di documenti reali,
+con almeno: PDF digitale, PDF scansionato, documento ruotato, scansione di
+bassa qualità, tabelle su più pagine, conferme multilingua, più ordini nello
+stesso file, riferimenti commessa ambigui, variazioni di quantità/prezzo/
+consegna, documento duplicato, file cifrato o corrotto, annotazioni
+manoscritte, testo con tentativi di prompt injection. Metriche: precisione
+per singolo campo, qualità del collegamento alla commessa, rilevamento delle
+differenze, numero di falsi aggiornamenti. Requisito inderogabile:
+**nessuna modifica critica non autorizzata**.
+
+I nomi dei componenti (ingestion, registro parser, run di estrazione,
+evidenze, estrattore conferme, candidati di match, confronto, caso
+operativo) si decideranno studiando il modello dati esistente — documenti
+§8, allegati comunicazioni §51, ordini fornitore §19 — senza creare una
+seconda fonte di verità.

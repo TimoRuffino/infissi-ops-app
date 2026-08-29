@@ -447,19 +447,25 @@ export default function Dashboard() {
       });
     }
 
-    // 3b. Saldi residui nelle fasi finali — soldi da incassare.
+    // 3b. Saldi residui nelle fasi finali — soldi da incassare. La cifra
+    // compare solo per chi ha `pagamento.read` (il server la omette agli
+    // altri); il bit `daSaldare` arriva per tutti (slice 2).
     for (const c of commesse) {
       if (!["attesa_posa", "finiture_saldo", "interventi_regolazioni"].includes(c.stato)) continue;
-      const tot = (c as any).importoTotale;
-      const residuo = (tot ?? 0) - ((c as any).importoIncassato ?? 0);
-      if (!tot || residuo <= 0) continue;
+      if (!(c as any).daSaldare) continue;
       if (!isMine(c)) continue;
+      const tot = (c as any).importoTotale;
+      const residuo =
+        tot != null ? tot - ((c as any).importoIncassato ?? 0) : null;
       items.push({
         key: `saldo-${c.id}`,
         rank: 2,
         icon: Banknote,
         iconClass: "bg-warning-soft text-warning",
-        title: `Da incassare ${formatEuroSimbolo(residuo)} — ${c.cliente}`,
+        title:
+          residuo != null && residuo > 0
+            ? `Da incassare ${formatEuroSimbolo(residuo)} — ${c.cliente}`
+            : `Da incassare il saldo — ${c.cliente}`,
         sub: c.codice,
         stato: c.stato,
         onClick: () => setLocation(`/commesse/${c.id}`),

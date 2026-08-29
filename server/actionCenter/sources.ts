@@ -1,7 +1,10 @@
+import { versioneRegistroPagamenti } from "../_core/commessaPayments";
 import { getCommesseStore } from "../routers/commesse";
+import { getOrdiniFornitoriStore } from "../routers/fornitori";
 import { getGaranzieStore } from "../routers/garanzie";
 import { getInterventiStore } from "../routers/interventi";
 import { getTicketStore } from "../routers/ticket";
+import { getProposteStore } from "../proposte/gateway";
 import { collectActionSignals, groupSignals } from "./signals";
 import type { ActionCaseDraft, ActionSignal } from "./types";
 
@@ -32,6 +35,7 @@ export function collectCurrentSignals(
       dataConsegnaConfermata: item.dataConsegnaConfermata ?? null,
       importoTotale: item.importoTotale ?? null,
       importoIncassato: item.importoIncassato ?? 0,
+      registroVersione: versioneRegistroPagamenti(item.pagamenti),
     })),
     tickets: getTicketStore().map((item: any) => ({
       id: item.id,
@@ -69,6 +73,30 @@ export function collectCurrentSignals(
       createdAt: asDate(item.createdAt, now),
       updatedAt: asDate(item.updatedAt, now),
     })),
+    ordiniFornitore: getOrdiniFornitoriStore().map((item: any) => ({
+      id: item.id,
+      sedeId: item.sedeId ?? 1,
+      commessaId: item.commessaId ?? null,
+      codiceOrdine: item.codiceOrdine,
+      stato: item.stato,
+      dataConsegnaPrevista: item.dataConsegnaPrevista ?? null,
+      updatedAt: asDate(item.updatedAt, now),
+    })),
+    // Solo le proposte APPLICATE alimentano il caso di conflitto: niente
+    // importi nello snapshot, solo la data applicata e il documento.
+    proposteApplicate: getProposteStore()
+      .filter(item => item.stato === "applicata")
+      .map(item => ({
+        id: item.id,
+        sedeId: item.sedeId,
+        ordineId: item.ordineId,
+        valoreApplicato: item.valoreProposto,
+        documentoNome: item.documentoNome,
+        applicataAt: asDate(
+          item.eventi.find(evento => evento.tipo === "applicata")?.at,
+          asDate(item.updatedAt, now)
+        ),
+      })),
   });
 }
 

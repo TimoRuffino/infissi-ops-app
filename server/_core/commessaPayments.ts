@@ -114,3 +114,28 @@ export function fingerprintPagamento(value: {
 }): string {
   return `${Number(value.importo).toFixed(2)}|${value.data ?? "-"}|${value.stato}`;
 }
+
+/**
+ * Versione del registro pagamenti SENZA valori economici: conteggio dei
+ * movimenti attivi + timestamp dell'ultima modifica. Serve alle superfici
+ * condivise (Centro Azioni, notifiche legacy) per ri-notificare quando il
+ * registro cambia — un incasso parziale deve svegliare il caso — senza che
+ * dall'identificativo o dal fingerprint si possa ricostruire un importo
+ * (slice 2: nessuna cifra fuori dalle superfici con `pagamento.read`; un
+ * hash di un residuo sarebbe forzabile, un contatore no).
+ */
+export function versioneRegistroPagamenti(pagamenti: unknown): string {
+  if (!Array.isArray(pagamenti) || pagamenti.length === 0) return "0";
+  let attivi = 0;
+  let ultimaModifica = 0;
+  for (const pagamento of pagamenti as any[]) {
+    if (pagamento?.stato !== "stornato") attivi++;
+    const quando = new Date(
+      pagamento?.updatedAt ?? pagamento?.createdAt ?? 0
+    ).getTime();
+    if (Number.isFinite(quando) && quando > ultimaModifica) {
+      ultimaModifica = quando;
+    }
+  }
+  return `${attivi}:${ultimaModifica}`;
+}

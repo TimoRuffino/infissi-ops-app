@@ -193,17 +193,27 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
     const total = commessa.importoTotale ?? 0;
     const residual = total - commessa.importoIncassato;
     if (FINAL_BALANCE_STATES.has(commessa.stato) && total > 0 && residual > 0) {
+      // Il caso è condiviso e può raggiungere utenti senza `pagamento.read`:
+      // niente cifre nel testo, e il fingerprint usa la versione del registro
+      // (conteggio+timestamp) invece del residuo — un incasso parziale
+      // risveglia comunque il caso, ma dall'oggetto serializzato non si
+      // ricostruisce alcun importo (slice 2).
       signals.push({
         ...base,
         sourceKey: `balance:${commessa.id}`,
         kind: "saldo",
-        summary: `Saldo residuo di ${residual.toFixed(2)} euro`,
+        summary: "La commessa ha un saldo residuo da incassare",
         actionLabel: "Verifica e incassa il saldo residuo",
         priority: "alta",
         priorityScore: 78,
         targetRole: "amministrazione",
         dueAt: input.now,
-        fingerprint: fingerprint(["balance", commessa.id, commessa.stato, residual]),
+        fingerprint: fingerprint([
+          "balance",
+          commessa.id,
+          commessa.stato,
+          commessa.registroVersione ?? "-",
+        ]),
       });
     }
   }
@@ -341,7 +351,105 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
     });
   }
 
+  // Conflitto consegna fornitore ↔ posa pianificata (D7 slice 3): quando
+  // una proposta documentale APPLICATA ha spostato la consegna prevista di
+  // un ordine oltre una posa pianificata della stessa commessa, il caso
+  // chiede di rivedere la pianificazione — NON la esegue. Solo date e
+  // riferimenti nel testo; il segnale si spegne da solo quando la posa
+  // viene ripianificata o la consegna cambia di nuovo (auto_risolta).
+  const ordiniFornitoreById = new Map(
+    (input.ordiniFornitore ?? []).map(ordine => [ordine.id, ordine] as const)
+  );
+  const inSevenDays = toDateString(new Date(input.now.getTime() + 7 * 86_400_000));
+  const ordiniSegnalati = new Set<number>();
+  const applicateRecentiPrima = [...(input.proposteApplicate ?? [])].sort(
+    (a, b) => b.applicataAt.getTime() - a.applicataAt.getTime()
+  );
+  for (const proposta of applicateRecentiPrima) {
+    if (proposta.sedeId !== input.sedeId) continue;
+    if (ordiniSegnalati.has(proposta.ordineId)) continue;
+    const ordine = ordiniFornitoreById.get(proposta.ordineId);
+    if (!ordine || ordine.sedeId !== input.sedeId) continue;
+    // Il conflitto esiste solo se la data applicata è ancora quella
+    // corrente dell'ordine e la merce non è già arrivata.
+    if (ordine.dataConsegnaPrevista !== proposta.valoreApplicato) continue;
+    if (ordine.stato === "ricevuto") continue;
+    const commessa = ordine.commessaId == null
+      ? null
+      : commessaById.get(ordine.commessaId) ?? null;
+    if (!commessa || commessa.stato === "archiviata" || commessa.archivedAt) continue;
+    const posa =
+      ordine.commessaId == null
+        ? null
+        : primaPosaInConflitto(
+            input.interventi,
+            input.sedeId,
+            ordine.commessaId,
+            proposta.valoreApplicato
+          );
+    if (!posa) continue;
+    ordiniSegnalati.add(proposta.ordineId);
+    const imminente = posa.dataPianificata <= inSevenDays;
+    signals.push({
+      ...commessaBase(commessa),
+      occurredAt: proposta.applicataAt,
+      sourceKey: `supplier-delivery:${ordine.id}`,
+      kind: "consegna_fornitore",
+      summary: `La consegna confermata dell'ordine ${ordine.codiceOrdine} (${proposta.valoreApplicato}) arriva dopo la posa pianificata del ${posa.dataPianificata} — conferma: ${proposta.documentoNome}`,
+      actionLabel: "Rivedi la pianificazione della posa",
+      priority: imminente ? "critica" : "alta",
+      priorityScore: imminente ? 97 : 88,
+      targetRole: null,
+      dueAt: dateAtNoon(posa.dataPianificata),
+      fingerprint: fingerprint([
+        "supplier-delivery",
+        ordine.id,
+        proposta.valoreApplicato,
+        posa.id,
+        posa.dataPianificata,
+        proposta.id,
+      ]),
+    });
+  }
+
   return signals;
+}
+
+/**
+ * La prima posa pianificata della commessa che cade PRIMA della consegna:
+ * l'unico predicato del conflitto consegna/posa, condiviso fra il segnale
+ * del Centro Azioni e l'avviso post-applicazione delle proposte
+ * (revisione: due copie erano già divergenti).
+ */
+export function primaPosaInConflitto(
+  interventi: ReadonlyArray<{
+    id: number;
+    sedeId: number;
+    commessaId: number | null;
+    tipo: string;
+    stato: string;
+    dataPianificata: string | null;
+  }>,
+  sedeId: number,
+  commessaId: number,
+  dataConsegna: string
+): { id: number; dataPianificata: string } | null {
+  const posa = interventi
+    .filter(
+      intervento =>
+        intervento.sedeId === sedeId &&
+        intervento.commessaId === commessaId &&
+        intervento.tipo === "posa" &&
+        intervento.stato === "pianificato" &&
+        intervento.dataPianificata != null &&
+        intervento.dataPianificata < dataConsegna
+    )
+    .sort((a, b) =>
+      (a.dataPianificata ?? "").localeCompare(b.dataPianificata ?? "")
+    )[0];
+  return posa?.dataPianificata
+    ? { id: posa.id, dataPianificata: posa.dataPianificata }
+    : null;
 }
 
 function canonicalKeyFor(signal: ActionSignal): string {

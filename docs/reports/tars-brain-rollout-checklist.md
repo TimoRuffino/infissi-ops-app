@@ -1,5 +1,12 @@
 # Tars Business Brain - Rollout Checklist
 
+> **DOCUMENTO STORICO (annotato il 28/08/2026).** Descrive il collaudo del
+> 25/08/2026 di un sistema poi rimosso per intero il 28/08/2026
+> (`docs/tars-rimosso-2026-08-28.md`). I gate qui elencati non sono più
+> eseguibili: test, eval, `/tars` e i flag citati non esistono più o sono
+> congelati. Conservato come riferimento per il futuro agente. Le procedure
+> vive su eventi e notifiche sono in `docs/runbooks/eventi-notifiche.md`.
+
 **Data:** 25/08/2026  
 **Branch:** `main`  
 **Ambito:** collaudo locale e gate per attivazione progressiva per sede

@@ -1,4 +1,7 @@
 /**
+ * INFRASTRUTTURA CANDIDATA — nessun consumatore attivo dal 28/08/2026.
+ * Decidere se tenerla durante il design del nuovo agente.
+ *
  * Image generation helper using internal ImageService
  *
  * Example usage:

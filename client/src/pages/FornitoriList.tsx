@@ -1,5 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatEuroSimbolo } from "@/lib/euro";
+import AnalisiConfermaOrdine from "@/components/fornitori/AnalisiConfermaOrdine";
+import ProposteOrdine from "@/components/fornitori/ProposteOrdine";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -565,6 +567,8 @@ export default function FornitoriList() {
                           </div>
                         )}
                         {o.noteOrdine && <p className="text-xs text-muted-foreground mt-1">{o.noteOrdine}</p>}
+                        <AnalisiConfermaOrdine ordineId={o.id} commessaId={o.commessaId} />
+                        <ProposteOrdine ordineId={o.id} />
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">
                         {o.importoTotale != null && (
