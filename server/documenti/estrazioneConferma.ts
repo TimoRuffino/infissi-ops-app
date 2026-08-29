@@ -154,7 +154,16 @@ export function trovaRiferimentoTesto(
 ): Evidenza | null {
   const pulito = testo.trim();
   if (pulito.length < 3) return null;
-  const [primo] = cercaSuPagine(pagine, new RegExp(escapeRegex(pulito), "gi"));
+  // Confini obbligatori: «ORD-10» non deve farsi trovare DENTRO
+  // «ORD-100» (difetto scovato dall'eval, slice 5). Un riferimento vale
+  // solo se non è incollato ad altre lettere o cifre.
+  const [primo] = cercaSuPagine(
+    pagine,
+    new RegExp(
+      `(?<![A-Za-z0-9])${escapeRegex(pulito)}(?![A-Za-z0-9])`,
+      "gi"
+    )
+  );
   if (!primo) return null;
   return evidenza(
     pagine,
@@ -356,7 +365,12 @@ export function estraiConfermaOrdine(
   for (const riga of contesto.righeOrdine) {
     const codice = (riga.codiceArticolo ?? "").trim();
     if (codice.length < 3) continue;
-    const re = new RegExp(escapeRegex(codice), "gi");
+    // Stessi confini del riferimento ordine: FIN-100 non è «citato» se il
+    // documento parla di FIN-1000 (difetto scovato dall'eval, slice 5).
+    const re = new RegExp(
+      `(?<![A-Za-z0-9])${escapeRegex(codice)}(?![A-Za-z0-9])`,
+      "gi"
+    );
     const [primo] = cercaSuPagine(pagine, re);
     if (!primo) {
       risultato.righe.push({
