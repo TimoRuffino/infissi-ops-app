@@ -23,7 +23,8 @@ pnpm build
 Storage:
 
 ```bash
-pnpm storage:check
+pnpm storage:check                  # sola lettura (checklist read-only)
+pnpm storage:probe-write --scrivi   # sonda put/get/delete: SCRIVE _health/
 pnpm storage:dry-run
 pnpm storage:migrate  # solo dopo backup riuscito e dry-run verificato
 ```

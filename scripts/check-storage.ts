@@ -1,12 +1,22 @@
+// Verifica dello storage SENZA SCRITTURE (release hardening 29/08/2026).
+//
+// Questo comando appartiene alla checklist read-only
+// (docs/runbooks/verifica-produzione-readonly.md): configura + un GET su
+// una chiave inesistente per provare endpoint e credenziali. Non scrive,
+// non cancella, non lascia oggetti `_health/`. La sonda completa
+// put/get/checksum/delete è `pnpm storage:probe-write`, separata e
+// dichiarata. Un test statico (server/_core/checklistReadOnly.test.ts)
+// impedisce a questo script di tornare a scrivere.
+
 import "dotenv/config";
 import {
-  probeStorage,
+  probeStorageReadOnly,
   storageConfiguration,
 } from "../server/_core/fileStorage";
 
 async function main() {
   const config = storageConfiguration();
-  console.log("\n==== VERIFICA STORAGE ====");
+  console.log("\n==== VERIFICA STORAGE (sola lettura) ====");
   console.log(`Driver richiesto: ${config.requestedDriver}`);
   console.log(
     `Configurazione:   ${config.configured ? "completa" : "incompleta"}`
@@ -20,9 +30,12 @@ async function main() {
     return;
   }
 
-  const result = await probeStorage();
+  const esito = await probeStorageReadOnly();
   console.log(
-    `Sonda put/get/checksum/delete: OK (${result.bytes} byte, ${result.latencyMs} ms)`
+    `Sonda GET (nessuna scrittura): OK (${esito.latencyMs} ms, driver ${esito.driver})`
+  );
+  console.log(
+    "Per la sonda completa put/get/checksum/delete: pnpm storage:probe-write --scrivi"
   );
 }
 

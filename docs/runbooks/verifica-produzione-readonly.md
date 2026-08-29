@@ -36,7 +36,7 @@ Da un utente direzione, per ogni sede attiva:
 | Cosa | Dove guardare | Annotare |
 |---|---|---|
 | Driver storage attivo | Integrazioni → card storage (`fileStorage.status`) | `local` o `s3`; presenza guardia effimero |
-| Probe R2 | **Solo se già configurato**: `pnpm storage:check` legge/scrive un oggetto `_health/` di prova — è l'unica scrittura ammessa da questa checklist, su bucket di servizio | esito |
+| Probe R2 (sola lettura) | **Solo se già configurato**: `pnpm storage:check` — configurazione + GET su chiave inesistente; **zero scritture** (hardening 29/08/2026). La sonda completa put/get/delete è lo script npm separato `storage:probe-write` (flag `--scrivi` obbligatorio): NON fa parte di questa checklist e va autorizzata come qualsiasi scrittura | esito |
 | Documenti ancora inline | `pnpm storage:dry-run` (non applica nulla) | conteggio `da migrare` |
 | Ultimo backup Drive | Integrazioni → card Backup (`backup.status`/`log`) | data, esito, dimensione dell'ultimo run riuscito; il vincolo delle 24 h per le migrazioni dipende da questo |
 | Restore mai provato? | `docs/storage-r2.md` + memoria operativa | Se non esiste un restore drill documentato, annotarlo come debito |
