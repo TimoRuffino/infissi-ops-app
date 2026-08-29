@@ -17,18 +17,44 @@
 
 import { TRPCError } from "@trpc/server";
 
-export type Interruttore = "documentIntelligence" | "proposte" | "ocr";
+export type Interruttore =
+  | "documentIntelligence"
+  | "proposte"
+  | "ocr"
+  // Tars v2 (T1+): master + funzioni. Il master spento vince su tutto:
+  // nessuna istanza del provider, router muto, UI nascosta.
+  | "tars"
+  | "tarsReadTools"
+  | "tarsReminders"
+  | "tarsProposals"
+  | "tarsProactive"
+  | "tarsCommunications"
+  | "tarsSemanticSearch";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
   proposte: "FLAG_PROPOSTE",
   ocr: "FLAG_OCR",
+  tars: "FLAG_TARS",
+  tarsReadTools: "FLAG_TARS_READ_TOOLS",
+  tarsReminders: "FLAG_TARS_REMINDERS",
+  tarsProposals: "FLAG_TARS_PROPOSALS",
+  tarsProactive: "FLAG_TARS_PROACTIVE",
+  tarsCommunications: "FLAG_TARS_COMMUNICATIONS",
+  tarsSemanticSearch: "FLAG_TARS_SEMANTIC_SEARCH",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
   documentIntelligence: "La Document Intelligence (analisi conferme e collegamento documenti)",
   proposte: "L'approval gateway delle proposte documentali",
   ocr: "L'OCR locale",
+  tars: "Tars",
+  tarsReadTools: "Gli strumenti di lettura di Tars",
+  tarsReminders: "I promemoria via Tars",
+  tarsProposals: "Le proposte via Tars",
+  tarsProactive: "La proattività di Tars",
+  tarsCommunications: "Le bozze di comunicazione di Tars",
+  tarsSemanticSearch: "La ricerca semantica di Tars",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -48,11 +74,28 @@ export function interruttoreAttivo(nome: Interruttore): boolean {
 
 /** Stato complessivo per la UI (che nasconde, ma non è mai il confine). */
 export function statoInterruttori(): Record<Interruttore, boolean> {
-  return {
-    documentIntelligence: interruttoreAttivo("documentIntelligence"),
-    proposte: interruttoreAttivo("proposte"),
-    ocr: interruttoreAttivo("ocr"),
-  };
+  const stato = {} as Record<Interruttore, boolean>;
+  for (const nome of Object.keys(VARIABILE) as Interruttore[]) {
+    stato[nome] = interruttoreAttivo(nome);
+  }
+  return stato;
+}
+
+/**
+ * Le funzioni di Tars richiedono il master E il proprio interruttore:
+ * `FLAG_TARS=off` spegne tutto qualunque sia il resto (fail-closed).
+ */
+export function tarsAttivo(funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr">): boolean {
+  if (!interruttoreAttivo("tars")) return false;
+  if (!funzione || funzione === "tars") return true;
+  return interruttoreAttivo(funzione);
+}
+
+export function assicuraTars(
+  funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr">
+): void {
+  assicuraInterruttore("tars");
+  if (funzione && funzione !== "tars") assicuraInterruttore(funzione);
 }
 
 /**

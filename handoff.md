@@ -1353,6 +1353,34 @@ chiave: provider OpenAI dietro adapter con DI + fake deterministico
 `FLAG_TARS*` fail-closed, riuso di gateway proposte/reminders/eventi/
 Centro Azioni/DI, cache C0-C2 misurate in T1.
 
+## 11-quater. Tars v2 — T1 runtime read-only (nucleo, 29/08/2026)
+
+Su `feature/tars-v2`, contratti in `docs/tars/architettura-tars-v2.md`:
+
+- `server/tars/`: provider con DI (`provider.ts`; adapter OpenAI
+  Responses `openai/adapter.ts` con store:false, MAI istanziato di
+  default — serve `TARS_PROVIDER=openai` oltre a FLAG_TARS e chiave;
+  fake deterministico `openai/fake.ts` per test/dev), orchestratore con
+  budget/retry singolo/circuit breaker/degradazione onesta, contesto
+  autorizzato con capability fingerprint, profili strumenti filtrati
+  (capability+direzione+interruttori, ordinati per C2), 7 strumenti L0
+  (commesse, gate, ordini, analisi DI direzione-only, Centro Azioni,
+  promemoria in scadenza) con {dati, evidenze, freschezza, omissioni},
+  archivio conversazioni/turni/run su tabelle PG dedicate (fallback
+  memoria), prompt v1 versionato, cache C0 (TTL breve per perimetro) e
+  C1 (dedupe per run) MISURATE nei contatori; router `tars.*` dietro
+  `FLAG_TARS` (base procedure); pagina `/tars` con evidenze/omissioni e
+  voce menu dietro flag.
+- Test: `server/tars/orchestratore.test.ts` (17) — kill switch non
+  aggirabile, profili (mutation test sul filtro capability), loop con
+  evidenze persistite, C0/C1 provate, degradazione e circuito, strumento
+  fuori profilo = errore-dato, shaping economico, cross-sede NOT_FOUND su
+  strumenti e conversazioni. Verifica sul demo: chat funzionante col
+  provider finto, voce menu, mobile 375px, zero errori console.
+- APERTO in T1: streaming della risposta; metriche C2 reali (arrivano col
+  gate chiave/modello/budget della direzione: fino ad allora nessuna
+  chiamata OpenAI); pannello contestuale (T3).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

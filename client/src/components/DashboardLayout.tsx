@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
+  BrainCircuit,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -85,12 +86,16 @@ type MenuItem = {
   // Richiede la capability `pagamento.read` (vista cassa, slice 2). Finché
   // le capability non sono caricate vale il fallback di ruolo.
   pagamentiOnly?: boolean;
+  // Visibile solo con FLAG_TARS acceso (kill switch server-side: la voce
+  // sparisce a flag spento, e comunque il router rifiuta).
+  tarsOnly?: boolean;
   // Un gruppo: la voce apre/chiude le figlie invece di navigare.
   children?: MenuItem[];
 };
 
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: BrainCircuit, label: "Tars", path: "/tars", tarsOnly: true },
   { icon: Contact, label: "Clienti", path: "/clienti" },
   {
     icon: Building2,
@@ -149,8 +154,10 @@ const menuItems: MenuItem[] = [
 function visibile(
   item: MenuItem,
   user: unknown,
-  capacita: ReadonlySet<string> | null
+  capacita: ReadonlySet<string> | null,
+  interruttori?: { tars?: boolean } | null
 ): boolean {
+  if (item.tarsOnly && !interruttori?.tars) return false;
   if (item.direzioneOnly && !isDirezione(user)) return false;
   if (item.economiaOnly && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
     return false;
@@ -220,6 +227,9 @@ function DashboardLayoutContent({
     staleTime: 60_000,
   });
   const capacita = capacitaQ.data ? new Set(capacitaQ.data) : null;
+  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -345,7 +355,7 @@ function DashboardLayoutContent({
                     ? {
                         ...item,
                         children: item.children.filter((c) =>
-                          visibile(c, user, capacita)
+                          visibile(c, user, capacita, interruttoriQ.data)
                         ),
                       }
                     : item
@@ -353,7 +363,7 @@ function DashboardLayoutContent({
                 .filter((item) =>
                   item.children
                     ? item.children.length > 0
-                    : visibile(item, user, capacita)
+                    : visibile(item, user, capacita, interruttoriQ.data)
                 )
                 .map((item) => {
                   const figlie = item.children ?? [];

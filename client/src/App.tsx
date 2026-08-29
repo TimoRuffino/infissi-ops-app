@@ -23,6 +23,7 @@ const SquadreList = lazy(() => import("./pages/SquadreList"));
 const ClientiList = lazy(() => import("./pages/ClientiList"));
 const ClienteDetail = lazy(() => import("./pages/ClienteDetail"));
 const Integrazioni = lazy(() => import("./pages/Integrazioni"));
+const Tars = lazy(() => import("./pages/Tars"));
 const FornitoriList = lazy(() => import("./pages/FornitoriList"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
@@ -168,6 +169,7 @@ function Router() {
             )}
           </Route>
           <Route path="/integrazioni" component={Integrazioni} />
+          <Route path="/tars" component={Tars} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>
