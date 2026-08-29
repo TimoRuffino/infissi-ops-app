@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.7 - Framework di valutazione della Document Intelligence (§19.4, quinta slice) sopra l'OCR locale della v5.6. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
+**Versione:** 5.8 - Release hardening: rimossa la pagina UI Produzione inutilizzata (§20) con redirect al Board; backend BOM/fasi/NC intatto e annotato come candidato a bonifica. Sopra l'eval della v5.7. Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto futuro (§54).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -97,7 +97,7 @@ Su ogni risposta HTTP:
 ## 4. Ruoli, permessi e gating
 
 ### 4.1 Set di ruoli
-- `direzione` — ammessi accesso completo + gestione utenti + sezioni gated (Squadre, Garanzie, Fornitori, Produzione, Utenti, Integrazioni avanzate).
+- `direzione` — ammessi accesso completo + gestione utenti + sezioni gated (Squadre, Garanzie, Fornitori, Utenti, Integrazioni avanzate).
 - `amministrazione` — focus su fatturazione, finiture, saldo.
 - `commerciale` — gestione clienti e commesse commerciali.
 - `tecnico_rilievi` — rilievi e misure.
@@ -112,7 +112,7 @@ Ogni utente ha `ruoli: string[]` (1–3 valori). Il campo legacy `ruolo` continu
 
 ### 4.3 Gating
 - **Lato server.** `protectedProcedure` su tutto il business; `adminProcedure` su mutazioni `utenti` e `system.notifyOwner`.
-- **Lato client.** Componente `RequireDirezione` su rotte `Garanzie`, `Squadre`, `Fornitori`, `Produzione`, `Utenti`. Le voci di sidebar corrispondenti sono filtrate con il flag `direzioneOnly`.
+- **Lato client.** Componente `RequireDirezione` su rotte `Garanzie`, `Squadre`, `Fornitori`, `Utenti`. Le voci di sidebar corrispondenti sono filtrate con il flag `direzioneOnly`.
 
 ---
 
@@ -713,7 +713,24 @@ risoluzione/multipagina, timeout OCR.
 
 ---
 
-## 20. Produzione (`/produzione`, direzione‑only)
+## 20. Produzione (backend senza pagina; UI rimossa il 29/08/2026)
+
+**La pagina UI `/produzione` è stata rimossa** (release hardening v5.8):
+non veniva utilizzata. La vecchia route **reindirizza al Board
+(`/kanban`)** — la colonna «Produzione» è la superficie operativa dove si
+seguono le commesse in quello stato, quindi i segnalibri salvati atterrano
+nel posto giusto invece che su una pagina vuota (`produzioneRedirect` in
+`client/src/lib/navigation.ts`, pattern `LegacyRedirect`).
+
+**Il backend resta intatto ed è CANDIDATO A BONIFICA FUTURA** (annotato in
+`server/routers/produzione.ts`): gli store `produzione_distinte` /
+`produzione_fasi` / `produzione_nc` possono contenere dati reali e il
+contratto BOM/fasi/NC è una regola di dominio — rimuoverlo richiede
+decisione registrata, matrice campo→consumer e sorte dei dati. Nulla di
+ciò che segue dipende dalla pagina: stato `produzione` della commessa,
+trigger §6.4, gate documentali e logiche di magazzino sono invariati
+(test: `server/routers/produzionePagina.test.ts`).
+
 Tre sotto‑router: `bom` (distinte base), `fasi`, `nc` (non conformità).
 
 ### 20.1 Distinte base (BOM)
@@ -900,7 +917,7 @@ Slot 7 giorni con eventi per tipo (filtri per calendario) + navigazione settiman
 
 ## 27. Integrazioni esterne (`/integrazioni` = Impostazioni)
 
-La pagina Impostazioni ospita l'hub **Gestione** (direzione‑only: Fornitori, Produzione, Squadre, Garanzie, Preventivatori) e le card integrazioni:
+La pagina Impostazioni ospita l'hub **Gestione** (direzione‑only: Fornitori, Squadre, Garanzie, Preventivatori) e le card integrazioni:
 
 ### 27.1 Backup notturno su Google Drive
 Vedi §39. Card con stato collegamento, ultimo backup, prossima esecuzione, "Esegui ora", collega/scollega account.
@@ -983,7 +1000,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 - **Header delle schede** (commessa, cliente): su viewport < `sm` il titolo e la riga di azioni si impilano (`flex-col` → `sm:flex-row`) e i bottoni vanno a capo (`flex-wrap`) invece di uscire dallo schermo.
 - **Tabelle di lista** (Commesse, Clienti): le colonne secondarie sono nascoste progressivamente con `hidden {sm|md|lg|xl}:table-cell`, così su telefono restano solo le essenziali — Codice/Cliente/Stato per le commesse, Nome/Telefono per i clienti — con padding ridotto (`px-3`) sulle colonne mantenute. **Non** viene usato un wrapper `overflow-x-auto`: creerebbe un contenitore di scroll che romperebbe gli header `sticky` (regressione già occorsa e corretta in passato).
 - Board, Calendario, Dashboard, Pagamenti e Magazzino riflowano nativamente (griglie responsive + `flex-wrap`); nessuno scroll orizzontale di pagina.
-- Le tabelle delle sezioni direzione‑only a bassa frequenza (Fornitori, Produzione) restano larghe: sono pensate per l'uso da desktop.
+- Le tabelle delle sezioni direzione‑only a bassa frequenza (Fornitori) restano larghe: sono pensate per l'uso da desktop.
 
 ### 29.4 Empty states
 - Tutte le pagine principali hanno empty state esplicito con istruzioni sul prossimo passo.
@@ -1046,6 +1063,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.8 (29/08/2026)** - Release hardening: rimossa la pagina UI `/produzione` (inutilizzata) con la card dell'hub Gestione; la vecchia route reindirizza al Board (`/kanban`, colonna Produzione). Backend BOM/fasi/NC conservato e annotato come candidato a bonifica (dati potenzialmente presenti negli store, contratto di dominio §20). Stati commessa, trigger §6.4, gate e magazzino invariati, con test dedicati.
 - **v5.7 (29/08/2026)** - Quinta slice della Document Intelligence (§19.4): framework di valutazione (`server/documenti/eval/`, `pnpm eval:documenti`) con 16 fixture sintetiche (nativi, scansioni vere anche storte/a bassa risoluzione, tabella spezzata, ambiguità, codici simili, injection, duplicato, corrotto, timeout) e metriche separate per campo/collegamento/differenze/OCR/tempi/revisione. Nessuna soglia dichiarata sui sintetici; predisposto `casi-reali/` (gitignored) per i documenti veri anonimizzati. L'eval ha scoperto e fatto correggere il match senza confini dei riferimenti (ORD-10 dentro ORD-100, FIN-100 dentro FIN-1000).
 - **v5.6 (29/08/2026)** - Quarta slice della Document Intelligence (§19.4): OCR locale con Tesseract 5 come fallback esplicito per i PDF scansionati — rendering pagina per pagina via poppler, TSV con confidenze, lingue configurabili (`OCR_LINGUE`, default `ita+eng`, `deu` predisposto), limiti su dimensione/pagine/tempo/concorrenza, esiti espliciti per binario mancante/lingua mancante/timeout/OCR fallito, marcatura «da verificare» sotto soglia di confidenza, firma OCR nell'idempotenza dei run. Nessun servizio cloud; immagine di deploy +~60-80 MB (apt: tesseract-ocr ita/eng/deu, poppler-utils).
 - **v5.5 (29/08/2026)** - Terza slice della Document Intelligence (§19.4): approval gateway generale e tipizzato (`server/proposte/`) con registro chiuso delle azioni, stati espliciti (proposta/approvata/rifiutata/applicata/fallita/annullata/scaduta/obsoleta), idempotenza, scadenza e cronologia append-only. Prima azione applicabile: aggiornare la data di consegna prevista dell'ordine fornitore, con doppia capability (`documento.approve_proposals` + `fornitore.manage_ordini`), verifica di freschezza e conferma esplicita in due passi. Il conflitto con la posa diventa un caso del Centro Azioni (`consegna_fornitore`); nessuna ripianificazione automatica.

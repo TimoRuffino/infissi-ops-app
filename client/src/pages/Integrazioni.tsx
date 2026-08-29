@@ -18,7 +18,6 @@ import {
   Truck,
   Users,
   Shield,
-  Factory,
   Calculator,
   ArrowRight,
   Lock,
@@ -59,12 +58,6 @@ const GESTIONE_LINKS: Array<{
     label: "Fornitori",
     path: "/fornitori",
     description: "Anagrafica fornitori, ordini, listini",
-  },
-  {
-    icon: Factory,
-    label: "Produzione",
-    path: "/produzione",
-    description: "Distinte base, fasi, non conformità",
   },
   {
     icon: Users,

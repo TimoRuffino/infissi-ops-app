@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { navigationItemState } from "./navigation";
+import { navigationItemState, produzioneRedirect } from "./navigation";
 
 
 describe("navigationItemState", () => {
@@ -17,5 +17,13 @@ describe("navigationItemState", () => {
       active: true,
       containsActiveChild: false,
     });
+  });
+});
+
+describe("produzioneRedirect", () => {
+  it("manda la vecchia route al Board, qualunque sia il resto dell'URL", () => {
+    expect(produzioneRedirect("/produzione")).toBe("/kanban");
+    expect(produzioneRedirect("/produzione?tab=bom")).toBe("/kanban");
+    expect(produzioneRedirect("/produzione/qualcosa")).toBe("/kanban");
   });
 });

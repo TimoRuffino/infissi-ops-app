@@ -1318,13 +1318,20 @@ pnpm storage:dry-run
 11. Fotografia read-only della produzione secondo
     `docs/runbooks/verifica-produzione-readonly.md` (nessuna modifica senza
     autorizzazione esplicita).
-12. **Document Intelligence (decisione D7 del 28/08/2026), non ancora
-    progettata**: comprensione verificabile dei documenti con priorità alle
-    conferme d'ordine PDF dei fornitori — pipeline testo/tabelle/OCR/visione,
-    evidenze per campo, confronto con l'ordine, collegamenti ambigui a
-    conferma umana, nessuna modifica automatica di dati critici. Requisiti
-    completi nel PRD §54.6; in roadmap dopo la Slice 2 authz e prima delle
-    capacità operative avanzate del futuro agente.
+12. ~~Document Intelligence (decisione D7 del 28/08/2026)~~ **COMPLETATA
+    il 29/08/2026** — tutte e cinque le slice del piano (analisi conferme,
+    collegamento assistito, approval gateway, OCR locale, eval): v. §7 e
+    PRD §19.4. Restano operativi: raccolta di ~20+ conferme reali
+    anonimizzate per `server/documenti/eval/casi-reali/` (misura vera
+    dell'accuratezza) e, volendo l'italiano OCR anche in locale,
+    `brew install tesseract-lang` (in produzione l'apt lo installa già).
+13. **Router `produzione` (BOM/fasi/NC) candidato a bonifica**: la pagina
+    UI è stata rimossa il 29/08/2026 (release hardening, PRD §20) e il
+    router non ha più consumatori, ma gli store kv possono contenere dati
+    reali. Prima di rimuoverlo servono: decisione registrata, matrice
+    campo→consumer, sorte dei dati. Annotazione in
+    `server/routers/produzione.ts`; la vecchia route reindirizza a
+    `/kanban` (test in `server/routers/produzionePagina.test.ts`).
 
 ## 13. Cosa resta della piattaforma
 

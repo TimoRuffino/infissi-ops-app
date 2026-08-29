@@ -18,3 +18,14 @@ export function navigationItemState(
     containsActiveChild,
   };
 }
+
+/**
+ * La pagina «Produzione» è stata rimossa il 29/08/2026 (release hardening,
+ * PRD §20): non era usata. I segnalibri e i vecchi link atterrano sul
+ * Board, la superficie operativa dove la colonna «Produzione» segue le
+ * commesse in quello stato. Query string e sottopercorsi si scartano: la
+ * vecchia pagina non aveva deep link con stato proprio.
+ */
+export function produzioneRedirect(_location: string): string {
+  return "/kanban";
+}

@@ -8,6 +8,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
 import RequireDirezione from "./components/RequireDirezione";
 import { legacyMessageRedirect } from "./lib/messaggi";
+import { produzioneRedirect } from "./lib/navigation";
 
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -23,7 +24,6 @@ const ClientiList = lazy(() => import("./pages/ClientiList"));
 const ClienteDetail = lazy(() => import("./pages/ClienteDetail"));
 const Integrazioni = lazy(() => import("./pages/Integrazioni"));
 const FornitoriList = lazy(() => import("./pages/FornitoriList"));
-const Produzione = lazy(() => import("./pages/Produzione"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
 const Pagamenti = lazy(() => import("./pages/Pagamenti"));
@@ -127,12 +127,11 @@ function Router() {
             path="/preventivatori/punto-del-serramento/persiane"
             component={PreventivatorePuntoDelSerramento}
           />
+          {/* La pagina Produzione è stata rimossa (29/08/2026, PRD §20):
+            i segnalibri atterrano sul Board, dove la colonna «Produzione»
+            segue le commesse in quello stato. */}
           <Route path="/produzione">
-            {() => (
-              <RequireDirezione>
-                <Produzione />
-              </RequireDirezione>
-            )}
+            {() => <LegacyRedirect redirect={produzioneRedirect} />}
           </Route>
           <Route path="/reclami" component={ReclamiRifacimenti} />
           <Route path="/archivio" component={Archivio} />
