@@ -10,6 +10,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "eval:documenti": "tsx server/documenti/eval/runEval.ts",
     "storage:check": "tsx scripts/check-storage.ts",
     "storage:dry-run": "tsx scripts/migrate-documents-to-storage.ts",
     "storage:migrate": "tsx scripts/migrate-documents-to-storage.ts --apply",
