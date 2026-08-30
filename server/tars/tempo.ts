@@ -11,8 +11,11 @@
 // Default aziendali DICHIARATI (sempre restituiti in `assunzioni`):
 // mattina=09:00, pomeriggio=15:00, sera=18:00, giorno senza orario=09:00,
 // solo-orario già passato oggi→domani, giorno della settimana=prossima
-// occorrenza (oggi compreso se ancora futura). Niente euristiche nascoste:
-// ciò che non si riconosce produce un errore tipizzato, non un'ipotesi.
+// occorrenza (oggi compreso se ancora futura; con «prossimo» esplicito e
+// oggi coincidente si intende +7). Regola dura (revisione): ciò che
+// CONTIENE un'indicazione non riconosciuta (orario a parole, weekday in
+// conflitto con la data) viene RIFIUTATO con errore tipizzato — mai
+// risolto in silenzio in un momento diverso da quello chiesto.
 
 import { TZDate } from "@date-fns/tz";
 import { REMINDER_TIMEZONE } from "../reminders/time";
@@ -78,6 +81,8 @@ const MESI: Record<string, number> = {
   dicembre: 12,
 };
 
+const NOMI_MESE = Object.keys(MESI).join("|");
+
 // getDay(): 0=domenica … 6=sabato.
 const GIORNI_SETTIMANA: Record<string, number> = {
   domenica: 0,
@@ -132,6 +137,10 @@ function dataValida(d: DataLocale): boolean {
   );
 }
 
+function giornoSettimanaDi(d: DataLocale): number {
+  return new Date(Date.UTC(d.anno, d.mese - 1, d.giorno)).getUTCDay();
+}
+
 function formattaData(d: DataLocale): string {
   return `${d.anno}-${pad2(d.mese)}-${pad2(d.giorno)}`;
 }
@@ -164,19 +173,35 @@ function normalizza(espressione: string): string {
 
 type OraTrovata = { ora: string; assunzione: string | null };
 
-/** Estrae l'orario (esplicito, mezzogiorno/mezzanotte o fascia). */
+/**
+ * Estrae l'orario (esplicito, mezzogiorno/mezzanotte o fascia). Se un
+ * MARCATORE orario è presente ma non riconoscibile («alle dieci»,
+ * «all'una», «verso le tre»), RIFIUTA: mai il default al posto di un
+ * orario che l'utente ha indicato (revisione).
+ */
 function estraiOra(testo: string): OraTrovata | null {
-  const esplicita = /(?:\balle\b|\ball')\s*(?:ore\s+)?(\d{1,2})(?:[:.](\d{2}))?/.exec(
-    testo
-  );
+  const esplicita =
+    /(?:\balle\b|\ball')\s*(?:ore\s+)?(\d{1,2})(?:[:.](\d{2}))?(\s+e\s+mezz[oa]\b)?/.exec(
+      testo
+    );
   if (esplicita) {
-    const ore = Number(esplicita[1]);
-    const minuti = Number(esplicita[2] ?? "0");
+    let ore = Number(esplicita[1]);
+    let minuti = Number(esplicita[2] ?? "0");
+    if (esplicita[3] && !esplicita[2]) minuti = 30; // «alle 8 e mezza»
     if (ore > 23 || minuti > 59) {
       throw new ErroreTempo(
         "DATA_NON_VALIDA",
         `L'orario «${esplicita[0].trim()}» non esiste.`
       );
+    }
+    // «alle 9 di sera» / «alle 3 del pomeriggio»: la fascia qualifica
+    // l'ora esplicita (revisione: prima veniva ignorata → errore di 12h).
+    if (
+      ore >= 1 &&
+      ore <= 12 &&
+      /\b(?:di|della)\s+sera\b|\b(?:di|del)\s+pomeriggio\b/.test(testo)
+    ) {
+      ore = (ore % 12) + 12;
     }
     return { ora: `${pad2(ore)}:${pad2(minuti)}`, assunzione: null };
   }
@@ -197,6 +222,12 @@ function estraiOra(testo: string): OraTrovata | null {
   }
   if (/\bsera\b|\bstasera\b/.test(testo)) {
     return { ora: "18:00", assunzione: "sera = 18:00 (orario predefinito)" };
+  }
+  if (/\balle\b|\ball'|\bverso\b/.test(testo)) {
+    throw new ErroreTempo(
+      "NON_RICONOSCIUTA",
+      "L'orario è indicato ma non lo riconosco: usa le cifre, ad esempio «alle 13» o «alle 9 di sera»."
+    );
   }
   return null;
 }
@@ -249,11 +280,11 @@ export function risolviEspressioneTempo(
 
   // ── Durate: «tra/fra N minuti|ore|giorni|settimane», «tra mezz'ora» ──
   const durata =
-    /(?:^|\s)(?:tra|fra)\s+(mezz'?ora|un quarto d'ora|[\w']+)(?:\s+(minut[oi]|or[ae]|giorn[oi]|settiman[ae]))?/.exec(
+    /(?:^|\s)(?:tra|fra)\s+(mezz'?ora|un quarto d'ora|[\w']+)(?:\s+(minut[oi]|or[ae]|giorn[oi]|settiman[ae]))?(\s+e\s+mezz[oa]\b)?/.exec(
       testo
     );
   if (durata) {
-    const [, grezzo, unita] = durata;
+    const [, grezzo, unita, eMezza] = durata;
     let minuti: number | null = null;
     let giorni: number | null = null;
     if (grezzo === "mezz'ora" || grezzo === "mezzora") minuti = 30;
@@ -262,8 +293,9 @@ export function risolviEspressioneTempo(
       const n = quantita(grezzo.replace(/'/g, ""));
       if (n != null && unita) {
         if (unita.startsWith("minut")) minuti = n;
-        else if (unita.startsWith("or")) minuti = n * 60;
-        else if (unita.startsWith("giorn")) giorni = n;
+        else if (unita.startsWith("or")) {
+          minuti = n * 60 + (eMezza ? 30 : 0); // «tra due ore e mezza»
+        } else if (unita.startsWith("giorn")) giorni = n;
         else giorni = n * 7;
       }
     }
@@ -291,7 +323,9 @@ export function risolviEspressioneTempo(
 
   // ── Offset rispetto a un'ancora: «tre giorni prima», «il giorno prima» ─
   const prima =
-    /(?:^|\s)(?:(\w+)\s+(giorn[oi]|settiman[ae])|il giorno)\s+prima\b/.exec(testo);
+    /(?:^|\s)(?:il giorno|(\w+)\s+(giorn[oi]|settiman[ae]))\s+prima\b/.exec(
+      testo
+    );
   if (prima) {
     const ancora = ancoraRichiesta(ancoraData);
     let giorni = 1;
@@ -341,20 +375,33 @@ export function risolviEspressioneTempo(
   }
 
   // ── Giorno della settimana: «venerdì», «lunedì mattina» ─────────────
+  // «venerdì 11 settembre» NON è un weekday relativo: lo gestisce il ramo
+  // della data esplicita, con verifica di coerenza (revisione: prima il
+  // weekday vinceva e la data veniva scartata in silenzio).
   const settimana =
-    /(?:\bprossim[oa]\s+)?\b(lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b(?:\s+prossim[oa]\b)?/.exec(
+    /(?:\b(prossim[oa])\s+)?\b(lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b(\s+prossim[oa]\b)?/.exec(
       testo
     );
-  if (settimana) {
-    const bersaglio = GIORNI_SETTIMANA[settimana[1]];
+  const settimanaConData =
+    settimana != null &&
+    new RegExp(`\\b${settimana[2]}\\s+\\d{1,2}\\b`).test(testo);
+  if (settimana && !settimanaConData) {
+    const bersaglio = GIORNI_SETTIMANA[settimana[2]];
+    const prossimoEsplicito = Boolean(settimana[1] || settimana[3]);
     const delta = (bersaglio - oggi.giornoSettimana + 7) % 7;
     const ora = conOraODefault();
     let data = aggiungiGiorni(oggi, delta);
-    if (!localeFuturo(data, ora, oggi)) {
+    if (prossimoEsplicito && delta === 0) {
+      // «prossimo sabato» detto di sabato = fra una settimana.
+      data = aggiungiGiorni(data, 7);
+      assunzioni.push(
+        `«prossimo ${settimana[2]}» inteso come fra una settimana (${formattaData(data)})`
+      );
+    } else if (!localeFuturo(data, ora, oggi)) {
       data = aggiungiGiorni(data, 7);
       if (delta === 0) {
         assunzioni.push(
-          `oggi è già ${settimana[1]} e l'orario è passato: inteso ${settimana[1]} prossimo`
+          `oggi è già ${settimana[2]} e l'orario è passato: inteso ${settimana[2]} prossimo`
         );
       }
     }
@@ -366,29 +413,38 @@ export function risolviEspressioneTempo(
     };
   }
 
-  // ── Data esplicita: «il 15 settembre [alle 10]», «il 15/09[/2026]» ──
-  const dataEsplicita =
-    /\bil\s+(\d{1,2})(?:\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)|\/(\d{1,2}))?(?:\s+(\d{4})|\/(\d{4}))?\b/.exec(
-      testo
-    );
-  if (dataEsplicita) {
-    const giorno = Number(dataEsplicita[1]);
-    const mese = dataEsplicita[2]
-      ? MESI[dataEsplicita[2]]
-      : dataEsplicita[3]
-        ? Number(dataEsplicita[3])
+  // ── Data esplicita: «[venerdì] [il] 11 settembre [2026] [alle 10]»,
+  //    «il 15/09[/2026]», «il 15» ────────────────────────────────────────
+  const dataMese = new RegExp(
+    `(?:\\bil\\s+)?\\b(\\d{1,2})\\s+(${NOMI_MESE})\\b(?:\\s+(\\d{4}))?`
+  ).exec(testo);
+  const dataNumerica = dataMese
+    ? null
+    : /\bil\s+(\d{1,2})(?:\/(\d{1,2}))?(?:\/(\d{4}))?\b/.exec(testo);
+  if (dataMese || dataNumerica) {
+    const giorno = Number((dataMese ?? dataNumerica)![1]);
+    const mese = dataMese
+      ? MESI[dataMese[2]]
+      : dataNumerica![2]
+        ? Number(dataNumerica![2])
         : null;
-    const anno = dataEsplicita[4]
-      ? Number(dataEsplicita[4])
-      : dataEsplicita[5]
-        ? Number(dataEsplicita[5])
+    const anno = dataMese
+      ? dataMese[3]
+        ? Number(dataMese[3])
+        : null
+      : dataNumerica![3]
+        ? Number(dataNumerica![3])
         : null;
     const ora = conOraODefault();
 
     if (mese == null) {
       // «il 15»: la prossima occorrenza del giorno del mese.
       let candidata: DataLocale = { anno: oggi.anno, mese: oggi.mese, giorno };
-      for (let passi = 0; passi < 24 && !(dataValida(candidata) && localeFuturo(candidata, ora, oggi)); passi++) {
+      for (
+        let passi = 0;
+        passi < 24 && !(dataValida(candidata) && localeFuturo(candidata, ora, oggi));
+        passi++
+      ) {
         const successivo = aggiungiGiorni(
           { anno: candidata.anno, mese: candidata.mese, giorno: 1 },
           32
@@ -427,6 +483,18 @@ export function risolviEspressioneTempo(
       assunzioni.push(
         `data già passata quest'anno: intesa per il ${formattaData(candidata)}`
       );
+    }
+    // Coerenza weekday↔data: «martedì 8 settembre» quando l'8 è un
+    // martedì passa; se non lo è, rifiuto onesto (mai scegliere per conto
+    // dell'utente fra le due letture).
+    if (settimana) {
+      const atteso = GIORNI_SETTIMANA[settimana[2]];
+      if (giornoSettimanaDi(candidata) !== atteso) {
+        throw new ErroreTempo(
+          "DATA_NON_VALIDA",
+          `Il ${formattaData(candidata)} non è un ${settimana[2]}: giorno della settimana e data non coincidono, indica quale dei due vale.`
+        );
+      }
     }
     return {
       tipo: "locale",

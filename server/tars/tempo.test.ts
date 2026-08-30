@@ -106,6 +106,70 @@ describe("tempo — espressioni di calendario", () => {
   });
 });
 
+describe("tempo — casi della revisione (mai risoluzioni silenziosamente sbagliate)", () => {
+  it("«venerdì 11 settembre» è la DATA, non il prossimo venerdì", () => {
+    expect(locale("venerdì 11 settembre")).toMatchObject({
+      dataLocale: "2026-09-11",
+    });
+    expect(locale("martedì 8 settembre alle 10")).toMatchObject({
+      dataLocale: "2026-09-08",
+      oraLocale: "10:00",
+    });
+  });
+
+  it("weekday e data in conflitto → rifiuto onesto, mai una scelta silenziosa", () => {
+    try {
+      // L'11/09/2026 è un venerdì, non un martedì.
+      risolviEspressioneTempo("martedì 11 settembre", ADESSO);
+      expect.unreachable("doveva essere rifiutata");
+    } catch (errore) {
+      expect((errore as ErroreTempo).codice).toBe("DATA_NON_VALIDA");
+      expect((errore as ErroreTempo).message).toContain("non coincidono");
+    }
+  });
+
+  it("la fascia qualifica l'ora esplicita: «alle 9 di sera» → 21:00", () => {
+    expect(locale("domani alle 9 di sera").oraLocale).toBe("21:00");
+    expect(locale("domani alle 3 del pomeriggio").oraLocale).toBe("15:00");
+    expect(locale("domani alle 12 del pomeriggio").oraLocale).toBe("12:00");
+  });
+
+  it("un orario a parole viene RIFIUTATO, mai sostituito dal default", () => {
+    for (const brutta of ["domani all'una", "domani alle dieci", "verso le tre"]) {
+      try {
+        risolviEspressioneTempo(brutta, ADESSO);
+        expect.unreachable(`«${brutta}» doveva essere rifiutata`);
+      } catch (errore) {
+        expect((errore as ErroreTempo).codice).toBe("NON_RICONOSCIUTA");
+      }
+    }
+  });
+
+  it("«il giorno prima» funziona con l'ancora", () => {
+    expect(locale("il giorno prima", ADESSO, "2026-09-12")).toMatchObject({
+      dataLocale: "2026-09-11",
+      oraLocale: "09:00",
+    });
+  });
+
+  it("«prossimo sabato» detto di sabato = fra una settimana", () => {
+    const r = locale("prossimo sabato alle 12"); // ADESSO è sabato 10:30
+    expect(r.dataLocale).toBe("2026-09-05");
+    expect(r.assunzioni.join(" ")).toContain("fra una settimana");
+  });
+
+  it("«e mezza» non sparisce: «alle 8 e mezza» → 08:30, «tra due ore e mezza» → 150 minuti", () => {
+    expect(locale("domani alle 8 e mezza").oraLocale).toBe("08:30");
+    const durata = risolviEspressioneTempo("tra due ore e mezza", ADESSO);
+    expect(durata.tipo).toBe("istante");
+    if (durata.tipo === "istante") {
+      expect(new Date(durata.iso).getTime() - ADESSO.getTime()).toBe(
+        150 * 60_000
+      );
+    }
+  });
+});
+
 describe("tempo — durate esatte (istante)", () => {
   it("«tra due ore» e «tra mezz'ora» sono durate esatte dal momento attuale", () => {
     const dueOre = risolviEspressioneTempo("tra due ore", ADESSO);
@@ -116,10 +180,12 @@ describe("tempo — durate esatte (istante)", () => {
       );
     }
     const mezza = risolviEspressioneTempo("tra mezz'ora", ADESSO);
+    expect(mezza.tipo).toBe("istante");
     if (mezza.tipo === "istante") {
       expect(new Date(mezza.iso).getTime() - ADESSO.getTime()).toBe(1_800_000);
     }
     const una = risolviEspressioneTempo("tra un'ora", ADESSO);
+    expect(una.tipo).toBe("istante");
     if (una.tipo === "istante") {
       expect(new Date(una.iso).getTime() - ADESSO.getTime()).toBe(3_600_000);
     }

@@ -33,6 +33,37 @@ import { DEFAULT_SEDE_ID } from "./sedi";
 
 const procedura = procedureConInterruttore("tars");
 
+// Rate limit per principal su `invia` (spec §14, Cost/DoS): finestra
+// scorrevole in-process (replica singola: vincolo documentato §14). I
+// limiti si leggono a ogni chiamata: configurabili senza riavvio nei test.
+const inviiRecenti = new Map<string, number[]>();
+
+/** Solo per i test. */
+export function azzeraRateLimitTarsPerTest(): void {
+  inviiRecenti.clear();
+}
+
+function assicuraRateLimitInvio(sedeId: number, utenteId: number): void {
+  const limite = Number(process.env.TARS_RATE_LIMIT_INVII ?? 20);
+  const finestraMs = Number(
+    process.env.TARS_RATE_LIMIT_FINESTRA_MS ?? 300_000
+  );
+  const chiave = `${sedeId}:${utenteId}`;
+  const adesso = Date.now();
+  const recenti = (inviiRecenti.get(chiave) ?? []).filter(
+    t => adesso - t < finestraMs
+  );
+  if (recenti.length >= limite) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message:
+        "Troppi messaggi a Tars in poco tempo: aspetta qualche minuto e riprova.",
+    });
+  }
+  recenti.push(adesso);
+  inviiRecenti.set(chiave, recenti);
+}
+
 function providerCorrente(): TarsProvider {
   if (process.env.TARS_PROVIDER?.trim().toLowerCase() === "openai") {
     return creaProviderReale();
@@ -85,7 +116,9 @@ function providerCorrente(): TarsProvider {
     const ultimoUtente =
       [...richiesta.input].reverse().find(m => m.ruolo === "user")?.contenuto ??
       "";
-    const conQuando = /^ricordami\s+(.+?)\s+di\s+(.+)$/i.exec(
+    // Split greedy sull'ULTIMO « di »: «domani alle 9 di sera di chiamare
+    // X» → quando «domani alle 9 di sera», testo «chiamare X».
+    const conQuando = /^ricordami\s+(.+)\s+di\s+(.+)$/i.exec(
       ultimoUtente.trim()
     );
     if (conQuando) {
@@ -240,6 +273,7 @@ export const tarsRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         const contesto = await costruisciContesto(ctx);
+        assicuraRateLimitInvio(contesto.sedeId, contesto.utenteId);
         return await eseguiRun({
           contesto,
           provider: providerCorrente(),
@@ -247,6 +281,7 @@ export const tarsRouter = router({
           conversazioneId: input.conversazioneId ?? null,
         });
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),

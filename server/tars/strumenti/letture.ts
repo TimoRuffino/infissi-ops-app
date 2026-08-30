@@ -20,7 +20,6 @@ import { analisiPerOrdine } from "../../documenti/analisi";
 import { getActionCaseRepository } from "../../actionCenter/repository";
 import { listActionCases } from "../../actionCenter/service";
 import { getReminderService } from "../../reminders/service";
-import { versioneRegistroPagamenti } from "../../_core/commessaPayments";
 import { getClienteById } from "../../routers/clienti";
 import { listComunicazioni } from "../../comunicazioni/comunicazioni";
 import { fascicoloCommessa } from "../fascicoli";
@@ -213,9 +212,15 @@ const leggiCommessa: StrumentoTars = {
         [`commessa:${c.id}`]: versione(c.updatedAt),
         [`ordini-di-commessa:${c.id}`]:
           versioneCorrente(`ordini-di-commessa:${c.id}`, contesto.sedeId) ?? "-",
-        [`registroPagamenti:commessa:${c.id}`]: versioneRegistroPagamenti(
-          c.pagamenti
-        ),
+        [`documenti-di-commessa:${c.id}`]:
+          versioneCorrente(`documenti-di-commessa:${c.id}`, contesto.sedeId) ??
+          "-",
+        // Hash opaco (revisione): mai il valore strutturato del registro.
+        [`registroPagamenti:commessa:${c.id}`]:
+          versioneCorrente(
+            `registroPagamenti:commessa:${c.id}`,
+            contesto.sedeId
+          ) ?? "-",
       },
     });
   },
@@ -267,7 +272,13 @@ const verificaGate: StrumentoTars = {
           descrizione: `${c.codice} — gate «${stato}»`,
         },
       ],
-      versioniEntita: { [`commessa:${c.id}`]: versione(c.updatedAt) },
+      versioniEntita: {
+        [`commessa:${c.id}`]: versione(c.updatedAt),
+        // Il gate dipende dai documenti: un upload invalida C0.
+        [`documenti-di-commessa:${c.id}`]:
+          versioneCorrente(`documenti-di-commessa:${c.id}`, contesto.sedeId) ??
+          "-",
+      },
     });
   },
 };
@@ -611,7 +622,8 @@ function intervalloPeriodo(
   const alLunedi = ((1 - locale.getDay() + 7) % 7) || 7;
   switch (periodo) {
     case "oggi":
-      return { da: adesso, a: mezzanotte(1) };
+      // Come il briefing: anche gli scaduti non gestiti sono «di oggi».
+      return { a: mezzanotte(1) };
     case "domani":
       return { da: mezzanotte(1), a: mezzanotte(2) };
     case "settimana":

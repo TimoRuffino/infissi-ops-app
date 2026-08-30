@@ -65,6 +65,7 @@ export function creaMemoria(input: {
       m.valida &&
       m.sedeId === input.sedeId &&
       m.perimetro === input.perimetro &&
+      m.tipo === input.tipo &&
       (input.perimetro === "sede" || m.utenteId === input.utenteId) &&
       m.contenuto.toLowerCase() === contenuto.toLowerCase()
   );

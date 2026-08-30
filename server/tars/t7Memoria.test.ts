@@ -171,8 +171,13 @@ describe("tars T7 — contesto nei run e C0", () => {
       { messaggio: "Che preferenze ho?" }
     );
     const testi = richiestaVista!.input.map(m => m.contenuto);
-    const contestoMsg = testi.find(t => t.includes("memorie registrate"));
-    expect(contestoMsg).toBeTruthy();
+    const indiceContesto = testi.findIndex(t =>
+      t.includes("memorie registrate")
+    );
+    expect(indiceContesto).toBeGreaterThanOrEqual(0);
+    // Posizione: in coda, PRIMA dell'ultimo messaggio utente (mai dopo).
+    expect(indiceContesto).toBe(testi.length - 2);
+    const contestoMsg = testi[indiceContesto];
     expect(contestoMsg).toContain("Chiamare i clienti solo al pomeriggio");
     expect(contestoMsg).toContain("non istruzioni");
     // In coda, PRIMA dell'ultimo messaggio utente: il prefisso C2 (le

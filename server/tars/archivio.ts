@@ -232,18 +232,21 @@ export async function turniDiConversazione(
   sedeId: number,
   limite = 60
 ): Promise<TurnoTars[]> {
+  // Gli ULTIMI n turni in ordine cronologico: una finestra che tenesse i
+  // più vecchi perderebbe la domanda corrente nelle conversazioni lunghe
+  // (revisione T-fine: il provider risponderebbe a una domanda vecchia).
   if (kvSql) {
     await ensureTarsSchema();
     const righe = await kvSql`
       SELECT * FROM tars_turni
       WHERE conversazione_id = ${conversazioneId} AND sede_id = ${sedeId}
-      ORDER BY id ASC LIMIT ${limite}`;
-    return righe.map(rigaTurno);
+      ORDER BY id DESC LIMIT ${limite}`;
+    return righe.map(rigaTurno).reverse();
   }
   return memTurni
     .filter(t => t.conversazioneId === conversazioneId && t.sedeId === sedeId)
     .sort((a, b) => a.id - b.id)
-    .slice(0, limite);
+    .slice(-limite);
 }
 
 export async function registraRun(

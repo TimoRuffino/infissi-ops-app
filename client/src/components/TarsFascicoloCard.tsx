@@ -1,7 +1,8 @@
 // Pannello contestuale di Tars (T3) — fascicolo C3 della commessa.
 // Nessun run del modello e nessun token: solo il derivato deterministico
-// servito da tars.fascicolo. Con i flag spenti (o senza permesso) la
-// query fallisce e il pannello NON esiste nel DOM: il CRM resta identico.
+// servito da tars.fascicolo. La query parte SOLO con i flag accesi
+// (platform.interruttori è già in cache dal layout): con Tars spento il
+// pannello non esiste nel DOM e non produce né richieste né errori.
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -16,13 +17,23 @@ export default function TarsFascicoloCard({
   commessaId: number;
 }) {
   const [, navigate] = useLocation();
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const attivo = Boolean(
+    (interruttori.data as any)?.tars &&
+      (interruttori.data as any)?.tarsReadTools
+  );
   const fascicolo = trpc.tars.fascicolo.useQuery(
     { commessaId },
-    { retry: false, staleTime: 60_000 }
+    { retry: false, staleTime: 60_000, enabled: attivo }
   );
-  if (!fascicolo.data) return null;
+  if (!attivo || !fascicolo.data) return null;
   const f = fascicolo.data;
   const ordiniInRitardo = f.ordini.filter(o => o.inRitardo).length;
+  const dataConfermata = f.dataConsegnaConfermata
+    ? new Date(f.dataConsegnaConfermata).toLocaleDateString("it-IT")
+    : null;
 
   return (
     <Card className="mt-4">
@@ -58,9 +69,7 @@ export default function TarsFascicoloCard({
             {f.ordini.length} ordini fornitori
             {ordiniInRitardo > 0 ? ` (${ordiniInRitardo} in ritardo)` : ""}
           </span>
-          {f.dataConsegnaConfermata && (
-            <span>consegna confermata {f.dataConsegnaConfermata}</span>
-          )}
+          {dataConfermata && <span>consegna confermata {dataConfermata}</span>}
         </div>
 
         {f.domandeAperte.length > 0 && (
@@ -68,7 +77,7 @@ export default function TarsFascicoloCard({
             {f.domandeAperte.slice(0, 4).map((domanda, i) => (
               <li key={i} className="text-xs flex gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-px" />
-                <span className="min-w-0">{domanda}</span>
+                <span className="min-w-0 break-words">{domanda}</span>
               </li>
             ))}
             {f.domandeAperte.length > 4 && (

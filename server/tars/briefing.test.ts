@@ -5,7 +5,7 @@
 // FLAG_TARS_PROACTIVE, niente importi nel payload, cross-sede isolato,
 // e il rumore finisce in telemetria (run `proattivita-shadow`).
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { getActionCaseRepository } from "../actionCenter/repository";
 import {
@@ -47,6 +47,10 @@ const direzione = (sedeId = SEDE) => appRouter.createCaller(contestoTrpc(sedeId)
 let servizioPromemoria: ReturnType<typeof createReminderService>;
 
 beforeEach(() => {
+  // Orologio fisso e DIURNO (10:30 Europe/Rome): il promemoria «di oggi»
+  // creato a +60s non può scavallare la mezzanotte sul runner CI.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-08-29T08:30:00.000Z"));
   azzeraCacheTarsPerTest();
   azzeraArchivioPerTest();
   servizioPromemoria = createReminderService({
@@ -58,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setReminderServiceForTesting(null);
+  vi.useRealTimers();
   delete process.env.FLAG_TARS;
   delete process.env.FLAG_TARS_READ_TOOLS;
   delete process.env.FLAG_TARS_PROACTIVE;
@@ -108,13 +113,41 @@ describe("tars T4 — briefing deterministico", () => {
       commessaId: null,
     });
 
+    // Un caso REALMENTE assegnato al principal: la mappatura «mine» deve
+    // arrivare nel briefing con titolo, priorità e prossima azione.
+    await getActionCaseRepository().upsertDraft(
+      {
+        canonicalKey: `t4:mio-caso:${commessa.id}`,
+        sedeId: SEDE,
+        targetType: "commessa",
+        targetId: commessa.id,
+        commessaId: commessa.id,
+        clienteId: null,
+        title: "Caso assegnato a me",
+        priority: "critica",
+        priorityScore: 95,
+        assigneeUserId: UTENTE_ID,
+        dueAt: null,
+        link: `/commesse/${commessa.id}`,
+        signals: [],
+        signalFingerprint: "t4-mio",
+        nextAction: { sourceKind: "consegna", label: "Chiama il fornitore" },
+      },
+      new Date()
+    );
+
     const briefing = await costruisciBriefing(
       await costruisciContesto(contestoTrpc())
     );
     expect(briefing.promemoriaOggi.map(p => p.testo)).toContain(
       "Chiamare il cliente del briefing"
     );
-    expect(Array.isArray(briefing.casiMiei)).toBe(true);
+    const mio = briefing.casiMiei.find(c => c.titolo === "Caso assegnato a me");
+    expect(mio).toMatchObject({
+      priorita: "critica",
+      prossimaAzione: "Chiama il fornitore",
+      link: `/commesse/${commessa.id}`,
+    });
     expect(briefing.segnalazioni).not.toBeNull();
     const mie = briefing.segnalazioni!.filter(
       s => s.commessaId === commessa.id

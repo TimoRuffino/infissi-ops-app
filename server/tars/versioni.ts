@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
 import { versioneRegistroPagamenti } from "../_core/commessaPayments";
 import { getCommessaById, getCommesseStore } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
+import { getDocumentiDiCommessa } from "../routers/preventiviContratti";
+import { istanteComeLocale } from "./tempo";
 
 export function versioneData(valore: unknown): string {
   const data = valore instanceof Date ? valore : new Date(String(valore ?? 0));
@@ -49,7 +51,29 @@ export function versioneCorrente(
   if (tipo === "registroPagamenti" && arg.startsWith("commessa:")) {
     const c: any = getCommessaById(Number(arg.slice("commessa:".length)));
     if (!c || c.sedeId !== sedeId) return null;
-    return versioneRegistroPagamenti(c.pagamenti);
+    // Hash OPACO (revisione): il valore strutturato conteggio+timestamp
+    // rivelerebbe l'attività di pagamento a chi non ha le capability.
+    return createHash("sha256")
+      .update(versioneRegistroPagamenti(c.pagamenti))
+      .digest("hex")
+      .slice(0, 16);
+  }
+  if (tipo === "documenti-di-commessa") {
+    const commessaId = Number(arg);
+    const c: any = getCommessaById(commessaId);
+    if (!c || c.sedeId !== sedeId) return null;
+    // Un documento NUOVO (o cambiato) invalida: è il gate documentale.
+    return hashLista(
+      getDocumentiDiCommessa(commessaId).map(d => [
+        d.id,
+        `${(d as any).tipo}:${(d as any).statoAtUpload ?? "-"}:${versioneData((d as any).createdAt)}`,
+      ])
+    );
+  }
+  if (tipo === "giorno-locale") {
+    // Cambia alla mezzanotte di Roma: i derivati che dipendono da «oggi»
+    // (ordini in ritardo) si invalidano col passare del giorno.
+    return istanteComeLocale(new Date()).slice(0, 10);
   }
   if (tipo === "ordine") {
     const trovato = getOrdiniFornitoreDiSede(sedeId).find(

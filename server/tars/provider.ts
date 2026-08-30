@@ -7,7 +7,17 @@
 // e nasce solo con FLAG_TARS acceso e chiave presente.
 
 export type MessaggioTars =
-  | { ruolo: "user" | "assistant"; contenuto: string }
+  | {
+      ruolo: "user" | "assistant";
+      contenuto: string;
+      /**
+       * Solo per assistant: le function call emesse in quel turno. La
+       * Responses API esige il turno assistant con le chiamate PRIMA dei
+       * function_call_output (revisione: senza, la seconda richiesta di
+       * ogni run con strumenti verrebbe rifiutata).
+       */
+      chiamate?: readonly ChiamataToolRichiesta[];
+    }
   | {
       ruolo: "tool";
       toolCallId: string;

@@ -20,6 +20,7 @@ import {
   leggiVoceCache,
   scriviVoceCache,
 } from "./cache/entries";
+import { istanteComeLocale } from "./tempo";
 import { versioneCorrente, versioniAncoraValide } from "./versioni";
 
 export type OrdineFascicolo = {
@@ -77,7 +78,9 @@ function costruisciContenuto(
   const indice = STATI_COMMESSA.indexOf(c.stato);
   const docRichiesti = REQUIRED_DOC_TIPI_PER_STATO[c.stato] ?? [];
   const gateSoddisfatto = statoHasRequiredDoc(c.id, c.stato);
-  const oggi = new Date().toISOString().slice(0, 10);
+  // «Oggi» nel fuso del dominio (Europe/Rome), non in UTC: fra le 00:00 e
+  // le 02:00 locali un ordine scaduto ieri deve già risultare in ritardo.
+  const oggi = istanteComeLocale(new Date()).slice(0, 10);
 
   const ordini: OrdineFascicolo[] = getOrdiniFornitoreDiSede(sedeId)
     .filter(o => o.ordine.commessaId === c.id)
@@ -132,8 +135,14 @@ function costruisciContenuto(
     [`commessa:${c.id}`]: versioneCorrente(`commessa:${c.id}`, sedeId) ?? "-",
     [`ordini-di-commessa:${c.id}`]:
       versioneCorrente(`ordini-di-commessa:${c.id}`, sedeId) ?? "-",
+    // Il gate documentale dipende dai DOCUMENTI: un upload deve
+    // invalidare il fascicolo (revisione: prima nessuna versione cambiava).
+    [`documenti-di-commessa:${c.id}`]:
+      versioneCorrente(`documenti-di-commessa:${c.id}`, sedeId) ?? "-",
     [`registroPagamenti:commessa:${c.id}`]:
       versioneCorrente(`registroPagamenti:commessa:${c.id}`, sedeId) ?? "-",
+    // «inRitardo» dipende da oggi: il rollover di giornata invalida.
+    "giorno-locale": versioneCorrente("giorno-locale", sedeId) ?? "-",
   };
 
   return {

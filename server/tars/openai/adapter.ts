@@ -64,21 +64,38 @@ export function creaProviderReale(): TarsProvider {
       const corpo = {
         model: richiesta.modello,
         instructions: richiesta.istruzioni,
-        input: richiesta.input.map(m =>
-          m.ruolo === "tool"
-            ? {
+        input: richiesta.input.flatMap((m): Array<Record<string, unknown>> => {
+          if (m.ruolo === "tool") {
+            return [
+              {
                 type: "function_call_output",
                 call_id: m.toolCallId,
                 output: m.contenuto,
-              }
-            : { role: m.ruolo, content: m.contenuto }
-        ),
+              },
+            ];
+          }
+          if (m.ruolo === "assistant" && m.chiamate?.length) {
+            // Il turno assistant con le function call precede i loro
+            // output (contratto Responses).
+            return m.chiamate.map(c => ({
+              type: "function_call",
+              call_id: c.id,
+              name: c.nome,
+              arguments: c.argomenti,
+            }));
+          }
+          return [{ role: m.ruolo, content: m.contenuto }];
+        }),
         tools: richiesta.strumenti.map(s => ({
           type: "function",
           name: s.nome,
           description: s.descrizione,
           parameters: s.parametri,
-          strict: true,
+          // strict:true esigerebbe tutti i campi required: i nostri schemi
+          // hanno opzionali con default. Da rivalutare al gate (schemi
+          // all-required + nullable) — fino ad allora validazione zod
+          // server-side, che resta comunque l'autorità.
+          strict: false,
         })),
         max_output_tokens: richiesta.maxOutputToken,
         store: false,

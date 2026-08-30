@@ -15,6 +15,7 @@ import {
   eseguiRun,
 } from "./orchestratore";
 import { creaProviderFinto, chiamataTool, rispostaTesto } from "./openai/fake";
+import { azzeraRateLimitTarsPerTest } from "../routers/tars";
 import { filtraStrumenti, strumentiPerContesto } from "./profili";
 import { STRUMENTI_L0 } from "./strumenti/letture";
 
@@ -78,6 +79,8 @@ afterEach(() => {
   delete process.env.FLAG_TARS_L2_ACTIONS;
   delete process.env.FLAG_TARS_PROPOSALS;
   delete process.env.FLAG_TARS_MEMORY;
+  delete process.env.TARS_RATE_LIMIT_INVII;
+  azzeraRateLimitTarsPerTest();
 });
 
 describe("tars — kill switch", () => {
@@ -262,6 +265,178 @@ describe("tars — run con strumenti, evidenze e cache", () => {
     });
     expect(chiamateProvider).toBe(2);
     expect(altro.cache.c0Hit).toBe(false);
+  });
+});
+
+describe("tars — cronologia, contesto C0, C1 ed errori (revisione)", () => {
+  it("la finestra di cronologia tiene gli ULTIMI turni: la domanda corrente arriva sempre al provider", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    let ultimaRichiesta: any = null;
+    const provider = () =>
+      creaProviderFinto(richiesta => {
+        ultimaRichiesta = richiesta;
+        return rispostaTesto("Ok.");
+      });
+    const primo = await eseguiRun({
+      contesto,
+      provider: provider(),
+      messaggio: "Primo scambio",
+      configurazione: { cronologiaMassima: 4 },
+    });
+    for (const testo of ["Secondo scambio", "Terzo scambio"]) {
+      await eseguiRun({
+        contesto,
+        provider: provider(),
+        messaggio: testo,
+        conversazioneId: primo.conversazioneId,
+        configurazione: { cronologiaMassima: 4 },
+      });
+    }
+    await eseguiRun({
+      contesto,
+      provider: provider(),
+      messaggio: "DOMANDA CORRENTE",
+      conversazioneId: primo.conversazioneId,
+      configurazione: { cronologiaMassima: 4 },
+    });
+    const ultimo = ultimaRichiesta.input[ultimaRichiesta.input.length - 1];
+    expect(ultimo.contenuto).toBe("DOMANDA CORRENTE");
+    expect(ultimaRichiesta.input.length).toBeLessThanOrEqual(5);
+  });
+
+  it("la stessa frase con cronologia diversa NON riusa C0 (domande deittiche)", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    let chiamate = 0;
+    const provider = () =>
+      creaProviderFinto(() => {
+        chiamate += 1;
+        return rispostaTesto(`Risposta ${chiamate}.`);
+      });
+    const prima = await eseguiRun({
+      contesto,
+      provider: provider(),
+      messaggio: "E il gate è soddisfatto?",
+    });
+    await eseguiRun({
+      contesto,
+      provider: provider(),
+      messaggio: "Parliamo di un'altra commessa",
+      conversazioneId: prima.conversazioneId,
+    });
+    const terza = await eseguiRun({
+      contesto,
+      provider: provider(),
+      messaggio: "E il gate è soddisfatto?",
+      conversazioneId: prima.conversazioneId,
+    });
+    expect(terza.cache.c0Hit).toBe(false); // referente diverso: niente riuso
+    expect(chiamate).toBe(3);
+  });
+
+  it("C1 non cachea gli errori: una chiamata identica dopo un errore viene rieseguita", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const doppiaFallita: any = {
+      tipo: "tool_call",
+      chiamate: [
+        {
+          id: "e1",
+          nome: "leggi_commessa",
+          argomenti: JSON.stringify({ commessaId: 99_999_999 }),
+        },
+        {
+          id: "e2",
+          nome: "leggi_commessa",
+          argomenti: JSON.stringify({ commessaId: 99_999_999 }),
+        },
+      ],
+      uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
+    };
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0 ? doppiaFallita : rispostaTesto("Non trovata.")
+      ),
+      messaggio: "Commessa inesistente due volte",
+    });
+    expect(esito.cache.c1Hit).toBe(0); // l'errore non è stato riusato
+    expect(esito.cache.c1Miss).toBe(2);
+  });
+
+  it("tars.invia ha un rate limit per principal", async () => {
+    process.env.TARS_RATE_LIMIT_INVII = "3";
+    azzeraRateLimitTarsPerTest();
+    const caller = direzione();
+    for (let i = 0; i < 3; i++) {
+      await caller.tars.invia({ messaggio: `Messaggio ${i}` });
+    }
+    await expect(
+      caller.tars.invia({ messaggio: "Uno di troppo" })
+    ).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+  });
+});
+
+describe("tars — budget e retry del provider", () => {
+  it("un copione che chiama strumenti all'infinito esaurisce il budget e degrada onestamente", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto(() =>
+        chiamataTool("leggi_promemoria_in_scadenza", {})
+      ),
+      messaggio: "Loop senza fine",
+    });
+    expect(esito.stato).toBe("degradato");
+    expect(esito.testo).toContain("limite di passaggi");
+  });
+
+  it("un errore transitorio al PRIMO passo viene ritentato una volta sola e il run riesce", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    let chiamate = 0;
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto(() => {
+        chiamate += 1;
+        return chiamate === 1 ? "errore_transitorio" : rispostaTesto("Ripreso.");
+      }),
+      messaggio: "Riprova una volta",
+    });
+    expect(esito.stato).toBe("ok");
+    expect(esito.testo).toBe("Ripreso.");
+    expect(chiamate).toBe(2);
+  });
+
+  it("un errore transitorio DOPO il primo passo non viene ritentato: degradazione", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    let chiamate = 0;
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) => {
+        chiamate += 1;
+        return passo === 0
+          ? chiamataTool("leggi_promemoria_in_scadenza", {})
+          : "errore_transitorio";
+      }),
+      messaggio: "Transitorio tardivo",
+    });
+    expect(esito.stato).toBe("degradato");
+    expect(chiamate).toBe(2); // nessun retry oltre il primo passo
+  });
+
+  it("tars.invia con la conversazione di un ALTRO utente → NOT_FOUND", async () => {
+    const mia = await eseguiRun({
+      contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+      provider: creaProviderFinto(() => rispostaTesto("Mia.")),
+      messaggio: "Conversazione privata",
+    });
+    const altro = appRouter.createCaller(
+      contestoTrpc(COMMERCIALE_ID, ["commerciale"])
+    );
+    await expect(
+      altro.tars.invia({
+        messaggio: "Mi intrometto",
+        conversazioneId: mia.conversazioneId,
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 

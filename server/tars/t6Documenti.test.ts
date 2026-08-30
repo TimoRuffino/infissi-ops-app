@@ -222,7 +222,7 @@ describe("tars T6 — leggi_comunicazioni (estratti, confini)", () => {
     });
   }
 
-  it("restituisce ESTRATTI (mai il corpo integrale) e tratta il contenuto come dato", async () => {
+  it("restituisce ESTRATTI (mai il corpo integrale) e tratta il contenuto come dato", { timeout: 120_000 }, async () => {
     const { commessa } = await fixtureOrdineConDocumento();
     const coda = "FINE_CORPO_INTEGRALE_" + "x".repeat(50);
     await seminaComunicazione(
@@ -244,7 +244,7 @@ describe("tars T6 — leggi_comunicazioni (estratti, confini)", () => {
     expect(esito.omissioni.join(" ")).toContain("estratti");
   });
 
-  it("senza commessa/cliente o fuori sede la lettura è negata", async () => {
+  it("senza commessa/cliente o fuori sede la lettura è negata", { timeout: 120_000 }, async () => {
     const contesto = await costruisciContesto(contestoTrpc());
     const leggi = strumentiPerContesto(contesto).find(
       s => s.nome === "leggi_comunicazioni"

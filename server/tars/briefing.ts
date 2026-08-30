@@ -15,7 +15,7 @@ import { getCommessaById } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
 import { getReminderService } from "../reminders/service";
 import { registraRun } from "./archivio";
-import { formattaIstanteLocale } from "./tempo";
+import { formattaIstanteLocale, istanteComeLocale } from "./tempo";
 import type { ContestoRun } from "./strumenti/tipi";
 import { TZDate } from "@date-fns/tz";
 
@@ -90,7 +90,8 @@ function rilevaSegnalazioni(
   seguite: Set<number>,
   adesso: Date
 ): SegnalazioneTars[] {
-  const oggi = adesso.toISOString().slice(0, 10);
+  // «Oggi» nel fuso del dominio (Europe/Rome), non in UTC.
+  const oggi = istanteComeLocale(adesso).slice(0, 10);
   const segnalazioni: SegnalazioneTars[] = [];
   for (const { ordine, fornitoreNome } of getOrdiniFornitoreDiSede(sedeId)) {
     const chiusa = ordine.stato === "ricevuto";
@@ -165,7 +166,9 @@ export async function costruisciBriefing(
   });
 
   let segnalazioni: SegnalazioneTars[] | null = null;
-  if (tarsAttivo("tarsProactive")) {
+  // Stesso pavimento degli strumenti L0 gemelli: senza commessa.read
+  // (deny override incluso) la sezione di sede non esiste (revisione).
+  if (tarsAttivo("tarsProactive") && contesto.capability.has("commessa.read")) {
     const seguite = await commesseConCasiAperti(contesto.sedeId);
     segnalazioni = rilevaSegnalazioni(contesto.sedeId, seguite, adesso);
   }

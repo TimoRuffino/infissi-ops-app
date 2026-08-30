@@ -122,6 +122,33 @@ describe("tars T3 — fascicolo C3", () => {
     expect(CONTATORI_FASCICOLI.costruzioni).toBe(2);
   });
 
+  it("un DOCUMENTO nuovo invalida il fascicolo: il gate non resta stantio (revisione)", async () => {
+    const { commessa } = await scenario();
+    const prima = await fascicoloCommessa({
+      sedeId: SEDE,
+      commessaId: commessa.id,
+    });
+    expect(prima!.gate.soddisfatto).toBe(false);
+
+    const bytes = Buffer.from("finto-pdf-di-prova");
+    await direzione().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo-t3.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: bytes.length,
+      dataBase64: bytes.toString("base64"),
+      keepNome: true,
+    });
+
+    const dopo = await fascicoloCommessa({
+      sedeId: SEDE,
+      commessaId: commessa.id,
+    });
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(2); // ricostruito
+    expect(dopo!.gate.soddisfatto).toBe(true);
+  });
+
   it("un ordine NUOVO invalida il fascicolo (hash della lista)", async () => {
     const { commessa, fornitore } = await scenario();
     await fascicoloCommessa({ sedeId: SEDE, commessaId: commessa.id });

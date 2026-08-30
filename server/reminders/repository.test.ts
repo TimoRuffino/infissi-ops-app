@@ -216,6 +216,15 @@ describe("reminder repository", () => {
       actorUserId: 7,
       now,
     });
+    // Un promemoria ATTIVO dell'utente fuori dall'intervallo: se i
+    // confronti da/a sparissero, questo comparirebbe e il test morde.
+    const fuoriIntervallo = await repo.create({
+      ...base,
+      canonicalKey: "list:fuori",
+      text: "Fuori intervallo",
+      remindAt: new Date("2026-09-20T07:00:00Z"),
+      now,
+    });
 
     const attivi = await repo.listPersonal({
       sedeId: 1,
@@ -237,6 +246,7 @@ describe("reminder repository", () => {
     });
     expect(recenti.map((r) => r.id)).toEqual([
       mercoledi.record.id,
+      fuoriIntervallo.record.id,
       lunedi.record.id,
     ]);
   });
