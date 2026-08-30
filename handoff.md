@@ -1507,6 +1507,41 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-sexdecies. Tars v2 — ATTIVATO in produzione, provider finto (30/08/2026)
+
+Su autorizzazione della direzione sono state impostate su Railway
+(progetto `successful-playfulness`, servizio `Ruffino Flow`, ambiente
+production) SETTE variabili, con un solo redeploy:
+
+    FLAG_TARS, FLAG_TARS_READ_TOOLS, FLAG_TARS_REMINDERS,
+    FLAG_TARS_MEMORY, FLAG_TARS_L2_ACTIONS, FLAG_TARS_PROACTIVE,
+    FLAG_TARS_COMMUNICATIONS  = on
+
+NON impostate (e da non impostare senza un gate esplicito):
+`TARS_PROVIDER` (farebbe partire chiamate reali sulla chiave residua
+ancora presente), `FLAG_TARS_PROPOSALS` (richiede il rollout DI, mai
+avviato), `FLAG_TARS_SEMANTIC_SEARCH` (nessun codice), i flag DI/OCR.
+
+Budget: nessuna variabile impostata, quindi valgono i default approvati
+(0,10 / 2,00 / 20,00 USD). Il governor è attivo ma inerte: senza
+provider reale non c'è spesa da contabilizzare.
+
+**Cosa fa Tars adesso**: le AZIONI sono vere (promemoria, prese in
+carico, rinvii, memoria, letture con capability e sede), ma il
+"ragionamento" no — il provider è il FINTO, il cui copione dimostrativo
+riconosce solo tre forme: «Ricordami <quando> di <cosa>», «Proponi la
+consegna dell'ordine N», «Prendi in carico il caso N». A qualunque
+altra frase risponde con un messaggio di servizio. È esattamente lo
+scopo di questa fase: validare superfici, permessi, telemetria e
+isolamento su dati veri a costo zero.
+
+**Visibilità**: la voce /tars appare a TUTTI gli utenti della sede
+(i flag sono per installazione). Le letture restano filtrate per
+capability e sede.
+
+Per spegnere tutto: rimuovere `FLAG_TARS` (basta il master) e
+ridistribuire. Nessuna migrazione, nessun dato da ripulire.
+
 ## 11-quinquiesdecies. Tars v2 — MERGIATO e distribuito (30/08/2026)
 
 PR #2 mergiata su autorizzazione della direzione: merge commit
