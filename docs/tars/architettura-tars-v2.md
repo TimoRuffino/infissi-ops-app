@@ -458,3 +458,27 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    flag, alimentata dalla query dedicata `tars.fascicolo` (nessun run
    del modello, nessun token): fatti, gate, domande aperte, freschezza
    e link a `/tars`. Con i flag spenti il pannello non esiste nel DOM.
+
+## 22. Decisioni registrate in T4 (briefing, situazioni, shadow)
+
+21. **Briefing = derivazione deterministica a richiesta**: zero token,
+   zero scritture di dominio, il modello non partecipa. Composizione:
+   promemoria di oggi (personali), casi «mine» del Centro Azioni,
+   segnalazioni di sede. Vive nella pagina `/tars` sopra la chat.
+22. **Proattività SHADOW senza emissioni**: nessun caso, notifica o
+   promemoria viene creato. Le segnalazioni v1 sono due rilevatori
+   deterministici — ordine in ritardo (consegna prevista superata senza
+   effettiva) e conflitto consegna prevista/data confermata al cliente
+   — AGGANCIATE ai casi aperti del Centro Azioni per commessa (solo un
+   booleano «già seguito»: mai contenuti di casi altrui). Il rumore si
+   misura: ogni briefing registra un run `proattivita-shadow` con
+   contatori (segnalazioni, agganciate, promemoria, casi). Emissioni
+   reali solo dopo l'osservazione shadow (T8), sui canali ESISTENTI.
+   Il rilevatore dei gate fermi resta futuro (già visibile nel
+   fascicolo, non va duplicato come rumore).
+23. **Nessun worker nuovo**: la valutazione avviene alla richiesta del
+   briefing; l'aggancio agli eventi di dominio arriva con
+   l'attivazione reale della proattività.
+24. **Gating**: briefing dietro `tars`+`tarsReadTools`; la sezione
+   segnalazioni anche dietro `tarsProactive` (spenta → `null`, la UI
+   non la mostra). In produzione tutto resta spento.
