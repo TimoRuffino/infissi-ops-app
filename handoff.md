@@ -1482,6 +1482,19 @@ al modello. Prompt v3, profilo l3-v1, campo `interruttore` a lista
 nel registro del gateway (oggi solo data consegna ordine) quando il
 dominio li definisce; L2 su ticket (`ticket.assign`) quando serve.
 
+## 11-nonies. Tars v2 — T6 documenti e comunicazioni (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §24, implementazione `d7ace98`):
+`analizza_conferma_ordine` (L2, direzione, tarsL2Actions+DI) sulla
+nuova unica fonte `documenti/analisiOrdine.ts` (router refactorato,
+contratto invariato); `leggi_comunicazioni` (L0, readTools+
+communications) con estratti 240 char e confini sede/commessa/cliente;
+NESSUN invio (decisione 30: il canale non esiste — gate direzione);
+residui `tars_*` su comunicazioni congelati. 6 test + 3 mutation.
+APERTO: invio L4 (SMTP/WhatsApp API + estensione registro gateway,
+solo su decisione della direzione); bozze persistite nel dominio
+comunicazioni (richiedono un concetto di bozza nello schema).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
