@@ -19,13 +19,14 @@
 | Token di output per risposta | `TARS_MAX_OUTPUT_TOKENS` | 1.200 | — |
 | Timeout per chiamata | `TARS_PROVIDER_TIMEOUT_MS` | 45.000 | — |
 | Tempo totale del run | `TARS_MAX_RUN_MS` | 180.000 | Degrada con messaggio proprio |
-| Caratteri di contesto | `TARS_MAX_CONTEXT_CHARS` | 120.000 | Degrada con messaggio proprio |
+| Caratteri di contesto | `TARS_MAX_CONTEXT_CHARS` | 60.000 | Degrada con messaggio proprio |
 | Retry | — | 1, solo primo passo, solo transitori | — |
 | Invii per principal | `TARS_RATE_LIMIT_INVII` | 20 / 5 min | `TOO_MANY_REQUESTS` |
-| Dedup doppio invio | `TARS_DEDUP_INVIO_MS` | 15.000 | Stesso run riusato |
+| Dedup doppio invio | — | solo invii IN VOLO | Stesso run riusato |
+| Tetto di sanità sul budget | `TARS_TETTO_SANITA_USD` | 100 USD/mese | Oltre ⇒ INDISPONIBILE |
 
 **Numeri misurati** (non stimati a parole): con 21 strumenti a catalogo
-la prenotazione prudenziale di una chiamata è ≈0,021-0,03 USD, quindi il
+la prenotazione prudenziale di una chiamata è ≈0,025-0,035 USD, quindi il
 tetto per-run consente 3-7 chiamate a seconda del prompt caching. Il
 test `MISURA:` in `integrazione.test.ts` fallisce se la prenotazione
 supera un terzo del tetto per-run: il numero resta sotto controllo
@@ -75,6 +76,8 @@ mentre il catalogo cresce.
 | 12 | Import del grezzo in produzione | confine |
 | 13 | `setupFiles` rimosso dalla config | guardia registrata |
 | 14 | `providerDettaglio` esposto a tutti | budget riservato alla direzione |
+| 15 | Limiti del run letti senza validazione (NaN) | tetto chiamate disattivato |
+| 16 | Dedup che non si libera al termine | domanda ripetuta = run nuovo |
 
 ## 4. Esiti degli stati del ledger
 

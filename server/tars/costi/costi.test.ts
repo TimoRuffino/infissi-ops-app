@@ -10,6 +10,7 @@ import {
   configurazioneBudget,
   ErroreBudget,
   MESSAGGIO_BUDGET,
+  messaggioPerLimite,
   stimaCostoNano,
   tokenInputStimati,
   type ConfigurazioneBudget,
@@ -82,7 +83,7 @@ function providerConUso(uso: Partial<typeof usoNullo>) {
 
 // Riferimenti di calcolo usati dai test dei tetti (tariffa terra):
 //   stima per chiamata standard (4.000 caratteri, 1.200 output)
-//     = ceil(4007/4 * 1,25)=1253 input * 2 µ$ + 1.200 * 12 µ$ ≈ 0,0169 USD
+//     = ceil(4007/2,5 * 1,25)=2004 input * 2 µ$ + 1.200 * 12 µ$ ≈ 0,0184 USD
 //   consumo REALE «pesante» (5.000 input, 1.200 output)
 //     = 10.000 + 14.400 µ$ = 0,0244 USD
 const USO_PESANTE = { input: 5_000, cachedInput: 0, output: 1_200 };
@@ -248,7 +249,13 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
       .catch(e => e);
     expect(errore).toBeInstanceOf(ErroreBudget);
     expect((errore as ErroreBudget).limite).toBe("giorno");
-    expect((errore as ErroreBudget).message).toBe(MESSAGGIO_BUDGET);
+    // Il messaggio distingue «l'installazione è a secco» (giorno/mese)
+    // da «questa richiesta è troppo grande» (run): l'utente deve capire
+    // se riprovare più tardi o riformulare (revisione).
+    expect(messaggioPerLimite("giorno")).toBe(MESSAGGIO_BUDGET);
+    expect(messaggioPerLimite("mese")).toBe(MESSAGGIO_BUDGET);
+    expect(messaggioPerLimite("run")).not.toBe(MESSAGGIO_BUDGET);
+    expect(messaggioPerLimite("run")).toContain("troppo grande");
   });
 
   it("blocca il tetto MENSILE anche in un GIORNO diverso", async () => {

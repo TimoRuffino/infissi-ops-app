@@ -132,7 +132,11 @@ export function costoContato(riga: {
   costoRealeNano: number | null;
 }): number {
   if (riga.stato === "released") return 0;
-  if (riga.stato === "settled") return riga.costoRealeNano ?? 0;
+  // `settled` senza costo reale sarebbe l'unica sottostima possibile
+  // dell'intera contabilità: si ricade sul prenotato (revisione).
+  if (riga.stato === "settled") {
+    return riga.costoRealeNano ?? riga.costoPrenotatoNano;
+  }
   return riga.costoPrenotatoNano;
 }
 
@@ -218,6 +222,10 @@ export function ensureCostiSchema(): Promise<void> {
     .then(async () => {
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_giorno_idx
         ON tars_costi (giorno_locale)`;
+      // La scadenza delle prenotazioni appese gira a ogni chiamata
+      // governata: senza indice sarebbe una scansione completa.
+      await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_appese_idx
+        ON tars_costi (stato, created_at)`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_mese_idx
         ON tars_costi (mese_locale)`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_run_idx
@@ -283,17 +291,17 @@ export function creaLedgerPostgres(): LedgerCosti {
         const [somme] = await tx`SELECT
             COALESCE(SUM(CASE stato
               WHEN 'released' THEN 0
-              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
               ELSE costo_prenotato_nano END)
               FILTER (WHERE run_id = ${input.runId}), 0) AS run,
             COALESCE(SUM(CASE stato
               WHEN 'released' THEN 0
-              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
               ELSE costo_prenotato_nano END)
               FILTER (WHERE giorno_locale = ${giorno}), 0) AS giorno,
             COALESCE(SUM(CASE stato
               WHEN 'released' THEN 0
-              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
               ELSE costo_prenotato_nano END)
               FILTER (WHERE mese_locale = ${mese}), 0) AS mese
           FROM tars_costi`;
@@ -386,17 +394,17 @@ export function creaLedgerPostgres(): LedgerCosti {
       const [somme] = await db`SELECT
           COALESCE(SUM(CASE stato
             WHEN 'released' THEN 0
-            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
             ELSE costo_prenotato_nano END)
             FILTER (WHERE run_id = ${input.runId}), 0) AS run,
           COALESCE(SUM(CASE stato
             WHEN 'released' THEN 0
-            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
             ELSE costo_prenotato_nano END)
             FILTER (WHERE giorno_locale = ${giorno}), 0) AS giorno,
           COALESCE(SUM(CASE stato
             WHEN 'released' THEN 0
-            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
             ELSE costo_prenotato_nano END)
             FILTER (WHERE mese_locale = ${mese}), 0) AS mese
         FROM tars_costi`;

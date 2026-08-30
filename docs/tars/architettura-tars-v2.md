@@ -627,7 +627,8 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    indisponibile.
 45. **Prenota → chiama → riconcilia**, con stati
    `reserved|settled|released|expired|uncertain`. Stima prudenziale:
-   input = caratteri/4 +25% di margine alla tariffa PIENA (mai
+   input = caratteri/2,5 +25% di margine alla tariffa PIENA (rapporto
+   pessimistico: v. decisione 49) (mai
    scontata: il cache hit si scopre solo dopo), output =
    `max_output_tokens` intero (che per contratto Responses include i
    reasoning token: la stima li copre già). Consumo contato =

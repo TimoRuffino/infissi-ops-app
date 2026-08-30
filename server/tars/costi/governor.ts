@@ -25,6 +25,18 @@ import { costoNano, tariffaDi, usdInNano, type TariffaModello } from "./tariffe"
 export const MESSAGGIO_BUDGET =
   "Tars ha raggiunto temporaneamente il limite di utilizzo configurato. Nessuna operazione è stata eseguita.";
 
+/**
+ * Il tetto PER RUN non è «l'installazione è a secco»: è questa
+ * richiesta che è diventata troppo grande. Dirlo com'è, altrimenti
+ * l'utente pensa che Tars sia fermo per tutti (revisione).
+ */
+export const MESSAGGIO_BUDGET_RUN =
+  "Questa richiesta è diventata troppo grande per essere completata entro il limite previsto. Nessuna operazione è stata eseguita: prova a chiedermi una cosa alla volta.";
+
+export function messaggioPerLimite(limite: "run" | "giorno" | "mese"): string {
+  return limite === "run" ? MESSAGGIO_BUDGET_RUN : MESSAGGIO_BUDGET;
+}
+
 /** Errore del governor: l'orchestratore lo degrada come gli altri. */
 export class ErroreBudget extends ErroreProvider {
   constructor(
@@ -94,11 +106,24 @@ export function configurazioneBudget():
         "Limiti incoerenti: deve valere per-run ≤ giornaliero ≤ mensile.",
     };
   }
-
-  const margine = Number(process.env.TARS_MARGINE_STIMA ?? 1.25);
-  const scadenza = Number(
-    process.env.TARS_SCADENZA_PRENOTAZIONE_MS ?? 600_000
+  // Tetto di sanità: uno zero di troppo (200 invece di 20) non deve
+  // passare in silenzio. Superarlo richiede una decisione esplicita.
+  const TETTO_SANITA_USD = Number(
+    process.env.TARS_TETTO_SANITA_USD?.trim() || 100
   );
+  if (Number.isFinite(TETTO_SANITA_USD) && mese.valore > TETTO_SANITA_USD) {
+    return {
+      ok: false,
+      motivo: `Budget mensile ${mese.valore} USD oltre il tetto di sanità (${TETTO_SANITA_USD} USD): confermalo con TARS_TETTO_SANITA_USD.`,
+    };
+  }
+
+  // Stessa politica dei limiti: una stringa vuota o malformata è un
+  // errore di configurazione, non un default silenzioso (revisione).
+  const grezzoMargine = process.env.TARS_MARGINE_STIMA?.trim();
+  const margine = grezzoMargine ? Number(grezzoMargine) : 1.25;
+  const grezzoScadenza = process.env.TARS_SCADENZA_PRENOTAZIONE_MS?.trim();
+  const scadenza = grezzoScadenza ? Number(grezzoScadenza) : 600_000;
   if (!Number.isFinite(margine) || margine < 1) {
     return { ok: false, motivo: "TARS_MARGINE_STIMA non valido (minimo 1)." };
   }

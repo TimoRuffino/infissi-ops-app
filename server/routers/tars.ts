@@ -48,17 +48,16 @@ const procedura = procedureConInterruttore("tars");
 // limiti si leggono a ogni chiamata: configurabili senza riavvio nei test.
 const inviiRecenti = new Map<string, number[]>();
 
-// Anti doppio-click (revisione): due invii IDENTICI ravvicinati dello
-// stesso utente nella stessa conversazione sono un doppio click, non due
-// domande — senza questa guardia sarebbero due run e due addebiti reali
-// (la cache C0 non li vede: il primo turno è già stato salvato e cambia
-// la cronologia). Finestra breve; la risposta del primo run viene
-// restituita così com'è.
-const INVIO_DEDUP_MS = Number(process.env.TARS_DEDUP_INVIO_MS ?? 15_000);
-const inviiInCorso = new Map<
-  string,
-  { promessa: Promise<RispostaRun>; scade: number }
->();
+// Anti doppio-click (revisione): due invii IDENTICI mentre il primo è
+// ANCORA IN VOLO sono un doppio click, non due domande — senza questa
+// guardia sarebbero due run e due addebiti reali (la cache C0 non li
+// vede: il primo turno è già stato salvato e cambia la cronologia).
+//
+// La voce si cancella appena il run finisce, in qualunque modo: un
+// utente che RIPETE volutamente la stessa domanda dopo la risposta deve
+// ottenere un run nuovo e un turno nuovo, non il replay silenzioso di
+// quello vecchio (seconda revisione).
+const inviiInCorso = new Map<string, Promise<RispostaRun>>();
 
 function chiaveInvio(input: {
   sedeId: number;
@@ -411,12 +410,8 @@ export const tarsRouter = router({
           conversazioneId: input.conversazioneId ?? null,
           messaggio: input.messaggio,
         });
-        const adesso = Date.now();
-        for (const [k, v] of inviiInCorso) {
-          if (v.scade <= adesso) inviiInCorso.delete(k);
-        }
         const inCorso = inviiInCorso.get(chiave);
-        if (inCorso) return await inCorso.promessa;
+        if (inCorso) return await inCorso;
 
         const promessa = eseguiRun({
           contesto,
@@ -427,12 +422,16 @@ export const tarsRouter = router({
           messaggio: input.messaggio,
           conversazioneId: input.conversazioneId ?? null,
         });
-        inviiInCorso.set(chiave, {
-          promessa,
-          scade: adesso + INVIO_DEDUP_MS,
-        });
-        // Un fallimento non deve restare in cache: si riprova subito.
-        promessa.catch(() => inviiInCorso.delete(chiave));
+        inviiInCorso.set(chiave, promessa);
+        // Si libera SEMPRE, e solo se la voce è ancora la nostra: una
+        // conclusione tardiva non deve sfrattare un invio più recente.
+        void promessa
+          .catch(() => undefined)
+          .finally(() => {
+            if (inviiInCorso.get(chiave) === promessa) {
+              inviiInCorso.delete(chiave);
+            }
+          });
         return await promessa;
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;

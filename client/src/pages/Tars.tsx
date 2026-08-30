@@ -301,7 +301,9 @@ export default function Tars() {
       utils.tars.turni.invalidate({ conversazioneId: risposta.conversazioneId });
       utils.tars.conversazioni.invalidate();
       if (risposta.stato === "degradato") {
-        toast.warning("Risposta in modalità degradata: il modello non era disponibile.");
+        // Il motivo lo dice il server (budget, limite della richiesta,
+        // modello irraggiungibile): il toast non deve contraddirlo.
+        toast.warning(risposta.testo);
       }
     },
     onError: e => toast.error(e.message ?? "Invio non riuscito"),

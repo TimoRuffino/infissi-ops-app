@@ -16,7 +16,7 @@ import {
 } from "./archivio";
 import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from "./profili";
 import { tarsAttivo } from "../platform/interruttori";
-import { ErroreBudget, MESSAGGIO_BUDGET } from "./costi/governor";
+import { ErroreBudget, messaggioPerLimite } from "./costi/governor";
 import { contestoMemorie, fingerprintMemorie } from "./memoria";
 import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v4";
 import {
@@ -57,22 +57,43 @@ export type ConfigurazioneRun = {
 };
 
 /**
+ * Legge un limite numerico dall'ambiente FAIL-CLOSED: un valore
+ * malformato torna al default, non a `NaN`. Con `NaN` un confronto come
+ * `chiamate >= NaN` è sempre falso e il tetto sparirebbe in silenzio
+ * (revisione: era l'opposto della politica applicata al budget).
+ */
+function limiteDaEnv(variabile: string, predefinito: number): number {
+  const grezzo = process.env[variabile]?.trim();
+  if (!grezzo) return predefinito;
+  const numero = Number(grezzo);
+  if (!Number.isFinite(numero) || numero <= 0) {
+    console.warn(
+      `[tars] ${variabile} non valido («${grezzo}»): uso il valore predefinito ${predefinito}.`
+    );
+    return predefinito;
+  }
+  return numero;
+}
+
+/**
  * Limiti motivati (spec §27.47): abbastanza larghi da non rendere Tars
  * ottuso, abbastanza stretti da rendere impossibile un loop costoso.
- * 8 chiamate = 6 passi di strumenti + risposta finale + un retry;
- * 120k caratteri ≈ 30k token, un quarto della finestra del modello.
- * Da raffinare dopo gli eval reali.
+ * 8 chiamate = 6 passi di strumenti + risposta finale + un retry.
+ * 60k caratteri ≈ 24k token: scelto perché una chiamata al MASSIMO del
+ * contesto resti sotto il tetto per-run da 0,10 USD (≈0,075 USD stimati)
+ * — un limite più largo sarebbe irraggiungibile, perché il budget
+ * morderebbe prima (revisione). Da raffinare dopo gli eval reali.
  */
 export function configurazioneRunDefault(): ConfigurazioneRun {
   return {
     modello: process.env.TARS_MODEL_INTERACTIVE?.trim() || "fake-interattivo",
-    maxPassiStrumenti: Number(process.env.TARS_MAX_TOOL_STEPS ?? 6),
-    maxOutputToken: Number(process.env.TARS_MAX_OUTPUT_TOKENS ?? 1200),
-    timeoutProviderMs: Number(process.env.TARS_PROVIDER_TIMEOUT_MS ?? 45_000),
+    maxPassiStrumenti: limiteDaEnv("TARS_MAX_TOOL_STEPS", 6),
+    maxOutputToken: limiteDaEnv("TARS_MAX_OUTPUT_TOKENS", 1200),
+    timeoutProviderMs: limiteDaEnv("TARS_PROVIDER_TIMEOUT_MS", 45_000),
     cronologiaMassima: 24,
-    maxChiamateModello: Number(process.env.TARS_MAX_MODEL_CALLS ?? 8),
-    maxRunMs: Number(process.env.TARS_MAX_RUN_MS ?? 180_000),
-    maxCaratteriContesto: Number(process.env.TARS_MAX_CONTEXT_CHARS ?? 120_000),
+    maxChiamateModello: limiteDaEnv("TARS_MAX_MODEL_CALLS", 8),
+    maxRunMs: limiteDaEnv("TARS_MAX_RUN_MS", 180_000),
+    maxCaratteriContesto: limiteDaEnv("TARS_MAX_CONTEXT_CHARS", 60_000),
   };
 }
 
@@ -428,7 +449,10 @@ export async function eseguiRun(input: {
       // provider: nessun retry, nessun circuito aperto, messaggio
       // dedicato e veritiero all'utente.
       if (errore instanceof ErroreBudget) {
-        return esitoDegradato(MESSAGGIO_BUDGET, `budget_${errore.limite}`);
+        return esitoDegradato(
+          messaggioPerLimite(errore.limite),
+          `budget_${errore.limite}`
+        );
       }
       if (errore instanceof ErroreLimiteRun) {
         return esitoDegradato(errore.messaggioUtente, errore.message);
@@ -442,7 +466,10 @@ export async function eseguiRun(input: {
           circuito.erroriConsecutivi = 0;
         } catch (secondo) {
           if (secondo instanceof ErroreBudget) {
-            return esitoDegradato(MESSAGGIO_BUDGET, `budget_${secondo.limite}`);
+            return esitoDegradato(
+              messaggioPerLimite(secondo.limite),
+              `budget_${secondo.limite}`
+            );
           }
           if (secondo instanceof ErroreLimiteRun) {
             return esitoDegradato(secondo.messaggioUtente, secondo.message);

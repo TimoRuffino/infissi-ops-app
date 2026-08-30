@@ -6,12 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../../_core/context";
 import { appRouter } from "../../routers";
 import { getUtentiStore } from "../../routers/utenti";
-import { azzeraArchivioPerTest, turniDiConversazione } from "../archivio";
+import {
+  azzeraArchivioPerTest,
+  statisticheRun,
+  turniDiConversazione,
+} from "../archivio";
 import { costruisciContesto } from "../contesto";
 import { creaProviderFinto, rispostaTesto } from "../openai/fake";
 import { azzeraCacheTarsPerTest, eseguiRun } from "../orchestratore";
 import { azzeraRateLimitTarsPerTest } from "../../routers/tars";
-import { avvolgiConGovernor, MESSAGGIO_BUDGET } from "./governor";
+import {
+  avvolgiConGovernor,
+  MESSAGGIO_BUDGET_RUN,
+} from "./governor";
 import {
   creaLedgerMemoriaPerTest,
   impostaLedgerPerTest,
@@ -148,14 +155,14 @@ describe("cost hardening — end to end nel runtime", () => {
     });
 
     expect(esito.stato).toBe("degradato");
-    expect(esito.testo).toBe(MESSAGGIO_BUDGET);
+    expect(esito.testo).toBe(MESSAGGIO_BUDGET_RUN);
     expect(chiamateSottostanti).toBe(0);
     // Nessuna prenotazione lasciata appesa.
     expect(ledger.righe()).toHaveLength(0);
 
     // L'utente vede il messaggio nel turno persistito.
     const turni = await turniDiConversazione(esito.conversazioneId, SEDE);
-    expect(turni[turni.length - 1].contenuto).toBe(MESSAGGIO_BUDGET);
+    expect(turni[turni.length - 1].contenuto).toBe(MESSAGGIO_BUDGET_RUN);
   });
 
   it("il budget esaurito NON apre il circuito né innesca retry", async () => {
@@ -177,7 +184,7 @@ describe("cost hardening — end to end nel runtime", () => {
         configurazione: { modello: MODELLO },
       });
       // Sempre lo stesso messaggio: mai «il modello non è disponibile».
-      expect(esito.testo).toBe(MESSAGGIO_BUDGET);
+      expect(esito.testo).toBe(MESSAGGIO_BUDGET_RUN);
     }
     expect(chiamateSottostanti).toBe(0);
   });
@@ -227,7 +234,7 @@ describe("cost hardening — end to end nel runtime", () => {
       configurazione: { modello: MODELLO },
     });
     expect(esito.stato).toBe("degradato");
-    expect(esito.testo).toBe(MESSAGGIO_BUDGET);
+    expect(esito.testo).toBe(MESSAGGIO_BUDGET_RUN);
     // Le chiamate avvenute sono contabilizzate e CHIUSE: nessuna
     // prenotazione appesa dopo il blocco.
     const righe = ledger.righe();
@@ -364,43 +371,87 @@ describe("cost hardening — end to end nel runtime", () => {
     }
   });
 
-  it("DOPPIO CLICK: due invii identici ravvicinati non producono due addebiti", async () => {
-    let chiamateModello = 0;
-    const contesto = await costruisciContesto(contestoTrpc());
-    const governato = avvolgiConGovernor(
-      creaProviderFinto(() => {
-        chiamateModello += 1;
-        return rispostaTesto("una sola volta");
-      }),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
-      {
-        configurazione: {
-          ...configurazioneMinima,
-          limiti: {
-            runNano: usdInNano(1)!,
-            giornoNano: usdInNano(2)!,
-            meseNano: usdInNano(20)!,
-          },
-        },
-        ledger,
-      }
-    );
-    // Il router costruisce il provider da sé: qui si prova la dedup
-    // applicativa invocando due volte in parallelo la stessa mutation.
+  it("DOPPIO CLICK: due invii identici IN VOLO producono un solo run", async () => {
     const caller = appRouter.createCaller(contestoTrpc());
+    const primaDelDoppio = await statisticheRun(SEDE);
+
     const [prima, seconda] = await Promise.all([
       caller.tars.invia({ messaggio: "Domanda doppia identica" }),
       caller.tars.invia({ messaggio: "Domanda doppia identica" }),
     ]);
-    expect(seconda.runId).toBe(prima.runId); // stessa risposta, un solo run
-    void governato;
-    void chiamateModello;
+    expect(seconda.runId).toBe(prima.runId); // un solo run, una sola spesa
 
-    // E anche in sequenza ravvicinata resta un solo run.
-    const terza = await caller.tars.invia({
-      messaggio: "Domanda doppia identica",
+    const dopoIlDoppio = await statisticheRun(SEDE);
+    expect(dopoIlDoppio.totale - primaDelDoppio.totale).toBe(1);
+
+    // Un solo turno di risposta nella conversazione (non due).
+    const turni = await turniDiConversazione(prima.conversazioneId, SEDE);
+    expect(turni.filter(t => t.ruolo === "tars")).toHaveLength(1);
+  });
+
+  it("una domanda RIPETUTA dopo la risposta è un run nuovo, non un replay muto", async () => {
+    // Il contrario del doppio click: qui l'utente ha già visto la
+    // risposta e richiede volutamente. Deve ottenere un turno nuovo,
+    // altrimenti il messaggio sparisce nel nulla (seconda revisione).
+    const caller = appRouter.createCaller(contestoTrpc());
+    const apertura = await caller.tars.invia({ messaggio: "Apri la chat" });
+    const conversazioneId = apertura.conversazioneId;
+
+    // STESSA chiave di dedup (stessa conversazione, stesso testo) ma in
+    // sequenza: il primo è già concluso quando parte il secondo.
+    const prima = await caller.tars.invia({
+      messaggio: "Ripetimi la cosa",
+      conversazioneId,
     });
-    expect(terza.runId).toBe(prima.runId);
+    const seconda = await caller.tars.invia({
+      messaggio: "Ripetimi la cosa",
+      conversazioneId,
+    });
+    expect(seconda.runId).not.toBe(prima.runId);
+
+    const turni = await turniDiConversazione(conversazioneId, SEDE);
+    // apertura + due ripetizioni = 3 domande e 3 risposte.
+    expect(turni.filter(t => t.ruolo === "utente")).toHaveLength(3);
+    expect(turni.filter(t => t.ruolo === "tars")).toHaveLength(3);
+  });
+
+  it("i limiti del run resistono a una configurazione malformata (fail-closed)", async () => {
+    process.env.TARS_MAX_MODEL_CALLS = "non-un-numero";
+    try {
+      const contesto = await costruisciContesto(contestoTrpc());
+      let chiamate = 0;
+      const esito = await eseguiRun({
+        contesto,
+        // Copione che chiama strumenti all'infinito: senza un tetto
+        // valido girerebbe finché non finisce il budget (o mai).
+        provider: creaProviderFinto(() => {
+          chiamate += 1;
+          return {
+            tipo: "tool_call" as const,
+            chiamate: [
+              {
+                id: `c${chiamate}`,
+                nome: "leggi_promemoria_in_scadenza",
+                argomenti: "{}",
+              },
+            ],
+            uso: { input: 100, output: 10, cachedInput: 0, cacheWrite: 0 },
+          };
+        }),
+        messaggio: "Loop con configurazione rotta",
+        // Passi alti di proposito: l'UNICO tetto che può fermare il
+        // loop è `maxChiamateModello`, che qui arriva da una variabile
+        // malformata. Se degradasse a NaN il confronto sarebbe sempre
+        // falso e il loop girerebbe 51 volte.
+        configurazione: { modello: MODELLO, maxPassiStrumenti: 50 },
+      });
+      // Il default (8) resta in vigore: il run degrada, non gira a vuoto.
+      expect(esito.stato).toBe("degradato");
+      expect(chiamate).toBeLessThanOrEqual(8);
+      expect(chiamate).toBeGreaterThan(0);
+    } finally {
+      delete process.env.TARS_MAX_MODEL_CALLS;
+    }
   });
 
   it("i limiti tecnici del run NON si travestono da guasto del provider", async () => {
@@ -499,6 +550,24 @@ describe("cost hardening — end to end nel runtime", () => {
     await expect(fetch("https://example.com")).rejects.toThrow(
       /RETE VIETATA NEI TEST/
     );
+
+    // Copre anche node:http/https, cioè axios (usato da _core/sdk.ts e
+    // importato da ogni test dei router): senza, la guardia sarebbe
+    // aggirabile senza accorgersene (revisione conclusiva).
+    // `.default` è l'oggetto CJS che axios ottiene con require(): è
+    // quello che la guardia patcha (il namespace ESM ha binding
+    // immutabili e non è la strada che le librerie usano).
+    const https = (await import("node:https")).default;
+    expect(() =>
+      https.request("https://api.openai.com/v1/responses")
+    ).toThrow(/RETE VIETATA NEI TEST/);
+    const http = (await import("node:http")).default;
+    expect(() => http.get("http://example.com/x")).toThrow(
+      /RETE VIETATA NEI TEST/
+    );
+    // Localhost resta permesso — non lo si prova aprendo un socket vero
+    // (morirebbe in modo asincrono e farebbe fallire l'intera suite):
+    // lo dimostra il resto della suite, che usa server in-process.
 
     // E un run normale col fake non la sfiora nemmeno.
     const contesto = await costruisciContesto(contestoTrpc());
