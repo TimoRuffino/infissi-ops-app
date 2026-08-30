@@ -460,6 +460,25 @@ describe("cost hardening — end to end nel runtime", () => {
     expect(serializzato).not.toMatch(/promemoria|commessa|prompt|messaggio/i);
   });
 
+  it("budget e diagnosi infrastrutturale non sono visibili a chi non è direzione", async () => {
+    const commerciale = appRouter.createCaller(
+      contestoTrpc(COMMERCIALE_ID, ["commerciale"])
+    );
+    const stato = await commerciale.tars.stato();
+    // Il tipo di provider sì (è già nella UI), i soldi e i motivi
+    // infrastrutturali no (revisione: prima li vedeva chiunque).
+    expect(stato.providerDettaglio.tipo).toBe("finto");
+    expect(stato.providerDettaglio.budget).toBeNull();
+    expect(stato.providerDettaglio.motivoIndisponibilita).toBeNull();
+    expect(JSON.stringify(stato)).not.toContain("OPENAI_API_KEY");
+
+    // Alla direzione invece serve la diagnosi completa.
+    const direzione = appRouter.createCaller(contestoTrpc());
+    const statoDirezione = await direzione.tars.stato();
+    expect(statoDirezione.providerDettaglio.budget).not.toBeNull();
+    expect(statoDirezione.providerDettaglio.motivoIndisponibilita).toBeTruthy();
+  });
+
   it("il fake NON maschera una configurazione di produzione errata", async () => {
     process.env.TARS_PROVIDER = "openai";
     process.env.TARS_MODEL_INTERACTIVE = "modello-non-a-catalogo";

@@ -52,7 +52,7 @@ mentre il catalogo cresce.
 | 15 | Rilascio quota inutilizzata | `costi.test.ts` (settled < prenotato) |
 | 16 | Europe/Rome, DST, cambio mese | `costi.test.ts` (CET invernale, mezzanotte UTC, cambio anno) |
 | 17 | Nessun bypass del provider | `confine.test.ts` (7 guardie strutturali) |
-| 18 | Nessun leak economico/cross-sede | `integrazione.test.ts` (costi direzione-only, payload di soli numeri) |
+| 18 | Nessun leak economico/cross-sede | `integrazione.test.ts` (costi direzione-only, budget non visibile ai non-direzione, payload di soli numeri) |
 | 19 | Messaggio controllato | `integrazione.test.ts` (testo esatto, nessun retry, nessun circuito) |
 | 20 | CRM indifferente con Tars spento | `integrazione.test.ts` (router non-Tars rispondono) |
 | 21 | Nessuna rete nei test | `server/_core/testSetup.ts` (guardia globale) + `integrazione.test.ts` (adapter reale invocato e fermato) |
@@ -74,6 +74,7 @@ mentre il catalogo cresce.
 | 11 | Guardia di rete globale disattivata | guardia anti-rete |
 | 12 | Import del grezzo in produzione | confine |
 | 13 | `setupFiles` rimosso dalla config | guardia registrata |
+| 14 | `providerDettaglio` esposto a tutti | budget riservato alla direzione |
 
 ## 4. Esiti degli stati del ledger
 
