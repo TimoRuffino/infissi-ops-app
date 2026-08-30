@@ -176,4 +176,68 @@ describe("reminder repository", () => {
       (await repo.listEvents(1, created.record.id)).map((event) => event.eventType),
     ).toEqual(["created"]);
   });
+
+  it("listPersonal filtra per scope, stato e intervallo e ordina come chiesto", async () => {
+    const base = {
+      sedeId: 1,
+      recipientUserId: 7,
+      createdByUserId: 7,
+      sourceProposalId: null,
+      timezone: "Europe/Rome" as const,
+      clienteId: null,
+      commessaId: null,
+    };
+    const lunedi = await repo.create({
+      ...base,
+      canonicalKey: "list:lunedi",
+      text: "Lunedì",
+      remindAt: new Date("2026-08-31T07:00:00Z"),
+      now,
+    });
+    const mercoledi = await repo.create({
+      ...base,
+      canonicalKey: "list:mercoledi",
+      text: "Mercoledì",
+      remindAt: new Date("2026-09-02T07:00:00Z"),
+      now: new Date(now.getTime() + 60_000),
+    });
+    await repo.create({
+      ...base,
+      canonicalKey: "list:altrove",
+      recipientUserId: 8,
+      text: "Di un altro",
+      remindAt: new Date("2026-08-31T08:00:00Z"),
+      now,
+    });
+    await repo.cancel({
+      sedeId: 1,
+      recipientUserId: 7,
+      id: mercoledi.record.id,
+      actorUserId: 7,
+      now,
+    });
+
+    const attivi = await repo.listPersonal({
+      sedeId: 1,
+      recipientUserId: 7,
+      stati: ["scheduled", "due"],
+      daRemindAt: new Date("2026-08-30T00:00:00Z"),
+      aRemindAt: new Date("2026-09-06T00:00:00Z"),
+      ordina: "remindAt",
+      limit: 10,
+    });
+    expect(attivi.map((r) => r.id)).toEqual([lunedi.record.id]);
+
+    const recenti = await repo.listPersonal({
+      sedeId: 1,
+      recipientUserId: 7,
+      stati: ["scheduled", "due", "completed", "cancelled"],
+      ordina: "creazioneDesc",
+      limit: 10,
+    });
+    expect(recenti.map((r) => r.id)).toEqual([
+      mercoledi.record.id,
+      lunedi.record.id,
+    ]);
+  });
 });

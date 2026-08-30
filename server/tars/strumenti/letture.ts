@@ -8,6 +8,7 @@
 // segnali derivati — e l'omissione viene dichiarata. `daSaldare` è il
 // booleano operativo sanzionato, visibile a tutti come nel Board.
 
+import { TZDate } from "@date-fns/tz";
 import { z } from "zod";
 import { getCommessaById, getCommesseStore, STATI_COMMESSA } from "../../routers/commesse";
 import {
@@ -20,6 +21,7 @@ import { getActionCaseRepository } from "../../actionCenter/repository";
 import { listActionCases } from "../../actionCenter/service";
 import { getReminderService } from "../../reminders/service";
 import { versioneRegistroPagamenti } from "../../_core/commessaPayments";
+import { formattaIstanteLocale } from "../tempo";
 import type {
   ContestoRun,
   EsitoLettura,
@@ -437,6 +439,106 @@ const leggiPromemoria: StrumentoTars = {
   },
 };
 
+// ── leggi_promemoria (agenda per periodo) ────────────────────────────────
+
+const PERIODI_PROMEMORIA = [
+  "oggi",
+  "domani",
+  "settimana",
+  "prossima_settimana",
+  "futuri",
+  "ultimi_creati",
+] as const;
+
+function intervalloPeriodo(
+  periodo: (typeof PERIODI_PROMEMORIA)[number],
+  adesso: Date
+): { da?: Date; a?: Date } {
+  const locale = new TZDate(adesso, "Europe/Rome");
+  const mezzanotte = (giorniAvanti: number) =>
+    new Date(
+      new TZDate(
+        locale.getFullYear(),
+        locale.getMonth(),
+        locale.getDate() + giorniAvanti,
+        0,
+        0,
+        0,
+        0,
+        "Europe/Rome"
+      ).getTime()
+    );
+  // Giorni fino al prossimo lunedì (7 se oggi è lunedì).
+  const alLunedi = ((1 - locale.getDay() + 7) % 7) || 7;
+  switch (periodo) {
+    case "oggi":
+      return { da: adesso, a: mezzanotte(1) };
+    case "domani":
+      return { da: mezzanotte(1), a: mezzanotte(2) };
+    case "settimana":
+      return { da: adesso, a: mezzanotte(alLunedi) };
+    case "prossima_settimana":
+      return { da: mezzanotte(alLunedi), a: mezzanotte(alLunedi + 7) };
+    case "futuri":
+      return { da: adesso };
+    case "ultimi_creati":
+      return {};
+  }
+}
+
+const leggiAgendaPromemoria: StrumentoTars = {
+  nome: "leggi_promemoria",
+  versione: "1.0.0",
+  categoria: "promemoria",
+  livello: "L0",
+  effetto: "nessuno",
+  reversibile: true,
+  capability: [],
+  descrizione:
+    "I promemoria personali del principal per periodo (oggi, domani, settimana, prossima_settimana, futuri) o gli ultimi creati (ultimi_creati, per «annulla l'ultimo»). Solo i propri.",
+  schemaInput: z
+    .object({
+      periodo: z.enum(PERIODI_PROMEMORIA).default("settimana"),
+      includiConclusi: z.boolean().default(false),
+      limite: z.number().int().min(1).max(50).default(20),
+    })
+    .strict(),
+  async esegui(contesto, input) {
+    const adesso = new Date();
+    const { da, a } = intervalloPeriodo(input.periodo, adesso);
+    const items = await getReminderService().listPersonal(
+      { sedeId: contesto.sedeId, recipientUserId: contesto.utenteId },
+      {
+        stati: input.includiConclusi
+          ? ["scheduled", "due", "completed", "cancelled"]
+          : ["scheduled", "due"],
+        daRemindAt: da,
+        aRemindAt: a,
+        ordina: input.periodo === "ultimi_creati" ? "creazioneDesc" : "remindAt",
+        limit: input.limite,
+      }
+    );
+    const righe = items.map(r => ({
+      id: r.id,
+      testo: r.text,
+      remindAt: r.remindAt.toISOString(),
+      remindAtLocale: formattaIstanteLocale(r.remindAt),
+      stato: r.status,
+      commessaId: r.commessaId,
+      clienteId: r.clienteId,
+      creatoIl: r.createdAt.toISOString(),
+    }));
+    return lettura({
+      dati: { periodo: input.periodo, promemoria: righe },
+      evidenze: righe.slice(0, 10).map(r => ({
+        tipo: "entita" as const,
+        riferimento: `promemoria:${r.id}`,
+        descrizione: `${r.testo} — ${r.remindAtLocale}`,
+      })),
+    });
+  },
+};
+
 export const STRUMENTI_L0: readonly StrumentoTars[] = [
   cercaCommesse,
   leggiCommessa,
@@ -445,4 +547,5 @@ export const STRUMENTI_L0: readonly StrumentoTars[] = [
   leggiAnalisi,
   leggiCentroAzioni,
   leggiPromemoria,
+  leggiAgendaPromemoria,
 ];

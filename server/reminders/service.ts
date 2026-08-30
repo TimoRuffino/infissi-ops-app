@@ -12,7 +12,7 @@ import {
   resolveSnoozeAt,
   type SnoozeInput,
 } from "./time";
-import type { ReminderScope } from "./types";
+import type { ReminderListInput, ReminderScope } from "./types";
 
 export class ReminderNotFoundError extends Error {
   constructor() {
@@ -76,6 +76,45 @@ export function createReminderService(deps: {
 
     async listPopupDue(scope: ReminderScope) {
       return deps.reminders.listPopupDue({ ...scope, limit: 20 });
+    },
+
+    async get(input: PersonalReminderInput) {
+      return deps.reminders.findById(
+        input.sedeId,
+        input.recipientUserId,
+        input.id,
+      );
+    },
+
+    /** Registro eventi (audit) di un promemoria PROPRIO: scope verificato. */
+    async listEvents(input: PersonalReminderInput) {
+      const record = await deps.reminders.findById(
+        input.sedeId,
+        input.recipientUserId,
+        input.id,
+      );
+      if (!record) throw new ReminderNotFoundError();
+      return deps.reminders.listEvents(input.sedeId, input.id);
+    },
+
+    async listPersonal(
+      scope: ReminderScope,
+      opzioni: {
+        stati?: ReminderListInput["stati"];
+        daRemindAt?: Date;
+        aRemindAt?: Date;
+        ordina?: ReminderListInput["ordina"];
+        limit?: number;
+      } = {},
+    ) {
+      return deps.reminders.listPersonal({
+        ...scope,
+        stati: opzioni.stati ?? ["scheduled", "due"],
+        daRemindAt: opzioni.daRemindAt,
+        aRemindAt: opzioni.aRemindAt,
+        ordina: opzioni.ordina ?? "remindAt",
+        limit: opzioni.limit ?? 50,
+      });
     },
 
     async dismissPopup(input: PersonalReminderInput) {

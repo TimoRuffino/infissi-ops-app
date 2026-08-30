@@ -6,10 +6,11 @@
 import { z } from "zod";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { STRUMENTI_L0 } from "./strumenti/letture";
+import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l0-v1";
+export const PROFILO_VERSIONE = "l1-v1";
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(
@@ -33,8 +34,14 @@ export function filtraStrumenti(
 export function strumentiPerContesto(
   contesto: ContestoRun
 ): StrumentoTars[] {
-  if (!interruttoreAttivo("tarsReadTools")) return [];
-  return filtraStrumenti(STRUMENTI_L0, contesto);
+  // Ogni famiglia esiste solo col SUO interruttore: letture e promemoria
+  // sono indipendenti (il singolo strumento può poi averne altri, es. DI).
+  const catalogo: StrumentoTars[] = [];
+  if (interruttoreAttivo("tarsReadTools")) catalogo.push(...STRUMENTI_L0);
+  if (interruttoreAttivo("tarsReminders")) {
+    catalogo.push(...STRUMENTI_PROMEMORIA);
+  }
+  return filtraStrumenti(catalogo, contesto);
 }
 
 /** JSON Schema strict per il provider, derivato dagli schemi zod. */

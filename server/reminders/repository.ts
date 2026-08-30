@@ -4,6 +4,7 @@ import type {
   Reminder,
   ReminderEvent,
   ReminderEventType,
+  ReminderListInput,
   ReminderMutationInput,
   ReminderScope,
 } from "./types";
@@ -17,6 +18,7 @@ export type ReminderRepository = {
     id: number,
   ): Promise<Reminder | null>;
   listPopupDue(input: ReminderScope & { limit: number }): Promise<Reminder[]>;
+  listPersonal(input: ReminderListInput): Promise<Reminder[]>;
   claimDue(input: { now: Date; limit: number }): Promise<Reminder[]>;
   listPendingNotification(limit: number): Promise<Reminder[]>;
   markNotificationProjected(input: {
@@ -135,6 +137,24 @@ export function createMemoryReminderRepository(): ReminderRepository {
         )
         .slice(0, limit)
         .map(cloneReminder);
+    },
+
+    async listPersonal(input) {
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
+      const filtrati = records.filter(
+        (item) =>
+          item.sedeId === input.sedeId &&
+          item.recipientUserId === input.recipientUserId &&
+          input.stati.includes(item.status) &&
+          (!input.daRemindAt || item.remindAt >= input.daRemindAt) &&
+          (!input.aRemindAt || item.remindAt <= input.aRemindAt),
+      );
+      filtrati.sort((a, b) =>
+        input.ordina === "creazioneDesc"
+          ? b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id
+          : a.remindAt.getTime() - b.remindAt.getTime() || a.id - b.id,
+      );
+      return filtrati.slice(0, limit).map(cloneReminder);
     },
 
     async claimDue(input) {
@@ -408,6 +428,29 @@ export function createPostgresReminderRepository(
           AND recipient_user_id = ${input.recipientUserId}
           AND status = 'due' AND popup_dismissed_at IS NULL
         ORDER BY remind_at ASC, id ASC LIMIT ${limit}`;
+      return rows.map(rowToReminder);
+    },
+
+    async listPersonal(input) {
+      await ensureSchema();
+      const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
+      // Estremi sempre valorizzati: query statica, nessun frammento dinamico.
+      const da = input.daRemindAt ?? new Date(0);
+      const a = input.aRemindAt ?? new Date("9999-01-01T00:00:00Z");
+      const rows =
+        input.ordina === "creazioneDesc"
+          ? await sql`SELECT * FROM promemoria
+              WHERE sede_id = ${input.sedeId}
+                AND recipient_user_id = ${input.recipientUserId}
+                AND status = ANY(${input.stati})
+                AND remind_at >= ${da} AND remind_at <= ${a}
+              ORDER BY created_at DESC, id DESC LIMIT ${limit}`
+          : await sql`SELECT * FROM promemoria
+              WHERE sede_id = ${input.sedeId}
+                AND recipient_user_id = ${input.recipientUserId}
+                AND status = ANY(${input.stati})
+                AND remind_at >= ${da} AND remind_at <= ${a}
+              ORDER BY remind_at ASC, id ASC LIMIT ${limit}`;
       return rows.map(rowToReminder);
     },
 

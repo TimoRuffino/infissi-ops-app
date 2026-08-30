@@ -20,7 +20,11 @@ import {
 import { costruisciContesto } from "../tars/contesto";
 import { configurazioneRunDefault, eseguiRun } from "../tars/orchestratore";
 import { creaProviderReale } from "../tars/openai/adapter";
-import { creaProviderFinto, rispostaTesto } from "../tars/openai/fake";
+import {
+  chiamataTool,
+  creaProviderFinto,
+  rispostaTesto,
+} from "../tars/openai/fake";
 import { strumentiPerContesto } from "../tars/profili";
 import type { TarsProvider } from "../tars/provider";
 import { DEFAULT_SEDE_ID } from "./sedi";
@@ -31,12 +35,59 @@ function providerCorrente(): TarsProvider {
   if (process.env.TARS_PROVIDER?.trim().toLowerCase() === "openai") {
     return creaProviderReale();
   }
-  // Fake di sviluppo: onesto sul proprio stato, deterministico.
-  return creaProviderFinto(() =>
-    rispostaTesto(
+  // Fake di sviluppo: deterministico e onesto sul proprio stato. Il
+  // copione dimostrativo riconosce «Ricordami <quando> di <cosa>» e usa lo
+  // strumento VERO (T2): la pagina /tars resta provabile senza modello e
+  // l'attrito dichiarato (zero conferme, una sola precisazione) si vede.
+  return creaProviderFinto(richiesta => {
+    const ultimoTool = [...richiesta.input]
+      .reverse()
+      .find(m => m.ruolo === "tool");
+    if (ultimoTool) {
+      if (ultimoTool.contenuto.startsWith("ERRORE")) {
+        return rispostaTesto(
+          `Non posso eseguirlo: ${ultimoTool.contenuto} (provider dimostrativo).`
+        );
+      }
+      try {
+        const esito = JSON.parse(ultimoTool.contenuto);
+        if (esito?.tipo === "azione") {
+          if (esito.stato === "non_eseguito") {
+            return rispostaTesto(
+              `Non ho creato il promemoria: ${esito.motivo} (provider dimostrativo).`
+            );
+          }
+          return rispostaTesto(
+            `Fatto: promemoria «${esito.dati?.testo}» per ${esito.dati?.remindAtLocale}. Puoi annullarlo qui sotto. (provider dimostrativo)`
+          );
+        }
+      } catch {
+        // non-JSON: risposta di servizio qui sotto
+      }
+      return rispostaTesto("Ho letto i dati richiesti (provider dimostrativo).");
+    }
+
+    const ultimoUtente =
+      [...richiesta.input].reverse().find(m => m.ruolo === "user")?.contenuto ??
+      "";
+    const conQuando = /^ricordami\s+(.+?)\s+di\s+(.+)$/i.exec(
+      ultimoUtente.trim()
+    );
+    if (conQuando) {
+      return chiamataTool("crea_promemoria", {
+        testo: conQuando[2].trim(),
+        quando: conQuando[1].trim(),
+      });
+    }
+    if (/^ricordami\b/i.test(ultimoUtente.trim())) {
+      return rispostaTesto(
+        "Dimmi anche quando: ad esempio «Ricordami domani alle 9 di chiamare il fornitore». (provider dimostrativo)"
+      );
+    }
+    return rispostaTesto(
       "Il modello reale non è configurato su questa installazione (TARS_PROVIDER≠openai): questa è una risposta di servizio del provider dimostrativo. Gli strumenti e il resto del CRM funzionano normalmente."
-    )
-  );
+    );
+  });
 }
 
 function comeErrore(errore: any): never {

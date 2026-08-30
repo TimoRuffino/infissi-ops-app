@@ -74,6 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.FLAG_TARS;
   delete process.env.FLAG_TARS_READ_TOOLS;
+  delete process.env.FLAG_TARS_REMINDERS;
 });
 
 describe("tars — kill switch", () => {
@@ -87,8 +88,17 @@ describe("tars — kill switch", () => {
     ).rejects.toMatchObject(attesa);
   });
 
-  it("con FLAG_TARS_READ_TOOLS spento il profilo strumenti è vuoto", async () => {
+  it("con FLAG_TARS_READ_TOOLS spento restano solo gli strumenti promemoria", async () => {
     process.env.FLAG_TARS_READ_TOOLS = "off";
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const strumenti = strumentiPerContesto(contesto);
+    expect(strumenti.length).toBeGreaterThan(0);
+    expect(strumenti.every(s => s.categoria === "promemoria")).toBe(true);
+  });
+
+  it("con entrambe le famiglie spente il profilo strumenti è vuoto", async () => {
+    process.env.FLAG_TARS_READ_TOOLS = "off";
+    process.env.FLAG_TARS_REMINDERS = "off";
     const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
     expect(strumentiPerContesto(contesto)).toEqual([]);
   });

@@ -7,9 +7,73 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { BrainCircuit, Loader2, Plus, Send } from "lucide-react";
+import { BrainCircuit, Check, Loader2, Plus, Send, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+
+// Azioni eseguite nel run (T2): esito dichiarato + undo con UN click,
+// direttamente sul router promemoria esistente (nessun passaggio dal
+// modello). Le assunzioni del server (es. «mattina = 09:00») sono mostrate.
+function AzioniTurno({ payload }: { payload: any }) {
+  const [annullati, setAnnullati] = useState<number[]>([]);
+  const utils = trpc.useUtils();
+  const annulla = trpc.promemoria.cancel.useMutation({
+    onSuccess: (_dati, variabili) => {
+      setAnnullati(prev => [...prev, variabili.id]);
+      utils.promemoria.due.invalidate();
+      toast.success("Promemoria annullato.");
+    },
+    onError: e => toast.error(e.message ?? "Annullamento non riuscito"),
+  });
+  const azioni = payload?.azioni ?? [];
+  if (!azioni.length) return null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      {azioni.map((azione: any, i: number) => {
+        const idPromemoria =
+          azione.undoVia?.procedura === "promemoria.cancel"
+            ? azione.undoVia.id
+            : null;
+        const giaAnnullato =
+          idPromemoria != null && annullati.includes(idPromemoria);
+        return (
+          <div
+            key={i}
+            className="flex items-start gap-2 rounded-md bg-surface-2 px-2 py-1.5"
+          >
+            <Check className="h-3.5 w-3.5 mt-0.5 shrink-0 text-success" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs">
+                {azione.descrizione}{" "}
+                <span className="text-text-3">({azione.stato})</span>
+              </p>
+              {(azione.assunzioni ?? []).map((a: string, j: number) => (
+                <p key={j} className="text-[11px] text-text-3">
+                  Assunzione: {a}
+                </p>
+              ))}
+              {azione.motivo && (
+                <p className="text-[11px] text-warning">{azione.motivo}</p>
+              )}
+            </div>
+            {azione.undoDisponibile && idPromemoria != null && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] shrink-0"
+                disabled={annulla.isPending || giaAnnullato}
+                onClick={() => annulla.mutate({ id: idPromemoria })}
+              >
+                <Undo2 className="h-3 w-3 mr-1" />
+                {giaAnnullato ? "Annullato" : "Annulla"}
+              </Button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function EvidenzeTurno({ payload }: { payload: any }) {
   const evidenze = payload?.evidenze ?? [];
@@ -141,8 +205,12 @@ export default function Tars() {
           <div className="text-sm text-text-3 space-y-2">
             <p>
               Chiedimi delle commesse, dei gate, degli ordini fornitori, del
-              Centro Azioni. In questa versione leggo soltanto: non modifico
-              nulla.
+              Centro Azioni.
+              {stato.data?.strumentiDisponibili.some(
+                s => s.nome === "crea_promemoria"
+              )
+                ? " Posso anche creare, spostare e annullare i tuoi promemoria personali («ricordami domani alle 9 di…»)."
+                : " In questa versione leggo soltanto: non modifico nulla."}
             </p>
             {stato.data && (
               <p className="text-[11px]">
@@ -170,6 +238,7 @@ export default function Tars() {
                     degradato
                   </Badge>
                 )}
+                <AzioniTurno payload={turno.payload} />
                 <EvidenzeTurno payload={turno.payload} />
               </>
             )}

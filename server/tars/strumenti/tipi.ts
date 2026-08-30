@@ -40,6 +40,34 @@ export type EsitoLettura<T> = {
 
 export type LivelloRischio = "L0" | "L1" | "L2" | "L3" | "L4";
 
+/**
+ * Esito di uno strumento che AGISCE (L1+) — spec §7: le azioni
+ * restituiscono stato, riferimenti di audit, prima/dopo e undo. Un esito
+ * `non_eseguito` è un DATO per il modello (motivo leggibile), mai
+ * un'eccezione: il run prosegue e spiega.
+ */
+export type EsitoAzione<T = unknown> = {
+  tipo: "azione";
+  strumento: string;
+  stato: string; // es. "creato" | "gia_esistente" | "annullato" | "non_eseguito"
+  motivo: string | null; // valorizzato quando stato = non_eseguito
+  azioneId: string | null;
+  auditId: string | null;
+  entitaToccate: string[];
+  prima: Record<string, unknown> | null;
+  dopo: Record<string, unknown> | null;
+  undoDisponibile: boolean;
+  /** Finestra o condizione dell'undo (testo dichiarato), null se nessuno. */
+  undoEntro: string | null;
+  /** Per la UI: come annullare con UN click senza passare dal modello. */
+  undoVia: { procedura: "promemoria.cancel"; id: number } | null;
+  avvertenze: string[];
+  assunzioni: string[];
+  dati: T;
+  evidenze: EvidenzaTars[];
+  freschezza: string;
+};
+
 export type StrumentoTars<I = any, O = any> = {
   nome: string;
   versione: string;

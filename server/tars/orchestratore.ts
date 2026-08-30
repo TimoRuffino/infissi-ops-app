@@ -15,14 +15,26 @@ import {
   turniDiConversazione,
 } from "./archivio";
 import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from "./profili";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v1";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v2";
 import {
   ErroreProvider,
   type MessaggioTars,
   type TarsProvider,
   type UsoToken,
 } from "./provider";
-import type { ContestoRun, EvidenzaTars } from "./strumenti/tipi";
+import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./strumenti/tipi";
+
+/** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
+export type AzioneRun = {
+  strumento: string;
+  stato: string;
+  motivo: string | null;
+  entitaToccate: string[];
+  undoDisponibile: boolean;
+  undoVia: EsitoAzione["undoVia"];
+  assunzioni: string[];
+  descrizione: string;
+};
 
 export type ConfigurazioneRun = {
   modello: string;
@@ -49,6 +61,7 @@ export type RispostaRun = {
   testo: string;
   evidenze: EvidenzaTars[];
   strumentiUsati: string[];
+  azioni: AzioneRun[];
   omissioni: string[];
   uso: UsoToken;
   cache: { c0Hit: boolean; c1Hit: number; c1Miss: number };
@@ -199,6 +212,7 @@ export async function eseguiRun(input: {
   const evidenze: EvidenzaTars[] = [];
   const omissioni = new Set<string>();
   const strumentiUsati: string[] = [];
+  const azioni: AzioneRun[] = [];
   const uso: UsoToken = { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 };
 
   const esitoDegradato = async (
@@ -212,6 +226,7 @@ export async function eseguiRun(input: {
       testo: motivo,
       evidenze,
       strumentiUsati,
+      azioni,
       omissioni: [...omissioni],
       uso,
       cache: { c0Hit: false, c1Hit, c1Miss },
@@ -226,7 +241,7 @@ export async function eseguiRun(input: {
       sedeId: contesto.sedeId,
       ruolo: "tars",
       contenuto: motivo,
-      payload: { degradato: true, runId },
+      payload: { degradato: true, azioni, runId },
     });
     await registraRun({
       sedeId: contesto.sedeId,
@@ -336,6 +351,20 @@ export async function eseguiRun(input: {
               evidenze.push(...(esito as any).evidenze);
               for (const o of (esito as any).omissioni ?? []) omissioni.add(o);
             }
+            if ((esito as EsitoAzione)?.tipo === "azione") {
+              const azione = esito as EsitoAzione;
+              azioni.push({
+                strumento: azione.strumento,
+                stato: azione.stato,
+                motivo: azione.motivo,
+                entitaToccate: azione.entitaToccate,
+                undoDisponibile: azione.undoDisponibile,
+                undoVia: azione.undoVia,
+                assunzioni: azione.assunzioni,
+                descrizione:
+                  azione.evidenze[0]?.descrizione ?? azione.strumento,
+              });
+            }
             esitoTesto = JSON.stringify(esito);
           } catch (errore) {
             esitoTesto = `ERRORE: ${sanifica(errore)}`;
@@ -366,6 +395,7 @@ export async function eseguiRun(input: {
     testo: risposta.testo,
     evidenze,
     strumentiUsati,
+    azioni,
     omissioni: [...omissioni],
     uso,
     cache: { c0Hit: false, c1Hit, c1Miss },
@@ -376,13 +406,18 @@ export async function eseguiRun(input: {
     },
   };
 
-  cacheC0.set(chiaveC0(contesto, input.messaggio), {
-    risposta: finale,
-    scade: Date.now() + C0_TTL_MS,
-  });
-  if (cacheC0.size > C0_MAX_VOCI) {
-    const prima = cacheC0.keys().next().value;
-    if (prima) cacheC0.delete(prima);
+  // Un run con azioni non è una «domanda deterministica»: non entra in C0
+  // (spec §20, decisione 14) — la protezione dal doppio invio resta
+  // all'idempotenza degli strumenti, che riesegue e risponde il vero.
+  if (azioni.length === 0) {
+    cacheC0.set(chiaveC0(contesto, input.messaggio), {
+      risposta: finale,
+      scade: Date.now() + C0_TTL_MS,
+    });
+    if (cacheC0.size > C0_MAX_VOCI) {
+      const prima = cacheC0.keys().next().value;
+      if (prima) cacheC0.delete(prima);
+    }
   }
 
   await aggiungiTurno({
@@ -393,6 +428,7 @@ export async function eseguiRun(input: {
     payload: {
       evidenze: finale.evidenze,
       strumentiUsati,
+      azioni,
       omissioni: finale.omissioni,
       uso,
       runId,
@@ -415,6 +451,7 @@ export async function eseguiRun(input: {
       tokenCacheWrite: uso.cacheWrite,
       evidenze: evidenze.length,
       strumenti: strumentiUsati.length,
+      azioni: azioni.length,
     },
     errore: null,
   });
