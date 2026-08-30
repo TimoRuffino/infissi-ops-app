@@ -1381,6 +1381,46 @@ Su `feature/tars-v2`, contratti in `docs/tars/architettura-tars-v2.md`:
   gate chiave/modello/budget della direzione: fino ad allora nessuna
   chiamata OpenAI); pannello contestuale (T3).
 
+## 11-quinquies. Tars v2 — T2 promemoria personali L1 (30/08/2026)
+
+Su `feature/tars-v2` (decisioni registrate PRIMA del codice nella spec
+§20, commit `f74dd8b`; implementazione `844e371`):
+
+- `server/tars/tempo.ts`: risoluzione deterministica delle espressioni
+  temporali italiane («domani alle 9», «venerdì», «tra due ore», «lunedì
+  mattina», «il 15 settembre», «tre giorni prima»+ancoraData). Due
+  semantiche: calendario (convertito da `parseRomeLocalDateTime`
+  esistente: DST inesistente/ambiguo RIFIUTATO) e durata esatta.
+  Default dichiarati sempre restituiti come `assunzioni`.
+- `server/tars/strumenti/promemoria.ts`: 4 strumenti L1
+  (crea/sposta/annulla/completa) sul `ReminderService` ESISTENTE;
+  destinatario = principal per costruzione (schema strict senza campo
+  destinatario); idempotenza `canonicalKey` + catena `:dopo<id>` per
+  ricreare dopo annullo; esiti `EsitoAzione` (stato, prima/dopo,
+  auditId da `promemoria_eventi`, undo, avvertenze, assunzioni); errori
+  temporali = esiti `non_eseguito` leggibili, mai eccezioni.
+- Estensioni ADDITIVE a `server/reminders` (nessuno schema toccato):
+  `repository.listPersonal` (memoria+PG), `service.listPersonal/get/
+  listEvents`. Consegna: worker esistente (claim `FOR UPDATE SKIP
+  LOCKED`), nessuno scheduler nuovo; replica singola documentata.
+- Orchestratore: aggrega `azioni` nel run (anche in degradazione),
+  le esclude da C0, le conta in telemetria; prompt `v2` (attrito: zero
+  conferme su richiesta esplicita, max UNA precisazione); profilo
+  `l1-v1` con gate per famiglia (readTools/reminders indipendenti).
+- UI `/tars`: blocco azioni con esito, assunzioni e «Annulla» a un
+  click su `promemoria.cancel` (zero passaggi dal modello); provider
+  dimostrativo con copione «Ricordami <quando> di <cosa>» per il dev.
+- Prove: 17 test integrazione (attrito misurato sui turni: 2 turni,
+  nessuna conferma; duplicati 0; DST onesto; ownership e cross-sede
+  NOT_FOUND; kill switch a TRE strati — famiglia, campo interruttore,
+  guardia in-tool — con mutation test che mordono su ciascuno), 15 test
+  parser, listPersonal provata nel repository. Suite 75 file/658 test,
+  build ok, browser desktop+390x844 senza errori console.
+- APERTO dopo T2: ricorrenze e promemoria event-driven («avvisami se
+  slitta la consegna») → arrivano con la proattività (T4), sugli eventi
+  esistenti; collegamento a ordini/documenti nel testo finché lo schema
+  promemoria non li prevede (decisione §20.9).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
