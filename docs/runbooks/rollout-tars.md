@@ -23,9 +23,24 @@ Provider: `TARS_PROVIDER` NON impostato = provider finto (nessuna
 chiamata di rete possibile). Il provider reale richiede TUTTE e tre le
 condizioni: `TARS_PROVIDER=openai` + `FLAG_TARS=on` + `OPENAI_API_KEY`.
 
-Config modello (solo quando autorizzato): `TARS_MODEL_INTERACTIVE`,
-`TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS` (1200),
-`TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_C0_TTL_MS` (90000).
+Config modello (solo quando autorizzato): `TARS_MODEL_INTERACTIVE`
+(unico approvato: `gpt-5.6-terra`), `TARS_REASONING_INTERACTIVE`
+(`medium`), `TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS` (1200),
+`TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_MAX_MODEL_CALLS` (8),
+`TARS_MAX_RUN_MS` (180000), `TARS_MAX_CONTEXT_CHARS` (120000),
+`TARS_C0_TTL_MS` (90000).
+
+**Budget (tetto software, spec §27)**: `TARS_MAX_COST_PER_RUN_USD`
+(0.10), `TARS_DAILY_BUDGET_USD` (2.00), `TARS_MONTHLY_BUDGET_USD`
+(20.00). Sono i default: NON serve impostarli per essere protetti, ma
+impostarli male (valore non numerico, negativo, o run > giorno > mese)
+DISABILITA il provider reale invece di allentare il tetto. Il provider
+reale richiede inoltre `DATABASE_URL` (ledger autorevole con
+prenotazioni atomiche): senza, resta disabilitato.
+
+Verifica rapida dello stato: `tars.costi` (direzione) mostra provider
+effettivo, motivo di eventuale indisponibilità, budget configurato,
+spesa e residui di giorno e mese.
 
 ## 2. Fasi proposte (ognuna = decisione esplicita della direzione)
 
@@ -41,12 +56,15 @@ e isolamento su dati veri SENZA modello. Osservazione: 2-3 giorni,
 `tars_run` senza errori, zero regressioni CRM.
 
 **Fase 1 — gate OpenAI (decisione: modello, budget, limiti)**
-La direzione approva la proposta di gate (documento separato:
-modelli/prezzi ufficiali correnti, budget mensile, limite per richiesta
-e giornaliero, circuito economico, numero di eval reali). SOLO DOPO:
-`TARS_PROVIDER=openai` in un ambiente di prova o con perimetro pilota.
-Primi eval reali controllati e misurati (tool selection, injection,
-groundedness, latenza, costo, cached_tokens/cache_write C2).
+La direzione approva `docs/tars/gate-openai.md` (modelli e prezzi
+ufficiali correnti, budget, limiti) e fa creare progetto, service
+account, chiave dedicata e hard limit OpenAI secondo il §6 di quel
+documento. SOLO DOPO: `TARS_PROVIDER=openai` in un ambiente di PROVA
+con database di prova, e batteria di eval reali secondo
+`docs/tars/piano-eval-reali.md` (60 casi, ~1-2 USD, soglia
+inderogabile: zero azioni critiche non autorizzate, zero leak).
+Prima di procedere alla fase 2, leggere `tars.costi`: la spesa reale
+degli eval è la prima misura vera del costo per run e del cache hit.
 
 **Fase 2 — pilota letture+memoria+promemoria**
 `FLAG_TARS_MEMORY=on`, `FLAG_TARS_REMINDERS=on`. Perimetro: la

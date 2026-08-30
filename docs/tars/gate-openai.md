@@ -58,13 +58,65 @@ Proposta di budget (valori da confermare o correggere):
 - **Rollback**: rimuovere `TARS_PROVIDER` → provider finto; i flag
   restano indipendenti (runbook docs/runbooks/rollout-tars.md).
 
-## 4. Cosa serve per procedere (decisione della direzione)
+## 4. Tetto di spesa software — IMPLEMENTATO (30/08/2026)
 
-1. Conferma del modello (`terra`) e dei budget sopra (o valori diversi).
-2. Autorizzazione a usare la chiave (quella residua su Railway o una
-   NUOVA chiave dedicata a Tars con budget cap sul pannello OpenAI —
-   RACCOMANDATA la seconda: separazione dei costi e revoca pulita).
-3. Dove: prima in locale/ambiente di prova (eval), mai direttamente in
-   produzione.
+Il governor applicativo è in `server/tars/costi/` (spec §27) ed è
+attivo per costruzione, non per configurazione:
+
+- limiti **0,10 USD per run / 2,00 al giorno / 20,00 al mese**
+  (`TARS_MAX_COST_PER_RUN_USD`, `TARS_DAILY_BUDGET_USD`,
+  `TARS_MONTHLY_BUDGET_USD`): sono i default, e una configurazione
+  mancante/invalida/incoerente rende il provider reale INDISPONIBILE;
+- ogni chiamata a pagamento passa dal decoratore che **prenota prima**
+  (stima prudenziale) e **riconcilia dopo** (costo reale, quota
+  inutilizzata liberata), su ledger PostgreSQL con lock globale;
+- senza `DATABASE_URL` non esiste ledger autorevole → niente provider
+  reale;
+- timeout ed esiti incerti restano contati (mai sottostima);
+- budget esaurito = messaggio italiano, nessuna chiamata, nessun retry.
+
+**Numero misurato in test**: con il catalogo strumenti attuale (21
+strumenti) la prenotazione prudenziale di una singola chiamata è
+**≈0,03 USD**, quindi il tetto per-run da 0,10 consente **3-7 chiamate
+al modello per run** a seconda di quanto morde il prompt caching (la
+prenotazione ignora lo sconto cache per prudenza, la riconciliazione lo
+recupera subito). Se gli eval reali mostrassero run legittimi fermati
+dal tetto, la taratura corretta è alzare il per-run (non allentare la
+prudenza della stima): decisione da registrare.
+
+## 5. Cosa serve per procedere (decisione della direzione)
+
+1. Conferma del modello (`gpt-5.6-terra`, reasoning `medium`) e dei
+   budget sopra (o valori diversi).
+2. **Chiave dedicata NUOVA** (procedura al §6), non quella residua.
+3. Dove: prima in ambiente di prova con database di prova (eval),
+   mai direttamente in produzione.
 
 Fino a questa firma: nessuna chiamata, nessun costo, chiave mai letta.
+
+## 6. Configurazione OpenAI — passi da eseguire DOPO l'autorizzazione
+
+Questi passi li esegue la direzione (o io su richiesta esplicita, senza
+mai vedere la chiave in chiaro in chat, log, commit o screenshot):
+
+1. **Progetto dedicato**: nel pannello OpenAI creare un progetto
+   `ruffino-flow-tars` (separa costi, limiti e revoca dal resto).
+2. **Service account dedicato** dentro quel progetto (non un utente
+   personale: sopravvive al turnover e non porta permessi estranei).
+3. **API key nuova ed esclusiva** generata dal service account.
+   Nessun riutilizzo di chiavi personali o legacy — in particolare NON
+   la `OPENAI_API_KEY` residua oggi su Railway, che resta inutilizzata
+   e andrebbe rimossa quando la nuova entra in servizio.
+4. **Modelli autorizzati**: limitare il progetto a `gpt-5.6-terra`.
+5. **Hard spend limit** del progetto: **20 USD/mese** (seconda cintura,
+   NON sostituisce il governor: quello di OpenAI arriva dopo la spesa,
+   il nostro la impedisce prima).
+6. **Alert** al 25%, 50%, 75%, 90% del limite.
+7. **Salvataggio**: solo come secret Railway `OPENAI_API_KEY` (e nel
+   gestore di password della direzione). Mai in `.env` versionati, mai
+   in chat, mai in screenshot.
+8. **Flag spenti** durante tutta la configurazione e il deploy:
+   `TARS_PROVIDER` NON impostato finché non si eseguono gli eval.
+9. Prima esecuzione: eval reali in ambiente di prova secondo
+   `piano-eval-reali.md` (60 casi, ~1-2 USD).
+10. Rimozione della chiave vecchia dopo il primo esito positivo.

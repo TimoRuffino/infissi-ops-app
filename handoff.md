@@ -1507,6 +1507,30 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-terdecies. Tars v2 — budget governor (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §27, implementazione `3bff928`):
+`server/tars/costi/` — tariffe versionate in nanodollari interi
+(`gpt-5.6-terra` unica attiva), ledger PostgreSQL con advisory lock
+globale e stati `reserved/settled/released/expired/uncertain`, governor
+che PRENOTA prima e riconcilia dopo, fabbrica unica
+`creaProviderPerRun` (l'adapter grezzo è importabile solo da lì:
+guardia strutturale in `costi/confine.test.ts`).
+
+Numeri operativi: tetti 0,10 / 2,00 / 20,00 USD (default fail-closed);
+prenotazione ≈0,03 USD per chiamata col catalogo attuale → 3-7 chiamate
+per run secondo il caching (MISURATO in test, non stimato a parole).
+
+Prerequisiti del provider reale, tutti verificati a ogni run:
+`TARS_PROVIDER=openai` + `FLAG_TARS` + chiave + tariffa a catalogo +
+budget valido + **`DATABASE_URL`** (senza ledger autorevole niente
+provider reale). `tars.costi` (direzione) mostra spesa, residui e il
+motivo di un'eventuale indisponibilità.
+
+APERTO: il comando `eval:tars:reale` nasce insieme al gate B (piano dei
+60 casi in `docs/tars/piano-eval-reali.md`); la rimozione della vecchia
+`OPENAI_API_KEY` da Railway va fatta quando entra la chiave dedicata.
+
 ## 11-duodecies. Tars v2 — revisione indipendente chiusa (30/08/2026)
 
 Quattro revisori sull'intero diff; TUTTI i Critical/Important corretti
