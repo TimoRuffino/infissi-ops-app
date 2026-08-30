@@ -1507,6 +1507,17 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-undecies. Tars v2 — T8/T9 eval e rollout preparati (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §26, implementazione `11da34b`):
+`pnpm eval:tars` (11 casi, rapporto in docs/reports/, soglie critiche
+in CI via server/tars/eval/eval.test.ts); runbook
+docs/runbooks/rollout-tars.md (fasi 0-4, osservazione, rollback =
+spegnere il flag, owner = direzione). Il lavoro OFFLINE di Tars v2 è
+CONCLUSO: restano i gate della direzione — (1) gate OpenAI
+(modello/budget/limiti/eval reali), (2) accensione flag per fasi,
+(3) invio L4 (nuova integrazione), (4) semantica C5 (embeddings).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
