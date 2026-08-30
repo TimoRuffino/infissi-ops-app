@@ -588,3 +588,68 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    economico/numero di eval reali viene presentata alla direzione su
    fonti ufficiali OpenAI correnti; NESSUNA chiamata reale fino
    all'autorizzazione (il default resta il provider finto).
+
+## 27. Decisioni registrate nel cost hardening (budget governor)
+
+> Mandato di chiusura del 30/08/2026: tetto di spesa software PRIMA del
+> merge. Limiti approvati: 0,10 USD per run, 2,00 USD al giorno, 20,00
+> USD al mese. Modello iniziale ESCLUSIVO `gpt-5.6-terra`.
+
+41. **Confine unico e non aggirabile**: il governor NON è un controllo
+   sparso ma un DECORATORE del provider. `adapter.ts` esporta soltanto
+   `creaProviderRealeGrezzo`, importabile SOLO da
+   `costi/providerGovernato.ts`; il router usa `creaProviderPerRun()`.
+   Un test strutturale fallisce se: (a) qualcuno importa il grezzo
+   altrove, (b) compare un `fetch` verso un provider a pagamento fuori
+   dall'adapter, (c) tornano consumatori di `_core/llm.ts`,
+   `imageGeneration.ts`, `voiceTranscription.ts` (percorsi legacy che
+   aggirerebbero il governor: restano senza consumatori, CLAUDE.md).
+42. **Contabilità in NANODOLLARI interi** (1e-9 USD), mai floating
+   point: le tariffe si esprimono come `nanoUsdPerMilioneToken` (interi
+   esatti per i prezzi correnti) e il costo si calcola in `BigInt`
+   arrotondando PER ECCESSO. Storage `BIGINT` su PostgreSQL.
+43. **Catalogo tariffe versionato e chiuso** (`costi/tariffe.ts`):
+   modello, versione/data della tariffa, input/cachedInput/output,
+   unità, fonte documentale, stato attivo|deprecato. Un modello senza
+   tariffa ATTIVA = provider reale indisponibile (fail-closed). Oggi
+   una sola voce attiva: `gpt-5.6-terra` (2,00 / 0,20 / 12,00 USD per
+   milione, developers.openai.com, consultata il 30/08/2026). Nessun
+   fallback automatico ad altri modelli: cambiare modello richiede una
+   voce di catalogo e una decisione registrata.
+44. **PostgreSQL è un PREREQUISITO del provider reale**: le prenotazioni
+   atomiche vivono su `tars_costi` con `pg_advisory_xact_lock` globale
+   (il tetto globale attraversa le sedi, quindi il lock è globale: i
+   volumi previsti — pochi run al minuto — lo rendono innocuo). Senza
+   `DATABASE_URL` il ledger sarebbe solo in memoria: in quel caso il
+   provider reale NON nasce (fail-closed, §3 del mandato). Il fake non
+   è governato perché non produce costi, ma non maschera la
+   configurazione: `tars.stato` dichiara sempre perché il reale è
+   indisponibile.
+45. **Prenota → chiama → riconcilia**, con stati
+   `reserved|settled|released|expired|uncertain`. Stima prudenziale:
+   input = caratteri/4 +25% di margine alla tariffa PIENA (mai
+   scontata: il cache hit si scopre solo dopo), output =
+   `max_output_tokens` intero (che per contratto Responses include i
+   reasoning token: la stima li copre già). Consumo contato =
+   `settled`→costo reale; `reserved|expired|uncertain`→costo prenotato;
+   `released`→0. Una prenotazione non riconciliata (crash, riavvio)
+   resta CONTATA al valore prenotato: si sovrastima, mai si sottostima.
+46. **Esiti incerti conservativi per categoria d'errore**: `timeout`,
+   `rete` e `risposta_invalida` → `uncertain` TRATTENUTO (il provider
+   può aver generato i token); `configurazione` (4xx) e `rate_limit`
+   (429) → `released` (nessuna generazione). Ogni chiamata ha una
+   chiave idempotente `runId:passo:tentativo`: ripeterla non prenota né
+   contabilizza due volte (`ON CONFLICT DO NOTHING`).
+47. **Limiti tecnici del run** espliciti e configurabili, scelti per non
+   rendere Tars ottuso ma per rendere impossibile un loop costoso, da
+   raffinare dopo gli eval reali: max 8 chiamate modello per run (6
+   passi di strumenti + risposta + un retry), 1200 token di output per
+   risposta, 1 solo retry (già), 45s per chiamata, 180s per run intero,
+   120.000 caratteri di contesto (≈30k token, un quarto della finestra
+   del modello), 30 estratti/documenti per lettura.
+48. **Lettura amministrativa** `tars.costi` (direzione-only, come gli
+   altri endpoint di diagnostica): spesa giorno/mese, residui, numero
+   run, costo medio/massimo, cache hit, blocchi del governor, errori
+   del provider. Nessuna UI in questa slice: endpoint e telemetria
+   verificabili. Telemetria senza PII: identificatori opachi, mai
+   prompt, documenti, estratti o ragionamento del modello.
