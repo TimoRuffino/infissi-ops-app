@@ -1507,6 +1507,27 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-quinquiesdecies. Tars v2 — MERGIATO e distribuito (30/08/2026)
+
+PR #2 mergiata su autorizzazione della direzione: merge commit
+`2096a43`, 34 commit atomici conservati, CI verde. Deploy verificato
+senza credenziali: `tars.costi` e `tars.stato` sono passati da «No
+procedure found» a `UNAUTHORIZED` (la procedura esiste = codice nuovo
+distribuito); `auth.me` risponde, i router del CRM (commesse,
+fornitori, promemoria, proposte, notifiche) rispondono UNAUTHORIZED
+cioè sono vivi; SPA servita; `/produzione/*` risponde; `auth.login`
+con credenziali inesistenti dà «Email o password non validi».
+
+**Tutti i flag Tars restano SPENTI**: fail-closed per costruzione
+(NODE_ENV=production ⇒ servono variabili esplicite su Railway) e
+nessuna variabile è stata impostata. Il provider reale NON può nascere:
+mancano `TARS_PROVIDER=openai` e la chiave dedicata.
+
+ATTENZIONE per l'attivazione: la vecchia `OPENAI_API_KEY` è ancora su
+Railway. Finché c'è, impostare `TARS_PROVIDER=openai` farebbe partire
+chiamate reali su quella chiave. L'attivazione dei flag NON deve mai
+includere `TARS_PROVIDER` prima del gate B (chiave dedicata + eval).
+
 ## 11-quaterdecies. Tars v2 — revisione del cost hardening (30/08/2026)
 
 Due revisori indipendenti sul delta del governor; tutti i Critical e
