@@ -25,10 +25,10 @@ import {
 import { getDocumentoRecordById } from "./preventiviContratti";
 import {
   analisiPerOrdine,
-  eseguiAnalisiConferma,
   leggiByteDocumento,
   type DocumentoDaAnalizzare,
 } from "../documenti/analisi";
+import { analizzaConfermaPerOrdine } from "../documenti/analisiOrdine";
 import { estraiTestoDocumento } from "../documenti/parserRegistry";
 import { estraiConfermaOrdine } from "../documenti/estrazioneConferma";
 import {
@@ -212,55 +212,30 @@ export const analisiDocumentiRouter = router({
     .mutation(async ({ input, ctx }) => {
       requireDirezione(ctx.user);
       const sedeId = sedeCorrente(ctx);
-
-      const trovato = getOrdineFornitoreInSede(input.ordineId, sedeId);
-      if (!trovato) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Ordine non trovato." });
-      }
-      const { ordine, fornitoreNome } = trovato;
-
-      const trovatoDoc = documentoInSede(input.documentoId, sedeId);
-      if (!trovatoDoc) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Documento non trovato.",
-        });
-      }
-      const { documento } = trovatoDoc;
-      // Coerenza del fascicolo: si analizzano documenti della stessa
-      // commessa dell'ordine, OPPURE documenti che un umano ha già
-      // collegato a questo ordine (slice 2): il collegamento confermato è
-      // una decisione esplicita e prevale sulla posizione del file.
-      const collegato = collegamentoAttivo(sedeId, documento.id);
-      if (
-        documento.commessaId !== ordine.commessaId &&
-        collegato?.ordineId !== ordine.id
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Il documento appartiene a un'altra commessa: seleziona un file dal fascicolo della commessa dell'ordine, oppure collegalo prima a questo ordine.",
-        });
-      }
-
-      const commessaOrdine = getCommessaById(ordine.commessaId);
+      // Coerenza fascicolo/collegamento + avvio: unica fonte in
+      // documenti/analisiOrdine.ts (T6, decisione 32).
       try {
-        return await eseguiAnalisiConferma({
+        return await analizzaConfermaPerOrdine({
           sedeId,
-          documento: comeDocumentoDaAnalizzare(documento),
-          ordine: {
-            id: ordine.id,
-            codiceOrdine: ordine.codiceOrdine,
-            commessaCodice: (commessaOrdine as any)?.codice ?? null,
-            dataConsegnaPrevista: ordine.dataConsegnaPrevista ?? null,
-            importoTotale: ordine.importoTotale ?? null,
-            righe: ordine.righe,
-            fornitoreNome,
-          },
+          ordineId: input.ordineId,
+          documentoId: input.documentoId,
           createdBy: ctx.user?.id ?? null,
           forza: input.forza,
         });
       } catch (errore: any) {
+        const messaggio = String(errore?.message ?? "");
+        if (messaggio.startsWith("NOT_FOUND: ")) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: messaggio.slice("NOT_FOUND: ".length),
+          });
+        }
+        if (messaggio.startsWith("PRECONDITION: ")) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: messaggio.slice("PRECONDITION: ".length),
+          });
+        }
         comePreconditionSanificata(errore);
       }
     }),

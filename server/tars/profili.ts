@@ -6,13 +6,14 @@
 import { z } from "zod";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { STRUMENTI_CASI } from "./strumenti/casi";
+import { STRUMENTI_DOCUMENTI } from "./strumenti/documenti";
 import { STRUMENTI_L0 } from "./strumenti/letture";
 import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "./strumenti/proposte";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l3-v1";
+export const PROFILO_VERSIONE = "l3-v2";
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(
@@ -43,7 +44,9 @@ export function strumentiPerContesto(
   if (interruttoreAttivo("tarsReminders")) {
     catalogo.push(...STRUMENTI_PROMEMORIA);
   }
-  if (interruttoreAttivo("tarsL2Actions")) catalogo.push(...STRUMENTI_CASI);
+  if (interruttoreAttivo("tarsL2Actions")) {
+    catalogo.push(...STRUMENTI_CASI, ...STRUMENTI_DOCUMENTI);
+  }
   if (interruttoreAttivo("tarsProposals")) {
     catalogo.push(...STRUMENTI_PROPOSTE);
   }
