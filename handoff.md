@@ -1495,6 +1495,18 @@ APERTO: invio L4 (SMTP/WhatsApp API + estensione registro gateway,
 solo su decisione della direzione); bozze persistite nel dominio
 comunicazioni (richiedono un concetto di bozza nello schema).
 
+## 11-decies. Tars v2 — T7 memoria (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §25, implementazione `378635b`):
+`server/tars/memoria.ts` (kv `tars_memoria`, tipi chiusi, invalidazione
+senza cancellazione) + strumenti ricorda/dimentica/leggi_memorie dietro
+`FLAG_TARS_MEMORY`; contesto iniettato in coda ai run (C2 intatta),
+fingerprint memorie nella chiave C0; prompt v4 (regola 9: ricorda solo
+esplicito, memorie ≠ verità CRM). C5 semantica differita al gate
+chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
+delle memorie (oggi invalidazione manuale; una policy di scadenza va
+decisa), ricerca ibrida vera con embeddings (gate).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
