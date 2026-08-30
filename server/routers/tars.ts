@@ -11,6 +11,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraTars, statoInterruttori } from "../platform/interruttori";
+import { costruisciBriefing } from "../tars/briefing";
 import { fascicoloCommessa } from "../tars/fascicoli";
 import {
   listaConversazioni,
@@ -158,6 +159,22 @@ export const tarsRouter = router({
         comeErrore(errore);
       }
     }),
+
+  /**
+   * Briefing deterministico (T4): promemoria di oggi, casi mine,
+   * segnalazioni shadow. Zero token; la sezione segnalazioni esiste
+   * solo con FLAG_TARS_PROACTIVE.
+   */
+  briefing: procedura.query(async ({ ctx }) => {
+    try {
+      assicuraTars("tarsReadTools");
+      const contesto = await costruisciContesto(ctx);
+      return await costruisciBriefing(contesto);
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
 
   /**
    * Fascicolo C3 per il pannello contestuale (T3): nessun run del

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { BrainCircuit, Check, Loader2, Plus, Send, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 // Azioni eseguite nel run (T2): esito dichiarato + undo con UN click,
 // direttamente sul router promemoria esistente (nessun passaggio dal
@@ -71,6 +72,75 @@ function AzioniTurno({ payload }: { payload: any }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Briefing deterministico (T4): promemoria di oggi, casi mine,
+// segnalazioni shadow. Zero token: nessun run del modello.
+function BriefingBlocco() {
+  const briefing = trpc.tars.briefing.useQuery(undefined, {
+    retry: false,
+    staleTime: 60_000,
+  });
+  const [, navigate] = useLocation();
+  if (!briefing.data) return null;
+  const b = briefing.data;
+  const vuoto =
+    b.promemoriaOggi.length === 0 &&
+    b.casiMiei.length === 0 &&
+    (b.segnalazioni?.length ?? 0) === 0;
+  if (vuoto) {
+    return (
+      <p className="text-xs text-text-3">
+        Situazione: nessun promemoria per oggi, nessun caso assegnato
+        {b.segnalazioni != null ? ", nessuna segnalazione di sede" : ""}.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-surface-2 p-3">
+      <p className="text-xs font-semibold">Situazione di oggi</p>
+      {b.promemoriaOggi.length > 0 && (
+        <ul className="space-y-0.5">
+          {b.promemoriaOggi.slice(0, 5).map(p => (
+            <li key={p.id} className="text-xs">
+              ⏰ {p.remindAtLocale.slice(-5)} — {p.testo}
+            </li>
+          ))}
+        </ul>
+      )}
+      {b.casiMiei.length > 0 && (
+        <ul className="space-y-0.5">
+          {b.casiMiei.slice(0, 5).map(c => (
+            <li key={c.id} className="text-xs">
+              <button
+                className="text-left hover:underline"
+                onClick={() => navigate(c.link)}
+              >
+                📌 {c.titolo} <span className="text-text-3">({c.priorita})</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(b.segnalazioni ?? []).length > 0 && (
+        <ul className="space-y-0.5">
+          {b.segnalazioni!.slice(0, 6).map((s, i) => (
+            <li key={i} className="text-xs">
+              <button
+                className="text-left hover:underline"
+                onClick={() => navigate(s.link)}
+              >
+                ⚠️ {s.titolo}
+                {s.agganciataACasoAperto && (
+                  <span className="text-text-3"> — già nel Centro Azioni</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -203,6 +273,7 @@ export default function Tars() {
       <div className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border p-3 space-y-3 bg-surface-1">
         {conversazioneId == null && !invia.isPending && (
           <div className="text-sm text-text-3 space-y-2">
+            <BriefingBlocco />
             <p>
               Chiedimi delle commesse, dei gate, degli ordini fornitori, del
               Centro Azioni.
