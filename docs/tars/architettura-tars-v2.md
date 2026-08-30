@@ -420,3 +420,41 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    risposta con effetti non è una «domanda deterministica»); C1 resta
    attiva nel run come guardia anti doppia tool call. Prompt `v2` e
    profilo `l1-v1`: le versioni nelle chiavi invalidano C0/C2 da sole.
+
+## 21. Decisioni registrate in T3 (fascicoli, C3/C4, pannello)
+
+15. **Fascicolo commessa al pavimento di capability**: il fascicolo C3
+   contiene SOLO fatti visibili a chiunque abbia `commessa.read`
+   (stato, gate, transizioni, ordini senza importi, date, `daSaldare`
+   booleano sanzionato, domande aperte deterministiche). NIENTE
+   economia e NIENTE derivati direzione-only (nemmeno conteggi delle
+   analisi DI: la loro esistenza è informazione). Così il fascicolo è
+   condivisibile a livello di sede per costruzione — il caso «shaping
+   identico provato da test anti-leak» richiesto da C4 — e l'economia
+   resta solo nelle letture vive sagomate (`leggi_commessa`).
+16. **Storage C3/C4**: tabella `tars_cache_entries` (§12) con campo
+   `tipo` (`fascicolo` oggi; altri consumatori domani), fallback in
+   memoria dichiarato; ogni voce porta sede, chiave, payload, versioni
+   osservate, marcatura stale, timestamps.
+17. **Invalidazione = verifica delle versioni alla lettura**, non TTL
+   cieco: il registro `versioni.ts` sonda a costo trascurabile le
+   versioni correnti (commessa/ordine → `updatedAt`; lista ordini di
+   una commessa → hash id+versione, così un ordine NUOVO invalida). Si
+   ricostruisce solo su input cambiati; su errore di ricostruzione si
+   serve l'ultima versione valida MARCATA stale (mai per azioni).
+   L'aggancio agli eventi di dominio arriva con la proattività (T4)
+   come ottimizzazione, non come fondamento di correttezza.
+18. **C4 = meccanismo attivo, consumatori misurati**: chiavi, store,
+   versioni e test anti-leak sono implementati e il fascicolo C3 ne è
+   il primo consumatore reale. NON si avvolgono in cache le letture
+   in-memory dei tool (microsecondi: rischio senza guadagno, coerente
+   con «niente Redis senza misure» §10). Nuovi consumatori C4 si
+   aggiungono quando esiste una lettura davvero costosa.
+19. **C0 v2 con versioni di entità**: le risposte cache-abili
+   registrano le versioni osservate nel run; il riuso richiede TTL
+   valido E versioni correnti identiche. Riferimenti che il registro
+   non sa sondare = riuso NEGATO (fail-closed sulla freschezza).
+20. **Pannello contestuale**: card Tars in CommessaDetail dietro i
+   flag, alimentata dalla query dedicata `tars.fascicolo` (nessun run
+   del modello, nessun token): fatti, gate, domande aperte, freschezza
+   e link a `/tars`. Con i flag spenti il pannello non esiste nel DOM.
