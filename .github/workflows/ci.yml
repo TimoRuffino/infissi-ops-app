@@ -30,6 +30,24 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
+    # PostgreSQL di prova SOLO per i test del ledger costi: la suite
+    # principale gira senza DATABASE_URL (store in memoria, come in
+    # locale). Serve perché il ledger autorevole è SQL: una regressione
+    # nelle query non sarebbe visibile ai test in memoria (30/08/2026:
+    # un `FILTER` mal formato è sfuggito proprio così).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tars_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +89,11 @@ jobs:
 
       - name: Suite completa
         run: pnpm test
+
+      - name: Ledger costi su PostgreSQL reale (atomicità e concorrenza)
+        run: pnpm vitest run server/tars/costi/pgConcorrenza.test.ts
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/tars_ci
 
       - name: Build
         run: pnpm build

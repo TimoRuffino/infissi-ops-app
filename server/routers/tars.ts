@@ -20,7 +20,11 @@ import {
   conversazioneDiUtente,
 } from "../tars/archivio";
 import { costruisciContesto } from "../tars/contesto";
-import { configurazioneRunDefault, eseguiRun } from "../tars/orchestratore";
+import {
+  configurazioneRunDefault,
+  eseguiRun,
+  type RispostaRun,
+} from "../tars/orchestratore";
 import {
   creaProviderPerRun,
   statoProvider,
@@ -44,9 +48,36 @@ const procedura = procedureConInterruttore("tars");
 // limiti si leggono a ogni chiamata: configurabili senza riavvio nei test.
 const inviiRecenti = new Map<string, number[]>();
 
+// Anti doppio-click (revisione): due invii IDENTICI ravvicinati dello
+// stesso utente nella stessa conversazione sono un doppio click, non due
+// domande — senza questa guardia sarebbero due run e due addebiti reali
+// (la cache C0 non li vede: il primo turno è già stato salvato e cambia
+// la cronologia). Finestra breve; la risposta del primo run viene
+// restituita così com'è.
+const INVIO_DEDUP_MS = Number(process.env.TARS_DEDUP_INVIO_MS ?? 15_000);
+const inviiInCorso = new Map<
+  string,
+  { promessa: Promise<RispostaRun>; scade: number }
+>();
+
+function chiaveInvio(input: {
+  sedeId: number;
+  utenteId: number;
+  conversazioneId: number | null;
+  messaggio: string;
+}): string {
+  return [
+    input.sedeId,
+    input.utenteId,
+    input.conversazioneId ?? "nuova",
+    input.messaggio.trim().toLowerCase().replace(/\s+/g, " "),
+  ].join("|");
+}
+
 /** Solo per i test. */
 export function azzeraRateLimitTarsPerTest(): void {
   inviiRecenti.clear();
+  inviiInCorso.clear();
 }
 
 function assicuraRateLimitInvio(sedeId: number, utenteId: number): void {
@@ -198,9 +229,13 @@ export const tarsRouter = router({
       const strumenti = strumentiPerContesto(contesto);
       const provider = statoProvider(configurazioneRunDefault().modello);
       return {
-        // Diagnosi onesta: il fake non maschera una configurazione di
-        // produzione sbagliata — il motivo è sempre dichiarato.
-        providerDettaglio: provider,
+        // Diagnosi onesta MA riservata: budget e motivi infrastrutturali
+        // sono dati di costo (spec §27.48), quindi solo per la direzione;
+        // agli altri resta il tipo di provider, che è già nella UI.
+        providerDettaglio: contesto.direzione
+          ? provider
+          : { tipo: provider.tipo, modello: provider.modello, budget: null,
+              motivoIndisponibilita: null },
         interruttori: statoInterruttori(),
         // Il provider EFFETTIVO del prossimo run (non quello richiesto).
         provider: provider.tipo,
@@ -275,6 +310,10 @@ export const tarsRouter = router({
         motivoBudgetNonValido: config.ok ? null : config.motivo,
         riepilogo: riepilogo
           ? {
+              // I totali sono GLOBALI (tutte le sedi) perché il tetto di
+              // spesa è globale per definizione: dichiararlo evita di
+              // leggerli come «spesa della mia sede» (spec §27.48).
+              ambito: "globale" as const,
               giorno: riepilogo.giorno,
               mese: riepilogo.mese,
               spesaGiornoUsd: nanoInUsd(riepilogo.spesaGiornoNano),
@@ -365,7 +404,21 @@ export const tarsRouter = router({
       try {
         const contesto = await costruisciContesto(ctx);
         assicuraRateLimitInvio(contesto.sedeId, contesto.utenteId);
-        return await eseguiRun({
+
+        const chiave = chiaveInvio({
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+          conversazioneId: input.conversazioneId ?? null,
+          messaggio: input.messaggio,
+        });
+        const adesso = Date.now();
+        for (const [k, v] of inviiInCorso) {
+          if (v.scade <= adesso) inviiInCorso.delete(k);
+        }
+        const inCorso = inviiInCorso.get(chiave);
+        if (inCorso) return await inCorso.promessa;
+
+        const promessa = eseguiRun({
           contesto,
           provider: providerCorrente({
             sedeId: contesto.sedeId,
@@ -374,6 +427,13 @@ export const tarsRouter = router({
           messaggio: input.messaggio,
           conversazioneId: input.conversazioneId ?? null,
         });
+        inviiInCorso.set(chiave, {
+          promessa,
+          scade: adesso + INVIO_DEDUP_MS,
+        });
+        // Un fallimento non deve restare in cache: si riprova subito.
+        promessa.catch(() => inviiInCorso.delete(chiave));
+        return await promessa;
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);

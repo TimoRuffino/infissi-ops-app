@@ -16,7 +16,7 @@ import {
   creaLedgerMemoriaPerTest,
   impostaLedgerPerTest,
 } from "./ledger";
-import { usdInNano } from "./tariffe";
+import { nanoInUsd, usdInNano } from "./tariffe";
 
 const SEDE = 94001;
 const DIREZIONE_ID = 94011;
@@ -92,6 +92,41 @@ const configurazioneMinima = {
   scadenzaPrenotazioneMs: 600_000,
 };
 
+/**
+ * La stima REALE di una chiamata con il catalogo strumenti corrente:
+ * i test dei tetti derivano i limiti da qui invece di scrivere numeri a
+ * mano, che invecchierebbero al primo strumento aggiunto.
+ */
+async function stimaPerRunCorrente(contesto: {
+  sedeId: number;
+  utenteId: number;
+}): Promise<number> {
+  const sonda = creaLedgerMemoriaPerTest();
+  const governato = avvolgiConGovernor(
+    creaProviderFinto(() => rispostaTesto("sonda")),
+    contesto,
+    {
+      configurazione: {
+        ...configurazioneMinima,
+        limiti: {
+          runNano: usdInNano(10)!,
+          giornoNano: usdInNano(10)!,
+          meseNano: usdInNano(10)!,
+        },
+      },
+      ledger: sonda,
+    }
+  );
+  const contestoRun = await costruisciContesto(contestoTrpc());
+  await eseguiRun({
+    contesto: contestoRun,
+    provider: governato,
+    messaggio: "sonda di stima",
+    configurazione: { modello: MODELLO },
+  });
+  return sonda.righe()[0].costoPrenotatoNano;
+}
+
 describe("cost hardening — end to end nel runtime", () => {
   it("budget esaurito: il run degrada col messaggio controllato e NON chiama il provider", async () => {
     const contesto = await costruisciContesto(contestoTrpc());
@@ -151,14 +186,20 @@ describe("cost hardening — end to end nel runtime", () => {
     const contesto = await costruisciContesto(contestoTrpc());
     // Budget sufficiente per UNA chiamata, non per due (la stima col
     // catalogo strumenti reale è ~0,03 USD: v. il test successivo).
+    // I limiti si DERIVANO dalla stima misurata a runtime: così il test
+    // non si rompe se il catalogo strumenti o il prompt crescono
+    // (revisione). Tetto = una stima + un margine che non basta per due
+    // chiamate dopo un consumo reale pesante.
+    const stimaUnitaria = await stimaPerRunCorrente(contesto);
+    const runNano = Math.round(stimaUnitaria * 1.2);
     const configurazione = {
       ...configurazioneMinima,
       limiti: {
-        runNano: usdInNano(0.05)!,
+        runNano,
         giornoNano: usdInNano(2)!,
         meseNano: usdInNano(20)!,
       },
-      perRunUsd: 0.05,
+      perRunUsd: nanoInUsd(runNano),
       giornalieroUsd: 2,
       mensileUsd: 20,
     };
@@ -301,7 +342,7 @@ describe("cost hardening — end to end nel runtime", () => {
     expect(consumo.runNano).toBeLessThanOrEqual(usdInNano(0.1)!);
   });
 
-  it("con Tars spento non esiste alcuna contabilità né alcuna chiamata", async () => {
+  it("con Tars spento non esiste alcuna contabilità e il CRM risponde normalmente", async () => {
     process.env.FLAG_TARS = "off";
     try {
       const caller = appRouter.createCaller(contestoTrpc());
@@ -311,10 +352,90 @@ describe("cost hardening — end to end nel runtime", () => {
       await expect(caller.tars.costi()).rejects.toMatchObject({
         code: "PRECONDITION_FAILED",
       });
+      // Il CRM NON è Tars: i suoi router rispondono come sempre
+      // (revisione: prima si asseriva solo il rifiuto di Tars).
+      const commesse = await caller.commesse.list();
+      expect(Array.isArray(commesse)).toBe(true);
+      const permessi = await caller.permessi.mie();
+      expect(permessi).toBeTruthy();
       expect(ledger.righe()).toHaveLength(0);
     } finally {
       delete process.env.FLAG_TARS;
     }
+  });
+
+  it("DOPPIO CLICK: due invii identici ravvicinati non producono due addebiti", async () => {
+    let chiamateModello = 0;
+    const contesto = await costruisciContesto(contestoTrpc());
+    const governato = avvolgiConGovernor(
+      creaProviderFinto(() => {
+        chiamateModello += 1;
+        return rispostaTesto("una sola volta");
+      }),
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      {
+        configurazione: {
+          ...configurazioneMinima,
+          limiti: {
+            runNano: usdInNano(1)!,
+            giornoNano: usdInNano(2)!,
+            meseNano: usdInNano(20)!,
+          },
+        },
+        ledger,
+      }
+    );
+    // Il router costruisce il provider da sé: qui si prova la dedup
+    // applicativa invocando due volte in parallelo la stessa mutation.
+    const caller = appRouter.createCaller(contestoTrpc());
+    const [prima, seconda] = await Promise.all([
+      caller.tars.invia({ messaggio: "Domanda doppia identica" }),
+      caller.tars.invia({ messaggio: "Domanda doppia identica" }),
+    ]);
+    expect(seconda.runId).toBe(prima.runId); // stessa risposta, un solo run
+    void governato;
+    void chiamateModello;
+
+    // E anche in sequenza ravvicinata resta un solo run.
+    const terza = await caller.tars.invia({
+      messaggio: "Domanda doppia identica",
+    });
+    expect(terza.runId).toBe(prima.runId);
+  });
+
+  it("i limiti tecnici del run NON si travestono da guasto del provider", async () => {
+    const contesto = await costruisciContesto(contestoTrpc());
+    let chiamate = 0;
+    const provider = creaProviderFinto(() => {
+      chiamate += 1;
+      return {
+        tipo: "tool_call" as const,
+        chiamate: [
+          { id: `c${chiamate}`, nome: "leggi_promemoria_in_scadenza", argomenti: "{}" },
+        ],
+        uso: { input: 100, output: 10, cachedInput: 0, cacheWrite: 0 },
+      };
+    });
+    const esito = await eseguiRun({
+      contesto,
+      provider,
+      messaggio: "Loop lungo",
+      configurazione: { modello: MODELLO, maxChiamateModello: 2 },
+    });
+    expect(esito.stato).toBe("degradato");
+    // Messaggio veritiero: il modello è disponibile, è il RUN ad avere
+    // un tetto (revisione: prima diceva «il modello non è disponibile»).
+    expect(esito.testo).toContain("passaggi");
+    expect(esito.testo).not.toContain("non è al momento disponibile");
+
+    // E il circuito NON si è aperto: un run successivo parte davvero.
+    const dopo = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto(() => rispostaTesto("tutto bene")),
+      messaggio: "Domanda normale dopo il limite",
+      configurazione: { modello: MODELLO },
+    });
+    expect(dopo.stato).toBe("ok");
   });
 
   it("la lettura dei costi è riservata alla direzione e non espone contenuti", async () => {
@@ -348,12 +469,19 @@ describe("cost hardening — end to end nel runtime", () => {
     expect(stato.providerDettaglio.motivoIndisponibilita).toBeTruthy();
   });
 
-  it("nessuna richiesta di rete parte durante i run di test", async () => {
-    const spiaFetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => {
-        throw new Error("RETE VIETATA NEI TEST");
-      });
+  it("la guardia GLOBALE anti-rete è attiva e morde su qualunque host esterno", async () => {
+    // Non è un mock locale: è il setup della suite (server/_core/
+    // testSetup.ts), quindi vale per TUTTI i file di test. Se domani un
+    // test collegasse per errore il provider reale, fallirebbe qui
+    // invece di uscire verso Internet (revisione).
+    await expect(fetch("https://api.openai.com/v1/responses")).rejects.toThrow(
+      /RETE VIETATA NEI TEST/
+    );
+    await expect(fetch("https://example.com")).rejects.toThrow(
+      /RETE VIETATA NEI TEST/
+    );
+
+    // E un run normale col fake non la sfiora nemmeno.
     const contesto = await costruisciContesto(contestoTrpc());
     const esito = await eseguiRun({
       contesto,
@@ -361,6 +489,37 @@ describe("cost hardening — end to end nel runtime", () => {
       messaggio: "Domanda offline",
     });
     expect(esito.stato).toBe("ok");
-    expect(spiaFetch).not.toHaveBeenCalled();
+  });
+
+  it("il provider REALE, se mai invocato in un test, non raggiunge la rete", async () => {
+    // Prova diretta del percorso pericoloso: si costruisce l'adapter
+    // grezzo (unico punto con `fetch` verso OpenAI) e lo si invoca. La
+    // guardia globale lo ferma prima di qualunque byte in uscita.
+    process.env.FLAG_TARS = "on";
+    process.env.OPENAI_API_KEY = "sk-finta-per-il-test";
+    try {
+      const { creaProviderRealeGrezzo } = await import("../openai/adapter");
+      const grezzo = creaProviderRealeGrezzo();
+      await expect(
+        grezzo.rispondi({
+          modello: MODELLO,
+          istruzioni: "x",
+          input: [{ ruolo: "user", contenuto: "y" }],
+          strumenti: [],
+          maxOutputToken: 10,
+          chiaveCachePrompt: "k",
+          timeoutMs: 1_000,
+          identita: {
+            runId: "r",
+            passo: 0,
+            tentativo: 1,
+            conversazioneId: null,
+          },
+        })
+      ).rejects.toThrow();
+    } finally {
+      delete process.env.FLAG_TARS;
+      delete process.env.OPENAI_API_KEY;
+    }
   });
 });

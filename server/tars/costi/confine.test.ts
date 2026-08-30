@@ -27,17 +27,27 @@ function fileSorgente(cartelle: string[]): string[] {
   return trovati;
 }
 
-const SORGENTI = fileSorgente(["server", "client/src", "scripts"]);
+// `shared/` è compilata e importata dal server: se non fosse scandita,
+// un modulo lì dentro potrebbe chiamare il provider aggirando tutto
+// (revisione).
+const SORGENTI = fileSorgente(["server", "client/src", "scripts", "shared"]);
 const relativo = (percorso: string) => percorso.slice(RADICE.length + 1);
 
+/**
+ * Le regole di confine valgono sul codice di PRODUZIONE: un test può
+ * legittimamente importare l'adapter grezzo o nominare l'endpoint per
+ * provarne il comportamento, ed è comunque coperto dalla guardia di rete
+ * globale (provata sotto).
+ */
+const PRODUZIONE = SORGENTI.filter(f => !/\.test\.ts$/.test(f));
+
 describe("confine dei costi — nessuna chiamata a pagamento fuori dal governor", () => {
-  it("solo providerGovernato.ts importa il provider reale grezzo", () => {
-    const importatori = SORGENTI.filter(f => {
+  it("in PRODUZIONE solo providerGovernato.ts importa il provider reale grezzo", () => {
+    const importatori = PRODUZIONE.filter(f => {
       const testo = readFileSync(f, "utf8");
       return (
         testo.includes("creaProviderRealeGrezzo") &&
-        !f.endsWith(join("tars", "openai", "adapter.ts")) &&
-        !f.endsWith("confine.test.ts")
+        !f.endsWith(join("tars", "openai", "adapter.ts"))
       );
     }).map(relativo);
     expect(importatori).toEqual([
@@ -46,24 +56,32 @@ describe("confine dei costi — nessuna chiamata a pagamento fuori dal governor"
   });
 
   it("l'endpoint OpenAI compare SOLO nell'adapter", () => {
-    const conEndpoint = SORGENTI.filter(f => {
-      const testo = readFileSync(f, "utf8");
-      return (
-        /api\.openai\.com\/v1\//.test(testo) && !f.endsWith("confine.test.ts")
-      );
-    }).map(relativo);
+    const conEndpoint = PRODUZIONE.filter(f =>
+      /api\.openai\.com\/v1\//.test(readFileSync(f, "utf8"))
+    ).map(relativo);
     expect(conEndpoint).toEqual([
       join("server", "tars", "openai", "adapter.ts"),
     ]);
   });
 
+  it("la guardia di rete globale è registrata: nessun test può uscire su Internet", () => {
+    const config = readFileSync(join(RADICE, "vitest.config.ts"), "utf8");
+    expect(config).toContain("setupFiles");
+    expect(config).toContain("server/_core/testSetup.ts");
+    const setup = readFileSync(
+      join(RADICE, "server", "_core", "testSetup.ts"),
+      "utf8"
+    );
+    expect(setup).toContain("RETE VIETATA NEI TEST");
+    expect(setup).toContain("globalThis.fetch");
+  });
+
   it("gli altri gateway LLM a pagamento vivono solo nei moduli legacy senza consumatori", () => {
     const gateway =
       /(api\.openai\.com|forge\.manus\.im|api\.anthropic\.com|generativelanguage\.googleapis\.com)/;
-    const conGateway = SORGENTI.filter(f => {
-      if (f.endsWith("confine.test.ts")) return false;
-      return gateway.test(readFileSync(f, "utf8"));
-    })
+    const conGateway = PRODUZIONE.filter(f =>
+      gateway.test(readFileSync(f, "utf8"))
+    )
       .map(relativo)
       .sort();
     // Elenco CHIUSO: un gateway nuovo richiede una decisione registrata,
@@ -121,6 +139,27 @@ describe("confine dei costi — nessuna chiamata a pagamento fuori dal governor"
     const corpo = funzione.slice(0, funzione.indexOf("}") + 1);
     expect(corpo).toContain("Boolean(kvSql)");
     expect(corpo).not.toContain("ledgerOverride");
+  });
+
+  it("l'override del ledger e l'iniezione diretta vivono SOLO nei test", () => {
+    // `impostaLedgerPerTest` disattiverebbe i tetti lasciando in piedi il
+    // provider reale: nessun modulo di produzione può chiamarla, e
+    // nessuno può passare un `ledger` custom al governor (revisione).
+    const usiFuoriDaiTest = SORGENTI.filter(f => {
+      if (/\.test\.ts$/.test(f)) return false;
+      if (f.endsWith(join("tars", "costi", "ledger.ts"))) return false;
+      const testo = readFileSync(f, "utf8");
+      return /impostaLedgerPerTest\s*\(/.test(testo);
+    }).map(relativo);
+    expect(usiFuoriDaiTest).toEqual([]);
+
+    const iniezioniLedger = SORGENTI.filter(f => {
+      if (/\.test\.ts$/.test(f)) return false;
+      if (f.endsWith(join("tars", "costi", "governor.ts"))) return false;
+      const testo = readFileSync(f, "utf8");
+      return /avvolgiConGovernor\s*\([\s\S]{0,400}ledger:/.test(testo);
+    }).map(relativo);
+    expect(iniezioniLedger).toEqual([]);
   });
 
   it("il governor prenota PRIMA di chiamare il provider sottostante", () => {

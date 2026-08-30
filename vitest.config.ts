@@ -14,6 +14,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Guardia globale: nessun test può raggiungere la rete (v. il file).
+    setupFiles: ["server/_core/testSetup.ts"],
     include: [
       "server/**/*.test.ts",
       "server/**/*.spec.ts",

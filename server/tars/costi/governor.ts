@@ -105,6 +105,18 @@ export function configurazioneBudget():
   if (!Number.isFinite(scadenza) || scadenza <= 0) {
     return { ok: false, motivo: "TARS_SCADENZA_PRENOTAZIONE_MS non valido." };
   }
+  // La scadenza deve superare il timeout della chiamata, altrimenti una
+  // prenotazione ancora VIVA verrebbe marcata `expired` da una chiamata
+  // concorrente e la riconciliazione (che aggiorna solo le `reserved`)
+  // non registrerebbe più il costo reale (revisione).
+  const timeoutProvider = Number(process.env.TARS_PROVIDER_TIMEOUT_MS ?? 45_000);
+  if (Number.isFinite(timeoutProvider) && scadenza <= timeoutProvider * 2) {
+    return {
+      ok: false,
+      motivo:
+        "TARS_SCADENZA_PRENOTAZIONE_MS deve essere almeno il doppio del timeout della chiamata.",
+    };
+  }
 
   return {
     ok: true,
@@ -120,15 +132,17 @@ export function configurazioneBudget():
 }
 
 /**
- * Stima PRUDENZIALE del costo massimo di una chiamata: input dai
- * caratteri del payload (≈4 caratteri per token) col margine, tariffato
- * SEMPRE a prezzo pieno (lo sconto cache si scopre solo dopo), più
- * l'intero `max_output_tokens` — che per contratto Responses include
- * anche i reasoning token.
+ * Rapporto caratteri→token usato per la stima. NON è la media (≈4 per
+ * l'italiano discorsivo): è il caso PEGGIORE realistico per il nostro
+ * payload, che è in larga parte JSON di schemi e dati strutturati, dove
+ * la tokenizzazione è molto più fitta (~2,5 caratteri per token). Una
+ * stima ottimistica renderebbe il tetto valicabile dal costo reale — il
+ * tetto deve essere un soffitto, quindi si sovrastima per contratto.
  */
-export function stimaCostoNano(
+const CARATTERI_PER_TOKEN_PESSIMISTICO = 2.5;
+
+export function tokenInputStimati(
   richiesta: RichiestaProvider,
-  tariffa: TariffaModello,
   margine: number
 ): number {
   const caratteri =
@@ -142,10 +156,24 @@ export function stimaCostoNano(
         JSON.stringify(s.parametri).length,
       0
     );
-  const tokenInput = Math.ceil((caratteri / 4) * margine);
+  return Math.ceil((caratteri / CARATTERI_PER_TOKEN_PESSIMISTICO) * margine);
+}
+
+/**
+ * Stima PRUDENZIALE del costo massimo di una chiamata: input dai
+ * caratteri del payload col rapporto pessimistico e il margine,
+ * tariffato SEMPRE a prezzo pieno (lo sconto cache si scopre solo
+ * dopo), più l'intero `max_output_tokens` — che per contratto Responses
+ * include anche i reasoning token.
+ */
+export function stimaCostoNano(
+  richiesta: RichiestaProvider,
+  tariffa: TariffaModello,
+  margine: number
+): number {
   return Number(
     costoNano(tariffa, {
-      input: tokenInput,
+      input: tokenInputStimati(richiesta, margine),
       cachedInput: 0,
       output: richiesta.maxOutputToken,
     })
@@ -156,6 +184,23 @@ export type ContestoCosto = {
   sedeId: number;
   utenteId: number;
 };
+
+/**
+ * Un uso è plausibile solo se i numeri sono finiti, non negativi, e
+ * almeno uno è positivo: una chiamata riuscita che dichiara zero token
+ * ovunque significa che non abbiamo letto il consumo, non che è stato
+ * gratuito.
+ */
+export function usoPlausibile(uso: {
+  input: number;
+  output: number;
+  cachedInput: number;
+}): boolean {
+  const valori = [uso.input, uso.output, uso.cachedInput];
+  if (valori.some(v => !Number.isFinite(v) || v < 0)) return false;
+  if (uso.cachedInput > uso.input) return false; // cached ⊆ input
+  return uso.input > 0 || uso.output > 0;
+}
 
 /**
  * Avvolge un provider a pagamento col governor. Il provider
@@ -233,12 +278,12 @@ export function avvolgiConGovernor(
               : prenotazione.consumo.meseNano
         );
       }
-      if (
-        prenotazione.esito === "gia_presente" &&
-        prenotazione.riga.stato !== "reserved"
-      ) {
-        // Stessa chiamata già conclusa: non si riesegue e non si
+      if (prenotazione.esito === "gia_presente") {
+        // Stessa chiamata già vista: non si riesegue e non si
         // contabilizza due volte (idempotenza del retry/doppio invio).
+        // Vale ANCHE per una riga ancora `reserved`: era l'unico ramo
+        // che avrebbe chiamato il provider senza verificare i tetti
+        // (revisione).
         throw new ErroreProvider(
           "Chiamata già contabilizzata: non viene ripetuta.",
           "configurazione",
@@ -265,6 +310,23 @@ export function avvolgiConGovernor(
           })
           .catch(() => undefined);
         throw errore;
+      }
+
+      // FAIL-CLOSED sull'uso: se il provider non riporta consumi
+      // plausibili (campo assente, mappatura cambiata, numeri non
+      // finiti) NON si riconcilia a zero — sarebbe l'unico punto
+      // fail-OPEN del sistema: la prenotazione verrebbe liberata per una
+      // chiamata che il provider ha comunque fatturato. Si chiude come
+      // `uncertain`, che resta CONTATO al valore prenotato.
+      if (!usoPlausibile(risposta.uso)) {
+        await ledger
+          .chiudi({
+            chiamataId,
+            stato: "uncertain",
+            motivo: "uso non riportato dal provider",
+          })
+          .catch(() => undefined);
+        return risposta;
       }
 
       const reale = Number(

@@ -186,13 +186,11 @@ function riepilogoDa(
 
 const LOCK_BUDGET = 918_273_645; // chiave costante dell'advisory lock
 
-const SOMMA_CONTATA = `COALESCE(SUM(
-  CASE stato
-    WHEN 'released' THEN 0
-    WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
-    ELSE costo_prenotato_nano
-  END
-), 0)`;
+// NB: le somme sono scritte per esteso nelle query, non interpolate:
+// `sql.unsafe()` dentro un template NON produce un frammento (produce
+// una Query), e il risultato era un `syntax error at or near "FILTER"`
+// scoperto dai test su PostgreSQL reale. Qui tutto ciò che varia è
+// parametrizzato; nessun pezzo di SQL è costruito da input.
 
 let schemaPromise: Promise<void> | null = null;
 
@@ -283,9 +281,21 @@ export function creaLedgerPostgres(): LedgerCosti {
         }
 
         const [somme] = await tx`SELECT
-            ${tx.unsafe(SOMMA_CONTATA)} FILTER (WHERE run_id = ${input.runId}) AS run,
-            ${tx.unsafe(SOMMA_CONTATA)} FILTER (WHERE giorno_locale = ${giorno}) AS giorno,
-            ${tx.unsafe(SOMMA_CONTATA)} FILTER (WHERE mese_locale = ${mese}) AS mese
+            COALESCE(SUM(CASE stato
+              WHEN 'released' THEN 0
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              ELSE costo_prenotato_nano END)
+              FILTER (WHERE run_id = ${input.runId}), 0) AS run,
+            COALESCE(SUM(CASE stato
+              WHEN 'released' THEN 0
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              ELSE costo_prenotato_nano END)
+              FILTER (WHERE giorno_locale = ${giorno}), 0) AS giorno,
+            COALESCE(SUM(CASE stato
+              WHEN 'released' THEN 0
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+              ELSE costo_prenotato_nano END)
+              FILTER (WHERE mese_locale = ${mese}), 0) AS mese
           FROM tars_costi`;
         const consumo: ConsumoCorrente = {
           runNano: Number(somme?.run ?? 0),
@@ -354,15 +364,17 @@ export function creaLedgerPostgres(): LedgerCosti {
         WHERE chiamata_id = ${input.chiamataId} AND stato = 'reserved'`;
     },
 
-    async scadiPrenotazioniVecchie(scadenzaMs) {
+    async scadiPrenotazioniVecchie(scadenzaMs, adesso) {
       const db = sql();
       await ensureCostiSchema();
-      const secondi = Math.max(1, Math.trunc(scadenzaMs / 1000));
+      // Si usa l'orologio PASSATO (come l'implementazione in memoria):
+      // così i test a orologio finto provano la stessa semantica
+      // dell'implementazione autorevole (revisione).
+      const soglia = new Date(adesso.getTime() - Math.max(1000, scadenzaMs));
       const righe = await db`UPDATE tars_costi SET
           stato = 'expired', motivo = 'prenotazione mai riconciliata',
           updated_at = NOW()
-        WHERE stato = 'reserved'
-          AND created_at < NOW() - (${secondi} * INTERVAL '1 second')
+        WHERE stato = 'reserved' AND created_at < ${soglia}
         RETURNING chiamata_id`;
       return righe.length;
     },
@@ -372,9 +384,21 @@ export function creaLedgerPostgres(): LedgerCosti {
       await ensureCostiSchema();
       const { giorno, mese } = periodiLocali(input.adesso);
       const [somme] = await db`SELECT
-          ${db.unsafe(SOMMA_CONTATA)} FILTER (WHERE run_id = ${input.runId}) AS run,
-          ${db.unsafe(SOMMA_CONTATA)} FILTER (WHERE giorno_locale = ${giorno}) AS giorno,
-          ${db.unsafe(SOMMA_CONTATA)} FILTER (WHERE mese_locale = ${mese}) AS mese
+          COALESCE(SUM(CASE stato
+            WHEN 'released' THEN 0
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            ELSE costo_prenotato_nano END)
+            FILTER (WHERE run_id = ${input.runId}), 0) AS run,
+          COALESCE(SUM(CASE stato
+            WHEN 'released' THEN 0
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            ELSE costo_prenotato_nano END)
+            FILTER (WHERE giorno_locale = ${giorno}), 0) AS giorno,
+          COALESCE(SUM(CASE stato
+            WHEN 'released' THEN 0
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, 0)
+            ELSE costo_prenotato_nano END)
+            FILTER (WHERE mese_locale = ${mese}), 0) AS mese
         FROM tars_costi`;
       return {
         runNano: Number(somme?.run ?? 0),

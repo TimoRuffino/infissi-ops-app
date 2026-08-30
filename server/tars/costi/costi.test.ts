@@ -11,6 +11,7 @@ import {
   ErroreBudget,
   MESSAGGIO_BUDGET,
   stimaCostoNano,
+  tokenInputStimati,
   type ConfigurazioneBudget,
 } from "./governor";
 import {
@@ -27,9 +28,9 @@ import {
   tariffaDi,
   usdInNano,
 } from "./tariffe";
-import { creaProviderFinto, rispostaTesto } from "../openai/fake";
+import { creaProviderFinto } from "../openai/fake";
 import { ErroreProvider, type RichiestaProvider } from "../provider";
-import { statoProvider } from "./providerGovernato";
+import { creaProviderPerRun, statoProvider } from "./providerGovernato";
 
 const MODELLO = "gpt-5.6-terra";
 
@@ -87,27 +88,31 @@ function providerConUso(uso: Partial<typeof usoNullo>) {
 const USO_PESANTE = { input: 5_000, cachedInput: 0, output: 1_200 };
 const REALE_PESANTE_NANO = 24_400_000;
 
+const VARIABILI_BUDGET = [
+  "TARS_MAX_COST_PER_RUN_USD",
+  "TARS_DAILY_BUDGET_USD",
+  "TARS_MONTHLY_BUDGET_USD",
+  "TARS_MARGINE_STIMA",
+  "TARS_SCADENZA_PRENOTAZIONE_MS",
+  "TARS_PROVIDER",
+  "OPENAI_API_KEY",
+  "FLAG_TARS",
+  "TARS_MODEL_INTERACTIVE",
+];
+
 let ledger: ReturnType<typeof creaLedgerMemoriaPerTest>;
 
 beforeEach(() => {
+  // Ambiente pulito PRIMA di ogni test: un'ereditarietà dalla shell di
+  // CI farebbe fallire le asserzioni sui default (revisione).
+  for (const chiave of VARIABILI_BUDGET) delete process.env[chiave];
   ledger = creaLedgerMemoriaPerTest();
   impostaLedgerPerTest(ledger);
 });
 
 afterEach(() => {
   impostaLedgerPerTest(null);
-  for (const chiave of [
-    "TARS_MAX_COST_PER_RUN_USD",
-    "TARS_DAILY_BUDGET_USD",
-    "TARS_MONTHLY_BUDGET_USD",
-    "TARS_MARGINE_STIMA",
-    "TARS_PROVIDER",
-    "OPENAI_API_KEY",
-    "FLAG_TARS",
-    "TARS_MODEL_INTERACTIVE",
-  ]) {
-    delete process.env[chiave];
-  }
+  for (const chiave of VARIABILI_BUDGET) delete process.env[chiave];
 });
 
 describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
@@ -225,10 +230,17 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   });
 
   it("blocca il tetto GIORNALIERO anche per un run nuovo", async () => {
+    // Orologio iniettato: un run a cavallo della mezzanotte di Roma
+    // darebbe «mese» invece di «giorno» (revisione).
+    const adesso = new Date("2026-08-10T09:00:00.000Z");
     const perGiorno = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
       { sedeId: 1, utenteId: 7 },
-      { configurazione: config({ run: 0.04, giorno: 0.04 }), ledger }
+      {
+        configurazione: config({ run: 0.04, giorno: 0.04 }),
+        ledger,
+        adesso: () => adesso,
+      }
     );
     await perGiorno.rispondi(richiesta({ runId: "g1", passo: 0, tentativo: 1 }));
     const errore = await perGiorno
@@ -284,11 +296,31 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     ).rejects.toBeInstanceOf(ErroreBudget);
   });
 
-  it("prenotazioni CONCORRENTI non superano il budget", async () => {
+  it("prenotazioni CONCORRENTI: passa ESATTAMENTE il numero che il tetto consente", async () => {
+    // Il tetto è misurato sulle PRENOTAZIONI (il picco), non sul consumo
+    // riconciliato: asserire il consumo finale non morderebbe, perché la
+    // riconciliazione lo riduce ben sotto il tetto (revisione).
+    const stimaUnitaria = stimaCostoNano(
+      richiesta({ runId: "x", passo: 0, tentativo: 1 }),
+      tariffaDi(MODELLO)!,
+      1.25
+    );
+    const capienza = 3;
+    const giornoNano = stimaUnitaria * capienza + 1_000; // spazio per 3, non 4
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
       { sedeId: 1, utenteId: 7 },
-      { configurazione: config({ run: 1, giorno: 0.05 }), ledger }
+      {
+        configurazione: {
+          ...config(),
+          limiti: {
+            runNano: usdInNano(1)!,
+            giornoNano,
+            meseNano: usdInNano(1)!,
+          },
+        },
+        ledger,
+      }
     );
     const esiti = await Promise.allSettled(
       Array.from({ length: 10 }, (_, i) =>
@@ -299,13 +331,13 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     const rifiutate = esiti.filter(
       e => e.status === "rejected" && (e as any).reason instanceof ErroreBudget
     ).length;
-    expect(riuscite + rifiutate).toBe(10);
-    expect(riuscite).toBeGreaterThan(0);
-    const consumo = await ledger.consumoCorrente({
-      runId: "c0",
-      adesso: new Date(),
-    });
-    expect(consumo.giornoNano).toBeLessThanOrEqual(usdInNano(0.05)!);
+    expect(riuscite).toBe(capienza);
+    expect(rifiutate).toBe(10 - capienza);
+    // Il PICCO prenotato non ha mai superato il tetto.
+    const piccoPrenotato = ledger
+      .righe()
+      .reduce((somma, r) => somma + r.costoPrenotatoNano, 0);
+    expect(piccoPrenotato).toBeLessThanOrEqual(giornoNano);
   });
 
   it("la stessa chiamata ripetuta (retry/doppio click) non prenota due volte", async () => {
@@ -436,7 +468,105 @@ describe("governor — esiti anomali conservativi", () => {
   });
 });
 
+describe("governor — uso non plausibile e stima come soffitto", () => {
+  it("una risposta SENZA uso non azzera la spesa: resta contata come incerta", async () => {
+    // Provider grezzo (non il fake, che rimpiazza l'uso zero con una
+    // simulazione): qui serve proprio il caso «usage assente».
+    const senzaUso = {
+      nome: "senza-uso",
+      async rispondi() {
+        return {
+          tipo: "messaggio" as const,
+          testo: "ok",
+          uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
+        };
+      },
+    };
+    const governato = avvolgiConGovernor(
+      senzaUso,
+      { sedeId: 1, utenteId: 7 },
+      { configurazione: config(), ledger }
+    );
+    await governato.rispondi(richiesta({ runId: "u0", passo: 0, tentativo: 1 }));
+    const [riga] = ledger.righe();
+    // Sarebbe il solo punto fail-OPEN: costo reale 0 su una chiamata che
+    // il provider ha comunque fatturato (revisione).
+    expect(riga.stato).toBe("uncertain");
+    expect(costoContato(riga)).toBe(riga.costoPrenotatoNano);
+    expect(costoContato(riga)).toBeGreaterThan(0);
+  });
+
+  it("un uso incoerente (cached > input) non viene contabilizzato a sconto", async () => {
+    const incoerente = {
+      nome: "incoerente",
+      async rispondi() {
+        return {
+          tipo: "messaggio" as const,
+          testo: "ok",
+          uso: { input: 100, cachedInput: 900, output: 10, cacheWrite: 0 },
+        };
+      },
+    };
+    const governato = avvolgiConGovernor(
+      incoerente,
+      { sedeId: 1, utenteId: 7 },
+      { configurazione: config(), ledger }
+    );
+    await governato.rispondi(richiesta({ runId: "u1", passo: 0, tentativo: 1 }));
+    expect(ledger.righe()[0].stato).toBe("uncertain");
+    // E la funzione di costo si rifiuta di calcolare quel caso.
+    expect(() =>
+      costoNano(tariffaDi(MODELLO)!, {
+        input: 100,
+        cachedInput: 900,
+        output: 10,
+      })
+    ).toThrow(/INCOERENTE/);
+  });
+
+  it("la stima è un SOFFITTO: copre il costo reale di un payload tokenizzato fitto", () => {
+    const tariffa = tariffaDi(MODELLO)!;
+    const req = richiesta({ runId: "s", passo: 0, tentativo: 1 }, {
+      caratteri: 20_000,
+    });
+    const stima = stimaCostoNano(req, tariffa, 1.25);
+    const caratteri =
+      req.istruzioni.length +
+      req.input.reduce((s, m) => s + m.contenuto.length, 0);
+    // Caso peggiore realistico per JSON/strutturato: ~2,5 char/token.
+    const realePeggiore = Number(
+      costoNano(tariffa, {
+        input: Math.ceil(caratteri / 2.5),
+        cachedInput: 0,
+        output: req.maxOutputToken,
+      })
+    );
+    expect(stima).toBeGreaterThanOrEqual(realePeggiore);
+    expect(tokenInputStimati(req, 1.25)).toBeGreaterThanOrEqual(
+      Math.ceil(caratteri / 2.5)
+    );
+  });
+});
+
 describe("periodi — calendario Europe/Rome", () => {
+  it("distingue l'ora SOLARE da quella legale (un offset fisso non basta)", () => {
+    // 15/01/2026 22:30 UTC = 23:30 CET → stesso giorno. Con un offset
+    // fisso +02:00 darebbe il 16: il test discrimina CET da CEST.
+    expect(periodiLocali(new Date("2026-01-15T22:30:00.000Z"))).toEqual({
+      giorno: "2026-01-15",
+      mese: "2026-01",
+    });
+    // 15/07/2026 22:30 UTC = 00:30 CEST del 16 → giorno successivo.
+    expect(periodiLocali(new Date("2026-07-15T22:30:00.000Z")).giorno).toBe(
+      "2026-07-16"
+    );
+    // Cambio d'anno: 31/12 23:30 UTC = 00:30 CET del 1° gennaio.
+    expect(periodiLocali(new Date("2026-12-31T23:30:00.000Z"))).toEqual({
+      giorno: "2027-01-01",
+      mese: "2027-01",
+    });
+  });
+
   it("il giorno è quello di Roma anche a cavallo della mezzanotte UTC", () => {
     // 30/08/2026 23:30 UTC = 31/08 01:30 a Roma (CEST).
     expect(periodiLocali(new Date("2026-08-30T23:30:00.000Z"))).toEqual({
@@ -467,12 +597,20 @@ describe("periodi — calendario Europe/Rome", () => {
 });
 
 describe("provider reale — condizioni cumulative", () => {
-  it("senza le condizioni il reale non nasce e il motivo è DICHIARATO", () => {
+  it("ogni condizione mancante blocca il reale, col motivo DICHIARATO", () => {
     const senzaNulla = statoProvider(MODELLO);
     expect(senzaNulla.tipo).toBe("finto");
     expect(senzaNulla.motivoIndisponibilita).toContain("TARS_PROVIDER");
 
     process.env.TARS_PROVIDER = "openai";
+    // FLAG_TARS spento: la guardia del confine, non solo quella del
+    // router (revisione: prima non era provata a questo livello).
+    process.env.FLAG_TARS = "off";
+    expect(statoProvider(MODELLO).motivoIndisponibilita).toContain(
+      "FLAG_TARS"
+    );
+    delete process.env.FLAG_TARS;
+
     expect(statoProvider(MODELLO).motivoIndisponibilita).toContain(
       "OPENAI_API_KEY"
     );
@@ -492,5 +630,50 @@ describe("provider reale — condizioni cumulative", () => {
     const finale = statoProvider(MODELLO);
     expect(finale.tipo).toBe("finto");
     expect(finale.motivoIndisponibilita).toContain("Ledger");
+  });
+
+  it("la FABBRICA restituisce il fake quando manca una condizione, mai il reale nudo", () => {
+    let usatoIlCopione = false;
+    const fabbrica = () =>
+      creaProviderPerRun({
+        modello: MODELLO,
+        sedeId: 1,
+        utenteId: 7,
+        copioneFinto: () => {
+          usatoIlCopione = true;
+          return {
+            tipo: "messaggio" as const,
+            testo: "fake",
+            uso: { ...usoNullo, input: 1, output: 1 },
+          };
+        },
+      });
+
+    // Nessuna condizione: fake.
+    expect(fabbrica().nome).toBe("finto");
+
+    // Provider richiesto + chiave presente, ma senza ledger autorevole
+    // (e senza PG nei test) resta fake: la difesa in profondità della
+    // fabbrica è provata, non solo la diagnostica (revisione).
+    process.env.TARS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "sk-non-usata-nei-test";
+    const provider = fabbrica();
+    expect(provider.nome).toBe("finto");
+    expect(provider.nome).not.toContain("governor");
+    expect(usatoIlCopione).toBe(false); // il copione si usa solo se invocato
+  });
+
+  it("quando il reale nascerebbe, nasce GOVERNATO (mai nudo)", () => {
+    // Si prova la composizione: il wrapper porta sempre il suffisso.
+    const governato = avvolgiConGovernor(
+      creaProviderFinto(() => ({
+        tipo: "messaggio" as const,
+        testo: "x",
+        uso: { ...usoNullo, input: 1, output: 1 },
+      })),
+      { sedeId: 1, utenteId: 7 },
+      { configurazione: config(), ledger }
+    );
+    expect(governato.nome).toContain("+governor");
   });
 });

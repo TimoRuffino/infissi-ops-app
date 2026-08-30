@@ -78,6 +78,14 @@ export function costoNano(
   tariffa: TariffaModello,
   uso: UsoTariffabile
 ): bigint {
+  // Difesa sul contratto (revisione): se un giorno `input_tokens`
+  // smettesse di includere i cached, sottrarli produrrebbe un costo
+  // molto più basso del reale, in silenzio. Meglio un errore.
+  if (uso.cachedInput > uso.input) {
+    throw new Error(
+      "COSTO_INCOERENTE: i token cached superano quelli di input (contratto cambiato?)."
+    );
+  }
   const cached = BigInt(Math.max(0, Math.trunc(uso.cachedInput)));
   const inputTotale = BigInt(Math.max(0, Math.trunc(uso.input)));
   const inputPieno = inputTotale > cached ? inputTotale - cached : 0n;
