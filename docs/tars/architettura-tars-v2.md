@@ -541,3 +541,28 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    il nuovo Tars non legge e non scrive `tarsAnalizzata`,
    `tarsRiepilogo`, `tarsIstruzione`, `salvaEsitoTarsComunicazione` e
    la coda `listDaAnalizzare`. Profilo `l3-v2`.
+
+## 25. Decisioni registrate in T7 (memoria; C5 differita)
+
+34. **Memoria v1** su kv `tars_memoria` (§12, volume umano): perimetro
+   `utente` (preferenze personali) o `sede` (convenzioni, SOLO
+   direzione); tipi CHIUSI (preferenza, correzione, decisione,
+   convenzione, responsabilita, contesto); ogni voce porta fonte,
+   autore, versione, validità, timestamps. Lo strumento `ricorda` vale
+   solo su richiesta esplicita (regola nel prompt; contenuto breve e
+   strutturato, mai ipotesi del modello); `dimentica` INVALIDA, non
+   cancella (la storia resta: audit).
+35. **Le memorie entrano nel run come messaggio di CONTESTO in coda**
+   (mai nel prefisso stabile: C2 intatta), marcate esplicitamente come
+   dati; il fingerprint delle memorie valide entra nella chiave C0
+   (una memoria nuova o invalidata invalida il riuso delle risposte).
+   La memoria NON è fonte autorevole: i dati CRM correnti passano
+   dagli strumenti (regola nel prompt).
+36. **C5 ricerca semantica DIFFERITA** al gate chiave/budget della
+   direzione: gli embeddings sono chiamate reali al provider.
+   `FLAG_TARS_SEMANTIC_SEARCH` resta spento e nessun codice semantico
+   esiste; la ricerca di T7 è strutturata (scope, tipo, testo) sulle
+   memorie.
+37. **Nuovo interruttore** `FLAG_TARS_MEMORY` (`tarsMemory`),
+   fail-closed: gli strumenti memoria e l'iniezione del contesto
+   esistono solo con il flag acceso. Prompt `v4`, profilo `l3-v3`.
