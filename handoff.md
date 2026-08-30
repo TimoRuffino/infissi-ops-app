@@ -1421,6 +1421,37 @@ Su `feature/tars-v2` (decisioni registrate PRIMA del codice nella spec
   esistenti; collegamento a ordini/documenti nel testo finché lo schema
   promemoria non li prevede (decisione §20.9).
 
+## 11-sexies. Tars v2 — T3 fascicoli, C3/C4, pannello (30/08/2026)
+
+Su `feature/tars-v2` (decisioni nella spec §21, commit `62cddce`;
+implementazione `7acdc32`):
+
+- `server/tars/fascicoli.ts`: fascicolo C3 della commessa al pavimento
+  di capability (`commessa.read`) — SENZA economia e senza derivati
+  direzione-only, quindi condivisibile a livello sede per costruzione
+  (test anti-leak: il payload non contiene mai /importo|prezzo|residuo/;
+  `daSaldare` booleano sanzionato c'è). Domande aperte deterministiche:
+  gate mancante, ordine senza data prevista, consegna prevista DOPO la
+  data confermata al cliente, ordine in ritardo.
+- `server/tars/versioni.ts`: registro delle versioni correnti (commessa,
+  ordine, registro pagamenti, liste con hash id+updatedAt — un'entità
+  NUOVA invalida). `server/tars/cache/entries.ts`: `tars_cache_entries`
+  su PG (ensureSchema additivo) + fallback memoria.
+- Invalidazione = verifica versioni alla lettura; su errore di
+  ricostruzione si serve l'ultima versione valida MARCATA stale (mai per
+  azioni). C0 v2: riuso solo con TTL valido E versioni osservate ancora
+  correnti; riferimenti non sondabili (promemoria, Centro Azioni,
+  analisi) = riuso NEGATO.
+- Strumento L0 `leggi_fascicolo_commessa` (profilo `l1-v2`); query
+  `tars.fascicolo` + `TarsFascicoloCard` in CommessaDetail (zero run del
+  modello; flag spenti → il pannello non esiste nel DOM).
+- Prove: `server/tars/fascicoli.test.ts` (8) + mutation test su leak
+  importi, versioni-sempre-valide e sede rimossa (tutti mordono). Suite
+  76 file / 666 test; browser 1440x900 e 390x844, `tars.fascicolo` 200.
+- Deciso e registrato (§21.18): NIENTE cache C4 sulle letture in-memory
+  dei tool (microsecondi); il meccanismo C4 (chiavi+store+versioni) è
+  attivo col fascicolo come primo consumatore.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
