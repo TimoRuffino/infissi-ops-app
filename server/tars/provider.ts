@@ -40,6 +40,18 @@ export type UsoToken = {
   cacheWrite: number;
 };
 
+/**
+ * Identità della singola chiamata: serve al budget governor per la
+ * chiave idempotente (`runId:passo:tentativo`) e per aggregare tutte le
+ * chiamate dello stesso run sotto il tetto per-run.
+ */
+export type IdentitaChiamata = {
+  runId: string;
+  passo: number;
+  tentativo: number;
+  conversazioneId: number | null;
+};
+
 export type RichiestaProvider = {
   modello: string;
   /** Prompt di sistema versionato: il PREFISSO STABILE del caching C2. */
@@ -50,6 +62,8 @@ export type RichiestaProvider = {
   /** Chiave C2 (ambiente/modello/promptV/toolProfileV/policyV/capHash). */
   chiaveCachePrompt: string;
   timeoutMs: number;
+  /** Obbligatoria per i provider a pagamento (governati). */
+  identita?: IdentitaChiamata;
 };
 
 export type ChiamataToolRichiesta = {

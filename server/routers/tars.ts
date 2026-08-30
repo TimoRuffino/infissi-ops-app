@@ -21,11 +21,17 @@ import {
 } from "../tars/archivio";
 import { costruisciContesto } from "../tars/contesto";
 import { configurazioneRunDefault, eseguiRun } from "../tars/orchestratore";
-import { creaProviderReale } from "../tars/openai/adapter";
+import {
+  creaProviderPerRun,
+  statoProvider,
+} from "../tars/costi/providerGovernato";
+import { ledgerCorrente } from "../tars/costi/ledger";
+import { nanoInUsd } from "../tars/costi/tariffe";
+import { configurazioneBudget } from "../tars/costi/governor";
 import {
   chiamataTool,
-  creaProviderFinto,
   rispostaTesto,
+  type PassoCopione,
 } from "../tars/openai/fake";
 import { strumentiPerContesto } from "../tars/profili";
 import type { TarsProvider } from "../tars/provider";
@@ -64,15 +70,29 @@ function assicuraRateLimitInvio(sedeId: number, utenteId: number): void {
   inviiRecenti.set(chiave, recenti);
 }
 
-function providerCorrente(): TarsProvider {
-  if (process.env.TARS_PROVIDER?.trim().toLowerCase() === "openai") {
-    return creaProviderReale();
-  }
-  // Fake di sviluppo: deterministico e onesto sul proprio stato. Il
-  // copione dimostrativo riconosce «Ricordami <quando> di <cosa>» e usa lo
-  // strumento VERO (T2): la pagina /tars resta provabile senza modello e
-  // l'attrito dichiarato (zero conferme, una sola precisazione) si vede.
-  return creaProviderFinto(richiesta => {
+/**
+ * Il provider del run passa SEMPRE dalla fabbrica unica
+ * (`costi/providerGovernato`): il reale nasce solo governato dal budget,
+ * altrimenti si usa il fake dimostrativo qui sotto.
+ */
+function providerCorrente(contesto: {
+  sedeId: number;
+  utenteId: number;
+}): TarsProvider {
+  return creaProviderPerRun({
+    modello: configurazioneRunDefault().modello,
+    sedeId: contesto.sedeId,
+    utenteId: contesto.utenteId,
+    copioneFinto: copioneDimostrativo,
+  });
+}
+
+// Fake di sviluppo: deterministico e onesto sul proprio stato. Il
+// copione dimostrativo riconosce «Ricordami <quando> di <cosa>» e usa lo
+// strumento VERO (T2): la pagina /tars resta provabile senza modello e
+// l'attrito dichiarato (zero conferme, una sola precisazione) si vede.
+const copioneDimostrativo: PassoCopione = (() => {
+  const copione: PassoCopione = richiesta => {
     const ultimoTool = [...richiesta.input]
       .reverse()
       .find(m => m.ruolo === "tool");
@@ -151,8 +171,9 @@ function providerCorrente(): TarsProvider {
     return rispostaTesto(
       "Il modello reale non è configurato su questa installazione (TARS_PROVIDER≠openai): questa è una risposta di servizio del provider dimostrativo. Gli strumenti e il resto del CRM funzionano normalmente."
     );
-  });
-}
+  };
+  return copione;
+})();
 
 function comeErrore(errore: any): never {
   const messaggio = String(errore?.message ?? "");
@@ -175,12 +196,14 @@ export const tarsRouter = router({
     try {
       const contesto = await costruisciContesto(ctx);
       const strumenti = strumentiPerContesto(contesto);
+      const provider = statoProvider(configurazioneRunDefault().modello);
       return {
+        // Diagnosi onesta: il fake non maschera una configurazione di
+        // produzione sbagliata — il motivo è sempre dichiarato.
+        providerDettaglio: provider,
         interruttori: statoInterruttori(),
-        provider:
-          process.env.TARS_PROVIDER?.trim().toLowerCase() === "openai"
-            ? "openai"
-            : "finto",
+        // Il provider EFFETTIVO del prossimo run (non quello richiesto).
+        provider: provider.tipo,
         modello: configurazioneRunDefault().modello,
         strumentiDisponibili: strumenti.map(s => ({
           nome: s.nome,
@@ -221,6 +244,74 @@ export const tarsRouter = router({
         comeErrore(errore);
       }
     }),
+
+  /**
+   * Lettura amministrativa dei costi (spec §27.48): direzione-only,
+   * solo numeri — nessun contenuto, nessun prompt, nessun documento.
+   */
+  costi: procedura.query(async ({ ctx }) => {
+    try {
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.direzione) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Riservato alla direzione.",
+        });
+      }
+      const config = configurazioneBudget();
+      const riepilogo = await ledgerCorrente()
+        .riepilogo(new Date())
+        .catch(() => null);
+      const provider = statoProvider(configurazioneRunDefault().modello);
+      return {
+        provider,
+        budgetConfigurato: config.ok
+          ? {
+              perRunUsd: config.configurazione.perRunUsd,
+              giornalieroUsd: config.configurazione.giornalieroUsd,
+              mensileUsd: config.configurazione.mensileUsd,
+            }
+          : null,
+        motivoBudgetNonValido: config.ok ? null : config.motivo,
+        riepilogo: riepilogo
+          ? {
+              giorno: riepilogo.giorno,
+              mese: riepilogo.mese,
+              spesaGiornoUsd: nanoInUsd(riepilogo.spesaGiornoNano),
+              spesaMeseUsd: nanoInUsd(riepilogo.spesaMeseNano),
+              residuoGiornoUsd: config.ok
+                ? nanoInUsd(
+                    Math.max(
+                      0,
+                      config.configurazione.limiti.giornoNano -
+                        riepilogo.spesaGiornoNano
+                    )
+                  )
+                : null,
+              residuoMeseUsd: config.ok
+                ? nanoInUsd(
+                    Math.max(
+                      0,
+                      config.configurazione.limiti.meseNano -
+                        riepilogo.spesaMeseNano
+                    )
+                  )
+                : null,
+              chiamateGiorno: riepilogo.chiamateGiorno,
+              runGiorno: riepilogo.runGiorno,
+              costoMedioRunUsd: nanoInUsd(riepilogo.costoMedioRunNano),
+              costoMassimoRunUsd: nanoInUsd(riepilogo.costoMassimoRunNano),
+              tokenGiorno: riepilogo.tokenGiorno,
+              perStato: riepilogo.perStato,
+            }
+          : null,
+        run: await statisticheRun(contesto.sedeId),
+      };
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
 
   /**
    * Briefing deterministico (T4): promemoria di oggi, casi mine,
@@ -276,7 +367,10 @@ export const tarsRouter = router({
         assicuraRateLimitInvio(contesto.sedeId, contesto.utenteId);
         return await eseguiRun({
           contesto,
-          provider: providerCorrente(),
+          provider: providerCorrente({
+            sedeId: contesto.sedeId,
+            utenteId: contesto.utenteId,
+          }),
           messaggio: input.messaggio,
           conversazioneId: input.conversazioneId ?? null,
         });

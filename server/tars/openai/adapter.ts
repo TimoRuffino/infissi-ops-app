@@ -15,6 +15,10 @@
 // NOTA sul primo uso reale: la mappatura esatta dei campi di risposta va
 // riverificata sulla documentazione OpenAI corrente al momento del gate
 // chiave/budget della direzione. Fino ad allora ogni test usa il fake.
+//
+// COSTI: questo modulo NON conosce il budget. La chiamata a pagamento
+// esiste solo avvolta dal governor (`costi/providerGovernato.ts`), che è
+// l'unico importatore autorizzato di `creaProviderRealeGrezzo`.
 
 import { tarsAttivo } from "../../platform/interruttori";
 import {
@@ -26,6 +30,14 @@ import {
 } from "../provider";
 
 const ENDPOINT = "https://api.openai.com/v1/responses";
+
+const EFFORT_AMMESSI = new Set(["minimal", "low", "medium", "high"]);
+
+/** Reasoning effort approvato: `medium` salvo configurazione esplicita. */
+function reasoningEffort(): string {
+  const richiesto = process.env.TARS_REASONING_INTERACTIVE?.trim().toLowerCase();
+  return richiesto && EFFORT_AMMESSI.has(richiesto) ? richiesto : "medium";
+}
 
 function usoDaRisposta(usage: any): UsoToken {
   // La doc corrente espone cached_tokens dentro input_tokens_details; la
@@ -41,7 +53,12 @@ function usoDaRisposta(usage: any): UsoToken {
   };
 }
 
-export function creaProviderReale(): TarsProvider {
+/**
+ * MAI usare direttamente: questo provider NON è governato dal budget.
+ * L'unico importatore autorizzato è `costi/providerGovernato.ts`
+ * (spec §27.41, guardia strutturale in costi/confine.test.ts).
+ */
+export function creaProviderRealeGrezzo(): TarsProvider {
   if (!tarsAttivo()) {
     throw new ErroreProvider(
       "Tars è disattivato (FLAG_TARS): il provider reale non può nascere.",
@@ -100,6 +117,7 @@ export function creaProviderReale(): TarsProvider {
         max_output_tokens: richiesta.maxOutputToken,
         store: false,
         prompt_cache_key: richiesta.chiaveCachePrompt,
+        reasoning: { effort: reasoningEffort() },
       };
 
       let res: Response;
