@@ -40,7 +40,16 @@ prenotazioni atomiche): senza, resta disabilitato.
 
 Verifica rapida dello stato: `tars.costi` (direzione) mostra provider
 effettivo, motivo di eventuale indisponibilità, budget configurato,
-spesa e residui di giorno e mese.
+spesa e residui di giorno e mese. I totali sono GLOBALI (tutte le sedi),
+perché il tetto è globale: il payload lo dichiara.
+
+**Prima di accendere `TARS_PROVIDER=openai`** verificare che
+`tars.costi` risponda con `provider.tipo = "finto"` e un motivo
+esplicito: se il motivo è «Ledger dei costi non autorevole» manca
+`DATABASE_URL` e il provider reale resterebbe disabilitato comunque.
+La tabella `tars_costi` nasce da sola al primo uso (`CREATE TABLE IF
+NOT EXISTS`, come il resto del progetto): nessuna migrazione da
+eseguire al deploy, nessun rollback da preparare.
 
 ## 2. Fasi proposte (ognuna = decisione esplicita della direzione)
 

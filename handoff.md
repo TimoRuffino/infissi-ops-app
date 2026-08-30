@@ -1507,6 +1507,25 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-quaterdecies. Tars v2 — revisione del cost hardening (30/08/2026)
+
+Due revisori indipendenti sul delta del governor; tutti i Critical e
+Important corretti in `18441b9`. I due Critical valgono la lettura:
+(1) il ledger PostgreSQL non avrebbe mai funzionato (`COALESCE(...)
+FILTER (...)` è SQL invalido) — ora provato da 5 test su un database
+vero, in CI con servizio dedicato; (2) senza `usage` plausibile il
+costo reale sarebbe stato 0 e la prenotazione liberata — ora
+`uncertain`, contato. Aggiunta la guardia di rete GLOBALE della suite
+(`server/_core/testSetup.ts`): nessun test può uscire su Internet, e
+lo si prova invocando davvero l'adapter reale. Matrice test/limiti in
+`docs/tars/matrice-test-e-limiti.md`.
+
+Debito residuo dichiarato: il tetto per-run consente 3-7 chiamate al
+modello secondo il caching (misurato); se gli eval reali mostrassero
+run legittimi fermati, si alza il per-run — non si allenta la prudenza
+della stima. La dedup del doppio click è in-process (replica singola,
+vincolo già documentato §14).
+
 ## 11-terdecies. Tars v2 — budget governor (30/08/2026)
 
 Su `feature/tars-v2` (decisioni spec §27, implementazione `3bff928`):

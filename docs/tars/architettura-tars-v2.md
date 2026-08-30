@@ -650,6 +650,34 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
 48. **Lettura amministrativa** `tars.costi` (direzione-only, come gli
    altri endpoint di diagnostica): spesa giorno/mese, residui, numero
    run, costo medio/massimo, cache hit, blocchi del governor, errori
-   del provider. Nessuna UI in questa slice: endpoint e telemetria
-   verificabili. Telemetria senza PII: identificatori opachi, mai
-   prompt, documenti, estratti o ragionamento del modello.
+   del provider. I totali sono GLOBALI (tutte le sedi) perché il tetto
+   è globale: il payload lo dichiara (`ambito: "globale"`). Anche
+   `tars.stato` limita alla direzione budget e motivi infrastrutturali.
+   Nessuna UI in questa slice: endpoint e telemetria verificabili.
+   Telemetria senza PII: identificatori opachi, mai prompt, documenti,
+   estratti o ragionamento del modello.
+
+### Correzioni dopo la revisione indipendente (30/08/2026)
+
+49. **La stima è un SOFFITTO, non una media**: rapporto pessimistico di
+   2,5 caratteri per token (il payload è JSON di schemi e dati, non
+   prosa) più il margine. Una stima ottimistica renderebbe il tetto
+   valicabile dal costo reale proprio negli stati non riconciliati.
+50. **Uso non plausibile = `uncertain`, mai riconciliazione a zero**:
+   se `usage` manca, non è finito, è tutto a zero o dichiara più token
+   cached che di input, la prenotazione resta CONTATA. Era l'unico
+   punto fail-open possibile.
+51. **I limiti interni del run non sono guasti del provider**
+   (`ErroreLimiteRun`): non aprono il circuito globale e non dicono
+   all'utente che «il modello non è disponibile».
+52. **Il ledger autorevole si prova su PostgreSQL vero**: cinque test
+   (schema idempotente, 20 prenotazioni concorrenti, idempotenza della
+   chiave, stati, riepilogo) girano contro un database reale, in CI con
+   un servizio dedicato. Il ledger in memoria non poteva accorgersi che
+   `COALESCE(...) FILTER (...)` è SQL invalido.
+53. **Guardia di rete GLOBALE nei test** (`server/_core/testSetup.ts`):
+   nessun file della suite può raggiungere un host esterno; il percorso
+   pericoloso (adapter reale) è invocato davvero in un test per
+   dimostrarlo.
+54. **Doppio click**: due invii identici ravvicinati condividono un solo
+   run (dedup applicativa nel router), quindi un solo addebito.

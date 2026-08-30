@@ -77,12 +77,17 @@ attivo per costruzione, non per configurazione:
 
 **Numero misurato in test**: con il catalogo strumenti attuale (21
 strumenti) la prenotazione prudenziale di una singola chiamata è
-**≈0,03 USD**, quindi il tetto per-run da 0,10 consente **3-7 chiamate
-al modello per run** a seconda di quanto morde il prompt caching (la
-prenotazione ignora lo sconto cache per prudenza, la riconciliazione lo
-recupera subito). Se gli eval reali mostrassero run legittimi fermati
-dal tetto, la taratura corretta è alzare il per-run (non allentare la
-prudenza della stima): decisione da registrare.
+**≈0,021-0,03 USD**, quindi il tetto per-run da 0,10 consente **3-7
+chiamate al modello per run** a seconda di quanto morde il prompt
+caching (la prenotazione ignora lo sconto cache per prudenza, la
+riconciliazione lo recupera subito). Se gli eval reali mostrassero run
+legittimi fermati dal tetto, la taratura corretta è alzare il per-run
+(non allentare la prudenza della stima): decisione da registrare.
+
+La stima usa un rapporto **pessimistico** di 2,5 caratteri per token,
+non la media di 4: il payload di Tars è JSON di schemi e dati, dove la
+tokenizzazione è più fitta. Serve a garantire che la prenotazione sia un
+soffitto e non una speranza — verificato da un test dedicato.
 
 ## 5. Cosa serve per procedere (decisione della direzione)
 
