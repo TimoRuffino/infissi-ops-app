@@ -17,6 +17,7 @@ import { useLocation } from "wouter";
 // modello). Le assunzioni del server (es. «mattina = 09:00») sono mostrate.
 function AzioniTurno({ payload }: { payload: any }) {
   const [annullati, setAnnullati] = useState<number[]>([]);
+  const [applicate, setApplicate] = useState<number[]>([]);
   const utils = trpc.useUtils();
   const annulla = trpc.promemoria.cancel.useMutation({
     onSuccess: (_dati, variabili) => {
@@ -25,6 +26,16 @@ function AzioniTurno({ payload }: { payload: any }) {
       toast.success("Promemoria annullato.");
     },
     onError: e => toast.error(e.message ?? "Annullamento non riuscito"),
+  });
+  // L'UNICA conferma umana delle proposte L3: un click, macchina interna
+  // del gateway invariata. Il modello non ha strumenti per farlo.
+  const approvaEApplica = trpc.proposte.approvaEApplica.useMutation({
+    onSuccess: (esito, variabili) => {
+      setApplicate(prev => [...prev, variabili.id]);
+      toast.success("Proposta approvata e applicata.");
+      if (esito.avvisoPosa) toast.warning(esito.avvisoPosa);
+    },
+    onError: e => toast.error(e.message ?? "Applicazione non riuscita"),
   });
   const azioni = payload?.azioni ?? [];
   if (!azioni.length) return null;
@@ -55,6 +66,32 @@ function AzioniTurno({ payload }: { payload: any }) {
               ))}
               {azione.motivo && (
                 <p className="text-[11px] text-warning">{azione.motivo}</p>
+              )}
+              {azione.conferma?.via === "proposte.approvaEApplica" && (
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  {azione.conferma.effetto && (
+                    <p className="text-[11px] text-text-3 w-full">
+                      {azione.conferma.effetto}
+                    </p>
+                  )}
+                  <Button
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    disabled={
+                      approvaEApplica.isPending ||
+                      applicate.includes(azione.conferma.propostaId)
+                    }
+                    onClick={() =>
+                      approvaEApplica.mutate({
+                        id: azione.conferma.propostaId,
+                      })
+                    }
+                  >
+                    {applicate.includes(azione.conferma.propostaId)
+                      ? "Applicata"
+                      : "Approva e applica"}
+                  </Button>
+                </div>
               )}
             </div>
             {azione.undoDisponibile && idPromemoria != null && (

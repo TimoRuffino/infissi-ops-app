@@ -29,12 +29,9 @@ import {
   verificaFreschezza,
   type PropostaAzione,
 } from "../proposte/gateway";
-import { generaProposteDaAnalisi } from "../proposte/generazione";
-import { analisiPerOrdine } from "../documenti/analisi";
-import { collegamentoAttivo } from "../documenti/collegamenti";
+import { generaDaOrdineEDocumento } from "../proposte/generazione";
 import { primaPosaInConflitto } from "../actionCenter/signals";
 import { getCommessaById } from "./commesse";
-import { getDocumentoRecordById } from "./preventiviContratti";
 import { getOrdineFornitoreInSede } from "./fornitori";
 import { getInterventiStore } from "./interventi";
 import { DEFAULT_SEDE_ID } from "./sedi";
@@ -183,53 +180,31 @@ export const proposteRouter = router({
         resource: { sedeId },
         legacyAllowed: "capability",
       });
-      // Coerenza VIVA fra documento e ordine (revisione): il run resta in
-      // archivio anche se il collegamento è stato annullato o il documento
-      // apparteneva a un'altra commessa — ma una proposta si genera solo
-      // se OGGI il documento è del fascicolo dell'ordine o gli è
-      // esplicitamente collegato.
-      const documento = getDocumentoRecordById(input.documentoId);
-      const commessaDoc = documento
-        ? getCommessaById(documento.commessaId)
-        : null;
-      if (
-        !documento ||
-        !commessaDoc ||
-        (commessaDoc as any).sedeId !== sedeId
-      ) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Documento non trovato.",
+      // Coerenza VIVA fra documento e ordine + generazione: unica fonte
+      // in generazione.generaDaOrdineEDocumento (T5, decisione 27).
+      let esito;
+      try {
+        esito = generaDaOrdineEDocumento({
+          sedeId,
+          ordineId: input.ordineId,
+          documentoId: input.documentoId,
         });
+      } catch (errore: any) {
+        const messaggio = String(errore?.message ?? "");
+        if (messaggio.startsWith("NOT_FOUND: ")) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: messaggio.slice("NOT_FOUND: ".length),
+          });
+        }
+        if (messaggio.startsWith("PRECONDITION: ")) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: messaggio.slice("PRECONDITION: ".length),
+          });
+        }
+        throw errore;
       }
-      const collegato = collegamentoAttivo(sedeId, documento.id);
-      if (
-        documento.commessaId !== trovato.ordine.commessaId &&
-        collegato?.ordineId !== trovato.ordine.id
-      ) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Il documento non appartiene alla commessa dell'ordine e non gli è collegato: nessuna proposta da questo run.",
-        });
-      }
-      const run = analisiPerOrdine(sedeId, input.ordineId).find(
-        item => item.documentoId === input.documentoId
-      );
-      if (!run) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Nessuna analisi per questo documento su questo ordine: esegui prima l'analisi della conferma.",
-        });
-      }
-      const esito = generaProposteDaAnalisi({
-        run,
-        ordine: {
-          id: trovato.ordine.id,
-          dataConsegnaPrevista: trovato.ordine.dataConsegnaPrevista ?? null,
-        },
-      });
       return {
         motivo: esito.motivo,
         proposte: esito.proposte.map(item => ({
@@ -326,6 +301,44 @@ export const proposteRouter = router({
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.applica", proposta);
       try {
+        const { proposta: applicata, riusata } = await applicaProposta({
+          sedeId,
+          id: input.id,
+          utenteId: ctx.user?.id ?? null,
+        });
+        return {
+          proposta: proiezione(applicata),
+          riusata,
+          avvisoPosa: avvisoPosa(applicata),
+        };
+      } catch (errore: any) {
+        comeBadRequest(errore);
+      }
+    }),
+
+  /**
+   * L'UNICA conferma umana per le proposte nate da Tars (T5, decisione
+   * 28): stessa doppia capability di approva/applica, poi approvazione e
+   * applicazione in sequenza — un solo click, macchina interna
+   * invariata. Un fallimento di applicazione lascia lo stato onesto
+   * (`fallita`) e l'errore arriva sanificato.
+   */
+  approvaEApplica: procedura
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const sedeId = sedeCorrente(ctx);
+      const proposta = propostaInSede(input.id, sedeId);
+      await autorizzaDecisione(ctx, "proposte.approvaEApplica", proposta);
+      try {
+        // Doppio click sicuro: se è già approvata (o applicata) non si
+        // ri-approva; applicaProposta gestisce l'idempotenza finale.
+        if (proposta.stato === "proposta") {
+          approvaProposta({
+            sedeId,
+            id: input.id,
+            utenteId: ctx.user?.id ?? null,
+          });
+        }
         const { proposta: applicata, riusata } = await applicaProposta({
           sedeId,
           id: input.id,

@@ -15,7 +15,7 @@ import {
   turniDiConversazione,
 } from "./archivio";
 import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from "./profili";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v2";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v3";
 import {
   ErroreProvider,
   type MessaggioTars,
@@ -33,6 +33,8 @@ export type AzioneRun = {
   entitaToccate: string[];
   undoDisponibile: boolean;
   undoVia: EsitoAzione["undoVia"];
+  /** L3: l'UNICA conferma umana da mostrare come bottone nella UI. */
+  conferma: EsitoAzione["conferma"] | null;
   assunzioni: string[];
   descrizione: string;
 };
@@ -382,6 +384,7 @@ export async function eseguiRun(input: {
                 entitaToccate: azione.entitaToccate,
                 undoDisponibile: azione.undoDisponibile,
                 undoVia: azione.undoVia,
+                conferma: azione.conferma ?? null,
                 assunzioni: azione.assunzioni,
                 descrizione:
                   azione.evidenze[0]?.descrizione ?? azione.strumento,

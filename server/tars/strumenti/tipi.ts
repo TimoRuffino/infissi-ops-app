@@ -61,6 +61,17 @@ export type EsitoAzione<T = unknown> = {
   undoEntro: string | null;
   /** Per la UI: come annullare con UN click senza passare dal modello. */
   undoVia: { procedura: "promemoria.cancel"; id: number } | null;
+  /**
+   * L3: l'azione NON è eseguita — serve l'UNICA conferma umana. La UI
+   * mostra l'anteprima e il bottone che chiama la procedura indicata;
+   * il modello non ha alcuno strumento per darla (L5).
+   */
+  conferma?: {
+    via: "proposte.approvaEApplica";
+    propostaId: number;
+    etichetta: string;
+    effetto: string | null;
+  } | null;
   avvertenze: string[];
   assunzioni: string[];
   dati: T;
@@ -79,8 +90,11 @@ export type StrumentoTars<I = any, O = any> = {
   capability: readonly Capability[];
   /** Il livello direzione-only eredita le regole degli endpoint attuali. */
   soloDirezione?: boolean;
-  /** Interruttore aggiuntivo oltre al master tars (es. documentIntelligence). */
-  interruttore?: Interruttore;
+  /**
+   * Interruttori aggiuntivi oltre al master tars (es. documentIntelligence):
+   * uno o una lista — TUTTI devono essere accesi.
+   */
+  interruttore?: Interruttore | readonly Interruttore[];
   descrizione: string;
   schemaInput: z.ZodType<I>;
   esegui(contesto: ContestoRun, input: I): Promise<O>;

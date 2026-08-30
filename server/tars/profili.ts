@@ -5,12 +5,14 @@
 
 import { z } from "zod";
 import { interruttoreAttivo } from "../platform/interruttori";
+import { STRUMENTI_CASI } from "./strumenti/casi";
 import { STRUMENTI_L0 } from "./strumenti/letture";
 import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
+import { STRUMENTI_PROPOSTE } from "./strumenti/proposte";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l1-v2";
+export const PROFILO_VERSIONE = "l3-v1";
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(
@@ -20,12 +22,12 @@ export function filtraStrumenti(
   return strumenti
     .filter(strumento => {
       if (strumento.soloDirezione && !contesto.direzione) return false;
-      if (
-        strumento.interruttore &&
-        !interruttoreAttivo(strumento.interruttore)
-      ) {
-        return false;
-      }
+      const interruttori = Array.isArray(strumento.interruttore)
+        ? strumento.interruttore
+        : strumento.interruttore
+          ? [strumento.interruttore]
+          : [];
+      if (!interruttori.every(i => interruttoreAttivo(i))) return false;
       return strumento.capability.every(c => contesto.capability.has(c));
     })
     .sort((a, b) => a.nome.localeCompare(b.nome));
@@ -40,6 +42,10 @@ export function strumentiPerContesto(
   if (interruttoreAttivo("tarsReadTools")) catalogo.push(...STRUMENTI_L0);
   if (interruttoreAttivo("tarsReminders")) {
     catalogo.push(...STRUMENTI_PROMEMORIA);
+  }
+  if (interruttoreAttivo("tarsL2Actions")) catalogo.push(...STRUMENTI_CASI);
+  if (interruttoreAttivo("tarsProposals")) {
+    catalogo.push(...STRUMENTI_PROPOSTE);
   }
   return filtraStrumenti(catalogo, contesto);
 }

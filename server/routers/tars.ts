@@ -54,13 +54,26 @@ function providerCorrente(): TarsProvider {
       try {
         const esito = JSON.parse(ultimoTool.contenuto);
         if (esito?.tipo === "azione") {
-          if (esito.stato === "non_eseguito") {
+          if (
+            esito.stato === "non_eseguito" ||
+            esito.stato === "non_necessaria"
+          ) {
             return rispostaTesto(
-              `Non ho creato il promemoria: ${esito.motivo} (provider dimostrativo).`
+              `Non eseguito: ${esito.motivo} (provider dimostrativo).`
+            );
+          }
+          if (esito.conferma) {
+            return rispostaTesto(
+              `Proposta pronta: ${esito.conferma.effetto ?? esito.conferma.etichetta}. Decidi tu con il bottone qui sotto. (provider dimostrativo)`
+            );
+          }
+          if (esito.dati?.remindAtLocale) {
+            return rispostaTesto(
+              `Fatto: promemoria «${esito.dati?.testo}» per ${esito.dati?.remindAtLocale}. Puoi annullarlo qui sotto. (provider dimostrativo)`
             );
           }
           return rispostaTesto(
-            `Fatto: promemoria «${esito.dati?.testo}» per ${esito.dati?.remindAtLocale}. Puoi annullarlo qui sotto. (provider dimostrativo)`
+            `Fatto (${esito.stato}). (provider dimostrativo)`
           );
         }
       } catch {
@@ -79,6 +92,22 @@ function providerCorrente(): TarsProvider {
       return chiamataTool("crea_promemoria", {
         testo: conQuando[2].trim(),
         quando: conQuando[1].trim(),
+      });
+    }
+    const proponi = /^proponi la consegna dell'ordine\s+(\d+)/i.exec(
+      ultimoUtente.trim()
+    );
+    if (proponi) {
+      return chiamataTool("proponi_data_consegna", {
+        ordineId: Number(proponi[1]),
+      });
+    }
+    const prendi = /^prendi in carico il caso\s+(\d+)/i.exec(
+      ultimoUtente.trim()
+    );
+    if (prendi) {
+      return chiamataTool("prendi_in_carico_caso", {
+        casoId: Number(prendi[1]),
       });
     }
     if (/^ricordami\b/i.test(ultimoUtente.trim())) {
