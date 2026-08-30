@@ -1466,6 +1466,22 @@ come run `proattivita-shadow`. Endpoint `tars.briefing`
 reali (casi/notifiche/promemoria event-driven) SOLO dopo osservazione
 shadow, sui canali esistenti (T8/T9); rilevatore gate fermi futuro.
 
+## 11-octies. Tars v2 — T5 azioni L2 e gateway L3 (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §23, implementazione `06ee45c`):
+L2 = `prendi_in_carico_caso`/`rinvia_caso` su `transitionActionCase`
+esistente (zero conferme su richiesta esplicita, anti-stale, audit
+negli eventi del caso; flag nuovo `FLAG_TARS_L2_ACTIONS`); L3 =
+`proponi_data_consegna` genera la proposta INERTE via
+`generaDaOrdineEDocumento` (coerenza estratta dal router, unica fonte)
+e l'UNICA conferma umana è `proposte.approvaEApplica` (doppia
+capability invariata, idempotente, freschezza→`obsoleta`); bottone
+«Approva e applica» in chat; nessuno strumento di approvazione esposto
+al modello. Prompt v3, profilo l3-v1, campo `interruttore` a lista
+(tutti richiesti). 11 test + 3 mutation. APERTO: altri tipi di azione
+nel registro del gateway (oggi solo data consegna ordine) quando il
+dominio li definisce; L2 su ticket (`ticket.assign`) quando serve.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
