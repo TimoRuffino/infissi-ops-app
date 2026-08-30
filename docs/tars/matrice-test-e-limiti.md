@@ -56,7 +56,7 @@ mentre il catalogo cresce.
 | 18 | Nessun leak economico/cross-sede | `integrazione.test.ts` (costi direzione-only, budget non visibile ai non-direzione, payload di soli numeri) |
 | 19 | Messaggio controllato | `integrazione.test.ts` (testo esatto, nessun retry, nessun circuito) |
 | 20 | CRM indifferente con Tars spento | `integrazione.test.ts` (router non-Tars rispondono) |
-| 21 | Nessuna rete nei test | `server/_core/testSetup.ts` (guardia globale) + `integrazione.test.ts` (adapter reale invocato e fermato) |
+| 21 | Nessuna rete nei test | `server/_core/testSetup.ts` (guardia globale su fetch **e** node:http/https, quindi axios) + `integrazione.test.ts` (adapter reale invocato e fermato) |
 
 ## 3. Mutation test (la guardia deve MORDERE)
 
@@ -78,6 +78,11 @@ mentre il catalogo cresce.
 | 14 | `providerDettaglio` esposto a tutti | budget riservato alla direzione |
 | 15 | Limiti del run letti senza validazione (NaN) | tetto chiamate disattivato |
 | 16 | Dedup che non si libera al termine | domanda ripetuta = run nuovo |
+
+Nota: le mutazioni 15 e 16 hanno richiesto di rendere FEDELI i test
+prima di mordere (il tetto delle chiamate era mascherato dal tetto dei
+passi; la dedup era provata su chiavi diverse): un test che non morde
+non è una prova.
 
 ## 4. Esiti degli stati del ledger
 

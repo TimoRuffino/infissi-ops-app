@@ -1520,11 +1520,22 @@ costo reale sarebbe stato 0 e la prenotazione liberata — ora
 lo si prova invocando davvero l'adapter reale. Matrice test/limiti in
 `docs/tars/matrice-test-e-limiti.md`.
 
-Debito residuo dichiarato: il tetto per-run consente 3-7 chiamate al
-modello secondo il caching (misurato); se gli eval reali mostrassero
-run legittimi fermati, si alza il per-run — non si allenta la prudenza
-della stima. La dedup del doppio click è in-process (replica singola,
-vincolo già documentato §14).
+Terza revisione (conclusiva): nessun Critical, 4 Important corretti in
+`13b0624` (dedup che ripeteva una risposta conclusa; tetto per-run che
+rendeva irraggiungibili i limiti dichiarati e mentiva nel messaggio;
+limiti del run letti senza validazione — NaN disattivava il tetto;
+stessa cosa sulla Map della dedup).
+
+Debito residuo DICHIARATO: (1) il tetto per-run consente 3-7 chiamate
+al modello secondo il caching (misurato) — se gli eval reali fermassero
+run legittimi si alza il per-run, non si allenta la stima; (2) la dedup
+del doppio click e il rate limit sono in-process (replica singola,
+vincolo già documentato §14); (3) `tars.costi` non ha ancora una UI: la
+direzione legge la spesa dall'endpoint; (4) i totali di `tars.costi`
+sono globali su tutte le sedi (il tetto è globale), dichiarato nel
+payload; (5) la stima non è un soffitto stretto per input a densità
+anomala (CJK, base64): la riconciliazione registra comunque il costo
+vero, solo la singola prenotazione può essere superata una volta.
 
 ## 11-terdecies. Tars v2 — budget governor (30/08/2026)
 
