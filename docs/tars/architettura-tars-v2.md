@@ -514,3 +514,30 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    restano per la UI documentale esistente.
 29. **Più interruttori per strumento**: il campo `interruttore` accetta
    anche una lista (tutti richiesti). Prompt `v3`, profilo `l3-v1`.
+
+## 24. Decisioni registrate in T6 (documenti e comunicazioni)
+
+30. **NESSUN INVIO da Tars**: il dominio comunicazioni oggi è un
+   ARCHIVIO dei canali (IMAP in lettura, WhatsApp coexistence senza API
+   di invio): un invio programmatico non esiste nel CRM. L'«invio L4»
+   del piano T6 resta APERTO come gate della direzione (nuova
+   integrazione esterna SMTP/WhatsApp API + estensione del registro del
+   gateway). Le bozze restano nella chat: persisterle nel dominio
+   comunicazioni richiederebbe un concetto di bozza che lo schema (
+   archivio di messaggi dei canali) non ha — estensione non decisa.
+31. **Lettura comunicazioni**: strumento L0 `leggi_comunicazioni` per
+   commessa/cliente — metadati + ESTRATTI brevi (mai corpi integrali
+   nel contesto del modello: superficie di injection e volume PII
+   ridotti; il contenuto è sempre un DATO). Dietro tarsReadTools +
+   tarsCommunications; i corpi completi si leggono nel modulo Messaggi.
+32. **Trigger di analisi (L2)**: la coerenza fascicolo/collegamento e
+   l'avvio dell'analisi escono dal router in
+   `server/documenti/analisiOrdine.ts` (unica fonte; il router la
+   richiama dopo `requireDirezione`); lo strumento
+   `analizza_conferma_ordine` (direzione, tarsL2Actions +
+   documentIntelligence) riusa il servizio: idempotenza per firma già
+   nel dominio, i run sono append-only (nessun undo: dichiarato).
+33. **Residui legacy `tars_*` su comunicazioni CONGELATI** (CLAUDE.md):
+   il nuovo Tars non legge e non scrive `tarsAnalizzata`,
+   `tarsRiepilogo`, `tarsIstruzione`, `salvaEsitoTarsComunicazione` e
+   la coda `listDaAnalizzare`. Profilo `l3-v2`.
