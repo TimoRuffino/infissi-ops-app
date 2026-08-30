@@ -482,3 +482,35 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
 24. **Gating**: briefing dietro `tars`+`tarsReadTools`; la sezione
    segnalazioni anche dietro `tarsProactive` (spenta → `null`, la UI
    non la mostra). In produzione tutto resta spento.
+
+## 23. Decisioni registrate in T5 (azioni L2, gateway L3)
+
+25. **L2 su servizi esistenti**: le prime azioni condivise reversibili
+   sono le transizioni del Centro Azioni — prendere in carico e
+   rinviare (con l'espressione temporale del parser T2) — via
+   `transitionActionCase` (authz del servizio: mine/direzione,
+   `expectedFingerprint` anti-stale, eventi del caso come audit,
+   publishAssignmentEvent per i cambi assegnatario). Richiesta
+   esplicita = ZERO conferme; l'undo è dichiarato nel risultato
+   (riprendere/rinviare di nuovo), non un click.
+26. **Nuovo interruttore** `FLAG_TARS_L2_ACTIONS` (`tarsL2Actions`)
+   aggiunto al registro del §13, fail-closed come gli altri: le azioni
+   L2 non viaggiano sotto il flag dei promemoria né delle proposte.
+27. **L3 via gateway D7** (decisione 6): la coerenza documento↔ordine e
+   la generazione escono dal router in
+   `generazione.generaDaOrdineEDocumento` (unica fonte; il router la
+   richiama DOPO la sua authz, identica). Lo strumento
+   `proponi_data_consegna` (direzione, capability
+   `fornitore.manage_ordini`, interruttori documentIntelligence +
+   proposte + tarsProposals) genera la proposta INERTE e restituisce
+   l'anteprima con il campo `conferma`. Il modello NON può approvare:
+   nessuno strumento di approvazione esiste in alcun profilo (L5).
+28. **UNICA conferma umana**: nuova procedura
+   `proposte.approvaEApplica` — la stessa doppia capability di
+   approva/applica (`autorizzaDecisione`), poi approvazione +
+   applicazione in sequenza, atomica per l'utente (fallimento di
+   applicazione → stato `fallita`, errore onesto). La macchina interna
+   proposta→approvata→applicata resta invariata; le procedure separate
+   restano per la UI documentale esistente.
+29. **Più interruttori per strumento**: il campo `interruttore` accetta
+   anche una lista (tutti richiesti). Prompt `v3`, profilo `l3-v1`.
