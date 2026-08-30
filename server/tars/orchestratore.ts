@@ -15,7 +15,9 @@ import {
   turniDiConversazione,
 } from "./archivio";
 import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from "./profili";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v3";
+import { tarsAttivo } from "../platform/interruttori";
+import { contestoMemorie, fingerprintMemorie } from "./memoria";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v4";
 import {
   ErroreProvider,
   type MessaggioTars,
@@ -94,6 +96,10 @@ function chiaveC0(contesto: ContestoRun, domanda: string): string {
         d: domanda.trim().toLowerCase().replace(/\s+/g, " "),
         pv: PROMPT_VERSIONE,
         tv: PROFILO_VERSIONE,
+        // T7 (decisione 35): una memoria nuova/invalidata nega il riuso.
+        mem: tarsAttivo("tarsMemory")
+          ? fingerprintMemorie(contesto.sedeId, contesto.utenteId)
+          : "off",
       })
     )
     .digest("hex");
@@ -218,6 +224,19 @@ export async function eseguiRun(input: {
       ? { ruolo: "user" as const, contenuto: t.contenuto }
       : { ruolo: "assistant" as const, contenuto: t.contenuto }
   );
+
+  // T7 (decisione 35): le memorie valide entrano come messaggio di
+  // CONTESTO in coda, prima dell'ultimo messaggio utente — mai nel
+  // prefisso stabile (C2 intatta). Dati, non istruzioni.
+  if (tarsAttivo("tarsMemory")) {
+    const memorie = contestoMemorie(contesto.sedeId, contesto.utenteId);
+    if (memorie) {
+      messaggi.splice(Math.max(messaggi.length - 1, 0), 0, {
+        ruolo: "user",
+        contenuto: memorie,
+      });
+    }
+  }
 
   const strumenti = strumentiPerContesto(contesto);
   const perProvider = strumenti.map(comeDefinizioneProvider);

@@ -77,6 +77,7 @@ afterEach(() => {
   delete process.env.FLAG_TARS_REMINDERS;
   delete process.env.FLAG_TARS_L2_ACTIONS;
   delete process.env.FLAG_TARS_PROPOSALS;
+  delete process.env.FLAG_TARS_MEMORY;
 });
 
 describe("tars — kill switch", () => {
@@ -90,12 +91,13 @@ describe("tars — kill switch", () => {
     ).rejects.toMatchObject(attesa);
   });
 
-  it("con FLAG_TARS_READ_TOOLS spento nessuno strumento L0 sopravvive", async () => {
+  it("con FLAG_TARS_READ_TOOLS spento nessuna lettura di quella famiglia sopravvive", async () => {
     process.env.FLAG_TARS_READ_TOOLS = "off";
     const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
     const strumenti = strumentiPerContesto(contesto);
     expect(strumenti.length).toBeGreaterThan(0); // le altre famiglie vivono
-    expect(strumenti.every(s => s.livello !== "L0")).toBe(true);
+    const nomiL0 = new Set(STRUMENTI_L0.map(s => s.nome));
+    expect(strumenti.some(s => nomiL0.has(s.nome))).toBe(false);
   });
 
   it("con TUTTE le famiglie spente il profilo strumenti è vuoto", async () => {
@@ -103,6 +105,7 @@ describe("tars — kill switch", () => {
     process.env.FLAG_TARS_REMINDERS = "off";
     process.env.FLAG_TARS_L2_ACTIONS = "off";
     process.env.FLAG_TARS_PROPOSALS = "off";
+    process.env.FLAG_TARS_MEMORY = "off";
     const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
     expect(strumentiPerContesto(contesto)).toEqual([]);
   });

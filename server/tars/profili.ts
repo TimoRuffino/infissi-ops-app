@@ -8,12 +8,13 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import { STRUMENTI_CASI } from "./strumenti/casi";
 import { STRUMENTI_DOCUMENTI } from "./strumenti/documenti";
 import { STRUMENTI_L0 } from "./strumenti/letture";
+import { STRUMENTI_MEMORIA } from "./strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "./strumenti/proposte";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l3-v2";
+export const PROFILO_VERSIONE = "l3-v3";
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(
@@ -50,6 +51,7 @@ export function strumentiPerContesto(
   if (interruttoreAttivo("tarsProposals")) {
     catalogo.push(...STRUMENTI_PROPOSTE);
   }
+  if (interruttoreAttivo("tarsMemory")) catalogo.push(...STRUMENTI_MEMORIA);
   return filtraStrumenti(catalogo, contesto);
 }
 
