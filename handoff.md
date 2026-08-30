@@ -1452,6 +1452,20 @@ implementazione `7acdc32`):
   dei tool (microsecondi); il meccanismo C4 (chiavi+store+versioni) è
   attivo col fascicolo come primo consumatore.
 
+## 11-septies. Tars v2 — T4 briefing e proattività shadow (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §22, commit `9819f43`;
+implementazione `4a0a78a`): `server/tars/briefing.ts` compone a
+richiesta — senza modello e senza scritture — promemoria di oggi, casi
+mine e segnalazioni shadow (ordine in ritardo, conflitto consegna
+prevista/confermata) agganciate ai casi APERTI del Centro Azioni per
+commessa (mai duplicati, mai contenuti altrui); telemetria del rumore
+come run `proattivita-shadow`. Endpoint `tars.briefing`
+(tars+readTools; segnalazioni anche dietro tarsProactive), blocco
+«Situazione di oggi» in `/tars`. 7 test + 2 mutation. APERTO: emissioni
+reali (casi/notifiche/promemoria event-driven) SOLO dopo osservazione
+shadow, sui canali esistenti (T8/T9); rilevatore gate fermi futuro.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
