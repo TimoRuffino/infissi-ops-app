@@ -43,6 +43,14 @@ client/src/pages/Tars.tsx  ← pagina /tars (T1 minimale)
 Regole: il router non contiene logica; l'orchestratore non conosce tRPC;
 gli strumenti non conoscono il modello; NIENTE nei router business.
 
+Nota di layout (T1, registrata in T2): conversazioni/turni/run/telemetria
+vivono insieme in `archivio.ts`; C0 e C1 vivono nell'orchestratore (LRU
+in-process, come da §10 «Storage»); il prompt corrente è `prompt/v2.ts`
+(v1 conservato come storia). Parità comportamentale con questo §2; la
+separazione in file dedicati si fa quando C3/C4 (T3) la rendono reale.
+In T2 si aggiunge `tempo.ts` (risoluzione deterministica delle
+espressioni temporali italiane) e `strumenti/promemoria.ts` (azioni L1).
+
 ## 3. Provider OpenAI
 
 - **Responses API server-side** (ragionamento, function calling,
@@ -371,3 +379,44 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    temporale di Tars produce input per quel service, non un nuovo motore.
 8. Replica singola come vincolo di produzione corrente: ogni componente
    nuovo che assuma di più (lease, lock) lo dichiara e lo testa.
+
+## 20. Decisioni registrate in T2 (promemoria L1)
+
+9. **Riuso con estensione additiva dichiarata**: `server/reminders`
+   resta il motore; si aggiungono SOLO metodi di lettura
+   (`listPersonal`, `get`) a repository e service per l'agenda
+   («questa settimana») e per prima/dopo delle azioni. Nessuna modifica
+   allo schema `promemoria`: il collegamento resta commessa/cliente
+   (campi esistenti); ordini e documenti si citano nel testo del
+   promemoria finché una decisione non estende lo schema.
+10. **Parsing temporale deterministico lato server** (`server/tars/tempo.ts`):
+   il modello passa l'espressione dell'utente così com'è; il server la
+   risolve con due semantiche distinte — *calendario* (data+ora locali
+   Europe/Rome, convertite con `parseRomeLocalDateTime` esistente: gli
+   errori DST `REMINDER_LOCAL_TIME_INVALID`/`AMBIGUOUS` restano la
+   verità) e *durata* («tra due ore» = istante esatto, immune ai cambi
+   d'ora). Default aziendali DICHIARATI (sempre riportati come
+   assunzioni nell'esito): mattina=09:00, pomeriggio=15:00, sera=18:00,
+   giorno senza orario=09:00, solo-orario già passato oggi→domani,
+   giorno della settimana=prossima occorrenza (oggi se ancora futura).
+11. **Idempotenza della creazione**: `canonicalKey` deterministica
+   `tars:u<utente>:<hash(testo normalizzato|istante)>`; il vincolo
+   `UNIQUE (sede_id, canonical_key)` del repository è la garanzia; il
+   doppio invio restituisce «già esistente» (0 duplicati). La
+   ricreazione dopo un annullo usa la catena deterministica
+   `:dopo<idPrecedente>` (stessa doppia richiesta → stessa catena →
+   stessa dedup).
+12. **Nessuno scheduler nuovo**: consegna via worker esistente
+   (`claimDue` con `FOR UPDATE SKIP LOCKED` = transizione atomica su
+   PG; dedupe notifiche per `reminder:<id>:<revision>`); replica
+   singola documentata (§14). Edge dichiarato: uno spostamento sull'ora
+   locale ripetuta d'autunno viene rifiutato con errore onesto, non
+   indovinato.
+13. **Undo L1**: undo della creazione = annullamento immediato; la UI
+   mostra «Annulla» che chiama il router `promemoria.cancel` ESISTENTE
+   (zero passaggi dal modello). L'annullamento non è reversibile (si
+   ricrea): dichiarato nell'esito con testo e orario per ricreare.
+14. **C0 e azioni**: i run che eseguono azioni NON entrano in C0 (una
+   risposta con effetti non è una «domanda deterministica»); C1 resta
+   attiva nel run come guardia anti doppia tool call. Prompt `v2` e
+   profilo `l1-v1`: le versioni nelle chiavi invalidano C0/C2 da sole.
