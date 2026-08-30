@@ -142,7 +142,10 @@ export function configurazioneBudget():
   // prenotazione ancora VIVA verrebbe marcata `expired` da una chiamata
   // concorrente e la riconciliazione (che aggiorna solo le `reserved`)
   // non registrerebbe più il costo reale (revisione).
-  const timeoutProvider = Number(process.env.TARS_PROVIDER_TIMEOUT_MS ?? 45_000);
+  // Stesso default dell'orchestratore (`configurazioneRunDefault`): un
+  // default più basso qui renderebbe questa validazione più permissiva
+  // del timeout realmente in uso.
+  const timeoutProvider = Number(process.env.TARS_PROVIDER_TIMEOUT_MS ?? 90_000);
   if (Number.isFinite(timeoutProvider) && scadenza <= timeoutProvider * 2) {
     return {
       ok: false,
