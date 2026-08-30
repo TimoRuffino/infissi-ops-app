@@ -12,8 +12,10 @@ import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import {
   assicuraInterruttore,
+  assicuraTars,
   interruttoreAttivo,
   statoInterruttori,
+  tarsAttivo,
 } from "./interruttori";
 import { estraiTestoDocumento } from "../documenti/parserRegistry";
 import { firmaOcrCorrente } from "../documenti/ocr";
@@ -43,21 +45,32 @@ afterEach(() => {
 });
 
 describe("interruttori — default e override", () => {
-  it("in produzione il default è SPENTO; on esplicito li accende", () => {
+  it("in produzione il default è SPENTO per OGNI interruttore; on esplicito li accende", () => {
     vi.stubEnv("NODE_ENV", "production");
-    expect(statoInterruttori()).toEqual({
-      documentIntelligence: false,
-      proposte: false,
-      ocr: false,
-    });
+    const spenti = statoInterruttori();
+    for (const [nome, attivo] of Object.entries(spenti)) {
+      expect(attivo, `interruttore ${nome} deve nascere spento in produzione`).toBe(false);
+    }
     vi.stubEnv("FLAG_DOCUMENT_INTELLIGENCE", "on");
     vi.stubEnv("FLAG_PROPOSTE", "true");
     vi.stubEnv("FLAG_OCR", "1");
-    expect(statoInterruttori()).toEqual({
-      documentIntelligence: true,
-      proposte: true,
-      ocr: true,
-    });
+    const parziale = statoInterruttori();
+    expect(parziale.documentIntelligence).toBe(true);
+    expect(parziale.proposte).toBe(true);
+    expect(parziale.ocr).toBe(true);
+    expect(parziale.tars).toBe(false); // i flag Tars restano spenti
+  });
+
+  it("Tars: il master spento vince su ogni funzione (fail-closed)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("FLAG_TARS_READ_TOOLS", "on");
+    expect(tarsAttivo("tarsReadTools")).toBe(false); // master off
+    expect(() => assicuraTars("tarsReadTools")).toThrow();
+    vi.stubEnv("FLAG_TARS", "on");
+    expect(tarsAttivo()).toBe(true);
+    expect(tarsAttivo("tarsReadTools")).toBe(true);
+    expect(tarsAttivo("tarsReminders")).toBe(false); // funzione senza flag
+    expect(() => assicuraTars("tarsReminders")).toThrow();
   });
 
   it("fuori produzione il default è acceso; off esplicito li spegne; valori ignoti ricadono sul default", () => {

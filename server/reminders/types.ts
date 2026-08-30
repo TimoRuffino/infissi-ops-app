@@ -65,3 +65,11 @@ export type ReminderMutationInput = ReminderScope & {
   actorUserId: number;
   now: Date;
 };
+
+export type ReminderListInput = ReminderScope & {
+  stati: ReminderStatus[];
+  daRemindAt?: Date;
+  aRemindAt?: Date;
+  ordina: "remindAt" | "creazioneDesc";
+  limit: number;
+};

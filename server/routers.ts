@@ -40,6 +40,7 @@ import { diagnosticaRouter } from "./routers/diagnostica";
 import { chatRouter } from "./routers/chat";
 import { analisiDocumentiRouter } from "./routers/analisiDocumenti";
 import { proposteRouter } from "./routers/proposte";
+import { tarsRouter } from "./routers/tars";
 import {
   createLocalToken,
   clearLocalSessionFromRequest,
@@ -202,6 +203,7 @@ export const appRouter = router({
   chat: chatRouter,
   analisiDocumenti: analisiDocumentiRouter,
   proposte: proposteRouter,
+  tars: tarsRouter,
 });
 
 export type AppRouter = typeof appRouter;

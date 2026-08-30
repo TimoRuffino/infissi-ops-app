@@ -548,6 +548,14 @@ export function getDocumentoRecordById(id: number): Documento | null {
   return documenti.find(d => d.id === id) ?? null;
 }
 
+// Registro versioni di Tars (T3, revisione): la lista dei documenti di
+// una commessa serve a invalidare fascicoli e cache quando il gate
+// documentale cambia. Sola lettura; lo scope di sede lo applica chi
+// chiama tramite la commessa.
+export function getDocumentiDiCommessa(commessaId: number): Documento[] {
+  return documenti.filter(d => d.commessaId === commessaId);
+}
+
 export const preventiviContrattiRouter = router({
   byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
     // Don't leak another sede's documents.

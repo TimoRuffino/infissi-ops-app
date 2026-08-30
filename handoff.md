@@ -1332,6 +1332,258 @@ pnpm storage:dry-run
 | `CLAUDE.md` | guida operativa per agenti di coding |
 | `guida_pubblicazione.md` | pubblicazione e deploy |
 
+## 11-ter. Base D7 in produzione e Tars v2 avviato (29/08/2026)
+
+Merge PR #1 autorizzato ed eseguito (`84717e2`, merge commit, 31 commit
+atomici conservati; CI verde su branch e su main). Produzione verificata
+senza credenziali: nuovo build live (v. marcatore `platform.interruttori`
+401 vs 404), 10 router sondati vivi (incluso `produzione.*` backend),
+SPA e `/produzione/*` in fallback 200, `auth.login` con errore sanificato,
+JWT_SECRET provato presente dal gate d'avvio production. **Tutti i flag
+DI/OCR/proposte SPENTI** (fail-closed + nessuna FLAG_* su Railway). Da
+pannello Railway (occhio umano, checklist read-only): commit distribuito,
+log di build/avvio, nomi variabili, `tesseract --list-langs` nel
+container. Rollout DI: separato, quando ci saranno conferme anonimizzate
+e perimetro pilota (runbook dedicato).
+
+Tars v2: branch `feature/tars-v2` da `84717e2`; contratti T0 in
+`docs/tars/architettura-tars-v2.md`; PRD §54 ora progetto attivo. Regole
+chiave: provider OpenAI dietro adapter con DI + fake deterministico
+(NESSUNA chiamata reale fino al gate chiave/budget della direzione),
+`FLAG_TARS*` fail-closed, riuso di gateway proposte/reminders/eventi/
+Centro Azioni/DI, cache C0-C2 misurate in T1.
+
+## 11-quater. Tars v2 — T1 runtime read-only (nucleo, 29/08/2026)
+
+Su `feature/tars-v2`, contratti in `docs/tars/architettura-tars-v2.md`:
+
+- `server/tars/`: provider con DI (`provider.ts`; adapter OpenAI
+  Responses `openai/adapter.ts` con store:false, MAI istanziato di
+  default — serve `TARS_PROVIDER=openai` oltre a FLAG_TARS e chiave;
+  fake deterministico `openai/fake.ts` per test/dev), orchestratore con
+  budget/retry singolo/circuit breaker/degradazione onesta, contesto
+  autorizzato con capability fingerprint, profili strumenti filtrati
+  (capability+direzione+interruttori, ordinati per C2), 7 strumenti L0
+  (commesse, gate, ordini, analisi DI direzione-only, Centro Azioni,
+  promemoria in scadenza) con {dati, evidenze, freschezza, omissioni},
+  archivio conversazioni/turni/run su tabelle PG dedicate (fallback
+  memoria), prompt v1 versionato, cache C0 (TTL breve per perimetro) e
+  C1 (dedupe per run) MISURATE nei contatori; router `tars.*` dietro
+  `FLAG_TARS` (base procedure); pagina `/tars` con evidenze/omissioni e
+  voce menu dietro flag.
+- Test: `server/tars/orchestratore.test.ts` (17) — kill switch non
+  aggirabile, profili (mutation test sul filtro capability), loop con
+  evidenze persistite, C0/C1 provate, degradazione e circuito, strumento
+  fuori profilo = errore-dato, shaping economico, cross-sede NOT_FOUND su
+  strumenti e conversazioni. Verifica sul demo: chat funzionante col
+  provider finto, voce menu, mobile 375px, zero errori console.
+- APERTO in T1: streaming della risposta; metriche C2 reali (arrivano col
+  gate chiave/modello/budget della direzione: fino ad allora nessuna
+  chiamata OpenAI); pannello contestuale (T3).
+
+## 11-quinquies. Tars v2 — T2 promemoria personali L1 (30/08/2026)
+
+Su `feature/tars-v2` (decisioni registrate PRIMA del codice nella spec
+§20, commit `f74dd8b`; implementazione `844e371`):
+
+- `server/tars/tempo.ts`: risoluzione deterministica delle espressioni
+  temporali italiane («domani alle 9», «venerdì», «tra due ore», «lunedì
+  mattina», «il 15 settembre», «tre giorni prima»+ancoraData). Due
+  semantiche: calendario (convertito da `parseRomeLocalDateTime`
+  esistente: DST inesistente/ambiguo RIFIUTATO) e durata esatta.
+  Default dichiarati sempre restituiti come `assunzioni`.
+- `server/tars/strumenti/promemoria.ts`: 4 strumenti L1
+  (crea/sposta/annulla/completa) sul `ReminderService` ESISTENTE;
+  destinatario = principal per costruzione (schema strict senza campo
+  destinatario); idempotenza `canonicalKey` + catena `:dopo<id>` per
+  ricreare dopo annullo; esiti `EsitoAzione` (stato, prima/dopo,
+  auditId da `promemoria_eventi`, undo, avvertenze, assunzioni); errori
+  temporali = esiti `non_eseguito` leggibili, mai eccezioni.
+- Estensioni ADDITIVE a `server/reminders` (nessuno schema toccato):
+  `repository.listPersonal` (memoria+PG), `service.listPersonal/get/
+  listEvents`. Consegna: worker esistente (claim `FOR UPDATE SKIP
+  LOCKED`), nessuno scheduler nuovo; replica singola documentata.
+- Orchestratore: aggrega `azioni` nel run (anche in degradazione),
+  le esclude da C0, le conta in telemetria; prompt `v2` (attrito: zero
+  conferme su richiesta esplicita, max UNA precisazione); profilo
+  `l1-v1` con gate per famiglia (readTools/reminders indipendenti).
+- UI `/tars`: blocco azioni con esito, assunzioni e «Annulla» a un
+  click su `promemoria.cancel` (zero passaggi dal modello); provider
+  dimostrativo con copione «Ricordami <quando> di <cosa>» per il dev.
+- Prove: 17 test integrazione (attrito misurato sui turni: 2 turni,
+  nessuna conferma; duplicati 0; DST onesto; ownership e cross-sede
+  NOT_FOUND; kill switch a TRE strati — famiglia, campo interruttore,
+  guardia in-tool — con mutation test che mordono su ciascuno), 15 test
+  parser, listPersonal provata nel repository. Suite 75 file/658 test,
+  build ok, browser desktop+390x844 senza errori console.
+- APERTO dopo T2: ricorrenze e promemoria event-driven («avvisami se
+  slitta la consegna») → arrivano con la proattività (T4), sugli eventi
+  esistenti; collegamento a ordini/documenti nel testo finché lo schema
+  promemoria non li prevede (decisione §20.9).
+
+## 11-sexies. Tars v2 — T3 fascicoli, C3/C4, pannello (30/08/2026)
+
+Su `feature/tars-v2` (decisioni nella spec §21, commit `62cddce`;
+implementazione `7acdc32`):
+
+- `server/tars/fascicoli.ts`: fascicolo C3 della commessa al pavimento
+  di capability (`commessa.read`) — SENZA economia e senza derivati
+  direzione-only, quindi condivisibile a livello sede per costruzione
+  (test anti-leak: il payload non contiene mai /importo|prezzo|residuo/;
+  `daSaldare` booleano sanzionato c'è). Domande aperte deterministiche:
+  gate mancante, ordine senza data prevista, consegna prevista DOPO la
+  data confermata al cliente, ordine in ritardo.
+- `server/tars/versioni.ts`: registro delle versioni correnti (commessa,
+  ordine, registro pagamenti, liste con hash id+updatedAt — un'entità
+  NUOVA invalida). `server/tars/cache/entries.ts`: `tars_cache_entries`
+  su PG (ensureSchema additivo) + fallback memoria.
+- Invalidazione = verifica versioni alla lettura; su errore di
+  ricostruzione si serve l'ultima versione valida MARCATA stale (mai per
+  azioni). C0 v2: riuso solo con TTL valido E versioni osservate ancora
+  correnti; riferimenti non sondabili (promemoria, Centro Azioni,
+  analisi) = riuso NEGATO.
+- Strumento L0 `leggi_fascicolo_commessa` (profilo `l1-v2`); query
+  `tars.fascicolo` + `TarsFascicoloCard` in CommessaDetail (zero run del
+  modello; flag spenti → il pannello non esiste nel DOM).
+- Prove: `server/tars/fascicoli.test.ts` (8) + mutation test su leak
+  importi, versioni-sempre-valide e sede rimossa (tutti mordono). Suite
+  76 file / 666 test; browser 1440x900 e 390x844, `tars.fascicolo` 200.
+- Deciso e registrato (§21.18): NIENTE cache C4 sulle letture in-memory
+  dei tool (microsecondi); il meccanismo C4 (chiavi+store+versioni) è
+  attivo col fascicolo come primo consumatore.
+
+## 11-septies. Tars v2 — T4 briefing e proattività shadow (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §22, commit `9819f43`;
+implementazione `4a0a78a`): `server/tars/briefing.ts` compone a
+richiesta — senza modello e senza scritture — promemoria di oggi, casi
+mine e segnalazioni shadow (ordine in ritardo, conflitto consegna
+prevista/confermata) agganciate ai casi APERTI del Centro Azioni per
+commessa (mai duplicati, mai contenuti altrui); telemetria del rumore
+come run `proattivita-shadow`. Endpoint `tars.briefing`
+(tars+readTools; segnalazioni anche dietro tarsProactive), blocco
+«Situazione di oggi» in `/tars`. 7 test + 2 mutation. APERTO: emissioni
+reali (casi/notifiche/promemoria event-driven) SOLO dopo osservazione
+shadow, sui canali esistenti (T8/T9); rilevatore gate fermi futuro.
+
+## 11-octies. Tars v2 — T5 azioni L2 e gateway L3 (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §23, implementazione `06ee45c`):
+L2 = `prendi_in_carico_caso`/`rinvia_caso` su `transitionActionCase`
+esistente (zero conferme su richiesta esplicita, anti-stale, audit
+negli eventi del caso; flag nuovo `FLAG_TARS_L2_ACTIONS`); L3 =
+`proponi_data_consegna` genera la proposta INERTE via
+`generaDaOrdineEDocumento` (coerenza estratta dal router, unica fonte)
+e l'UNICA conferma umana è `proposte.approvaEApplica` (doppia
+capability invariata, idempotente, freschezza→`obsoleta`); bottone
+«Approva e applica» in chat; nessuno strumento di approvazione esposto
+al modello. Prompt v3, profilo l3-v1, campo `interruttore` a lista
+(tutti richiesti). 11 test + 3 mutation. APERTO: altri tipi di azione
+nel registro del gateway (oggi solo data consegna ordine) quando il
+dominio li definisce; L2 su ticket (`ticket.assign`) quando serve.
+
+## 11-nonies. Tars v2 — T6 documenti e comunicazioni (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §24, implementazione `d7ace98`):
+`analizza_conferma_ordine` (L2, direzione, tarsL2Actions+DI) sulla
+nuova unica fonte `documenti/analisiOrdine.ts` (router refactorato,
+contratto invariato); `leggi_comunicazioni` (L0, readTools+
+communications) con estratti 240 char e confini sede/commessa/cliente;
+NESSUN invio (decisione 30: il canale non esiste — gate direzione);
+residui `tars_*` su comunicazioni congelati. 6 test + 3 mutation.
+APERTO: invio L4 (SMTP/WhatsApp API + estensione registro gateway,
+solo su decisione della direzione); bozze persistite nel dominio
+comunicazioni (richiedono un concetto di bozza nello schema).
+
+## 11-decies. Tars v2 — T7 memoria (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §25, implementazione `378635b`):
+`server/tars/memoria.ts` (kv `tars_memoria`, tipi chiusi, invalidazione
+senza cancellazione) + strumenti ricorda/dimentica/leggi_memorie dietro
+`FLAG_TARS_MEMORY`; contesto iniettato in coda ai run (C2 intatta),
+fingerprint memorie nella chiave C0; prompt v4 (regola 9: ricorda solo
+esplicito, memorie ≠ verità CRM). C5 semantica differita al gate
+chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
+delle memorie (oggi invalidazione manuale; una policy di scadenza va
+decisa), ricerca ibrida vera con embeddings (gate).
+
+## 11-quaterdecies. Tars v2 — revisione del cost hardening (30/08/2026)
+
+Due revisori indipendenti sul delta del governor; tutti i Critical e
+Important corretti in `18441b9`. I due Critical valgono la lettura:
+(1) il ledger PostgreSQL non avrebbe mai funzionato (`COALESCE(...)
+FILTER (...)` è SQL invalido) — ora provato da 5 test su un database
+vero, in CI con servizio dedicato; (2) senza `usage` plausibile il
+costo reale sarebbe stato 0 e la prenotazione liberata — ora
+`uncertain`, contato. Aggiunta la guardia di rete GLOBALE della suite
+(`server/_core/testSetup.ts`): nessun test può uscire su Internet, e
+lo si prova invocando davvero l'adapter reale. Matrice test/limiti in
+`docs/tars/matrice-test-e-limiti.md`.
+
+Terza revisione (conclusiva): nessun Critical, 4 Important corretti in
+`13b0624` (dedup che ripeteva una risposta conclusa; tetto per-run che
+rendeva irraggiungibili i limiti dichiarati e mentiva nel messaggio;
+limiti del run letti senza validazione — NaN disattivava il tetto;
+stessa cosa sulla Map della dedup).
+
+Debito residuo DICHIARATO: (1) il tetto per-run consente 3-7 chiamate
+al modello secondo il caching (misurato) — se gli eval reali fermassero
+run legittimi si alza il per-run, non si allenta la stima; (2) la dedup
+del doppio click e il rate limit sono in-process (replica singola,
+vincolo già documentato §14); (3) `tars.costi` non ha ancora una UI: la
+direzione legge la spesa dall'endpoint; (4) i totali di `tars.costi`
+sono globali su tutte le sedi (il tetto è globale), dichiarato nel
+payload; (5) la stima non è un soffitto stretto per input a densità
+anomala (CJK, base64): la riconciliazione registra comunque il costo
+vero, solo la singola prenotazione può essere superata una volta.
+
+## 11-terdecies. Tars v2 — budget governor (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §27, implementazione `3bff928`):
+`server/tars/costi/` — tariffe versionate in nanodollari interi
+(`gpt-5.6-terra` unica attiva), ledger PostgreSQL con advisory lock
+globale e stati `reserved/settled/released/expired/uncertain`, governor
+che PRENOTA prima e riconcilia dopo, fabbrica unica
+`creaProviderPerRun` (l'adapter grezzo è importabile solo da lì:
+guardia strutturale in `costi/confine.test.ts`).
+
+Numeri operativi: tetti 0,10 / 2,00 / 20,00 USD (default fail-closed);
+prenotazione ≈0,03 USD per chiamata col catalogo attuale → 3-7 chiamate
+per run secondo il caching (MISURATO in test, non stimato a parole).
+
+Prerequisiti del provider reale, tutti verificati a ogni run:
+`TARS_PROVIDER=openai` + `FLAG_TARS` + chiave + tariffa a catalogo +
+budget valido + **`DATABASE_URL`** (senza ledger autorevole niente
+provider reale). `tars.costi` (direzione) mostra spesa, residui e il
+motivo di un'eventuale indisponibilità.
+
+APERTO: il comando `eval:tars:reale` nasce insieme al gate B (piano dei
+60 casi in `docs/tars/piano-eval-reali.md`); la rimozione della vecchia
+`OPENAI_API_KEY` da Railway va fatta quando entra la chiave dedicata.
+
+## 11-duodecies. Tars v2 — revisione indipendente chiusa (30/08/2026)
+
+Quattro revisori sull'intero diff; TUTTI i Critical/Important corretti
+in `b7a89ef` (cronologia ultimi-N, parser tempo senza risoluzioni
+silenziosamente errate, C0 contestuale, C1 senza errori, fascicoli
+invalidati da documenti e giorno, hash opaco registro pagamenti, rate
+limit invia, guardia DATABASE_URL su eval, client gated sui flag).
+Residuo DICHIARATO e accettato: lo stato «Annulla/Applicata» dei
+bottoni in chat è di pagina — dopo un reload un secondo click è
+possibile ma INNOCUO (entrambi gli endpoint idempotenti, esito onesto
+nel toast). Proposta gate OpenAI: docs/tars/gate-openai.md.
+
+## 11-undecies. Tars v2 — T8/T9 eval e rollout preparati (30/08/2026)
+
+Su `feature/tars-v2` (decisioni spec §26, implementazione `11da34b`):
+`pnpm eval:tars` (11 casi, rapporto in docs/reports/, soglie critiche
+in CI via server/tars/eval/eval.test.ts); runbook
+docs/runbooks/rollout-tars.md (fasi 0-4, osservazione, rollback =
+spegnere il flag, owner = direzione). Il lavoro OFFLINE di Tars v2 è
+CONCLUSO: restano i gate della direzione — (1) gate OpenAI
+(modello/budget/limiti/eval reali), (2) accensione flag per fasi,
+(3) invio L4 (nuova integrazione), (4) semantica C5 (embeddings).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
