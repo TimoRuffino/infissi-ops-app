@@ -1507,6 +1507,38 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-septdecies. Tars v2 — potenziamento approvato (30/08/2026)
+
+Indirizzo della direzione: «Tars va reso potente, non preoccuparti dei
+costi». Commit `a347c8a`, decisioni 55-59 nella spec, tabella completa
+in `docs/tars/gate-openai.md` §7.
+
+In sintesi: modello `gpt-5.6-sol` (flagship) accanto a `gpt-5.6-terra`
+nel catalogo tariffe, reasoning `high`, tetti a 2,00 / 20,00 / 200,00
+USD (sanità 1.000), contesto 240.000 caratteri, 20 chiamate al modello,
+4.000 token di risposta. Il governor NON cambia in nessuno dei suoi
+meccanismi, e nessuna capability si allarga: è più cervello, non più
+autorità.
+
+Il numero da non toccare a cuor leggero è il tetto per-run. Vale 2,00 e
+non 1,00 perché al contesto massimo una singola chiamata col flagship
+prenota ≈0,72 USD: con un tetto da 1,00 il secondo passo di
+ragionamento sarebbe stato impossibile e i venti passi dichiarati
+sarebbero stati finzione. Il test «col FLAGSHIP, una chiamata al
+contesto massimo resta sotto il tetto per-run» lega fra loro contesto,
+output e tetto: se qualcuno alza il contesto senza guardare il tetto,
+fallisce prima che se ne accorga un utente.
+
+CONSEGUENZA APERTA sul progetto OpenAI: l'hard limit mensile da
+impostare non è più 20 USD ma **250**. Un hard limit più basso del tetto
+software non protegge: produce 429 a metà mese, che è un guasto
+silenzioso.
+
+DA FARE, non ancora fatto: le variabili che accendono il provider reale
+(`TARS_PROVIDER`, `TARS_MODEL_INTERACTIVE`, `TARS_REASONING_INTERACTIVE`)
+non sono impostate su Railway. Finché mancano, Tars gira col provider
+finto: azioni vere, ragionamento no.
+
 ## 11-sexdecies. Tars v2 — ATTIVATO in produzione, provider finto (30/08/2026)
 
 Su autorizzazione della direzione sono state impostate su Railway

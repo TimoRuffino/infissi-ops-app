@@ -125,3 +125,46 @@ mai vedere la chiave in chiaro in chat, log, commit o screenshot):
 9. Prima esecuzione: eval reali in ambiente di prova secondo
    `piano-eval-reali.md` (60 casi, ~1-2 USD).
 10. Rimozione della chiave vecchia dopo il primo esito positivo.
+
+## 7. Decisione presa — potenziamento del 30/08/2026
+
+La direzione ha scelto la configurazione potente: «Tars va reso potente,
+non preoccuparti dei costi». Questa sezione registra cosa è cambiato
+rispetto alla proposta prudenziale delle sezioni 2-4, che resta valida
+come descrizione dei meccanismi.
+
+| | Proposta iniziale | In vigore dal 30/08/2026 |
+|---|---|---|
+| Modello | `gpt-5.6-terra` | **`gpt-5.6-sol`** (flagship) |
+| Reasoning | `medium` | **`high`** |
+| Tetto per run | 0,10 USD | **2,00 USD** |
+| Tetto giornaliero | 2,00 USD | **20,00 USD** |
+| Tetto mensile | 20,00 USD | **200,00 USD** |
+| Tetto di sanità | 100 USD | **1.000 USD** |
+| Contesto per run | 60.000 caratteri | **240.000** |
+| Chiamate al modello | 8 | **20** |
+| Risposta | 1.200 token | **4.000** |
+
+Cosa NON è cambiato, e va detto perché è la parte che conta: il governor
+e tutti i suoi meccanismi (prenotazione atomica prima della chiamata,
+riconciliazione dopo, stati conservativi, idempotenza dei retry, ledger
+su PostgreSQL, fail-closed sulla configurazione incompleta). I tetti si
+sono alzati; la contabilità che li fa rispettare è la stessa, con gli
+stessi test.
+
+Conseguenza sul limite mensile del progetto OpenAI descritto in §6: se
+la direzione conferma questa configurazione, l'hard limit da impostare
+sul progetto dedicato non è più 20 USD ma **250 USD**, cioè il tetto
+software mensile più un margine. Un hard limit più BASSO del tetto
+software non è una protezione in più: è un guasto silenzioso che si
+manifesta come errore 429 a metà mese.
+
+### Costo atteso con questa configurazione
+
+Un run tipico col flagship — domanda operativa, 3-6 chiamate al modello,
+prompt caching attivo sul prefisso stabile — costa **0,05-0,20 USD**.
+Con venti richieste al giorno si resta intorno a 2-4 USD al giorno,
+quindi dentro il tetto giornaliero con ampio margine. Il tetto morde
+solo in due casi: un uso molto più intenso del previsto (ed è
+un'informazione utile, non un problema da nascondere) oppure un guasto
+che genera chiamate in serie (ed è esattamente ciò contro cui esiste).
