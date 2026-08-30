@@ -1507,6 +1507,18 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-duodecies. Tars v2 — revisione indipendente chiusa (30/08/2026)
+
+Quattro revisori sull'intero diff; TUTTI i Critical/Important corretti
+in `b7a89ef` (cronologia ultimi-N, parser tempo senza risoluzioni
+silenziosamente errate, C0 contestuale, C1 senza errori, fascicoli
+invalidati da documenti e giorno, hash opaco registro pagamenti, rate
+limit invia, guardia DATABASE_URL su eval, client gated sui flag).
+Residuo DICHIARATO e accettato: lo stato «Annulla/Applicata» dei
+bottoni in chat è di pagina — dopo un reload un secondo click è
+possibile ma INNOCUO (entrambi gli endpoint idempotenti, esito onesto
+nel toast). Proposta gate OpenAI: docs/tars/gate-openai.md.
+
 ## 11-undecies. Tars v2 — T8/T9 eval e rollout preparati (30/08/2026)
 
 Su `feature/tars-v2` (decisioni spec §26, implementazione `11da34b`):
