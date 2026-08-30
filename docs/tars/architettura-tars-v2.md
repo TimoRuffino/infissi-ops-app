@@ -566,3 +566,25 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
 37. **Nuovo interruttore** `FLAG_TARS_MEMORY` (`tarsMemory`),
    fail-closed: gli strumenti memoria e l'iniezione del contesto
    esistono solo con il flag acceso. Prompt `v4`, profilo `l3-v3`.
+
+## 26. Decisioni registrate in T8/T9 (eval, shadow, rollout)
+
+38. **Eval offline come comando**: `pnpm eval:tars` esegue i casi
+   deterministici col provider finto e produce un rapporto versionato
+   in `docs/reports/` — misura CONTRATTO, attrito (L1 esplicito=0
+   conferme, L3=1), isolamento (sede/utente/economia), duplicati, DST,
+   kill switch, degradazione. È SINTETICO: non dichiara l'accuratezza
+   del modello reale (selezione strumenti e injection-resistance del
+   modello si misurano SOLO con i casi OpenAI, dopo il gate). Il test
+   vitest sulle soglie critiche fa fallire la CI se una metrica critica
+   regredisce.
+39. **T8 shadow/pilot e T9 rollout sono operazioni della direzione**:
+   il codice consegna runbook (fasi, soglie, osservazione, rollback,
+   owner per flag) e telemetria; l'accensione di qualunque flag in
+   produzione resta il gate. Ordine di rollout proposto nel runbook:
+   readTools → memoria/promemoria → L2 → proposte → proattività;
+   comunicazioni-lettura a parte; invio e semantica NON esistono.
+40. **Gate OpenAI**: la proposta modello/budget/limiti/circuito
+   economico/numero di eval reali viene presentata alla direzione su
+   fonti ufficiali OpenAI correnti; NESSUNA chiamata reale fino
+   all'autorizzazione (il default resta il provider finto).
