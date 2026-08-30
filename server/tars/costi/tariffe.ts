@@ -34,6 +34,22 @@ export type TariffaModello = {
  */
 export const CATALOGO_TARIFFE: readonly TariffaModello[] = [
   {
+    // Flagship «complex professional work»: la scelta per il cervello
+    // operativo (decisione della direzione del 30/08/2026). I prezzi
+    // registrati sono quelli di LISTINO, non quelli promozionali in
+    // corso ($4,00/$0,40/$20,00 fino al 21/11/2026): il tetto di spesa
+    // deve sovrastimare, e alla scadenza della promo non serve toccare
+    // nulla.
+    modello: "gpt-5.6-sol",
+    versioneTariffa: "2026-08-30",
+    unita: "nanoUsdPerMilioneToken",
+    input: 5_000_000_000,
+    cachedInput: 500_000_000,
+    output: 30_000_000_000,
+    fonte: "developers.openai.com/api/docs/pricing (consultata 30/08/2026)",
+    stato: "attiva",
+  },
+  {
     modello: "gpt-5.6-terra",
     versioneTariffa: "2026-08-30",
     unita: "nanoUsdPerMilioneToken",

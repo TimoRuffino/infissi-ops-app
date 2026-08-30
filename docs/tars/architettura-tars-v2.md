@@ -682,3 +682,44 @@ osservazione, rollback, owner, esito. DoD complessiva = §37 del mandato.
    dimostrarlo.
 54. **Doppio click**: due invii identici ravvicinati condividono un solo
    run (dedup applicativa nel router), quindi un solo addebito.
+
+## 28. Potenziamento approvato (30/08/2026)
+
+Indirizzo della direzione: «Tars va reso potente, non preoccuparti dei
+costi». Non è la rimozione delle protezioni: è lo spostamento dei tetti
+al livello in cui smettono di limitare il lavoro legittimo e continuano
+a fermare il guasto. Le decisioni restano registrate qui perché il
+prossimo che legge il codice sappia che i numeri sono scelti, non
+ereditati.
+
+55. **Modello di riferimento: `gpt-5.6-sol`** (flagship, «complex
+   professional work»), affiancato a `gpt-5.6-terra` che resta in
+   catalogo come alternativa economica. Il catalogo resta CHIUSO e
+   fail-closed: un modello senza tariffa non parte, nemmeno a budget
+   libero. La tariffa registrata è quella di LISTINO (5,00 / 0,50 /
+   30,00 USD per milione), non quella promozionale in corso: il tetto
+   deve sovrastimare, e alla scadenza della promozione non serve
+   toccare nulla.
+56. **Reasoning `high` sull'interattivo.** Il costo del ragionamento è
+   già dentro il tetto: per contratto della Responses API i reasoning
+   token sono conteggiati nell'output, e la prenotazione riserva
+   l'intero `max_output_tokens` prima della chiamata.
+57. **Tetti: 2,00 USD per run, 20,00 al giorno, 200,00 al mese**, con
+   tetto di sanità a 1.000. Il per-run non è una media attesa ma un
+   soffitto: un run tipico costa 0,05-0,20 USD, quindi il giornaliero
+   copre oltre cento richieste complete. Il per-run vale 2,00 e non
+   1,00 per una ragione misurata, non estetica: al contesto massimo una
+   singola chiamata prenota ≈0,72 USD, e con un tetto da 1,00 il
+   secondo passo di ragionamento sarebbe stato impossibile — i limiti
+   dichiarati sarebbero stati finzione. Un test lo verifica.
+58. **Spazio per ragionare davvero**: 20 chiamate al modello, 16 passi
+   di strumenti, 240.000 caratteri di contesto (meno di un decimo della
+   finestra del modello), 4.000 token di risposta, 40 turni di
+   cronologia, 10 minuti per run. Sono limiti di FORMA, non di costo:
+   la protezione economica è il governor, e resta invariata in tutti i
+   suoi meccanismi (prenotazione, riconciliazione, stati, idempotenza).
+59. **Quello che il potenziamento NON cambia**: nessuna capability
+   nuova, nessun allentamento dell'isolamento per sede, nessuna
+   mutazione autonoma. Tars resta un agente che propone e che agisce
+   solo dove il dominio glielo consente. Rendere potente il
+   ragionamento non significa ampliare l'autorità.

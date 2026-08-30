@@ -76,24 +76,30 @@ function limiteDaEnv(variabile: string, predefinito: number): number {
 }
 
 /**
- * Limiti motivati (spec §27.47): abbastanza larghi da non rendere Tars
- * ottuso, abbastanza stretti da rendere impossibile un loop costoso.
- * 8 chiamate = 6 passi di strumenti + risposta finale + un retry.
- * 60k caratteri ≈ 24k token: scelto perché una chiamata al MASSIMO del
- * contesto resti sotto il tetto per-run da 0,10 USD (≈0,075 USD stimati)
- * — un limite più largo sarebbe irraggiungibile, perché il budget
- * morderebbe prima (revisione). Da raffinare dopo gli eval reali.
+ * Limiti motivati (spec §27.47, rivisti il 30/08/2026 su indirizzo
+ * della direzione «Tars va reso potente»): larghi abbastanza da
+ * permettere un ragionamento vero su un fascicolo complesso, stretti
+ * abbastanza da rendere impossibile un loop che brucia il budget.
+ *
+ * 20 chiamate = 16 passi di strumenti + risposta + retry: un'indagine
+ * che attraversa commessa, ordini, documenti e Centro Azioni.
+ * 240k caratteri ≈ 96k token, meno di un decimo della finestra del
+ * modello (1.050.000): con il tetto per-run da 1,00 USD una chiamata al
+ * massimo del contesto resta dentro (≈0,60 USD stimati col flagship).
+ * 4.000 token di output: risposte articolate con evidenze, non tronche.
+ * I tetti di SPESA restano la protezione vera: questi sono limiti di
+ * forma, non di costo.
  */
 export function configurazioneRunDefault(): ConfigurazioneRun {
   return {
     modello: process.env.TARS_MODEL_INTERACTIVE?.trim() || "fake-interattivo",
-    maxPassiStrumenti: limiteDaEnv("TARS_MAX_TOOL_STEPS", 6),
-    maxOutputToken: limiteDaEnv("TARS_MAX_OUTPUT_TOKENS", 1200),
-    timeoutProviderMs: limiteDaEnv("TARS_PROVIDER_TIMEOUT_MS", 45_000),
-    cronologiaMassima: 24,
-    maxChiamateModello: limiteDaEnv("TARS_MAX_MODEL_CALLS", 8),
-    maxRunMs: limiteDaEnv("TARS_MAX_RUN_MS", 180_000),
-    maxCaratteriContesto: limiteDaEnv("TARS_MAX_CONTEXT_CHARS", 60_000),
+    maxPassiStrumenti: limiteDaEnv("TARS_MAX_TOOL_STEPS", 16),
+    maxOutputToken: limiteDaEnv("TARS_MAX_OUTPUT_TOKENS", 4_000),
+    timeoutProviderMs: limiteDaEnv("TARS_PROVIDER_TIMEOUT_MS", 90_000),
+    cronologiaMassima: limiteDaEnv("TARS_CRONOLOGIA_MASSIMA", 40),
+    maxChiamateModello: limiteDaEnv("TARS_MAX_MODEL_CALLS", 20),
+    maxRunMs: limiteDaEnv("TARS_MAX_RUN_MS", 600_000),
+    maxCaratteriContesto: limiteDaEnv("TARS_MAX_CONTEXT_CHARS", 240_000),
   };
 }
 

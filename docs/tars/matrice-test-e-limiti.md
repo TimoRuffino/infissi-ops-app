@@ -8,29 +8,42 @@
 
 | Limite | Variabile | Default | Cosa succede se manca/è invalido |
 |---|---|---|---|
-| Spesa per run | `TARS_MAX_COST_PER_RUN_USD` | 0,10 USD | Provider reale INDISPONIBILE |
-| Spesa giornaliera | `TARS_DAILY_BUDGET_USD` | 2,00 USD | Provider reale INDISPONIBILE |
-| Spesa mensile | `TARS_MONTHLY_BUDGET_USD` | 20,00 USD | Provider reale INDISPONIBILE |
+| Spesa per run | `TARS_MAX_COST_PER_RUN_USD` | 2,00 USD | Provider reale INDISPONIBILE |
+| Spesa giornaliera | `TARS_DAILY_BUDGET_USD` | 20,00 USD | Provider reale INDISPONIBILE |
+| Spesa mensile | `TARS_MONTHLY_BUDGET_USD` | 200,00 USD | Provider reale INDISPONIBILE |
 | Gerarchia | — | run ≤ giorno ≤ mese | Incoerente ⇒ INDISPONIBILE |
 | Margine stima | `TARS_MARGINE_STIMA` | 1,25 | < 1 ⇒ INDISPONIBILE |
 | Scadenza prenotazione | `TARS_SCADENZA_PRENOTAZIONE_MS` | 600.000 | ≤ 2× timeout ⇒ INDISPONIBILE |
-| Chiamate al modello per run | `TARS_MAX_MODEL_CALLS` | 8 | Degrada con messaggio proprio |
-| Passi di strumenti | `TARS_MAX_TOOL_STEPS` | 6 | Degrada |
-| Token di output per risposta | `TARS_MAX_OUTPUT_TOKENS` | 1.200 | — |
-| Timeout per chiamata | `TARS_PROVIDER_TIMEOUT_MS` | 45.000 | — |
-| Tempo totale del run | `TARS_MAX_RUN_MS` | 180.000 | Degrada con messaggio proprio |
-| Caratteri di contesto | `TARS_MAX_CONTEXT_CHARS` | 60.000 | Degrada con messaggio proprio |
+| Chiamate al modello per run | `TARS_MAX_MODEL_CALLS` | 20 | Degrada con messaggio proprio |
+| Passi di strumenti | `TARS_MAX_TOOL_STEPS` | 16 | Degrada |
+| Token di output per risposta | `TARS_MAX_OUTPUT_TOKENS` | 4.000 | — |
+| Timeout per chiamata | `TARS_PROVIDER_TIMEOUT_MS` | 90.000 | — |
+| Tempo totale del run | `TARS_MAX_RUN_MS` | 600.000 | Degrada con messaggio proprio |
+| Caratteri di contesto | `TARS_MAX_CONTEXT_CHARS` | 240.000 | Degrada con messaggio proprio |
+| Turni di cronologia | `TARS_CRONOLOGIA_MASSIMA` | 40 | — |
 | Retry | — | 1, solo primo passo, solo transitori | — |
 | Invii per principal | `TARS_RATE_LIMIT_INVII` | 20 / 5 min | `TOO_MANY_REQUESTS` |
 | Dedup doppio invio | — | solo invii IN VOLO | Stesso run riusato |
-| Tetto di sanità sul budget | `TARS_TETTO_SANITA_USD` | 100 USD/mese | Oltre ⇒ INDISPONIBILE |
+| Tetto di sanità sul budget | `TARS_TETTO_SANITA_USD` | 1.000 USD/mese | Oltre ⇒ INDISPONIBILE |
+
+I valori in tabella sono quelli approvati dalla direzione il 30/08/2026
+(«Tars va reso potente, non preoccuparti dei costi»). I tetti di spesa
+restano tetti: servono contro il loop impazzito e la regressione, non
+contro l'uso legittimo. Il ciclo precedente (0,10 / 2 / 20 USD, contesto
+60.000) è documentato in `docs/tars/gate-openai.md` §7.
 
 **Numeri misurati** (non stimati a parole): con 21 strumenti a catalogo
-la prenotazione prudenziale di una chiamata è ≈0,025-0,035 USD, quindi il
-tetto per-run consente 3-7 chiamate a seconda del prompt caching. Il
-test `MISURA:` in `integrazione.test.ts` fallisce se la prenotazione
-supera un terzo del tetto per-run: il numero resta sotto controllo
-mentre il catalogo cresce.
+la prenotazione prudenziale di una chiamata tipica è ≈0,06-0,09 USD col
+flagship. Due test tengono insieme i numeri di questa tabella:
+
+- `MISURA:` fallisce se la prenotazione di una chiamata tipica supera un
+  terzo del tetto per-run — il costo resta sotto controllo mentre il
+  catalogo strumenti cresce.
+- `col FLAGSHIP, una chiamata al contesto massimo resta sotto il tetto
+  per-run` fallisce se contesto, output e tetto smettono di essere
+  coerenti fra loro. È l'invariante che rende i limiti dichiarati
+  raggiungibili davvero: al contesto massimo la stima peggiore vale
+  ≈0,72 USD contro un tetto di 2,00.
 
 ## 2. I 21 requisiti del mandato → dove sono provati
 

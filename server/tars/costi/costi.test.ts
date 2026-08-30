@@ -125,9 +125,20 @@ describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
       output: 12_000_000_000,
       stato: "attiva",
     });
-    expect(tariffaDi("gpt-5.6-sol")).toBeNull();
+    // Il flagship, approvato il 30/08/2026, è tariffato a LISTINO
+    // (non al prezzo promozionale): il tetto deve sovrastimare.
+    expect(tariffaDi("gpt-5.6-sol")).toMatchObject({
+      input: 5_000_000_000,
+      cachedInput: 500_000_000,
+      output: 30_000_000_000,
+      stato: "attiva",
+    });
+    expect(tariffaDi("gpt-5.6-inesistente")).toBeNull();
     expect(tariffaDi("modello-inventato")).toBeNull();
-    expect(CATALOGO_TARIFFE.filter(t => t.stato === "attiva")).toHaveLength(1);
+    // Il catalogo resta CHIUSO: due modelli approvati, non uno di più.
+    expect(
+      CATALOGO_TARIFFE.filter(t => t.stato === "attiva").map(t => t.modello)
+    ).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
   });
 
   it("input, cached input e output sono tariffati SEPARATAMENTE (cached ⊆ input)", () => {
@@ -168,9 +179,9 @@ describe("configurazione — fail-closed", () => {
     const esito = configurazioneBudget();
     expect(esito.ok).toBe(true);
     if (esito.ok) {
-      expect(esito.configurazione.perRunUsd).toBe(0.1);
-      expect(esito.configurazione.giornalieroUsd).toBe(2);
-      expect(esito.configurazione.mensileUsd).toBe(20);
+      expect(esito.configurazione.perRunUsd).toBe(2);
+      expect(esito.configurazione.giornalieroUsd).toBe(20);
+      expect(esito.configurazione.mensileUsd).toBe(200);
     }
   });
 
@@ -180,7 +191,7 @@ describe("configurazione — fail-closed", () => {
     process.env.TARS_DAILY_BUDGET_USD = "-3";
     expect(configurazioneBudget().ok).toBe(false);
     delete process.env.TARS_DAILY_BUDGET_USD;
-    process.env.TARS_MAX_COST_PER_RUN_USD = "5"; // > giornaliero
+    process.env.TARS_MAX_COST_PER_RUN_USD = "50"; // > giornaliero
     const incoerente = configurazioneBudget();
     expect(incoerente.ok).toBe(false);
     if (!incoerente.ok) expect(incoerente.motivo).toContain("incoerenti");
@@ -454,7 +465,7 @@ describe("governor — esiti anomali conservativi", () => {
     await expect(
       governato.rispondi({
         ...richiesta({ runId: "x", passo: 0, tentativo: 1 }),
-        modello: "gpt-5.6-sol",
+        modello: "gpt-5.6-inesistente",
       })
     ).rejects.toThrow(/senza tariffa attiva/);
     expect(ledger.righe()).toHaveLength(0);

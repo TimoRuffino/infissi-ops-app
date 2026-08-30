@@ -58,10 +58,18 @@ export type ConfigurazioneBudget = {
   scadenzaPrenotazioneMs: number;
 };
 
+/**
+ * Tetti approvati dalla direzione il 30/08/2026 («Tars va reso
+ * potente, non preoccuparti dei costi»): larghi abbastanza da lasciar
+ * lavorare il flagship su fascicoli complessi, ma pur sempre TETTI —
+ * servono contro il loop impazzito, non contro l'uso legittimo.
+ * Riferimento: col flagship un run tipico costa 0,05-0,15 USD, quindi
+ * 20 USD al giorno sono oltre cento richieste complete.
+ */
 export const BUDGET_DEFAULT_USD = {
-  perRun: 0.1,
-  giornaliero: 2,
-  mensile: 20,
+  perRun: 2,
+  giornaliero: 20,
+  mensile: 200,
 } as const;
 
 /**
@@ -109,7 +117,7 @@ export function configurazioneBudget():
   // Tetto di sanità: uno zero di troppo (200 invece di 20) non deve
   // passare in silenzio. Superarlo richiede una decisione esplicita.
   const TETTO_SANITA_USD = Number(
-    process.env.TARS_TETTO_SANITA_USD?.trim() || 100
+    process.env.TARS_TETTO_SANITA_USD?.trim() || 1_000
   );
   if (Number.isFinite(TETTO_SANITA_USD) && mese.valore > TETTO_SANITA_USD) {
     return {

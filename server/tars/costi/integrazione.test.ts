@@ -13,17 +13,22 @@ import {
 } from "../archivio";
 import { costruisciContesto } from "../contesto";
 import { creaProviderFinto, rispostaTesto } from "../openai/fake";
-import { azzeraCacheTarsPerTest, eseguiRun } from "../orchestratore";
+import {
+  azzeraCacheTarsPerTest,
+  configurazioneRunDefault,
+  eseguiRun,
+} from "../orchestratore";
 import { azzeraRateLimitTarsPerTest } from "../../routers/tars";
 import {
   avvolgiConGovernor,
   MESSAGGIO_BUDGET_RUN,
+  stimaCostoNano,
 } from "./governor";
 import {
   creaLedgerMemoriaPerTest,
   impostaLedgerPerTest,
 } from "./ledger";
-import { nanoInUsd, usdInNano } from "./tariffe";
+import { nanoInUsd, tariffaDi, usdInNano } from "./tariffe";
 
 const SEDE = 94001;
 const DIREZIONE_ID = 94011;
@@ -256,13 +261,13 @@ describe("cost hardening — end to end nel runtime", () => {
     const configurazione = {
       ...configurazioneMinima,
       limiti: {
-        runNano: usdInNano(0.1)!,
-        giornoNano: usdInNano(2)!,
-        meseNano: usdInNano(20)!,
+        runNano: usdInNano(2)!,
+        giornoNano: usdInNano(20)!,
+        meseNano: usdInNano(200)!,
       },
-      perRunUsd: 0.1,
-      giornalieroUsd: 2,
-      mensileUsd: 20,
+      perRunUsd: 2,
+      giornalieroUsd: 20,
+      mensileUsd: 200,
     };
     const governato = avvolgiConGovernor(
       creaProviderFinto(() => rispostaTesto("ok")),
@@ -281,7 +286,31 @@ describe("cost hardening — end to end nel runtime", () => {
     // cresce e la prenotazione supera un terzo del tetto per-run, questo
     // test lo fa notare prima che lo scopra un utente.
     expect(stimaVista).toBeGreaterThan(0);
-    expect(stimaVista).toBeLessThan(usdInNano(0.1)! / 3);
+    expect(stimaVista).toBeLessThan(usdInNano(2)! / 3);
+  });
+
+  it("col FLAGSHIP, una chiamata al contesto massimo resta sotto il tetto per-run", () => {
+    // Invariante di coerenza fra tre numeri che vivono in file diversi:
+    // TARS_MAX_CONTEXT_CHARS, TARS_MAX_OUTPUT_TOKENS e il tetto per-run.
+    // Se il contesto cresce (o il tetto cala) fino a rendere impossibile
+    // anche UNA chiamata piena, i limiti dichiarati diventano finzione e
+    // Tars si fermerebbe con «budget del run esaurito» al primo passo.
+    const limiti = configurazioneRunDefault();
+    const richiestaAlMassimo = {
+      modello: "gpt-5.6-sol",
+      istruzioni: "x".repeat(limiti.maxCaratteriContesto),
+      input: [],
+      strumenti: [],
+      maxOutputToken: limiti.maxOutputToken,
+    } as any;
+    // Stessa funzione che usa il governor in produzione, margine di
+    // default: il test misura il percorso reale, non lo reimplementa.
+    const stimaPeggiore = stimaCostoNano(
+      richiestaAlMassimo,
+      tariffaDi("gpt-5.6-sol")!,
+      1.25
+    );
+    expect(stimaPeggiore).toBeLessThan(usdInNano(2)!);
   });
 
   it("un run con più chiamate al modello resta sotto il tetto approvato da 0,10 USD", async () => {
@@ -289,13 +318,13 @@ describe("cost hardening — end to end nel runtime", () => {
     const configurazione = {
       ...configurazioneMinima,
       limiti: {
-        runNano: usdInNano(0.1)!,
-        giornoNano: usdInNano(2)!,
-        meseNano: usdInNano(20)!,
+        runNano: usdInNano(2)!,
+        giornoNano: usdInNano(20)!,
+        meseNano: usdInNano(200)!,
       },
-      perRunUsd: 0.1,
-      giornalieroUsd: 2,
-      mensileUsd: 20,
+      perRunUsd: 2,
+      giornalieroUsd: 20,
+      mensileUsd: 200,
     };
     // Consumo reale realistico CON prompt caching (il prefisso stabile
     // è la parte cache-abile): 2.000 pieni + 6.000 cached + 400 output.
@@ -447,7 +476,7 @@ describe("cost hardening — end to end nel runtime", () => {
       });
       // Il default (8) resta in vigore: il run degrada, non gira a vuoto.
       expect(esito.stato).toBe("degradato");
-      expect(chiamate).toBeLessThanOrEqual(8);
+      expect(chiamate).toBeLessThanOrEqual(20);
       expect(chiamate).toBeGreaterThan(0);
     } finally {
       delete process.env.TARS_MAX_MODEL_CALLS;
@@ -500,9 +529,9 @@ describe("cost hardening — end to end nel runtime", () => {
     const direzione = appRouter.createCaller(contestoTrpc());
     const costi = await direzione.tars.costi();
     expect(costi.budgetConfigurato).toMatchObject({
-      perRunUsd: 0.1,
-      giornalieroUsd: 2,
-      mensileUsd: 20,
+      perRunUsd: 2,
+      giornalieroUsd: 20,
+      mensileUsd: 200,
     });
     expect(costi.provider.tipo).toBe("finto");
     expect(costi.provider.motivoIndisponibilita).toBeTruthy();
