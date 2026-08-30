@@ -10,7 +10,7 @@ import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l1-v1";
+export const PROFILO_VERSIONE = "l1-v2";
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(

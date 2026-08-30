@@ -21,7 +21,9 @@ import { getActionCaseRepository } from "../../actionCenter/repository";
 import { listActionCases } from "../../actionCenter/service";
 import { getReminderService } from "../../reminders/service";
 import { versioneRegistroPagamenti } from "../../_core/commessaPayments";
+import { fascicoloCommessa } from "../fascicoli";
 import { formattaIstanteLocale } from "../tempo";
+import { versioneCorrente } from "../versioni";
 import type {
   ContestoRun,
   EsitoLettura,
@@ -113,6 +115,10 @@ const cercaCommesse: StrumentoTars = {
       omissioni: conEconomia(contesto)
         ? []
         : ["importi (richiedono capability economiche)"],
+      versioniEntita: {
+        [`commesse-sede:${contesto.sedeId}`]:
+          versioneCorrente(`commesse-sede:${contesto.sedeId}`, contesto.sedeId) ?? "-",
+      },
     });
   },
 };
@@ -203,7 +209,11 @@ const leggiCommessa: StrumentoTars = {
         : ["economia (importi, incassato, residuo): richiede pagamento.read/economia.read"],
       versioniEntita: {
         [`commessa:${c.id}`]: versione(c.updatedAt),
-        registroPagamenti: versioneRegistroPagamenti(c.pagamenti),
+        [`ordini-di-commessa:${c.id}`]:
+          versioneCorrente(`ordini-di-commessa:${c.id}`, contesto.sedeId) ?? "-",
+        [`registroPagamenti:commessa:${c.id}`]: versioneRegistroPagamenti(
+          c.pagamenti
+        ),
       },
     });
   },
@@ -307,6 +317,10 @@ const leggiOrdini: StrumentoTars = {
       omissioni: economia
         ? []
         : ["importoTotale degli ordini: richiede economia.read"],
+      versioniEntita: {
+        [`ordini-sede:${contesto.sedeId}`]:
+          versioneCorrente(`ordini-sede:${contesto.sedeId}`, contesto.sedeId) ?? "-",
+      },
     });
   },
 };
@@ -410,6 +424,50 @@ const leggiCentroAzioni: StrumentoTars = {
         riferimento: `caso:${c.id}`,
         descrizione: `${c.titolo} (${c.priorita})`,
       })),
+      versioniEntita: { "centro-azioni": "volatile" },
+    });
+  },
+};
+
+// ── leggi_fascicolo_commessa (C3) ────────────────────────────────────────
+
+const leggiFascicolo: StrumentoTars = {
+  nome: "leggi_fascicolo_commessa",
+  versione: "1.0.0",
+  categoria: "commesse",
+  livello: "L0",
+  effetto: "nessuno",
+  reversibile: true,
+  capability: ["commessa.read"],
+  descrizione:
+    "Il fascicolo sintetico della commessa (C3): fatti operativi, gate, ordini con date, domande aperte deterministiche. SENZA economia per costruzione (per gli importi usa leggi_commessa). Se marcato stale, dillo e non basarci azioni.",
+  schemaInput: z.object({ commessaId: z.number().int().positive() }).strict(),
+  async esegui(contesto, input) {
+    const fascicolo = await fascicoloCommessa({
+      sedeId: contesto.sedeId,
+      commessaId: input.commessaId,
+    });
+    if (!fascicolo) throw new Error("NOT_FOUND: commessa non trovata.");
+    return lettura({
+      dati: fascicolo,
+      fonte:
+        "Fascicolo sintetico C3 (derivato): le fonti sono la commessa e gli ordini CRM; le domande aperte sono confronti deterministici di gate e date.",
+      evidenze: [
+        {
+          tipo: "entita",
+          riferimento: `commessa:${fascicolo.commessaId}`,
+          descrizione: `${fascicolo.codice} — ${fascicolo.cliente} (${fascicolo.stato})`,
+        },
+        ...fascicolo.ordini.slice(0, 8).map(o => ({
+          tipo: "entita" as const,
+          riferimento: `ordine:${o.id}`,
+          descrizione: `${o.codiceOrdine} — ${o.fornitoreNome ?? "?"} (${o.stato})`,
+        })),
+      ],
+      omissioni: [
+        "economia: esclusa dal fascicolo per costruzione (usare leggi_commessa)",
+      ],
+      versioniEntita: fascicolo.versioni,
     });
   },
 };
@@ -435,6 +493,9 @@ const leggiPromemoria: StrumentoTars = {
     return lettura({
       dati: { promemoria: items },
       omissioni: [],
+      // Volatile e personale: il registro versioni non la sonda → C0
+      // nega il riuso (fail-closed sulla freschezza, decisione 19).
+      versioniEntita: { "promemoria-personali": "volatile" },
     });
   },
 };
@@ -535,6 +596,7 @@ const leggiAgendaPromemoria: StrumentoTars = {
         riferimento: `promemoria:${r.id}`,
         descrizione: `${r.testo} — ${r.remindAtLocale}`,
       })),
+      versioniEntita: { "promemoria-personali": "volatile" },
     });
   },
 };
@@ -548,4 +610,5 @@ export const STRUMENTI_L0: readonly StrumentoTars[] = [
   leggiCentroAzioni,
   leggiPromemoria,
   leggiAgendaPromemoria,
+  leggiFascicolo,
 ];

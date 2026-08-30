@@ -23,6 +23,7 @@ import {
   type UsoToken,
 } from "./provider";
 import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./strumenti/tipi";
+import { versioniAncoraValide } from "./versioni";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -68,14 +69,18 @@ export type RispostaRun = {
   versioni: { prompt: string; profilo: string; modello: string };
 };
 
-// ── C0: stessa domanda, stesso perimetro, contesto non cambiato ─────────
-// V1 onesta: dedupe a TTL breve per (principal, sede, capFingerprint,
-// domanda normalizzata, versioni prompt/profilo). Il fingerprint sulle
-// versioni di entità arriva con i fascicoli (T3): il TTL corto evita di
-// servire risposte su dati cambiati nel frattempo.
+// ── C0 v2: stessa domanda, stesso perimetro, ENTITÀ NON CAMBIATE ───────
+// Dedupe a TTL breve per (principal, sede, capFingerprint, domanda
+// normalizzata, versioni prompt/profilo) + verifica delle versioni di
+// entità osservate nel run (decisione 19): il riuso richiede TTL valido
+// E versioni correnti identiche; un riferimento non sondabile nega il
+// riuso (fail-closed sulla freschezza).
 const C0_TTL_MS = Number(process.env.TARS_C0_TTL_MS ?? 90_000);
 const C0_MAX_VOCI = 200;
-const cacheC0 = new Map<string, { risposta: RispostaRun; scade: number }>();
+const cacheC0 = new Map<
+  string,
+  { risposta: RispostaRun; scade: number; versioni: Record<string, string> }
+>();
 
 function chiaveC0(contesto: ContestoRun, domanda: string): string {
   return createHash("sha256")
@@ -158,9 +163,21 @@ export async function eseguiRun(input: {
     contenuto: input.messaggio,
   });
 
-  // C0: risposta già data per la stessa domanda nello stesso perimetro.
+  // C0: risposta già data per la stessa domanda nello stesso perimetro,
+  // riusabile SOLO se le entità osservate non sono cambiate.
   const c0 = cacheC0.get(chiaveC0(contesto, input.messaggio));
-  if (c0 && c0.scade > Date.now()) {
+  if (
+    c0 &&
+    c0.scade > Date.now() &&
+    !versioniAncoraValide(c0.versioni, contesto.sedeId)
+  ) {
+    cacheC0.delete(chiaveC0(contesto, input.messaggio));
+  }
+  if (
+    c0 &&
+    c0.scade > Date.now() &&
+    versioniAncoraValide(c0.versioni, contesto.sedeId)
+  ) {
     const riuso: RispostaRun = {
       ...c0.risposta,
       runId,
@@ -213,6 +230,7 @@ export async function eseguiRun(input: {
   const omissioni = new Set<string>();
   const strumentiUsati: string[] = [];
   const azioni: AzioneRun[] = [];
+  const versioniOsservate: Record<string, string> = {};
   const uso: UsoToken = { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 };
 
   const esitoDegradato = async (
@@ -351,6 +369,10 @@ export async function eseguiRun(input: {
               evidenze.push(...(esito as any).evidenze);
               for (const o of (esito as any).omissioni ?? []) omissioni.add(o);
             }
+            Object.assign(
+              versioniOsservate,
+              (esito as any)?.versioniEntita ?? {}
+            );
             if ((esito as EsitoAzione)?.tipo === "azione") {
               const azione = esito as EsitoAzione;
               azioni.push({
@@ -413,6 +435,7 @@ export async function eseguiRun(input: {
     cacheC0.set(chiaveC0(contesto, input.messaggio), {
       risposta: finale,
       scade: Date.now() + C0_TTL_MS,
+      versioni: versioniOsservate,
     });
     if (cacheC0.size > C0_MAX_VOCI) {
       const prima = cacheC0.keys().next().value;

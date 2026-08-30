@@ -10,7 +10,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { procedureConInterruttore, router } from "../_core/trpc";
-import { statoInterruttori } from "../platform/interruttori";
+import { assicuraTars, statoInterruttori } from "../platform/interruttori";
+import { fascicoloCommessa } from "../tars/fascicoli";
 import {
   listaConversazioni,
   statisticheRun,
@@ -154,6 +155,31 @@ export const tarsRouter = router({
         }
         return turniDiConversazione(input.conversazioneId, contesto.sedeId);
       } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
+
+  /**
+   * Fascicolo C3 per il pannello contestuale (T3): nessun run del
+   * modello, nessun token — solo il derivato deterministico in cache.
+   */
+  fascicolo: procedura
+    .input(z.object({ commessaId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsReadTools");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.capability.has("commessa.read")) {
+          throw new Error("NOT_FOUND: commessa non trovata.");
+        }
+        const fascicolo = await fascicoloCommessa({
+          sedeId: contesto.sedeId,
+          commessaId: input.commessaId,
+        });
+        if (!fascicolo) throw new Error("NOT_FOUND: commessa non trovata.");
+        return fascicolo;
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),

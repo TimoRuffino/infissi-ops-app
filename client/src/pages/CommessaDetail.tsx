@@ -66,6 +66,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
+import TarsFascicoloCard from "@/components/TarsFascicoloCard";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
@@ -1075,6 +1076,10 @@ export default function CommessaDetail() {
           </Card>
           );
         })()}
+
+        {/* Pannello contestuale Tars (T3): fascicolo C3, nessun run del
+            modello; con i flag spenti la query fallisce e non esiste. */}
+        <TarsFascicoloCard commessaId={commessaId} />
       </div>
 
       {/* Pagamenti — totale, incassato, residuo. Inline editing: blur saves. */}
