@@ -28,10 +28,15 @@ import {
 const ENDPOINT = "https://api.openai.com/v1/responses";
 
 function usoDaRisposta(usage: any): UsoToken {
+  // La doc corrente espone cached_tokens dentro input_tokens_details; la
+  // lettura piatta resta come fallback difensivo (verificato 30/08/2026
+  // su developers.openai.com, da ricontrollare al gate).
   return {
     input: Number(usage?.input_tokens ?? 0),
     output: Number(usage?.output_tokens ?? 0),
-    cachedInput: Number(usage?.input_tokens_details?.cached_tokens ?? 0),
+    cachedInput: Number(
+      usage?.input_tokens_details?.cached_tokens ?? usage?.cached_tokens ?? 0
+    ),
     cacheWrite: Number(usage?.input_tokens_details?.cache_write_tokens ?? 0),
   };
 }
