@@ -171,6 +171,7 @@ describe("contratto cromatico Modular Control", () => {
       ["rf", "reveal"].join("-"),
       ["rf", "latch"].join("-"),
       "Frame" + " & Flow",
+      "Officina" + " Digitale",
     ];
     const violazioni = FILE_UI.flatMap(percorso => {
       const contenuto = readFileSync(percorso, "utf8");
