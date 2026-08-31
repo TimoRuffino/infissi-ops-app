@@ -168,6 +168,94 @@ function AzioniTurno({
   );
 }
 
+// Etichette oneste del provider: mai far passare il dimostrativo per
+// ragionamento reale.
+const PROVIDER_LABEL: Record<string, string> = {
+  finto: "dimostrativo",
+  openai: "reale (OpenAI)",
+};
+
+// Pannello di stato: cosa può fare Tars ADESSO, con quali strumenti, e
+// quanti run ha fatto la sede. Tutto deterministico, zero token.
+function StatoPannello({ stato }: { stato: any }) {
+  if (!stato) return null;
+  return (
+    <div className="rounded-md border border-border bg-surface p-3 space-y-2">
+      <p className="text-xs font-semibold">Stato</p>
+      <div className="flex flex-wrap gap-1.5">
+        <Badge variant="outline" className="text-[11px]">
+          provider: {PROVIDER_LABEL[stato.provider] ?? stato.provider}
+        </Badge>
+        <Badge variant="outline" className="text-[11px]">
+          {stato.strumentiDisponibili.length} strumenti
+        </Badge>
+      </div>
+      <p className="text-[11px] text-text-3 tabular-nums">
+        Run in sede: {stato.run.totale}
+        {stato.run.degradati > 0 ? ` · ${stato.run.degradati} degradati` : ""}
+      </p>
+      {stato.providerDettaglio?.motivoIndisponibilita && (
+        <p className="text-[11px] text-warning break-words">
+          {stato.providerDettaglio.motivoIndisponibilita}
+        </p>
+      )}
+      {stato.strumentiDisponibili.length === 0 && (
+        <p className="text-[11px] text-warning">
+          Nessuno strumento attivo (FLAG_TARS_READ_TOOLS spento).
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Costi e budget (direzione): il server rifiuta gli altri ruoli con
+// FORBIDDEN e il pannello semplicemente non esiste. Solo numeri: niente
+// prompt, niente contenuti.
+function CostiPannello({ enabled }: { enabled: boolean }) {
+  const costi = trpc.tars.costi.useQuery(undefined, {
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+  if (!costi.data) return null;
+  const d = costi.data;
+  const eur = (v: number | null | undefined) =>
+    v == null ? "—" : `${v.toFixed(2)} USD`;
+  return (
+    <div className="rounded-md border border-border bg-surface p-3 space-y-1.5">
+      <p className="text-xs font-semibold">Costi e budget</p>
+      {d.riepilogo ? (
+        <div className="space-y-0.5 text-[11px] text-text-2 tabular-nums">
+          <p>
+            Oggi: <span className="font-semibold text-text-1">{eur(d.riepilogo.spesaGiornoUsd)}</span>
+            {d.riepilogo.residuoGiornoUsd != null && (
+              <span className="text-text-3"> · residuo {eur(d.riepilogo.residuoGiornoUsd)}</span>
+            )}
+          </p>
+          <p>
+            Mese: <span className="font-semibold text-text-1">{eur(d.riepilogo.spesaMeseUsd)}</span>
+            {d.riepilogo.residuoMeseUsd != null && (
+              <span className="text-text-3"> · residuo {eur(d.riepilogo.residuoMeseUsd)}</span>
+            )}
+          </p>
+          <p className="text-text-3">Ambito {d.riepilogo.ambito}: il tetto è unico per tutte le sedi.</p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-text-3">Nessuna spesa registrata.</p>
+      )}
+      {d.budgetConfigurato && (
+        <p className="text-[11px] text-text-3 tabular-nums">
+          Tetti: {d.budgetConfigurato.perRunUsd} / {d.budgetConfigurato.giornalieroUsd} /{" "}
+          {d.budgetConfigurato.mensileUsd} USD (run / giorno / mese)
+        </p>
+      )}
+      {d.motivoBudgetNonValido && (
+        <p className="text-[11px] text-warning break-words">{d.motivoBudgetNonValido}</p>
+      )}
+    </div>
+  );
+}
+
 function EvidenzeTurno({ payload }: { payload: any }) {
   const evidenze = payload?.evidenze ?? [];
   const omissioni = payload?.omissioni ?? [];
@@ -294,26 +382,21 @@ export default function Tars() {
   };
 
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col gap-3 min-w-0">
+    <div className="h-full min-w-0 p-4 md:p-6">
+      <div className="grid gap-4 lg:h-full lg:grid-cols-12">
+      {/* ── Conversazione ── */}
+      <div className="flex min-h-[60dvh] min-w-0 flex-col gap-3 lg:col-span-8 lg:h-full lg:min-h-0">
       <div className="flex items-center gap-2 flex-wrap">
-        <BrainCircuit className="h-5 w-5 shrink-0" />
-        <h1 className="text-lg font-semibold">Tars</h1>
-        {stato.data && (
-          <>
-            <Badge variant="outline" className="text-[11px]">
-              provider: {stato.data.provider}
-            </Badge>
-            <Badge variant="outline" className="text-[11px]">
-              {stato.data.strumentiDisponibili.length} strumenti
-            </Badge>
-            <span className="text-[11px] text-text-3">
-              run in sede: {stato.data.run.totale}
-              {stato.data.run.degradati > 0
-                ? ` (${stato.data.run.degradati} degradati)`
-                : ""}
-            </span>
-          </>
-        )}
+        {/* Identità Tars: inchiostro + giallo segnale, mai un robot. */}
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-brand text-on-brand">
+          <BrainCircuit className="h-[18px] w-[18px]" />
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold leading-tight">Tars</h1>
+          <p className="text-[11px] text-text-3 leading-tight">
+            Risponde sui dati del CRM, con fonti e omissioni dichiarate.
+          </p>
+        </div>
         <div className="ml-auto flex items-center gap-1.5">
           <Select
             value={conversazioneId != null ? String(conversazioneId) : "nuova"}
@@ -352,7 +435,6 @@ export default function Tars() {
       <div className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border p-3 space-y-3 bg-surface">
         {conversazioneId == null && !invia.isPending && (
           <div className="text-sm text-text-3 space-y-2">
-            <TarsBriefing enabled={tarsAcceso} />
             <p>
               Chiedimi delle commesse, dei gate, degli ordini fornitori, del
               Centro Azioni.
@@ -439,6 +521,15 @@ export default function Tars() {
         >
           <Send className="h-4 w-4" />
         </Button>
+      </div>
+      </div>
+
+      {/* ── Lato: situazione di oggi, stato del sistema, costi (direzione) ── */}
+      <div className="min-w-0 space-y-4 lg:col-span-4">
+        <TarsBriefing enabled={tarsAcceso} />
+        <StatoPannello stato={stato.data} />
+        <CostiPannello enabled={tarsAcceso} />
+      </div>
       </div>
     </div>
   );
