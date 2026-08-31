@@ -2,6 +2,8 @@ import type { z } from "zod";
 import type { Capability } from "../../authz/capabilities";
 import type { Interruttore } from "../../platform/interruttori";
 import type {
+  ContestoRun,
+  EsitoAzione,
   IntentoTars,
   LivelloRischio,
   StrumentoTars,
@@ -32,6 +34,16 @@ export type DescrittoreAzioneTars = {
   idempotenza: {
     strategia: "non_applicabile" | "dominio" | "chiave_obbligatoria";
     fonte: string;
+    /**
+     * Verifica nel dominio autorevole se un effetto compensabile settled è
+     * ancora attivo. Se non lo è, il ledger può aprire una nuova generazione
+     * immutabile senza diventare fonte dello stato business.
+     */
+    esitoAncoraValido?: (
+      contesto: ContestoRun,
+      argomenti: unknown,
+      esito: EsitoAzione
+    ) => Promise<boolean>;
   };
   audit: { richiesto: boolean; fonte: string };
   compensazione: {

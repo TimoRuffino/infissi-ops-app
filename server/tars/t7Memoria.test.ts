@@ -132,7 +132,7 @@ describe("tars T7 — ricordare e dimenticare", () => {
     expect(memoriaById(SEDE, memoria.id)?.valida).toBe(false); // storia intatta
 
     const seconda = await runCome(copione());
-    expect(seconda.azioni[0].stato).toBe("gia_dimenticata");
+    expect(seconda.azioni[0].stato).toBe("dimenticata");
   });
 
   it("il perimetro sede è riservato alla direzione", async () => {

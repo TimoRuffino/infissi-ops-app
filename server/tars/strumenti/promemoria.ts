@@ -67,6 +67,7 @@ function base(strumento: string): Omit<
     undoDisponibile: false,
     undoEntro: null,
     undoVia: null,
+    conferma: null,
     avvertenze: [],
     assunzioni: [],
     evidenze: [],

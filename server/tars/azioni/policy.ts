@@ -2,12 +2,20 @@ import { interruttoreAttivo } from "../../platform/interruttori";
 import type { ContestoRun } from "../strumenti/tipi";
 import { REGISTRO_AZIONI } from "./registry";
 import type { DescrittoreAzioneTars } from "./types";
+import { ledgerEsecuzioniAutorevoleDisponibile } from "./executions";
 
 function autorizzata(
   azione: DescrittoreAzioneTars,
   contesto: ContestoRun
 ): boolean {
   if (azione.rischio === "R4") return false;
+  if (
+    azione.rischio === "R1" &&
+    process.env.NODE_ENV !== "test" &&
+    !ledgerEsecuzioniAutorevoleDisponibile()
+  ) {
+    return false;
+  }
   if (!Number.isInteger(contesto.sedeId) || contesto.sedeId <= 0) return false;
   if (azione.prerequisiti.direzione && !contesto.direzione) return false;
   if (!azione.capability.every(c => contesto.capability.has(c))) return false;

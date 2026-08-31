@@ -28,7 +28,12 @@ import {
 import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./strumenti/tipi";
 import { versioniAncoraValide } from "./versioni";
 import { descrittoreAzione } from "./azioni/registry";
-import { registraEsecuzioneR1 } from "./azioni/executions";
+import {
+  azzeraLedgerEsecuzioniPerTest,
+  concludiEsecuzioneR1,
+  prenotaEsecuzioneR1,
+  segnaEsecuzioneR1Incerta,
+} from "./azioni/executions";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -168,6 +173,7 @@ export function azzeraCacheTarsPerTest(): void {
   cacheC0.clear();
   circuito.aperturaFino = 0;
   circuito.erroriConsecutivi = 0;
+  azzeraLedgerEsecuzioniPerTest();
 }
 
 /**
@@ -556,12 +562,73 @@ export async function eseguiRun(input: {
           try {
             const grezzi = JSON.parse(chiamata.argomenti || "{}");
             const validati = strumento.schemaInput.parse(grezzi);
-            const esito = await strumento.esegui(contesto, validati);
             const descrittore = descrittoreAzione(strumento.nome);
             if (!descrittore) {
               throw new Error(
                 `FORBIDDEN: strumento «${strumento.nome}» fuori registro.`
               );
+            }
+            const prenotazione = await prenotaEsecuzioneR1({
+              descrittore,
+              contesto,
+              runId,
+              argomenti: validati,
+            });
+            if (prenotazione.tipo === "incerta") {
+              throw new Error(
+                "ESECUZIONE_INCERTA: esiste già una reservation senza esito certo; il tool non viene rieseguito. Verificare l'audit prima di riprovare."
+              );
+            }
+
+            let esito: unknown;
+            if (prenotazione.tipo === "riusa") {
+              esito = prenotazione.esito;
+            } else {
+              try {
+                esito = await strumento.esegui(contesto, validati);
+                descrittore.schemaRisultato.parse(esito);
+              } catch (errore) {
+                if (prenotazione.tipo === "esegui") {
+                  try {
+                    await segnaEsecuzioneR1Incerta({
+                      idempotencyKey: prenotazione.idempotencyKey,
+                      motivo: "errore durante l'esecuzione o la validazione dell'esito",
+                    });
+                  } catch (erroreLedger) {
+                    console.error(
+                      "[tars] reservation R1 non marcabile come incerta:",
+                      erroreLedger
+                    );
+                  }
+                }
+                throw errore;
+              }
+              if (
+                prenotazione.tipo === "esegui" &&
+                (esito as EsitoAzione)?.tipo === "azione"
+              ) {
+                try {
+                  await concludiEsecuzioneR1({
+                    idempotencyKey: prenotazione.idempotencyKey,
+                    esito: esito as EsitoAzione,
+                  });
+                } catch (errore) {
+                  try {
+                    await segnaEsecuzioneR1Incerta({
+                      idempotencyKey: prenotazione.idempotencyKey,
+                      motivo: "esito del tool prodotto ma settle non confermato",
+                    });
+                  } catch (erroreLedger) {
+                    console.error(
+                      "[tars] settle R1 fallito; reservation resta bloccante:",
+                      erroreLedger
+                    );
+                  }
+                  throw new Error(
+                    "ESECUZIONE_INCERTA: l'effetto può essere avvenuto ma il ledger non ha confermato il settle; il retry è bloccato."
+                  );
+                }
+              }
             }
             descrittore.schemaRisultato.parse(esito);
             if (esito && Array.isArray((esito as any).evidenze)) {
@@ -574,13 +641,6 @@ export async function eseguiRun(input: {
             );
             if ((esito as EsitoAzione)?.tipo === "azione") {
               const azione = esito as EsitoAzione;
-              await registraEsecuzioneR1({
-                descrittore,
-                contesto,
-                runId,
-                argomenti: validati,
-                esito: azione,
-              });
               azioni.push({
                 strumento: azione.strumento,
                 stato: azione.stato,

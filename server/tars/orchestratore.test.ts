@@ -4,7 +4,7 @@
 // isolamento di sede, profili che escludono gli strumenti non autorizzati.
 // Provider SEMPRE finto: nessuna chiamata di rete possibile.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import { getUtentiStore } from "../routers/utenti";
@@ -18,6 +18,13 @@ import { creaProviderFinto, chiamataTool, rispostaTesto } from "./openai/fake";
 import { azzeraRateLimitTarsPerTest } from "../routers/tars";
 import { filtraStrumenti, strumentiPerContesto } from "./profili";
 import { STRUMENTI_L0 } from "./strumenti/letture";
+import {
+  creaLedgerEsecuzioniMemoriaPerTest,
+  impostaLedgerEsecuzioniPerTest,
+  type LedgerEsecuzioniR1,
+} from "./azioni/executions";
+import { descrittoreAzione } from "./azioni/registry";
+import { azzeraMemoriaPerTest, memorieValide } from "./memoria";
 
 const SEDE = 95001;
 const ALTRA_SEDE = 95002;
@@ -70,6 +77,7 @@ async function contestoRun(userId: number, roles: string[], sedeId = SEDE) {
 beforeEach(() => {
   azzeraCacheTarsPerTest();
   azzeraArchivioPerTest();
+  azzeraMemoriaPerTest();
 });
 
 afterEach(() => {
@@ -81,7 +89,45 @@ afterEach(() => {
   delete process.env.FLAG_TARS_MEMORY;
   delete process.env.TARS_RATE_LIMIT_INVII;
   azzeraRateLimitTarsPerTest();
+  impostaLedgerEsecuzioniPerTest(null);
+  vi.restoreAllMocks();
 });
+
+function chiamateToolMultiple(
+  chiamate: Array<{ id: string; nome: string; argomenti: unknown }>
+) {
+  return {
+    tipo: "tool_call" as const,
+    chiamate: chiamate.map(c => ({
+      id: c.id,
+      nome: c.nome,
+      argomenti: JSON.stringify(c.argomenti),
+    })),
+    uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
+  };
+}
+
+function ledgerConGuasti(opzioni: {
+  prenota?: boolean;
+  concludiUnaVolta?: boolean;
+}): LedgerEsecuzioniR1 {
+  const base = creaLedgerEsecuzioniMemoriaPerTest();
+  let concludiFallita = false;
+  return {
+    ...base,
+    async prenota(input) {
+      if (opzioni.prenota) throw new Error("db prenota non disponibile");
+      return base.prenota(input);
+    },
+    async concludi(input) {
+      if (opzioni.concludiUnaVolta && !concludiFallita) {
+        concludiFallita = true;
+        throw new Error("db settle non disponibile");
+      }
+      return base.concludi(input);
+    },
+  };
+}
 
 describe("tars — kill switch", () => {
   it("con FLAG_TARS spento ogni endpoint rifiuta, anche per la direzione", async () => {
@@ -265,6 +311,129 @@ describe("tars — run con strumenti, evidenze e cache", () => {
     });
     expect(chiamateProvider).toBe(2);
     expect(altro.cache.c0Hit).toBe(false);
+  });
+});
+
+describe("tars — protocollo write-ahead R1", () => {
+  function contaEffettiRicorda() {
+    const strumento = descrittoreAzione("ricorda")!.strumento;
+    const originale = strumento.esegui.bind(strumento);
+    let effetti = 0;
+    vi.spyOn(strumento, "esegui").mockImplementation(async (...args: any[]) => {
+      effetti += 1;
+      return originale(...args);
+    });
+    return () => effetti;
+  }
+
+  async function runRicorda(
+    contenuto: string,
+    messaggio: string,
+    id = "ricorda-1"
+  ) {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    return eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamataTool(
+              "ricorda",
+              { contenuto, tipo: "preferenza" },
+              id
+            )
+          : rispostaTesto("Gestito.")
+      ),
+      messaggio,
+    });
+  }
+
+  it("se la reservation fallisce non chiama il tool", async () => {
+    const ledger = ledgerConGuasti({ prenota: true });
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const effetti = contaEffettiRicorda();
+
+    await runRicorda("Mai senza reservation", "prova reservation fallita");
+
+    expect(effetti()).toBe(0);
+    expect(memorieValide(SEDE, DIREZIONE_ID)).toHaveLength(0);
+  });
+
+  it("se settle fallisce lascia uncertain e il retry non riesegue", async () => {
+    const ledger = ledgerConGuasti({ concludiUnaVolta: true });
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const effetti = contaEffettiRicorda();
+
+    await runRicorda("Effetto ambiguo", "prima esecuzione");
+    expect(effetti()).toBe(1);
+    expect((await ledger.lista({ sedeId: SEDE }))[0].stato).toBe("uncertain");
+
+    await runRicorda("Effetto ambiguo", "retry esecuzione", "ricorda-2");
+    expect(effetti()).toBe(1);
+    expect(memorieValide(SEDE, DIREZIONE_ID)).toHaveLength(1);
+  });
+
+  it("due tool call semanticamente identiche eseguono un solo effetto anche senza C1", async () => {
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const effetti = contaEffettiRicorda();
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamateToolMultiple([
+              {
+                id: "a",
+                nome: "ricorda",
+                argomenti: { contenuto: "Ordine canonico", tipo: "preferenza" },
+              },
+              {
+                id: "b",
+                nome: "ricorda",
+                argomenti: { tipo: "preferenza", contenuto: "Ordine canonico" },
+              },
+            ])
+          : rispostaTesto("Una sola volta.")
+      ),
+      messaggio: "ricorda una sola volta",
+    });
+
+    expect(esito.cache.c1Miss).toBe(2);
+    expect(effetti()).toBe(1);
+    expect(await ledger.lista({ sedeId: SEDE })).toHaveLength(1);
+  });
+
+  it("due input legittimi distinti producono due effetti e due audit", async () => {
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const effetti = contaEffettiRicorda();
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    await eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamateToolMultiple([
+              {
+                id: "a",
+                nome: "ricorda",
+                argomenti: { contenuto: "Prima preferenza", tipo: "preferenza" },
+              },
+              {
+                id: "b",
+                nome: "ricorda",
+                argomenti: { contenuto: "Seconda preferenza", tipo: "preferenza" },
+              },
+            ])
+          : rispostaTesto("Due effetti.")
+      ),
+      messaggio: "ricorda due preferenze distinte",
+    });
+
+    const righe = await ledger.lista({ sedeId: SEDE });
+    expect(effetti()).toBe(2);
+    expect(righe).toHaveLength(2);
+    expect(new Set(righe.map(r => r.idempotencyKey)).size).toBe(2);
+    expect(new Set(righe.map(r => r.audit.auditId)).size).toBe(2);
   });
 });
 

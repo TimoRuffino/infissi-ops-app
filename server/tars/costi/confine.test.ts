@@ -161,10 +161,22 @@ describe("confine dei costi — nessuna chiamata a pagamento fuori dal governor"
       "utf8"
     );
     expect(sorgente).toContain("CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni");
+    expect(sorgente).toContain("CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni_eventi");
     expect(sorgente).toContain('process.env.NODE_ENV === "test"');
-    expect(sorgente).toContain('input.ledger && process.env.NODE_ENV !== "test"');
+    expect(sorgente).toContain("LEDGER_ESECUZIONI_TEST_ONLY");
     expect(sorgente).toContain("LEDGER_ESECUZIONI_ASSENTE");
-    expect(sorgente).not.toMatch(/\b(?:UPDATE|DELETE)\s+tars_azioni_esecuzioni\b/i);
+    expect(sorgente).not.toMatch(/\b(?:UPDATE|DELETE)\s+tars_azioni_esecuzioni(?:_eventi)?\b/i);
+  });
+
+  it("l'orchestratore prenota R1 prima di invocare il tool", () => {
+    const sorgente = readFileSync(
+      join(RADICE, "server", "tars", "orchestratore.ts"),
+      "utf8"
+    );
+    const prenota = sorgente.indexOf("prenotaEsecuzioneR1(");
+    const esegue = sorgente.indexOf("strumento.esegui(");
+    expect(prenota).toBeGreaterThan(0);
+    expect(esegue).toBeGreaterThan(prenota);
   });
 
   it("registro, policy e ledger non importano provider grezzi", () => {

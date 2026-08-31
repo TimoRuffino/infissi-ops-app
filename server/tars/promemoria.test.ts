@@ -191,7 +191,8 @@ describe("tars T2 — idempotenza e duplicati zero", () => {
     const seconda = await runCome(creaDueVolte());
     expect(prima.azioni[0].stato).toBe("creato");
     expect(seconda.cache.c0Hit).toBe(false); // i run con azioni non entrano in C0
-    expect(seconda.azioni[0].stato).toBe("gia_esistente");
+    // Il retry settled restituisce lo stesso esito senza richiamare il tool.
+    expect(seconda.azioni[0].stato).toBe("creato");
     expect(await tuttiIPromemoria()).toHaveLength(1);
   });
 
@@ -336,7 +337,7 @@ describe("tars T2 — spostare, annullare, completare, leggere", () => {
     const prima = await runCome(copione);
     expect(prima.azioni[0].stato).toBe("annullato");
     const seconda = await runCome(copione);
-    expect(seconda.azioni[0].stato).toBe("gia_annullato");
+    expect(seconda.azioni[0].stato).toBe("annullato");
     const salvato = await repo.findById(SEDE, UTENTE_ID, record.id);
     expect(salvato?.status).toBe("cancelled");
   });

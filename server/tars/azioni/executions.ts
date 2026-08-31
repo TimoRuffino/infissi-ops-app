@@ -3,6 +3,8 @@ import { kvSql } from "../../_core/persistence";
 import type { ContestoRun, EsitoAzione } from "../strumenti/tipi";
 import type { DescrittoreAzioneTars } from "./types";
 
+export type StatoEsecuzioneR1 = "reserved" | "settled" | "uncertain";
+
 export type RigaEsecuzioneR1 = {
   id: number;
   idempotencyKey: string;
@@ -11,23 +13,53 @@ export type RigaEsecuzioneR1 = {
   utenteId: number;
   strumento: string;
   versioneStrumento: string;
-  versioneOggetto: string;
-  esito: string;
+  stato: StatoEsecuzioneR1;
+  versioneOggetto: string | null;
+  esito: string | null;
+  risultato: EsitoAzione | null;
   audit: { auditId: string | null; azioneId: string | null };
   compensazione: { disponibile: boolean; via: string | null };
   createdAt: Date;
+  updatedAt: Date;
 };
 
-export type InputEsecuzioneR1 = Omit<RigaEsecuzioneR1, "id">;
+export type InputPrenotazioneR1 = {
+  idempotencyKey: string;
+  runId: string;
+  sedeId: number;
+  utenteId: number;
+  strumento: string;
+  versioneStrumento: string;
+  createdAt: Date;
+};
 
 export type LedgerEsecuzioniR1 = {
-  append(
-    input: InputEsecuzioneR1
-  ): Promise<{ riga: RigaEsecuzioneR1; inserita: boolean }>;
+  prenota(input: InputPrenotazioneR1): Promise<
+    | { tipo: "prenotata"; riga: RigaEsecuzioneR1 }
+    | { tipo: "esistente"; riga: RigaEsecuzioneR1 }
+  >;
+  concludi(input: {
+    idempotencyKey: string;
+    versioneOggetto: string;
+    esito: EsitoAzione;
+    audit: RigaEsecuzioneR1["audit"];
+    compensazione: RigaEsecuzioneR1["compensazione"];
+    createdAt: Date;
+  }): Promise<RigaEsecuzioneR1>;
+  segnaIncerta(input: {
+    idempotencyKey: string;
+    motivo: string;
+    createdAt: Date;
+  }): Promise<RigaEsecuzioneR1>;
   lista(input: { sedeId: number }): Promise<RigaEsecuzioneR1[]>;
+  eventi(idempotencyKey: string): Promise<StatoEsecuzioneR1[]>;
 };
 
+const AUDIT_VUOTO = { auditId: null, azioneId: null };
+const COMPENSAZIONE_VUOTA = { disponibile: false, via: null };
+
 function rigaDaDb(row: any): RigaEsecuzioneR1 {
+  const createdAt = new Date(row.created_at);
   return {
     id: Number(row.id),
     idempotencyKey: String(row.idempotency_key),
@@ -36,11 +68,14 @@ function rigaDaDb(row: any): RigaEsecuzioneR1 {
     utenteId: Number(row.utente_id),
     strumento: String(row.strumento),
     versioneStrumento: String(row.versione_strumento),
-    versioneOggetto: String(row.versione_oggetto),
-    esito: String(row.esito),
-    audit: row.audit,
-    compensazione: row.compensazione,
-    createdAt: new Date(row.created_at),
+    stato: row.stato ?? "reserved",
+    versioneOggetto: row.versione_oggetto_evento ?? null,
+    esito: row.esito_evento ?? null,
+    risultato: row.risultato ?? null,
+    audit: row.audit_evento ?? AUDIT_VUOTO,
+    compensazione: row.compensazione_evento ?? COMPENSAZIONE_VUOTA,
+    createdAt,
+    updatedAt: new Date(row.evento_created_at ?? row.created_at),
   };
 }
 
@@ -64,10 +99,24 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`
     .then(async () => {
+      await kvSql!`CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni_eventi (
+        id BIGSERIAL PRIMARY KEY,
+        esecuzione_id BIGINT NOT NULL REFERENCES tars_azioni_esecuzioni(id),
+        stato TEXT NOT NULL CHECK (stato IN ('reserved','settled','uncertain')),
+        versione_oggetto TEXT,
+        esito TEXT,
+        risultato JSONB,
+        audit JSONB NOT NULL DEFAULT '{}'::jsonb,
+        compensazione JSONB NOT NULL DEFAULT '{}'::jsonb,
+        motivo TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_azioni_esecuzioni_sede_idx
         ON tars_azioni_esecuzioni (sede_id, created_at DESC)`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_azioni_esecuzioni_run_idx
         ON tars_azioni_esecuzioni (run_id, created_at)`;
+      await kvSql!`CREATE INDEX IF NOT EXISTS tars_azioni_esecuzioni_eventi_idx
+        ON tars_azioni_esecuzioni_eventi (esecuzione_id, id DESC)`;
     })
     .then(() => undefined)
     .catch(errore => {
@@ -76,6 +125,22 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
     });
   return schemaPromise;
 }
+
+const PROIEZIONE = `
+  SELECT e.*,
+    ev.stato,
+    ev.versione_oggetto AS versione_oggetto_evento,
+    ev.esito AS esito_evento,
+    ev.risultato,
+    ev.audit AS audit_evento,
+    ev.compensazione AS compensazione_evento,
+    ev.created_at AS evento_created_at
+  FROM tars_azioni_esecuzioni e
+  LEFT JOIN LATERAL (
+    SELECT * FROM tars_azioni_esecuzioni_eventi x
+    WHERE x.esecuzione_id = e.id
+    ORDER BY x.id DESC LIMIT 1
+  ) ev ON true`;
 
 function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
   const sql = () => {
@@ -86,69 +151,230 @@ function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
     }
     return kvSql;
   };
+
+  const leggi = async (db: any, idempotencyKey: string) => {
+    const righe = await db.unsafe(
+      `${PROIEZIONE} WHERE e.idempotency_key = $1 LIMIT 1`,
+      [idempotencyKey]
+    );
+    return righe[0] ? rigaDaDb(righe[0]) : null;
+  };
+
   return {
-    async append(input) {
+    async prenota(input) {
       const db = sql();
       await ensureEsecuzioniR1Schema();
-      const inserite = await db`INSERT INTO tars_azioni_esecuzioni (
-          idempotency_key, run_id, sede_id, utente_id, strumento,
-          versione_strumento, versione_oggetto, esito, audit, compensazione
-        ) VALUES (
-          ${input.idempotencyKey}, ${input.runId}, ${input.sedeId},
-          ${input.utenteId}, ${input.strumento}, ${input.versioneStrumento},
-          ${input.versioneOggetto}, ${input.esito}, ${db.json(input.audit)},
-          ${db.json(input.compensazione)}
-        ) ON CONFLICT (idempotency_key) DO NOTHING
-        RETURNING *`;
-      if (inserite[0]) {
-        return { riga: rigaDaDb(inserite[0]), inserita: true };
-      }
-      const [esistente] = await db`SELECT * FROM tars_azioni_esecuzioni
-        WHERE idempotency_key = ${input.idempotencyKey} LIMIT 1`;
-      if (!esistente) {
-        throw new Error("LEDGER_ESECUZIONI_INCOERENTE: riga non rileggibile.");
-      }
-      return { riga: rigaDaDb(esistente), inserita: false };
+      return db.begin(async tx => {
+        const inserite = await tx`INSERT INTO tars_azioni_esecuzioni (
+            idempotency_key, run_id, sede_id, utente_id, strumento,
+            versione_strumento, versione_oggetto, esito, audit, compensazione
+          ) VALUES (
+            ${input.idempotencyKey}, ${input.runId}, ${input.sedeId},
+            ${input.utenteId}, ${input.strumento}, ${input.versioneStrumento},
+            ${"reserved"}, ${"reserved"}, ${tx.json(AUDIT_VUOTO)},
+            ${tx.json(COMPENSAZIONE_VUOTA)}
+          ) ON CONFLICT (idempotency_key) DO NOTHING
+          RETURNING id`;
+        if (inserite[0]) {
+          await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
+              esecuzione_id, stato, audit, compensazione, created_at
+            ) VALUES (
+              ${inserite[0].id}, ${"reserved"}, ${tx.json(AUDIT_VUOTO)},
+              ${tx.json(COMPENSAZIONE_VUOTA)}, ${input.createdAt}
+            )`;
+          const riga = await leggi(tx, input.idempotencyKey);
+          if (!riga) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation non rileggibile.");
+          return { tipo: "prenotata" as const, riga };
+        }
+        const riga = await leggi(tx, input.idempotencyKey);
+        if (!riga) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation concorrente non rileggibile.");
+        return { tipo: "esistente" as const, riga };
+      });
     },
+
+    async concludi(input) {
+      const db = sql();
+      await ensureEsecuzioniR1Schema();
+      return db.begin(async tx => {
+        const [base] = await tx`SELECT id FROM tars_azioni_esecuzioni
+          WHERE idempotency_key = ${input.idempotencyKey} FOR UPDATE`;
+        if (!base) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente al settle.");
+        const corrente = await leggi(tx, input.idempotencyKey);
+        if (corrente?.stato === "settled") return corrente;
+        if (corrente?.stato === "uncertain") {
+          throw new Error("LEDGER_ESECUZIONE_INCERTA: non si può chiudere un'esecuzione incerta.");
+        }
+        await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
+            esecuzione_id, stato, versione_oggetto, esito, risultato,
+            audit, compensazione, created_at
+          ) VALUES (
+            ${base.id}, ${"settled"}, ${input.versioneOggetto},
+            ${input.esito.stato}, ${tx.json(input.esito as any)},
+            ${tx.json(input.audit)}, ${tx.json(input.compensazione)},
+            ${input.createdAt}
+          )`;
+        const riga = await leggi(tx, input.idempotencyKey);
+        if (!riga) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: settle non rileggibile.");
+        return riga;
+      });
+    },
+
+    async segnaIncerta(input) {
+      const db = sql();
+      await ensureEsecuzioniR1Schema();
+      return db.begin(async tx => {
+        const [base] = await tx`SELECT id FROM tars_azioni_esecuzioni
+          WHERE idempotency_key = ${input.idempotencyKey} FOR UPDATE`;
+        if (!base) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per uncertain.");
+        const corrente = await leggi(tx, input.idempotencyKey);
+        if (corrente?.stato === "settled" || corrente?.stato === "uncertain") {
+          return corrente;
+        }
+        await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
+            esecuzione_id, stato, audit, compensazione, motivo, created_at
+          ) VALUES (
+            ${base.id}, ${"uncertain"}, ${tx.json(AUDIT_VUOTO)},
+            ${tx.json(COMPENSAZIONE_VUOTA)}, ${input.motivo}, ${input.createdAt}
+          )`;
+        const riga = await leggi(tx, input.idempotencyKey);
+        if (!riga) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: uncertain non rileggibile.");
+        return riga;
+      });
+    },
+
     async lista(input) {
       const db = sql();
       await ensureEsecuzioniR1Schema();
-      const righe = await db`SELECT * FROM tars_azioni_esecuzioni
-        WHERE sede_id = ${input.sedeId} ORDER BY id ASC`;
+      const righe = await db.unsafe(
+        `${PROIEZIONE} WHERE e.sede_id = $1 ORDER BY e.id ASC`,
+        [input.sedeId]
+      );
       return righe.map(rigaDaDb);
+    },
+
+    async eventi(idempotencyKey) {
+      const db = sql();
+      await ensureEsecuzioniR1Schema();
+      const righe = await db`SELECT ev.stato
+        FROM tars_azioni_esecuzioni_eventi ev
+        JOIN tars_azioni_esecuzioni e ON e.id = ev.esecuzione_id
+        WHERE e.idempotency_key = ${idempotencyKey}
+        ORDER BY ev.id ASC`;
+      return righe.map(r => r.stato as StatoEsecuzioneR1);
     },
   };
 }
 
+type EventoMemoria = {
+  stato: StatoEsecuzioneR1;
+  versioneOggetto: string | null;
+  esito: EsitoAzione | null;
+  audit: RigaEsecuzioneR1["audit"];
+  compensazione: RigaEsecuzioneR1["compensazione"];
+  createdAt: Date;
+};
+
 /** Implementazione volatile esportata esclusivamente per test. */
 export function creaLedgerEsecuzioniMemoriaPerTest(): LedgerEsecuzioniR1 {
-  const righe: RigaEsecuzioneR1[] = [];
+  const prenotazioni: Array<InputPrenotazioneR1 & { id: number }> = [];
+  const eventiPerChiave = new Map<string, EventoMemoria[]>();
+
+  const proietta = (prenotazione: InputPrenotazioneR1 & { id: number }) => {
+    const eventi = eventiPerChiave.get(prenotazione.idempotencyKey) ?? [];
+    const ultimo = eventi[eventi.length - 1]!;
+    return {
+      ...prenotazione,
+      stato: ultimo.stato,
+      versioneOggetto: ultimo.versioneOggetto,
+      esito: ultimo.esito?.stato ?? null,
+      risultato: ultimo.esito,
+      audit: ultimo.audit,
+      compensazione: ultimo.compensazione,
+      updatedAt: ultimo.createdAt,
+    } satisfies RigaEsecuzioneR1;
+  };
+
   return {
-    async append(input) {
-      const esistente = righe.find(
+    async prenota(input) {
+      const esistente = prenotazioni.find(
         r => r.idempotencyKey === input.idempotencyKey
       );
-      if (esistente) return { riga: esistente, inserita: false };
-      const riga: RigaEsecuzioneR1 = {
-        ...input,
-        id: righe.length + 1,
-      };
-      righe.push(riga);
-      return { riga, inserita: true };
+      if (esistente) {
+        return { tipo: "esistente", riga: proietta(esistente) };
+      }
+      const prenotazione = { ...input, id: prenotazioni.length + 1 };
+      prenotazioni.push(prenotazione);
+      eventiPerChiave.set(input.idempotencyKey, [
+        {
+          stato: "reserved",
+          versioneOggetto: null,
+          esito: null,
+          audit: AUDIT_VUOTO,
+          compensazione: COMPENSAZIONE_VUOTA,
+          createdAt: input.createdAt,
+        },
+      ]);
+      return { tipo: "prenotata", riga: proietta(prenotazione) };
     },
+
+    async concludi(input) {
+      const prenotazione = prenotazioni.find(
+        r => r.idempotencyKey === input.idempotencyKey
+      );
+      if (!prenotazione) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente al settle.");
+      const corrente = proietta(prenotazione);
+      if (corrente.stato === "settled") return corrente;
+      if (corrente.stato === "uncertain") throw new Error("LEDGER_ESECUZIONE_INCERTA");
+      eventiPerChiave.get(input.idempotencyKey)!.push({
+        stato: "settled",
+        versioneOggetto: input.versioneOggetto,
+        esito: input.esito,
+        audit: input.audit,
+        compensazione: input.compensazione,
+        createdAt: input.createdAt,
+      });
+      return proietta(prenotazione);
+    },
+
+    async segnaIncerta(input) {
+      const prenotazione = prenotazioni.find(
+        r => r.idempotencyKey === input.idempotencyKey
+      );
+      if (!prenotazione) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per uncertain.");
+      const corrente = proietta(prenotazione);
+      if (corrente.stato === "settled" || corrente.stato === "uncertain") return corrente;
+      eventiPerChiave.get(input.idempotencyKey)!.push({
+        stato: "uncertain",
+        versioneOggetto: null,
+        esito: null,
+        audit: AUDIT_VUOTO,
+        compensazione: COMPENSAZIONE_VUOTA,
+        createdAt: input.createdAt,
+      });
+      return proietta(prenotazione);
+    },
+
     async lista(input) {
-      return righe.filter(r => r.sedeId === input.sedeId).map(r => ({ ...r }));
+      return prenotazioni
+        .filter(r => r.sedeId === input.sedeId)
+        .map(proietta);
+    },
+
+    async eventi(idempotencyKey) {
+      return (eventiPerChiave.get(idempotencyKey) ?? []).map(e => e.stato);
     },
   };
 }
 
 let singleton: LedgerEsecuzioniR1 | null = null;
+let overrideTest: LedgerEsecuzioniR1 | null = null;
 
 export function ledgerEsecuzioniAutorevoleDisponibile(): boolean {
   return Boolean(kvSql);
 }
 
 export function ledgerEsecuzioniCorrente(): LedgerEsecuzioniR1 {
+  if (overrideTest) return overrideTest;
   if (singleton) return singleton;
   if (kvSql) return (singleton = creaLedgerEsecuzioniPostgres());
   if (process.env.NODE_ENV === "test") {
@@ -159,61 +385,147 @@ export function ledgerEsecuzioniCorrente(): LedgerEsecuzioniR1 {
   );
 }
 
-function hash(valore: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(valore))
-    .digest("hex");
-}
-
-function viaCompensazione(esito: EsitoAzione): string | null {
-  if (esito.undoVia) {
-    return `${esito.undoVia.procedura}:${esito.undoVia.id}`;
-  }
-  return esito.undoDisponibile ? esito.undoEntro : null;
-}
-
-/**
- * Registra l'esito già prodotto dal servizio di dominio. Non riceve callback,
- * non esegue tool e non decide autorizzazioni: il ledger non è una seconda
- * fonte di verità né può duplicare l'effetto.
- */
-export async function registraEsecuzioneR1(input: {
-  ledger?: LedgerEsecuzioniR1;
-  descrittore: DescrittoreAzioneTars;
-  contesto: ContestoRun;
-  runId: string;
-  argomenti: unknown;
-  esito: EsitoAzione;
-}): Promise<RigaEsecuzioneR1 | null> {
-  if (input.descrittore.rischio !== "R1") return null;
-  if (input.ledger && process.env.NODE_ENV !== "test") {
+export function impostaLedgerEsecuzioniPerTest(
+  ledger: LedgerEsecuzioniR1 | null
+): void {
+  if (process.env.NODE_ENV !== "test") {
     throw new Error(
-      "LEDGER_ESECUZIONI_TEST_ONLY: l'iniezione del ledger è riservata ai test."
+      "LEDGER_ESECUZIONI_TEST_ONLY: l'override è riservato ai test."
     );
   }
-  const versioneOggetto = `sha256:${hash({
-    entita: input.esito.entitaToccate,
-    dopo: input.esito.dopo,
-  })}`;
-  const identitaEffetto =
-    input.esito.azioneId ??
-    `sha256:${hash({
-      sedeId: input.contesto.sedeId,
-      strumento: input.descrittore.nome,
-      argomenti: input.argomenti,
-      stato: input.esito.stato,
-    })}`;
-  const idempotencyKey = `${input.contesto.sedeId}:${input.descrittore.nome}:${identitaEffetto}`;
-  const ledger = input.ledger ?? ledgerEsecuzioniCorrente();
-  const registrata = await ledger.append({
-    idempotencyKey,
-    runId: input.runId,
+  overrideTest = ledger;
+}
+
+export function azzeraLedgerEsecuzioniPerTest(): void {
+  if (process.env.NODE_ENV !== "test") return;
+  overrideTest = null;
+  if (!kvSql) singleton = null;
+}
+
+function serializzaCanonico(valore: unknown): string {
+  if (valore === null || typeof valore !== "object") {
+    return JSON.stringify(valore);
+  }
+  if (valore instanceof Date) return JSON.stringify(valore.toISOString());
+  if (Array.isArray(valore)) {
+    return `[${valore.map(serializzaCanonico).join(",")}]`;
+  }
+  const oggetto = valore as Record<string, unknown>;
+  return `{${Object.keys(oggetto)
+    .filter(chiave => oggetto[chiave] !== undefined)
+    .sort()
+    .map(
+      chiave => `${JSON.stringify(chiave)}:${serializzaCanonico(oggetto[chiave])}`
+    )
+    .join(",")}}`;
+}
+
+export function chiaveIdempotenzaR1(input: {
+  descrittore: DescrittoreAzioneTars;
+  contesto: ContestoRun;
+  argomenti: unknown;
+}): string {
+  const canonico = serializzaCanonico({
     sedeId: input.contesto.sedeId,
     utenteId: input.contesto.utenteId,
     strumento: input.descrittore.nome,
     versioneStrumento: input.descrittore.versioneStrumento,
-    versioneOggetto,
-    esito: input.esito.stato,
+    versioneRegistro: input.descrittore.versioneRegistro,
+    argomenti: input.argomenti,
+  });
+  return `r1:${createHash("sha256").update(canonico).digest("hex")}`;
+}
+
+export type PrenotazioneEsecuzioneR1 =
+  | { tipo: "non_r1" }
+  | { tipo: "esegui"; idempotencyKey: string }
+  | { tipo: "riusa"; idempotencyKey: string; esito: EsitoAzione }
+  | {
+      tipo: "incerta";
+      idempotencyKey: string;
+      stato: "reserved" | "uncertain";
+    };
+
+export async function prenotaEsecuzioneR1(input: {
+  descrittore: DescrittoreAzioneTars;
+  contesto: ContestoRun;
+  runId: string;
+  argomenti: unknown;
+}): Promise<PrenotazioneEsecuzioneR1> {
+  if (input.descrittore.rischio !== "R1") return { tipo: "non_r1" };
+  const chiaveBase = chiaveIdempotenzaR1(input);
+  let idempotencyKey = chiaveBase;
+
+  // Una compensazione conclusa rende legittima una nuova esecuzione dello
+  // stesso comando. Ogni generazione resta distinta e append-only; è il
+  // dominio, non il ledger, a decidere se l'effetto precedente è ancora vivo.
+  for (let generazione = 0; generazione < 20; generazione++) {
+    const prenotazione = await ledgerEsecuzioniCorrente().prenota({
+      idempotencyKey,
+      runId: input.runId,
+      sedeId: input.contesto.sedeId,
+      utenteId: input.contesto.utenteId,
+      strumento: input.descrittore.nome,
+      versioneStrumento: input.descrittore.versioneStrumento,
+      createdAt: new Date(),
+    });
+    if (prenotazione.tipo === "prenotata") {
+      return { tipo: "esegui", idempotencyKey };
+    }
+    if (prenotazione.riga.stato === "settled" && prenotazione.riga.risultato) {
+      const verifica = input.descrittore.idempotenza.esitoAncoraValido;
+      const ancoraValido = verifica
+        ? await verifica(
+            input.contesto,
+            input.argomenti,
+            prenotazione.riga.risultato
+          )
+        : true;
+      if (ancoraValido) {
+        return {
+          tipo: "riusa",
+          idempotencyKey,
+          esito: prenotazione.riga.risultato,
+        };
+      }
+      idempotencyKey = `r1:${createHash("sha256")
+        .update(`${chiaveBase}:dopo:${prenotazione.riga.id}`)
+        .digest("hex")}`;
+      continue;
+    }
+    return {
+      tipo: "incerta",
+      idempotencyKey,
+      stato:
+        prenotazione.riga.stato === "uncertain" ? "uncertain" : "reserved",
+    };
+  }
+  throw new Error(
+    "LEDGER_ESECUZIONI_GENERAZIONI_ESAURITE: cambia i parametri dell'azione."
+  );
+}
+
+function hashVersioneOggetto(esito: EsitoAzione): string {
+  return `sha256:${createHash("sha256")
+    .update(
+      serializzaCanonico({ entita: esito.entitaToccate, dopo: esito.dopo })
+    )
+    .digest("hex")}`;
+}
+
+function viaCompensazione(esito: EsitoAzione): string | null {
+  if (esito.undoVia) return `${esito.undoVia.procedura}:${esito.undoVia.id}`;
+  return esito.undoDisponibile ? esito.undoEntro : null;
+}
+
+export async function concludiEsecuzioneR1(input: {
+  idempotencyKey: string;
+  esito: EsitoAzione;
+}): Promise<RigaEsecuzioneR1> {
+  return ledgerEsecuzioniCorrente().concludi({
+    idempotencyKey: input.idempotencyKey,
+    versioneOggetto: hashVersioneOggetto(input.esito),
+    esito: input.esito,
     audit: {
       auditId: input.esito.auditId,
       azioneId: input.esito.azioneId,
@@ -222,7 +534,16 @@ export async function registraEsecuzioneR1(input: {
       disponibile: input.esito.undoDisponibile,
       via: viaCompensazione(input.esito),
     },
-    createdAt: new Date(input.esito.freschezza),
+    createdAt: new Date(),
   });
-  return registrata.riga;
+}
+
+export async function segnaEsecuzioneR1Incerta(input: {
+  idempotencyKey: string;
+  motivo: string;
+}): Promise<RigaEsecuzioneR1> {
+  return ledgerEsecuzioniCorrente().segnaIncerta({
+    ...input,
+    createdAt: new Date(),
+  });
 }

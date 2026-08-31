@@ -17,7 +17,10 @@ import { getOrdineFornitoreById } from "../../routers/fornitori";
 import {
   createMemoryNotificationRepository,
 } from "../../notifications/repository";
-import { createMemoryReminderRepository } from "../../reminders/repository";
+import {
+  createMemoryReminderRepository,
+  type ReminderRepository,
+} from "../../reminders/repository";
 import {
   createReminderService,
   setReminderServiceForTesting,
@@ -40,6 +43,7 @@ const SEDE = 90901;
 const ALTRA_SEDE = 90902;
 const DIREZIONE_ID = 90911;
 const COMMERCIALE_ID = 90912;
+let reminderRepositoryEval: ReminderRepository | null = null;
 
 export type EsitoCasoTars = {
   nome: string;
@@ -146,9 +150,10 @@ function azzeraTutto(): void {
   azzeraCacheTarsPerTest();
   azzeraArchivioPerTest();
   azzeraMemoriaPerTest();
+  reminderRepositoryEval = createMemoryReminderRepository();
   setReminderServiceForTesting(
     createReminderService({
-      reminders: createMemoryReminderRepository(),
+      reminders: reminderRepositoryEval,
       notifications: createMemoryNotificationRepository(),
     })
   );
@@ -203,9 +208,19 @@ function costruisciCasi(): Array<{
           );
         const prima = await fai();
         const seconda = await fai();
-        const duplicati = seconda.azioni[0]?.stato === "creato" ? 1 : 0;
+        const promemoria = await reminderRepositoryEval!.listPersonal({
+          sedeId: SEDE,
+          recipientUserId: DIREZIONE_ID,
+          stati: ["scheduled", "due", "completed", "cancelled"],
+          ordina: "creazioneDesc",
+          limit: 10,
+        });
+        const duplicati = Math.max(0, promemoria.length - 1);
         return {
-          ok: prima.azioni[0]?.stato === "creato" && duplicati === 0,
+          ok:
+            prima.azioni[0]?.stato === "creato" &&
+            seconda.azioni[0]?.stato === "creato" &&
+            duplicati === 0,
           misure: { duplicati },
         };
       },

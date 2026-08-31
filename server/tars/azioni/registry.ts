@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Interruttore } from "../../platform/interruttori";
+import { getReminderService } from "../../reminders/service";
 import { STRUMENTI_CASI } from "../strumenti/casi";
 import { STRUMENTI_DOCUMENTI } from "../strumenti/documenti";
 import { STRUMENTI_L0 } from "../strumenti/letture";
@@ -18,7 +19,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.0.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.1.0";
 
 const schemaLettura = z
   .object({
@@ -31,10 +32,26 @@ const schemaLettura = z
   })
   .passthrough();
 
-const schemaAzione = z
+const schemaConferma = z
+  .object({
+    via: z.literal("proposte.approvaEApplica"),
+    propostaId: z.number().int().positive(),
+    etichetta: z.string(),
+    effetto: z.string().nullable(),
+  })
+  .strict();
+
+const schemaUndoVia = z
+  .object({
+    procedura: z.literal("promemoria.cancel"),
+    id: z.number().int().positive(),
+  })
+  .strict();
+
+const schemaAzione = (nome: string) => z
   .object({
     tipo: z.literal("azione"),
-    strumento: z.string(),
+    strumento: z.literal(nome),
     stato: z.string(),
     motivo: z.string().nullable(),
     azioneId: z.string().nullable(),
@@ -43,6 +60,9 @@ const schemaAzione = z
     prima: z.record(z.string(), z.unknown()).nullable(),
     dopo: z.record(z.string(), z.unknown()).nullable(),
     undoDisponibile: z.boolean(),
+    undoEntro: z.string().nullable(),
+    undoVia: schemaUndoVia.nullable(),
+    conferma: schemaConferma.nullable(),
     avvertenze: z.array(z.string()),
     assunzioni: z.array(z.string()),
     dati: z.unknown(),
@@ -60,13 +80,14 @@ type Metadati = Pick<
 };
 
 const lettura = (
+  scope: ScopeAzioneTars,
   superfici: readonly SuperficieTars[],
   entita: readonly TipoEntitaTars[],
   interruttori: readonly Interruttore[] = ["tars", "tarsReadTools"],
   fallbackSicuro = false
 ): Metadati => ({
   rischio: "R0",
-  scope: entita.length ? "entita" : "sede",
+  scope,
   schemaRisultato: schemaLettura,
   prerequisiti: {
     direzione: false,
@@ -84,23 +105,29 @@ const lettura = (
 });
 
 const r1 = (
+  nome: string,
   scope: ScopeAzioneTars,
   superfici: readonly SuperficieTars[],
   entita: readonly TipoEntitaTars[],
   interruttori: readonly Interruttore[],
   compensabile: boolean,
-  direzione = false
+  direzione = false,
+  esitoAncoraValido?: DescrittoreAzioneTars["idempotenza"]["esitoAncoraValido"]
 ): Metadati => ({
   rischio: "R1",
   scope,
-  schemaRisultato: schemaAzione,
+  schemaRisultato: schemaAzione(nome),
   prerequisiti: {
     direzione,
     superfici,
     intenti: ["azione_esplicita"],
     entita,
   },
-  idempotenza: { strategia: "dominio", fonte: "servizio canonico" },
+  idempotenza: {
+    strategia: "dominio",
+    fonte: "servizio canonico",
+    esitoAncoraValido,
+  },
   audit: { richiesto: true, fonte: "dominio + ledger R1" },
   compensazione: {
     disponibile: compensabile,
@@ -113,34 +140,53 @@ const r1 = (
 });
 
 const METADATI: Record<string, Metadati> = {
-  cerca_commesse: lettura(["generale", "commessa"], ["commessa"], undefined, true),
-  leggi_commessa: lettura(["commessa"], ["commessa"]),
-  verifica_gate_commessa: lettura(["commessa", "documenti-ordini"], ["commessa"]),
-  leggi_ordini_fornitore: lettura(["commessa", "documenti-ordini"], ["commessa", "ordine_fornitore"]),
+  cerca_commesse: lettura("sede", ["generale", "commessa"], ["commessa"], undefined, true),
+  leggi_commessa: lettura("entita", ["commessa"], ["commessa"]),
+  verifica_gate_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa"]),
+  leggi_ordini_fornitore: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "ordine_fornitore"]),
   leggi_analisi_ordine: {
-    ...lettura(["documenti-ordini", "direzione"], ["ordine_fornitore", "documento"], ["tars", "tarsReadTools", "documentIntelligence"]),
+    ...lettura("entita", ["documenti-ordini", "direzione"], ["ordine_fornitore", "documento"], ["tars", "tarsReadTools", "documentIntelligence"]),
     prerequisiti: {
-      ...lettura([], []).prerequisiti,
       direzione: true,
       superfici: ["documenti-ordini", "direzione"],
       intenti: ["lettura", "analisi"],
       entita: ["ordine_fornitore", "documento"],
     },
   },
-  leggi_centro_azioni: lettura(["generale", "commessa"], ["caso", "commessa"]),
-  leggi_comunicazioni: lettura(["comunicazioni", "commessa"], ["commessa", "cliente"], ["tars", "tarsReadTools", "tarsCommunications"]),
-  leggi_fascicolo_commessa: lettura(["commessa", "documenti-ordini"], ["commessa", "documento"]),
-  leggi_promemoria_in_scadenza: lettura(["generale", "promemoria"], ["promemoria"]),
-  leggi_promemoria: lettura(["promemoria"], ["promemoria"]),
-  crea_promemoria: r1("personale", ["generale", "promemoria", "commessa"], ["promemoria", "commessa", "cliente"], ["tars", "tarsReminders"], true),
-  sposta_promemoria: r1("personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], true),
-  annulla_promemoria: r1("personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
-  completa_promemoria: r1("personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
-  prendi_in_carico_caso: r1("entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], true),
-  rinvia_caso: r1("entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], true),
+  leggi_centro_azioni: lettura("sede", ["generale", "commessa"], ["caso", "commessa"]),
+  leggi_comunicazioni: lettura("entita", ["comunicazioni", "commessa"], ["commessa", "cliente"], ["tars", "tarsReadTools", "tarsCommunications"]),
+  leggi_fascicolo_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "documento"]),
+  leggi_promemoria_in_scadenza: lettura("personale", ["generale", "promemoria"], ["promemoria"]),
+  leggi_promemoria: lettura("personale", ["promemoria"], ["promemoria"]),
+  crea_promemoria: r1(
+    "crea_promemoria",
+    "personale",
+    ["generale", "promemoria", "commessa"],
+    ["promemoria", "commessa", "cliente"],
+    ["tars", "tarsReminders"],
+    true,
+    false,
+    async (contesto, _argomenti, esito) => {
+      const id = esito.undoVia?.procedura === "promemoria.cancel"
+        ? esito.undoVia.id
+        : null;
+      if (id == null) return true;
+      const promemoria = await getReminderService().get({
+        sedeId: contesto.sedeId,
+        recipientUserId: contesto.utenteId,
+        id,
+      });
+      return promemoria?.status === "scheduled" || promemoria?.status === "due";
+    }
+  ),
+  sposta_promemoria: r1("sposta_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
+  annulla_promemoria: r1("annulla_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
+  completa_promemoria: r1("completa_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
+  prendi_in_carico_caso: r1("prendi_in_carico_caso", "entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], false),
+  rinvia_caso: r1("rinvia_caso", "entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], false),
   analizza_conferma_ordine: {
-    ...lettura(["documenti-ordini", "direzione"], ["ordine_fornitore", "documento"], ["tars", "tarsL2Actions", "documentIntelligence"]),
-    schemaRisultato: schemaAzione,
+    ...lettura("entita", ["documenti-ordini", "direzione"], ["ordine_fornitore", "documento"], ["tars", "tarsL2Actions", "documentIntelligence"]),
+    schemaRisultato: schemaAzione("analizza_conferma_ordine"),
     prerequisiti: {
       direzione: true,
       superfici: ["documenti-ordini", "direzione"],
@@ -155,7 +201,7 @@ const METADATI: Record<string, Metadati> = {
   proponi_data_consegna: {
     rischio: "R3",
     scope: "entita",
-    schemaRisultato: schemaAzione,
+    schemaRisultato: schemaAzione("proponi_data_consegna"),
     prerequisiti: {
       direzione: true,
       superfici: ["documenti-ordini", "direzione"],
@@ -170,9 +216,9 @@ const METADATI: Record<string, Metadati> = {
     costo: { unita: "operazione", massimo: 1, classe: "basso" },
     fallbackSicuro: false,
   },
-  ricorda: r1("personale", ["generale"], ["memoria"], ["tars", "tarsMemory"], true),
-  dimentica: r1("personale", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
-  leggi_memorie: lettura(["generale"], ["memoria"], ["tars", "tarsMemory"]),
+  ricorda: r1("ricorda", "sede", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
+  dimentica: r1("dimentica", "sede", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
+  leggi_memorie: lettura("sede", ["generale"], ["memoria"], ["tars", "tarsMemory"]),
 };
 
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [

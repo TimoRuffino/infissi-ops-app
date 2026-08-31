@@ -8,8 +8,8 @@ import {
 } from "./registry";
 import { catalogoAzioniPerContesto } from "./policy";
 import {
+  chiaveIdempotenzaR1,
   creaLedgerEsecuzioniMemoriaPerTest,
-  registraEsecuzioneR1,
 } from "./executions";
 
 const ENV_ORIGINALE = { ...process.env };
@@ -151,6 +151,84 @@ describe("registro centrale delle azioni Tars", () => {
       ])
     ).toThrow(/flag.*incoerent/i);
   });
+
+  it("dichiara lo scope esplicitamente per tutti i tool", () => {
+    expect(Object.fromEntries(REGISTRO_AZIONI.map(a => [a.nome, a.scope]))).toEqual({
+      analizza_conferma_ordine: "entita",
+      annulla_promemoria: "personale",
+      cerca_commesse: "sede",
+      completa_promemoria: "personale",
+      crea_promemoria: "personale",
+      dimentica: "sede",
+      leggi_analisi_ordine: "entita",
+      leggi_centro_azioni: "sede",
+      leggi_commessa: "entita",
+      leggi_comunicazioni: "entita",
+      leggi_fascicolo_commessa: "entita",
+      leggi_memorie: "sede",
+      leggi_ordini_fornitore: "entita",
+      leggi_promemoria: "personale",
+      leggi_promemoria_in_scadenza: "personale",
+      prendi_in_carico_caso: "entita",
+      proponi_data_consegna: "entita",
+      ricorda: "sede",
+      rinvia_caso: "entita",
+      sposta_promemoria: "personale",
+      verifica_gate_commessa: "entita",
+    });
+  });
+
+  it("dichiara compensazione R1 solo dove l'esito espone davvero Undo", () => {
+    expect(
+      Object.fromEntries(
+        REGISTRO_AZIONI.filter(a => a.rischio === "R1").map(a => [
+          a.nome,
+          a.compensazione.disponibile,
+        ])
+      )
+    ).toEqual({
+      annulla_promemoria: false,
+      completa_promemoria: false,
+      crea_promemoria: true,
+      dimentica: false,
+      prendi_in_carico_caso: false,
+      ricorda: false,
+      rinvia_caso: false,
+      sposta_promemoria: false,
+    });
+  });
+
+  it("usa uno schema azione tool-specifico e completo", () => {
+    const schema = descrittoreAzione("crea_promemoria")!.schemaRisultato;
+    const completo = {
+      tipo: "azione",
+      strumento: "crea_promemoria",
+      stato: "creato",
+      motivo: null,
+      azioneId: "evento:12",
+      auditId: "audit:12",
+      entitaToccate: ["promemoria:12"],
+      prima: null,
+      dopo: { id: 12 },
+      undoDisponibile: true,
+      undoEntro: "finché attivo",
+      undoVia: { procedura: "promemoria.cancel", id: 12 },
+      conferma: null,
+      avvertenze: [],
+      assunzioni: [],
+      dati: { id: 12 },
+      evidenze: [],
+      freschezza: "2026-08-31T10:00:00.000Z",
+    };
+    expect(schema.safeParse(completo).success).toBe(true);
+    expect(
+      schema.safeParse({ ...completo, strumento: "sposta_promemoria" }).success
+    ).toBe(false);
+    const { undoVia: _via, ...senzaUndoVia } = completo;
+    expect(schema.safeParse(senzaUndoVia).success).toBe(false);
+    const { conferma: _conferma, ...senzaConferma } = completo;
+    expect(schema.safeParse(senzaConferma).success).toBe(false);
+  });
 });
 
 describe("policy dinamica del catalogo", () => {
@@ -202,86 +280,96 @@ describe("policy dinamica del catalogo", () => {
     expect(fallback.map(a => a.nome)).toEqual(["cerca_commesse"]);
     expect(fallback.every(a => a.rischio === "R0")).toBe(true);
   });
+
+  it("in produzione senza PostgreSQL non espone R1", () => {
+    process.env.NODE_ENV = "production";
+    process.env.FLAG_TARS = "on";
+    process.env.FLAG_TARS_READ_TOOLS = "on";
+    process.env.FLAG_TARS_REMINDERS = "on";
+    process.env.FLAG_TARS_L2_ACTIONS = "on";
+    process.env.FLAG_TARS_MEMORY = "on";
+    const catalogo = catalogoAzioniPerContesto(contesto());
+    expect(catalogo.some(a => a.rischio === "R1")).toBe(false);
+    expect(catalogo.some(a => a.rischio === "R0")).toBe(true);
+  });
 });
 
 describe("ledger append-only delle esecuzioni R1", () => {
-  it("deduplica la stessa idempotency key senza rieseguire alcun effetto", async () => {
+  it("prenota prima dell'esito e persiste transizioni append-only", async () => {
     const ledger = creaLedgerEsecuzioniMemoriaPerTest();
-    const input = {
-      idempotencyKey: "run-1:crea_promemoria:abc",
+    const prenotazione = {
+      idempotencyKey: "r1:abc",
       runId: "run-1",
       sedeId: 3,
       utenteId: 7,
       strumento: "crea_promemoria",
       versioneStrumento: "1.0.0",
-      versioneOggetto: "promemoria:12:v1",
-      esito: "creato",
-      audit: { auditId: "reminder_events:12", azioneId: "promemoria:12" },
-      compensazione: { disponibile: true, via: "promemoria.cancel:12" },
       createdAt: new Date("2026-08-31T10:00:00.000Z"),
     } as const;
+    const prima = await ledger.prenota(prenotazione);
+    const duplicata = await ledger.prenota(prenotazione);
+    expect(prima.tipo).toBe("prenotata");
+    expect(duplicata).toMatchObject({ tipo: "esistente", riga: { stato: "reserved" } });
 
-    const prima = await ledger.append(input);
-    const seconda = await ledger.append({
-      ...input,
-      versioneOggetto: "promemoria:12:v2",
-      esito: "duplicato",
+    const esito = azioneDiTest("crea_promemoria", "audit:12", 12);
+    await ledger.concludi({
+      idempotencyKey: prenotazione.idempotencyKey,
+      versioneOggetto: "sha256:v1",
+      esito,
+      audit: { auditId: esito.auditId, azioneId: esito.azioneId },
+      compensazione: { disponibile: true, via: "promemoria.cancel:12" },
+      createdAt: new Date("2026-08-31T10:01:00.000Z"),
     });
-
-    expect(prima.inserita).toBe(true);
-    expect(seconda.inserita).toBe(false);
-    expect(seconda.riga.versioneOggetto).toBe("promemoria:12:v1");
-    expect(await ledger.lista({ sedeId: 3 })).toHaveLength(1);
+    const settled = await ledger.prenota(prenotazione);
+    expect(settled).toMatchObject({
+      tipo: "esistente",
+      riga: { stato: "settled", esito: "creato", risultato: esito },
+    });
+    expect(await ledger.eventi(prenotazione.idempotencyKey)).toEqual([
+      "reserved",
+      "settled",
+    ]);
   });
 
-  it("registra solo R1 dopo l'esito e conserva audit e compensazione", async () => {
-    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
-    const esito = {
-      tipo: "azione" as const,
-      strumento: "crea_promemoria",
-      stato: "creato",
-      motivo: null,
-      azioneId: "promemoria:12",
-      auditId: "reminder_events:12",
-      entitaToccate: ["promemoria:12"],
-      prima: null,
-      dopo: { id: 12, stato: "pending" },
-      undoDisponibile: true,
-      undoEntro: "finché è pending",
-      undoVia: { procedura: "promemoria.cancel" as const, id: 12 },
-      conferma: null,
-      avvertenze: [],
-      assunzioni: [],
-      dati: { id: 12 },
-      evidenze: [],
-      freschezza: "2026-08-31T10:00:00.000Z",
-    };
-
-    await registraEsecuzioneR1({
-      ledger,
-      descrittore: descrittoreAzione("crea_promemoria")!,
-      contesto: contesto(),
-      runId: "run-1",
-      argomenti: { titolo: "finanziamento Maccari" },
-      esito,
+  it("la chiave pre-effetto è canonica e distingue input legittimi", () => {
+    const descrittore = descrittoreAzione("ricorda")!;
+    const comune = { descrittore, contesto: contesto() };
+    const a = chiaveIdempotenzaR1({
+      ...comune,
+      argomenti: { contenuto: "Maccari", tipo: "preferenza" },
     });
-    await registraEsecuzioneR1({
-      ledger,
-      descrittore: descrittoreAzione("cerca_commesse")!,
-      contesto: contesto(),
-      runId: "run-1",
-      argomenti: { query: "Maccari" },
-      esito,
+    const riordinata = chiaveIdempotenzaR1({
+      ...comune,
+      argomenti: { tipo: "preferenza", contenuto: "Maccari" },
     });
-
-    const righe = await ledger.lista({ sedeId: 3 });
-    expect(righe).toHaveLength(1);
-    expect(righe[0]).toMatchObject({
-      strumento: "crea_promemoria",
-      esito: "creato",
-      audit: { auditId: "reminder_events:12" },
-      compensazione: { disponibile: true },
+    const b = chiaveIdempotenzaR1({
+      ...comune,
+      argomenti: { contenuto: "Bianchi", tipo: "preferenza" },
     });
-    expect(righe[0].versioneOggetto).toMatch(/^sha256:/);
+    expect(a).toBe(riordinata);
+    expect(a).not.toBe(b);
   });
 });
+
+function azioneDiTest(strumento: string, auditId: string, id: number) {
+  return {
+    tipo: "azione" as const,
+    strumento,
+    stato: "creato",
+    motivo: null,
+    azioneId: `evento:${auditId}`,
+    auditId,
+    entitaToccate: [`promemoria:${id}`],
+    prima: null,
+    dopo: { id, stato: "pending" },
+    undoDisponibile: true,
+    undoEntro: "finché è pending",
+    undoVia: { procedura: "promemoria.cancel" as const, id },
+    conferma: null,
+    avvertenze: [],
+    assunzioni: [],
+    dati: { id },
+    evidenze: [],
+    freschezza: "2026-08-31T10:00:00.000Z",
+  };
+}
