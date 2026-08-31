@@ -10,6 +10,7 @@
 import { kvSql } from "../_core/persistence";
 import {
   contestoConversazioneVuoto,
+  analizzaContestoConversazionePersistito,
   type ContestoConversazione,
 } from "./conversazione/types";
 
@@ -137,37 +138,16 @@ function normalizzaContestoConversazione(
   versione: number
 ): ContestoConversazione {
   const base = contestoConversazioneVuoto();
-  const grezzo = valore && typeof valore === "object" ? valore as any : {};
+  const analizzato = analizzaContestoConversazionePersistito(valore);
+  if (!analizzato.success) {
+    return {
+      ...base,
+      versione: Number.isInteger(versione) && versione >= 0 ? versione : 0,
+    };
+  }
+  const grezzo = analizzato.data;
   return {
-    ...base,
-    commessaId: Number.isInteger(grezzo.commessaId) && grezzo.commessaId > 0
-      ? grezzo.commessaId
-      : null,
-    clienteId: Number.isInteger(grezzo.clienteId) && grezzo.clienteId > 0
-      ? grezzo.clienteId
-      : null,
-    comunicazioneId:
-      Number.isInteger(grezzo.comunicazioneId) && grezzo.comunicazioneId > 0
-        ? grezzo.comunicazioneId
-        : null,
-    allegatoIndex:
-      Number.isInteger(grezzo.allegatoIndex) && grezzo.allegatoIndex >= 0
-        ? grezzo.allegatoIndex
-        : null,
-    superficie: typeof grezzo.superficie === "string" ? grezzo.superficie : null,
-    versioniEntita:
-      grezzo.versioniEntita && typeof grezzo.versioniEntita === "object"
-        ? Object.fromEntries(
-            Object.entries(grezzo.versioniEntita)
-              .filter(([, v]) => typeof v === "string")
-          ) as Record<string, string>
-        : {},
-    chiarificazionePendente:
-      grezzo.chiarificazionePendente &&
-      grezzo.chiarificazionePendente.tipo === "commessa" &&
-      typeof grezzo.chiarificazionePendente.domanda === "string"
-        ? grezzo.chiarificazionePendente
-        : null,
+    ...grezzo,
     versione: Number.isInteger(versione) && versione >= 0 ? versione : 0,
   };
 }

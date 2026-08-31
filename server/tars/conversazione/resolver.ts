@@ -1,15 +1,18 @@
 import { getCommesseStore } from "../../routers/commesse";
+import { estraiCodiceCommessa } from "../../comunicazioni/match";
 import type {
   CandidatoResolverCommessa,
   EsitoResolverCommessa,
 } from "./types";
+import { domandaChiarificazioneCommessa } from "./types";
 
 const STOPWORD = new Set([
   "agisci", "alla", "alle", "anche", "caso", "commessa", "commesse",
   "controlla", "cosa", "della", "delle", "dello", "dimmi", "documenti",
   "eval", "fare", "fatto", "lavora", "manca", "parliamo", "per", "posso",
   "proposta", "prova", "puoi", "questa", "questo", "sulla", "sulle",
-  "verifica",
+  "verifica", "srl", "spa", "sapa", "sas", "snc", "societa", "azienda",
+  "ditta", "gruppo", "cooperativa",
 ]);
 
 function normalizza(valore: unknown): string {
@@ -47,19 +50,26 @@ function candidato(commessa: any, riferimento: string): CandidatoResolverCommess
   }
 
   const token = tokenSignificativi(riferimento);
+  const paroleCliente = cliente.split(" ").filter(Boolean);
+  const paroleIndirizzo = indirizzo.split(" ").filter(Boolean);
+  const paroleEmail = email.split(" ").filter(Boolean);
+  const paroleTelefono = telefono.split(" ").filter(Boolean);
   for (const parola of token) {
-    if (cliente.split(" ").includes(parola)) {
+    if (paroleCliente.includes(parola)) {
       punteggio += 120;
       evidenze.push(`cliente: ${parola}`);
-    } else if (cliente.includes(parola)) {
+    } else if (
+      parola.length >= 4 &&
+      paroleCliente.some(voce => voce.startsWith(parola))
+    ) {
       punteggio += 80;
       evidenze.push(`cliente parziale: ${parola}`);
     }
-    if (indirizzo.includes(parola)) {
+    if (paroleIndirizzo.includes(parola)) {
       punteggio += 30;
       evidenze.push(`indirizzo: ${parola}`);
     }
-    if (email.includes(parola) || telefono.includes(parola)) {
+    if (paroleEmail.includes(parola) || paroleTelefono.includes(parola)) {
       punteggio += 60;
       evidenze.push(`contatto: ${parola}`);
     }
@@ -74,13 +84,6 @@ function candidato(commessa: any, riferimento: string): CandidatoResolverCommess
   };
 }
 
-function domandaConcreta(candidati: readonly CandidatoResolverCommessa[]): string {
-  const opzioni = candidati
-    .slice(0, 4)
-    .map(c => `${c.codice} — ${c.cliente}`);
-  return `Quale intendi: ${opzioni.join(" oppure ")}?`;
-}
-
 /** Matching puro e sede-scoped. Non legge capability e non autorizza azioni. */
 export function risolviCommessa(input: {
   sedeId: number;
@@ -89,7 +92,7 @@ export function risolviCommessa(input: {
   const riferimento = input.riferimento.trim();
   if (!riferimento) return { stato: "non_trovato", candidati: [] };
 
-  const codiceEsplicito = /\bCOM[-\s]\d{4}[-\s][A-Z0-9]+\b/i.exec(riferimento)?.[0];
+  const codiceEsplicito = estraiCodiceCommessa(riferimento);
   const base = (getCommesseStore() as any[]).filter(
     c => c.sedeId === input.sedeId && !c.archivedAt
   );
@@ -108,6 +111,6 @@ export function risolviCommessa(input: {
   return {
     stato: "ambiguo",
     candidati: plausibili,
-    domanda: domandaConcreta(plausibili),
+    domanda: domandaChiarificazioneCommessa(plausibili),
   };
 }

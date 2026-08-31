@@ -158,9 +158,110 @@ async function auditId(
 
 // ── crea_promemoria ──────────────────────────────────────────────────────
 
-const creaPromemoria: StrumentoTars = {
+const schemaCreaPromemoria = z
+  .object({
+    testo: z.string().min(1).max(300),
+    quando: z.string().min(1).max(120),
+    ancoraData: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    commessaId: z.number().int().positive().optional(),
+    clienteId: z.number().int().positive().optional(),
+  })
+  .strict();
+
+type InputCreaPromemoria = z.infer<typeof schemaCreaPromemoria>;
+const VERSIONE_COMMESSA_MATERIALIZZATA = Symbol("versioneCommessaMaterializzata");
+type InputCreaPromemoriaMaterializzato = InputCreaPromemoria & {
+  [VERSIONE_COMMESSA_MATERIALIZZATA]?: string;
+};
+
+async function materializzaCreaPromemoria(
+  contesto: ContestoRun,
+  input: InputCreaPromemoria
+): Promise<
+  | { tipo: "input"; input: InputCreaPromemoria }
+  | { tipo: "esito"; esito: EsitoAzione }
+> {
+  const persistito = contesto.contestoConversazione;
+  const ereditaCommessa =
+    input.commessaId == null && persistito?.commessaId != null;
+  const commessaId = input.commessaId ??
+    (ereditaCommessa ? persistito!.commessaId! : undefined);
+  let clienteId = input.clienteId ??
+    (ereditaCommessa ? persistito!.clienteId ?? undefined : undefined);
+  let versioneMaterializzata: string | undefined;
+
+  if (commessaId != null) {
+    const commessa: any = getCommessaById(commessaId);
+    if (!commessa || commessa.sedeId !== contesto.sedeId) {
+      return {
+        tipo: "esito",
+        esito: nonEseguito(
+          "crea_promemoria",
+          "Commessa non trovata: nessun promemoria creato."
+        ),
+      };
+    }
+    if (ereditaCommessa) {
+      const attesa = persistito!.versioniEntita[`commessa:${commessa.id}`];
+      const corrente = commessa.updatedAt instanceof Date
+        ? String(commessa.updatedAt.getTime())
+        : String(new Date(commessa.updatedAt).getTime());
+      if (
+        persistito!.verifiche.commessa !== "verificato" ||
+        !attesa ||
+        corrente === "NaN" ||
+        attesa !== corrente
+      ) {
+        return {
+          tipo: "esito",
+          esito: nonEseguito(
+            "crea_promemoria",
+            "La commessa è cambiata dall'ultima lettura: rileggila prima di collegare il promemoria."
+          ),
+        };
+      }
+    }
+    if (Number.isInteger(commessa.clienteId)) clienteId = commessa.clienteId;
+    const millis = commessa.updatedAt instanceof Date
+      ? commessa.updatedAt.getTime()
+      : new Date(commessa.updatedAt).getTime();
+    if (Number.isFinite(millis)) versioneMaterializzata = String(millis);
+  }
+  if (clienteId != null) {
+    const cliente: any = getClienteById(clienteId);
+    if (!cliente || cliente.sedeId !== contesto.sedeId) {
+      return {
+        tipo: "esito",
+        esito: nonEseguito(
+          "crea_promemoria",
+          "Cliente non trovato: nessun promemoria creato."
+        ),
+      };
+    }
+  }
+  const materializzato: InputCreaPromemoriaMaterializzato = {
+    ...input,
+    ...(commessaId == null ? {} : { commessaId }),
+    ...(clienteId == null ? {} : { clienteId }),
+  };
+  if (versioneMaterializzata) {
+    Object.defineProperty(materializzato, VERSIONE_COMMESSA_MATERIALIZZATA, {
+      value: versioneMaterializzata,
+      enumerable: false,
+    });
+  }
+  return {
+    tipo: "input",
+    input: materializzato,
+  };
+}
+
+const creaPromemoria: StrumentoTars<InputCreaPromemoria, EsitoAzione> = {
   nome: "crea_promemoria",
-  versione: "1.1.0",
+  versione: "1.2.0",
   categoria: "promemoria",
   livello: "L1",
   effetto: "interno",
@@ -169,18 +270,8 @@ const creaPromemoria: StrumentoTars = {
   interruttore: "tarsReminders",
   descrizione:
     "Crea un promemoria PERSONALE per l'utente corrente, subito e senza conferme. Passa nel campo «quando» l'espressione temporale dell'utente così com'è (es. «domani alle 9», «venerdì», «tra due ore»): la data la risolve il server. Per espressioni relative a una data di riferimento (es. «tre giorni prima» della posa) leggi prima la data e passala in ancoraData.",
-  schemaInput: z
-    .object({
-      testo: z.string().min(1).max(300),
-      quando: z.string().min(1).max(120),
-      ancoraData: z
-        .string()
-        .regex(/^\d{4}-\d{2}-\d{2}$/)
-        .optional(),
-      commessaId: z.number().int().positive().optional(),
-      clienteId: z.number().int().positive().optional(),
-    })
-    .strict(),
+  schemaInput: schemaCreaPromemoria,
+  materializzaInput: materializzaCreaPromemoria,
   async esegui(contesto, input): Promise<EsitoAzione> {
     assicuraFunzionePromemoria();
     const nome = "crea_promemoria";
@@ -201,15 +292,8 @@ const creaPromemoria: StrumentoTars = {
       throw errore;
     }
 
-    const contestoPersistito = contesto.contestoConversazione;
-    const ereditaCommessa =
-      input.commessaId == null &&
-      contestoPersistito?.verificato === true &&
-      contestoPersistito.commessaId != null;
-    const commessaId = input.commessaId ??
-      (ereditaCommessa ? contestoPersistito!.commessaId! : null);
-    let clienteId = input.clienteId ??
-      (ereditaCommessa ? contestoPersistito!.clienteId : null);
+    const commessaId = input.commessaId ?? null;
+    let clienteId = input.clienteId ?? null;
 
     const evidenzeCollegamenti: EvidenzaTars[] = [];
     if (commessaId != null) {
@@ -219,15 +303,17 @@ const creaPromemoria: StrumentoTars = {
       if (!commessa || commessa.sedeId !== contesto.sedeId) {
         return nonEseguito(nome, "Commessa non trovata: nessun promemoria creato.");
       }
-      if (ereditaCommessa) {
-        const attesa = contestoPersistito!.versioniEntita[`commessa:${commessa.id}`];
-        const corrente = commessa.updatedAt instanceof Date
-          ? String(commessa.updatedAt.getTime())
-          : String(new Date(commessa.updatedAt).getTime());
-        if (!attesa || corrente === "NaN" || attesa !== corrente) {
+      const attesa = (input as InputCreaPromemoriaMaterializzato)[
+        VERSIONE_COMMESSA_MATERIALIZZATA
+      ];
+      if (attesa) {
+        const millis = commessa.updatedAt instanceof Date
+          ? commessa.updatedAt.getTime()
+          : new Date(commessa.updatedAt).getTime();
+        if (!Number.isFinite(millis) || String(millis) !== attesa) {
           return nonEseguito(
             nome,
-            "La commessa è cambiata dall'ultima lettura: rileggila prima di collegare il promemoria."
+            "La commessa è cambiata dopo la verifica: nessun promemoria creato. Rileggila e riprova."
           );
         }
       }
@@ -248,9 +334,12 @@ const creaPromemoria: StrumentoTars = {
     }
 
     const testo = input.testo.trim();
+    const firmaCollegamenti = commessaId == null && clienteId == null
+      ? ""
+      : `|c:${commessaId ?? "-"}|cl:${clienteId ?? "-"}`;
     const chiaveBase = `tars:u${contesto.utenteId}:${createHash("sha256")
       .update(
-        `${testo.toLowerCase().replace(/\s+/g, " ")}|${istante.toISOString()}|c:${commessaId ?? "-"}|cl:${clienteId ?? "-"}`
+        `${testo.toLowerCase().replace(/\s+/g, " ")}|${istante.toISOString()}${firmaCollegamenti}`
       )
       .digest("hex")
       .slice(0, 20)}`;
@@ -306,9 +395,6 @@ const creaPromemoria: StrumentoTars = {
           ],
       assunzioni: [
         ...risoluzione.assunzioni,
-        ...(ereditaCommessa
-          ? ["Collegamento alla commessa ereditato dal contesto conversazionale verificato e riletto."]
-          : []),
       ],
       dati: vista,
       evidenze: [evidenzaPromemoria(record), ...evidenzeCollegamenti],

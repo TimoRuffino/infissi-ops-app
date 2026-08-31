@@ -19,7 +19,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.2.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.3.0";
 
 const schemaLettura = z
   .object({
@@ -166,7 +166,7 @@ const METADATI: Record<string, Metadati> = {
     ["tars", "tarsReminders"],
     true,
     false,
-    async (contesto, _argomenti, esito) => {
+    async (contesto, argomenti, esito) => {
       const id = esito.undoVia?.procedura === "promemoria.cancel"
         ? esito.undoVia.id
         : null;
@@ -176,7 +176,17 @@ const METADATI: Record<string, Metadati> = {
         recipientUserId: contesto.utenteId,
         id,
       });
-      return promemoria?.status === "scheduled" || promemoria?.status === "due";
+      if (!promemoria) return false;
+      const input = argomenti && typeof argomenti === "object"
+        ? argomenti as { commessaId?: unknown; clienteId?: unknown }
+        : {};
+      const stessaEntita =
+        promemoria.commessaId ===
+          (Number.isInteger(input.commessaId) ? input.commessaId : null) &&
+        promemoria.clienteId ===
+          (Number.isInteger(input.clienteId) ? input.clienteId : null);
+      return stessaEntita &&
+        (promemoria.status === "scheduled" || promemoria.status === "due");
     }
   ),
   sposta_promemoria: r1("sposta_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),

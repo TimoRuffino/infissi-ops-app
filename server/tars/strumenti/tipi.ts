@@ -10,15 +10,18 @@ import type { z } from "zod";
 import type { Capability } from "../../authz/capabilities";
 import type { Interruttore } from "../../platform/interruttori";
 
-export type SuperficieTars =
-  | "generale"
-  | "commessa"
-  | "documenti-ordini"
-  | "promemoria"
-  | "comunicazioni"
-  | "economia"
-  | "direzione"
-  | "post-vendita";
+export const SUPERFICI_TARS = [
+  "generale",
+  "commessa",
+  "documenti-ordini",
+  "promemoria",
+  "comunicazioni",
+  "economia",
+  "direzione",
+  "post-vendita",
+] as const;
+
+export type SuperficieTars = (typeof SUPERFICI_TARS)[number];
 
 export type TipoEntitaTars =
   | "commessa"
@@ -62,7 +65,12 @@ export type ContestoRun = {
     versioniEntita: Record<string, string>;
     chiarificazionePendente: unknown;
     versione: number;
-    verificato: true;
+    verifiche: {
+      commessa: "assente" | "verificato" | "stale";
+      cliente: "assente" | "verificato";
+      comunicazione: "assente" | "verificato";
+      allegato: "assente" | "verificato";
+    };
   };
   /** Entra in C0/C2; non contiene PII in chiaro. */
   contestoConversazioneFingerprint?: string;
@@ -143,5 +151,16 @@ export type StrumentoTars<I = any, O = any> = {
   interruttore?: Interruttore | readonly Interruttore[];
   descrizione: string;
   schemaInput: z.ZodType<I>;
+  /**
+   * Materializza riferimenti impliciti e li verifica prima di idempotenza ed
+   * effetto. Può produrre un esito dominio senza aprire una reservation.
+   */
+  materializzaInput?: (
+    contesto: ContestoRun,
+    input: I
+  ) => Promise<
+    | { tipo: "input"; input: I }
+    | { tipo: "esito"; esito: O }
+  >;
   esegui(contesto: ContestoRun, input: I): Promise<O>;
 };

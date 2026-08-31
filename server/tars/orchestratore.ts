@@ -35,6 +35,7 @@ import {
   segnaEsecuzioneR1Incerta,
 } from "./azioni/executions";
 import { getCommessaById } from "../routers/commesse";
+import { estraiCodiceCommessa } from "../comunicazioni/match";
 import {
   VersioneContestoConversazioneObsoleta,
   aggiornaContestoDaEsitoTool,
@@ -44,6 +45,7 @@ import {
   salvaContestoConversazione,
 } from "./conversazione/context";
 import { risolviCommessa } from "./conversazione/resolver";
+import { domandaChiarificazioneCommessa } from "./conversazione/types";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -102,6 +104,13 @@ export function derivaStatoOperativo(input: {
       motivo: "entità ambigua",
     };
   }
+  if ((input.erroriStrumenti ?? 0) > 0) {
+    return {
+      stato: "Bloccato",
+      fonte: "esiti_tool",
+      motivo: "uno o più strumenti non hanno prodotto un esito valido",
+    };
+  }
   const daConfermare = input.azioni.find(azione => azione.conferma != null);
   if (daConfermare) {
     return {
@@ -110,24 +119,27 @@ export function derivaStatoOperativo(input: {
       motivo: daConfermare.motivo,
     };
   }
-  const nonEseguita = input.azioni.find(azione =>
-    azione.stato === "non_eseguito" || azione.stato === "non_necessaria"
-  );
+  const statiMutativi = new Set([
+    "creato",
+    "spostato",
+    "annullato",
+    "completato",
+    "ricordato",
+    "dimenticata",
+    "preso_in_carico",
+    "rinviato",
+    "analizzato",
+  ]);
+  const mutativa = input.azioni.find(azione => statiMutativi.has(azione.stato));
+  if (mutativa) {
+    return { stato: "Fatto", fonte: "esiti_tool", motivo: null };
+  }
+  const nonEseguita = input.azioni[0];
   if (nonEseguita) {
     return {
       stato: "Non eseguito",
       fonte: "esiti_tool",
       motivo: nonEseguita.motivo,
-    };
-  }
-  if (input.azioni.length > 0) {
-    return { stato: "Fatto", fonte: "esiti_tool", motivo: null };
-  }
-  if ((input.erroriStrumenti ?? 0) > 0) {
-    return {
-      stato: "Bloccato",
-      fonte: "esiti_tool",
-      motivo: "uno o più strumenti non hanno prodotto un esito valido",
     };
   }
   return { stato: "Preparato", fonte: "provider", motivo: null };
@@ -342,6 +354,7 @@ export async function eseguiRun(input: {
     sedeId: contesto.sedeId,
     riferimento: input.messaggio,
   });
+  const codiceEsplicito = estraiCodiceCommessa(input.messaggio);
   const candidatiRisoluzione = risoluzione.stato === "unico"
     ? [risoluzione.candidato]
     : risoluzione.stato === "ambiguo"
@@ -350,7 +363,7 @@ export async function eseguiRun(input: {
   const riferimentoEsplicito =
     contestoConversazione.chiarificazionePendente != null ||
     /\bcommess[ae]\b/i.test(input.messaggio) ||
-    /\bCOM[-\s]\d{4}[-\s][A-Z0-9]+\b/i.test(input.messaggio);
+    codiceEsplicito != null;
   // Senza una parola «commessa»/codice, un nome è deittico solo quando
   // porta a un cliente CRM realmente collegato. Così termini operativi
   // omonimi ("caso", "documenti", "proposta") non attivano il resolver.
@@ -362,51 +375,112 @@ export async function eseguiRun(input: {
   });
   const usaRisoluzione = riferimentoEsplicito || riferimentoClienteVerificato;
 
-  if (usaRisoluzione && risoluzione.stato === "unico") {
-    const ammessoDaPendente =
-      !contestoConversazione.chiarificazionePendente ||
-      contestoConversazione.chiarificazionePendente.candidati.some(
+  const rispostaResolver = async (
+    testo: string,
+    statoOperativo: StatoOperativo,
+    contatori: Record<string, number>
+  ): Promise<RispostaRun> => {
+    await aggiungiTurno({
+      conversazioneId: conversazioneId!,
+      sedeId: contesto.sedeId,
+      ruolo: "utente",
+      contenuto: input.messaggio,
+    });
+    await aggiungiTurno({
+      conversazioneId: conversazioneId!,
+      sedeId: contesto.sedeId,
+      ruolo: "tars",
+      contenuto: testo,
+      payload: {
+        statoOperativo,
+        chiarificazione: statoOperativo.stato === "Da confermare",
+        runId,
+      },
+    });
+    await registraRun({
+      sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
+      conversazioneId: conversazioneId!,
+      stato: "ok",
+      provider: "resolver-deterministico",
+      modello: config.modello,
+      versioni: { prompt: PROMPT_VERSIONE, profilo: PROFILO_VERSIONE },
+      contatori: { modelCallEvitate: 1, ...contatori },
+      errore: null,
+    });
+    return {
+      runId,
+      conversazioneId: conversazioneId!,
+      stato: "ok",
+      testo,
+      evidenze: [],
+      strumentiUsati: [],
+      azioni: [],
+      omissioni: [],
+      uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
+      cache: { c0Hit: false, c1Hit: 0, c1Miss: 0 },
+      versioni: {
+        prompt: PROMPT_VERSIONE,
+        profilo: PROFILO_VERSIONE,
+        modello: config.modello,
+      },
+      statoOperativo,
+    };
+  };
+
+  const selezionaCommessa = async (commessaId: number) => {
+    const commessa: any = getCommessaById(commessaId);
+    if (!commessa || commessa.sedeId !== contesto.sedeId) return;
+    contestoConversazione = await salvaContestoConversazione({
+      conversazioneId: conversazioneId!,
+      sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
+      versioneAttesa: contestoConversazione!.versione,
+      patch: {
+        commessaId: commessa.id,
+        clienteId: Number.isInteger(commessa.clienteId)
+          ? commessa.clienteId
+          : contestoConversazione!.clienteId,
+        comunicazioneId:
+          contestoConversazione!.commessaId === commessa.id
+            ? contestoConversazione!.comunicazioneId
+            : null,
+        allegatoIndex:
+          contestoConversazione!.commessaId === commessa.id
+            ? contestoConversazione!.allegatoIndex
+            : null,
+        superficie: "commessa",
+        chiarificazionePendente: null,
+        versioniEntita: {
+          ...(contestoConversazione!.commessaId === commessa.id
+            ? contestoConversazione!.versioniEntita
+            : {}),
+          [`commessa:${commessa.id}`]: commessa.updatedAt instanceof Date
+            ? String(commessa.updatedAt.getTime())
+            : String(new Date(commessa.updatedAt).getTime()),
+        },
+      },
+    });
+  };
+
+  const pendente = contestoConversazione.chiarificazionePendente;
+  if (pendente) {
+    const ammessa = risoluzione.stato === "unico" &&
+      pendente.candidati.some(
         candidato => candidato.commessaId === risoluzione.candidato.commessaId
       );
-    if (ammessoDaPendente) {
-      const commessa: any = getCommessaById(risoluzione.candidato.commessaId);
-      if (commessa && commessa.sedeId === contesto.sedeId) {
-        contestoConversazione = await salvaContestoConversazione({
-          conversazioneId,
-          sedeId: contesto.sedeId,
-          utenteId: contesto.utenteId,
-          versioneAttesa: contestoConversazione.versione,
-          patch: {
-            commessaId: commessa.id,
-            clienteId: Number.isInteger(commessa.clienteId)
-              ? commessa.clienteId
-              : contestoConversazione.clienteId,
-            comunicazioneId:
-              contestoConversazione.commessaId === commessa.id
-                ? contestoConversazione.comunicazioneId
-                : null,
-            allegatoIndex:
-              contestoConversazione.commessaId === commessa.id
-                ? contestoConversazione.allegatoIndex
-                : null,
-            superficie: "commessa",
-            chiarificazionePendente: null,
-            versioniEntita: {
-              ...contestoConversazione.versioniEntita,
-              [`commessa:${commessa.id}`]: commessa.updatedAt instanceof Date
-                ? String(commessa.updatedAt.getTime())
-                : String(new Date(commessa.updatedAt).getTime()),
-            },
-          },
-        });
-      }
+    if (ammessa && risoluzione.stato === "unico") {
+      await selezionaCommessa(risoluzione.candidato.commessaId);
+    } else {
+      const domanda = domandaChiarificazioneCommessa(pendente.candidati);
+      return rispostaResolver(
+        domanda,
+        derivaStatoOperativo({ azioni: [], chiarificazione: true }),
+        { chiarificazioni: 1 }
+      );
     }
   } else if (usaRisoluzione && risoluzione.stato === "ambiguo") {
-    const attivaFraCandidate = risoluzione.candidati.some(
-      candidato => candidato.commessaId === contestoConversazione!.commessaId
-    );
-    if (!attivaFraCandidate) {
-      contestoConversazione = await salvaContestoConversazione({
+    contestoConversazione = await salvaContestoConversazione({
         conversazioneId,
         sedeId: contesto.sedeId,
         utenteId: contesto.utenteId,
@@ -417,10 +491,9 @@ export async function eseguiRun(input: {
           comunicazioneId: null,
           allegatoIndex: null,
           superficie: "commessa",
+          versioniEntita: {},
           chiarificazionePendente: {
             tipo: "commessa",
-            riferimento: input.messaggio,
-            domanda: risoluzione.domanda,
             candidati: risoluzione.candidati.map(c => ({
               commessaId: c.commessaId,
               codice: c.codice,
@@ -429,53 +502,34 @@ export async function eseguiRun(input: {
           },
         },
       });
-      await aggiungiTurno({
-        conversazioneId,
-        sedeId: contesto.sedeId,
-        ruolo: "utente",
-        contenuto: input.messaggio,
-      });
-      const statoOperativo = derivaStatoOperativo({
-        azioni: [],
-        chiarificazione: true,
-      });
-      await aggiungiTurno({
-        conversazioneId,
-        sedeId: contesto.sedeId,
-        ruolo: "tars",
-        contenuto: risoluzione.domanda,
-        payload: { statoOperativo, chiarificazione: true, runId },
-      });
-      await registraRun({
-        sedeId: contesto.sedeId,
-        utenteId: contesto.utenteId,
-        conversazioneId,
-        stato: "ok",
-        provider: "resolver-deterministico",
-        modello: config.modello,
-        versioni: { prompt: PROMPT_VERSIONE, profilo: PROFILO_VERSIONE },
-        contatori: { modelCallEvitate: 1, chiarificazioni: 1 },
-        errore: null,
-      });
-      return {
-        runId,
-        conversazioneId,
-        stato: "ok",
-        testo: risoluzione.domanda,
-        evidenze: [],
-        strumentiUsati: [],
-        azioni: [],
-        omissioni: [],
-        uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
-        cache: { c0Hit: false, c1Hit: 0, c1Miss: 0 },
-        versioni: {
-          prompt: PROMPT_VERSIONE,
-          profilo: PROFILO_VERSIONE,
-          modello: config.modello,
-        },
-        statoOperativo,
-      };
-    }
+    return rispostaResolver(
+      risoluzione.domanda,
+      derivaStatoOperativo({ azioni: [], chiarificazione: true }),
+      { chiarificazioni: 1 }
+    );
+  } else if (codiceEsplicito && risoluzione.stato === "non_trovato") {
+    contestoConversazione = await salvaContestoConversazione({
+      conversazioneId,
+      sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
+      versioneAttesa: contestoConversazione.versione,
+      patch: {
+        commessaId: null,
+        clienteId: null,
+        comunicazioneId: null,
+        allegatoIndex: null,
+        superficie: "commessa",
+        versioniEntita: {},
+        chiarificazionePendente: null,
+      },
+    });
+    return rispostaResolver(
+      `Non trovo la commessa ${codiceEsplicito} in questa sede. Nessuna azione eseguita.`,
+      { stato: "Non eseguito", fonte: "resolver", motivo: "commessa non trovata" },
+      { riferimentiNonTrovati: 1 }
+    );
+  } else if (usaRisoluzione && risoluzione.stato === "unico") {
+    await selezionaCommessa(risoluzione.candidato.commessaId);
   }
   contesto = applicaContestoConversazioneAlRun(
     contesto,
@@ -803,7 +857,17 @@ export async function eseguiRun(input: {
       if (!strumento) {
         esitoTesto = `ERRORE: strumento «${chiamata.nome}» non presente nel profilo autorizzato.`;
       } else {
-        const chiaveC1 = `${strumento.nome}@${strumento.versione}:${chiamata.argomenti}`;
+        const scopeMaterializzazione = strumento.materializzaInput
+          ? JSON.stringify({
+              commessaId: contesto.contestoConversazione?.commessaId ?? null,
+              clienteId: contesto.contestoConversazione?.clienteId ?? null,
+              comunicazioneId:
+                contesto.contestoConversazione?.comunicazioneId ?? null,
+              allegatoIndex:
+                contesto.contestoConversazione?.allegatoIndex ?? null,
+            })
+          : "esplicito";
+        const chiaveC1 = `${strumento.nome}@${strumento.versione}:${scopeMaterializzazione}:${chiamata.argomenti}`;
         const inCache = cacheC1.get(chiaveC1);
         if (inCache != null) {
           c1Hit += 1;
@@ -820,65 +884,74 @@ export async function eseguiRun(input: {
                 `FORBIDDEN: strumento «${strumento.nome}» fuori registro.`
               );
             }
-            const prenotazione = await prenotaEsecuzioneR1({
-              descrittore,
-              contesto,
-              runId,
-              argomenti: validati,
-            });
-            if (prenotazione.tipo === "incerta") {
-              throw new Error(
-                "ESECUZIONE_INCERTA: esiste già una reservation senza esito certo; il tool non viene rieseguito. Verificare l'audit prima di riprovare."
-              );
-            }
-
             let esito: unknown;
-            if (prenotazione.tipo === "riusa") {
-              esito = prenotazione.esito;
+            const preparazione = strumento.materializzaInput
+              ? await strumento.materializzaInput(contesto, validati)
+              : { tipo: "input" as const, input: validati };
+            if (preparazione.tipo === "esito") {
+              esito = preparazione.esito;
             } else {
-              try {
-                esito = await strumento.esegui(contesto, validati);
-                descrittore.schemaRisultato.parse(esito);
-              } catch (errore) {
-                if (prenotazione.tipo === "esegui") {
-                  try {
-                    await segnaEsecuzioneR1Incerta({
-                      idempotencyKey: prenotazione.idempotencyKey,
-                      motivo: "errore durante l'esecuzione o la validazione dell'esito",
-                    });
-                  } catch (erroreLedger) {
-                    console.error(
-                      "[tars] reservation R1 non marcabile come incerta:",
-                      erroreLedger
-                    );
-                  }
-                }
-                throw errore;
+              // Il hook riceve già input validato e può allegare metadati
+              // server-only non enumerabili per la rilettura pre-effetto.
+              const inputMaterializzato = preparazione.input;
+              const prenotazione = await prenotaEsecuzioneR1({
+                descrittore,
+                contesto,
+                runId,
+                argomenti: inputMaterializzato,
+              });
+              if (prenotazione.tipo === "incerta") {
+                throw new Error(
+                  "ESECUZIONE_INCERTA: esiste già una reservation senza esito certo; il tool non viene rieseguito. Verificare l'audit prima di riprovare."
+                );
               }
-              if (
-                prenotazione.tipo === "esegui" &&
-                (esito as EsitoAzione)?.tipo === "azione"
-              ) {
+              if (prenotazione.tipo === "riusa") {
+                esito = prenotazione.esito;
+              } else {
                 try {
-                  await concludiEsecuzioneR1({
-                    idempotencyKey: prenotazione.idempotencyKey,
-                    esito: esito as EsitoAzione,
-                  });
+                  esito = await strumento.esegui(contesto, inputMaterializzato);
+                  descrittore.schemaRisultato.parse(esito);
                 } catch (errore) {
+                  if (prenotazione.tipo === "esegui") {
+                    try {
+                      await segnaEsecuzioneR1Incerta({
+                        idempotencyKey: prenotazione.idempotencyKey,
+                        motivo: "errore durante l'esecuzione o la validazione dell'esito",
+                      });
+                    } catch (erroreLedger) {
+                      console.error(
+                        "[tars] reservation R1 non marcabile come incerta:",
+                        erroreLedger
+                      );
+                    }
+                  }
+                  throw errore;
+                }
+                if (
+                  prenotazione.tipo === "esegui" &&
+                  (esito as EsitoAzione)?.tipo === "azione"
+                ) {
                   try {
-                    await segnaEsecuzioneR1Incerta({
+                    await concludiEsecuzioneR1({
                       idempotencyKey: prenotazione.idempotencyKey,
-                      motivo: "esito del tool prodotto ma settle non confermato",
+                      esito: esito as EsitoAzione,
                     });
-                  } catch (erroreLedger) {
-                    console.error(
-                      "[tars] settle R1 fallito; reservation resta bloccante:",
-                      erroreLedger
+                  } catch (errore) {
+                    try {
+                      await segnaEsecuzioneR1Incerta({
+                        idempotencyKey: prenotazione.idempotencyKey,
+                        motivo: "esito del tool prodotto ma settle non confermato",
+                      });
+                    } catch (erroreLedger) {
+                      console.error(
+                        "[tars] settle R1 fallito; reservation resta bloccante:",
+                        erroreLedger
+                      );
+                    }
+                    throw new Error(
+                      "ESECUZIONE_INCERTA: l'effetto può essere avvenuto ma il ledger non ha confermato il settle; il retry è bloccato."
                     );
                   }
-                  throw new Error(
-                    "ESECUZIONE_INCERTA: l'effetto può essere avvenuto ma il ledger non ha confermato il settle; il retry è bloccato."
-                  );
                 }
               }
             }
@@ -887,32 +960,6 @@ export async function eseguiRun(input: {
               evidenze.push(...(esito as any).evidenze);
               for (const o of (esito as any).omissioni ?? []) omissioni.add(o);
             }
-            try {
-              contestoConversazione = await aggiornaContestoDaEsitoTool({
-                conversazioneId: conversazioneId!,
-                sedeId: contesto.sedeId,
-                utenteId: contesto.utenteId,
-                versioneAttesa: contestoConversazione.versione,
-                strumento: strumento.nome,
-                esito,
-              });
-              contesto = applicaContestoConversazioneAlRun(
-                contesto,
-                contestoConversazione
-              );
-            } catch (errore) {
-              if (errore instanceof VersioneContestoConversazioneObsoleta) {
-                omissioni.add(
-                  "contesto conversazionale non aggiornato: versione cambiata da un altro run"
-                );
-              } else {
-                throw errore;
-              }
-            }
-            Object.assign(
-              versioniOsservate,
-              (esito as any)?.versioniEntita ?? {}
-            );
             if ((esito as EsitoAzione)?.tipo === "azione") {
               const azione = esito as EsitoAzione;
               azioni.push({
@@ -928,6 +975,35 @@ export async function eseguiRun(input: {
                   azione.evidenze[0]?.descrizione ?? azione.strumento,
               });
             }
+            try {
+              contestoConversazione = await aggiornaContestoDaEsitoTool({
+                conversazioneId: conversazioneId!,
+                sedeId: contesto.sedeId,
+                utenteId: contesto.utenteId,
+                versioneAttesa: contestoConversazione.versione,
+                strumento: strumento.nome,
+                esito,
+              });
+              contesto = applicaContestoConversazioneAlRun(
+                contesto,
+                contestoConversazione
+              );
+            } catch (errore) {
+              const motivo = errore instanceof VersioneContestoConversazioneObsoleta
+                ? "versione cambiata da un altro run"
+                : "persistenza temporaneamente non disponibile";
+              omissioni.add(
+                `contesto conversazionale non aggiornato: ${motivo}`
+              );
+              console.error(
+                "[tars] apprendimento contesto isolato dall'esito tool:",
+                sanifica(errore)
+              );
+            }
+            Object.assign(
+              versioniOsservate,
+              (esito as any)?.versioniEntita ?? {}
+            );
             esitoTesto = JSON.stringify(esito);
           } catch (errore) {
             esitoTesto = `ERRORE: ${sanifica(errore)}`;
@@ -985,7 +1061,10 @@ export async function eseguiRun(input: {
     for (const [chiave, voce] of cacheC0) {
       if (voce.scade <= adesso) cacheC0.delete(chiave);
     }
-    cacheC0.set(chiaveC0Corrente, {
+    // Il contesto può essere cambiato da una lettura nello stesso run: la
+    // risposta va indicizzata soltanto sotto il fingerprint finale.
+    const chiaveC0Finale = chiaveC0(contesto, input.messaggio, improntaStoria);
+    cacheC0.set(chiaveC0Finale, {
       risposta: finale,
       scade: adesso + C0_TTL_MS,
       versioni: versioniOsservate,

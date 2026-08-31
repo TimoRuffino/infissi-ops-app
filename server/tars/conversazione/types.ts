@@ -1,4 +1,5 @@
-import type { SuperficieTars } from "../strumenti/tipi";
+import { z } from "zod";
+import { SUPERFICI_TARS, type SuperficieTars } from "../strumenti/tipi";
 
 export type CandidatoChiarificazioneCommessa = {
   commessaId: number;
@@ -8,10 +9,53 @@ export type CandidatoChiarificazioneCommessa = {
 
 export type ChiarificazionePendente = {
   tipo: "commessa";
-  riferimento: string;
-  domanda: string;
   candidati: CandidatoChiarificazioneCommessa[];
 };
+
+const schemaCandidatoChiarificazione = z.object({
+  commessaId: z.number().int().positive(),
+  codice: z.string().min(1).max(80),
+  cliente: z.string().min(1).max(200),
+}).strict();
+
+/** Schema completo del JSONB persistito; un payload parzialmente rotto è scartato. */
+export const schemaContestoConversazionePersistito = z.object({
+  commessaId: z.number().int().positive().nullable(),
+  clienteId: z.number().int().positive().nullable(),
+  comunicazioneId: z.number().int().positive().nullable(),
+  allegatoIndex: z.number().int().nonnegative().nullable(),
+  superficie: z.enum(SUPERFICI_TARS).nullable(),
+  versioniEntita: z.record(z.string().min(1), z.string()),
+  chiarificazionePendente: z.object({
+    tipo: z.literal("commessa"),
+    candidati: z.array(schemaCandidatoChiarificazione).min(2).max(4),
+  }).strict().nullable(),
+}).strict();
+
+/** Backfill mirato della sola forma T2 iniziale; non tollera altri payload. */
+export function analizzaContestoConversazionePersistito(valore: unknown) {
+  const diretto = schemaContestoConversazionePersistito.safeParse(valore);
+  if (diretto.success) return diretto;
+  if (!valore || typeof valore !== "object" || Array.isArray(valore)) {
+    return diretto;
+  }
+  const oggetto = valore as Record<string, unknown>;
+  const pendente = oggetto.chiarificazionePendente;
+  if (!pendente || typeof pendente !== "object" || Array.isArray(pendente)) {
+    return diretto;
+  }
+  const legacy = pendente as Record<string, unknown>;
+  if (legacy.tipo !== "commessa" || !Array.isArray(legacy.candidati)) {
+    return diretto;
+  }
+  return schemaContestoConversazionePersistito.safeParse({
+    ...oggetto,
+    chiarificazionePendente: {
+      tipo: "commessa",
+      candidati: legacy.candidati,
+    },
+  });
+}
 
 /**
  * Hint conversazionale persistente. Non contiene capability e non concede
@@ -58,4 +102,13 @@ export function contestoConversazioneVuoto(): ContestoConversazione {
     chiarificazionePendente: null,
     versione: 0,
   };
+}
+
+export function domandaChiarificazioneCommessa(
+  candidati: readonly CandidatoChiarificazioneCommessa[]
+): string {
+  const opzioni = candidati
+    .slice(0, 4)
+    .map(c => `${c.codice} — ${c.cliente}`);
+  return `Quale intendi: ${opzioni.join(" oppure ")}?`;
 }

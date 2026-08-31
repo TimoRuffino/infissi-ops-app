@@ -1568,6 +1568,45 @@ Maccari (email/allegato→match certo→fascicolo→gate→transizione adiacente
 audit/Undo, e promemoria idempotente) e tutti e tre i livelli proattivi. Oggi
 ci sono due detector L1 solo shadow; L2 e L3 restano lavoro esplicito.
 
+## 11-vicies. Tars — T2 contesto conversazionale persistente (31/08/2026)
+
+Le conversazioni Tars hanno ora un contesto JSONB additivo con versione
+ottimistica: commessa, cliente, comunicazione/allegato, superficie, versioni
+entità e candidati di una chiarificazione. Lo schema completo è in
+`server/tars/conversazione/types.ts`; il DDL idempotente e il fallback memoria
+sono in `server/tars/archivio.ts`. La forma iniziale della chiarificazione
+viene backfillata eliminando domanda e testo utente grezzo; payload diversi o
+malformati vengono scartati in blocco.
+
+Il contesto è un hint sede/utente-scoped, mai una capability. Ogni riferimento
+è riletto: comunicazioni e allegati derivano autorevolmente commessa/cliente,
+gli invisibili sono omessi e la commessa porta stato per-campo
+`assente | verificato | stale`. Il resolver usa il parser canonico dei codici
+(`COM 2026 35`, `com_2026_035`, `COM-2026-035`), non usa forme societarie come
+evidenza e produce soltanto `unico | ambiguo | non_trovato`. L'ambiguità chiede
+sempre una sola domanda server-side e la risposta successiva non può uscire
+dai candidati persistiti; un codice esplicito non trovato ferma il provider e
+azzera il vecchio riferimento.
+
+L'orchestratore carica il contesto prima del profilo e include la sua impronta
+in C0/C2. C0 viene scritto sotto l'impronta finale se una lettura cambia il
+contesto durante il run. Il catalogo con commessa attiva è contestuale. Il
+backend restituisce il campo opzionale `statoOperativo`, derivato dagli esiti
+reali con precedenza fail-closed: `Fatto | Preparato | Da confermare |
+Non eseguito | Bloccato`. Il contratto prompt corrente è l'immutabile
+`server/tars/prompt/v5.ts`; v4 non è stato riscritto.
+
+Per `crea_promemoria`, l'hook tipizzato `materializzaInput` risolve e verifica
+commessa/cliente prima della chiave R1 e della reservation. Tool e validazione
+del riuso settled ricevono lo stesso input materializzato. Le richieste legacy
+senza collegamenti mantengono la canonical key byte-identica. Dopo un effetto
+settled, un guasto del solo apprendimento contesto viene registrato come
+omissione e non può nascondere l'azione riuscita né renderla ritentabile.
+
+Contratti API compatibili: `tars.stato` continua ad accettare nessun input e
+può ricevere opzionalmente `conversazioneId`; `contestoAttivo` e
+`statoOperativo` sono campi additivi. Nessuna modifica UI è inclusa in T2.
+
 ## 11-septdecies. Tars v2 — potenziamento approvato (30/08/2026)
 
 Indirizzo della direzione: «Tars va reso potente, non preoccuparti dei

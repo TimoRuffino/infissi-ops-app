@@ -217,13 +217,14 @@ describe("tars T3 — C0 v2 con versioni di entità", () => {
     const contesto = await costruisciContesto(contestoTrpc());
     let chiamateProvider = 0;
     const copione = () =>
-      creaProviderFinto((_richiesta, passo) => {
+      creaProviderFinto(() => {
         chiamateProvider += 1;
-        return passo === 0
-          ? chiamataTool("leggi_commessa", { commessaId: commessa.id })
-          : rispostaTesto("Stato letto.");
+        return rispostaTesto("Stato letto.");
       });
-    const messaggio = `Com'è messa la commessa ${commessa.id}?`;
+    // Il riferimento canonico fa sì che entrambe le conversazioni partano
+    // dallo stesso contesto verificato; un id numerico non è un riferimento
+    // commessa e non deve ereditare il fingerprint appreso da un altro run.
+    const messaggio = `Com'è messa la commessa ${commessa.codice}?`;
 
     const prima = await eseguiRun({ contesto, provider: copione(), messaggio });
     expect(prima.cache.c0Hit).toBe(false);
