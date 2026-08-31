@@ -53,6 +53,21 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/mode="read-external"/);
   });
 
+  it("compone il roster squadre con header e superfici del sistema", () => {
+    const source = routeSource("../pages/SquadreList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Il roster vive in una card senza logica autorizzativa.
+    expect(source).toMatch(/<SquadraRosterCard/);
+    // La gestione resta direzione-only, specchio UX di `adminProcedure`.
+    expect(source).toMatch(/isDirezione\(user\)/);
+    // Chi non è direzione legge il roster: niente permission-state sulla lista.
+    expect(source).toMatch(/Gestione squadre riservata alla direzione\./);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

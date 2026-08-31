@@ -51,6 +51,17 @@ describe("planningPermissions", () => {
     });
   });
 
+  // Route Squadre: un set vuoto è una risposta del server, non un caricamento.
+  // Nessuna capability di gestione non deve mai nascondere una lettura che il
+  // router concede a ogni utente autenticato (`squadre.list`).
+  it("mantiene la lettura Planning disponibile senza capability di gestione", () => {
+    expect(planningPermissions(new Set())).toEqual({
+      canPlan: false,
+      canAssign: false,
+      canDelete: false,
+    });
+  });
+
   it("separa pianificazione, assegnazione e cancellazione", () => {
     expect(planningPermissions(new Set(["intervento.plan"]))).toEqual({
       canPlan: true,
