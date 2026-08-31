@@ -7,6 +7,13 @@
 > registrata qui prima del codice. Il prompt runtime NON è questo
 > documento: sarà compatto, versionato e valutato con eval.
 
+> **Riallineamento T0, 31/08/2026.** Questa è la specifica corrente del
+> runtime presente in `server/tars/`, non il registro della rimozione storica
+> del 28/08. La matrice verificata dominio→servizio→tool è
+> [`matrice-azioni-tars.md`](matrice-azioni-tars.md); conserva con precisione
+> ciò che esiste, ciò che è solo proposta e ciò che manca. Nessuna voce
+> storica può essere usata per dedurre che il runtime corrente sia assente.
+
 ## 1. Identità e perimetro
 
 Tars è il cervello operativo di Ruffino Flow: comprende la situazione
@@ -181,6 +188,11 @@ il prompt caching.
 | Authz | `server/authz/` (capabilities, policy, enforcement, override) |
 | Kill switch | pattern `server/platform/interruttori.ts` (si estende il registro) |
 | Storage/limiti file | `fileStorage`, limiti e allowlist MIME esistenti |
+
+La ricognizione completa, inclusi router che non possono essere invocati dal
+modello e gap da estrarre in servizi canonici, è nella matrice T0. Questo
+inventario non autorizza a usare tRPC come scorciatoia: Tars entra solo da
+servizi di dominio tipizzati.
 
 Infrastruttura candidata (CLAUDE.md): `server/_core/llm.ts` è SUPERSEDED
 dal nuovo adapter (stile chat-completions generico, nessun consumer): non
@@ -746,3 +758,49 @@ ereditati.
    riporta la stima al prezzo pieno passava inosservata. La verifica
    ora isola la tariffa dal margine. È il motivo per cui il criterio
    di un test non è che passi, ma che fallisca quando deve.
+
+## 29. Riallineamento T0 — verità, guardrail e accettazione (31/08/2026)
+
+63. **Stato verificato, storia conservata.** La rimozione del 28/08 è un
+   registro storico, non la descrizione del presente: il runtime, i profili e
+   gli strumenti Tars sono nel repository. Il loro perimetro effettivo — non
+   promesse né cronologia — è la matrice delle azioni T0. Le righe `gap` sono
+   lavoro da realizzare, non capacità da dichiarare all'utente.
+64. **Quattro divieti strutturali.** Nessun tool Tars accetta `force`; non
+   esiste una chiamata tRPC dal modello; non esiste SQL generico né uno
+   strumento `executeSql`/`updateRecord`; nessun provider a pagamento nasce
+   fuori da `costi/providerGovernato.ts`. La presenza retrocompatibile di
+   `force` nel router `commesse.update` non è un'autorizzazione per Tars e non
+   potrà esserlo. Le mutate usano servizi canonici, controlli sede/capability,
+   idempotenza, audit e rilettura/versione server-side.
+65. **Mandato T0 documentale.** Questa tranche modifica esclusivamente
+   documentazione Tars e guardrail; non modifica alcun file `client/`. La
+   guardia del delta deve rifiutare `client/` prima della chiusura.
+66. **Accettazione Maccari vincolante.** Il test end-to-end da costruire usa il
+   comando «Analizza l'allegato dell'ultima email di Maccari. Se appartiene
+   alla commessa, archivialo nel fascicolo e, se non trovi problemi, passa la
+   commessa a misure esecutive.» Deve risolvere l'entità, trovare email e
+   allegato, analizzare e verificare appartenenza, archiviare/classificare,
+   controllare il gate e applicare solo una transizione adiacente R1/L2
+   consentita, con evidenze, audit e Undo. Esiti obbligatori: esecuzione
+   diretta solo con corrispondenza certa+gate valido; una sola domanda se
+   ambigua; nessuna scrittura critica se incoerente; archivio eventuale ma
+   niente transizione con gate invalido; `NOT_FOUND`/spiegazione minima senza
+   leak per capability assente. Oggi la catena completa non esiste: la
+   matrice la registra come gap, quindi questo è un criterio di accettazione,
+   non un risultato già ottenuto.
+67. **Regressione promemoria Maccari.** «Imposta un promemoria fra un'ora:
+   finanziamento Maccari» deve creare esattamente un promemoria personale,
+   collegato alla commessa risolta, senza proposta intermedia e senza
+   duplicati al retry. Lo strumento esistente soddisfa il contratto di
+   idempotenza; il test E2E completo con la risoluzione implicita resta parte
+   della regressione Maccari.
+68. **Tre livelli proattivi obbligatori.** L1 osserva la singola commessa con
+   evidenze, urgenza, confidenza, azione, fingerprint, stato e ultima
+   verifica; L2 espone pattern trasversali senza trasformare correlazioni in
+   causalità; L3 produce proposte di miglioramento strutturate da un
+   `SafeProductCatalog` autorizzato, senza repository, segreti, commit o
+   deploy. Oggi esistono solo due segnali L1 in shadow e telemetria del
+   rumore: L2 e L3, l'emissione persistente, l'auto-risoluzione e la relativa
+   suite sono gap espliciti. Il mandato non è completo finché tutti e tre non
+   sono implementati e testati.

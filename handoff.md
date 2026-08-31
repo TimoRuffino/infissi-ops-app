@@ -3,8 +3,8 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 28/08/2026<br>
-**Base Git descritta:** `main`, senza agente: Tars è stato rimosso il 28/08/2026<br>
+**Aggiornato:** 31/08/2026<br>
+**Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -30,7 +30,7 @@ pagine quando esiste già un token semantico.
 | Comunicazioni | tabella PostgreSQL `comunicazioni`, con fallback in memoria locale |
 | Azioni operative | tabelle PostgreSQL `azioni_operative` e `azioni_operative_eventi`, fallback in memoria locale |
 | File | driver `local` oppure object storage S3-compatible/R2 |
-| AI | nessuna: agente rimosso il 28/08/2026 (§6); ogni automatismo è deterministico |
+| AI | Tars v2 server-side, con provider governato e strumenti tipizzati; enforcement e automatismi business restano deterministici (§6) |
 | PDF | jsPDF/autotable client e server |
 
 ### Persistenza
@@ -52,8 +52,9 @@ WhatsApp non è compatibile con la riscrittura di un blob unico.
   lo scope della sede attiva.
 - Su mismatch di sede si risponde `NOT_FOUND`, non `FORBIDDEN`, per non
   rivelare l'esistenza di record di altre sedi.
-- Non c'è nessun agente AI. Ogni automatismo è deterministico: match, regole
-  e aritmetica. Tars è stato rimosso il 28/08/2026 (§6).
+- Tars v2 esiste, ma match, regole, aritmetica, state machine, permessi e gate
+  restano deterministici. Il modello non ha capability proprie, non usa tRPC,
+  SQL generico o `force`, e ogni provider reale passa dal governor (§6).
 - `importoIncassato` è derivato da `pagamenti[]` e non è scrivibile dal client.
 - Importi e nomi passano dagli helper in `client/src/lib`, senza parser locali.
 - Segreti e token non entrano nel repository né nei documenti.
@@ -661,14 +662,23 @@ forzare il recupero senza attendere il giro orario usare `Sincronizza ora` in
 Integrazioni, oppure `Riallinea dalle fatture` quando basta rileggere i
 documenti già scaricati.
 
-## 6. Tars — rimosso il 28/08/2026
+## 6. Tars — stato corrente e registro storico
 
-Tolto per intero su decisione della direzione: va rifatto da zero. Il racconto
-completo — cosa c'era, cosa è sopravvissuto, dove sono i dati e cosa resta da
-decidere — sta in [`docs/tars-rimosso-2026-08-28.md`](docs/tars-rimosso-2026-08-28.md).
-Qui il minimo che serve a chi tocca il codice adesso.
+Il runtime Tars v2 è presente in `server/tars/`: orchestratore, profili
+filtrati, strumenti L0-L3, memoria, briefing shadow e provider con governor.
+La fonte corrente per capacità, limiti e lavoro residuo è
+[`docs/tars/matrice-azioni-tars.md`](docs/tars/matrice-azioni-tars.md), con
+la specifica in `docs/tars/architettura-tars-v2.md`. I comandi del modello
+restano strumenti tipizzati: mai `force`, tRPC, SQL generico, provider fuori
+governor o bypass di sede/capability/state machine.
 
-**Il perimetro.** Via ~27.000 righe: loop, strumenti, prompt, proposte, chat,
+### 6.1 Registro storico della rimozione del 28/08/2026
+
+Il racconto seguente conserva la rimozione dell'agente precedente. Non è una
+fotografia del presente e non autorizza a cancellare il runtime v2. Il resoconto
+completo resta in [`docs/tars-rimosso-2026-08-28.md`](docs/tars-rimosso-2026-08-28.md).
+
+**Il perimetro allora rimosso.** Via ~27.000 righe: loop, strumenti, prompt, proposte, chat,
 Command Center `/tars`, smistamento, classificazione AI dei costi, planner,
 contesto, ricerca, autonomia, evals, audit processi ed esperimenti.
 
@@ -1542,6 +1552,22 @@ mordono, e la seconda ha richiesto di misurare il soffitto della stima
 SENZA margine, perché il margine 1,25 compensava per coincidenza il
 moltiplicatore 1,25 e mascherava il difetto.
 
+## 11-novodecies. Tars — T0 verità, contratti e guardrail (31/08/2026)
+
+Il repository è stato ricognito prima di qualsiasi tranche operativa. La
+matrice corrente è in `docs/tars/matrice-azioni-tars.md`: distingue i tool già
+presenti (letture, promemoria, Centro Azioni, DI limitata, proposta data
+consegna e memoria) dai percorsi CRM esistenti ma non esposti a Tars e dai gap.
+
+Invarianti registrati: nessun tool accetta `force`, il modello non invoca tRPC,
+non esistono SQL/raw mutation generiche né provider esterni al governor. T0 è
+solo documentazione server-side: il delta non contiene `client/`.
+
+Accettazione vincolante ma non ancora dichiarata implementata: regressione
+Maccari (email/allegato→match certo→fascicolo→gate→transizione adiacente con
+audit/Undo, e promemoria idempotente) e tutti e tre i livelli proattivi. Oggi
+ci sono due detector L1 solo shadow; L2 e L3 restano lavoro esplicito.
+
 ## 11-septdecies. Tars v2 — potenziamento approvato (30/08/2026)
 
 Indirizzo della direzione: «Tars va reso potente, non preoccuparti dei
@@ -1713,10 +1739,9 @@ CONCLUSO: restano i gate della direzione — (1) gate OpenAI
 2. Rotazione credenziali esterne e decisione sul purge Git history.
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
-5. Progettazione del nuovo agente: prima cosa deve fare, poi come. Le domande
-   aperte stanno in `docs/tars-rimosso-2026-08-28.md`; la visione approvata è
-   nel PRD §54 e la sequenza decisa (D1) nel dossier §11: prima contratti
-   dati/eventi, poi il workstream agente in parallelo agli altri domini.
+5. Potenziamento incrementale di Tars dalla matrice T0: prima servizi canonici
+   per la regressione Maccari, poi azioni per policy e i tre livelli
+   proattivi. Non usare la rimozione storica come roadmap del runtime corrente.
 6. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 7. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale

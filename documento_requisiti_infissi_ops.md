@@ -1,7 +1,13 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente dell'applicazione (28/08/2026).
-**Versione:** 5.24 - Tars v2 COSTRUITO e con tetto di spesa software (budget governor) su `feature/tars-v2` (mai in produzione: flag fail-closed spenti, provider finto, zero chiamate OpenAI): slice T1-T7 complete con test, T8 eval sintetica (`pnpm eval:tars` con soglie in CI) e T9 runbook di rollout (docs/runbooks/rollout-tars.md) PREPARATI — l'attivazione, il gate OpenAI, l'invio L4 e la semantica C5 restano decisioni della direzione; contratti vincolanti in docs/tars/architettura-tars-v2.md (§54 progetto attivo). Le sezioni sull'agente descrivono soltanto storia (§50), predisposizioni spente (§53) e progetto in corso (§54).
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (31/08/2026).
+**Versione:** 5.25 - Tars v2 è presente su `main` locale con runtime,
+strumenti tipizzati e budget governor. La verità T0 su azioni disponibili,
+gap e accettazione è in `docs/tars/matrice-azioni-tars.md` e
+`docs/tars/architettura-tars-v2.md`; la documentazione non deduce né attesta
+da sola lo stato di flag o provider in un ambiente esterno. §50 resta il
+registro storico della rimozione, §53 le compatibilità, §54 il progetto
+corrente.
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -34,7 +40,10 @@ Pilastri:
 - **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), promemoria personali (giro immediato e poi ogni 15 s), poller IMAP (ogni 5 minuti, più watcher IDLE) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
 - **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
-- **Nessun agente AI.** Tars è stato rimosso il 28/08/2026 e va rifatto da zero (§50). Ogni automatismo attuale è deterministico: match, regole e aritmetica, senza modelli.
+- **Tars v2 con confini deterministici.** Il runtime server esiste (§54), ma
+  match, regole, state machine, permessi, importi e scadenze restano
+  deterministici. Il modello non può aggirare servizi di dominio, sede,
+  capability, gate, audit o budget governor.
 
 ---
 
@@ -1665,11 +1674,12 @@ Registrate perché ognuna nasconde una regola da non violare di nuovo.
 
 ---
 
-## 50. Agente operativo — rimosso il 28/08/2026
+## 50. Registro storico — agente operativo rimosso il 28/08/2026
 
-Tars è stato **rimosso per intero** su richiesta della direzione: va rifatto da
-zero. Questa sezione non descrive più un sistema esistente; resta per dire
-cosa c'era, cosa è sopravvissuto e cosa il prossimo agente dovrà decidere.
+Questa sezione conserva fedelmente la rimozione dell'agente allora esistente.
+**Non descrive il presente:** dal 29/08 è nato Tars v2 e il runtime corrente è
+descritto in §54 e nella matrice T0. Il testo seguente resta per dire cosa fu
+tolto, cosa sopravvisse e quali decisioni erano aperte in quel momento.
 
 **Cosa è stato tolto.** Loop agentico, proposte con approvazione, chat,
 Command Center `/tars`, smistamento automatico di email e fatture,
@@ -1989,18 +1999,15 @@ user id o entity id come label metrica.
 
 ---
 
-## 54. Tars v2 — progetto ATTIVO (workstream avviato il 29/08/2026)
+## 54. Tars v2 — runtime corrente e potenziamento in corso
 
-> **AGGIORNAMENTO 29/08/2026**: con il merge della base (`84717e2`) e il
-> mandato Tars v2 della direzione, il workstream è PARTITO sul branch
-> `feature/tars-v2`. I contratti vincolanti (architettura a orchestratore
-> unico, OpenAI Responses API dietro adapter con DI e `store:false`,
-> livelli L0-L5 mappati sulle capability esistenti, riuso di gateway
-> proposte/reminders/eventi/Centro Azioni/DI, caching C0-C6, threat
-> model, modello dati, eval, kill switch `FLAG_TARS*` fail-closed, slice
-> T0-T9) sono in **`docs/tars/architettura-tars-v2.md`** (T0), che in
-> caso di divergenza prevale su questa sezione storica. Resta valido:
-> niente pezzi dell'agente nei router business.
+> **RIALLINEAMENTO T0 31/08/2026**: Tars v2 è nel checkout `main` con
+> orchestratore unico, strumenti L0-L3 limitati, cache, memoria, briefing
+> shadow e governor. I contratti vincolanti sono in
+> **`docs/tars/architettura-tars-v2.md`** e lo stato verificato
+> dominio→servizio→tool→gap in **`docs/tars/matrice-azioni-tars.md`**. In
+> caso di divergenza, prevalgono questi due documenti sul testo storico. Non
+> introdurre pezzi dell'agente nei router business.
 
 > Visione originaria approvata il 28/08/2026 (storia sotto). Il
 > workstream partiva solo dopo la stabilizzazione della verità (documenti,
@@ -2042,16 +2049,19 @@ rivenditore, non sostituisce i sistemi autorevoli altrui.
   inventa (`docs/source-of-truth-matrix.md`).
 
 ### 54.4 Sicurezza e governo
-- Proposta ≠ esecuzione: ogni modifica della verità business passa da un
-  approval gateway umano; l'autonomia è negata per default, qualificabile solo
-  per capability con soglie misurate (eval, accuratezza, undo, kill switch,
-  decisione della direzione) e revocabile all'istante.
+- La policy tipizzata decide il rischio: letture e preparazione non richiedono
+  conferma; un L1 esplicito personale può agire direttamente; un'azione
+  condivisa/esterna usa al massimo una anteprima immutabile e una conferma.
+  State machine, fonte autorevole, importi e approvazioni restano sempre
+  server-side. Nessuna proposta concede al modello il potere di approvare o
+  aggirare i gate.
 - Enforcement server-side, mai nel prompt: `sedeId`, ACL, `NOT_FOUND`
   cross-sede, budget, timeout, idempotenza, audit per run.
 - Email, WhatsApp, PDF e allegati sono dati non fidati: un prompt injection
   nel contenuto non può cambiare policy né eseguire azioni.
-- Comandi di dominio tipizzati che passano dalle stesse mutation
-  dell'applicazione: nessun accesso SQL, nessuna mutation generica.
+- Comandi di dominio tipizzati: mai `force`, mai tRPC invocato dal modello,
+  nessun accesso SQL, `executeSql`, `updateRecord` o mutation generica. Il
+  provider reale passa esclusivamente dal governor.
 - Rollout in shadow per sede, reversibile, con eval end-to-end prima di ogni
   autonomia; costi e budget osservabili per sede.
 
@@ -2062,6 +2072,24 @@ casi persistenti, dataset di eval. I residui conservati apposta (colonne
 una matrice campo→consumer e una decisione registrata. Le domande aperte e la
 storia della rimozione: `docs/tars-rimosso-2026-08-28.md`; la ricognizione:
 `docs/discovery-dossier-2026-08-28.md`.
+
+### 54.5-bis Accettazione T0 vincolante
+
+La regressione Maccari non è una demo: il comando «Analizza l'allegato
+dell'ultima email di Maccari. Se appartiene alla commessa, archivialo nel
+fascicolo e, se non trovi problemi, passa la commessa a misure esecutive» deve
+arrivare a evidenze, audit e Undo solo con match certo, gate valido e
+transizione adiacente consentita; con ambiguità chiede una sola scelta, con
+incoerenza non scrive criticamente, con gate invalido non transita e senza
+capability non rivela dati. Il promemoria «fra un'ora: finanziamento Maccari»
+deve essere unico, diretto e idempotente. La catena completa è ancora un gap
+registrato nella matrice: nessuna frase di questo PRD la dichiara esistente.
+
+I tre livelli proattivi sono tutti criteri di completamento: osservazione
+singola con evidenze/fingerprint/stato; pattern aziendali descritti come
+correlazioni; proposte strutturate di miglioramento da un SafeProductCatalog
+senza accesso a repository o segreti. Nel codice corrente solo due detector
+L1 lavorano in shadow; L2 e L3 non sono implementati.
 
 ### 54.6 Document Intelligence — comprensione dei documenti
 
