@@ -74,7 +74,7 @@ function ReaderSkeleton({
           <Button
             size="icon"
             variant="ghost"
-            className="-ml-2 size-10"
+            className="-ml-2 size-11"
             onClick={onBack}
             aria-label="Torna all'elenco"
           >
@@ -413,9 +413,8 @@ export default function EmailMessageReader({
                   </span>
                 </Link>
                 <Button
-                  size="sm"
                   variant="ghost"
-                  className="h-10 text-xs"
+                  className="min-h-11 text-xs"
                   disabled={linkMessage.isPending}
                   onClick={() =>
                     linkMessage.mutate({
@@ -443,9 +442,8 @@ export default function EmailMessageReader({
                   </span>
                 </Link>
                 <Button
-                  size="sm"
                   variant="ghost"
-                  className="h-10 text-xs"
+                  className="min-h-11 text-xs"
                   disabled={linkMessage.isPending}
                   onClick={() =>
                     linkMessage.mutate({
@@ -471,9 +469,8 @@ export default function EmailMessageReader({
               aria-label="Tipo di collegamento"
             >
               <Button
-                size="sm"
                 variant={linkKind === "cliente" ? "secondary" : "ghost"}
-                className="h-10"
+                className="min-h-11"
                 onClick={() => {
                   setLinkKind("cliente");
                   setSelectedLink(null);
@@ -482,9 +479,8 @@ export default function EmailMessageReader({
                 Cliente
               </Button>
               <Button
-                size="sm"
                 variant={linkKind === "commessa" ? "secondary" : "ghost"}
-                className="h-10"
+                className="min-h-11"
                 onClick={() => {
                   setLinkKind("commessa");
                   setSelectedLink(null);
@@ -521,7 +517,7 @@ export default function EmailMessageReader({
                 />
               </div>
               <Button
-                className="h-10 shrink-0"
+                className="min-h-11 shrink-0"
                 disabled={!selectedLink || linkMessage.isPending}
                 onClick={() =>
                   linkMessage.mutate({

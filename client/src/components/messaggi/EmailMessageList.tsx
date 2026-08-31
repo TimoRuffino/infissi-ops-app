@@ -148,7 +148,7 @@ function MessageRow({
       )}
       <label
         htmlFor={`email-select-${message.id}`}
-        className="ml-1 mt-2 grid size-10 shrink-0 cursor-pointer place-items-center"
+        className="ml-1 mt-1.5 grid size-11 shrink-0 cursor-pointer place-items-center"
       >
         <span className="sr-only">
           Seleziona email {message.oggetto || "senza oggetto"}
@@ -261,7 +261,7 @@ function BulkToolbar({
 }) {
   return (
     <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2 px-2">
-      <label className="grid size-10 shrink-0 cursor-pointer place-items-center">
+      <label className="grid size-11 shrink-0 cursor-pointer place-items-center">
         <span className="sr-only">Seleziona tutte le email della pagina</span>
         <Checkbox
           checked={allSelected}
@@ -278,7 +278,7 @@ function BulkToolbar({
           <Button
             size="icon"
             variant="ghost"
-            className="size-10"
+            className="size-11"
             disabled={disabled}
             onClick={onClose}
             aria-label="Chiudi email selezionate"
@@ -289,7 +289,7 @@ function BulkToolbar({
           <Button
             size="icon"
             variant="ghost"
-            className="size-10"
+            className="size-11"
             disabled={disabled}
             onClick={onNewsletter}
             aria-label="Segna le email selezionate come newsletter"
@@ -300,7 +300,7 @@ function BulkToolbar({
           <Button
             size="icon"
             variant="dangerGhost"
-            className="size-10"
+            className="size-11"
             disabled={disabled}
             onClick={onSpam}
             aria-label="Segna le email selezionate come spam"

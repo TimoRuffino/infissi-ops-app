@@ -164,6 +164,9 @@ export default function WhatsAppPage() {
     window.setTimeout(() => setSelectedKey(selectedFromLocation()), 0);
   };
   const showList = !mobile || selectedKey == null;
+  // La terza traccia esiste solo quando c'è davvero un inspector da metterci:
+  // senza conversazione aperta il workspace resta a due colonne piene.
+  const inspectorInline = selectedConversation != null && wide;
   const invalidLink = selectedKey != null && selectedKeyParts == null;
   const selectionError = invalidLink
     ? "Il link alla conversazione non è valido: l'identificativo non ha il formato atteso."
@@ -223,8 +226,10 @@ export default function WhatsAppPage() {
         aria-label="Workspace WhatsApp"
         className={cn(
           "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface",
+          showList && "lg:grid-cols-[minmax(17rem,0.9fr)_minmax(0,1.7fr)]",
           showList &&
-            "lg:grid-cols-[minmax(17rem,0.9fr)_minmax(0,1.7fr)] xl:grid-cols-[minmax(17rem,0.85fr)_minmax(0,1.6fr)_minmax(17rem,0.85fr)]"
+            inspectorInline &&
+            "xl:grid-cols-[minmax(17rem,0.85fr)_minmax(0,1.6fr)_minmax(17rem,0.85fr)]"
         )}
       >
         {showList && (
@@ -316,7 +321,7 @@ export default function WhatsAppPage() {
           </div>
         )}
 
-        {selectedConversation && wide && (
+        {inspectorInline && selectedConversation && (
           <div className="hidden min-h-0 min-w-0 border-l border-border-soft xl:block">
             <WhatsAppContextPanel
               conversation={selectedConversation}
