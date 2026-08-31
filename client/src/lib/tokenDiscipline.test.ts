@@ -233,6 +233,37 @@ describe("disciplina dei token applicativi", () => {
       `Gradienti fuori da DataSurface (usa tone=\"focal\" oppure una superficie piatta):\n${violazioni.join("\n")}`
     ).toEqual([]);
   });
+
+  it("non introduce deroghe hex per le route operative", () => {
+    // client/src/components/planning, .../squadre e .../magazzino non
+    // esistono ancora: le route della slice li creeranno. La scansione
+    // ricorsiva sopra parte da RADICE_CLIENT e li coprirà automaticamente
+    // non appena i task successivi li popoleranno, senza bisogno di
+    // elencarli qui: readdirSync itera solo le cartelle che esistono, quindi
+    // la loro assenza oggi non fa fallire nulla. Questo test blocca
+    // eventuali future deroghe hex per i loro componenti noti.
+    expect(DEROGHE_HEX).not.toContain(
+      join("client", "src", "components", "planning", "PlanningAgenda.tsx")
+    );
+    expect(DEROGHE_HEX).not.toContain(
+      join(
+        "client",
+        "src",
+        "components",
+        "squadre",
+        "SquadraRosterCard.tsx"
+      )
+    );
+    expect(DEROGHE_HEX).not.toContain(
+      join(
+        "client",
+        "src",
+        "components",
+        "magazzino",
+        "ConsegneAgenda.tsx"
+      )
+    );
+  });
 });
 
 describe("contratto dei pattern Modular Control", () => {
