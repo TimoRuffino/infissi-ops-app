@@ -1,52 +1,51 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle, Home } from "lucide-react";
+// Fallback delle route non riconosciute (`/404` e `*`).
+//
+// Vive dentro la shell autenticata: il landmark `main` è di ShellWorkspace,
+// qui restano soltanto l'intestazione della pagina e uno stato esplicito.
+// Nessuna card marketing, nessun gradiente: è un errore operativo, e dice
+// cosa è successo e come rientrare.
+
+import { Home } from "lucide-react";
 import { useLocation } from "wouter";
 
-export default function NotFound() {
-  const [, setLocation] = useLocation();
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
+import { Button } from "@/components/ui/button";
 
-  const handleGoHome = () => {
-    setLocation("/");
-  };
+export default function NotFound() {
+  const [location, setLocation] = useLocation();
+
+  // Solo il percorso: la query di un deep link può portare id, filtri o token
+  // e non ha motivo di comparire in una schermata di errore.
+  const percorso = location.split("?")[0].split("#")[0];
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-surface-2">
-      <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-card/90 backdrop-blur-sm">
-        <CardContent className="pt-8 pb-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-danger-soft rounded-full" />
-              <AlertCircle className="relative h-16 w-16 text-danger" />
-            </div>
-          </div>
+    <div className="mx-auto w-full min-w-0 max-w-3xl space-y-5">
+      <PageHeader
+        eyebrow="Errore 404"
+        title="Pagina non trovata"
+        description="L'indirizzo richiesto non corrisponde a nessuna sezione del gestionale. Di solito è un segnalibro vecchio, un link troncato o un refuso."
+        metadata={
+          <span className="codice-mono min-w-0 break-all">{percorso}</span>
+        }
+      />
 
-          <h1 className="text-4xl font-bold text-text-1 mb-2">404</h1>
-
-          <h2 className="text-xl font-semibold text-text-2 mb-4">
-            Page Not Found
-          </h2>
-
-          <p className="text-text-2 mb-8 leading-relaxed">
-            Sorry, the page you are looking for doesn't exist.
-            <br />
-            It may have been moved or deleted.
-          </p>
-
-          <div
-            id="not-found-button-group"
-            className="flex flex-col sm:flex-row gap-3 justify-center"
-          >
-            <Button
-              onClick={handleGoHome}
-              className="bg-primary hover:opacity-90 text-primary-foreground px-6 py-2.5 rounded-lg transition-all duration-200 shadow-sm"
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Go Home
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        state={{
+          kind: "unavailable",
+          title: "Nessuna sezione a questo indirizzo",
+          description:
+            "Il tuo accesso non è cambiato e nessun dato è stato toccato. Torna alla dashboard e riparti dalla navigazione, oppure controlla il link che hai seguito.",
+          action: (
+            <Button className="min-h-11" onClick={() => setLocation("/")}>
+              <Home className="size-4" aria-hidden="true" />
+              Torna alla dashboard
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+          ),
+        }}
+      />
     </div>
   );
 }

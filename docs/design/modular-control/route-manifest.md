@@ -40,14 +40,40 @@ dalle procedure reali.
 | /conoscenza                                        | guarded · Conoscenza                    | RequireDirezione                 | protected + requireDirezione + sede scope   | direzione                                                                    | hidden hub route | standard  | 04 · evidence/support-admin/conoscenza-1440x900-light.png                 | planned  |
 | /integrazioni                                      | page · Integrazioni                     | panels capability/role-shaped    | integration routers + server role checks    | procedure-specific                                                           | primary          | workbench | 04 · evidence/support-admin/integrazioni-1440x900-light.png               | planned  |
 | /tars                                              | page · Tars                             | tars.use + FLAG_TARS             | tarsRouter + procedureConInterruttore(tars) | effective tars.use; FLAG_TARS; tool-specific capabilities                    | primary          | workbench | 02 · evidence/golden/tars-degraded-1440x900-light.png                     | planned  |
-| /404                                               | page · NotFound                         | none                             | none                                        | none                                                                         | hidden           | fallback  | 04 · evidence/support-admin/not-found-1440x900-light.png                  | planned  |
-| \*                                                 | fallback · NotFound                     | none                             | none                                        | none                                                                         | fallback         | fallback  | 04 · evidence/support-admin/not-found-fallback-1440x900-light.png         | planned  |
+| /404                                               | page · NotFound                         | authenticated shell              | none                                        | none                                                                         | hidden           | fallback  | 04 · evidence/support-admin/not-found-1440x900-light.png                  | planned  |
+| \*                                                 | fallback · NotFound                     | authenticated shell              | none                                        | none                                                                         | fallback         | fallback  | 04 · evidence/support-admin/not-found-fallback-1440x900-light.png         | planned  |
+| (nessuna) · boundary autenticazione                | esclusa · LoginPage                     | DashboardLayout senza principal  | auth.login (procedura pubblica esistente)   | none                                                                         | fuori shell      | fuori shell | 04 · esclusione motivata, nessuna prova visiva richiesta                 | esclusa  |
 
 ## Stato e aggiornamento
 
 - planned: la route mantiene comportamento corrente e attende la propria slice.
 - redirect: superficie intenzionalmente priva di pagina; helper e target sono testati.
 - migrata: utilizzabile soltanto dopo implementazione e prova browser registrata.
+- esclusa: superficie deliberatamente fuori dalla migrazione, con motivazione
+  registrata qui sotto.
+
+## Esclusione motivata: il confine di autenticazione
+
+`LoginPage` non è una route Wouter: `DashboardLayout` la rende quando non c'è
+un principal, prima di scegliere fra renderer Modular Control e legacy. Resta
+fuori dalla migrazione per due ragioni vincolanti.
+
+1. `platform.interruttori` è una procedura protetta: prima dell'accesso il
+   client non può conoscere `FLAG_UI_V2`. Rendere pubblico il flag cambierebbe
+   un contratto server per una scelta di stile.
+2. Applicare comunque il marker del sistema visivo renderebbe il login
+   indipendente dal flag e toglierebbe il rollback a una sola superficie: con
+   il flag spento tutto il resto tornerebbe legacy tranne l'accesso.
+
+Il login resta quindi invariato per markup, form, query ed esito. La guardia è
+strutturale in `client/src/lib/navigation.test.ts` (`confine di
+autenticazione`): la pagina non legge ambiente o flag protetti, usa soltanto
+`auth.login` e non applica il marker del sistema visivo.
+
+Il fallback `/404` e la route catch-all restano `planned` finché la prova
+browser non è registrata: il codice è già nella grammatica Modular Control
+(`PageHeader` + `DataSurface`/`StatePanel`), ma lo stato del manifest lo
+promuove solo l'evidenza visiva.
 
 Il manifest deve restare uno-a-uno con APP_ROUTE_CONTRACT e App.tsx. Cambiare
 una route richiede aggiornamento nello stesso commit; migrare una pagina non

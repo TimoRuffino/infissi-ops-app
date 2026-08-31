@@ -62,6 +62,64 @@ describe("produzioneRedirect", () => {
     expect(produzioneRedirect("/produzione")).toBe("/kanban");
     expect(produzioneRedirect("/produzione?tab=bom")).toBe("/kanban");
     expect(produzioneRedirect("/produzione/qualcosa")).toBe("/kanban");
+    expect(produzioneRedirect("/produzione/stato?tab=bom")).toBe("/kanban");
+  });
+});
+
+describe("fallback 404 autenticato", () => {
+  const sorgente = readFileSync(
+    resolve(process.cwd(), "client/src/pages/NotFound.tsx"),
+    "utf8"
+  );
+
+  it("parla italiano e offre un rientro operativo", () => {
+    expect(sorgente).toContain("Pagina non trovata");
+    expect(sorgente).toContain("Torna alla dashboard");
+    expect(sorgente).not.toContain("Page Not Found");
+    expect(sorgente).not.toContain("Sorry");
+    expect(sorgente).not.toContain("Go Home");
+  });
+
+  it("usa una superficie operativa, non una card marketing", () => {
+    expect(sorgente).not.toContain("gradient-page");
+    expect(sorgente).not.toContain("backdrop-blur");
+    expect(sorgente).not.toContain("min-h-screen");
+    // Il landmark `main` è della shell (ShellWorkspace, `#contenuto-principale`):
+    // il fallback vive dentro quella regione e non ne annida una seconda.
+    expect(sorgente).not.toMatch(/<main\b/);
+    expect(sorgente).toMatch(/<PageHeader/);
+    expect(sorgente).toMatch(/<DataSurface/);
+  });
+});
+
+// Il login è escluso dalla migrazione con motivazione: `platform.interruttori`
+// è una procedura protetta, quindi prima dell'autenticazione il client non può
+// conoscere il flag del sistema visivo. Rendere pubblico il flag o applicare
+// sempre il marker romperebbe il confine o il rollback.
+describe("confine di autenticazione", () => {
+  const login = readFileSync(
+    resolve(process.cwd(), "client/src/pages/LoginPage.tsx"),
+    "utf8"
+  );
+
+  it("non legge ambiente né flag protetti prima dell'accesso", () => {
+    expect(login).not.toContain("import.meta.env");
+    expect(login).not.toContain("process.env");
+    expect(login).not.toContain("platform.interruttori");
+    expect(login).not.toContain("useModularControl");
+  });
+
+  it("usa soltanto la mutation di autenticazione già esposta", () => {
+    const procedure = [
+      ...login.matchAll(/trpc\.([A-Za-z0-9_.]+)\.use(?:Query|Mutation)/g),
+    ].map(match => match[1]);
+
+    expect(procedure).toEqual(["auth.login"]);
+  });
+
+  it("non applica il marker del sistema visivo prima dell'autenticazione", () => {
+    expect(login).not.toContain("data-ui-system");
+    expect(login).not.toContain("modular-control");
   });
 });
 

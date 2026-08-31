@@ -117,11 +117,12 @@ function Router() {
             <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
             <Route path="/planning" component={Planning} />
             <Route path="/ticket">{() => <TicketList />}</Route>
-            {/* Direzione-only surfaces. Hidden from the sidebar — reached via
-            the Impostazioni hub. A client-side guard shows a blocked state
-            so non-direzione users get a clear message instead of a silent
-            404; the routes themselves are still registered so deep links
-            work for authorized users. */}
+            {/* Superfici di sola direzione. Non stanno nella navigazione:
+            si raggiungono dall'hub Impostazioni di Modular Control. La
+            guardia client mostra uno stato bloccato, così chi non è
+            direzione legge un messaggio chiaro invece di un 404 muto; le
+            route restano registrate perché i deep link autorizzati funzionino.
+            L'autorizzazione vera resta delle procedure server. */}
             <Route path="/garanzie">
               {() => (
                 <RequireDirezione>
@@ -191,6 +192,10 @@ function Router() {
             </Route>
             <Route path="/integrazioni" component={Integrazioni} />
             <Route path="/tars" component={Tars} />
+            {/* Fallback Modular Control. `/404` è l'indirizzo esplicito, la
+            route senza path raccoglie tutto il resto: l'ordine conta e non va
+            invertito. Entrambe rendono la stessa pagina dentro la shell
+            autenticata, quindi il landmark `main` resta quello della shell. */}
             <Route path="/404" component={NotFound} />
             <Route component={NotFound} />
           </Switch>

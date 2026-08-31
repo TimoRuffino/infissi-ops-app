@@ -21,6 +21,13 @@ describe("legacy navigation redirects", () => {
     ).toBe("/messaggi/email?view=lead&messaggio=42");
   });
 
+  // Il segnalibro storico deve restare intatto dopo la migrazione del
+  // fallback: vista e messaggio arrivano fino alla route canonica.
+  it("conserva vista e messaggio di un deep link legacy", () => {
+    expect(legacyMessageRedirect("/comunicazioni?view=lead&messaggio=42")).toBe(
+      "/messaggi/email?view=lead&messaggio=42"
+    );
+  });
 });
 
 describe("parseEmailView", () => {
