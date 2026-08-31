@@ -825,10 +825,20 @@
 }
 
 @media (min-width: 1200px) {
+  /* La cornice resta ferma nel viewport: scorre solo l'area di lavoro, mai
+     la navigazione. Il documento non scorre affatto in questo regime. */
+  [data-ui-system="modular-control"],
+  [data-ui-system="modular-control"] body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   [data-ui-system="modular-control"] #root {
     width: calc(100% - 32px);
     max-width: 1728px;
-    min-height: calc(100dvh - 32px);
+    /* min-height: 100dvh della base farebbe sforare la cornice di 32px. */
+    min-height: 0;
+    height: calc(100dvh - 32px);
     margin: 16px auto;
     overflow: clip;
     border: 1px solid var(--shell-border);

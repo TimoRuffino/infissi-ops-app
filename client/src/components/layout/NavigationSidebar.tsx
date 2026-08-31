@@ -304,7 +304,7 @@ export default function NavigationSidebar({
             label={`${userName ?? "Utente"} · ${roleSummary(user)}`}
           >
             {avatarImage ? (
-              <Avatar className="mx-auto size-10 border border-sidebar-border bg-brand-soft">
+              <Avatar className="mx-auto size-11 border border-sidebar-border bg-brand-soft">
                 {avatarImage}
                 <AvatarFallback className="bg-brand-soft text-xs font-bold text-accent-text">
                   {iniziali(userName)}
@@ -319,9 +319,9 @@ export default function NavigationSidebar({
         ) : (
           <div className="flex min-w-0 items-center gap-2.5 rounded-[var(--radius-control)] bg-surface-2 px-3 py-2.5">
             {avatarImage ? (
-              <Avatar className="size-9 shrink-0 border border-sidebar-border bg-brand-soft">
+              <Avatar className="size-12 shrink-0 border border-sidebar-border bg-brand-soft">
                 {avatarImage}
-                <AvatarFallback className="bg-brand-soft text-[11px] font-bold text-accent-text">
+                <AvatarFallback className="bg-brand-soft text-sm font-bold text-accent-text">
                   {iniziali(userName)}
                 </AvatarFallback>
               </Avatar>

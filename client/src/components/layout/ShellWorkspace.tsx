@@ -19,7 +19,7 @@ export default function ShellWorkspace({
   return (
     <div
       data-modular-control-shell="desktop"
-      className="min-h-dvh min-w-0 bg-[var(--shell-workspace)] min-[1200px]:min-h-[calc(100dvh-32px)]"
+      className="min-h-dvh min-w-0 bg-[var(--shell-workspace)] min-[1200px]:h-full min-[1200px]:min-h-0 min-[1200px]:overflow-hidden"
     >
       <a
         href="#contenuto-principale"
@@ -27,15 +27,15 @@ export default function ShellWorkspace({
       >
         Vai al contenuto principale
       </a>
-      <div className="grid min-h-[inherit] min-w-0 grid-cols-1 min-[1200px]:grid-cols-[auto_minmax(0,1fr)]">
-        <div className="hidden min-h-0 border-r border-[var(--shell-border)] min-[1200px]:block">
+      <div className="grid min-h-[inherit] min-w-0 grid-cols-1 min-[1200px]:h-full min-[1200px]:min-h-0 min-[1200px]:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="hidden min-h-0 border-r border-[var(--shell-border)] min-[1200px]:block min-[1200px]:h-full">
           {navigation}
         </div>
-        <div className="flex min-h-0 min-w-0 flex-col bg-[var(--shell-canvas)]">
+        <div className="flex min-h-0 min-w-0 flex-col bg-[var(--shell-canvas)] min-[1200px]:h-full">
           {contextBar}
           <main
             id="contenuto-principale"
-            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:px-6 min-[1200px]:py-6"
+            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6 min-[1200px]:py-6"
           >
             {children}
           </main>
