@@ -197,20 +197,29 @@ export function tokenInputStimati(
 
 /**
  * Stima PRUDENZIALE del costo massimo di una chiamata: input dai
- * caratteri del payload col rapporto pessimistico e il margine,
- * tariffato SEMPRE a prezzo pieno (lo sconto cache si scopre solo
- * dopo), più l'intero `max_output_tokens` — che per contratto Responses
- * include anche i reasoning token.
+ * caratteri del payload col rapporto pessimistico e il margine, più
+ * l'intero `max_output_tokens` — che per contratto Responses include
+ * anche i reasoning token.
+ *
+ * L'ingresso è tariffato alla tariffa PIÙ CARA possibile, cioè quella
+ * di scrittura in cache (1,25× l'input pieno). Non è pessimismo
+ * gratuito: prima della chiamata non sappiamo quanta parte del prompt
+ * sarà letta dalla cache, scritta in cache o pagata piena, e una stima
+ * che assumesse il prezzo pieno sarebbe sotto il costo reale ogni volta
+ * che il prefisso cambia — cioè proprio quando il prompt è nuovo. Una
+ * stima che non è un soffitto non è una protezione.
  */
 export function stimaCostoNano(
   richiesta: RichiestaProvider,
   tariffa: TariffaModello,
   margine: number
 ): number {
+  const token = tokenInputStimati(richiesta, margine);
   return Number(
     costoNano(tariffa, {
-      input: tokenInputStimati(richiesta, margine),
+      input: token,
       cachedInput: 0,
+      cacheWrite: token,
       output: richiesta.maxOutputToken,
     })
   );
@@ -231,10 +240,16 @@ export function usoPlausibile(uso: {
   input: number;
   output: number;
   cachedInput: number;
+  cacheWrite?: number;
 }): boolean {
-  const valori = [uso.input, uso.output, uso.cachedInput];
+  const scritti = uso.cacheWrite ?? 0;
+  const valori = [uso.input, uso.output, uso.cachedInput, scritti];
   if (valori.some(v => !Number.isFinite(v) || v < 0)) return false;
-  if (uso.cachedInput > uso.input) return false; // cached ⊆ input
+  // cached e cache write sono entrambi sottoinsiemi dell'input, e
+  // disgiunti fra loro: un token o è letto dalla cache o ci viene
+  // scritto. Se la somma sfonda l'input, il contratto è cambiato e
+  // tariffare quei numeri produrrebbe un costo inventato.
+  if (uso.cachedInput + scritti > uso.input) return false;
   return uso.input > 0 || uso.output > 0;
 }
 
@@ -369,6 +384,7 @@ export function avvolgiConGovernor(
         costoNano(tariffa, {
           input: risposta.uso.input,
           cachedInput: risposta.uso.cachedInput,
+          cacheWrite: risposta.uso.cacheWrite,
           output: risposta.uso.output,
         })
       );

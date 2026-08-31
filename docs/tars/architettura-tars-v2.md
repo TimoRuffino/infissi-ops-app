@@ -723,3 +723,26 @@ ereditati.
    mutazione autonoma. Tars resta un agente che propone e che agisce
    solo dove il dominio glielo consente. Rendere potente il
    ragionamento non significa ampliare l'autorità.
+
+60. **La scrittura in cache non è gratuita** (scoperta il 31/08/2026,
+   guida ufficiale «Prompt caching»): su GPT-5.6 e successivi costa
+   **1,25× la tariffa di input non cachato**, mentre la lettura costa
+   0,1×. Il catalogo ha ora una tariffa `cacheWrite` per ogni modello e
+   `costoNano` la applica separatamente: i token scritti in cache sono
+   input a tariffa maggiorata, quindi vanno sottratti dalla quota a
+   prezzo pieno, non sommati ad essa. Prima di questa correzione il
+   dato veniva raccolto lungo tutto il percorso (`UsoToken.cacheWrite`,
+   letto dall'adapter e registrato in telemetria) ma **non tariffato**:
+   il ledger sotto-contabilizzava fino al 25% su ogni prompt nuovo.
+61. **La stima prenota alla tariffa PIÙ CARA** (`cacheWrite`), non a
+   prezzo pieno. Prima della chiamata non è dato sapere quanta parte
+   del prompt verrà letta dalla cache, scritta in cache o pagata
+   piena; una stima a prezzo pieno sarebbe sotto il costo reale ogni
+   volta che il prefisso cambia, cioè proprio quando il prompt è nuovo.
+   La decisione 49 («la stima è un soffitto») era violata di fatto.
+62. **Il test del soffitto va misurato SENZA margine.** Col margine a
+   1,25 il confronto non discrimina, perché compensa per coincidenza
+   il moltiplicatore 1,25 della scrittura in cache: la mutazione che
+   riporta la stima al prezzo pieno passava inosservata. La verifica
+   ora isola la tariffa dal margine. È il motivo per cui il criterio
+   di un test non è che passi, ma che fallisca quando deve.

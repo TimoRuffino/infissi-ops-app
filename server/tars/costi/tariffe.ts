@@ -22,6 +22,13 @@ export type TariffaModello = {
   unita: "nanoUsdPerMilioneToken";
   input: number;
   cachedInput: number;
+  /**
+   * Scrittura in cache. Su GPT-5.6 e successivi NON è gratuita: costa
+   * 1,25× la tariffa di input non cachato (fonte: guida ufficiale
+   * «Prompt caching», consultata 31/08/2026). Ignorarla significa
+   * contabilizzare meno di quanto OpenAI fattura davvero.
+   */
+  cacheWrite: number;
   output: number;
   fonte: string;
   stato: StatoTariffa;
@@ -41,20 +48,22 @@ export const CATALOGO_TARIFFE: readonly TariffaModello[] = [
     // deve sovrastimare, e alla scadenza della promo non serve toccare
     // nulla.
     modello: "gpt-5.6-sol",
-    versioneTariffa: "2026-08-30",
+    versioneTariffa: "2026-08-31",
     unita: "nanoUsdPerMilioneToken",
     input: 5_000_000_000,
     cachedInput: 500_000_000,
+    cacheWrite: 6_250_000_000, // 1,25 × input
     output: 30_000_000_000,
     fonte: "developers.openai.com/api/docs/pricing (consultata 30/08/2026)",
     stato: "attiva",
   },
   {
     modello: "gpt-5.6-terra",
-    versioneTariffa: "2026-08-30",
+    versioneTariffa: "2026-08-31",
     unita: "nanoUsdPerMilioneToken",
     input: 2_000_000_000,
     cachedInput: 200_000_000,
+    cacheWrite: 2_500_000_000, // 1,25 × input
     output: 12_000_000_000,
     fonte: "developers.openai.com/api/docs/pricing (consultata 30/08/2026)",
     stato: "attiva",
@@ -80,6 +89,8 @@ function perEccesso(prodotto: bigint): bigint {
 export type UsoTariffabile = {
   input: number;
   cachedInput: number;
+  /** Token scritti in cache: tariffati 1,25×, non a prezzo pieno. */
+  cacheWrite?: number;
   output: number;
 };
 
@@ -97,18 +108,25 @@ export function costoNano(
   // Difesa sul contratto (revisione): se un giorno `input_tokens`
   // smettesse di includere i cached, sottrarli produrrebbe un costo
   // molto più basso del reale, in silenzio. Meglio un errore.
-  if (uso.cachedInput > uso.input) {
+  const scritti = Math.max(0, Math.trunc(uso.cacheWrite ?? 0));
+  if (uso.cachedInput + scritti > uso.input) {
     throw new Error(
-      "COSTO_INCOERENTE: i token cached superano quelli di input (contratto cambiato?)."
+      "COSTO_INCOERENTE: i token cached più quelli scritti in cache superano quelli di input (contratto cambiato?)."
     );
   }
   const cached = BigInt(Math.max(0, Math.trunc(uso.cachedInput)));
+  const cacheWrite = BigInt(scritti);
   const inputTotale = BigInt(Math.max(0, Math.trunc(uso.input)));
-  const inputPieno = inputTotale > cached ? inputTotale - cached : 0n;
+  // I token scritti in cache sono input a tariffa MAGGIORATA, non input
+  // normale: vanno sottratti dalla quota a prezzo pieno, non sommati.
+  const giaTariffati = cached + cacheWrite;
+  const inputPieno =
+    inputTotale > giaTariffati ? inputTotale - giaTariffati : 0n;
   const output = BigInt(Math.max(0, Math.trunc(uso.output)));
   return (
     perEccesso(inputPieno * BigInt(tariffa.input)) +
     perEccesso(cached * BigInt(tariffa.cachedInput)) +
+    perEccesso(cacheWrite * BigInt(tariffa.cacheWrite)) +
     perEccesso(output * BigInt(tariffa.output))
   );
 }

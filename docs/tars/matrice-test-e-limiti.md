@@ -1,6 +1,6 @@
 # Matrice dei test e dei limiti — budget governor
 
-> Stato al 30/08/2026, branch `feature/tars-v2`. Tutti i test girano col
+> Stato al 31/08/2026, `main`. Tutti i test girano col
 > provider FINTO; cinque girano contro un PostgreSQL reale (in CI con un
 > servizio dedicato). Zero chiamate a provider a pagamento.
 
@@ -43,7 +43,14 @@ flagship. Due test tengono insieme i numeri di questa tabella:
   per-run` fallisce se contesto, output e tetto smettono di essere
   coerenti fra loro. È l'invariante che rende i limiti dichiarati
   raggiungibili davvero: al contesto massimo la stima peggiore vale
-  ≈0,72 USD contro un tetto di 2,00.
+  ≈0,90 USD contro un tetto di 2,00.
+- `la SCRITTURA in cache è tariffata 1,25×` e `la stima è un SOFFITTO`
+  proteggono la correzione del 31/08/2026: su GPT-5.6 scrivere in cache
+  costa 1,25× l'input pieno, e ignorarlo faceva sotto-contabilizzare il
+  ledger fino al 25%. Entrambe le mutazioni (tariffare il cache write
+  come input normale; riportare la stima al prezzo pieno) fanno fallire
+  la suite — la seconda solo dopo aver misurato il soffitto SENZA
+  margine, perché il margine 1,25 mascherava il difetto.
 
 ## 2. I 21 requisiti del mandato → dove sono provati
 
@@ -91,10 +98,14 @@ flagship. Due test tengono insieme i numeri di questa tabella:
 | 14 | `providerDettaglio` esposto a tutti | budget riservato alla direzione |
 | 15 | Limiti del run letti senza validazione (NaN) | tetto chiamate disattivato |
 | 16 | Dedup che non si libera al termine | domanda ripetuta = run nuovo |
+| 17 | Cache write tariffato come input normale | scrittura in cache 1,25× |
+| 18 | Stima riportata al prezzo pieno | stima come soffitto (senza margine) |
 
-Nota: le mutazioni 15 e 16 hanno richiesto di rendere FEDELI i test
+Nota: le mutazioni 15, 16 e 18 hanno richiesto di rendere FEDELI i test
 prima di mordere (il tetto delle chiamate era mascherato dal tetto dei
-passi; la dedup era provata su chiavi diverse): un test che non morde
+passi; la dedup era provata su chiavi diverse; il soffitto della stima
+era misurato col margine 1,25, che compensa per coincidenza il
+moltiplicatore 1,25 della scrittura in cache): un test che non morde
 non è una prova.
 
 ## 4. Esiti degli stati del ledger

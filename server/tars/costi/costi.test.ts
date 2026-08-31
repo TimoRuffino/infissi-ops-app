@@ -13,6 +13,7 @@ import {
   messaggioPerLimite,
   stimaCostoNano,
   tokenInputStimati,
+  usoPlausibile,
   type ConfigurazioneBudget,
 } from "./governor";
 import {
@@ -161,6 +162,53 @@ describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
       output: 1_000,
     });
     expect(Number(senzaSconto)).toBeGreaterThan(Number(costo));
+  });
+
+  it("la SCRITTURA in cache è tariffata 1,25×, non a prezzo pieno né gratis", () => {
+    const tariffa = tariffaDi(MODELLO)!;
+    // 10.000 input di cui 4.000 scritti in cache, nessuna lettura:
+    // 6.000 * 2 + 4.000 * 2,5 + 1.000 * 12 µ$.
+    const conScrittura = costoNano(tariffa, {
+      input: 10_000,
+      cachedInput: 0,
+      cacheWrite: 4_000,
+      output: 1_000,
+    });
+    expect(Number(conScrittura)).toBe(12_000_000 + 10_000_000 + 12_000_000);
+
+    // Il confronto che fa mordere il test: se `cacheWrite` fosse
+    // ignorato (o tariffato come input normale) il costo sarebbe più
+    // basso di così, ed è esattamente l'errore che sotto-contabilizzava
+    // la spesa reale su GPT-5.6.
+    const comeInputNormale = costoNano(tariffa, {
+      input: 10_000,
+      cachedInput: 0,
+      output: 1_000,
+    });
+    expect(Number(conScrittura)).toBeGreaterThan(Number(comeInputNormale));
+    expect(Number(conScrittura) - Number(comeInputNormale)).toBe(
+      // Il sovrapprezzo è esattamente 0,25× la tariffa di input,
+      // che è espressa per MILIONE di token.
+      (4_000 * (tariffa.input / 4)) / 1_000_000
+    );
+  });
+
+  it("cached e cache write sono disgiunti: se la somma sfonda l'input, è incoerente", () => {
+    const tariffa = tariffaDi(MODELLO)!;
+    expect(() =>
+      costoNano(tariffa, {
+        input: 1_000,
+        cachedInput: 700,
+        cacheWrite: 700,
+        output: 10,
+      })
+    ).toThrow(/COSTO_INCOERENTE/);
+    expect(
+      usoPlausibile({ input: 1_000, cachedInput: 700, cacheWrite: 700, output: 10 })
+    ).toBe(false);
+    expect(
+      usoPlausibile({ input: 1_000, cachedInput: 300, cacheWrite: 400, output: 10 })
+    ).toBe(true);
   });
 
   it("nessun floating point: importi USD → nanodollari interi", () => {
@@ -551,11 +599,18 @@ describe("governor — uso non plausibile e stima come soffitto", () => {
     const caratteri =
       req.istruzioni.length +
       req.input.reduce((s, m) => s + m.contenuto.length, 0);
-    // Caso peggiore realistico per JSON/strutturato: ~2,5 char/token.
+    // Caso peggiore realistico per JSON/strutturato: ~2,5 char/token,
+    // con TUTTO l'ingresso scritto in cache — la tariffa più cara che
+    // OpenAI possa applicare a quei token (1,25×). Se la stima tornasse
+    // a tariffare l'input a prezzo pieno, qui sarebbe sotto il costo
+    // reale e il test fallirebbe: è la guardia contro il ritorno del
+    // difetto scoperto il 31/08/2026.
+    const tokenPeggiori = Math.ceil(caratteri / 2.5);
     const realePeggiore = Number(
       costoNano(tariffa, {
-        input: Math.ceil(caratteri / 2.5),
+        input: tokenPeggiori,
         cachedInput: 0,
+        cacheWrite: tokenPeggiori,
         output: req.maxOutputToken,
       })
     );
@@ -563,6 +618,23 @@ describe("governor — uso non plausibile e stima come soffitto", () => {
     expect(tokenInputStimati(req, 1.25)).toBeGreaterThanOrEqual(
       Math.ceil(caratteri / 2.5)
     );
+
+    // SENZA margine il confronto isola la TARIFFA: col margine a 1,25
+    // il test non discriminerebbe, perché 1,25 di margine compensa per
+    // coincidenza il moltiplicatore 1,25 della scrittura in cache e la
+    // stima resterebbe (di poco) sufficiente anche tariffando l'input a
+    // prezzo pieno. Verificato con mutazione: senza questa asserzione,
+    // rimettere `cacheWrite: 0` nella stima non fa fallire nulla.
+    const stimaSenzaMargine = stimaCostoNano(req, tariffa, 1);
+    const realeSenzaMargine = Number(
+      costoNano(tariffa, {
+        input: tokenInputStimati(req, 1),
+        cachedInput: 0,
+        cacheWrite: tokenInputStimati(req, 1),
+        output: req.maxOutputToken,
+      })
+    );
+    expect(stimaSenzaMargine).toBeGreaterThanOrEqual(realeSenzaMargine);
   });
 });
 
