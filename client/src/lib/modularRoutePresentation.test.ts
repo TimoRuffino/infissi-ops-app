@@ -68,6 +68,25 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/Gestione squadre riservata alla direzione\./);
   });
 
+  it("compone il magazzino come coda di consegne leggibile", () => {
+    const source = routeSource("../pages/Magazzino.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/<ConsegneAgenda/);
+    // Gli stati di consegna vengono dalla matrice pura, non da regole locali.
+    expect(source).toMatch(/deliveryState\(/);
+    // Una coda filtrata a vuoto non è "tutto a posto".
+    expect(source).toMatch(/Nessuna consegna corrisponde ai filtri correnti/);
+    // "Segna ricevuto" scrive esattamente id + arrivato, nient'altro.
+    expect(source).toMatch(/\{ id, arrivato \}/);
+    // L'eleggibilità resta del server: il messaggio tRPC va mostrato com'è.
+    expect(source).toMatch(/create\.error/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

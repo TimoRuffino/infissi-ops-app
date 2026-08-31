@@ -1,10 +1,38 @@
-import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
+import { useMemo, useState } from "react";
+import {
+  ExternalLink,
+  MapPin,
+  Package,
+  Plus,
+  Search,
+  StickyNote,
+  Timer,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useLocation } from "wouter";
+
+import ConfirmDialog from "@/components/ConfirmDialog";
+import ConsegneAgenda, {
+  ConsegnaStatoChip,
+  etichettaCommessa,
+  etichettaConsegna,
+  type ConsegnaItem,
+} from "@/components/magazzino/ConsegneAgenda";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
+import type { StatePanelProps } from "@/components/patterns/StatePanel";
+import SearchSelect from "@/components/SearchSelect";
+import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -12,32 +40,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
-  Package,
-  Plus,
-  Trash2,
-  Search,
-  MapPin,
-  CalendarClock,
-  CheckCircle2,
-  ExternalLink,
-  StickyNote,
-  Timer,
-} from "lucide-react";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toDateStr } from "@/lib/calendario";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useMemo, useState } from "react";
-import { useLocation } from "wouter";
-import { toast } from "sonner";
-import StatoChip from "@/components/StatoChip";
-import ConfirmDialog from "@/components/ConfirmDialog";
+  deliveryState,
+  deliveryStateCopy,
+  type DeliveryState,
+} from "@/lib/operationalRoutes";
 import { STATI_ORDER } from "@/lib/stato";
+import { trpc } from "@/lib/trpc";
 
-// Commesse appear in the warehouse from "produzione" onwards.
+// Le commesse compaiono a magazzino dallo stato "produzione" in poi. Questo
+// filtro decide solo COSA OFFRIRE come destinazione di un nuovo prodotto: non
+// è una regola autorevole. L'eleggibilità reale resta di `magazzino.create`,
+// che risponde PRECONDITION_FAILED e il cui messaggio mostriamo com'è.
 const PRODUZIONE_IDX = STATI_ORDER.indexOf("produzione");
 function isEligible(c: any): boolean {
   const idx = STATI_ORDER.indexOf(c.stato);
@@ -68,20 +92,35 @@ const FORNITORI = [
   "Sharknet",
 ];
 
+// `short` evita che quattro etichette lunghe sfondino la riga a 390 px.
+const FILTRI = [
+  { id: "tutte", label: "Tutte", short: "Tutte" },
+  { id: "arrivo", label: "In arrivo", short: "Arrivo" },
+  { id: "ritardo", label: "In ritardo", short: "Ritardo" },
+  { id: "arrivati", label: "Arrivati", short: "Arrivati" },
+] as const;
+
+type FiltroConsegna = (typeof FILTRI)[number]["id"];
+
+// Ordinamento visuale: usa solo stato e date già ricevuti dal server, mai un
+// criterio nuovo. L'ordinamento del router (`dataConsegna`, poi id) resta.
+const ORDINE_STATO: Record<DeliveryState, number> = {
+  late: 0,
+  due: 1,
+  pending: 2,
+  unscheduled: 3,
+  received: 4,
+};
+
 const emptyForm = {
   nome: "",
   quantita: "1",
   fornitore: "",
   numeroOrdine: "",
-  dataOrdine: new Date().toISOString().split("T")[0],
+  dataOrdine: toDateStr(new Date()),
   dataConsegna: "",
   note: "",
 };
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso + "T12:00:00").toLocaleDateString("it-IT");
-}
 
 // Days between order and delivery date (lead time).
 function leadDays(p: any): number | null {
@@ -93,6 +132,12 @@ function leadDays(p: any): number | null {
   return d >= 0 ? d : null;
 }
 
+type RigaConsegna = {
+  prodotto: any;
+  commessa: any | null;
+  stato: DeliveryState;
+};
+
 export default function Magazzino() {
   const [, setLocation] = useLocation();
   const commesse = trpc.commesse.list.useQuery({});
@@ -100,16 +145,20 @@ export default function Magazzino() {
   const utils = trpc.useUtils();
 
   const [search, setSearch] = useState("");
-  // Tile clicked → full-detail dialog for that commessa.
+  // Riga cliccata → dialog di dettaglio della sua commessa.
   const [detailFor, setDetailFor] = useState<number | null>(null);
-  // Quick status filter: tutte | arrivo | ritardo | arrivati
-  const [filtro, setFiltro] = useState<string>("tutte");
-  // Supplier dropdown filter — shows commesse holding ≥1 product of that supplier.
+  // Scelta della commessa a cui aggiungere una consegna.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [filtro, setFiltro] = useState<FiltroConsegna>("tutte");
+  // Filtro fornitore: mostra le consegne di quel fornitore.
   const [fornFiltro, setFornFiltro] = useState<string>("tutti");
-  // Per-commessa add form (only one open at a time keeps the state simple).
+  // Form di inserimento per commessa (uno alla volta mantiene lo stato semplice).
   const [formFor, setFormFor] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; nome: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: number;
+    nome: string;
+  } | null>(null);
 
   const create = trpc.magazzino.create.useMutation({
     onSuccess: () => {
@@ -117,18 +166,31 @@ export default function Magazzino() {
       setForm(emptyForm);
       toast.success("Prodotto aggiunto al magazzino");
     },
-    onError: (e) => toast.error(e.message ?? "Aggiunta non riuscita"),
+    // Il messaggio del server è l'unica verità sull'eleggibilità: niente
+    // regola client mascherata da certezza, e il form resta aperto.
+    onError: e => toast.error(e.message ?? "Aggiunta non riuscita"),
   });
   const update = trpc.magazzino.update.useMutation({
     onSuccess: () => utils.magazzino.invalidate(),
-    onError: (e) => toast.error(e.message ?? "Salvataggio non riuscito"),
+    onError: e => {
+      toast.error(e.message ?? "Salvataggio non riuscito");
+      // Refetch discreto: la riga non deve restare sullo stato tentato.
+      utils.magazzino.invalidate();
+    },
   });
   const remove = trpc.magazzino.remove.useMutation({
     onSuccess: () => {
       utils.magazzino.invalidate();
       setDeleteTarget(null);
     },
+    onError: e => toast.error(e.message ?? "Rimozione non riuscita"),
   });
+
+  const commessaById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const c of commesse.data ?? []) m.set(c.id, c);
+    return m;
+  }, [commesse.data]);
 
   const byCommessa = useMemo(() => {
     const map = new Map<number, any[]>();
@@ -139,64 +201,98 @@ export default function Magazzino() {
     return map;
   }, [prodotti.data]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = toDateStr(new Date());
 
-  // Per-commessa digest: next pending delivery date + late count.
-  const digest = useMemo(() => {
-    const m = new Map<number, { next: string | null; late: number; arrivati: number; tot: number }>();
-    for (const [cid, rows] of Array.from(byCommessa.entries())) {
-      const pending = rows.filter((p: any) => !p.arrivato && p.dataConsegna);
-      m.set(cid, {
-        next: pending.length ? pending.reduce((a: any, b: any) => (a.dataConsegna < b.dataConsegna ? a : b)).dataConsegna : null,
-        late: rows.filter((p: any) => !p.arrivato && p.dataConsegna && p.dataConsegna < today).length,
-        arrivati: rows.filter((p: any) => p.arrivato).length,
-        tot: rows.length,
-      });
-    }
-    return m;
-  }, [byCommessa, today]);
-
-  const eligibili = useMemo(() => {
+  // La coda: una riga per consegna, filtrata e ordinata solo con dati già letti.
+  const righe = useMemo<RigaConsegna[]>(() => {
     const q = search.trim().toLowerCase();
-    return (commesse.data ?? [])
-      .filter(isEligible)
-      .filter((c: any) => {
-        if (q && !`${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase().includes(q)) return false;
-        const d = digest.get(c.id);
-        if (fornFiltro !== "tutti") {
-          const rows = byCommessa.get(c.id) ?? [];
-          if (!rows.some((p: any) => p.fornitore === fornFiltro)) return false;
+    return (prodotti.data ?? [])
+      .map((p: any) => ({
+        prodotto: p,
+        commessa: commessaById.get(p.commessaId) ?? null,
+        stato: deliveryState({
+          arrivato: p.arrivato,
+          dataConsegna: p.dataConsegna,
+          today,
+        }),
+      }))
+      .filter(r => {
+        if (fornFiltro !== "tutti" && r.prodotto.fornitore !== fornFiltro) {
+          return false;
         }
-        if (filtro === "ritardo") return (d?.late ?? 0) > 0;
-        if (filtro === "arrivo") return !!d && d.arrivati < d.tot;
-        if (filtro === "arrivati") return !!d && d.tot > 0 && d.arrivati === d.tot;
+        if (filtro === "ritardo" && r.stato !== "late") return false;
+        if (filtro === "arrivo" && r.prodotto.arrivato) return false;
+        if (filtro === "arrivati" && !r.prodotto.arrivato) return false;
+        if (q) {
+          const hay = [
+            r.prodotto.nome,
+            r.prodotto.fornitore,
+            r.prodotto.numeroOrdine,
+            r.commessa?.codice,
+            r.commessa?.cliente,
+            r.commessa?.citta,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
         return true;
       })
-      .sort((a: any, b: any) => {
-        // Urgency first: late deliveries, then nearest pending date, then
-        // has-products, then code.
-        const da = digest.get(a.id), db = digest.get(b.id);
-        if ((da?.late ?? 0) > 0 !== (db?.late ?? 0) > 0) return (da?.late ?? 0) > 0 ? -1 : 1;
-        const na = da?.next ?? "9999", nb = db?.next ?? "9999";
-        if (na !== nb) return na.localeCompare(nb);
-        if (!!da !== !!db) return da ? -1 : 1;
-        return (a.codice ?? "").localeCompare(b.codice ?? "");
+      .sort((a, b) => {
+        if (ORDINE_STATO[a.stato] !== ORDINE_STATO[b.stato]) {
+          return ORDINE_STATO[a.stato] - ORDINE_STATO[b.stato];
+        }
+        const da = a.prodotto.dataConsegna ?? "9999-12-31";
+        const db = b.prodotto.dataConsegna ?? "9999-12-31";
+        if (da !== db) return String(da).localeCompare(String(db));
+        return a.prodotto.id - b.prodotto.id;
       });
-  }, [commesse.data, search, filtro, fornFiltro, digest, byCommessa]);
+  }, [prodotti.data, commessaById, search, filtro, fornFiltro, today]);
 
-  // Next 5 pending deliveries across every commessa — operational glance.
-  const prossime = useMemo(() => {
-    const cmById = new Map((commesse.data ?? []).map((c: any) => [c.id, c]));
-    return (prodotti.data ?? [])
-      .filter((p: any) => !p.arrivato && p.dataConsegna)
-      .sort((a: any, b: any) => a.dataConsegna.localeCompare(b.dataConsegna))
-      .slice(0, 5)
-      .map((p: any) => ({ ...p, commessa: cmById.get(p.commessaId) }));
-  }, [prodotti.data, commesse.data]);
+  const agendaItems = useMemo<ConsegnaItem[]>(
+    () =>
+      righe.map(r => ({
+        id: r.prodotto.id,
+        nome: r.prodotto.nome,
+        quantita: r.prodotto.quantita,
+        fornitore: r.prodotto.fornitore,
+        dataConsegna: r.prodotto.dataConsegna,
+        arrivato: r.prodotto.arrivato,
+        commessa: r.commessa
+          ? {
+              id: r.commessa.id,
+              codice: r.commessa.codice,
+              cliente: r.commessa.cliente,
+            }
+          : null,
+      })),
+    [righe]
+  );
+
+  // Commesse che possiamo proporre come destinazione: offerta, non permesso.
+  const eligibili = useMemo(
+    () =>
+      (commesse.data ?? [])
+        .filter(isEligible)
+        .sort((a: any, b: any) =>
+          String(a.codice ?? "").localeCompare(String(b.codice ?? ""))
+        ),
+    [commesse.data]
+  );
 
   const totProdotti = prodotti.data?.length ?? 0;
-  const totArrivati = (prodotti.data ?? []).filter((p: any) => p.arrivato).length;
+  const totArrivati = (prodotti.data ?? []).filter((p: any) => p.arrivato)
+    .length;
   const inArrivo = totProdotti - totArrivati;
+  const inRitardo = (prodotti.data ?? []).filter(
+    (p: any) =>
+      deliveryState({
+        arrivato: p.arrivato,
+        dataConsegna: p.dataConsegna,
+        today,
+      }) === "late"
+  ).length;
   // Average lead time over arrived products that carry both dates.
   const leadMedio = useMemo(() => {
     const days = (prodotti.data ?? [])
@@ -204,8 +300,43 @@ export default function Magazzino() {
       .map(leadDays)
       .filter((d: number | null): d is number => d != null);
     if (days.length === 0) return null;
-    return Math.round(days.reduce((s: number, d: number) => s + d, 0) / days.length);
+    return Math.round(
+      days.reduce((s: number, d: number) => s + d, 0) / days.length
+    );
   }, [prodotti.data]);
+
+  // Una sola mutation in volo per volta: l'id evita di bloccare tutte le righe.
+  const consegnaInCorso =
+    update.isPending && update.variables
+      ? ((update.variables as { id: number }).id ?? null)
+      : null;
+
+  function segnaArrivato(id: number, arrivato: boolean) {
+    update.mutate(
+      { id, arrivato },
+      {
+        // Il successo si annuncia solo quando il server ha risposto.
+        onSuccess: () =>
+          toast.success(
+            arrivato ? "Consegna segnata come ricevuta." : "Consegna riaperta."
+          ),
+      }
+    );
+  }
+
+  function apriDettaglio(commessaId: number) {
+    setDetailFor(commessaId);
+    setFormFor(null);
+    setForm(emptyForm);
+    create.reset();
+  }
+
+  function chiudiDettaglio() {
+    setDetailFor(null);
+    setFormFor(null);
+    setForm(emptyForm);
+    create.reset();
+  }
 
   function submitForm(commessaId: number) {
     if (!form.nome.trim()) return;
@@ -221,426 +352,625 @@ export default function Magazzino() {
     });
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
-            <Package className="h-6 w-6 text-primary" />
-            Magazzino
-          </h1>
-          <p className="text-text-2 text-sm mt-1">
-            Prodotti, ordini e consegne per commessa — dallo stato Produzione in poi
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Card className="px-3 py-2 gap-0">
-            <div className="eyebrow">Prodotti</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums">
-              {totProdotti}
-            </div>
-          </Card>
-          <Card className="px-3 py-2 gap-0 border-warning/30">
-            <div className="eyebrow !text-warning">In arrivo</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-warning">
-              {inArrivo}
-            </div>
-          </Card>
-          <Card className="px-3 py-2 gap-0 border-success/30">
-            <div className="eyebrow !text-success">Arrivati</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-success">
-              {totArrivati}
-            </div>
-          </Card>
-          {leadMedio != null && (
-            <Card className="px-3 py-2 gap-0 border-info/30">
-              <div className="eyebrow !text-info">Lead time medio</div>
-              <div className="text-xl font-bold leading-none mt-1 tabular-nums text-info">
-                {leadMedio} gg
-              </div>
-            </Card>
-          )}
-        </div>
-      </div>
+  const filtriAttivi =
+    search.trim() !== "" || filtro !== "tutte" || fornFiltro !== "tutti";
 
-      {/* Prossime consegne — glance strip */}
-      {prossime.length > 0 && (
-        <Card className="border-l-[3px] border-l-primary">
-          <CardContent className="py-3 px-4">
-            <p className="eyebrow !text-text-3 mb-2">Prossime consegne</p>
-            <div className="flex gap-2 flex-wrap">
-              {prossime.map((p: any) => {
-                const late = p.dataConsegna < today;
+  // Quattro stati distinti: caricamento, errore con retry, sede senza prodotti
+  // e coda filtrata vuota. Una coda vuota non è mai "tutto a posto".
+  const statoSuperficie: StatePanelProps | undefined = prodotti.isPending
+    ? {
+        kind: "loading",
+        title: "Carico le consegne",
+        description: "Recupero i prodotti a magazzino della sede.",
+        rows: 4,
+      }
+    : prodotti.isError
+      ? {
+          kind: "error",
+          title: "Consegne non caricate",
+          description:
+            "Non è stato possibile leggere i prodotti a magazzino. Nessun dato è stato modificato.",
+          action: (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => prodotti.refetch()}
+            >
+              Riprova
+            </Button>
+          ),
+        }
+      : totProdotti === 0
+        ? {
+            kind: "empty",
+            title: "Nessun prodotto a magazzino in questa sede",
+            description:
+              "I prodotti si aggiungono a una commessa dallo stato Produzione in poi.",
+            action:
+              eligibili.length > 0 ? (
+                <Button
+                  type="button"
+                  className="min-h-11"
+                  onClick={() => setPickerOpen(true)}
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" /> Aggiungi
+                  consegna
+                </Button>
+              ) : undefined,
+          }
+        : righe.length === 0
+          ? {
+              kind: "empty",
+              title: "Nessuna consegna corrisponde ai filtri correnti",
+              description:
+                "Cambia ricerca, fornitore o stato per vedere le altre consegne della sede.",
+              action: filtriAttivi ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => {
+                    setSearch("");
+                    setFiltro("tutte");
+                    setFornFiltro("tutti");
+                  }}
+                >
+                  Azzera i filtri
+                </Button>
+              ) : undefined,
+            }
+          : undefined;
+
+  const commessaDettaglio =
+    detailFor != null ? (commessaById.get(detailFor) ?? null) : null;
+  const righeDettaglio =
+    detailFor != null ? (byCommessa.get(detailFor) ?? []) : [];
+
+  return (
+    <div className="min-w-0 space-y-4 sm:space-y-5">
+      <PageHeader
+        variant="workbench"
+        eyebrow="Operatività"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Package className="h-6 w-6 text-primary" aria-hidden="true" />
+            Magazzino
+          </span>
+        }
+        description="Coda delle consegne per commessa, dallo stato Produzione in poi. Ogni riga dice quando arriva e cosa manca."
+        busy={prodotti.isFetching}
+        metadata={
+          <>
+            {/* Un conteggio che non conosciamo non si mostra come zero. */}
+            {prodotti.isPending ? (
+              <span>Conteggio consegne in caricamento…</span>
+            ) : prodotti.isError ? (
+              <span>Conteggio consegne non disponibile</span>
+            ) : (
+              <>
+                <span>
+                  <strong className="tabular-nums text-text-1">
+                    {totProdotti}
+                  </strong>{" "}
+                  consegne registrate
+                </span>
+                <span>
+                  <strong className="tabular-nums text-text-1">
+                    {inArrivo}
+                  </strong>{" "}
+                  ancora da ricevere
+                </span>
+                <span>
+                  <strong className="tabular-nums text-text-1">
+                    {inRitardo}
+                  </strong>{" "}
+                  in ritardo
+                </span>
+                {leadMedio != null ? (
+                  <span>
+                    Lead time medio{" "}
+                    <strong className="tabular-nums text-text-1">
+                      {leadMedio} gg
+                    </strong>
+                  </span>
+                ) : null}
+              </>
+            )}
+            {prodotti.isFetching && !prodotti.isPending ? (
+              <span role="status">Aggiornamento in corso…</span>
+            ) : null}
+          </>
+        }
+        primaryAction={
+          <Button
+            type="button"
+            className="min-h-11"
+            onClick={() => setPickerOpen(true)}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" /> Aggiungi consegna
+          </Button>
+        }
+      />
+
+      <div className="min-w-0 space-y-4">
+        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
+          <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="relative min-w-0 flex-1 lg:max-w-sm">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3"
+                aria-hidden="true"
+              />
+              <Input
+                aria-label="Cerca consegne"
+                placeholder="Cerca prodotto, codice, cliente, città…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="min-h-11 pl-9"
+              />
+            </div>
+
+            <Select value={fornFiltro} onValueChange={setFornFiltro}>
+              <SelectTrigger
+                aria-label="Filtro fornitore"
+                className="min-h-11 w-full lg:w-52"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tutti">Tutti i fornitori</SelectItem>
+                {FORNITORI.map(f => (
+                  <SelectItem key={f} value={f}>
+                    {f}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div
+              role="group"
+              aria-label="Stato consegna"
+              className="flex min-w-0 items-center gap-1 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-1"
+            >
+              {FILTRI.map(f => {
+                const attivo = filtro === f.id;
                 return (
-                  <button
-                    key={p.id}
-                    onClick={() => setDetailFor(p.commessaId)}
-                    className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition hover:shadow-sm ${
-                      late
-                        ? "border-danger/40 bg-danger-soft text-danger"
-                        : "border-border bg-surface-2 text-text-1"
-                    }`}
+                  <Button
+                    key={f.id}
+                    type="button"
+                    variant={attivo ? "default" : "ghost"}
+                    size="sm"
+                    aria-pressed={attivo}
+                    aria-label={f.label}
+                    className="min-h-11 min-w-0 flex-1 px-2 sm:px-2.5 lg:flex-none"
+                    onClick={() => setFiltro(f.id)}
                   >
-                    <CalendarClock className="h-3 w-3 shrink-0" />
-                    <span className="font-bold tabular-nums">{fmtDate(p.dataConsegna)}</span>
-                    <span className="truncate max-w-[160px]">{p.nome}</span>
-                    <span className="text-text-3">· {p.commessa?.cliente ?? `#${p.commessaId}`}</span>
-                  </button>
+                    <span className="hidden sm:inline">{f.label}</span>
+                    <span className="sm:hidden">{f.short}</span>
+                  </Button>
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Search + filtri */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Cerca codice, cliente, città..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9"
-          />
+          </div>
         </div>
-        <Select value={fornFiltro} onValueChange={setFornFiltro}>
-          <SelectTrigger className="h-9 w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="tutti">Tutti i fornitori</SelectItem>
-            {FORNITORI.map((f) => (
-              <SelectItem key={f} value={f}>{f}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-surface-2">
-          {[
-            ["tutte", "Tutte"],
-            ["arrivo", "In arrivo"],
-            ["ritardo", "In ritardo"],
-            ["arrivati", "Arrivati"],
-          ].map(([k, label]) => (
-            <Button
-              key={k}
-              variant={filtro === k ? "default" : "ghost"}
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setFiltro(k)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-      </div>
 
-      {/* Commesse — square tiles: glance info only, click for the full card */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {eligibili.map((c: any) => {
-          const d = digest.get(c.id);
-          const tot = d?.tot ?? 0;
-          const arrivati = d?.arrivati ?? 0;
-          const late = d?.late ?? 0;
-          const complete = tot > 0 && arrivati === tot;
-          return (
-            <button
-              key={c.id}
-              onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:border-border-strong hover:shadow-sm ${
-                late > 0
-                  ? "border-danger/50"
-                  : complete
-                  ? "border-success/40"
-                  : "border-border"
-              }`}
-            >
-              <div className="flex w-full items-center justify-between gap-2">
-                <span className="codice-mono text-[11px] text-text-3">{c.codice}</span>
-                <StatoChip stato={c.stato} />
-              </div>
-              <div className="w-full">
-                <p className="text-[17px] font-bold leading-snug line-clamp-1">
-                  {c.cliente}
-                </p>
-                {c.citta && (
-                  <p className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-text-3">
-                    <MapPin className="h-3 w-3" />
-                    {c.citta}
-                  </p>
-                )}
-              </div>
-
-              {/* Mini product list — first 2, colored by state */}
-              <div className="w-full flex-1 space-y-1">
-                {(byCommessa.get(c.id) ?? []).slice(0, 4).map((p: any) => {
-                  const pl = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
-                  const short = p.dataConsegna
-                    ? new Date(p.dataConsegna + "T12:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
-                    : "—";
-                  return (
-                    <div
-                      key={p.id}
-                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] leading-tight ${
-                        p.arrivato
-                          ? "bg-success-soft/60 text-success"
-                          : pl
-                          ? "bg-danger-soft/60 text-danger font-semibold"
-                          : "bg-surface-2 text-text-2"
-                      }`}
-                    >
-                      {p.arrivato ? (
-                        <CheckCircle2 className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <Package className="h-3 w-3 shrink-0" />
-                      )}
-                      <span className="truncate flex-1">{p.nome}</span>
-                      {p.fornitore && (
-                        <span className="shrink-0 rounded bg-surface px-1 text-[10px] text-text-3 border border-border/60">
-                          {p.fornitore}
-                        </span>
-                      )}
-                      <span className="tabular-nums shrink-0">
-                        {p.arrivato ? "✓" : short}
-                      </span>
-                    </div>
-                  );
-                })}
-                {tot > 4 && (
-                  <p className="pl-1 text-[11px] text-text-3">+{tot - 4} altri prodotti</p>
-                )}
-                {tot === 0 && (
-                  <p className="text-xs text-text-3">Nessun prodotto</p>
-                )}
-              </div>
-
-              <div className="flex w-full items-center justify-between gap-2">
-                {tot > 0 ? (
-                  <Badge
-                    variant={complete ? "success" : "secondary"}
-                    className="shrink-0"
+        <section className="min-w-0" aria-label="Coda consegne">
+          <DataSurface
+            density="compact"
+            tone="sunken"
+            state={statoSuperficie}
+            toolbar={
+              commesse.isError ? (
+                <p
+                  role="status"
+                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2"
+                >
+                  Commesse non caricate: codice e cliente delle consegne non
+                  sono mostrati.
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-11"
+                    onClick={() => commesse.refetch()}
                   >
-                    <Package className="h-3 w-3 mr-1" />
-                    {arrivati}/{tot} arrivati
-                  </Badge>
-                ) : (
-                  <span />
-                )}
-                {late > 0 ? (
-                  <Badge variant="danger" className="shrink-0">
-                    {late} in ritardo
-                  </Badge>
-                ) : d?.next ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-text-2 shrink-0">
-                    <CalendarClock className="h-3 w-3" />
-                    {fmtDate(d.next)}
-                  </span>
-                ) : null}
-              </div>
-            </button>
-          );
-        })}
+                    Riprova
+                  </Button>
+                </p>
+              ) : null
+            }
+          >
+            {/* Desktop: tabella densa. La riga apre il dettaglio commessa. */}
+            <div className="hidden min-w-0 lg:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Consegna</TableHead>
+                    <TableHead className="text-right">Q.tà</TableHead>
+                    <TableHead>Fornitore</TableHead>
+                    <TableHead>Commessa</TableHead>
+                    <TableHead>Consegna prevista</TableHead>
+                    <TableHead>Stato</TableHead>
+                    <TableHead>
+                      <span className="sr-only">Azioni</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {righe.map(r => (
+                    <TableRow key={r.prodotto.id}>
+                      <TableCell className="max-w-[20rem] whitespace-normal">
+                        <span className="block font-medium text-text-1">
+                          {r.prodotto.nome}
+                        </span>
+                        {r.prodotto.numeroOrdine ? (
+                          <span className="codice-mono block text-xs text-text-3">
+                            Ordine {r.prodotto.numeroOrdine}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.prodotto.quantita}
+                      </TableCell>
+                      <TableCell className="text-text-2">
+                        {r.prodotto.fornitore || "—"}
+                      </TableCell>
+                      <TableCell className="max-w-[16rem]">
+                        {r.commessa ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="link"
+                              className="h-auto min-h-11 max-w-full justify-start px-0"
+                              onClick={() => apriDettaglio(r.commessa.id)}
+                            >
+                              <span className="min-w-0 truncate">
+                                {etichettaCommessa(r.commessa)}
+                              </span>
+                            </Button>
+                            {r.commessa.codice ? (
+                              <span className="codice-mono block text-xs text-text-3">
+                                {r.commessa.codice}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-text-3">
+                            {etichettaCommessa(null)}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-text-2">
+                        {r.prodotto.dataConsegna
+                          ? etichettaConsegna(r.prodotto.dataConsegna)
+                          : deliveryStateCopy("unscheduled")}
+                      </TableCell>
+                      <TableCell>
+                        <ConsegnaStatoChip stato={r.stato} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11"
+                          disabled={consegnaInCorso === r.prodotto.id}
+                          onClick={() =>
+                            segnaArrivato(r.prodotto.id, !r.prodotto.arrivato)
+                          }
+                        >
+                          {r.prodotto.arrivato
+                            ? "Riapri consegna"
+                            : "Segna ricevuto"}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Sotto lg: agenda, una consegna per card. */}
+            <div className="lg:hidden">
+              <ConsegneAgenda
+                items={agendaItems}
+                today={today}
+                pendingId={consegnaInCorso}
+                onOpenCommessa={apriDettaglio}
+                onToggleArrivato={segnaArrivato}
+              />
+            </div>
+          </DataSurface>
+        </section>
       </div>
 
-      {eligibili.length === 0 && !commesse.isLoading && (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-text-2">
-            <Package className="h-8 w-8 mx-auto mb-2 text-text-3" />
-            Nessuna commessa dallo stato Produzione in poi
-            {search ? " che corrisponde alla ricerca" : ""}.
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Detail popup — the full v3 card lives here now */}
+      {/* Scelta commessa per una nuova consegna: offerta, non permesso. */}
       <Dialog
-        open={detailFor != null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDetailFor(null);
-            setFormFor(null);
-            setForm(emptyForm);
-          }
+        open={pickerOpen}
+        onOpenChange={open => {
+          setPickerOpen(open);
         }}
       >
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-          {(() => {
-            const c = (commesse.data ?? []).find((x: any) => x.id === detailFor);
-            if (!c) return null;
-            const rows = byCommessa.get(c.id) ?? [];
-            const d = digest.get(c.id);
-            return (
-              <>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2.5 flex-wrap pr-6">
-                    <span className="codice-mono text-[11px] text-text-3">{c.codice}</span>
-                    <span className="text-base font-bold">{c.cliente}</span>
-                    <StatoChip stato={c.stato} />
-                    {c.citta && (
-                      <span className="inline-flex items-center gap-0.5 text-xs font-normal text-text-3">
-                        <MapPin className="h-3 w-3" />
-                        {c.citta}
-                      </span>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setLocation(`/commesse/${c.id}`)}
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Aggiungi consegna</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-text-2">
+              Scegli la commessa a cui aggiungere il prodotto. Restano
+              disponibili le commesse dallo stato Produzione in poi.
+            </p>
+            {commesse.isPending ? (
+              <p className="text-sm text-text-3">Carico le commesse…</p>
+            ) : commesse.isError ? (
+              <p role="alert" className="text-sm text-danger">
+                Commesse non caricate. Riprova dalla coda consegne.
+              </p>
+            ) : eligibili.length === 0 ? (
+              <p className="text-sm text-text-3">
+                Nessuna commessa dallo stato Produzione in poi.
+              </p>
+            ) : (
+              <SearchSelect
+                options={eligibili.map((c: any) => ({
+                  value: String(c.id),
+                  label: `${c.codice ?? `#${c.id}`} — ${c.cliente ?? ""}`.trim(),
+                  keywords: [c.codice, c.cliente, c.citta]
+                    .filter(Boolean)
+                    .join(" "),
+                }))}
+                value={null}
+                onChange={value => {
+                  const id = parseInt(value);
+                  if (!id) return;
+                  setPickerOpen(false);
+                  apriDettaglio(id);
+                  setFormFor(id);
+                }}
+                placeholder="Seleziona commessa…"
+                searchPlaceholder="Cerca codice o cliente…"
+                className="min-h-11"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dettaglio commessa: modifica solo attraverso `magazzino.update`. */}
+      <Dialog
+        open={detailFor != null}
+        onOpenChange={open => {
+          if (!open) chiudiDettaglio();
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2.5 pr-6">
+              {commessaDettaglio ? (
+                <>
+                  <span className="codice-mono text-[11px] text-text-3">
+                    {commessaDettaglio.codice}
+                  </span>
+                  <span className="text-base font-bold">
+                    {commessaDettaglio.cliente}
+                  </span>
+                  <StatoChip stato={commessaDettaglio.stato} />
+                  {commessaDettaglio.citta ? (
+                    <span className="inline-flex items-center gap-0.5 text-xs font-normal text-text-3">
+                      <MapPin className="h-3 w-3" aria-hidden="true" />
+                      {commessaDettaglio.citta}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="text-base font-bold">Consegne commessa</span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {commessaDettaglio ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11"
+                onClick={() =>
+                  setLocation(`/commesse/${commessaDettaglio.id}`)
+                }
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                Apri commessa
+              </Button>
+            ) : (
+              <p className="text-sm text-text-3">
+                Dati della commessa non disponibili: le consegne restano
+                modificabili.
+              </p>
+            )}
+
+            {righeDettaglio.length > 0 ? (
+              <div className="space-y-2">
+                {righeDettaglio.map((p: any) => (
+                  <ProdottoRow
+                    key={p.id}
+                    p={p}
+                    today={today}
+                    onUpdate={patch => update.mutate({ id: p.id, ...patch })}
+                    onDelete={() =>
+                      setDeleteTarget({ id: p.id, nome: p.nome })
+                    }
+                    pending={consegnaInCorso === p.id}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-text-3">
+                Nessun prodotto a magazzino per questa commessa.
+              </p>
+            )}
+
+            {create.error ? (
+              <p
+                role="alert"
+                className="rounded-[var(--radius-control)] border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
+              >
+                {create.error.message}
+              </p>
+            ) : null}
+
+            {commessaDettaglio && !isEligible(commessaDettaglio) ? (
+              <p className="text-sm text-text-3">
+                I prodotti a magazzino si aggiungono solo dallo stato Produzione
+                in poi.
+              </p>
+            ) : detailFor != null && formFor === detailFor ? (
+              <div className="space-y-3 rounded-[var(--radius-panel)] border border-border-soft bg-surface-2 p-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="min-w-[180px] flex-[2] space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-nome">
+                      Prodotto *
+                    </Label>
+                    <Input
+                      id="consegna-nome"
+                      autoFocus
+                      placeholder="Es. Finestra PVC 120×140"
+                      value={form.nome}
+                      onChange={e => setForm({ ...form, nome: e.target.value })}
+                      className="min-h-11"
+                    />
+                  </div>
+                  <div className="w-24 space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-quantita">
+                      Q.tà
+                    </Label>
+                    <Input
+                      id="consegna-quantita"
+                      type="number"
+                      min={1}
+                      value={form.quantita}
+                      onChange={e =>
+                        setForm({ ...form, quantita: e.target.value })
+                      }
+                      className="min-h-11"
+                    />
+                  </div>
+                  <div className="w-44 space-y-1">
+                    <Label className="text-xs">Fornitore</Label>
+                    <Select
+                      value={form.fornitore}
+                      onValueChange={v => setForm({ ...form, fornitore: v })}
                     >
-                      <ExternalLink className="h-3 w-3 mr-1" />
-                      Apri commessa
-                    </Button>
-                    {(d?.late ?? 0) > 0 && (
-                      <Badge variant="danger">{d!.late} in ritardo</Badge>
-                    )}
-                    {rows.length > 0 && (
-                      <Badge
-                        variant={
-                          (d?.arrivati ?? 0) === rows.length ? "success" : "secondary"
-                        }
+                      <SelectTrigger
+                        aria-label="Fornitore"
+                        className="min-h-11"
                       >
-                        <Package className="h-3 w-3 mr-1" />
-                        {d?.arrivati ?? 0}/{rows.length} arrivati
-                      </Badge>
-                    )}
-                  </DialogTitle>
-                </DialogHeader>
-
-                <div className="space-y-3">
-                  {rows.length > 0 ? (
-                    <div className="space-y-2">
-                      {rows.map((p: any) => (
-                        <ProdottoRow
-                          key={p.id}
-                          p={p}
-                          today={today}
-                          onUpdate={(patch) => update.mutate({ id: p.id, ...patch })}
-                          onDelete={() => setDeleteTarget({ id: p.id, nome: p.nome })}
-                          pending={update.isPending}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-text-3 text-center py-4">
-                      Nessun prodotto a magazzino per questa commessa.
-                    </p>
-                  )}
-
-                  {formFor === c.id ? (
-                    <div className="rounded-lg border border-border bg-surface-2 p-3 space-y-3">
-                      <div className="flex gap-3 flex-wrap items-end">
-                        <div className="space-y-1 flex-[2] min-w-[180px]">
-                          <Label className="text-xs">Prodotto *</Label>
-                          <Input
-                            autoFocus
-                            placeholder="Es. Finestra PVC 120×140"
-                            value={form.nome}
-                            onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                            className="h-9"
-                          />
-                        </div>
-                        <div className="space-y-1 w-20">
-                          <Label className="text-xs">Q.tà</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={form.quantita}
-                            onChange={(e) => setForm({ ...form, quantita: e.target.value })}
-                            className="h-9"
-                          />
-                        </div>
-                        <div className="space-y-1 w-44">
-                          <Label className="text-xs">Fornitore</Label>
-                          <Select
-                            value={form.fornitore}
-                            onValueChange={(v) => setForm({ ...form, fornitore: v })}
-                          >
-                            <SelectTrigger className="h-9">
-                              <SelectValue placeholder="—" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FORNITORI.map((f) => (
-                                <SelectItem key={f} value={f}>{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="flex gap-3 flex-wrap items-end">
-                        <div className="space-y-1 w-32">
-                          <Label className="text-xs">N° ordine</Label>
-                          <Input
-                            placeholder="Es. 0045"
-                            value={form.numeroOrdine}
-                            onChange={(e) => setForm({ ...form, numeroOrdine: e.target.value })}
-                            className="h-9 font-mono"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Ordinato il</Label>
-                          <Input
-                            type="date"
-                            value={form.dataOrdine}
-                            onChange={(e) => setForm({ ...form, dataOrdine: e.target.value })}
-                            className="h-9"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Consegna prevista</Label>
-                          <Input
-                            type="date"
-                            value={form.dataConsegna}
-                            onChange={(e) => setForm({ ...form, dataConsegna: e.target.value })}
-                            className="h-9"
-                          />
-                        </div>
-                        <div className="space-y-1 flex-1 min-w-[160px]">
-                          <Label className="text-xs">Note</Label>
-                          <Input
-                            value={form.note}
-                            onChange={(e) => setForm({ ...form, note: e.target.value })}
-                            className="h-9"
-                          />
-                        </div>
-                        <div className="flex gap-1.5">
-                          <Button
-                            onClick={() => submitForm(c.id)}
-                            disabled={!form.nome.trim() || create.isPending}
-                          >
-                            <Plus className="h-3.5 w-3.5 mr-1" />
-                            Aggiungi
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              setFormFor(null);
-                              setForm(emptyForm);
-                            }}
-                          >
-                            Annulla
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FORNITORI.map(f => (
+                          <SelectItem key={f} value={f}>
+                            {f}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="w-32 space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-ordine">
+                      N° ordine
+                    </Label>
+                    <Input
+                      id="consegna-ordine"
+                      placeholder="Es. 0045"
+                      value={form.numeroOrdine}
+                      onChange={e =>
+                        setForm({ ...form, numeroOrdine: e.target.value })
+                      }
+                      className="min-h-11 font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-data-ordine">
+                      Ordinato il
+                    </Label>
+                    <Input
+                      id="consegna-data-ordine"
+                      type="date"
+                      value={form.dataOrdine}
+                      onChange={e =>
+                        setForm({ ...form, dataOrdine: e.target.value })
+                      }
+                      className="min-h-11"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-data-prevista">
+                      Consegna prevista
+                    </Label>
+                    <Input
+                      id="consegna-data-prevista"
+                      type="date"
+                      value={form.dataConsegna}
+                      onChange={e =>
+                        setForm({ ...form, dataConsegna: e.target.value })
+                      }
+                      className="min-h-11"
+                    />
+                  </div>
+                  <div className="min-w-[160px] flex-1 space-y-1">
+                    <Label className="text-xs" htmlFor="consegna-note">
+                      Note
+                    </Label>
+                    <Input
+                      id="consegna-note"
+                      value={form.note}
+                      onChange={e => setForm({ ...form, note: e.target.value })}
+                      className="min-h-11"
+                    />
+                  </div>
+                  <div className="flex gap-2">
                     <Button
-                      variant="outline"
-                      size="sm"
+                      type="button"
+                      className="min-h-11"
+                      onClick={() => submitForm(detailFor)}
+                      disabled={!form.nome.trim() || create.isPending}
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      Aggiungi
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-11"
                       onClick={() => {
-                        setFormFor(c.id);
+                        setFormFor(null);
                         setForm(emptyForm);
+                        create.reset();
                       }}
                     >
-                      <Plus className="h-3.5 w-3.5 mr-1" />
-                      Aggiungi prodotto
+                      Annulla
                     </Button>
-                  )}
+                  </div>
                 </div>
-              </>
-            );
-          })()}
+              </div>
+            ) : detailFor != null ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => {
+                  setFormFor(detailFor);
+                  setForm(emptyForm);
+                  create.reset();
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                Aggiungi prodotto
+              </Button>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -650,6 +980,7 @@ export default function Magazzino() {
         title="Elimina prodotto"
         description={`Rimuovere "${deleteTarget?.nome}" dal magazzino della commessa?`}
         confirmLabel="Rimuovi prodotto"
+        busy={remove.isPending}
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
     </div>
@@ -657,7 +988,8 @@ export default function Magazzino() {
 }
 
 // ── Product row ──────────────────────────────────────────────────────────────
-// Two-level card: labelled fields (all inline-editable) + click-to-edit note.
+// Riga del dettaglio commessa: campi etichettati, tutti modificabili inline
+// attraverso `magazzino.update`. Nessun'altra mutation è coinvolta.
 function ProdottoRow({
   p,
   today,
@@ -675,12 +1007,16 @@ function ProdottoRow({
   const [qtaDraft, setQtaDraft] = useState<string | null>(null);
   const [ordineDraft, setOrdineDraft] = useState<string | null>(null);
 
-  const late = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
+  const stato = deliveryState({
+    arrivato: p.arrivato,
+    dataConsegna: p.dataConsegna,
+    today,
+  });
   const lead = leadDays(p);
 
   const field = (label: string, node: React.ReactNode, cls = "") => (
     <div className={`space-y-0.5 ${cls}`}>
-      <p className="text-[10px] uppercase tracking-wide font-semibold text-text-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">
         {label}
       </p>
       {node}
@@ -688,38 +1024,20 @@ function ProdottoRow({
   );
 
   return (
-    <div
-      className={`rounded-lg border p-3 space-y-2.5 transition-colors ${
-        p.arrivato
-          ? "border-success/30 bg-success-soft/30"
-          : late
-          ? "border-danger/40 bg-danger-soft/20"
-          : "border-border bg-surface"
-      }`}
-    >
-      {/* Level 1: name + fields grid */}
-      <div className="flex items-start gap-4 flex-wrap">
+    <div className="min-w-0 space-y-2.5 rounded-[var(--radius-panel)] border border-border-soft bg-surface p-3">
+      <div className="flex min-w-0 flex-wrap items-start gap-4">
         <div className="min-w-[160px] flex-1">
-          <p className="text-sm font-semibold leading-tight">{p.nome}</p>
-          <div className="flex items-center gap-2 mt-1">
-            {p.arrivato ? (
-              <Badge variant="success" className="text-[10px]">
-                <CheckCircle2 className="h-3 w-3 mr-0.5" />
-                Arrivato
-              </Badge>
-            ) : late ? (
-              <Badge variant="danger" className="text-[10px]">In ritardo</Badge>
-            ) : (
-              <Badge variant="secondary" className="text-[10px]">In arrivo</Badge>
-            )}
+          <p className="text-sm font-semibold leading-tight text-text-1">
+            {p.nome}
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            <ConsegnaStatoChip stato={stato} />
             {lead != null && (
               <span
-                className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${
-                  p.arrivato ? "text-success" : "text-text-2"
-                }`}
+                className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-text-2"
                 title="Giorni dall'ordine alla consegna"
               >
-                <Timer className="h-3 w-3" />
+                <Timer className="h-3 w-3" aria-hidden="true" />
                 {lead} gg
               </span>
             )}
@@ -729,16 +1047,18 @@ function ProdottoRow({
         {field(
           "Q.tà",
           <Input
+            aria-label="Quantità"
             inputMode="numeric"
             value={qtaDraft ?? String(p.quantita)}
-            onChange={(e) => setQtaDraft(e.target.value)}
+            onChange={e => setQtaDraft(e.target.value)}
             onBlur={() => {
               if (qtaDraft == null) return;
               const n = parseInt(qtaDraft);
-              if (!isNaN(n) && n >= 1 && n !== p.quantita) onUpdate({ quantita: n });
+              if (!isNaN(n) && n >= 1 && n !== p.quantita)
+                onUpdate({ quantita: n });
               setQtaDraft(null);
             }}
-            className="h-8 w-16 text-center tabular-nums"
+            className="h-9 w-16 text-center tabular-nums"
           />
         )}
 
@@ -746,9 +1066,9 @@ function ProdottoRow({
           "Fornitore",
           <Select
             value={p.fornitore ?? ""}
-            onValueChange={(v) => onUpdate({ fornitore: v || null })}
+            onValueChange={v => onUpdate({ fornitore: v || null })}
           >
-            <SelectTrigger className="h-8 w-40">
+            <SelectTrigger aria-label="Fornitore" className="h-9 w-40">
               <SelectValue placeholder="—" />
             </SelectTrigger>
             <SelectContent>
@@ -756,8 +1076,10 @@ function ProdottoRow({
               {p.fornitore && !FORNITORI.includes(p.fornitore) && (
                 <SelectItem value={p.fornitore}>{p.fornitore}</SelectItem>
               )}
-              {FORNITORI.map((f) => (
-                <SelectItem key={f} value={f}>{f}</SelectItem>
+              {FORNITORI.map(f => (
+                <SelectItem key={f} value={f}>
+                  {f}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -766,45 +1088,51 @@ function ProdottoRow({
         {field(
           "N° ordine",
           <Input
+            aria-label="Numero ordine"
             placeholder="—"
             value={ordineDraft ?? (p.numeroOrdine ?? "")}
-            onChange={(e) => setOrdineDraft(e.target.value)}
+            onChange={e => setOrdineDraft(e.target.value)}
             onBlur={() => {
               if (ordineDraft == null) return;
               if (ordineDraft.trim() !== (p.numeroOrdine ?? ""))
                 onUpdate({ numeroOrdine: ordineDraft.trim() || null });
               setOrdineDraft(null);
             }}
-            className="h-8 w-24 font-mono text-xs"
+            className="h-9 w-24 font-mono text-xs"
           />
         )}
 
         {field(
           "Ordinato il",
           <Input
+            aria-label="Data ordine"
             type="date"
             value={p.dataOrdine ?? ""}
-            onChange={(e) => onUpdate({ dataOrdine: e.target.value || null })}
-            className="h-8 w-[135px] text-xs"
+            onChange={e => onUpdate({ dataOrdine: e.target.value || null })}
+            className="h-9 w-[135px] text-xs"
           />
         )}
 
         {field(
           "Consegna",
           <Input
+            aria-label="Data di consegna prevista"
             type="date"
             value={p.dataConsegna ?? ""}
-            onChange={(e) => onUpdate({ dataConsegna: e.target.value || null })}
-            className={`h-8 w-[135px] text-xs ${late ? "border-danger/50 text-danger" : ""}`}
+            onChange={e => onUpdate({ dataConsegna: e.target.value || null })}
+            className={`h-9 w-[135px] text-xs ${
+              stato === "late" ? "border-danger/50 text-danger" : ""
+            }`}
           />
         )}
 
         {field(
           "Arrivato",
-          <div className="h-8 flex items-center">
+          <div className="flex h-9 items-center">
             <Switch
+              aria-label="Consegna ricevuta"
               checked={p.arrivato}
-              onCheckedChange={(v) => onUpdate({ arrivato: v })}
+              onCheckedChange={v => onUpdate({ arrivato: v })}
               disabled={pending}
             />
           </div>
@@ -812,9 +1140,11 @@ function ProdottoRow({
 
         <div className="ml-auto self-center">
           <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-danger"
+            type="button"
+            variant="dangerGhost"
+            size="icon"
+            className="min-h-11 min-w-11"
+            aria-label="Elimina prodotto"
             title="Elimina prodotto"
             onClick={onDelete}
           >
@@ -823,20 +1153,24 @@ function ProdottoRow({
         </div>
       </div>
 
-      {/* Level 2: editable note */}
-      <div className="flex items-start gap-1.5">
-        <StickyNote className="h-3.5 w-3.5 shrink-0 text-warning mt-[7px]" />
+      {/* Nota modificabile */}
+      <div className="flex min-w-0 items-start gap-1.5">
+        <StickyNote
+          className="mt-[9px] h-3.5 w-3.5 shrink-0 text-warning"
+          aria-hidden="true"
+        />
         <Input
+          aria-label="Nota consegna"
           placeholder="Aggiungi nota…"
           value={noteDraft ?? (p.note ?? "")}
-          onChange={(e) => setNoteDraft(e.target.value)}
+          onChange={e => setNoteDraft(e.target.value)}
           onBlur={() => {
             if (noteDraft == null) return;
             if (noteDraft.trim() !== (p.note ?? ""))
               onUpdate({ note: noteDraft.trim() || null });
             setNoteDraft(null);
           }}
-          className="h-8 border-transparent bg-transparent px-1.5 text-xs shadow-none hover:border-border focus-visible:border-border"
+          className="h-9 border-transparent bg-transparent px-1.5 text-xs shadow-none hover:border-border focus-visible:border-border"
         />
       </div>
     </div>
