@@ -43,6 +43,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
+import TarsAgentCard from "@/components/tars/TarsAgentCard";
 
 // Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
 // guarded routes in App.tsx; adding a new entry here automatically surfaces
@@ -295,13 +296,9 @@ export default function Integrazioni() {
           )}
         </Card>
 
-        {/* Le card raggruppate per tema, con aria in mezzo: dodici card in
-          colonna unica erano un muro in cui niente si distingueva. */}
-        <div className="space-y-2 pt-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
-            Agente
-          </h3>
-        </div>
+        {/* La diagnostica tecnica di Tars vive qui, fuori dalla superficie
+            conversazionale; le query sono gated dentro la card. */}
+        <TarsAgentCard direzione={canManage} />
 
         <div className="space-y-2 pt-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
