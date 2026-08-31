@@ -135,6 +135,7 @@ export type PersistedStore<T> = {
 };
 
 const storeKeys = new WeakMap<object, string>();
+const storeLocks = new Map<string, Promise<void>>();
 
 // Read-only snapshot of every registered store — used by the nightly backup
 // so it never needs a per-router getter. Items are the live arrays: callers
@@ -164,26 +165,80 @@ export function persistedStore<T>(
   return store;
 }
 
-/** Scrive più blob JSONB nella stessa transazione PostgreSQL. */
-export async function saveStoresAtomically(
+function risolviStoreAtomici(
   stores: readonly PersistedStore<unknown>[]
-): Promise<void> {
-  if (!sql) return;
+): StoreEntry[] {
   const entries = stores.map(store => {
     const key = storeKeys.get(store as object);
     const entry = key ? registry.get(key) : null;
-    if (!key || !entry) throw new Error("[persistence] store atomico non registrato");
-    if (!entry.loaded) throw new Error(`[persistence] store ${key} non caricato`);
+    if (!key || !entry)
+      throw new Error("[persistence] store atomico non registrato");
+    if (!entry.loaded)
+      throw new Error(`[persistence] store ${key} non caricato`);
     return entry;
   });
+  return Array.from(
+    new Map(entries.map(entry => [entry.key, entry])).values()
+  ).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+async function bloccaStore(chiave: string): Promise<() => void> {
+  const precedente = storeLocks.get(chiave) ?? Promise.resolve();
+  let rilascia!: () => void;
+  const occupato = new Promise<void>(risolvi => {
+    rilascia = risolvi;
+  });
+  const coda = precedente.then(() => occupato);
+  storeLocks.set(chiave, coda);
+  await precedente;
+  return () => {
+    rilascia();
+    if (storeLocks.get(chiave) === coda) storeLocks.delete(chiave);
+  };
+}
+
+async function conStoreBloccati<T>(
+  chiavi: readonly string[],
+  operazione: () => Promise<T>
+): Promise<T> {
+  const rilasci = Array<() => void>();
+  try {
+    for (const chiave of [...new Set(chiavi)].sort()) {
+      rilasci.push(await bloccaStore(chiave));
+    }
+    return await operazione();
+  } finally {
+    for (const rilascia of rilasci.reverse()) rilascia();
+  }
+}
+
+function annullaSalvataggiPendenti(entries: readonly StoreEntry[]) {
+  for (const entry of entries) {
+    const timer = saveTimers.get(entry.key);
+    if (timer) clearTimeout(timer);
+    saveTimers.delete(entry.key);
+  }
+}
+
+async function salvaEntriesAtomici(
+  entries: readonly StoreEntry[]
+): Promise<void> {
+  if (!sql) return;
   await ensureSchema();
+  // I blob vanno congelati insieme prima del BEGIN: un await fra due store
+  // non può così osservare revisioni diverse degli array live.
+  const payloads = entries.map(entry => ({
+    key: entry.key,
+    dati: JSON.parse(JSON.stringify(entry.items)),
+  }));
   await withRetry(
-    () => sql.begin(async tx => {
-      for (const entry of entries) {
-        const payload = tx.json(entry.items as any);
+    () =>
+      sql.begin(async tx => {
+        for (const payloadDaSalvare of payloads) {
+          const payload = tx.json(payloadDaSalvare.dati as any);
         await tx`
           INSERT INTO kv_store (key, data, updated_at)
-          VALUES (${entry.key}, ${payload}, NOW())
+          VALUES (${payloadDaSalvare.key}, ${payload}, NOW())
           ON CONFLICT (key) DO UPDATE
             SET data = EXCLUDED.data, updated_at = NOW()
         `;
@@ -191,6 +246,31 @@ export async function saveStoresAtomically(
     }),
     `save atomico(${entries.map(entry => entry.key).join(",")})`
   );
+}
+
+/**
+ * Serializza una mutation multi-store fino al suo commit o rollback.
+ * L'ordine lessicografico delle chiavi evita deadlock tra insiemi sovrapposti.
+ */
+export async function conTransazioneStoreAtomica<T>(
+  stores: readonly PersistedStore<unknown>[],
+  operazione: (commit: () => Promise<void>) => Promise<T>
+): Promise<T> {
+  const entries = risolviStoreAtomici(stores);
+  return conStoreBloccati(
+    entries.map(entry => entry.key),
+    async () => {
+      annullaSalvataggiPendenti(entries);
+      return operazione(() => salvaEntriesAtomici(entries));
+    }
+  );
+}
+
+/** Scrive più blob JSONB nella stessa transazione PostgreSQL. */
+export async function saveStoresAtomically(
+  stores: readonly PersistedStore<unknown>[]
+): Promise<void> {
+  await conTransazioneStoreAtomica(stores, commit => commit());
 }
 
 function scheduleSave(key: string) {
@@ -207,6 +287,10 @@ function scheduleSave(key: string) {
 }
 
 async function flushSave(key: string) {
+  return conStoreBloccati([key], () => flushSaveBloccato(key));
+}
+
+async function flushSaveBloccato(key: string) {
   if (!sql) {
     console.warn(`[persistence] save skipped for ${key} — no DATABASE_URL`);
     return;

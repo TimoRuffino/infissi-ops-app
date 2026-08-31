@@ -94,7 +94,9 @@ const transizioni = storeTransizioniCommessa.items;
 
 export type DipendenzeTransizioneCommessa = {
   trovaCommessa(id: number): CommessaTransizionabile | null;
-  salvaStatoEAudit(): Promise<void>;
+  eseguiStatoEAuditAtomico<T>(
+    operazione: (commit: () => Promise<void>) => Promise<T>
+  ): Promise<T>;
   haDocumentoRichiesto(commessaId: number, stato: string): boolean;
   documentiRichiesti(stato: StatoCommessa): readonly string[];
   etichettaDocumento(tipo: string): string;
@@ -395,9 +397,10 @@ async function applicaTransizioneCommessa(
   assertSede(primaLettura, input.ctx.sedeId);
   await autorizza(input.ctx, primaLettura, input.origine);
 
-  // TOCTOU: autorizzazione e preview non congelano il record. Rileggiamo
-  // stato, sede e versione subito prima dell'effetto.
-  const commessa = dipendenze.trovaCommessa(input.commessaId);
+  return dipendenze.eseguiStatoEAuditAtomico(async commit => {
+    // TOCTOU: autorizzazione e preview non congelano il record. Rileggiamo
+    // stato, sede e versione mentre il commit multi-store è bloccato.
+    const commessa = dipendenze.trovaCommessa(input.commessaId);
   assertSede(commessa, input.ctx.sedeId);
   if (
     input.versioneAttesa != null &&
@@ -497,13 +500,14 @@ async function applicaTransizioneCommessa(
   try {
     // Stato commessa e audit sono un singolo commit; nessuna risposta riesce
     // prima di questa barriera di persistenza.
-    await dipendenze.salvaStatoEAudit();
+    await commit();
   } catch (errore) {
     for (const chiave of Object.keys(commessa)) {
       if (!(chiave in recordPrima)) delete (commessa as any)[chiave];
     }
     Object.assign(commessa, recordPrima);
-    transizioni.pop();
+    const indiceRegistro = transizioni.findIndex(riga => riga.id === registro.id);
+    if (indiceRegistro >= 0) transizioni.splice(indiceRegistro, 1);
     // Un id non confermato resta un buco: riutilizzarlo potrebbe collidere con
     // un'altra transizione concorrente già arrivata alla barriera di commit.
     if (input.segnaCompensata) input.segnaCompensata.compensataDaId = null;
@@ -535,6 +539,7 @@ async function applicaTransizioneCommessa(
     riusata: false,
     compensaTransizioneId: registro.compensaTransizioneId,
   };
+  });
 }
 
 /**

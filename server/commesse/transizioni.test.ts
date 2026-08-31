@@ -43,12 +43,13 @@ async function moduloTransizioni(): Promise<any> {
 function dipendenze(commessa: CommessaTest, gate = true) {
   let salvataggi = 0;
   const timeline: Array<{ id: number; stato: string }> = [];
+  const commit = async () => {
+    salvataggi += 1;
+  };
   return {
     valore: {
       trovaCommessa: (id: number) => (id === commessa.id ? commessa : null),
-      salvaStatoEAudit: async () => {
-        salvataggi += 1;
-      },
+      eseguiStatoEAuditAtomico: async (operazione: any) => operazione(commit),
       haDocumentoRichiesto: () => gate,
       documentiRichiesti: (stato: string) =>
         stato === "preventivo" ? ["preventivo", "contratto"] : [],
@@ -290,9 +291,10 @@ describe("servizio canonico transizioni commessa", () => {
       dataChiusura: null,
     };
     const deps = dipendenze(commessa, true);
-    (deps.valore as any).salvaStatoEAudit = async () => {
+    (deps.valore as any).eseguiStatoEAuditAtomico = async (operazione: any) =>
+      operazione(async () => {
       throw new Error("persistenza interrotta");
-    };
+      });
 
     await expect(
       modulo.eseguiTransizioneCommessa(
@@ -310,6 +312,184 @@ describe("servizio canonico transizioni commessa", () => {
       stato: "preventivo",
       updatedAt: new Date("2026-08-31T10:00:00.000Z"),
     });
+  });
+
+  it("non rimuove l'audit settled di un'altra transizione se il commit concorrente fallisce", async () => {
+    const modulo = await moduloTransizioni();
+    expect(modulo).not.toBeNull();
+    if (!modulo) return;
+    const prima: CommessaTest = {
+      id: 98428,
+      sedeId: SEDE,
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: null,
+      dataChiusura: null,
+    };
+    const seconda: CommessaTest = {
+      id: 98429,
+      sedeId: SEDE,
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: null,
+      dataChiusura: null,
+    };
+    let rifiutaPrimo: ((errore: Error) => void) | null = null;
+    let segnalaPrimoAvviato: (() => void) | null = null;
+    const primoAvviato = new Promise<void>(risolvi => {
+      segnalaPrimoAvviato = risolvi;
+    });
+    let segnalaSecondoSalvato: (() => void) | null = null;
+    const secondoSalvato = new Promise<void>(risolvi => {
+      segnalaSecondoSalvato = risolvi;
+    });
+    let salvataggi = 0;
+    const commit = () => {
+      salvataggi += 1;
+      if (salvataggi === 1) {
+        return new Promise<void>((_risolvi, rifiuta) => {
+          rifiutaPrimo = rifiuta;
+          segnalaPrimoAvviato!();
+        });
+      }
+      segnalaSecondoSalvato!();
+      return Promise.resolve();
+    };
+    const deps: any = {
+      trovaCommessa: (id: number) =>
+        id === prima.id ? prima : id === seconda.id ? seconda : null,
+      eseguiStatoEAuditAtomico: async (operazione: any) => operazione(commit),
+      haDocumentoRichiesto: () => true,
+      documentiRichiesti: () => [],
+      etichettaDocumento: (tipo: string) => tipo,
+      allineaTimeline: async () => {},
+      ora: () => new Date("2026-08-31T12:00:00.000Z"),
+    };
+
+    const fallita = modulo.eseguiTransizioneCommessa(
+      {
+        ctx: ctx(),
+        commessaId: prima.id,
+        nuovoStato: "misure_esecutive",
+        origine: "tars",
+        versioneAttesa: modulo.versioneCommessa(prima),
+      },
+      deps
+    );
+    await primoAvviato;
+    const riuscita = modulo.eseguiTransizioneCommessa(
+      {
+        ctx: ctx(),
+        commessaId: seconda.id,
+        nuovoStato: "misure_esecutive",
+        origine: "tars",
+        versioneAttesa: modulo.versioneCommessa(seconda),
+      },
+      deps
+    );
+    await secondoSalvato;
+    rifiutaPrimo!(new Error("commit prima interrotto"));
+    await expect(fallita).rejects.toThrow("commit prima interrotto");
+    const esitoRiuscito = await riuscita;
+
+    await expect(
+      modulo.annullaTransizioneCommessa(
+        { ctx: ctx(), transizioneId: esitoRiuscito.transizioneId },
+        deps
+      )
+    ).resolves.toMatchObject({ da: "misure_esecutive", a: "preventivo" });
+    expect(seconda.stato).toBe("preventivo");
+  });
+
+  it("serializza mutate, commit e rollback delle transizioni concorrenti", async () => {
+    const modulo = await moduloTransizioni();
+    expect(modulo).not.toBeNull();
+    if (!modulo) return;
+    const prima: CommessaTest = {
+      id: 98430,
+      sedeId: SEDE,
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: null,
+      dataChiusura: null,
+    };
+    const seconda: CommessaTest = {
+      id: 98431,
+      sedeId: SEDE,
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: null,
+      dataChiusura: null,
+    };
+    let rifiutaPrimo: ((errore: Error) => void) | null = null;
+    let segnalaPrimoAvviato: (() => void) | null = null;
+    const primoAvviato = new Promise<void>(risolvi => {
+      segnalaPrimoAvviato = risolvi;
+    });
+    let salvataggi = 0;
+    let coda = Promise.resolve();
+    const commit = () => {
+      salvataggi += 1;
+      if (salvataggi === 1) {
+        return new Promise<void>((_risolvi, rifiuta) => {
+          rifiutaPrimo = rifiuta;
+          segnalaPrimoAvviato!();
+        });
+      }
+      return Promise.resolve();
+    };
+    const deps: any = {
+      trovaCommessa: (id: number) =>
+        id === prima.id ? prima : id === seconda.id ? seconda : null,
+      eseguiStatoEAuditAtomico: async (operazione: any) => {
+        const precedente = coda;
+        let rilascia: (() => void) | null = null;
+        coda = new Promise<void>(risolvi => {
+          rilascia = risolvi;
+        });
+        await precedente;
+        try {
+          return await operazione(commit);
+        } finally {
+          rilascia!();
+        }
+      },
+      haDocumentoRichiesto: () => true,
+      documentiRichiesti: () => [],
+      etichettaDocumento: (tipo: string) => tipo,
+      allineaTimeline: async () => {},
+      ora: () => new Date("2026-08-31T12:00:00.000Z"),
+    };
+
+    const fallita = modulo.eseguiTransizioneCommessa(
+      {
+        ctx: ctx(),
+        commessaId: prima.id,
+        nuovoStato: "misure_esecutive",
+        origine: "tars",
+      },
+      deps
+    );
+    await primoAvviato;
+    const riuscita = modulo.eseguiTransizioneCommessa(
+      {
+        ctx: ctx(),
+        commessaId: seconda.id,
+        nuovoStato: "misure_esecutive",
+        origine: "tars",
+      },
+      deps
+    );
+    await new Promise<void>(risolvi => setImmediate(risolvi));
+    const statoSecondaPrimaDelRollback = seconda.stato;
+    const salvataggiPrimaDelRollback = salvataggi;
+    rifiutaPrimo!(new Error("commit prima interrotto"));
+    await expect(fallita).rejects.toThrow("commit prima interrotto");
+    await riuscita;
+
+    expect(statoSecondaPrimaDelRollback).toBe("preventivo");
+    expect(salvataggiPrimaDelRollback).toBe(1);
+    expect(seconda.stato).toBe("misure_esecutive");
   });
 
   it("Undo fallisce senza effetti se la commessa è cambiata o appartiene a un'altra sede", async () => {

@@ -490,7 +490,13 @@ describe("tars — protocollo write-ahead R1", () => {
     expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(1);
   });
 
-  it("rifiuta il comando condizionale prima di emettere autorità o reservation", async () => {
+  for (const condizione of [
+    "se il documento è coerente",
+    "qualora il documento sia coerente",
+    "purché il documento sia coerente",
+    "a condizione che il documento sia coerente",
+  ]) {
+  it(`rifiuta il suffisso condizionale «${condizione}» prima di emettere autorità o reservation`, async () => {
     process.env.FLAG_TARS = "on";
     process.env.FLAG_TARS_READ_TOOLS = "on";
     process.env.FLAG_TARS_L2_ACTIONS = "on";
@@ -517,13 +523,14 @@ describe("tars — protocollo write-ahead R1", () => {
             )
           : rispostaTesto("Nessuna transizione.")
       ),
-      messaggio: `Analizza il preventivo e, se è coerente, passa la commessa ${commessa.codice} a misure esecutive`,
+      messaggio: `Passa la commessa ${commessa.codice} a misure esecutive ${condizione}`,
     });
 
     expect((await direzione().commesse.byId(commessa.id)).stato).toBe("preventivo");
     expect(esito.azioni).toMatchObject([{ stato: "non_eseguito" }]);
     expect(await ledger.lista({ sedeId: SEDE })).toHaveLength(0);
   });
+  }
 
   it("due input legittimi distinti producono due effetti e due audit", async () => {
     const ledger = creaLedgerEsecuzioniMemoriaPerTest();

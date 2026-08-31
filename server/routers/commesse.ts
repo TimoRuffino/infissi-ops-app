@@ -31,7 +31,7 @@ import {
   type DipendenzeTransizioneCommessa,
   type StatoCommessa,
 } from "../commesse/transizioni";
-import { persistedStore, saveStoresAtomically } from "../_core/persistence";
+import { conTransazioneStoreAtomica, persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
 import {
@@ -224,8 +224,11 @@ export function saveCommesseStore(): void {
 export function dipendenzeTransizioniCommesse(): DipendenzeTransizioneCommessa {
   return {
     trovaCommessa: getCommessaById,
-    salvaStatoEAudit: () =>
-      saveStoresAtomically([_store, storeTransizioniCommessa]),
+    eseguiStatoEAuditAtomico: operazione =>
+      conTransazioneStoreAtomica(
+        [_store, storeTransizioniCommessa],
+        operazione
+      ),
     haDocumentoRichiesto: statoHasRequiredDoc,
     documentiRichiesti: stato =>
       REQUIRED_DOC_TIPI_PER_STATO[stato] ?? [],

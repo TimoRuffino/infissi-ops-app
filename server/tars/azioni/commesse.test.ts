@@ -81,6 +81,11 @@ describe("Tars — transizioni canoniche di commessa", () => {
       false
     );
     expect(
+      richiestaEsplicitaTransizione(
+        "Passa la commessa a misure esecutive entro fine mese"
+      )
+    ).toBe(true);
+    expect(
       richiestaEsplicitaTransizione("Non puoi passare la commessa a misure esecutive")
     ).toBe(false);
     expect(
