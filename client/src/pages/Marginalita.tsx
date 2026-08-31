@@ -185,12 +185,15 @@ export default function Marginalita() {
     setSortBy("perc");
   }
 
-  const statoElenco: StatePanelProps | undefined = rows.isPending
+  // Stato della lettura, condiviso da KPI ed elenco: un margine che non è
+  // stato ancora calcolato non è «€ 0,00», e zero commesse complete non è un
+  // dato finché la query non ha risposto.
+  const statoLettura: StatePanelProps | undefined = rows.isPending
     ? {
         kind: "loading",
         title: "Calcolo la marginalità",
         description: "Recupero pattuito, costi registrati e posa stimata.",
-        rows: 5,
+        rows: 3,
       }
     : rows.isError
       ? {
@@ -209,28 +212,31 @@ export default function Marginalita() {
             </Button>
           ),
         }
-      : filtered.length === 0
-        ? {
-            kind: "empty",
-            title: hasActiveFilters
-              ? "Nessuna commessa corrisponde ai filtri correnti"
-              : "Nessuna commessa da mostrare",
-            description: hasActiveFilters
-              ? "Cambia ricerca o stato per vedere le altre commesse della sede."
-              : "Registra il totale pattuito e gli ordini fornitore per vedere i margini.",
-            action: hasActiveFilters ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={azzeraFiltri}
-              >
-                <FilterX className="h-4 w-4" aria-hidden="true" /> Azzera i
-                filtri
-              </Button>
-            ) : undefined,
-          }
-        : undefined;
+      : undefined;
+
+  const statoElenco: StatePanelProps | undefined =
+    statoLettura ??
+    (filtered.length === 0
+      ? {
+          kind: "empty",
+          title: hasActiveFilters
+            ? "Nessuna commessa corrisponde ai filtri correnti"
+            : "Nessuna commessa da mostrare",
+          description: hasActiveFilters
+            ? "Cambia ricerca o stato per vedere le altre commesse della sede."
+            : "Registra il totale pattuito e gli ordini fornitore per vedere i margini.",
+          action: hasActiveFilters ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={azzeraFiltri}
+            >
+              <FilterX className="h-4 w-4" aria-hidden="true" /> Azzera i filtri
+            </Button>
+          ) : undefined,
+        }
+      : undefined);
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-5">
@@ -280,6 +286,7 @@ export default function Marginalita() {
         tone="default"
         title="Margine stimato del perimetro completo"
         description="Solo le commesse con pattuito e costi registrati: le incomplete resterebbero al 100% e falserebbero la media."
+        state={statoLettura}
       >
         <dl className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="min-w-0 rounded-[var(--radius-control)] border border-success/30 bg-success-soft px-3 py-2">

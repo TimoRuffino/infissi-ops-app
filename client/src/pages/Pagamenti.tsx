@@ -274,12 +274,15 @@ function PagamentiAutorizzata({
 
   const importoRegistrabile = parseEuroPositivo(pForm.importo);
 
-  const statoElenco: StatePanelProps | undefined = commesse.isPending
+  // Stato della lettura, condiviso da sintesi ed elenco: finché le commesse
+  // non sono state lette — o la lettura è fallita — al posto dei totali va
+  // mostrato lo stato, mai un «€ 0,00» che nessuno ha calcolato.
+  const statoLettura: StatePanelProps | undefined = commesse.isPending
     ? {
         kind: "loading",
         title: "Carico la cassa",
         description: "Recupero le commesse attive della sede.",
-        rows: 5,
+        rows: 3,
       }
     : commesse.isError
       ? {
@@ -298,28 +301,31 @@ function PagamentiAutorizzata({
             </Button>
           ),
         }
-      : rows.length === 0
-        ? {
-            kind: "empty",
-            title: hasActiveFilters
-              ? "Nessuna commessa per questo filtro"
-              : "Nessuna commessa attiva in questa sede",
-            description: hasActiveFilters
-              ? "Cambia filtro, anno o ricerca per vedere le altre commesse della sede."
-              : "Quando una commessa verrà aperta la troverai qui con il suo saldo.",
-            action: hasActiveFilters ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={azzeraFiltri}
-              >
-                <FilterX className="h-4 w-4" aria-hidden="true" /> Azzera i
-                filtri
-              </Button>
-            ) : undefined,
-          }
-        : undefined;
+      : undefined;
+
+  const statoElenco: StatePanelProps | undefined =
+    statoLettura ??
+    (rows.length === 0
+      ? {
+          kind: "empty",
+          title: hasActiveFilters
+            ? "Nessuna commessa per questo filtro"
+            : "Nessuna commessa attiva in questa sede",
+          description: hasActiveFilters
+            ? "Cambia filtro, anno o ricerca per vedere le altre commesse della sede."
+            : "Quando una commessa verrà aperta la troverai qui con il suo saldo.",
+          action: hasActiveFilters ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={azzeraFiltri}
+            >
+              <FilterX className="h-4 w-4" aria-hidden="true" /> Azzera i filtri
+            </Button>
+          ) : undefined,
+        }
+      : undefined);
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-5">
@@ -377,6 +383,7 @@ function PagamentiAutorizzata({
             ? "Somma delle commesse attive della sede, tutti gli anni."
             : `Somma delle commesse attive aperte nel ${anno}.`
         }
+        state={statoLettura}
       >
         <dl className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2">
