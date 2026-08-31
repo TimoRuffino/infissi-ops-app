@@ -122,7 +122,7 @@ function SignatureCanvas({
           {label}
         </Label>
         {hasContent && (
-          <Button variant="ghost" size="sm" onClick={clear} className="text-xs h-7">
+          <Button variant="ghost" size="sm" onClick={clear} className="text-xs h-9 sm:h-7">
             <Trash2 className="h-3 w-3 mr-1" />
             Cancella
           </Button>
@@ -147,7 +147,7 @@ function SignatureCanvas({
         )}
       </div>
       {hasContent && (
-        <p className="text-[10px] text-green-600 flex items-center gap-1">
+        <p className="text-[10px] text-success flex items-center gap-1">
           <CheckCircle2 className="h-3 w-3" />
           Firma acquisita
         </p>
@@ -331,7 +331,7 @@ export default function VerbaleChiusura() {
                 return (
                   <div
                     key={a.id}
-                    className={`text-center text-xs p-2 rounded border ${done ? "bg-green-50 border-green-200 text-green-800" : "bg-muted/30"}`}
+                    className={`text-center text-xs p-2 rounded border ${done ? "bg-success-soft border-success/40 text-success" : "bg-muted/30"}`}
                   >
                     <span className="font-mono font-semibold">
                       {a.codice}
@@ -426,7 +426,7 @@ export default function VerbaleChiusura() {
       )}
 
       {/* Save / Download */}
-      <div className="sticky bottom-4 flex justify-end gap-3">
+      <div className="sticky bottom-20 z-30 flex justify-end gap-3 md:bottom-4">
         {v?.stato === "firmato" && (
           <Button variant="outline" size="lg" onClick={() => window.print()}>
             <Download className="h-4 w-4 mr-2" />

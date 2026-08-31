@@ -336,9 +336,9 @@ export default function RilievoDetail() {
             {completeness}%
           </span>
           {completeness >= 80 ? (
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <CheckCircle2 className="h-4 w-4 text-success" />
           ) : (
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <AlertTriangle className="h-4 w-4 text-warning" />
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-1">
@@ -452,7 +452,7 @@ export default function RilievoDetail() {
                         placeholder={field.placeholder ?? ""}
                         value={measures[field.key] ?? ""}
                         onChange={(e) => setMeasure(field.key, e.target.value)}
-                        className={`h-9 ${field.required && !measures[field.key]?.trim() ? "border-amber-300" : ""}`}
+                        className={`h-11 text-base sm:h-9 sm:text-sm ${field.required && !measures[field.key]?.trim() ? "border-warning/60" : ""}`}
                       />
                     )}
                     {field.helpText && (
@@ -472,7 +472,7 @@ export default function RilievoDetail() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <AlertTriangle className="h-4 w-4 text-warning" />
             Nodi critici e interferenze
           </CardTitle>
         </CardHeader>
@@ -483,7 +483,7 @@ export default function RilievoDetail() {
                 key={opt}
                 variant={nodiCritici.includes(opt) ? "default" : "outline"}
                 size="sm"
-                className="text-xs h-7"
+                className="text-xs h-10 sm:h-8"
                 onClick={() => toggleArrayItem(nodiCritici, setNodiCritici, opt)}
               >
                 {opt}
@@ -517,7 +517,7 @@ export default function RilievoDetail() {
                 key={opt}
                 variant={accessibilita.includes(opt) ? "default" : "outline"}
                 size="sm"
-                className="text-xs h-7"
+                className="text-xs h-10 sm:h-8"
                 onClick={() =>
                   toggleArrayItem(accessibilita, setAccessibilita, opt)
                 }
@@ -566,7 +566,7 @@ export default function RilievoDetail() {
             <Button
               variant="outline"
               size="sm"
-              className="text-xs"
+              className="text-xs h-10 sm:h-8"
               onClick={() => fileInputRef.current?.click()}
             >
               <Camera className="h-3.5 w-3.5 mr-1" />
@@ -575,7 +575,7 @@ export default function RilievoDetail() {
             <Button
               variant="outline"
               size="sm"
-              className="text-xs"
+              className="text-xs h-10 sm:h-8"
               onClick={() => videoInputRef.current?.click()}
             >
               <Video className="h-3.5 w-3.5 mr-1" />
@@ -584,7 +584,7 @@ export default function RilievoDetail() {
             <Button
               variant={isRecording ? "destructive" : "outline"}
               size="sm"
-              className="text-xs"
+              className="text-xs h-10 sm:h-8"
               onClick={handleVoiceNote}
             >
               <Mic className={`h-3.5 w-3.5 mr-1 ${isRecording ? "animate-pulse" : ""}`} />
@@ -620,7 +620,7 @@ export default function RilievoDetail() {
                     </div>
                   )}
                   <button
-                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white transition-opacity sm:h-5 sm:w-5 sm:opacity-0 sm:group-hover:opacity-100" aria-label="Rimuovi allegato"
                     onClick={() => removeMedia(m.id)}
                   >
                     <X className="h-3 w-3" />
@@ -656,13 +656,15 @@ export default function RilievoDetail() {
         </CardContent>
       </Card>
 
-      {/* Save bar */}
-      <div className="sticky bottom-4 flex justify-end gap-3">
+      {/* Save bar: sticky, sopra la bottom nav mobile; CTA brand (una per
+          schermata) a tutta larghezza dove si lavora col pollice. */}
+      <div className="sticky bottom-20 z-30 flex justify-end gap-3 md:bottom-4">
         <Button
           size="lg"
+          variant="brand"
           onClick={handleSave}
           disabled={updateApertura.isPending}
-          className="shadow-lg"
+          className="w-full shadow-lg sm:w-auto"
         >
           <Save className="h-4 w-4 mr-2" />
           {updateApertura.isPending
