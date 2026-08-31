@@ -234,6 +234,28 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(thread).not.toMatch(/inviaMessaggio|whatsapp\.invia/);
   });
 
+  it("compone la chat aziendale come workspace di conversazione", () => {
+    const source = routeSource("../pages/ChatAziendale.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/aria-label="Workspace chat"/);
+    // Un pane alla volta sotto i 1024px, con un ritorno all'elenco esplicito.
+    expect(source).toMatch(/SINGLE_PANE_QUERY = "\(max-width: 1023px\)"/);
+    expect(source).toMatch(/aria-label="Torna all'elenco conversazioni"/);
+    // Chat e notifiche restano due code distinte, e la pagina lo dice.
+    expect(source).toMatch(/Centro azioni/);
+    expect(source).toMatch(/href="\/notifiche"/);
+    // Il polling resta quello esistente: nessuna connessione dedicata.
+    expect(source).toMatch(/INTERVALLO_AGGIORNAMENTO_MS = 5_000/);
+    // Il composer resta perché `chat.invia` esiste davvero, e non fa doppio invio.
+    expect(source).toMatch(/trpc\.chat\.invia\.useMutation/);
+    expect(source).toMatch(/!bozza\.trim\(\) \|\| invia\.isPending/);
+    // Le tinte avatar restano coppie token, non hex né palette numerica.
+    expect(source).toMatch(/bg-success text-on-success/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 
