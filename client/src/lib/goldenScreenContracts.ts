@@ -8,6 +8,21 @@ export type DashboardModule =
 
 export type KanbanPresentation = "desktop-board" | "mobile-phase-list";
 
+export const KANBAN_COLUMN_STATES = [
+  "preventivo",
+  "misure_esecutive",
+  "aggiornamento_contratto",
+  "fatture_pagamento",
+  "da_ordinare",
+  "produzione",
+  "ordini_ultimazione",
+  "attesa_posa",
+  "finiture_saldo",
+  "interventi_regolazioni",
+] as const;
+
+export type KanbanColumnState = (typeof KANBAN_COLUMN_STATES)[number];
+
 export type TarsAvailability =
   | { kind: "disabled" }
   | { kind: "loading" }

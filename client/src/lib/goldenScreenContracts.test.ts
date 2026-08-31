@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  KANBAN_COLUMN_STATES,
   classifyTarsAvailability,
   kanbanPresentation,
   mobilePrioritySections,
@@ -29,6 +30,19 @@ describe("contratti puri delle golden screen", () => {
     expect(kanbanPresentation(390)).toBe("mobile-phase-list");
     expect(kanbanPresentation(1199)).toBe("mobile-phase-list");
     expect(kanbanPresentation(1200)).toBe("desktop-board");
+    expect(KANBAN_COLUMN_STATES).toEqual([
+      "preventivo",
+      "misure_esecutive",
+      "aggiornamento_contratto",
+      "fatture_pagamento",
+      "da_ordinare",
+      "produzione",
+      "ordini_ultimazione",
+      "attesa_posa",
+      "finiture_saldo",
+      "interventi_regolazioni",
+    ]);
+    expect(KANBAN_COLUMN_STATES).not.toContain("archiviata");
   });
 
   it("classifica Tars soltanto dai campi tipizzati ricevuti", () => {

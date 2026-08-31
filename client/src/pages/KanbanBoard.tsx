@@ -1,8 +1,13 @@
 import { trpc } from "@/lib/trpc";
-import { formatEuroSimbolo } from "@/lib/euro";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import KanbanDesktopBoard, {
+  type KanbanItem,
+} from "@/components/kanban/KanbanDesktopBoard";
+import KanbanMobilePhaseList from "@/components/kanban/KanbanMobilePhaseList";
+import PageHeader from "@/components/patterns/PageHeader";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import {
   Dialog,
   DialogContent,
@@ -19,35 +24,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  MapPin,
-  Calendar,
   AlertTriangle,
-  ChevronRight,
-  ChevronLeft,
-  CheckCircle2,
-  Clock,
   Search,
   Filter,
   Eye,
   EyeOff,
   LayoutGrid,
-  ChevronDown,
-  ChevronUp,
-  Package,
-  HardHat,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import {
-  PRIORITA_VARIANT,
-  PRIORITA_LABEL,
-  statoChipClass,
-  statoColorVar,
-} from "@/lib/stato";
+  KANBAN_COLUMN_STATES,
+  kanbanPresentation,
+  type KanbanColumnState,
+} from "@/lib/goldenScreenContracts";
 
 type ColonnaConfig = {
-  id: string;
+  id: KanbanColumnState;
   label: string;
   short: string;
 };
@@ -68,9 +62,13 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Vendita",
     description: "Dal preventivo alla conferma",
     colonne: [
-      { id: "preventivo",              label: "Preventivo",              short: "Preventivo" },
-      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure" },
-      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto" },
+      { id: "preventivo", label: "Preventivo", short: "Preventivo" },
+      { id: "misure_esecutive", label: "Misure Esecutive", short: "Misure" },
+      {
+        id: "aggiornamento_contratto",
+        label: "Aggiornamento Contratto",
+        short: "Agg. Contratto",
+      },
     ],
   },
   {
@@ -78,9 +76,13 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Ordine & Produzione",
     description: "Fatturazione, ordine, costruzione",
     colonne: [
-      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture" },
-      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare" },
-      { id: "produzione",              label: "Produzione",              short: "Produzione" },
+      {
+        id: "fatture_pagamento",
+        label: "Fatture / Pagamento",
+        short: "Fatture",
+      },
+      { id: "da_ordinare", label: "Da Ordinare", short: "Da Ordinare" },
+      { id: "produzione", label: "Produzione", short: "Produzione" },
     ],
   },
   {
@@ -88,8 +90,12 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Consegna & Posa",
     description: "Secondo acconto, attesa, posa",
     colonne: [
-      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto" },
-      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa" },
+      {
+        id: "ordini_ultimazione",
+        label: "Richiesta Secondo Acconto",
+        short: "2° Acconto",
+      },
+      { id: "attesa_posa", label: "Attesa Posa", short: "Attesa Posa" },
     ],
   },
   {
@@ -97,38 +103,35 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Chiusura",
     description: "Saldo e interventi finali",
     colonne: [
-      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture" },
-      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi" },
+      { id: "finiture_saldo", label: "Finiture / Saldo", short: "Finiture" },
+      {
+        id: "interventi_regolazioni",
+        label: "Interventi / Regolaz.",
+        short: "Interventi",
+      },
     ],
   },
 ];
 
 // Flat list derived from FASI — preserves stato order for prev/next navigation
-const COLONNE_FLAT: ReadonlyArray<ColonnaConfig> = FASI.flatMap((f) => f.colonne);
+const COLONNE_FLAT: ReadonlyArray<ColonnaConfig> = KANBAN_COLUMN_STATES.map(
+  stato =>
+    FASI.flatMap(fase => fase.colonne).find(colonna => colonna.id === stato)!
+);
 
-const prioritaOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, bassa: 3 };
-
-// Solid left-edge color per priority — makes the card priority readable
-// without parsing the badge.
-const PRIORITA_EDGE: Record<string, string> = {
-  urgente: "var(--color-danger)",
-  alta: "var(--color-warning)",
-  media: "var(--primary)",
-  bassa: "var(--color-text-3)",
+const prioritaOrder: Record<string, number> = {
+  urgente: 0,
+  alta: 1,
+  media: 2,
+  bassa: 3,
 };
-
-// Columns show at most this many cards; the rest collapse behind
-// "Mostra altre N" so a busy column doesn't force endless scrolling.
-const VISIBLE_LIMIT = 5;
-
-function daysSince(date: string | Date): number {
-  return Math.floor(
-    Math.abs(Date.now() - new Date(date).getTime()) / 86400000
-  );
-}
 
 export default function KanbanBoard() {
   const [, setLocation] = useLocation();
+  const { capabilities } = useOperationalContext();
+  const canMove =
+    (capabilities?.has("commessa.update_operational") ?? false) &&
+    (capabilities?.has("commessa.change_state") ?? false);
   const commesse = trpc.commesse.list.useQuery({});
   // Warehouse products per commessa — shown on the card so posa can be
   // planned around real material arrivals.
@@ -150,16 +153,28 @@ export default function KanbanBoard() {
     return map;
   }, [magazzino.data]);
 
-  const [consegnaTarget, setConsegnaTarget] = useState<{ id: number; codice: string } | null>(null);
+  const [consegnaTarget, setConsegnaTarget] = useState<{
+    id: number;
+    codice: string;
+  } | null>(null);
   const [consegnaDate, setConsegnaDate] = useState("");
+  const [consegnaError, setConsegnaError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filtroPriorita, setFiltroPriorita] = useState<string>("tutte");
   const [hideEmpty, setHideEmpty] = useState(false);
   const [faseFiltro, setFaseFiltro] = useState<string>("tutte");
-  const [fasiCollapsed, setFasiCollapsed] = useState<Record<string, boolean>>({});
-  // Columns the operator expanded past VISIBLE_LIMIT.
-  const [expandedCols, setExpandedCols] = useState<Record<string, boolean>>({});
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1200 : window.innerWidth
+  );
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1200px)");
+    const syncViewport = () => setViewportWidth(desktop.matches ? 1200 : 1199);
+    syncViewport();
+    desktop.addEventListener("change", syncViewport);
+    return () => desktop.removeEventListener("change", syncViewport);
+  }, []);
   // "Procedi comunque" confirmation for file-gate bypass. Fires when the
   // server rejects a forward transition with a `DOC_GATE_BLOCKED:` prefixed
   // error — the operator can confirm to retry with `force: true`, or cancel
@@ -200,15 +215,20 @@ export default function KanbanBoard() {
       utils.commesse.invalidate();
       setConsegnaTarget(null);
       setConsegnaDate("");
+      setConsegnaError(null);
     },
+    onError: error =>
+      setConsegnaError(error.message || "Aggiornamento consegna non riuscito"),
   });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (commesse.data ?? []).filter((c: any) => {
-      if (filtroPriorita !== "tutte" && c.priorita !== filtroPriorita) return false;
+      if (filtroPriorita !== "tutte" && c.priorita !== filtroPriorita)
+        return false;
       if (q) {
-        const hay = `${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase();
+        const hay =
+          `${c.codice ?? ""} ${c.cliente ?? ""} ${c.citta ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -226,18 +246,44 @@ export default function KanbanBoard() {
         const pa = prioritaOrder[a.priorita] ?? 9;
         const pb = prioritaOrder[b.priorita] ?? 9;
         if (pa !== pb) return pa - pb;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
       });
     }
     return map;
   }, [filtered]);
+
+  const boardByStato = useMemo(() => {
+    const shaped: Record<string, KanbanItem[]> = {};
+    for (const column of COLONNE_FLAT) {
+      shaped[column.id] = (byStato[column.id] ?? []).map((commessa: any) => ({
+        ...commessa,
+        daSaldare: Boolean(commessa.daSaldare),
+        squadraNome: squadreById.get(commessa.squadraId)?.nome ?? null,
+        prodotti: (prodottiByCommessa.get(commessa.id) ?? []).map(
+          (prodotto: any) => ({
+            id: prodotto.id,
+            nome: prodotto.nome,
+            quantita: prodotto.quantita,
+            fornitore: prodotto.fornitore,
+            arrivato: prodotto.arrivato,
+            dataConsegna: prodotto.dataConsegna,
+          })
+        ),
+      }));
+    }
+    return shaped;
+  }, [byStato, prodottiByCommessa, squadreById]);
 
   const totals = useMemo(() => {
     const list = commesse.data ?? [];
     const active = list.filter((c: any) => c.stato !== "archiviata");
     const urgenti = active.filter((c: any) => c.priorita === "urgente").length;
     const alte = active.filter((c: any) => c.priorita === "alta").length;
-    const inProduzione = active.filter((c: any) => c.stato === "produzione" && !c.dataConsegnaConfermata).length;
+    const inProduzione = active.filter(
+      (c: any) => c.stato === "produzione" && !c.dataConsegnaConfermata
+    ).length;
     return { total: active.length, urgenti, alte, inProduzione };
   }, [commesse.data]);
 
@@ -247,457 +293,215 @@ export default function KanbanBoard() {
   }
 
   const fasiVisibili = FASI.filter(
-    (f) => faseFiltro === "tutte" || faseFiltro === f.id
+    f => faseFiltro === "tutte" || faseFiltro === f.id
   );
+  const presentation = kanbanPresentation(viewportWidth);
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        variant="workbench"
+        eyebrow="Flusso operativo"
+        title={
+          <span className="inline-flex items-center gap-2">
             <LayoutGrid className="h-6 w-6 text-primary" />
-            Board Commesse
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Flusso per fasi — scorri verticalmente per vedere tutto
-          </p>
-        </div>
+            Board commesse
+          </span>
+        }
+        description="Avanza il lavoro per fasi usando gli stessi stati canonici della commessa."
+        busy={commesse.isPending}
+        metadata={
+          <div className="flex min-w-0 flex-wrap gap-2">
+            <span className="rounded-full border border-border-soft bg-surface px-2.5 py-1">
+              <strong className="tabular-nums text-text-1">
+                {totals.total}
+              </strong>{" "}
+              attive
+            </span>
+            <span className="rounded-full border border-danger/30 bg-danger-soft px-2.5 py-1 text-danger">
+              <strong className="tabular-nums">{totals.urgenti}</strong> urgenti
+            </span>
+            <span className="rounded-full border border-warning/30 bg-warning-soft px-2.5 py-1 text-warning">
+              <strong className="tabular-nums">{totals.alte}</strong> alte
+            </span>
+            <span className="rounded-full border border-warning/30 bg-warning-soft px-2.5 py-1 text-warning">
+              <strong className="tabular-nums">{totals.inProduzione}</strong>{" "}
+              consegne da confermare
+            </span>
+          </div>
+        }
+      />
 
-        <div className="flex gap-2 flex-wrap">
-          <Card className="px-3 py-2 gap-0">
-            <div className="eyebrow">Attive</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums">{totals.total}</div>
-          </Card>
-          <Card className="px-3 py-2 gap-0 border-danger/30">
-            <div className="eyebrow !text-danger">Urgenti</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-danger">{totals.urgenti}</div>
-          </Card>
-          <Card className="px-3 py-2 gap-0 border-warning/30">
-            <div className="eyebrow !text-warning">Alte</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-warning">{totals.alte}</div>
-          </Card>
-          <Card className="px-3 py-2 gap-0 border-warning/30">
-            <div className="eyebrow !text-warning">Consegne da confermare</div>
-            <div className="text-xl font-bold leading-none mt-1 tabular-nums text-warning">{totals.inProduzione}</div>
-          </Card>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Cerca codice, cliente, città..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9"
-          />
-        </div>
-        <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
-          <SelectTrigger className="w-[170px] h-9" aria-label="Filtra per priorità">
-            <Filter className="h-3.5 w-3.5 mr-1.5" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="tutte">Tutte le priorità</SelectItem>
-            <SelectItem value="urgente">Urgente</SelectItem>
-            <SelectItem value="alta">Alta</SelectItem>
-            <SelectItem value="media">Media</SelectItem>
-            <SelectItem value="bassa">Bassa</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setHideEmpty((v) => !v)}
-          className="h-9"
-        >
-          {hideEmpty ? <Eye className="h-3.5 w-3.5 mr-1.5" /> : <EyeOff className="h-3.5 w-3.5 mr-1.5" />}
-          {hideEmpty ? "Mostra vuote" : "Nascondi vuote"}
-        </Button>
-      </div>
-
-      {/* Phase chips */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <Button
-          variant={faseFiltro === "tutte" ? "default" : "outline"}
-          size="sm"
-          className="h-8 text-xs"
-          onClick={() => setFaseFiltro("tutte")}
-        >
-          Tutte le fasi
-        </Button>
-        {FASI.map((f) => {
-          const count = f.colonne.reduce((s, c) => s + (byStato[c.id]?.length ?? 0), 0);
-          return (
-            <Button
-              key={f.id}
-              variant={faseFiltro === f.id ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => setFaseFiltro(f.id)}
+      <section
+        aria-label="Strumenti Board"
+        className="sticky top-0 z-10 min-w-0 space-y-3 rounded-[var(--radius-panel)] border border-border-soft bg-[var(--shell-canvas)]/95 p-3 shadow-[var(--shadow-raised)] backdrop-blur-md"
+      >
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1 sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3" />
+            <Input
+              aria-label="Cerca nel Board"
+              placeholder="Cerca codice, cliente, città..."
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              className="h-10 pl-9"
+            />
+          </div>
+          <Select value={filtroPriorita} onValueChange={setFiltroPriorita}>
+            <SelectTrigger
+              className="h-10 w-full sm:w-[180px]"
+              aria-label="Filtra per priorità"
             >
-              {f.label}
-              <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                {count}
-              </Badge>
-            </Button>
-          );
-        })}
-      </div>
+              <Filter className="mr-1.5 h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutte">Tutte le priorità</SelectItem>
+              <SelectItem value="urgente">Urgente</SelectItem>
+              <SelectItem value="alta">Alta</SelectItem>
+              <SelectItem value="media">Media</SelectItem>
+              <SelectItem value="bassa">Bassa</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHideEmpty(value => !value)}
+            className="h-10 justify-center"
+          >
+            {hideEmpty ? (
+              <Eye className="h-3.5 w-3.5" />
+            ) : (
+              <EyeOff className="h-3.5 w-3.5" />
+            )}
+            {hideEmpty ? "Mostra vuote" : "Nascondi vuote"}
+          </Button>
+        </div>
 
-      {moveError && (
-        <Card className="border-danger/40 bg-danger-soft">
-          <CardContent className="p-3 text-sm text-danger flex items-center gap-2">
+        <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
+          <Button
+            variant={faseFiltro === "tutte" ? "default" : "outline"}
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => setFaseFiltro("tutte")}
+          >
+            Tutte le fasi
+          </Button>
+          {FASI.map(phase => {
+            const count = phase.colonne.reduce(
+              (total, column) => total + (byStato[column.id]?.length ?? 0),
+              0
+            );
+            return (
+              <Button
+                key={phase.id}
+                variant={faseFiltro === phase.id ? "default" : "outline"}
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                onClick={() => setFaseFiltro(phase.id)}
+              >
+                {phase.label}
+                <Badge
+                  variant="secondary"
+                  className="ml-1.5 h-4 px-1.5 text-[10px]"
+                >
+                  {count}
+                </Badge>
+              </Button>
+            );
+          })}
+        </div>
+      </section>
+
+      {moveError ? (
+        <Card
+          role="alert"
+          aria-live="polite"
+          className="border-danger/40 bg-danger-soft"
+        >
+          <CardContent className="flex items-center gap-2 p-3 text-sm text-danger">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             {moveError}
           </CardContent>
         </Card>
+      ) : null}
+
+      {presentation === "desktop-board" ? (
+        <KanbanDesktopBoard
+          phases={fasiVisibili}
+          columns={COLONNE_FLAT}
+          byStato={boardByStato}
+          hideEmpty={hideEmpty}
+          canMove={canMove}
+          movePending={updateCommessa.isPending}
+          onOpen={commessaId => setLocation(`/commesse/${commessaId}`)}
+          onMove={handleMove}
+          onRequestDelivery={item => {
+            setConsegnaTarget({ id: item.id, codice: item.codice });
+            setConsegnaDate("");
+            setConsegnaError(null);
+          }}
+        />
+      ) : (
+        <KanbanMobilePhaseList
+          phases={fasiVisibili}
+          columns={COLONNE_FLAT}
+          byStato={boardByStato}
+          hideEmpty={hideEmpty}
+          canMove={canMove}
+          movePending={updateCommessa.isPending}
+          onOpen={commessaId => setLocation(`/commesse/${commessaId}`)}
+          onMove={handleMove}
+          onRequestDelivery={item => {
+            setConsegnaTarget({ id: item.id, codice: item.codice });
+            setConsegnaDate("");
+            setConsegnaError(null);
+          }}
+        />
       )}
 
-      {/* Phase stacks */}
-      <div className="space-y-4">
-        {fasiVisibili.map((fase) => {
-          const colonne = hideEmpty
-            ? fase.colonne.filter((c) => (byStato[c.id]?.length ?? 0) > 0)
-            : fase.colonne;
-          if (colonne.length === 0) return null;
-
-          const fasePz = fase.colonne.reduce((s, c) => s + (byStato[c.id]?.length ?? 0), 0);
-          const faseUrgenti = fase.colonne.reduce(
-            (s, c) => s + (byStato[c.id]?.filter((x: any) => x.priorita === "urgente").length ?? 0),
-            0
-          );
-          const collapsed = fasiCollapsed[fase.id];
-
-          return (
-            <section
-              key={fase.id}
-              className="rounded-xl border bg-card/30"
-            >
-              {/* Phase header */}
-              <button
-                onClick={() => setFasiCollapsed((m) => ({ ...m, [fase.id]: !m[fase.id] }))}
-                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors rounded-t-xl"
-                aria-label={collapsed ? "Espandi fase" : "Comprimi fase"}
-              >
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <h2 className="text-sm font-bold uppercase tracking-wide">{fase.label}</h2>
-                  <span className="text-xs text-muted-foreground hidden sm:inline">· {fase.description}</span>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {faseUrgenti > 0 && (
-                    <Badge className="bg-danger-soft text-danger text-[10px] h-5 px-1.5">
-                      <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                      {faseUrgenti}
-                    </Badge>
-                  )}
-                  <Badge variant="secondary" className="text-[11px] h-5">{fasePz}</Badge>
-                  {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                </div>
-              </button>
-
-              {!collapsed && (
-                <div className="px-3 pb-3">
-                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
-                    {colonne.map((col) => {
-                      const items = byStato[col.id] ?? [];
-                      const allColIdx = COLONNE_FLAT.findIndex((c) => c.id === col.id);
-                      const prevCol = allColIdx > 0 ? COLONNE_FLAT[allColIdx - 1] : null;
-                      const nextCol = allColIdx < COLONNE_FLAT.length - 1 ? COLONNE_FLAT[allColIdx + 1] : null;
-                      const prevStato = prevCol?.id ?? null;
-                      const nextStato = nextCol?.id ?? null;
-                      const urgentiCount = items.filter((c: any) => c.priorita === "urgente").length;
-
-                      return (
-                        <div key={col.id} className="flex flex-col min-w-0">
-                          {/* Column header */}
-                          <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 border-border-soft px-3 py-2 ${statoChipClass(col.id)}`}>
-                            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: statoColorVar(col.id) }} />
-                            <span className="text-xs font-semibold uppercase tracking-wide truncate flex-1">
-                              {col.label}
-                            </span>
-                            {urgentiCount > 0 && (
-                              <Badge className="bg-danger-soft text-danger text-[10px] h-5 px-1.5 shrink-0">
-                                <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                {urgentiCount}
-                              </Badge>
-                            )}
-                            <Badge variant="secondary" className="text-[11px] h-5 shrink-0">
-                              {items.length}
-                            </Badge>
-                          </div>
-
-                          {/* Cards container */}
-                          <div className="flex-1 space-y-2 min-h-[120px] bg-muted/10 rounded-b-lg border border-t-0 border-border-soft p-2">
-                            {(expandedCols[col.id]
-                              ? items
-                              : items.slice(0, VISIBLE_LIMIT)
-                            ).map((c: any) => {
-                              const isProduzione = c.stato === "produzione";
-                              const needsConsegna = isProduzione && !c.dataConsegnaConfermata;
-                              const fermo = daysSince(c.updatedAt);
-                              return (
-                                <Card
-                                  key={c.id}
-                                  className={`cursor-pointer transition-shadow hover:shadow-md ${
-                                    needsConsegna ? "ring-2 ring-warning/60" : ""
-                                  }`}
-                                  style={{
-                                    borderLeftColor:
-                                      PRIORITA_EDGE[c.priorita] ?? "var(--color-border-strong)",
-                                    borderLeftWidth: 3,
-                                  }}
-                                  onClick={() => setLocation(`/commesse/${c.id}`)}
-                                >
-                                  <CardContent className="p-2.5 space-y-1.5">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="codice-mono text-[10px] text-text-3 truncate">
-                                        {c.codice}
-                                      </span>
-                                      <span className="flex items-center gap-1 shrink-0">
-                                        {fermo >= 5 && (
-                                          <span
-                                            title={`Nessun aggiornamento da ${fermo} giorni`}
-                                            className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-bold ${
-                                              fermo >= 10
-                                                ? "bg-danger-soft text-danger"
-                                                : "bg-warning-soft text-warning"
-                                            }`}
-                                          >
-                                            <Clock className="h-2.5 w-2.5" />
-                                            {fermo}gg
-                                          </span>
-                                        )}
-                                        <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
-                                          {c.priorita === "urgente" && <AlertTriangle className="h-2.5 w-2.5" />}
-                                          {PRIORITA_LABEL[c.priorita] ?? c.priorita}
-                                        </Badge>
-                                      </span>
-                                    </div>
-
-                                    <p className="text-sm font-semibold leading-tight truncate" title={c.cliente}>
-                                      {c.cliente}
-                                    </p>
-
-                                    {c.citta && (
-                                      <p className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
-                                        <MapPin className="h-3 w-3 shrink-0" />
-                                        {c.citta}
-                                      </p>
-                                    )}
-
-                                    {c.dataConsegnaConfermata ? (
-                                      <div className="flex items-center gap-1 text-[11px] font-medium text-success bg-success-soft rounded px-1.5 py-0.5">
-                                        <CheckCircle2 className="h-3 w-3 shrink-0" />
-                                        Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
-                                      </div>
-                                    ) : c.consegnaIndicativa ? (
-                                      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                                        <Calendar className="h-3 w-3 shrink-0" />
-                                        Indicativa: +{c.consegnaIndicativa}gg
-                                      </div>
-                                    ) : null}
-
-                                    {/* Squadra di posa: chi va in cantiere.
-                                        Solo dalle fasi di posa in poi, dove
-                                        la domanda è viva; se manca lo dice. */}
-                                    {(() => {
-                                      const FASI_POSA = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
-                                      if (!FASI_POSA.includes(c.stato)) return null;
-                                      const sq = squadreById.get((c as any).squadraId);
-                                      return sq ? (
-                                        <div className="flex items-center gap-1 text-[11px] text-info bg-info-soft rounded px-1.5 py-0.5">
-                                          <HardHat className="h-3 w-3 shrink-0" />
-                                          <span className="truncate">{sq.nome}</span>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center gap-1 text-[11px] text-warning bg-warning-soft rounded px-1.5 py-0.5">
-                                          <HardHat className="h-3 w-3 shrink-0" />
-                                          Squadra da assegnare
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {(() => {
-                                      // Sul Board niente cifre: solo il bit
-                                      // `daSaldare` del server (slice 2,
-                                      // decisione direzione 28/08/2026). Gli
-                                      // importi vivono in /pagamenti e nella
-                                      // scheda, dietro capability.
-                                      const FASI_SALDO = ["attesa_posa", "finiture_saldo", "interventi_regolazioni"];
-                                      if (!(c as any).daSaldare || !FASI_SALDO.includes(c.stato)) return null;
-                                      return (
-                                        <div className="flex items-center gap-1 text-[11px] font-semibold text-danger bg-danger-soft rounded px-1.5 py-0.5">
-                                          Da saldare
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {(() => {
-                                      const prods = prodottiByCommessa.get(c.id) ?? [];
-                                      if (prods.length === 0) return null;
-                                      const today = new Date().toISOString().split("T")[0];
-                                      const shortDate = (iso: string | null) =>
-                                        iso
-                                          ? new Date(iso + "T12:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
-                                          : "—";
-                                      return (
-                                        <div className="space-y-0.5 rounded bg-surface-2/70 border border-border/60 px-1.5 py-1">
-                                          {prods.slice(0, 2).map((p: any) => {
-                                            const late = !p.arrivato && p.dataConsegna && p.dataConsegna < today;
-                                            return (
-                                              <div
-                                                key={p.id}
-                                                title={`${p.nome} ×${p.quantita}${p.fornitore ? ` — ${p.fornitore}` : ""}${p.arrivato ? " (arrivato)" : late ? " (in ritardo)" : ""}`}
-                                                className={`flex items-center gap-1 text-[10px] leading-tight ${
-                                                  p.arrivato
-                                                    ? "text-success"
-                                                    : late
-                                                    ? "text-danger font-semibold"
-                                                    : "text-text-2"
-                                                }`}
-                                              >
-                                                <Package className="h-2.5 w-2.5 shrink-0" />
-                                                <span className="truncate flex-1">{p.nome}</span>
-                                                <span className="tabular-nums shrink-0">
-                                                  {p.arrivato ? "✓" : shortDate(p.dataConsegna)}
-                                                </span>
-                                              </div>
-                                            );
-                                          })}
-                                          {prods.length > 2 && (
-                                            <div className="text-[9px] text-text-3 pl-3.5">
-                                              +{prods.length - 2} altri prodotti
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {needsConsegna && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 w-full text-[10px] border-warning/60 text-warning hover:bg-warning-soft"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setConsegnaTarget({ id: c.id, codice: c.codice });
-                                          setConsegnaDate("");
-                                        }}
-                                      >
-                                        <Clock className="h-3 w-3 mr-1" />
-                                        Aggiorna data consegna
-                                      </Button>
-                                    )}
-
-                                    <div className="grid grid-cols-2 gap-1.5 pt-2 mt-1 border-t">
-                                      {prevCol ? (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleMove(c.id, prevCol.id);
-                                          }}
-                                          title={`Torna a ${prevCol.label}`}
-                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-border-strong bg-secondary px-1.5 py-1 leading-tight text-secondary-foreground transition-all hover:bg-accent hover:shadow-sm active:scale-[0.98]"
-                                        >
-                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
-                                            <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-                                            Indietro
-                                          </span>
-                                          <span className="block w-full truncate text-[9px] font-normal text-text-3">
-                                            {prevCol.short}
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        <div />
-                                      )}
-                                      {nextCol ? (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleMove(c.id, nextCol.id);
-                                          }}
-                                          title={`Avanza a ${nextCol.label}`}
-                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-success bg-success px-1.5 py-1 leading-tight text-on-success shadow-sm transition-all hover:bg-success/90 hover:shadow-md active:scale-[0.98]"
-                                        >
-                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
-                                            Avanza
-                                            <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                                          </span>
-                                          <span className="block w-full truncate text-[9px] font-normal opacity-90">
-                                            {nextCol.short}
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        <div />
-                                      )}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })}
-                            {items.length > VISIBLE_LIMIT && (
-                              <button
-                                onClick={() =>
-                                  setExpandedCols((m) => ({
-                                    ...m,
-                                    [col.id]: !m[col.id],
-                                  }))
-                                }
-                                className="w-full flex items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface py-1.5 text-[11px] font-semibold text-primary hover:bg-surface-2 transition-colors"
-                              >
-                                {expandedCols[col.id] ? (
-                                  <>
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                    Mostra meno
-                                  </>
-                                ) : (
-                                  <>
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                    Mostra altre {items.length - VISIBLE_LIMIT}
-                                  </>
-                                )}
-                              </button>
-                            )}
-                            {items.length === 0 && (
-                              <p className="text-[11px] text-text-3 text-center py-6">
-                                Nessuna commessa in questa fase
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </div>
-
-      <Dialog open={!!consegnaTarget} onOpenChange={(o) => !o && setConsegnaTarget(null)}>
+      <Dialog
+        open={!!consegnaTarget}
+        onOpenChange={open => {
+          if (!open) {
+            setConsegnaTarget(null);
+            setConsegnaError(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Aggiorna data consegna — {consegnaTarget?.codice}</DialogTitle>
+            <DialogTitle>
+              Aggiorna data consegna — {consegnaTarget?.codice}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Inserisci la data di consegna prevista confermata dal produttore. Sarà visibile sulla commessa nel board.
+              Inserisci la data di consegna prevista confermata dal produttore.
+              Sarà visibile sulla commessa nel board.
             </p>
             <div className="space-y-1.5">
-              <Label>Data consegna</Label>
+              <Label htmlFor="kanban-delivery-date">Data consegna</Label>
               <Input
+                id="kanban-delivery-date"
                 type="date"
                 value={consegnaDate}
-                onChange={(e) => setConsegnaDate(e.target.value)}
+                onChange={e => setConsegnaDate(e.target.value)}
               />
             </div>
+            {consegnaError ? (
+              <p role="alert" className="text-sm text-danger">
+                {consegnaError}
+              </p>
+            ) : null}
             <Button
-              onClick={() => consegnaTarget && confermaDataConsegna.mutate({ id: consegnaTarget.id, dataConsegna: consegnaDate })}
+              onClick={() =>
+                consegnaTarget &&
+                confermaDataConsegna.mutate({
+                  id: consegnaTarget.id,
+                  dataConsegna: consegnaDate,
+                })
+              }
               disabled={!consegnaDate || confermaDataConsegna.isPending}
             >
               Conferma data
@@ -710,11 +514,12 @@ export default function KanbanBoard() {
           message and retries the move with `force: true` on confirm. */}
       <ConfirmDialog
         open={!!forceMoveTarget}
-        onOpenChange={(open) => !open && setForceMoveTarget(null)}
+        onOpenChange={open => !open && setForceMoveTarget(null)}
         title="File richiesto non caricato"
         description={forceMoveTarget?.message ?? ""}
         destructive={false}
         confirmLabel="Procedi comunque"
+        busy={updateCommessa.isPending}
         onConfirm={() => {
           if (!forceMoveTarget) return;
           updateCommessa.mutate({

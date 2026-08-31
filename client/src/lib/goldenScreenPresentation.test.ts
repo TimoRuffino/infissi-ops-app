@@ -48,4 +48,21 @@ describe("boundary presentational delle golden screen", () => {
     expect(page).toMatch(/<Commessa360Workspace/);
     expect(page).toMatch(/aria-label="Sezioni della commessa"/);
   });
+
+  it("mantiene le due presentazioni Kanban indipendenti dalle mutation", () => {
+    const desktop = readPresentation(
+      "../components/kanban/KanbanDesktopBoard.tsx"
+    );
+    const mobile = readPresentation(
+      "../components/kanban/KanbanMobilePhaseList.tsx"
+    );
+
+    for (const source of [desktop, mobile]) {
+      expect(source).not.toMatch(/\btrpc\b|useQuery|useMutation/);
+      expect(source).toMatch(/onOpen/);
+      expect(source).toMatch(/onMove/);
+    }
+    expect(desktop).toMatch(/export type KanbanDesktopBoardProps/);
+    expect(mobile).toMatch(/export type KanbanMobilePhaseListProps/);
+  });
 });
