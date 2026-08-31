@@ -1,14 +1,14 @@
+import StatePanel from "@/components/patterns/StatePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { WhatsAppConversation } from "@/lib/messaggi";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Inbox,
   Link2,
+  Loader2,
   MessageCircle,
   RefreshCw,
   Search,
@@ -61,12 +61,14 @@ export default function WhatsAppConversationList({
   onPreviousPage: () => void;
   onNextPage: () => void;
 }) {
+  const countLabel = loading || error ? null : `${conversations.length} in pagina`;
+
   return (
     <section
       aria-label="Elenco conversazioni WhatsApp"
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-card"
+      className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
     >
-      <div className="shrink-0 border-b border-border-soft p-3">
+      <div className="shrink-0 border-b border-border-soft px-3 py-2.5">
         <label className="relative block">
           <span className="sr-only">Cerca conversazioni</span>
           <Search
@@ -80,6 +82,19 @@ export default function WhatsAppConversationList({
             className="h-11 pl-9"
           />
         </label>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+            Conversazioni
+          </span>
+          {fetching && !loading ? (
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3" role="status">
+              <Loader2 className="size-3.5 motion-safe:animate-spin" />
+              Aggiornamento
+            </span>
+          ) : countLabel ? (
+            <span className="shrink-0 text-xs tabular-nums text-text-3">{countLabel}</span>
+          ) : null}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -95,27 +110,32 @@ export default function WhatsAppConversationList({
             </div>
           ))
         ) : error ? (
-          <div className="grid min-h-64 place-items-center px-5 py-10 text-center">
-            <div>
-              <AlertCircle className="mx-auto size-6 text-destructive" />
-              <p className="mt-3 text-sm font-semibold">Conversazioni non disponibili</p>
-              <p className="mt-1 text-xs leading-5 text-text-3">{error}</p>
-              <Button size="sm" variant="outline" className="mt-4" onClick={onRetry}>
-                <RefreshCw className="size-3.5" aria-hidden="true" />
-                Riprova
-              </Button>
-            </div>
+          <div className="p-3">
+            <StatePanel
+              kind="error"
+              compact
+              title="Conversazioni non disponibili"
+              description={error}
+              action={
+                <Button variant="outline" className="min-h-11" onClick={onRetry}>
+                  <RefreshCw className="size-4" aria-hidden="true" />
+                  Riprova
+                </Button>
+              }
+            />
           </div>
         ) : conversations.length === 0 ? (
-          <div className="grid min-h-64 place-items-center px-5 py-10 text-center">
-            <div>
-              <div className="mx-auto grid size-11 place-items-center rounded-md bg-surface-2 text-text-3">
-                <Inbox className="size-5" aria-hidden="true" />
-              </div>
-              <p className="mt-3 max-w-xs text-sm leading-6 text-text-3">
-                Nessuna conversazione corrisponde alla ricerca.
-              </p>
-            </div>
+          <div className="p-3">
+            <StatePanel
+              kind="empty"
+              compact
+              title={search ? "Nessun risultato" : "Nessuna conversazione"}
+              description={
+                search
+                  ? "Nessuna conversazione corrisponde alla ricerca."
+                  : "Qui compaiono le conversazioni WhatsApp importate per questa sede."
+              }
+            />
           </div>
         ) : (
           conversations.map(conversation => {
@@ -127,16 +147,22 @@ export default function WhatsAppConversationList({
                 onClick={() => onOpen(conversation)}
                 aria-current={selected ? "true" : undefined}
                 className={cn(
-                  "flex min-h-[88px] w-full min-w-0 items-start gap-3 border-b border-border-soft px-3 py-3 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  selected ? "bg-accent/70" : "bg-card hover:bg-muted/65"
+                  "relative flex min-h-[88px] w-full min-w-0 items-start gap-3 border-b border-border-soft px-3 py-3 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  selected ? "bg-accent" : "bg-surface hover:bg-surface-2"
                 )}
               >
-                <div className="grid size-10 shrink-0 place-items-center rounded-md bg-success/10 text-xs font-bold text-success">
+                {selected && (
+                  <span
+                    className="absolute inset-y-0 left-0 w-[3px] bg-primary"
+                    aria-hidden="true"
+                  />
+                )}
+                <div className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-control)] bg-success-soft text-xs font-bold text-success">
                   {initials(conversation)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-text-1">
                       {conversation.nomeProfilo ?? conversation.controparte}
                     </span>
                     <time className="shrink-0 text-[11px] tabular-nums text-text-3">
@@ -166,8 +192,8 @@ export default function WhatsAppConversationList({
         )}
       </div>
 
-      {(hasPreviousPage || hasNextPage) && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-t border-border-soft px-3">
+      {!loading && !error && (hasPreviousPage || hasNextPage) && (
+        <div className="flex shrink-0 items-center justify-between border-t border-border-soft px-3 py-1.5">
           <Button size="icon" variant="ghost" className="size-11" disabled={!hasPreviousPage || fetching} onClick={onPreviousPage} aria-label="Pagina precedente" title="Pagina precedente">
             <ChevronLeft className="size-4" />
           </Button>

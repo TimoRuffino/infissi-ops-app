@@ -103,9 +103,14 @@ export function initialThreadScrollTop(scrollHeight: number): number {
   return scrollHeight;
 }
 
+/**
+ * Gli ID del thread valgono solo per la conversazione che li ha caricati.
+ * `key: null` è lo stato iniziale (nessun thread caricato): il pannello
+ * contesto non deve mai riusare gli ID della conversazione precedente.
+ */
 export function communicationIdsForConversation(
   selectedKey: string,
-  loaded: { key: string; ids: number[] }
+  loaded: { key: string | null; ids: number[] }
 ): number[] {
   return loaded.key === selectedKey ? loaded.ids : [];
 }

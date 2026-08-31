@@ -97,6 +97,29 @@ describe("WhatsApp thread scroll", () => {
 });
 
 describe("WhatsApp thread context", () => {
+  it("mantiene il deep link di una conversazione quando si apre il contesto", () => {
+    expect(whatsappConversationHref("wa:8:+393331112222")).toBe(
+      "/messaggi/whatsapp?conversazione=wa%3A8%3A%2B393331112222"
+    );
+    expect(
+      communicationIdsForConversation("wa:8:+393331112222", {
+        key: "wa:8:+393331112222",
+        ids: [11, 12],
+      })
+    ).toEqual([11, 12]);
+  });
+
+  it("non espone ID finché nessun thread è stato caricato", () => {
+    // `key: null` è lo stato iniziale del workspace: nessun thread caricato,
+    // quindi nessun ID da passare al pannello contesto.
+    expect(
+      communicationIdsForConversation("wa:8:+393331112222", {
+        key: null,
+        ids: [11, 12],
+      })
+    ).toEqual([]);
+  });
+
   it("does not expose retained message IDs after switching conversation", () => {
     expect(
       communicationIdsForConversation("wa:2:+393332222222", {

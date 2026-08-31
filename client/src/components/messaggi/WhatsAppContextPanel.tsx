@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { WhatsAppConversation } from "@/lib/messaggi";
+import { personName } from "@/lib/name";
 import { trpc } from "@/lib/trpc";
 import {
   AlertCircle,
@@ -19,6 +20,20 @@ import {
 import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
+
+/**
+ * Un record collegato si mostra solo quando il payload autorizzato è
+ * arrivato davvero: assenza, caricamento ed errore restano tre stati
+ * distinti e nessuno di loro promette una scheda che non possiamo aprire.
+ */
+function DatoNonDisponibile({ testo }: { testo: string }) {
+  return (
+    <p className="mt-2 flex gap-2 text-xs leading-5 text-text-2" role="status">
+      <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+      {testo}
+    </p>
+  );
+}
 
 function contextDate(value: string | null | undefined): string {
   if (!value) return "Data da definire";
@@ -77,7 +92,7 @@ function Collegamento({
     tipo === "cliente"
       ? (clienti.data ?? []).map((c: any) => ({
           value: String(c.id),
-          label: `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`,
+          label: personName(c, `Cliente ${c.id}`),
           keywords: `${c.telefono ?? ""} ${c.citta ?? ""} ${c.email ?? ""}`,
         }))
       : (commesse.data ?? []).map((c: any) => ({
@@ -232,10 +247,18 @@ export default function WhatsAppContextPanel({
   const ticketRows = tickets.data ?? [];
 
   return (
-    <aside aria-label="Contesto conversazione" className="flex min-h-0 min-w-0 flex-col bg-card">
+    <aside
+      aria-label="Contesto conversazione"
+      className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--inspector-surface)]"
+    >
       <header className="border-b border-border-soft px-4 py-3">
         <h2 className="text-sm font-bold">Contesto</h2>
-        <p className="mt-1 text-xs leading-5 text-text-3">{conversation.controparte}</p>
+        <p className="mt-1 text-xs leading-5 text-text-3">
+          {conversation.controparte}
+          {communicationIds.length > 0
+            ? ` · ${communicationIds.length} messaggi caricati`
+            : ""}
+        </p>
       </header>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <section>
@@ -253,11 +276,15 @@ export default function WhatsAppContextPanel({
           {conversation.clienteId == null ? (
             <p className="mt-2 text-sm text-text-2">Nessun cliente collegato</p>
           ) : client.isLoading ? (
-            <Skeleton className="mt-2 h-10 w-full" />
+            <Skeleton className="mt-2 h-11 w-full" />
+          ) : client.isError || !client.data ? (
+            <DatoNonDisponibile testo="Scheda cliente non disponibile: il record non è leggibile da qui." />
           ) : (
-            <Link href={`/clienti/${conversation.clienteId}`} className="mt-2 flex min-h-11 items-center gap-2 rounded-md border border-border-soft px-3 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Link href={`/clienti/${conversation.clienteId}`} className="mt-2 flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft px-3 text-sm font-semibold hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <UserRound className="size-4 shrink-0 text-text-3" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{client.data ? `${client.data.cognome ?? ""} ${client.data.nome ?? ""}`.trim() : conversation.nomeProfilo}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {personName(client.data, `Cliente #${conversation.clienteId}`)}
+              </span>
               <ExternalLink className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
             </Link>
           )}
@@ -269,11 +296,13 @@ export default function WhatsAppContextPanel({
           {conversation.commessaId == null ? (
             <p className="mt-2 text-sm text-text-2">Nessuna commessa collegata</p>
           ) : job.isLoading ? (
-            <Skeleton className="mt-2 h-10 w-full" />
+            <Skeleton className="mt-2 h-11 w-full" />
+          ) : job.isError || !job.data ? (
+            <DatoNonDisponibile testo="Scheda commessa non disponibile: il record non è leggibile da qui." />
           ) : (
-            <Link href={`/commesse/${conversation.commessaId}`} className="mt-2 flex min-h-11 items-center gap-2 rounded-md border border-border-soft px-3 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Link href={`/commesse/${conversation.commessaId}`} className="mt-2 flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft px-3 text-sm font-semibold hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <BriefcaseBusiness className="size-4 shrink-0 text-text-3" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{job.data?.codice ?? "Commessa collegata"}</span>
+              <span className="min-w-0 flex-1 truncate">{job.data.codice}</span>
               <ExternalLink className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
             </Link>
           )}
@@ -288,7 +317,7 @@ export default function WhatsAppContextPanel({
             ) : appointments.isLoading ? (
               <Skeleton className="h-12 w-full" />
             ) : appointments.isError ? (
-              <p className="flex gap-2 text-xs leading-5 text-destructive" role="alert">
+              <p className="flex gap-2 text-xs leading-5 text-danger" role="alert">
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                 Appuntamenti non disponibili
               </p>
@@ -318,7 +347,7 @@ export default function WhatsAppContextPanel({
             ) : tickets.isLoading ? (
               <Skeleton className="h-12 w-full" />
             ) : tickets.isError ? (
-              <p className="flex gap-2 text-xs leading-5 text-destructive" role="alert">
+              <p className="flex gap-2 text-xs leading-5 text-danger" role="alert">
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                 Ticket non disponibili
               </p>

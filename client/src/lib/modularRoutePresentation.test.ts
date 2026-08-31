@@ -213,6 +213,27 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/isDirezione\(user\)/);
   });
 
+  it("compone il workspace WhatsApp come archivio in sola lettura", () => {
+    const source = routeSource("../pages/messaggi/WhatsAppPage.tsx");
+    const thread = routeSource("../components/messaggi/WhatsAppThread.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/aria-label="Workspace WhatsApp"/);
+    // Tre pane solo da 1280px, un pane solo sotto i 1024px.
+    expect(source).toMatch(/TRI_PANE_QUERY = "\(min-width: 1280px\)"/);
+    expect(source).toMatch(/SINGLE_PANE_QUERY = "\(max-width: 1023px\)"/);
+    // Sotto la soglia il contesto è uno sheet, non una terza colonna schiacciata.
+    expect(source).toMatch(/<Sheet /);
+    // Il canale resta di sola lettura: nessuna superficie di composizione.
+    expect(source).toMatch(/Sola lettura/);
+    expect(thread).toMatch(/Sola lettura/);
+    expect(source).not.toMatch(/Textarea/);
+    expect(thread).not.toMatch(/Textarea/);
+    expect(thread).not.toMatch(/inviaMessaggio|whatsapp\.invia/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

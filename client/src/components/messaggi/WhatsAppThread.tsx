@@ -1,3 +1,5 @@
+import StatePanel from "@/components/patterns/StatePanel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,12 +12,12 @@ import {
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   ArrowLeft,
   ChevronUp,
+  Eye,
   FileText,
   Loader2,
-  MoreHorizontal,
+  PanelRight,
   Paperclip,
   Pencil,
   Save,
@@ -156,37 +158,63 @@ export default function WhatsAppThread({
 
   if (current.isLoading) {
     return (
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
+      <section className="flex min-h-0 min-w-0 flex-col bg-surface lg:border-l lg:border-border-soft">
         <div className="flex items-center gap-3 border-b border-border-soft px-4 py-3">
           <Skeleton className="size-10 rounded-md" />
-          <div className="flex-1 space-y-2"><Skeleton className="h-4 w-36" /><Skeleton className="h-3 w-24" /></div>
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-24" />
+          </div>
         </div>
-        <div className="space-y-3 p-4"><Skeleton className="ml-auto h-16 w-3/5" /><Skeleton className="h-16 w-3/5" /></div>
+        <div className="space-y-3 p-4">
+          <Skeleton className="ml-auto h-16 w-3/5" />
+          <Skeleton className="h-16 w-3/5" />
+        </div>
       </section>
     );
   }
 
   if (current.isError || !current.data) {
     return (
-      <section className="grid min-h-0 min-w-0 flex-1 place-items-center bg-card px-5 text-center">
-        <div>
-          <AlertCircle className="mx-auto size-6 text-destructive" />
-          <p className="mt-3 text-sm font-semibold">Conversazione non disponibile</p>
-          <p className="mt-1 text-xs leading-5 text-text-3">{current.error?.message}</p>
-          <div className="mt-4 flex justify-center gap-2">
-            {mobile && <Button size="sm" variant="outline" onClick={onBack}><ArrowLeft className="size-3.5" />Elenco</Button>}
-            <Button size="sm" variant="outline" onClick={() => current.refetch()}>Riprova</Button>
-          </div>
-        </div>
+      <section className="min-h-0 min-w-0 overflow-y-auto bg-surface p-4 lg:border-l lg:border-border-soft">
+        <StatePanel
+          kind="error"
+          title="Conversazione non disponibile"
+          description={
+            current.error?.message ??
+            "La cronologia non è stata caricata. Riprova."
+          }
+          action={
+            <>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => current.refetch()}
+              >
+                Riprova
+              </Button>
+              {mobile && (
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={onBack}
+                >
+                  <ArrowLeft className="size-4" />
+                  Torna all'elenco
+                </Button>
+              )}
+            </>
+          }
+        />
       </section>
     );
   }
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border-soft px-3 py-3 sm:px-4">
+    <section className="flex min-h-0 min-w-0 flex-col bg-surface lg:border-l lg:border-border-soft">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border-soft px-3 py-2.5 sm:px-4">
         {mobile && (
-          <Button size="icon" variant="ghost" className="size-11" onClick={onBack} aria-label="Torna all'elenco" title="Torna all'elenco">
+          <Button size="icon" variant="ghost" className="size-11 shrink-0" onClick={onBack} aria-label="Torna all'elenco" title="Torna all'elenco">
             <ArrowLeft className="size-5" />
           </Button>
         )}
@@ -194,7 +222,7 @@ export default function WhatsAppThread({
           {editingName ? (
             <div className="flex min-w-0 items-center gap-2">
               <label className="sr-only" htmlFor="nome-conversazione">Nome conversazione</label>
-              <Input id="nome-conversazione" value={name} onChange={event => setName(event.target.value)} className="h-10" maxLength={100} autoFocus />
+              <Input id="nome-conversazione" value={name} onChange={event => setName(event.target.value)} className="h-11" maxLength={100} autoFocus />
               <Button size="icon" className="size-11" disabled={rename.isPending} onClick={() => rename.mutate({ casellaId: conversation.casellaId, controparte: conversation.controparte, nome: name })} aria-label="Salva nome conversazione" title="Salva nome"><Save className="size-4" /></Button>
             </div>
           ) : (
@@ -210,22 +238,39 @@ export default function WhatsAppThread({
             </div>
           )}
         </div>
-        <Button size="icon" variant="ghost" className="size-11 shrink-0 lg:hidden" onClick={onOpenContext} aria-label="Apri contesto conversazione" title="Contesto"><MoreHorizontal className="size-5" /></Button>
+        {/* Sopra i 1280px il badge sta accanto al titolo di pagina: qui serve
+            solo quando il workspace è compresso e il lettore riempie tutto. */}
+        <Badge
+          variant="outline"
+          className="h-8 shrink-0 gap-1.5 border-info/25 bg-info-soft px-2 text-xs text-info xl:hidden"
+        >
+          <Eye className="size-3.5" aria-hidden="true" />
+          Sola lettura
+        </Badge>
+        <Button size="icon" variant="ghost" className="size-11 shrink-0 xl:hidden" onClick={onOpenContext} aria-label="Apri contesto conversazione" title="Contesto"><PanelRight className="size-5" /></Button>
       </header>
 
       <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
         {(hasOlder || olderMessages.length > 0) && (
           <div className="mb-4 flex justify-center">
-            <Button size="sm" variant="outline" disabled={!hasOlder || older.isFetching} onClick={loadOlder}>
-              {older.isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <ChevronUp className="size-3.5" />}
+            <Button variant="outline" className="min-h-11" disabled={!hasOlder || older.isFetching} onClick={loadOlder}>
+              {older.isFetching ? <Loader2 className="size-3.5 motion-safe:animate-spin" /> : <ChevronUp className="size-3.5" />}
               Carica precedenti
             </Button>
           </div>
         )}
+        {messages.length === 0 && (
+          <StatePanel
+            kind="empty"
+            compact
+            title="Nessun messaggio importato"
+            description="La conversazione esiste ma non ha ancora messaggi sincronizzati nel CRM."
+          />
+        )}
         <div className="space-y-3">
           {messages.map(message => (
             <article key={message.id} className={cn("flex", message.direzione === "out" ? "justify-end" : "justify-start")}>
-              <div className={cn("max-w-[85%] rounded-md border px-3 py-2.5 text-sm shadow-xs sm:max-w-[72%]", message.direzione === "out" ? "border-primary/20 bg-primary-soft text-foreground" : "border-border-soft bg-surface text-foreground")}>
+              <div className={cn("max-w-[85%] rounded-[var(--radius-control)] border px-3 py-2.5 text-sm shadow-xs sm:max-w-[72%]", message.direzione === "out" ? "border-primary/20 bg-primary-soft text-text-1" : "border-border-soft bg-surface-2 text-text-1")}>
                 <p className="whitespace-pre-wrap break-words leading-6">{message.testo || message.oggetto || "Media o allegato"}</p>
                 {message.allegati.length > 0 && (
                   <div className="mt-2 space-y-1.5 border-t border-border-soft pt-2">
@@ -233,7 +278,7 @@ export default function WhatsAppThread({
                       <div key={`${attachment.nome}-${index}`} className="flex min-h-11 w-full min-w-0 items-center gap-2 px-1 text-left text-xs text-text-2">
                         {attachment.mediaId ? <Paperclip className="size-4 shrink-0" /> : <FileText className="size-4 shrink-0" />}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-semibold text-foreground">{attachment.nome}</span>
+                          <span className="block truncate font-semibold text-text-1">{attachment.nome}</span>
                           <span className="block truncate text-[11px] text-text-3">
                             {attachment.mimeType || "Tipo non disponibile"} · {fileSize(attachment.size)}
                           </span>
@@ -248,6 +293,13 @@ export default function WhatsAppThread({
           ))}
         </div>
       </div>
+
+      {/* Nessuna casella di invio: WhatsApp resta un archivio consultabile.
+          Scriverlo evita che qualcuno cerchi il campo che non esiste. */}
+      <p className="shrink-0 border-t border-border-soft px-3 py-2 text-xs leading-5 text-text-3 sm:px-4">
+        Sola lettura: le risposte partono dal telefono aziendale, il CRM
+        conserva la cronologia.
+      </p>
     </section>
   );
 }
