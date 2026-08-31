@@ -122,7 +122,7 @@ function SignatureCanvas({
           {label}
         </Label>
         {hasContent && (
-          <Button variant="ghost" size="sm" onClick={clear} className="text-xs h-9 sm:h-7">
+          <Button variant="ghost" size="sm" onClick={clear} className="text-xs h-9 md:h-7">
             <Trash2 className="h-3 w-3 mr-1" />
             Cancella
           </Button>

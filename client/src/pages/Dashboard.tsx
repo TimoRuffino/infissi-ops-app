@@ -57,6 +57,22 @@ const DashboardApprofondimenti = lazy(
   () => import("@/components/dashboard/DashboardApprofondimenti")
 );
 
+// Attiva un elemento cliccabile anche da tastiera: le righe operative sono
+// <div> per ragioni di layout, ma devono restare raggiungibili (WCAG 2.1.1).
+function attivabile(azione: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: azione,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        azione();
+      }
+    },
+  };
+}
+
 // KPI tile — contratto §26.3.
 // - Zero → «spento»: numero in text-3, nessun accento, non cliccabile.
 // - >0 e azionabile → barra d'accento (3px, colore semantico) + card che
@@ -364,7 +380,7 @@ function CalendarioSettimana({
                   {dayEvents.map((ev: any) => (
                     <div
                       key={ev.id}
-                      onClick={() => onEventClick(ev)}
+                      {...attivabile(() => onEventClick(ev))}
                       className="text-[10px] font-medium leading-tight p-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate"
                       style={{
                         backgroundColor:
@@ -680,6 +696,13 @@ export default function Dashboard() {
     return Object.values(map);
   })();
 
+  // Il feed parla solo quando le sue fonti hanno risposto: prima è
+  // «sto guardando», non «non c'è niente».
+  const feedInCaricamento =
+    commesseRecenti.isPending ||
+    interventiOggiRaw.isPending ||
+    ticketListQ.isPending;
+
   const commesseAttive = useMemo(
     () =>
       (commesseRecenti.data ?? []).filter(
@@ -717,7 +740,13 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5">
-              {todoItems.length === 0 ? (
+              {feedInCaricamento && todoItems.length === 0 ? (
+                <div className="space-y-2 py-1" aria-hidden="true">
+                  <Skeleton className="h-9 rounded-md" />
+                  <Skeleton className="h-9 rounded-md" />
+                  <Skeleton className="h-9 w-2/3 rounded-md" />
+                </div>
+              ) : todoItems.length === 0 ? (
                 <div className="flex items-center gap-3 rounded-md px-2 py-3">
                   <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
                     <CheckCircle2 className="h-4 w-4" />
@@ -732,7 +761,7 @@ export default function Dashboard() {
                   <div
                     key={item.key}
                     className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
-                    onClick={item.onClick}
+                    {...attivabile(item.onClick)}
                   >
                     <span
                       className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
@@ -837,7 +866,7 @@ export default function Dashboard() {
                     <div
                       key={i.id}
                       className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
-                      onClick={() => setLocation("/planning")}
+                      {...attivabile(() => setLocation("/planning"))}
                     >
                       <div className="space-y-1 min-w-0">
                         <p className="text-sm font-medium truncate">{i.note}</p>
@@ -877,7 +906,7 @@ export default function Dashboard() {
                     <div
                       key={c.id}
                       className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
-                      onClick={() => setLocation(`/commesse/${c.id}`)}
+                      {...attivabile(() => setLocation(`/commesse/${c.id}`))}
                     >
                       <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -1025,7 +1054,7 @@ export default function Dashboard() {
                         <div
                           key={c.id}
                           className="cursor-pointer rounded-sm border border-border-soft bg-surface p-2 hover:border-border-strong transition-colors"
-                          onClick={() => setLocation(`/commesse/${c.id}`)}
+                          {...attivabile(() => setLocation(`/commesse/${c.id}`))}
                         >
                           <div className="codice-mono text-[10px] text-muted-foreground">{c.codice}</div>
                           <div className="text-xs font-medium truncate">{c.cliente}</div>

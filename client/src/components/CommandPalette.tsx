@@ -10,7 +10,6 @@
 //    quindi capability, ruoli e flag valgono anche qui: nessun link morto.
 import {
   CommandDialog,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -21,17 +20,26 @@ import { vociNavigazione } from "@/lib/navigation";
 import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 import { BrainCircuit, Building2, Clock, Contact } from "lucide-react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 
-const RECENTI_KEY = "rf-palette-recenti";
+const RECENTI_KEY_BASE = "rf-palette-recenti";
 const MAX_RISULTATI = 6;
 
 type Recente = { label: string; path: string };
 
-function leggiRecenti(): Recente[] {
+// Chiave per utente: su una postazione condivisa i recenti di un collega
+// (magari di un'altra sede) non devono comparire nella tua palette.
+function chiaveRecenti(utenteId: unknown): string {
+  return typeof utenteId === "number" || typeof utenteId === "string"
+    ? `${RECENTI_KEY_BASE}-${utenteId}`
+    : RECENTI_KEY_BASE;
+}
+
+function leggiRecenti(chiave: string): Recente[] {
   try {
-    const grezzo = localStorage.getItem(RECENTI_KEY);
+    const grezzo = localStorage.getItem(chiave);
     const lista = grezzo ? JSON.parse(grezzo) : [];
     return Array.isArray(lista) ? lista.slice(0, MAX_RISULTATI) : [];
   } catch {
@@ -39,11 +47,11 @@ function leggiRecenti(): Recente[] {
   }
 }
 
-function ricordaRecente(voce: Recente) {
+function ricordaRecente(chiave: string, voce: Recente) {
   try {
-    const senza = leggiRecenti().filter((r) => r.path !== voce.path);
+    const senza = leggiRecenti(chiave).filter((r) => r.path !== voce.path);
     localStorage.setItem(
-      RECENTI_KEY,
+      chiave,
       JSON.stringify([voce, ...senza].slice(0, MAX_RISULTATI))
     );
   } catch {
@@ -65,28 +73,47 @@ export default function CommandPalette({
   interruttori?: { tars?: boolean } | null;
 }) {
   const [, setLocation] = useLocation();
+  const chiave = chiaveRecenti((user as { id?: unknown } | null)?.id);
   const [testo, setTesto] = useState("");
+  // Il testo digitato guida i filtri locali all'istante; la ricerca sul
+  // server aspetta una pausa di battitura (200ms), altrimenti ogni
+  // carattere sarebbe una query nuova.
+  const [testoCercato, setTestoCercato] = useState("");
   const [recenti, setRecenti] = useState<Recente[]>([]);
 
   useEffect(() => {
     if (open) {
       setTesto("");
-      setRecenti(leggiRecenti());
+      setTestoCercato("");
+      setRecenti(leggiRecenti(chiave));
     }
-  }, [open]);
+  }, [open, chiave]);
+
+  useEffect(() => {
+    const pausa = setTimeout(() => setTestoCercato(testo.trim()), 200);
+    return () => clearTimeout(pausa);
+  }, [testo]);
 
   const query = testo.trim();
-  const cercaEntita = open && query.length >= 2;
+  const cercaEntita = open && testoCercato.length >= 2;
 
   // Stesse procedure delle liste: sede applicata dal server, campi già
   // filtrati per capability. Niente endpoint nuovi per la palette.
+  const opzioniRicerca = {
+    enabled: cercaEntita,
+    staleTime: 30_000,
+    retry: false,
+    // I risultati del prefisso precedente restano a schermo mentre
+    // arrivano i nuovi: la palette non sfarfalla a ogni carattere.
+    placeholderData: keepPreviousData,
+  } as const;
   const clientiQ = trpc.clienti.list.useQuery(
-    { search: query },
-    { enabled: cercaEntita, staleTime: 30_000, retry: false }
+    { search: testoCercato },
+    opzioniRicerca
   );
   const commesseQ = trpc.commesse.list.useQuery(
-    { search: query },
-    { enabled: cercaEntita, staleTime: 30_000, retry: false }
+    { search: testoCercato },
+    opzioniRicerca
   );
 
   const voci = useMemo(
@@ -102,7 +129,8 @@ export default function CommandPalette({
   const clienti = (clientiQ.data ?? []).slice(0, MAX_RISULTATI);
   const commesse = (commesseQ.data ?? []).slice(0, MAX_RISULTATI);
   const inCaricamento =
-    cercaEntita && (clientiQ.isPending || commesseQ.isPending);
+    (open && query.length >= 2 && !cercaEntita) ||
+    (cercaEntita && (clientiQ.isPending || commesseQ.isPending));
   const nessunRisultato =
     cercaEntita &&
     !inCaricamento &&
@@ -113,7 +141,7 @@ export default function CommandPalette({
   const vai = (path: string, label: string) => {
     // Nei recenti si ricorda la PAGINA, mai la query: un «Chiedi a Tars»
     // di ieri non deve ricompilare la domanda di ieri.
-    ricordaRecente({ label, path: path.split("?")[0] });
+    ricordaRecente(chiave, { label, path: path.split("?")[0] });
     onOpenChange(false);
     setLocation(path);
   };
@@ -137,7 +165,9 @@ export default function CommandPalette({
       />
       <CommandList>
         {nessunRisultato && (
-          <CommandEmpty>Nessun risultato per «{query}».</CommandEmpty>
+          <div className="py-6 text-center text-sm text-text-3">
+            Nessun risultato per «{query}».
+          </div>
         )}
 
         {!query && recenti.length > 0 && (

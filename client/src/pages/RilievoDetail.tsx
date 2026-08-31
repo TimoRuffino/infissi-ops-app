@@ -452,7 +452,7 @@ export default function RilievoDetail() {
                         placeholder={field.placeholder ?? ""}
                         value={measures[field.key] ?? ""}
                         onChange={(e) => setMeasure(field.key, e.target.value)}
-                        className={`h-11 text-base sm:h-9 sm:text-sm ${field.required && !measures[field.key]?.trim() ? "border-warning/60" : ""}`}
+                        className={`h-11 text-base md:h-9 md:text-sm ${field.required && !measures[field.key]?.trim() ? "border-warning/60" : ""}`}
                       />
                     )}
                     {field.helpText && (
@@ -483,7 +483,7 @@ export default function RilievoDetail() {
                 key={opt}
                 variant={nodiCritici.includes(opt) ? "default" : "outline"}
                 size="sm"
-                className="text-xs h-10 sm:h-8"
+                className="text-xs h-10 md:h-8"
                 onClick={() => toggleArrayItem(nodiCritici, setNodiCritici, opt)}
               >
                 {opt}
@@ -517,7 +517,7 @@ export default function RilievoDetail() {
                 key={opt}
                 variant={accessibilita.includes(opt) ? "default" : "outline"}
                 size="sm"
-                className="text-xs h-10 sm:h-8"
+                className="text-xs h-10 md:h-8"
                 onClick={() =>
                   toggleArrayItem(accessibilita, setAccessibilita, opt)
                 }
@@ -566,7 +566,7 @@ export default function RilievoDetail() {
             <Button
               variant="outline"
               size="sm"
-              className="text-xs h-10 sm:h-8"
+              className="text-xs h-10 md:h-8"
               onClick={() => fileInputRef.current?.click()}
             >
               <Camera className="h-3.5 w-3.5 mr-1" />
@@ -575,7 +575,7 @@ export default function RilievoDetail() {
             <Button
               variant="outline"
               size="sm"
-              className="text-xs h-10 sm:h-8"
+              className="text-xs h-10 md:h-8"
               onClick={() => videoInputRef.current?.click()}
             >
               <Video className="h-3.5 w-3.5 mr-1" />
@@ -584,7 +584,7 @@ export default function RilievoDetail() {
             <Button
               variant={isRecording ? "destructive" : "outline"}
               size="sm"
-              className="text-xs h-10 sm:h-8"
+              className="text-xs h-10 md:h-8"
               onClick={handleVoiceNote}
             >
               <Mic className={`h-3.5 w-3.5 mr-1 ${isRecording ? "animate-pulse" : ""}`} />

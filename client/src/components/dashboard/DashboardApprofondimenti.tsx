@@ -36,6 +36,14 @@ export default function DashboardApprofondimenti({
           </p>
         </CardHeader>
         <CardContent>
+          {interventiByTipo.length > 0 && (
+            <p className="sr-only">
+              {interventiByTipo
+                .map(v => `${v.name}: ${v.valore} interventi`)
+                .join("; ")}
+              .
+            </p>
+          )}
           {interventiByTipo.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={interventiByTipo}>
@@ -64,6 +72,14 @@ export default function DashboardApprofondimenti({
           </p>
         </CardHeader>
         <CardContent>
+          {squadreWorkload.length > 0 && (
+            <p className="sr-only">
+              {squadreWorkload
+                .map(s => `${s.nome}: ${s.attivi} attivi, ${s.completati} completati`)
+                .join("; ")}
+              .
+            </p>
+          )}
           {squadreWorkload.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={squadreWorkload} layout="vertical">

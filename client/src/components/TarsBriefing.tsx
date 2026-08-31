@@ -38,7 +38,7 @@ export default function TarsBriefing({
     <div
       className={`space-y-2 rounded-md border border-border bg-surface-2 p-3 ${className}`}
     >
-      <p className="text-xs font-semibold">Situazione di oggi</p>
+      <h2 className="text-xs font-semibold">Situazione di oggi</h2>
       {b.promemoriaOggi.length > 0 && (
         <ul className="space-y-0.5">
           {b.promemoriaOggi.slice(0, 5).map(p => (

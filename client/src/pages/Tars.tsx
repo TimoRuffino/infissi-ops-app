@@ -6,6 +6,8 @@
 
 import { trpc } from "@/lib/trpc";
 import TarsBriefing from "@/components/TarsBriefing";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isDirezione } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -181,7 +183,7 @@ function StatoPannello({ stato }: { stato: any }) {
   if (!stato) return null;
   return (
     <div className="rounded-md border border-border bg-surface p-3 space-y-2">
-      <p className="text-xs font-semibold">Stato</p>
+      <h2 className="text-xs font-semibold">Stato</h2>
       <div className="flex flex-wrap gap-1.5">
         <Badge variant="outline" className="text-[11px]">
           provider: {PROVIDER_LABEL[stato.provider] ?? stato.provider}
@@ -212,8 +214,11 @@ function StatoPannello({ stato }: { stato: any }) {
 // FORBIDDEN e il pannello semplicemente non esiste. Solo numeri: niente
 // prompt, niente contenuti.
 function CostiPannello({ enabled }: { enabled: boolean }) {
+  // Il confine resta il server (tars.costi risponde FORBIDDEN agli altri):
+  // qui si evita solo di chiedere ciò che verrà negato a ogni visita.
+  const { user } = useAuth();
   const costi = trpc.tars.costi.useQuery(undefined, {
-    enabled,
+    enabled: enabled && isDirezione(user),
     retry: false,
     staleTime: 60_000,
   });
@@ -223,7 +228,7 @@ function CostiPannello({ enabled }: { enabled: boolean }) {
     v == null ? "—" : `${v.toFixed(2)} USD`;
   return (
     <div className="rounded-md border border-border bg-surface p-3 space-y-1.5">
-      <p className="text-xs font-semibold">Costi e budget</p>
+      <h2 className="text-xs font-semibold">Costi e budget</h2>
       {d.riepilogo ? (
         <div className="space-y-0.5 text-[11px] text-text-2 tabular-nums">
           <p>
@@ -432,7 +437,12 @@ export default function Tars() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border p-3 space-y-3 bg-surface">
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Conversazione con Tars"
+        className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border p-3 space-y-3 bg-surface"
+      >
         {conversazioneId == null && !invia.isPending && (
           <div className="text-sm text-text-3 space-y-2">
             <p>
@@ -511,7 +521,7 @@ export default function Tars() {
             }
           }}
           placeholder="Scrivi a Tars… (Invio per inviare)"
-          className="min-h-[44px] max-h-40 text-sm"
+          className="min-h-[44px] max-h-40"
         />
         <Button
           className="h-10"

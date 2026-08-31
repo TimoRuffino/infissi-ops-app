@@ -28,7 +28,7 @@ export default function BottomNav({
   interruttori?: { tars?: boolean } | null;
 }) {
   const [location, setLocation] = useLocation();
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, openMobile } = useSidebar();
 
   // Chi vive in cantiere apre l'agenda, chi vive in ufficio apre il Board.
   const campo =
@@ -58,7 +58,7 @@ export default function BottomNav({
               onClick={() => setLocation(v.path)}
               aria-current={attiva ? "page" : undefined}
               className={`relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition-colors ${
-                attiva ? "text-text-1" : "text-text-3"
+                attiva ? "font-semibold text-text-1" : "text-text-3"
               }`}
             >
               {attiva && (
@@ -74,6 +74,8 @@ export default function BottomNav({
         })}
         <button
           onClick={toggleSidebar}
+          aria-expanded={openMobile}
+          aria-label="Apri il menu completo"
           className="flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium text-text-3 transition-colors"
         >
           <Menu className="h-5 w-5" aria-hidden="true" />
