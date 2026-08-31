@@ -151,7 +151,7 @@ export default function SediList() {
                   >
                     <Power
                       className={`h-3.5 w-3.5 ${
-                        s.attiva ? "text-emerald-600" : "text-muted-foreground"
+                        s.attiva ? "text-success" : "text-muted-foreground"
                       }`}
                     />
                   </Button>

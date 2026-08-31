@@ -615,7 +615,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 text-red-600 hover:text-red-700"
+                            className="h-5 w-5 text-danger hover:text-danger"
                             onClick={() =>
                               setPendingFiles((prev) =>
                                 prev.filter((_, j) => j !== i)
@@ -1119,7 +1119,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-1.5">
-              <BellRing className="h-4 w-4 text-amber-600" />
+              <BellRing className="h-4 w-4 text-warning" />
               Sollecito · {sollecitaFor?.oggetto}
             </DialogTitle>
           </DialogHeader>
@@ -1127,7 +1127,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
             {(sollecitaFor?.solleciti?.length ?? 0) > 0 && (
               <div className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
                 {sollecitaFor.solleciti.map((so: any, i: number) => (
-                  <p key={i} className="border-l-2 border-amber-300 pl-2">
+                  <p key={i} className="border-l-2 border-warning/50 pl-2">
                     {new Date(so.data).toLocaleDateString("it-IT")}
                     {so.nota ? ` — ${so.nota}` : ""}
                   </p>
@@ -1158,7 +1158,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-1.5">
-              <CalendarPlus className="h-4 w-4 text-indigo-600" />
+              <CalendarPlus className="h-4 w-4 text-info" />
               Pianifica intervento · {pianificaFor?.oggetto}
             </DialogTitle>
           </DialogHeader>
@@ -1333,7 +1333,7 @@ function AllegatiPanel({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 text-red-600 hover:text-red-700"
+                className="h-6 w-6 text-danger hover:text-danger"
                 onClick={() => onDelete(a.id)}
                 title="Elimina"
               >

@@ -1325,7 +1325,7 @@ function InterventoBlock(props: {
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); props.onAnnulla(); }}
-          className="shrink-0 rounded p-0.5 hover:bg-red-100 hover:text-red-700 transition-colors"
+          className="shrink-0 rounded p-0.5 hover:bg-danger-soft hover:text-danger transition-colors"
           title="Elimina appuntamento"
         >
           <X className={props.size === "large" ? "h-4 w-4" : "h-3 w-3"} />

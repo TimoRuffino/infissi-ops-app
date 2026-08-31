@@ -485,7 +485,7 @@ export default function ClienteDetail() {
               {(c.indirizzoLavoro || c.cittaLavoro) && (
                 <span className="flex items-center gap-1" title="Indirizzo di esecuzione lavori — usato nelle commesse">
                   <MapPin className="h-3.5 w-3.5" />
-                  <span className="text-[10px] uppercase tracking-wide mr-1 px-1 py-0.5 bg-blue-100 text-blue-800 rounded font-semibold">
+                  <span className="text-[10px] uppercase tracking-wide mr-1 px-1 py-0.5 bg-info-soft text-info rounded font-semibold">
                     Lavoro
                   </span>
                   {c.indirizzoLavoro || c.indirizzo}

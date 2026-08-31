@@ -96,7 +96,7 @@ const tipoDocColors: Record<string, string> = {
   foto: "bg-pink-100 text-pink-800",
   documento_identita: "bg-surface-2 text-text-2",
   visura: "bg-surface-2 text-text-2",
-  planimetria: "bg-violet-100 text-violet-800",
+  planimetria: "bg-st-misure-soft text-st-misure",
   certificazione: "bg-structure-soft text-structure",
   altro: "bg-surface-2 text-text-2",
 };

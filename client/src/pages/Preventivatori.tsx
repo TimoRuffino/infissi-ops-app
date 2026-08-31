@@ -47,21 +47,21 @@ const AZIENDE: Azienda[] = [
     id: "fivizzanese",
     nome: "Fivizzanese",
     descrizione: "Persiane",
-    accent: "bg-indigo-100 text-indigo-700",
+    accent: "bg-st-misure-soft text-st-misure",
     prodotti: ["persiane"],
   },
   {
     id: "punto_del_serramento",
     nome: "Punto del Serramento",
     descrizione: "Persiane",
-    accent: "bg-teal-100 text-teal-700",
+    accent: "bg-structure-soft text-structure",
     prodotti: ["persiane"],
   },
   {
     id: "alias",
     nome: "Alias",
     descrizione: "Portoncini blindati",
-    accent: "bg-amber-100 text-amber-700",
+    accent: "bg-st-ordine-soft text-st-ordine",
     prodotti: ["blindati"],
   },
 ];
@@ -230,7 +230,7 @@ export default function Preventivatori() {
                   </span>
                 </p>
               </div>
-              <CheckCircle2 className="h-8 w-8 text-emerald-500/40" />
+              <CheckCircle2 className="h-8 w-8 text-success/40" />
             </div>
           </CardContent>
         </Card>
@@ -410,7 +410,7 @@ function AziendaCard({
                 : "preventivatori"}
             </Badge>
             {readyCount > 0 && (
-              <span className="text-[10px] text-emerald-700 flex items-center gap-0.5">
+              <span className="text-[10px] text-success flex items-center gap-0.5">
                 <CheckCircle2 className="h-3 w-3" />
                 {readyCount} pronto
                 {readyCount !== 1 && "i"}

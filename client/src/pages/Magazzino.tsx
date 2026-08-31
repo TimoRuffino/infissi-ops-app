@@ -824,7 +824,7 @@ function ProdottoRow({
 
       {/* Level 2: editable note */}
       <div className="flex items-start gap-1.5">
-        <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-500 mt-[7px]" />
+        <StickyNote className="h-3.5 w-3.5 shrink-0 text-warning mt-[7px]" />
         <Input
           placeholder="Aggiungi nota…"
           value={noteDraft ?? (p.note ?? "")}

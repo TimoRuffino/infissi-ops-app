@@ -786,7 +786,7 @@ export default function PreventivatorePuntoDelSerramento() {
                   </SelectContent>
                 </Select>
                 {colore && colore.tipo === "aPreventivo" && (
-                  <div className="flex gap-2 items-start rounded-md border border-amber-400 bg-amber-50 text-amber-900 p-2.5 text-xs leading-snug">
+                  <div className="flex gap-2 items-start rounded-md border border-warning/50 bg-warning-soft text-text-1 p-2.5 text-xs leading-snug">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-medium">Colore a preventivo</p>
@@ -903,7 +903,7 @@ export default function PreventivatorePuntoDelSerramento() {
                 );
               })}
               {calc.anyMisuraFuoriListino && (
-                <div className="flex gap-2 items-start rounded-md border border-red-300 bg-red-50 text-red-900 p-2.5 text-xs leading-snug">
+                <div className="flex gap-2 items-start rounded-md border border-danger/40 bg-danger-soft text-text-1 p-2.5 text-xs leading-snug">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <p>
                     Una o più misure superano il range massimo del listino. Il
@@ -967,7 +967,7 @@ export default function PreventivatorePuntoDelSerramento() {
                   posa) prima dell'IVA.
                 </p>
                 {parseFloat(sconto.replace(",", ".")) > SCONTO_MAX && (
-                  <p className="text-[11px] text-amber-700 flex items-start gap-1">
+                  <p className="text-[11px] text-warning flex items-start gap-1">
                     <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
                     Sconto limitato automaticamente a {SCONTO_MAX}%.
                   </p>
@@ -1094,7 +1094,7 @@ export default function PreventivatorePuntoDelSerramento() {
                     <span className="text-muted-foreground text-xs">
                       Sconto (-{calc.scontoPct}%)
                     </span>
-                    <span className="font-mono text-right text-emerald-700">
+                    <span className="font-mono text-right text-success">
                       - {EUR.format(calc.scontoEur)}
                     </span>
                   </div>
@@ -1134,7 +1134,7 @@ export default function PreventivatorePuntoDelSerramento() {
               </div>
 
               {calc.aPreventivo && (
-                <p className="flex items-start gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-300 rounded-md p-2 leading-snug">
+                <p className="flex items-start gap-1.5 text-[11px] text-warning bg-warning-soft border border-warning/40 rounded-md p-2 leading-snug">
                   <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   Il colore scelto è a preventivo: il sovrapprezzo andrà
                   confermato dall'azienda prima dell'ordine.
@@ -1239,7 +1239,7 @@ function PersianaInfo({
   if (!calc.lookup.ok) {
     if (calc.lookup.reason === "fuori_listino") {
       return (
-        <span className="text-red-700 text-xs">
+        <span className="text-danger text-xs">
           Fuori range listino — richiedi preventivo
         </span>
       );
