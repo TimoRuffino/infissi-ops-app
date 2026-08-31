@@ -47,7 +47,11 @@ import {
 } from "./conversazione/context";
 import { risolviCommessa } from "./conversazione/resolver";
 import { domandaChiarificazioneCommessa } from "./conversazione/types";
-import { analizzaRichiestaTransizione } from "./strumenti/commesse";
+import {
+  analizzaRichiestaTransizione,
+  concretizzaRichiestaTransizione,
+} from "./strumenti/commesse";
+import { versioneCommessa } from "../commesse/transizioni";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -559,17 +563,21 @@ export async function eseguiRun(input: {
     contesto.entitaAttiva?.tipo === "commessa" &&
     contesto.contestoConversazione?.commessaId === contesto.entitaAttiva.id &&
     contesto.contestoConversazione.verifiche.commessa === "verificato"
-      ? contesto.entitaAttiva.id
+      ? getCommessaById(contesto.entitaAttiva.id)
+      : null;
+  const targetAutorizzato =
+    commessaAutorizzata && richiestaTransizione
+      ? concretizzaRichiestaTransizione(richiestaTransizione, commessaAutorizzata)
       : null;
   contesto = {
     ...contesto,
     autorizzazioneTransizione:
-      commessaAutorizzata == null
+      commessaAutorizzata == null || targetAutorizzato == null
         ? undefined
         : {
-            commessaId: commessaAutorizzata,
-            nuovoStato: richiestaTransizione!.nuovoStato,
-            direzione: richiestaTransizione!.direzione,
+            commessaId: commessaAutorizzata.id,
+            nuovoStato: targetAutorizzato,
+            versione: versioneCommessa(commessaAutorizzata),
           },
   };
 
@@ -982,6 +990,12 @@ export async function eseguiRun(input: {
                         idempotencyKey: prenotazione.idempotencyKey,
                         esito: azione,
                       });
+                      if (azione.stato === "transizione_eseguita") {
+                        contesto = {
+                          ...contesto,
+                          autorizzazioneTransizione: undefined,
+                        };
+                      }
                     }
                   } catch (errore) {
                     try {

@@ -25,6 +25,7 @@ import {
   applicaPattuitoDaFic,
   getCommessaById,
 } from "./commesse";
+import { getClienteById } from "./clienti";
 import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
 
 const SEDE = 90101;
@@ -185,6 +186,42 @@ describe("doc gate", () => {
         stato: "aggiornamento_contratto",
       })
     ).rejects.toThrow(/DOC_GATE_BLOCKED/);
+  });
+});
+
+describe("collegamento cliente della commessa", () => {
+  it("rifiuta un cliente inesistente nell'aggiornamento semplice senza rompere il collegamento", async () => {
+    const caller = direzione();
+    const cliente = await caller.clienti.create({ nome: "Cliente", cognome: "Semplice" });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+
+    await expect(
+      caller.commesse.update({ id: commessa.id, clienteId: 9_999_990 })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(getCommessaById(commessa.id)).toMatchObject({ clienteId: cliente.id });
+    expect((getClienteById(cliente.id) as any).commesseIds).toContain(commessa.id);
+  });
+
+  it("rifiuta un cliente inesistente senza rompere il collegamento precedente, anche con transizione", async () => {
+    const caller = direzione();
+    const cliente = await caller.clienti.create({ nome: "Cliente", cognome: "Originario" });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+
+    await expect(
+      caller.commesse.update({
+        id: commessa.id,
+        clienteId: 9_999_991,
+        stato: "misure_esecutive",
+        force: true,
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(getCommessaById(commessa.id)).toMatchObject({
+      clienteId: cliente.id,
+      stato: "preventivo",
+    });
+    expect((getClienteById(cliente.id) as any).commesseIds).toContain(commessa.id);
   });
 });
 

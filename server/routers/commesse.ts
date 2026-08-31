@@ -27,10 +27,11 @@ import {
   STATI_COMMESSA,
   annullaTransizioneCommessa,
   eseguiTransizioneCommessa,
+  storeTransizioniCommessa,
   type DipendenzeTransizioneCommessa,
   type StatoCommessa,
 } from "../commesse/transizioni";
-import { persistedStore } from "../_core/persistence";
+import { persistedStore, saveStoresAtomically } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
 import {
@@ -223,7 +224,8 @@ export function saveCommesseStore(): void {
 export function dipendenzeTransizioniCommesse(): DipendenzeTransizioneCommessa {
   return {
     trovaCommessa: getCommessaById,
-    salvaCommesse: saveCommesseStore,
+    salvaStatoEAudit: () =>
+      saveStoresAtomically([_store, storeTransizioniCommessa]),
     haDocumentoRichiesto: statoHasRequiredDoc,
     documentiRichiesti: stato =>
       REQUIRED_DOC_TIPI_PER_STATO[stato] ?? [],
@@ -865,10 +867,11 @@ export const commesseRouter = router({
         updates.clienteId !== prevClienteId
       ) {
         const linked = getClienteById(updates.clienteId);
-        if (linked) {
-          resolvedCliente = `${linked.cognome} ${linked.nome}`.trim();
-          collegaClienteId = updates.clienteId;
+        if (!linked || linked.sedeId !== ctx.sedeId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cliente non trovato." });
         }
+        resolvedCliente = `${linked.cognome} ${linked.nome}`.trim();
+        collegaClienteId = updates.clienteId;
       }
       // Normalize the mutually-exclusive consegna fields: writing one
       // clears the other so the persisted record can never carry both.

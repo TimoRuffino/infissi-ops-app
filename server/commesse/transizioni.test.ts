@@ -46,7 +46,7 @@ function dipendenze(commessa: CommessaTest, gate = true) {
   return {
     valore: {
       trovaCommessa: (id: number) => (id === commessa.id ? commessa : null),
-      salvaCommesse: () => {
+      salvaStatoEAudit: async () => {
         salvataggi += 1;
       },
       haDocumentoRichiesto: () => gate,
@@ -189,7 +189,7 @@ describe("servizio canonico transizioni commessa", () => {
     expect(deps.salvataggi()).toBe(0);
   });
 
-  it("Undo usa l'audit server-side, richiede stato/versione immutati e ripristina il cleanup", async () => {
+  it("Undo usa l'audit server-side, richiede stato/versione immutati e ripristina integralmente il cleanup", async () => {
     const modulo = await moduloTransizioni();
     expect(modulo).not.toBeNull();
     if (!modulo) return;
@@ -227,6 +227,7 @@ describe("servizio canonico transizioni commessa", () => {
     expect(undo).toMatchObject({ da: "da_ordinare", a: "produzione" });
     expect(commessa.stato).toBe("produzione");
     expect(commessa.dataConsegnaConfermata).toBe("2026-09-20");
+    expect(commessa.dataChiusura).toBeNull();
 
     await expect(
       modulo.annullaTransizioneCommessa(
@@ -238,6 +239,77 @@ describe("servizio canonico transizioni commessa", () => {
         deps.valore
       )
     ).rejects.toThrow(/UNDO_TRANSIZIONE_NON_DISPONIBILE/);
+
+    const archiviata: CommessaTest = {
+      id: 98427,
+      sedeId: SEDE,
+      stato: "archiviata",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: "2026-09-20",
+      dataChiusura: "2026-10-01",
+    };
+    const depsArchiviata = dipendenze(archiviata, true);
+    const riapertura = await modulo.eseguiTransizioneCommessa(
+      {
+        ctx: ctx(),
+        commessaId: archiviata.id,
+        nuovoStato: "interventi_regolazioni",
+        origine: "tars",
+        versioneAttesa: modulo.versioneCommessa(archiviata),
+        attoreNome: "Direzione transizioni",
+      },
+      depsArchiviata.valore
+    );
+    expect(archiviata.dataChiusura).toBeNull();
+
+    await modulo.annullaTransizioneCommessa(
+      {
+        ctx: ctx(),
+        transizioneId: riapertura.transizioneId,
+        attoreNome: "Direzione transizioni",
+      },
+      depsArchiviata.valore
+    );
+    expect(archiviata).toMatchObject({
+      stato: "archiviata",
+      dataConsegnaConfermata: "2026-09-20",
+      dataChiusura: "2026-10-01",
+    });
+  });
+
+  it("non lascia stato senza audit quando la persistenza atomica fallisce", async () => {
+    const modulo = await moduloTransizioni();
+    expect(modulo).not.toBeNull();
+    if (!modulo) return;
+    const commessa: CommessaTest = {
+      id: 98426,
+      sedeId: SEDE,
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      dataConsegnaConfermata: null,
+      dataChiusura: null,
+    };
+    const deps = dipendenze(commessa, true);
+    (deps.valore as any).salvaStatoEAudit = async () => {
+      throw new Error("persistenza interrotta");
+    };
+
+    await expect(
+      modulo.eseguiTransizioneCommessa(
+        {
+          ctx: ctx(),
+          commessaId: commessa.id,
+          nuovoStato: "misure_esecutive",
+          origine: "tars",
+          versioneAttesa: modulo.versioneCommessa(commessa),
+        },
+        deps.valore
+      )
+    ).rejects.toThrow("persistenza interrotta");
+    expect(commessa).toMatchObject({
+      stato: "preventivo",
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+    });
   });
 
   it("Undo fallisce senza effetti se la commessa è cambiata o appartiene a un'altra sede", async () => {

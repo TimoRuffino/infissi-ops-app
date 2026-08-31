@@ -25,6 +25,7 @@ import {
 } from "./azioni/executions";
 import { descrittoreAzione } from "./azioni/registry";
 import { azzeraMemoriaPerTest, memorieValide } from "./memoria";
+import { getDocumentoRecordById } from "../routers/preventiviContratti";
 
 const SEDE = 95001;
 const ALTRA_SEDE = 95002;
@@ -401,6 +402,127 @@ describe("tars — protocollo write-ahead R1", () => {
     expect(esito.cache.c1Miss).toBe(2);
     expect(effetti()).toBe(1);
     expect(await ledger.lista({ sedeId: SEDE })).toHaveLength(1);
+  });
+
+  it("consuma una richiesta direzionale di transizione dopo un solo effetto settled", async () => {
+    process.env.FLAG_TARS = "on";
+    process.env.FLAG_TARS_READ_TOOLS = "on";
+    process.env.FLAG_TARS_L2_ACTIONS = "on";
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const commessa = await direzione().commesse.create({ cliente: "Tars una sola transizione" });
+    await direzione().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+    const misure = await direzione().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "misure.pdf",
+      tipo: "misure",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+    // Dato legacy: esisteva prima della registrazione di statoAtUpload.
+    (getDocumentoRecordById(misure.id) as any).statoAtUpload = null;
+    const esito = await eseguiRun({
+      contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamateToolMultiple([
+              { id: "prima", nome: "transizione_adiacente_commessa", argomenti: { commessaId: commessa.id, nuovoStato: "misure_esecutive" } },
+              { id: "seconda", nome: "transizione_adiacente_commessa", argomenti: { commessaId: commessa.id, nuovoStato: "aggiornamento_contratto" } },
+            ])
+          : rispostaTesto("Fatto.")
+      ),
+      messaggio: `Passa la commessa ${commessa.codice} allo stato successivo`,
+    });
+
+    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("misure_esecutive");
+    expect(esito.azioni.filter(a => a.stato === "transizione_eseguita")).toHaveLength(1);
+    expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(1);
+  });
+
+  it("blocca il retry concorrente della transizione prima di duplicare stato e audit", async () => {
+    process.env.FLAG_TARS = "on";
+    process.env.FLAG_TARS_READ_TOOLS = "on";
+    process.env.FLAG_TARS_L2_ACTIONS = "on";
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const commessa = await direzione().commesse.create({ cliente: "Tars retry concorrente" });
+    await direzione().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+    const provider = () => creaProviderFinto((_richiesta, passo) =>
+      passo === 0
+        ? chiamataTool(
+            "transizione_adiacente_commessa",
+            { commessaId: commessa.id, nuovoStato: "misure_esecutive" },
+            "transizione-concorrente"
+          )
+        : rispostaTesto("Fatto.")
+    );
+
+    const risultati = await Promise.all([
+      eseguiRun({
+        contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+        provider: provider(),
+        messaggio: `Passa la commessa ${commessa.codice} a misure esecutive`,
+      }),
+      eseguiRun({
+        contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+        provider: provider(),
+        messaggio: `Passa la commessa ${commessa.codice} a misure esecutive`,
+      }),
+    ]);
+
+    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("misure_esecutive");
+    expect(risultati.flatMap(r => r.azioni).filter(a => a.stato === "transizione_eseguita")).toHaveLength(1);
+    expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(1);
+  });
+
+  it("rifiuta il comando condizionale prima di emettere autorità o reservation", async () => {
+    process.env.FLAG_TARS = "on";
+    process.env.FLAG_TARS_READ_TOOLS = "on";
+    process.env.FLAG_TARS_L2_ACTIONS = "on";
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const commessa = await direzione().commesse.create({ cliente: "Tars comando condizionale" });
+    await direzione().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+
+    const esito = await eseguiRun({
+      contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamataTool(
+              "transizione_adiacente_commessa",
+              { commessaId: commessa.id, nuovoStato: "misure_esecutive" },
+              "condizionale"
+            )
+          : rispostaTesto("Nessuna transizione.")
+      ),
+      messaggio: `Analizza il preventivo e, se è coerente, passa la commessa ${commessa.codice} a misure esecutive`,
+    });
+
+    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("preventivo");
+    expect(esito.azioni).toMatchObject([{ stato: "non_eseguito" }]);
+    expect(await ledger.lista({ sedeId: SEDE })).toHaveLength(0);
   });
 
   it("due input legittimi distinti producono due effetti e due audit", async () => {

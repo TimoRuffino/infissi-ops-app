@@ -4,6 +4,8 @@ import { appRouter } from "../../routers";
 import { descrittoreAzione } from "./registry";
 import { costruisciContesto } from "../contesto";
 import { derivaStatoOperativo } from "../orchestratore";
+import { versioneCommessa } from "../../commesse/transizioni";
+import { getCommessaById } from "../../routers/commesse";
 
 const SEDE = 98501;
 const ALTRA_SEDE = 98502;
@@ -74,7 +76,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       richiestaEsplicitaTransizione(
         "Analizza l'allegato e, se è coerente, passa la commessa a misure esecutive"
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(richiestaEsplicitaTransizione("Cambia lo stato della commessa")).toBe(
       false
     );
@@ -166,7 +168,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       autorizzazioneTransizione: {
         commessaId: commessa.id,
         nuovoStato: "misure_esecutive",
-        direzione: null,
+        versione: versioneCommessa(getCommessaById(commessa.id) as any),
       },
     } as any;
 
@@ -229,7 +231,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       autorizzazioneTransizione: {
         commessaId: commessa.id,
         nuovoStato: "misure_esecutive",
-        direzione: null,
+        versione: versioneCommessa(getCommessaById(commessa.id) as any),
       },
     } as any;
     const azione = descrittoreAzione("transizione_adiacente_commessa")!;
@@ -256,7 +258,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       autorizzazioneTransizione: {
         commessaId: commessa.id,
         nuovoStato: "misure_esecutive",
-        direzione: null,
+        versione: versioneCommessa(getCommessaById(commessa.id) as any),
       },
     } as any;
     await expect(
@@ -276,7 +278,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       autorizzazioneTransizione: {
         commessaId: commessa.id,
         nuovoStato: "misure_esecutive",
-        direzione: null,
+        versione: versioneCommessa(getCommessaById(commessa.id) as any),
       },
     } as any;
     await expect(
@@ -301,7 +303,7 @@ describe("Tars — transizioni canoniche di commessa", () => {
       autorizzazioneTransizione: {
         commessaId: autorizzata.id,
         nuovoStato: "misure_esecutive",
-        direzione: null,
+        versione: versioneCommessa(getCommessaById(autorizzata.id) as any),
       },
     } as any;
     const azione = descrittoreAzione("transizione_adiacente_commessa")!;

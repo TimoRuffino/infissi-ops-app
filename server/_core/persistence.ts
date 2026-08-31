@@ -134,6 +134,8 @@ export type PersistedStore<T> = {
   save: () => void;
 };
 
+const storeKeys = new WeakMap<object, string>();
+
 // Read-only snapshot of every registered store — used by the nightly backup
 // so it never needs a per-router getter. Items are the live arrays: callers
 // must NOT mutate them.
@@ -154,10 +156,41 @@ export function persistedStore<T>(
   const items: any[] = [];
   // loaded=true when no DB at all — lets tests / local dev save freely.
   registry.set(key, { key, items, onLoad: onLoad as any, loaded: !sql });
-  return {
+  const store: PersistedStore<T> = {
     items: items as T[],
     save: () => scheduleSave(key),
   };
+  storeKeys.set(store, key);
+  return store;
+}
+
+/** Scrive più blob JSONB nella stessa transazione PostgreSQL. */
+export async function saveStoresAtomically(
+  stores: readonly PersistedStore<unknown>[]
+): Promise<void> {
+  if (!sql) return;
+  const entries = stores.map(store => {
+    const key = storeKeys.get(store as object);
+    const entry = key ? registry.get(key) : null;
+    if (!key || !entry) throw new Error("[persistence] store atomico non registrato");
+    if (!entry.loaded) throw new Error(`[persistence] store ${key} non caricato`);
+    return entry;
+  });
+  await ensureSchema();
+  await withRetry(
+    () => sql.begin(async tx => {
+      for (const entry of entries) {
+        const payload = tx.json(entry.items as any);
+        await tx`
+          INSERT INTO kv_store (key, data, updated_at)
+          VALUES (${entry.key}, ${payload}, NOW())
+          ON CONFLICT (key) DO UPDATE
+            SET data = EXCLUDED.data, updated_at = NOW()
+        `;
+      }
+    }),
+    `save atomico(${entries.map(entry => entry.key).join(",")})`
+  );
 }
 
 function scheduleSave(key: string) {

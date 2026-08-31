@@ -40,6 +40,7 @@ const SOLO_VALUTAZIONE_INIZIALE =
   /^(?:dimmi\s+se|verifica\s+se|controlla\s+se|(?:sai|sapresti|mi\s+dici|mi\s+puoi\s+dire)\s+se|posso|potrei|cosa\s+(?:succede|serve)|conviene|sarebbe\s+(?:possibile|meglio)|proponi|consiglia)\b/i;
 const NEGAZIONE_COMANDO =
   /\b(?:non\s+(?:puoi|potresti|devi|dovresti|voglio\s+che|passare|portare|spostare|avanzare|arretrare|riportare|cambiare|modificare)|mai\s+(?:passare|portare|spostare|avanzare|arretrare|riportare|cambiare)|senza\s+(?:passare|portare|spostare|avanzare|arretrare|riportare|cambiare))\b/i;
+const CONDIZIONE_NON_VERIFICABILE = /(?:^|[,;]\s*)\b(?:se|qualora|purché|a\s+condizione\s+che)\b/i;
 
 const TARGET_STATO: readonly {
   stato: StatoCommessa;
@@ -126,6 +127,7 @@ export function analizzaRichiestaTransizione(
 ): RichiestaTransizioneEsplicita | null {
   const testo = messaggio.trim();
   if (!testo) return null;
+  if (CONDIZIONE_NON_VERIFICABILE.test(testo)) return null;
   const segmento = segmentoComando(testo);
   if (!segmento) return null;
   const nuovoStato = statoRichiesto(segmento);
@@ -146,6 +148,24 @@ export function analizzaRichiestaTransizione(
  */
 export function richiestaEsplicitaTransizione(messaggio: string): boolean {
   return analizzaRichiestaTransizione(messaggio) != null;
+}
+
+/** Fissa il solo target consentito all'inizio del run, prima del provider. */
+export function concretizzaRichiestaTransizione(
+  richiesta: RichiestaTransizioneEsplicita,
+  commessa: any
+): StatoCommessa | null {
+  if (richiesta.nuovoStato) return richiesta.nuovoStato;
+  const anteprima = verificaTransizioneCommessa({
+    commessa,
+    haDocumentoRichiesto: dipendenzeTransizioniCommesse().haDocumentoRichiesto,
+    documentiRichiesti: dipendenzeTransizioniCommesse().documentiRichiesti,
+  });
+  return richiesta.direzione === "avanti"
+    ? anteprima.successivo
+    : richiesta.direzione === "indietro"
+      ? anteprima.precedente
+      : null;
 }
 
 function idCommessa(
@@ -382,16 +402,21 @@ async function materializzaTransizione(
     haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
     documentiRichiesti: dipendenze.documentiRichiesti,
   });
-  const targetAutorizzato = autorizzazione.nuovoStato != null
-    ? input.nuovoStato === autorizzazione.nuovoStato
-    : autorizzazione.direzione != null &&
-      anteprima.direzione === autorizzazione.direzione;
-  if (!targetAutorizzato) {
+  if (input.nuovoStato !== autorizzazione.nuovoStato) {
     return {
       tipo: "esito",
       esito: nonEseguito(
         nome,
         "Il passaggio richiesto non coincide con il comando esplicito dell'utente: nessuna modifica applicata."
+      ),
+    };
+  }
+  if (versioneCommessa(commessa) !== autorizzazione.versione) {
+    return {
+      tipo: "esito",
+      esito: nonEseguito(
+        nome,
+        "La commessa è cambiata dall'ultima lettura: rileggila prima di modificare lo stato."
       ),
     };
   }
@@ -484,14 +509,16 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
       documentiRichiesti:
         dipendenzeTransizioniCommesse().documentiRichiesti,
     });
-    const targetAutorizzato = autorizzazione.nuovoStato != null
-      ? input.nuovoStato === autorizzazione.nuovoStato
-      : autorizzazione.direzione != null &&
-        anteprima.direzione === autorizzazione.direzione;
-    if (!targetAutorizzato) {
+    if (input.nuovoStato !== autorizzazione.nuovoStato) {
       return nonEseguito(
         nome,
         "Il passaggio richiesto non coincide con il comando esplicito dell'utente: nessuna modifica applicata."
+      );
+    }
+    if (versioneCommessa(commessa) !== autorizzazione.versione) {
+      return nonEseguito(
+        nome,
+        "La commessa è cambiata dall'ultima lettura: rileggila prima di modificare lo stato."
       );
     }
     try {

@@ -82,8 +82,8 @@ export type ContestoRun = {
    */
   autorizzazioneTransizione?: {
     commessaId: number;
-    nuovoStato: string | null;
-    direzione: "avanti" | "indietro" | null;
+    nuovoStato: string;
+    versione: string;
   };
 };
 

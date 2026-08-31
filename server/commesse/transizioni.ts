@@ -74,7 +74,7 @@ type RegistroTransizione = {
 };
 
 let nextTransizioneId = 1;
-const transizioniStore = persistedStore<RegistroTransizione>(
+export const storeTransizioniCommessa = persistedStore<RegistroTransizione>(
   "commesse_transizioni",
   righe => {
     nextTransizioneId = righe.length
@@ -90,11 +90,11 @@ const transizioniStore = persistedStore<RegistroTransizione>(
     }
   }
 );
-const transizioni = transizioniStore.items;
+const transizioni = storeTransizioniCommessa.items;
 
 export type DipendenzeTransizioneCommessa = {
   trovaCommessa(id: number): CommessaTransizionabile | null;
-  salvaCommesse(): void;
+  salvaStatoEAudit(): Promise<void>;
   haDocumentoRichiesto(commessaId: number, stato: string): boolean;
   documentiRichiesti(stato: StatoCommessa): readonly string[];
   etichettaDocumento(tipo: string): string;
@@ -371,6 +371,7 @@ async function applicaTransizioneCommessa(
     /** Solo annullaTransizioneCommessa può ripristinare campi di cleanup. */
     ripristinaSnapshot?: SnapshotTransizione;
     compensaTransizioneId?: number | null;
+    segnaCompensata?: RegistroTransizione;
   },
   dipendenze: DipendenzeTransizioneCommessa
 ): Promise<EsitoTransizioneCommessa> {
@@ -453,6 +454,7 @@ async function applicaTransizioneCommessa(
   }
 
   const prima = snapshot(commessa);
+  const recordPrima = { ...commessa };
   Object.assign(commessa, patchSicura(input.patchAutorizzata));
   commessa.stato = input.nuovoStato;
   const isForward = indice(input.nuovoStato) > indice(prima.stato);
@@ -466,13 +468,9 @@ async function applicaTransizioneCommessa(
       .split("T")[0];
   }
   if (input.ripristinaSnapshot) {
-    if (input.nuovoStato === "produzione") {
-      commessa.dataConsegnaConfermata =
-        input.ripristinaSnapshot.dataConsegnaConfermata;
-    }
-    if (input.nuovoStato === "archiviata") {
-      commessa.dataChiusura = input.ripristinaSnapshot.dataChiusura;
-    }
+    commessa.dataConsegnaConfermata =
+      input.ripristinaSnapshot.dataConsegnaConfermata;
+    commessa.dataChiusura = input.ripristinaSnapshot.dataChiusura;
   }
   commessa.updatedAt = updatedAtMonotono(
     commessa,
@@ -493,8 +491,24 @@ async function applicaTransizioneCommessa(
     createdAt: dipendenze.ora?.() ?? new Date(),
   };
   transizioni.push(registro);
-  dipendenze.salvaCommesse();
-  transizioniStore.save();
+  if (input.segnaCompensata) {
+    input.segnaCompensata.compensataDaId = registro.id;
+  }
+  try {
+    // Stato commessa e audit sono un singolo commit; nessuna risposta riesce
+    // prima di questa barriera di persistenza.
+    await dipendenze.salvaStatoEAudit();
+  } catch (errore) {
+    for (const chiave of Object.keys(commessa)) {
+      if (!(chiave in recordPrima)) delete (commessa as any)[chiave];
+    }
+    Object.assign(commessa, recordPrima);
+    transizioni.pop();
+    // Un id non confermato resta un buco: riutilizzarlo potrebbe collidere con
+    // un'altra transizione concorrente già arrivata alla barriera di commit.
+    if (input.segnaCompensata) input.segnaCompensata.compensataDaId = null;
+    throw errore;
+  }
 
   try {
     await dipendenze.allineaTimeline(
@@ -601,10 +615,9 @@ export async function annullaTransizioneCommessa(
       attoreNome: input.attoreNome ?? null,
       ripristinaSnapshot: originale.prima,
       compensaTransizioneId: originale.id,
+      segnaCompensata: originale,
     },
     dipendenze
   );
-  originale.compensataDaId = compensazione.transizioneId;
-  transizioniStore.save();
   return compensazione;
 }
