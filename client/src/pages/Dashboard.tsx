@@ -1,13 +1,25 @@
+// Dashboard (`/`) — archetipo «Dashboard per ruolo» di Frame & Flow.
+//
+// Composizione: «Da fare oggi» domina la colonna principale (~8/12) con il
+// pulse dei KPI e il calendario; la colonna laterale (~4/12) porta la
+// situazione Tars (briefing deterministico, zero token), gli interventi di
+// oggi e le commesse recenti. Sotto: pipeline per stato, approfondimenti
+// (grafici in chunk lazy: recharts non pesa sul primo paint) e priorità.
+//
+// Il contratto funzionale è il PRD §26 e NON cambia qui: feed personalizzato
+// cap 8 con scope per ruolo, importi solo con `pagamento.read` (il server li
+// omette agli altri), KPI «spenti» a zero, calendario settimanale con filtri.
 import { trpc } from "@/lib/trpc";
 import {
   CALENDARI,
   CALENDAR_COLOR_MAP,
-  COLORI_STATO_COMMESSA,
+  CALENDAR_SOFT_MAP,
 } from "@/lib/calendario";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Building2,
   AlertTriangle,
@@ -20,16 +32,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Flame,
-  Bot,
   Landmark,
   Mail as MailIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { useState, useMemo } from "react";
-import { motion } from "framer-motion";
+import { lazy, Suspense, useState, useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
 import StatoChip from "@/components/StatoChip";
+import TarsBriefing from "@/components/TarsBriefing";
+import { statoColorVar, statoLabel, STATI_ORDER } from "@/lib/stato";
 import {
   CheckCircle2,
   ArrowRight,
@@ -38,23 +50,18 @@ import {
   ShieldAlert,
   Banknote,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from "recharts";
 
-// KPI tile — redesign §4.1.
-// - Zero value → "spento": number in text-3, no accent, not clickable.
-// - >0 + actionable → left accent bar (3px, semantic colour) + clickable card
-//   that navigates to the already-filtered list.
+// I grafici (recharts) vivono in un chunk separato: si scaricano solo
+// quando c'è qualcosa da disegnare.
+const DashboardApprofondimenti = lazy(
+  () => import("@/components/dashboard/DashboardApprofondimenti")
+);
+
+// KPI tile — contratto §26.3.
+// - Zero → «spento»: numero in text-3, nessun accento, non cliccabile.
+// - >0 e azionabile → barra d'accento (3px, colore semantico) + card che
+//   naviga alla lista già filtrata. Feedback via bordo e ombra: niente
+//   sollevamenti a molla sui contenitori.
 function StatCard({
   title,
   value,
@@ -66,8 +73,8 @@ function StatCard({
   title: string;
   value: string | number;
   subtitle?: string;
-  icon: any;
-  accentClass?: string; // tailwind bg-* for the left accent bar
+  icon: React.ComponentType<{ className?: string }>;
+  accentClass?: string;
   onClick?: () => void;
 }) {
   const numeric = typeof value === "number" ? value : parseInt(String(value), 10);
@@ -75,48 +82,132 @@ function StatCard({
   const dead = isZero || !onClick;
 
   return (
-    <motion.div
-      whileHover={dead ? undefined : { y: -3 }}
-      transition={{ type: "spring", stiffness: 320, damping: 22 }}
+    <Card
+      className={`relative overflow-hidden gap-0 py-5 transition-[border-color,box-shadow,transform] ${
+        dead
+          ? ""
+          : "cursor-pointer hover:border-border-strong hover:shadow-sm active:scale-[0.995]"
+      }`}
+      onClick={dead ? undefined : onClick}
+      role={dead ? undefined : "button"}
+      tabIndex={dead ? undefined : 0}
+      onKeyDown={
+        dead
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+      }
     >
-      <Card
-        className={`relative overflow-hidden gap-0 py-5 transition-all ${
-          dead ? "" : "cursor-pointer hover:shadow-md"
-        }`}
-        onClick={dead ? undefined : onClick}
-      >
-        {!dead && (
-          <span
-            className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentClass}`}
-          />
+      {!dead && (
+        <span
+          className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentClass}`}
+        />
+      )}
+      <CardHeader className="flex flex-row items-start justify-between pb-2">
+        <span className="eyebrow">{title}</span>
+        <Icon
+          className={`h-[18px] w-[18px] shrink-0 ${
+            dead ? "text-text-3/60" : "text-text-3"
+          }`}
+        />
+      </CardHeader>
+      <CardContent>
+        <div
+          className={`text-[30px] leading-[34px] font-bold tabular-nums ${
+            isZero ? "text-text-3" : "text-text-1"
+          }`}
+        >
+          {value}
+        </div>
+        {subtitle && (
+          <p className="text-[13px] text-text-2 mt-1">{subtitle}</p>
         )}
-        <CardHeader className="flex flex-row items-start justify-between pb-2">
-          <span className="eyebrow">{title}</span>
-          <Icon
-            className={`h-[18px] w-[18px] shrink-0 ${
-              dead ? "text-text-3/60" : "text-text-3"
-            }`}
-          />
-        </CardHeader>
-        <CardContent>
-          <div
-            className={`text-[30px] leading-[34px] font-bold tabular-nums ${
-              isZero ? "text-text-3" : "text-text-1"
-            }`}
-          >
-            {value}
-          </div>
-          {subtitle && (
-            <p className="text-[13px] text-text-2 mt-1">{subtitle}</p>
-          )}
-        </CardContent>
-      </Card>
-    </motion.div>
+      </CardContent>
+    </Card>
   );
 }
 
-// Donut palette — §2.1 state colours.
-const PIE_COLORS = COLORI_STATO_COMMESSA;
+// Pipeline per stato: dove sono le commesse, in un colpo d'occhio. Segmenti
+// proporzionali con i colori di famiglia (mai il colore da solo: la legenda
+// porta etichetta e conteggio) e clic verso il Board. Sostituisce il donut.
+function PipelineCommesse({
+  commesse,
+  onOpen,
+}: {
+  commesse: any[];
+  onOpen: () => void;
+}) {
+  const conteggi = STATI_ORDER.map((s) => ({
+    stato: s,
+    n: commesse.filter((c) => c.stato === s).length,
+  })).filter((x) => x.n > 0);
+  const totale = conteggi.reduce((acc, x) => acc + x.n, 0);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            Commesse per stato
+          </CardTitle>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onOpen}>
+            Apri il Board
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <p className="text-xs text-text-3">
+          {totale} attive in sede · fonte: commesse non archiviate
+        </p>
+      </CardHeader>
+      <CardContent>
+        {totale === 0 ? (
+          <p className="text-sm text-text-3 py-4 text-center">
+            Nessuna commessa attiva in sede.
+          </p>
+        ) : (
+          <>
+            <div
+              className="flex h-2.5 items-stretch gap-px overflow-hidden rounded-full"
+              aria-hidden="true"
+            >
+              {conteggi.map((x) => (
+                <span
+                  key={x.stato}
+                  style={{
+                    backgroundColor: statoColorVar(x.stato),
+                    flexGrow: x.n,
+                  }}
+                  className="min-w-[6px] basis-0"
+                  title={`${statoLabel(x.stato)}: ${x.n}`}
+                />
+              ))}
+            </div>
+            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+              {conteggi.map((x) => (
+                <li key={x.stato} className="flex items-center gap-1.5 text-xs">
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: statoColorVar(x.stato) }}
+                  />
+                  <span className="text-text-2">{statoLabel(x.stato)}</span>
+                  <span className="font-semibold tabular-nums text-text-1">
+                    {x.n}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function getWeekDates(baseDate: Date): Date[] {
   const d = new Date(baseDate);
@@ -218,26 +309,35 @@ function CalendarioSettimana({
           </div>
         </div>
         <p className="text-sm text-muted-foreground">{weekLabel}</p>
-        {/* Calendar filters */}
+        {/* Filtri per calendario: testo colorato su fondo tenue, leggibile
+            in entrambi i temi (niente bianco su tinta piena). */}
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {CALENDARI.map((cal) => (
-            <button
-              key={cal.key}
-              onClick={() => toggleCalendario(cal.key)}
-              className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border transition-all ${
-                activeCalendari.has(cal.key)
-                  ? "border-transparent text-white"
-                  : "border-border text-muted-foreground bg-background"
-              }`}
-              style={
-                activeCalendari.has(cal.key)
-                  ? { backgroundColor: cal.color }
-                  : undefined
-              }
-            >
-              {cal.label}
-            </button>
-          ))}
+          {CALENDARI.map((cal) => {
+            const attivo = activeCalendari.has(cal.key);
+            return (
+              <button
+                key={cal.key}
+                onClick={() => toggleCalendario(cal.key)}
+                aria-pressed={attivo}
+                className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                  attivo
+                    ? ""
+                    : "border-border text-muted-foreground bg-background"
+                }`}
+                style={
+                  attivo
+                    ? {
+                        backgroundColor: cal.soft,
+                        color: cal.color,
+                        borderColor: `color-mix(in srgb, ${cal.color} 35%, transparent)`,
+                      }
+                    : undefined
+                }
+              >
+                {cal.label}
+              </button>
+            );
+          })}
         </div>
       </CardHeader>
       <CardContent>
@@ -247,7 +347,7 @@ function CalendarioSettimana({
             const isToday = key === today;
             const dayEvents = eventiByDay[key] ?? [];
             return (
-              <div key={key} className="min-h-[100px]">
+              <div key={key} className="min-h-[100px] min-w-0">
                 <div
                   className={`text-center text-xs font-medium py-1 rounded-t ${
                     isToday
@@ -265,8 +365,12 @@ function CalendarioSettimana({
                     <div
                       key={ev.id}
                       onClick={() => onEventClick(ev)}
-                      className="text-[10px] leading-tight p-1 rounded cursor-pointer hover:opacity-80 transition-opacity text-white truncate"
-                      style={{ backgroundColor: CALENDAR_COLOR_MAP[ev.tipo] ?? "var(--color-cal-altro)" }}
+                      className="text-[10px] font-medium leading-tight p-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate"
+                      style={{
+                        backgroundColor:
+                          CALENDAR_SOFT_MAP[ev.tipo] ?? "var(--color-cal-altro-soft)",
+                        color: CALENDAR_COLOR_MAP[ev.tipo] ?? "var(--color-cal-altro)",
+                      }}
                       title={ev.note}
                     >
                       {ev.note}
@@ -323,6 +427,12 @@ export default function Dashboard() {
     { anno: new Date().getFullYear() },
     { ...liveOpts, retry: false }
   );
+  // Briefing Tars nella colonna laterale: deterministico, zero token, e a
+  // flag spento la query non parte nemmeno.
+  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const tarsAcceso = Boolean(interruttoriQ.data?.tars);
 
   // Filter out any legacy "annullato" records so deleted appointments never
   // show up on the dashboard even before the server-side cleanup kicks in.
@@ -366,7 +476,7 @@ export default function Dashboard() {
   );
   const ticketAperti = (ts?.aperti ?? 0) + (ts?.assegnati ?? 0);
 
-  // ── "Da fare oggi" — personalized action feed ──────────────────────────────
+  // ── "Da fare oggi" — personalized action feed (contratto PRD §26.2) ────────
   // Direzione sees the whole sede; everyone else only what's assigned to them
   // (commessa.assegnatoA, legacy fallback createdBy). Merged sources, sorted
   // by urgency, capped at 8.
@@ -377,7 +487,7 @@ export default function Dashboard() {
   type TodoItem = {
     key: string;
     rank: number;
-    icon: any;
+    icon: React.ComponentType<{ className?: string }>;
     iconClass: string;
     title: string;
     sub?: string;
@@ -513,8 +623,8 @@ export default function Dashboard() {
       }
     }
 
-    // 6. Il lavoro nuovo, aggregato in una riga per fonte: le proposte di
-    //    Tars da decidere, la posta non letta, le fatture senza riscontro.
+    // 6. Il lavoro nuovo, aggregato in una riga per fonte: le fatture senza
+    //    riscontro nel CRM.
     const daRiconciliare = (ficListQ.data ?? []).filter(
       (fa: any) => fa.stato === "da_riconciliare" || fa.stato === "non_abbinabile"
     ).length;
@@ -570,19 +680,19 @@ export default function Dashboard() {
     return Object.values(map);
   })();
 
-  // Commesse by stato for pie chart
-  const commesseByStato = (() => {
-    const map: Record<string, number> = {};
-    commesseRecenti.data?.forEach((c: any) => {
-      const label = c.stato.replace(/_/g, " ");
-      map[label] = (map[label] ?? 0) + 1;
-    });
-    return Object.entries(map).map(([name, value]) => ({ name, value }));
-  })();
+  const commesseAttive = useMemo(
+    () =>
+      (commesseRecenti.data ?? []).filter(
+        (c: any) => !c.archivedAt && c.stato !== "archiviata"
+      ),
+    [commesseRecenti.data]
+  );
+  const mostraApprofondimenti =
+    interventiByTipo.length > 0 || squadreWorkload.length > 0;
 
   return (
-    <div className="space-y-8">
-      {/* Header — greeting + date (§5) */}
+    <div className="space-y-6">
+      {/* Header — greeting + date (§26.1) */}
       <div>
         <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
           {firstName ? `Ciao ${firstName}` : "Ciao"} — ecco la tua giornata
@@ -590,103 +700,207 @@ export default function Dashboard() {
         <p className="text-text-2 text-sm mt-1 capitalize">{todayLabel}</p>
       </div>
 
-      {/* Da fare oggi — personalized action feed (§4.1) */}
-      <Card className="border-l-[3px] border-l-primary">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <ClipboardList className="h-4 w-4 text-primary" />
-              Da fare oggi
-            </span>
-            <span className="eyebrow !text-text-3 font-normal">
-              {direzione ? "Tutta la sede" : "Le tue attività"}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          {todoItems.length === 0 ? (
-            <div className="flex items-center gap-3 rounded-md px-2 py-3">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
-                <CheckCircle2 className="h-4 w-4" />
-              </span>
-              <p className="text-sm text-text-2">
-                Niente da fare per ora — nessuna urgenza, consegna o ticket
-                {direzione ? " in sede" : " assegnato a te"}.
-              </p>
-            </div>
-          ) : (
-            todoItems.map((item) => (
-              <div
-                key={item.key}
-                className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
-                onClick={item.onClick}
-              >
-                <span
-                  className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
-                >
-                  <item.icon className="h-4 w-4" />
+      <div className="grid items-start gap-6 lg:grid-cols-12">
+        {/* ── Colonna principale: il lavoro di oggi domina ── */}
+        <div className="min-w-0 space-y-6 lg:col-span-8">
+          {/* Da fare oggi — personalized action feed (§26.2) */}
+          <Card className="border-l-[3px] border-l-primary rf-frame-reveal">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  Da fare oggi
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-text-1 truncate">
-                    {item.title}
+                <span className="eyebrow !text-text-3 font-normal">
+                  {direzione ? "Tutta la sede" : "Le tue attività"}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {todoItems.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-md px-2 py-3">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </span>
+                  <p className="text-sm text-text-2">
+                    Niente da fare per ora — nessuna urgenza, consegna o ticket
+                    {direzione ? " in sede" : " assegnato a te"}.
                   </p>
-                  <div className="flex items-center gap-2">
-                    {item.sub && (
-                      <span className="codice-mono text-text-3">{item.sub}</span>
-                    )}
-                    {item.stato && <StatoChip stato={item.stato} />}
-                  </div>
                 </div>
-                {item.cta ? (
-                  <Button size="sm" variant="outline" className="shrink-0">
-                    {item.cta}
-                  </Button>
-                ) : (
-                  <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
-                )}
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+              ) : (
+                todoItems.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
+                    onClick={item.onClick}
+                  >
+                    <span
+                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-text-1 truncate">
+                        {item.title}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {item.sub && (
+                          <span className="codice-mono text-text-3">{item.sub}</span>
+                        )}
+                        {item.stato && <StatoChip stato={item.stato} />}
+                      </div>
+                    </div>
+                    {item.cta ? (
+                      <Button size="sm" variant="outline" className="shrink-0">
+                        {item.cta}
+                      </Button>
+                    ) : (
+                      <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Primary KPIs — the 4 actionable metrics (§4.1) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Commesse attive"
-          value={cs?.inCorso ?? 0}
-          subtitle={`${cs?.inCorso ?? 0} attive · ${cs?.total ?? 0} in totale`}
-          icon={Building2}
-          accentClass="bg-primary"
-          onClick={() => setLocation("/commesse")}
-        />
-        <StatCard
-          title="Urgenze"
-          value={cs?.urgenti ?? 0}
-          subtitle="commesse urgenti"
-          icon={Flame}
-          accentClass="bg-danger"
-          onClick={() => setLocation("/commesse")}
-        />
-        <StatCard
-          title="Consegne da confermare"
-          value={consegneDaConfermare.length}
-          subtitle="in produzione, senza data"
-          icon={CalendarClock}
-          accentClass="bg-warning"
-          onClick={() => setLocation("/kanban")}
-        />
-        <StatCard
-          title="Ticket aperti"
-          value={ticketAperti}
-          subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
-          icon={TicketCheck}
-          accentClass="bg-info"
-          onClick={() => setLocation("/reclami")}
-        />
+          {/* Pulse — the 4 actionable KPIs (§26.3) */}
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            <StatCard
+              title="Commesse attive"
+              value={cs?.inCorso ?? 0}
+              subtitle={`${cs?.inCorso ?? 0} attive · ${cs?.total ?? 0} in totale`}
+              icon={Building2}
+              accentClass="bg-primary"
+              onClick={() => setLocation("/commesse")}
+            />
+            <StatCard
+              title="Urgenze"
+              value={cs?.urgenti ?? 0}
+              subtitle="commesse urgenti"
+              icon={Flame}
+              accentClass="bg-danger"
+              onClick={() => setLocation("/commesse")}
+            />
+            <StatCard
+              title="Consegne da confermare"
+              value={consegneDaConfermare.length}
+              subtitle="in produzione, senza data"
+              icon={CalendarClock}
+              accentClass="bg-warning"
+              onClick={() => setLocation("/kanban")}
+            />
+            <StatCard
+              title="Ticket aperti"
+              value={ticketAperti}
+              subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
+              icon={TicketCheck}
+              accentClass="bg-info"
+              onClick={() => setLocation("/reclami")}
+            />
+          </div>
+
+          {/* Calendar (§26.4) */}
+          <CalendarioSettimana
+            interventi={interventiSettimana.data ?? []}
+            onEventClick={(ev) => {
+              // Ogni evento apre il Planning: la vecchia rotta /posa/:id non
+              // esiste piu e portava sul 404.
+              setLocation("/planning");
+            }}
+          />
+        </div>
+
+        {/* ── Colonna laterale: situazione e contesto ── */}
+        <div className="min-w-0 space-y-6 lg:col-span-4">
+          <TarsBriefing enabled={tarsAcceso} />
+
+          {/* Interventi del giorno */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <CalendarClock className="h-4 w-4" />
+                Interventi di oggi
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!interventiOggi.data?.length ? (
+                <div className="flex flex-col items-center gap-2 py-6 text-center">
+                  <CalendarClock className="h-9 w-9 text-text-3" />
+                  <p className="text-[15px] font-semibold">Nessun intervento oggi</p>
+                  <Button size="sm" variant="outline" onClick={() => setLocation("/planning")}>
+                    Pianifica un rilievo
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {interventiOggi.data.map((i: any) => (
+                    <div
+                      key={i.id}
+                      className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                      onClick={() => setLocation("/planning")}
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{i.note}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {i.indirizzo}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={i.stato === "in_corso" ? "default" : "secondary"}
+                        className="text-xs shrink-0"
+                      >
+                        {i.stato.replace(/_/g, " ")}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Commesse recenti */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Commesse recenti
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!commesseRecenti.data?.length ? (
+                <p className="text-sm text-text-3 py-4 text-center">
+                  Nessuna commessa in sede.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {commesseRecenti.data.slice(0, 5).map((c: any) => (
+                    <div
+                      key={c.id}
+                      className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                      onClick={() => setLocation(`/commesse/${c.id}`)}
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="codice-mono text-text-3">{c.codice}</span>
+                          {c.priorita === "urgente" && (
+                            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                              URGENTE
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium truncate">{c.cliente}</p>
+                      </div>
+                      <StatoChip stato={c.stato} className="shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* Secondary KPIs — small, shown only when > 0 (§4.1) */}
+      {/* Secondary KPIs — small, shown only when > 0 (§26.3) */}
       {(() => {
         const interventiTot = interventiSettimana.data?.length ?? 0;
         const anomalieOpen = (as_?.aperte ?? 0) + (as_?.inGestione ?? 0);
@@ -748,244 +962,60 @@ export default function Dashboard() {
         ].filter(Boolean);
         if (secondary.length === 0) return null;
         return (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{secondary}</div>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{secondary}</div>
         );
       })()}
 
-      {/* Calendar - primary element (PRD Sez.11) */}
-      <CalendarioSettimana
-        interventi={interventiSettimana.data ?? []}
-        onEventClick={(ev) => {
-          if (ev.tipo === "posa" || ev.tipo === "assistenza") {
-            setLocation(`/posa/${ev.id}`);
-          } else {
-            setLocation("/planning");
-          }
-        }}
+      {/* Pipeline per stato — al posto del donut (§26.3) */}
+      <PipelineCommesse
+        commesse={commesseAttive}
+        onOpen={() => setLocation("/kanban")}
       />
 
-      {/* Charts Row */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Interventi by tipo */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Hammer className="h-4 w-4" />
-              Interventi per tipo
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {interventiByTipo.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={interventiByTipo}>
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="valore" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                Nessun dato disponibile
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Commesse by stato */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              Commesse per stato
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {commesseByStato.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={commesseByStato}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={3}
-                    dataKey="value"
-                    label={({ name, value }) => `${name} (${value})`}
-                    labelLine={false}
-                  >
-                    {commesseByStato.map((_, idx) => (
-                      <Cell
-                        key={idx}
-                        fill={PIE_COLORS[idx % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                Nessun dato disponibile
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Squadre workload */}
-      {squadreWorkload.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Carico di lavoro per squadra
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={squadreWorkload} layout="vertical">
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-                <YAxis type="category" dataKey="nome" tick={{ fontSize: 12 }} width={120} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="attivi" name="Attivi" fill="var(--chart-1)" stackId="a" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="completati" name="Completati" fill="var(--chart-5)" stackId="a" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* Approfondimenti (recharts, chunk lazy): montati solo se c'è
+          qualcosa da disegnare — una sede vuota non scarica i grafici. */}
+      {mostraApprofondimenti && (
+        <Suspense
+          fallback={
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Skeleton className="h-[300px] rounded-xl" />
+              <Skeleton className="h-[300px] rounded-xl" />
+            </div>
+          }
+        >
+          <DashboardApprofondimenti
+            interventiByTipo={interventiByTipo}
+            squadreWorkload={squadreWorkload}
+          />
+        </Suspense>
       )}
 
-      {/* Two-column section */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Interventi del giorno */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <CalendarClock className="h-4 w-4" />
-              Interventi di oggi
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!interventiOggi.data?.length ? (
-              <div className="flex flex-col items-center gap-2 py-6 text-center">
-                <CalendarClock className="h-9 w-9 text-text-3" />
-                <p className="text-[15px] font-semibold">Nessun intervento oggi</p>
-                <Button size="sm" variant="outline" onClick={() => setLocation("/planning")}>
-                  Pianifica un rilievo
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {interventiOggi.data.map((i: any) => (
-                  <div
-                    key={i.id}
-                    className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
-                    onClick={() =>
-                      i.tipo === "posa" || i.tipo === "assistenza"
-                        ? setLocation(`/posa/${i.id}`)
-                        : setLocation("/planning")
-                    }
-                  >
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">{i.note}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {i.indirizzo}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        i.stato === "in_corso" ? "default" : "secondary"
-                      }
-                      className="text-xs shrink-0"
-                    >
-                      {i.stato.replace(/_/g, " ")}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Commesse recenti */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              Commesse recenti
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {commesseRecenti.data?.slice(0, 5).map((c: any) => (
-                <div
-                  key={c.id}
-                  className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
-                  onClick={() => setLocation(`/commesse/${c.id}`)}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-muted-foreground">
-                        {c.codice}
-                      </span>
-                      {c.priorita === "urgente" && (
-                        <Badge
-                          variant="destructive"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          URGENTE
-                        </Badge>
-                      )}
-                      {c.priorita === "alta" && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0 border-destructive text-destructive"
-                        >
-                          ALTA
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm font-medium">{c.cliente}</p>
-                  </div>
-                  <Badge variant="secondary" className="text-xs shrink-0">
-                    {c.stato.replace(/_/g, " ")}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Clienti per priorita commesse */}
+      {/* Clienti per priorità commesse */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clienti per priorita commesse
+            Clienti per priorità commesse
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {([
-              { key: "urgente", label: "Urgente", color: "border-red-400 bg-red-50", badge: "bg-red-600 text-white" },
+              { key: "urgente", label: "Urgente", box: "border-danger/50 bg-danger-soft/70", badge: "bg-danger text-white" },
               // Testo scuro su fondo tenue, non bianco su tinta piena: il
               // bianco su ambra dava 1.72:1 — un badge che nessuno legge.
-              { key: "alta", label: "Alta", color: "border-danger/40 bg-danger-soft", badge: "bg-danger-soft text-danger" },
-              { key: "media", label: "Media", color: "border-warning/40 bg-warning-soft", badge: "bg-warning-soft text-warning" },
-              { key: "bassa", label: "Bassa", color: "border-border-strong bg-surface-2", badge: "bg-surface-2 text-text-2" },
+              { key: "alta", label: "Alta", box: "border-danger/30 bg-surface", badge: "bg-danger-soft text-danger" },
+              { key: "media", label: "Media", box: "border-warning/30 bg-surface", badge: "bg-warning-soft text-warning" },
+              { key: "bassa", label: "Bassa", box: "border-border-strong bg-surface-2", badge: "bg-surface-2 text-text-2" },
             ] as const).map((pri) => {
               const list: any[] = (commessePerPriorita.data as any)?.[pri.key] ?? [];
               return (
-                <div key={pri.key} className={`rounded-md border ${pri.color} p-3`}>
+                <div key={pri.key} className={`rounded-md border ${pri.box} p-3`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${pri.badge}`}>
                       {pri.label}
                     </span>
-                    <span className="text-xs text-muted-foreground">{list.length}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{list.length}</span>
                   </div>
                   {list.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-2">—</p>
@@ -994,13 +1024,13 @@ export default function Dashboard() {
                       {list.map((c) => (
                         <div
                           key={c.id}
-                          className="cursor-pointer rounded-sm bg-white p-2 hover:shadow-sm transition-shadow"
+                          className="cursor-pointer rounded-sm border border-border-soft bg-surface p-2 hover:border-border-strong transition-colors"
                           onClick={() => setLocation(`/commesse/${c.id}`)}
                         >
-                          <div className="font-mono text-[9px] text-muted-foreground">{c.codice}</div>
+                          <div className="codice-mono text-[10px] text-muted-foreground">{c.codice}</div>
                           <div className="text-xs font-medium truncate">{c.cliente}</div>
-                          <div className="text-[10px] text-muted-foreground uppercase truncate">
-                            {c.stato.replace(/_/g, " ")}
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {statoLabel(c.stato)}
                           </div>
                         </div>
                       ))}
@@ -1015,9 +1045,9 @@ export default function Dashboard() {
 
       {/* Quick anomalies view */}
       {(as_?.critiche ?? 0) > 0 && (
-        <Card className="border-destructive/30 bg-destructive/5">
+        <Card className="border-danger/30 bg-danger-soft/40">
           <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2 text-destructive">
+            <CardTitle className="text-base font-semibold flex items-center gap-2 text-danger">
               <AlertTriangle className="h-4 w-4" />
               Anomalie critiche da gestire
             </CardTitle>
@@ -1025,7 +1055,7 @@ export default function Dashboard() {
           <CardContent>
             <p className="text-sm">
               Ci sono{" "}
-              <strong>{as_?.critiche} anomalie con priorita critica</strong> non
+              <strong>{as_?.critiche} anomalie con priorità critica</strong> non
               ancora risolte. Verifica lo stato nella sezione commesse.
             </p>
           </CardContent>

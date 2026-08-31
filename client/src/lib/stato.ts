@@ -57,6 +57,26 @@ export function statoChipClass(stato: string): string {
   return STATO_CHIP[stato] ?? "text-st-chiusura bg-st-chiusura-soft";
 }
 
+// Variabile CSS del colore pieno della famiglia (per rail, segmenti e
+// grafici). Stessa mappa famiglie di STATO_CHIP: mai colori nuovi.
+export const STATO_COLOR_VAR: Record<string, string> = {
+  preventivo: "var(--color-st-preventivo)",
+  misure_esecutive: "var(--color-st-misure)",
+  aggiornamento_contratto: "var(--color-st-contratto)",
+  fatture_pagamento: "var(--color-st-pagamento)",
+  da_ordinare: "var(--color-st-ordine)",
+  produzione: "var(--color-st-produzione)",
+  ordini_ultimazione: "var(--color-st-produzione)",
+  attesa_posa: "var(--color-st-produzione)",
+  finiture_saldo: "var(--color-st-pagamento)",
+  interventi_regolazioni: "var(--color-st-chiusura)",
+  archiviata: "var(--color-st-chiusura)",
+};
+
+export function statoColorVar(stato: string): string {
+  return STATO_COLOR_VAR[stato] ?? "var(--color-st-chiusura)";
+}
+
 // Priorità → Badge variant (§2.2).
 export const PRIORITA_VARIANT: Record<string, "danger" | "warning" | "info" | "secondary"> = {
   urgente: "danger",
