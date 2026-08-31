@@ -1570,6 +1570,30 @@ Fatto finora:
   `docs/design/modular-control/verification-log.md`; le fixture browser sono
   esclusivamente locali e in-memory.
 
+Gate finale della fondazione superato:
+
+- `pnpm ui:contrast`: 44/44 coppie; `pnpm check`: exit 0;
+  `pnpm test`: 91 file passati e 1 saltato, 831 test passati e 5 saltati;
+  `pnpm build`: 3136 moduli, CSS 194,28 kB raw / 30,40 kB gzip e bundle server
+  completato (resta soltanto il warning baseline da 1.1mb);
+- prova isolata `FLAG_UI_V2=off`: solo renderer legacy; prova ON: solo Modular
+  Control. Evidenze light/dark e 1440×900, 768×1024, 390×844 in
+  `docs/design/modular-control/evidence/foundations/`, tutte senza overflow
+  orizzontale globale;
+- axe WCAG A/AA: zero violazioni sulla shell/dashboard nei quattro quadranti
+  1440×900 e 390×844, chiaro/scuro. È una prova della superficie dichiarata,
+  non una certificazione delle pagine ancora da migrare;
+- tastiera verificata per profilo, tema, switch sede, drawer e palette, con
+  trap, Escape e ripristino del focus. Il reflow equivalente a zoom 200% passa
+  a 720×450; reduced-motion è coperto dal fallback globale e dai componenti
+  motion-safe, ma la media query non è stata emulata nativamente;
+- switch QA → La Spezia campionato 24 volte: mai un frame con nuova sede e dato
+  vecchio. Le palette mostrano soltanto fixture della sede attiva. Un principal
+  commerciale sintetico assegnato alla sola sede QA e con deny esplicito su
+  `economia.read` non vede la voce Economia e il deep link mostra soltanto il
+  permission state, senza dati. Utente, sedi e record QA sono tutti in-memory;
+  nessun dato di produzione è stato letto o modificato.
+
 Prossimi passi: golden screens (Dashboard, Commessa 360, Board, Tars, flusso
 mobile rilievi, DI fornitori), migrazione per archetipi, hardening e revisioni
 indipendenti. Rollout e rollback:

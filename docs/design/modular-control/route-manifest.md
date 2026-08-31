@@ -52,3 +52,20 @@ dalle procedure reali.
 Il manifest deve restare uno-a-uno con APP_ROUTE_CONTRACT e App.tsx. Cambiare
 una route richiede aggiornamento nello stesso commit; migrare una pagina non
 autorizza modifiche ai suoi router o ai relativi permessi.
+
+## Confine della fondazione verificato il 31/08/2026
+
+Shell, navigazione, context bar e command palette sono implementate su tutte
+le route autenticate, ma questo non rende “migrata” la UI interna delle pagine:
+per questo le righe sopra restano `planned`. Le prove trasversali sono:
+
+- flag OFF, renderer legacy esclusivo:
+  `evidence/foundations/flag-off-1440x900.png`;
+- shell ON light/dark e responsive:
+  `evidence/foundations/shell-1440x900-light.png`,
+  `evidence/foundations/shell-1440x900-dark.png`,
+  `evidence/foundations/shell-768x1024-light.png`,
+  `evidence/foundations/shell-390x844-light.png`;
+- principal commerciale della sede QA: link Economia assente e deep link
+  `/economia` risolto in un messaggio permission, senza dati economici:
+  `evidence/foundations/context-qa-economia-denied-1280x720-light.png`.
