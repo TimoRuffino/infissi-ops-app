@@ -303,14 +303,24 @@ export default function Planning() {
   const goPrevious = () => navigate(-1);
   const goNext = () => navigate(1);
 
+  // Data proposta quando si crea senza partire da una cella: oggi se cade nel
+  // periodo mostrato, altrimenti l'inizio del periodo. Pianificare in un mese
+  // vuoto non deve costringere a riscrivere la data.
+  const dataCreazioneDefault = useMemo(() => {
+    const oggi = toDateStr(new Date());
+    if (oggi >= from && oggi <= to) return oggi;
+    if (view === "month") return toDateStr(startOfMonth(cursor));
+    return from;
+  }, [from, to, view, cursor]);
+
   function openCreateFor(dateStr?: string) {
     if (!permissions.canPlan) return;
     setEditId(null);
-    setForm({ ...emptyForm, dataPianificata: dateStr ?? toDateStr(new Date()) });
+    setForm({ ...emptyForm, dataPianificata: dateStr ?? dataCreazioneDefault });
     setDialogOpen(true);
   }
 
-  const openCreate = () => openCreateFor();
+  const openCreate = () => openCreateFor(dataCreazioneDefault);
 
   // When the operator picks a commessa in the sheet, auto-fill the
   // address from the commessa (which is the lavoro address). Only fills
@@ -665,7 +675,34 @@ export default function Planning() {
           }
         : undefined;
 
-  const legendaCalendari: ReactNode = externalSources.isPending ? null : activeExternalSources.length > 0 ? (
+  // Un overlay che non si è potuto leggere non è un overlay assente: "nessun
+  // calendario collegato" si dice solo quando il server ha davvero risposto
+  // che non ce ne sono.
+  const overlayNonDisponibile = Boolean(
+    externalSources.error || externalEvents.error
+  );
+
+  const legendaCalendari: ReactNode = externalSources.isPending ? null : overlayNonDisponibile ? (
+    <p
+      role="status"
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2"
+    >
+      <CloudOff className="h-3.5 w-3.5 shrink-0 text-warning" />
+      Calendari esterni non raggiungibili: gli eventi Google non sono mostrati.
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="min-h-11"
+        onClick={() => {
+          externalSources.refetch();
+          externalEvents.refetch();
+        }}
+      >
+        Riprova
+      </Button>
+    </p>
+  ) : activeExternalSources.length > 0 ? (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
       <span className="inline-flex items-center gap-1 text-text-3">
         <Lock className="h-3 w-3" /> Google (sola lettura):
@@ -703,12 +740,19 @@ export default function Planning() {
         busy={interventi.isFetching}
         metadata={
           <>
-            <span>
-              <strong className="tabular-nums text-text-1">
-                {agendaItems.length}
-              </strong>{" "}
-              appuntamenti nel periodo
-            </span>
+            {/* Un conteggio che non conosciamo non si mostra come zero. */}
+            {interventi.isPending ? (
+              <span>Conteggio appuntamenti in caricamento…</span>
+            ) : interventi.error ? (
+              <span>Conteggio appuntamenti non disponibile</span>
+            ) : (
+              <span>
+                <strong className="tabular-nums text-text-1">
+                  {agendaItems.length}
+                </strong>{" "}
+                appuntamenti nel periodo
+              </span>
+            )}
             {agendaExternalItems.length > 0 ? (
               <span className="inline-flex items-center gap-1">
                 <Lock className="h-3 w-3" />
