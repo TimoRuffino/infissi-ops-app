@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente del checkout (31/08/2026).
-**Versione:** 5.25 - Tars v2 è presente su `main` locale con runtime,
+**Versione:** 5.26 - Tars v2 è presente su `main` locale con runtime,
 strumenti tipizzati e budget governor. La verità T0 su azioni disponibili,
 gap e accettazione è in `docs/tars/matrice-azioni-tars.md` e
 `docs/tars/architettura-tars-v2.md`; la documentazione non deduce né attesta
@@ -1086,6 +1086,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.26 (31/08/2026)** - Tars operativo T3, transizioni commessa: estratta da `commesse.update` una sola state machine canonica con adiacenza, doc gate, rollback cleanup e allineamento timeline; contratto tRPC storico e `force` del solo router invariati. Aggiunti `verifica_transizione_commessa` R0/L0 e `transizione_adiacente_commessa` R1/L2 (comando esplicito derivato dal testo utente e legato server-side a commessa e target/direzione, entrambe `commessa.update_operational` + `commessa.change_state`, sede fail-closed, nessun `force`), rilettura/versione pre-effetto, ledger R1, audit prima/dopo e Undo server-side monouso solo se stato/versione e vincoli correnti coincidono. Prompt v6; catalogo 23 tool. La catena allegato Maccari resta successiva; nessun file client, flag, provider o costo modificato e nessuna operazione esterna eseguita.
 - **v5.24 (30/08/2026)** - Tars v2 ATTIVATO in produzione su autorizzazione della direzione, con provider FINTO e quindi a costo zero: impostati i sette flag `FLAG_TARS`, `FLAG_TARS_READ_TOOLS`, `FLAG_TARS_REMINDERS`, `FLAG_TARS_MEMORY`, `FLAG_TARS_L2_ACTIONS`, `FLAG_TARS_PROACTIVE`, `FLAG_TARS_COMMUNICATIONS` (un solo redeploy, servizio ripartito e verificato). NON impostati `TARS_PROVIDER` (la chiave residua è ancora su Railway: lo farebbe spendere fuori perimetro), `FLAG_TARS_PROPOSALS` (richiede il rollout DI mai avviato) e i flag DI/OCR. Le azioni di Tars sono reali (promemoria, prese in carico, rinvii, memoria, letture con capability e sede), il ragionamento no: il copione dimostrativo riconosce tre forme di richiesta e per il resto risponde con un messaggio di servizio. La pagina `/tars` è visibile a tutti gli utenti della sede. Budget ai default approvati (0,10/2,00/20,00 USD), governor attivo ma inerte in assenza di provider reale. Spegnimento: rimuovere `FLAG_TARS` e ridistribuire.
 - **v5.23 (30/08/2026)** - PR #2 MERGIATA su `main` (merge commit `2096a43`, 34 commit atomici conservati, CI verde) su autorizzazione della direzione, e deploy verificato senza credenziali: le procedure `tars.*` esistono nel codice distribuito (marcatore da «No procedure found» a `UNAUTHORIZED`), i router del CRM rispondono, SPA e `/produzione/*` servite, errori di autenticazione sanificati. **Tutti i flag Tars restano spenti** (fail-closed: in produzione servono variabili esplicite, nessuna impostata) e il provider reale non può nascere (mancano `TARS_PROVIDER=openai` e la chiave dedicata). Tars è implementativamente completo ma NON operativo: attivazione, gate OpenAI, eval reali e rollout restano decisioni della direzione.
 - **v5.22 (30/08/2026)** - Revisione indipendente del cost hardening (due revisori sul delta del budget governor) con TUTTI i Critical e Important corretti. **Critical**: (1) il ledger su PostgreSQL non avrebbe MAI funzionato — `COALESCE(...) FILTER (...)` è SQL invalido e `sql.unsafe()` dentro un template non produce un frammento: nell'unico ambiente in cui il provider reale può nascere ogni prenotazione sarebbe fallita, travestendo il guasto da indisponibilità del modello (ora somme in SQL statico con soli parametri legati, provate da cinque test su un PostgreSQL vero, in CI con servizio dedicato); (2) fail-OPEN sull'uso — se il provider non riporta `usage` plausibile il costo reale sarebbe 0 e la prenotazione verrebbe liberata per una chiamata comunque fatturata (ora `uncertain`, che resta contato). **Important**: stima resa un soffitto vero (2,5 caratteri/token, pessimistico per payload JSON); i limiti interni del run non aprono più il circuito globale né mentono all'utente (`ErroreLimiteRun`); `tars.stato` non espone più budget e diagnosi infrastrutturale a ogni utente autenticato; guardia strutturale estesa a `shared/` e all'override del ledger; doppio click che non produce più due addebiti; test resi mordenti (concorrenza col numero esatto e il picco, DST invernale CET, fabbrica del provider, limiti derivati dalla stima misurata). Aggiunta una guardia di rete GLOBALE alla suite (nessun test può raggiungere un host esterno, provato invocando l'adapter reale) e la matrice test/limiti (`docs/tars/matrice-test-e-limiti.md`). 13 mutation test che mordono; suite 763 test + 5 su PostgreSQL.
@@ -2084,6 +2085,15 @@ incoerenza non scrive criticamente, con gate invalido non transita e senza
 capability non rivela dati. Il promemoria «fra un'ora: finanziamento Maccari»
 deve essere unico, diretto e idempotente. La catena completa è ancora un gap
 registrato nella matrice: nessuna frase di questo PRD la dichiara esistente.
+
+La tranche T3 del 31/08/2026 chiude il solo tratto finale della catena:
+preview `verifica_transizione_commessa` e passaggio adiacente
+`transizione_adiacente_commessa` usano lo stesso servizio deterministico del
+router. Il comando esplicito è diretto, senza conferma ridondante; richiede le
+due capability, sede, gate e versione correnti, non accetta `force` e produce
+audit + Undo monouso. Allegato, analisi/classificazione e archivio Maccari
+restano il gap della tranche successiva: la catena completa non è dichiarata
+conclusa.
 
 I tre livelli proattivi sono tutti criteri di completamento: osservazione
 singola con evidenze/fingerprint/stato; pattern aziendali descritti come

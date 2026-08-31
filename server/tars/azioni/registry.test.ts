@@ -17,6 +17,8 @@ const ENV_ORIGINALE = { ...process.env };
 function contesto(
   capability: readonly Capability[] = [
     "commessa.read",
+    "commessa.update_operational",
+    "commessa.change_state",
     "fornitore.manage_ordini",
   ]
 ): ContestoRun {
@@ -49,9 +51,9 @@ afterEach(() => {
 });
 
 describe("registro centrale delle azioni Tars", () => {
-  it("registra una volta sola tutti i 21 tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(21);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(21);
+  it("registra una volta sola tutti i 23 tool correnti con un descrittore completo", () => {
+    expect(REGISTRO_AZIONI).toHaveLength(23);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(23);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -126,7 +128,9 @@ describe("registro centrale delle azioni Tars", () => {
       ricorda: "R1",
       rinvia_caso: "R1",
       sposta_promemoria: "R1",
+      transizione_adiacente_commessa: "R1",
       verifica_gate_commessa: "R0",
+      verifica_transizione_commessa: "R0",
     });
   });
 
@@ -174,7 +178,9 @@ describe("registro centrale delle azioni Tars", () => {
       ricorda: "sede",
       rinvia_caso: "entita",
       sposta_promemoria: "personale",
+      transizione_adiacente_commessa: "entita",
       verifica_gate_commessa: "entita",
+      verifica_transizione_commessa: "entita",
     });
   });
 
@@ -195,6 +201,7 @@ describe("registro centrale delle azioni Tars", () => {
       ricorda: false,
       rinvia_caso: false,
       sposta_promemoria: false,
+      transizione_adiacente_commessa: true,
     });
   });
 
@@ -268,7 +275,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(21);
+    expect(completo).toHaveLength(23);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 

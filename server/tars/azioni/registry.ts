@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { Interruttore } from "../../platform/interruttori";
 import { getReminderService } from "../../reminders/service";
+import { getCommessaById } from "../../routers/commesse";
+import { versioneCommessa } from "../../commesse/transizioni";
 import { STRUMENTI_CASI } from "../strumenti/casi";
+import { STRUMENTI_COMMESSE } from "../strumenti/commesse";
 import { STRUMENTI_DOCUMENTI } from "../strumenti/documenti";
 import { STRUMENTI_L0 } from "../strumenti/letture";
 import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
@@ -19,7 +22,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.3.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.4.0";
 
 const schemaLettura = z
   .object({
@@ -41,12 +44,20 @@ const schemaConferma = z
   })
   .strict();
 
-const schemaUndoVia = z
-  .object({
-    procedura: z.literal("promemoria.cancel"),
-    id: z.number().int().positive(),
-  })
-  .strict();
+const schemaUndoVia = z.union([
+  z
+    .object({
+      procedura: z.literal("promemoria.cancel"),
+      id: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      procedura: z.literal("commesse.undoTransizione"),
+      id: z.number().int().positive(),
+    })
+    .strict(),
+]);
 
 const schemaAzione = (nome: string) => z
   .object({
@@ -143,6 +154,35 @@ const METADATI: Record<string, Metadati> = {
   cerca_commesse: lettura("sede", ["generale", "commessa"], ["commessa"], undefined, true),
   leggi_commessa: lettura("entita", ["commessa"], ["commessa"]),
   verifica_gate_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa"]),
+  verifica_transizione_commessa: lettura(
+    "entita",
+    ["commessa"],
+    ["commessa"]
+  ),
+  transizione_adiacente_commessa: r1(
+    "transizione_adiacente_commessa",
+    "entita",
+    ["commessa"],
+    ["commessa"],
+    ["tars", "tarsL2Actions"],
+    true,
+    false,
+    async (contesto, argomenti, esito) => {
+      if (esito.stato !== "transizione_eseguita") return false;
+      const input = argomenti && typeof argomenti === "object"
+        ? argomenti as { commessaId?: unknown; nuovoStato?: unknown }
+        : {};
+      if (!Number.isInteger(input.commessaId)) return false;
+      const commessa: any = getCommessaById(Number(input.commessaId));
+      if (!commessa || commessa.sedeId !== contesto.sedeId) return false;
+      const versioneDopo = esito.dopo?.versione;
+      return (
+        commessa.stato === input.nuovoStato &&
+        typeof versioneDopo === "string" &&
+        versioneCommessa(commessa) === versioneDopo
+      );
+    }
+  ),
   leggi_ordini_fornitore: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "ordine_fornitore"]),
   leggi_analisi_ordine: {
     ...lettura("entita", ["documenti-ordini", "direzione"], ["ordine_fornitore", "documento"], ["tars", "tarsReadTools", "documentIntelligence"]),
@@ -234,6 +274,7 @@ const METADATI: Record<string, Metadati> = {
 
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_L0,
+  ...STRUMENTI_COMMESSE,
   ...STRUMENTI_PROMEMORIA,
   ...STRUMENTI_CASI,
   ...STRUMENTI_DOCUMENTI,

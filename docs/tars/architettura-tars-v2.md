@@ -804,3 +804,46 @@ ereditati.
    rumore: L2 e L3, l'emissione persistente, l'auto-risoluzione e la relativa
    suite sono gap espliciti. Il mandato non è completo finché tutti e tre non
    sono implementati e testati.
+
+## 30. Decisioni registrate in T3 operativo — transizioni commessa (31/08/2026)
+
+69. **Una sola state machine.** Sequenza stati, adiacenza, gate documentale,
+    cleanup dei rollback, chiusura e proiezione Board→timeline vivono in
+    `server/commesse/transizioni.ts`. `commesse.update` conserva schema e
+    semantica tRPC, ma delega l'effetto allo stesso comando usato da Tars; nel
+    router non resta una seconda mappa `TRANSIZIONI_VALIDE`.
+70. **Compatibilità `force` confinata.** Il solo router storico continua ad
+    accettare `force` per il dialog «Procedi comunque» e può saltare soltanto
+    il doc gate, mai l'adiacenza. Lo schema strict di
+    `transizione_adiacente_commessa` non rappresenta `force`; il servizio
+    rifiuta inoltre qualunque bypass con origine `tars` o `undo`.
+71. **Due tool, autorità diversa.** `verifica_transizione_commessa` è R0/L0,
+    sola lettura, dietro `commessa.read` e read-tools.
+    `transizione_adiacente_commessa` è R1/L2, interna e reversibile, dietro
+    entrambe `commessa.update_operational` e `commessa.change_state` più
+    `FLAG_TARS_L2_ACTIONS`. Non esiste una mutation tRPC chiamata dal modello.
+72. **Esplicito significa testo dell'utente, non volontà del modello.** Un
+    classificatore server-side chiuso deriva dal messaggio corrente target o
+    direzione e, solo dopo il resolver, li lega alla commessa verificata in
+    un'autorità effimera `{commessaId, nuovoStato, direzione}`. Il modello non
+    può trasferire il comando a un'altra entità o a un passaggio diverso;
+    richieste consultive, proposte, negazioni, citazioni e frasi descrittive
+    non aprono una reservation e producono zero effetti. Il prompt v6
+    distingue preview R0 da comando R1, ma il prompt non è il confine di
+    sicurezza.
+73. **Rilettura e optimistic lock.** La materializzazione risolve una sola
+    commessa sede-scoped, verifica gate/adiacenza e allega la versione
+    server-side. Il comando rilegge dopo l'authz e confronta la versione
+    immediatamente prima dell'effetto. Lo stato R1 settled è deduplicato dal
+    ledger centrale; un `non_eseguito` non diventa mai effetto riusabile.
+74. **Audit e Undo di dominio.** Ogni transizione registra prima/dopo,
+    principal, sede, origine e snapshot dei soli campi di cleanup in
+    `commesse_transizioni`. Undo riceve esclusivamente l'id audit, vale una
+    volta, solo per l'autore o la direzione, e si applica soltanto se
+    stato/versione sono ancora identici e i vincoli correnti consentono il
+    passaggio adiacente inverso. Non accetta stato o snapshot dal client.
+75. **Limite di concorrenza dichiarato.** `commesse` e l'audit transizioni
+    seguono l'architettura corrente `persistedStore`: l'optimistic lock è
+    corretto nell'unica replica di produzione documentata. Prima di scalare a
+    più repliche, comando e audit devono diventare una transazione PostgreSQL
+    con compare-and-swap; non si dichiara sicurezza cross-replica oggi.

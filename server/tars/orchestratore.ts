@@ -18,7 +18,7 @@ import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from 
 import { tarsAttivo } from "../platform/interruttori";
 import { ErroreBudget, messaggioPerLimite } from "./costi/governor";
 import { contestoMemorie, fingerprintMemorie } from "./memoria";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v5";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v6";
 import {
   ErroreProvider,
   type MessaggioTars,
@@ -47,6 +47,7 @@ import {
 } from "./conversazione/context";
 import { risolviCommessa } from "./conversazione/resolver";
 import { domandaChiarificazioneCommessa } from "./conversazione/types";
+import { analizzaRichiestaTransizione } from "./strumenti/commesse";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -140,6 +141,7 @@ export function derivaStatoOperativo(input: {
     "preso_in_carico",
     "rinviato",
     "analizzato",
+    "transizione_eseguita",
   ]);
   const mutativa = input.azioni.find(azione => statiMutativi.has(azione.stato));
   if (mutativa) {
@@ -326,7 +328,13 @@ export async function eseguiRun(input: {
   configurazione?: Partial<ConfigurazioneRun>;
 }): Promise<RispostaRun> {
   const config = { ...configurazioneRunDefault(), ...input.configurazione };
-  let contesto = input.contesto;
+  const richiestaTransizione = analizzaRichiestaTransizione(input.messaggio);
+  let contesto: ContestoRun = {
+    ...input.contesto,
+    // Un chiamante non può precompilare autorità R1: verrà legata soltanto
+    // dopo che il resolver avrà verificato una commessa della sede corrente.
+    autorizzazioneTransizione: undefined,
+  };
   const runId = createHash("sha256")
     .update(`${Date.now()}:${contesto.utenteId}:${Math.random()}`)
     .digest("hex")
@@ -546,6 +554,24 @@ export async function eseguiRun(input: {
     contesto,
     contestoConversazione
   );
+  const commessaAutorizzata =
+    richiestaTransizione &&
+    contesto.entitaAttiva?.tipo === "commessa" &&
+    contesto.contestoConversazione?.commessaId === contesto.entitaAttiva.id &&
+    contesto.contestoConversazione.verifiche.commessa === "verificato"
+      ? contesto.entitaAttiva.id
+      : null;
+  contesto = {
+    ...contesto,
+    autorizzazioneTransizione:
+      commessaAutorizzata == null
+        ? undefined
+        : {
+            commessaId: commessaAutorizzata,
+            nuovoStato: richiestaTransizione!.nuovoStato,
+            direzione: richiestaTransizione!.direzione,
+          },
+  };
 
   await aggiungiTurno({
     conversazioneId,

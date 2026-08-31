@@ -23,6 +23,13 @@ import {
   REQUIRED_DOC_TIPI_PER_STATO,
   DOC_TIPO_LABEL,
 } from "./preventiviContratti";
+import {
+  STATI_COMMESSA,
+  annullaTransizioneCommessa,
+  eseguiTransizioneCommessa,
+  type DipendenzeTransizioneCommessa,
+  type StatoCommessa,
+} from "../commesse/transizioni";
 import { persistedStore } from "../_core/persistence";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
@@ -66,46 +73,10 @@ export const TIPOLOGIE_PRODOTTO = [
   "Altro",
 ] as const;
 
-// ── State machine: allowed transitions ──────────────────────────────────────
-export const STATI_COMMESSA = [
-  "preventivo",
-  "misure_esecutive",
-  "aggiornamento_contratto",
-  "fatture_pagamento",
-  "da_ordinare",
-  "produzione",
-  "ordini_ultimazione",
-  "attesa_posa",
-  "finiture_saldo",
-  "interventi_regolazioni",
-  "archiviata",
-] as const;
-export type StatoCommessa = typeof STATI_COMMESSA[number];
-
-// Forward + backward (prev step) transitions allowed
-const TRANSIZIONI_VALIDE: Record<StatoCommessa, StatoCommessa[]> = {
-  preventivo:              ["misure_esecutive"],
-  misure_esecutive:        ["preventivo", "aggiornamento_contratto"],
-  aggiornamento_contratto: ["misure_esecutive", "fatture_pagamento"],
-  fatture_pagamento:       ["aggiornamento_contratto", "da_ordinare"],
-  da_ordinare:             ["fatture_pagamento", "produzione"],
-  produzione:              ["da_ordinare", "ordini_ultimazione"],
-  ordini_ultimazione:      ["produzione", "attesa_posa"],
-  attesa_posa:             ["ordini_ultimazione", "finiture_saldo"],
-  finiture_saldo:          ["attesa_posa", "interventi_regolazioni"],
-  interventi_regolazioni:  ["finiture_saldo", "archiviata"],
-  archiviata:              ["interventi_regolazioni"],
-};
-
-function validateTransizione(statoAttuale: string, nuovoStato: string): void {
-  const allowed = TRANSIZIONI_VALIDE[statoAttuale as StatoCommessa];
-  if (!allowed || !allowed.includes(nuovoStato as StatoCommessa)) {
-    throw new Error(
-      `Transizione non consentita: ${statoAttuale} → ${nuovoStato}. ` +
-      `Transizioni valide da "${statoAttuale}": ${allowed?.join(", ") ?? "nessuna"}`
-    );
-  }
-}
+// Compatibilità: timeline, client e test continuano a importare dal router;
+// la fonte autorevole vive nel servizio di dominio condiviso con Tars.
+export { STATI_COMMESSA };
+export type { StatoCommessa };
 
 let nextId = 1;
 
@@ -243,6 +214,26 @@ export function getCommessaById(id: number) {
 
 export function saveCommesseStore(): void {
   _store.save();
+}
+
+/**
+ * Dipendenze del comando canonico. Esportate per i tool Tars: entrambi i
+ * percorsi chiamano lo stesso servizio, senza passare dal contratto tRPC.
+ */
+export function dipendenzeTransizioniCommesse(): DipendenzeTransizioneCommessa {
+  return {
+    trovaCommessa: getCommessaById,
+    salvaCommesse: saveCommesseStore,
+    haDocumentoRichiesto: statoHasRequiredDoc,
+    documentiRichiesti: stato =>
+      REQUIRED_DOC_TIPI_PER_STATO[stato] ?? [],
+    etichettaDocumento: tipo =>
+      (DOC_TIPO_LABEL as Record<string, string>)[tipo] ?? tipo,
+    allineaTimeline: async (commessaId, stato, attoreNome) => {
+      const { allineaTimelineAlBoard } = await import("./timeline");
+      allineaTimelineAlBoard(commessaId, stato, attoreNome);
+    },
+  };
 }
 
 /** Crea una sola commessa per fattura FiC; ogni retry restituisce la stessa. */
@@ -861,33 +852,13 @@ export const commesseRouter = router({
         }
       }
       const previousAssigneeId = commesse[idx].assegnatoA ?? null;
-      // Enforce state machine on stato transitions
-      if (input.stato && input.stato !== commesse[idx].stato) {
-        validateTransizione(commesse[idx].stato, input.stato);
-        // Gate: forward transitions require the current stato's required doc
-        // to have been uploaded. Backward transitions are always allowed.
-        const currentIdx = STATI_COMMESSA.indexOf(commesse[idx].stato as any);
-        const nextIdx = STATI_COMMESSA.indexOf(input.stato as any);
-        const isForward = nextIdx > currentIdx;
-        if (isForward && !input.force) {
-          const required = REQUIRED_DOC_TIPI_PER_STATO[commesse[idx].stato] ?? [];
-          if (required.length > 0 && !statoHasRequiredDoc(commesse[idx].id, commesse[idx].stato)) {
-            const labels = required.map((t) => DOC_TIPO_LABEL[t]).join(" o ");
-            // Thrown error is human-readable but ALSO carries a structured
-            // "DOC_GATE_BLOCKED" marker the client can match on to show the
-            // "procedi comunque" confirmation instead of a generic toast.
-            throw new Error(
-              `DOC_GATE_BLOCKED: Non è stato caricato il file "${labels}" per lo stato "${commesse[idx].stato.replace(/_/g, " ")}". Procedere comunque?`
-            );
-          }
-        }
-      }
       const { id, force: _force, ...updates } = input;
       void _force;
       // If clienteId changes to a real id, resolve display name + link back to
       // that cliente's commesseIds so the relationship is kept consistent.
       let resolvedCliente = updates.cliente;
       const prevClienteId: number | null = commesse[idx].clienteId ?? null;
+      let collegaClienteId: number | null = null;
       if (
         updates.clienteId !== undefined &&
         updates.clienteId !== null &&
@@ -896,12 +867,7 @@ export const commesseRouter = router({
         const linked = getClienteById(updates.clienteId);
         if (linked) {
           resolvedCliente = `${linked.cognome} ${linked.nome}`.trim();
-          addCommessaToCliente(updates.clienteId, commesse[idx].id);
-        }
-        // Detach from the previous cliente so its commesseIds index stays
-        // accurate and doesn't carry stale references.
-        if (prevClienteId != null) {
-          removeCommessaFromCliente(prevClienteId, commesse[idx].id);
+          collegaClienteId = updates.clienteId;
         }
       }
       // Normalize the mutually-exclusive consegna fields: writing one
@@ -913,51 +879,41 @@ export const commesseRouter = router({
       } else if (updates.consegnaIndicativa !== undefined && updates.consegnaIndicativa) {
         updates.dataConsegnaIndicativa = null;
       }
-      // State rollback cleanup: leaving "produzione" backward voids the
-      // confirmed delivery date (it was specific to that production run);
-      // leaving "archiviata" backward clears the closure date.
       const prevStato: string = commesse[idx].stato;
       if (input.stato && input.stato !== prevStato) {
-        const isForwardChange =
-          STATI_COMMESSA.indexOf(input.stato as any) >
-          STATI_COMMESSA.indexOf(prevStato as any);
-        if (!isForwardChange) {
-          if (prevStato === "produzione") {
-            (updates as any).dataConsegnaConfermata = null;
-          }
-          if (prevStato === "archiviata") {
-            (updates as any).dataChiusura = null;
-          }
-        }
+        const { stato: _stato, ...patchAutorizzata } = updates;
+        void _stato;
+        await eseguiTransizioneCommessa(
+          {
+            ctx,
+            commessaId: id,
+            nuovoStato: input.stato,
+            origine: "router",
+            bypassGateDocumentale: Boolean(input.force),
+            attoreNome: ctx.user?.name ?? null,
+            patchAutorizzata: {
+              ...patchAutorizzata,
+              cliente: resolvedCliente ?? commesse[idx].cliente,
+            },
+          },
+          dipendenzeTransizioniCommesse()
+        );
+      } else {
+        commesse[idx] = {
+          ...commesse[idx],
+          ...updates,
+          cliente: resolvedCliente ?? commesse[idx].cliente,
+          updatedAt: new Date(),
+        };
+        _store.save();
       }
-      commesse[idx] = {
-        ...commesse[idx],
-        ...updates,
-        cliente: resolvedCliente ?? commesse[idx].cliente,
-        updatedAt: new Date(),
-      };
-      if (input.stato === "archiviata") {
-        commesse[idx].dataChiusura = new Date().toISOString().split("T")[0];
-      }
-      _store.save();
-      // Board → timeline. L'altro verso lo fa gia' `timeline.updateStep`; senza
-      // questo, chi lavora dal Kanban lasciava la timeline ferma e la
-      // percentuale di avanzamento della commessa mentiva.
-      if (input.stato && input.stato !== prevStato) {
-        try {
-          const { allineaTimelineAlBoard } = await import("./timeline");
-          allineaTimelineAlBoard(
-            commesse[idx].id,
-            commesse[idx].stato,
-            ctx.user?.name ?? null
-          );
-        } catch (e: any) {
-          // La timeline e' una vista del lavoro, non la sua verita': un
-          // problema qui non deve annullare un avanzamento gia' salvato.
-          console.error(
-            `[timeline] allineamento commessa ${commesse[idx].id} fallito:`,
-            e?.message ?? e
-          );
+      // Gli indici cliente vengono aggiornati soltanto dopo che il comando
+      // principale ha avuto successo: un gate/optimistic-lock fallito non
+      // lascia relazioni laterali mutate.
+      if (collegaClienteId != null) {
+        addCommessaToCliente(collegaClienteId, commesse[idx].id);
+        if (prevClienteId != null) {
+          removeCommessaFromCliente(prevClienteId, commesse[idx].id);
         }
       }
       if (input.assegnatoA !== undefined) {
@@ -973,6 +929,32 @@ export const commesseRouter = router({
         });
       }
       return sagomaDettaglio(commesse[idx], await capacitaEconomiche(ctx));
+    }),
+
+  /**
+   * Compensazione additiva per azioni Tars R1. Il client storico non la usa:
+   * stato/versione e snapshot sono recuperati dall'audit server-side, mai
+   * accettati dal chiamante.
+   */
+  undoTransizione: protectedProcedure
+    .input(z.object({ transizioneId: z.number().int().positive() }).strict())
+    .mutation(async ({ input, ctx }) => {
+      const esito = await annullaTransizioneCommessa(
+        {
+          ctx,
+          transizioneId: input.transizioneId,
+          attoreNome: ctx.user?.name ?? null,
+        },
+        dipendenzeTransizioniCommesse()
+      );
+      const dettaglio = sagomaDettaglio(
+        esito.commessa,
+        await capacitaEconomiche(ctx)
+      );
+      return {
+        ...dettaglio,
+        transizioneAnnullataId: input.transizioneId,
+      };
     }),
 
   // Dedicated endpoint for confirming delivery date when stato hits produzione

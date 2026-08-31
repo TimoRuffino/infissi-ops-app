@@ -74,6 +74,17 @@ export type ContestoRun = {
   };
   /** Entra in C0/C2; non contiene PII in chiaro. */
   contestoConversazioneFingerprint?: string;
+  /**
+   * Autorità effimera derivata dal messaggio corrente e legata dal server
+   * alla commessa risolta. Non entra nello schema del provider: id, target e
+   * direzione impediscono al modello di trasferire il comando su un'altra
+   * entità o su un passaggio diverso da quello chiesto dall'utente.
+   */
+  autorizzazioneTransizione?: {
+    commessaId: number;
+    nuovoStato: string | null;
+    direzione: "avanti" | "indietro" | null;
+  };
 };
 
 export type EvidenzaTars = {
@@ -114,7 +125,10 @@ export type EsitoAzione<T = unknown> = {
   /** Finestra o condizione dell'undo (testo dichiarato), null se nessuno. */
   undoEntro: string | null;
   /** Per la UI: come annullare con UN click senza passare dal modello. */
-  undoVia: { procedura: "promemoria.cancel"; id: number } | null;
+  undoVia:
+    | { procedura: "promemoria.cancel"; id: number }
+    | { procedura: "commesse.undoTransizione"; id: number }
+    | null;
   /**
    * L3: l'azione NON è eseguita — serve l'UNICA conferma umana. La UI
    * mostra l'anteprima e il bottone che chiama la procedura indicata;

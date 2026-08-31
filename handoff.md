@@ -1775,15 +1775,43 @@ CONCLUSO: restano i gate della direzione — (1) gate OpenAI
 (modello/budget/limiti/eval reali), (2) accensione flag per fasi,
 (3) invio L4 (nuova integrazione), (4) semantica C5 (embeddings).
 
+## 11-septendecies. Tars operativo — T3 transizioni commessa (31/08/2026)
+
+Sul `main` locale, senza push/deploy/flag/provider: la state machine che prima
+viveva dentro `commesse.update` è stata estratta in
+`server/commesse/transizioni.ts`. Router e Tars chiamano ora lo stesso comando
+per adiacenza, doc gate, cleanup del rollback e Board→timeline; input/output
+del router restano compatibili e il suo `force` storico resta confinato al
+solo bypass del gate.
+
+Catalogo Tars: 23 strumenti. Nuovi
+`verifica_transizione_commessa` (R0/L0, `commessa.read`, sola preview) e
+`transizione_adiacente_commessa` (R1/L2, doppia capability update+change,
+richiesta esplicita legata dal server a commessa e target/direzione, nessun
+`force`). Il comando
+rilegge sede/stato/versione dopo l'authz; l'audit `commesse_transizioni`
+conserva prima/dopo e snapshot cleanup. Undo è additivo via
+`commesse.undoTransizione`, monouso, autore/direzione, e fallisce senza
+effetti se stato/versione o gate non coincidono più. Prompt `v6`.
+
+Limite dichiarato: `persistedStore` e optimistic lock assumono la replica
+singola attuale; prima di più repliche serve compare-and-swap transazionale su
+PostgreSQL per commessa+audit. Prossima tranche Maccari: comunicazione,
+allegato, analisi/classificazione e archivio certo; non dichiarare ancora la
+catena completa. Nessun file client/UI, cost governor, provider o flag è stato
+toccato; nessuna operazione Railway/OpenAI.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
 2. Rotazione credenziali esterne e decisione sul purge Git history.
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
-5. Potenziamento incrementale di Tars dalla matrice T0: prima servizi canonici
-   per la regressione Maccari, poi azioni per policy e i tre livelli
-   proattivi. Non usare la rimozione storica come roadmap del runtime corrente.
+5. Potenziamento incrementale di Tars dalla matrice T0: transizione commessa
+   canonica T3 completata; proseguire con comunicazione/allegato/
+   classificazione/archivio per chiudere la regressione Maccari, poi i tre
+   livelli proattivi. Non usare la rimozione storica come roadmap del runtime
+   corrente.
 6. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 7. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
