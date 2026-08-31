@@ -248,3 +248,78 @@ Il percorso PostgreSQL reale non è stato eseguito senza `DATABASE_URL`; i 5
 test condizionali restano saltati. Schema additivo, fallback memoria e contratti
 backend sono verificati localmente, ma nessun deploy o migrazione esterna viene
 dichiarata completata.
+
+## Fix round 2/5 — precedenza fallimenti e no-effect R1
+
+Commit implementazione: `e351e18` (`fix(tars): close R1 no-effect runs`)
+
+### Correzioni
+
+- `statoOperativo` controlla gli esiti `non_eseguito` prima degli stati
+  mutativi: in un piano parziale `[creato, non_eseguito]` e nell'ordine inverso
+  il fallimento prevale come `Non eseguito`. Un errore strumento mantiene
+  precedenza ancora maggiore e produce `Bloccato`.
+- Il ledger R1 introduce la transizione terminale append-only `no_effect` per
+  un `non_eseguito` prodotto dopo la reservation. Non è uno `settled` riusabile:
+  il retry apre una generazione deterministica successiva, mentre due retry
+  concorrenti contendono la stessa nuova reservation e non duplicano l'effetto.
+- C1 non conserva esiti `non_eseguito`, così il retry rilegge davvero le fonti
+  anziché riprodurre il no-effect in memoria. Le righe legacy `settled` con
+  risultato `non_eseguito` aprono anch'esse una nuova generazione.
+- La validazione dominio di `crea_promemoria` considera non valido un risultato
+  privo dell'ID autorevole del promemoria. Il DDL PostgreSQL aggiorna in modo
+  idempotente il vincolo degli eventi; il ledger memoria usa lo stesso stato e
+  la stessa cronologia `reserved → no_effect`.
+
+### TDD — RED osservati
+
+```bash
+pnpm exec vitest run server/tars/conversazione/context.test.ts
+```
+
+Exit code 1: 3 falliti e 34 passati su 37. Il mapper restituiva ancora `Fatto`
+per il successo seguito da `non_eseguito`; il retry sequenziale restava
+`Non eseguito`; entrambi i retry concorrenti riproducevano lo stesso no-effect.
+
+```bash
+pnpm exec vitest run server/tars/azioni/registry.test.ts \
+  -t 'un risultato legacy non_eseguito senza id'
+```
+
+Exit code 1: il validatore considerava ancora `true` un risultato senza ID
+autorevole.
+
+### GREEN e verifiche
+
+```bash
+pnpm exec vitest run server/tars/conversazione/context.test.ts \
+  server/tars/orchestratore.test.ts server/tars/promemoria.test.ts \
+  server/tars/azioni/registry.test.ts
+```
+
+Exit code 0: 4 file e 109 test passati.
+
+```bash
+pnpm check
+pnpm test
+pnpm build
+```
+
+Tutti exit code 0. La suite completa conta 86 file passati e 1 file PostgreSQL
+condizionale saltato; 839 test passati e 5 saltati. `tsc --noEmit` e il build
+Vite/esbuild completano senza errori.
+
+```bash
+git diff --check
+git diff --name-only ca68d4e..HEAD | rg '^client/'
+```
+
+Nessun errore di whitespace e nessun file `client/`. Nessun push, deploy, flag,
+Railway, OpenAI, migrazione reale o accesso a segreti è stato eseguito.
+
+### Riserva
+
+La migrazione idempotente del vincolo `no_effect` è typechecked ma non eseguita
+su PostgreSQL reale senza `DATABASE_URL`; i 5 test condizionali restano
+saltati. Il percorso memoria e la concorrenza a livello orchestratore sono
+coperti, senza dichiarare migrazione o deploy esterni completati.
