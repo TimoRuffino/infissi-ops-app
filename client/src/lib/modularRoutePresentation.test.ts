@@ -234,6 +234,54 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(thread).not.toMatch(/inviaMessaggio|whatsapp\.invia/);
   });
 
+  it("compone la coda ticket come queue post-vendita", () => {
+    const source = routeSource("../pages/TicketList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/<DataSurface/);
+    // Il filtro passa dall'helper puro, non da una closure nella pagina.
+    expect(source).toMatch(/ticketMatchesQueueFilter\(/);
+    // Gli stati e le transizioni restano quelli del router.
+    expect(source).toMatch(/nextQueueAdvance\(/);
+    expect(source).not.toMatch(/"risolto"/);
+    // Il contratto di route chiede `ticket.create`: la CTA lo rispetta.
+    expect(source).toMatch(/supportQueuePermissions\(/);
+    expect(source).toMatch(/permissions\.canCreateTicket/);
+    // Righe dense a partire da lg, record card impilata sotto.
+    expect(source).toMatch(
+      /lg:grid-cols-\[minmax\(14rem,1fr\)_minmax\(0,1\.4fr\)_auto\]/
+    );
+    // Una coda filtrata a vuoto non è "tutto a posto".
+    expect(source).toMatch(/Nessun ticket corrisponde ai filtri correnti/);
+    // Il nome del cliente passa dalla convenzione condivisa.
+    expect(source).toMatch(/personName\(/);
+  });
+
+  it("separa reclami e rifacimenti in due code con contatori", () => {
+    const source = routeSource("../pages/ReclamiRifacimenti.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/aria-label="Code post-vendita"/);
+    // Le transizioni restano quelle del router, un passo alla volta.
+    expect(source).toMatch(/nextReclamoAdvance\(/);
+    expect(source).toMatch(/nextRifacimentoAdvance\(/);
+    // Niente griglia KPI né percentuali di avanzamento inventate.
+    expect(source).not.toMatch(/text-2xl font-bold/);
+    expect(source).not.toMatch(/<Progress|\d+%/);
+    // Gli importi passano dagli helper euro condivisi.
+    expect(source).toMatch(/formatEuroSimbolo\(/);
+    expect(source).toMatch(/parseEuroNonNegativo\(/);
+    // La conferma di eliminazione nomina il record e la conseguenza.
+    expect(source).toMatch(/sparisce dallo storico della commessa/);
+  });
+
   it("compone la chat aziendale come workspace di conversazione", () => {
     const source = routeSource("../pages/ChatAziendale.tsx");
 

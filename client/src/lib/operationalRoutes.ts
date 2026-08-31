@@ -99,6 +99,24 @@ export function commesseListPermissions(
   };
 }
 
+export type SupportQueuePermissions = {
+  canCreateTicket: boolean;
+};
+
+/**
+ * Coda Post-Vendita. Il contratto di route chiede `ticket.create` e basta:
+ * avanzamento, sollecito e cancellazione restano decisioni del router (in
+ * modalità legacy l'autore di un ticket può eliminarlo senza capability
+ * dedicata), quindi la UI non le nasconde e mostra il rifiuto del server.
+ */
+export function supportQueuePermissions(
+  capabilities: ReadonlySet<string> | null
+): SupportQueuePermissions {
+  return {
+    canCreateTicket: capabilities?.has("ticket.create") ?? false,
+  };
+}
+
 export type EconomicRoutePermissions = {
   canReadPayments: boolean;
   canRecordPayments: boolean;

@@ -7,6 +7,7 @@ import {
   deliveryStateCopy,
   economicRoutePermissions,
   planningPermissions,
+  supportQueuePermissions,
 } from "./operationalRoutes";
 
 describe("customerPermissions", () => {
@@ -145,6 +146,23 @@ describe("commesseListPermissions", () => {
       canCreate: true,
       canCreateWithAmount: true,
       canDelete: true,
+    });
+  });
+});
+
+describe("supportQueuePermissions", () => {
+  it("nasconde l'apertura ticket durante il caricamento", () => {
+    expect(supportQueuePermissions(null)).toEqual({ canCreateTicket: false });
+  });
+
+  // `ticket.manage` e `ticket.delete` restano fuori dalla matrice: la UI non
+  // deve nascondere azioni che il router concede ancora per via legacy.
+  it("dipende solo da ticket.create", () => {
+    expect(supportQueuePermissions(new Set(["ticket.manage"]))).toEqual({
+      canCreateTicket: false,
+    });
+    expect(supportQueuePermissions(new Set(["ticket.create"]))).toEqual({
+      canCreateTicket: true,
     });
   });
 });
