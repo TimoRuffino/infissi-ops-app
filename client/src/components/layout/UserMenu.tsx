@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
+import { avatarSrcSetForName, avatarUrlForName } from "@/lib/avatars";
 import { getRuoli } from "@/lib/roles";
 import { ChevronDown, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { useLocation } from "wouter";
@@ -35,6 +36,10 @@ export default function UserMenu() {
   const roleSummary = roles.length
     ? roles.map(roleLabel).join(" · ")
     : "profilo operativo";
+  // Il nome resta il testo accessibile: l'immagine è decorativa e, se manca o
+  // non carica, Radix mostra il monogramma di sempre.
+  const avatarUrl = avatarUrlForName(user?.name);
+  const avatarSrcSet = avatarSrcSetForName(user?.name);
 
   return (
     <DropdownMenu>
@@ -45,6 +50,15 @@ export default function UserMenu() {
           aria-label={`Menu profilo di ${user?.name ?? "utente"}`}
         >
           <Avatar className="h-8 w-8 shrink-0 border border-border-soft bg-brand-soft">
+            {avatarUrl ? (
+              <AvatarImage
+                src={avatarUrl}
+                srcSet={avatarSrcSet ?? undefined}
+                className="object-cover"
+                alt=""
+                aria-hidden="true"
+              />
+            ) : null}
             <AvatarFallback className="bg-brand-soft text-xs font-semibold text-accent-text">
               {initials(user?.name)}
             </AvatarFallback>

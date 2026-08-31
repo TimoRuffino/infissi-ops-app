@@ -3,6 +3,7 @@ import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
 import SedeSwitcher from "@/components/SedeSwitcher";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -10,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useOperationalContext } from "@/contexts/OperationalContext";
+import { avatarSrcSetForName, avatarUrlForName } from "@/lib/avatars";
 import {
   isPathActive,
   type MenuItem,
@@ -49,6 +51,16 @@ function navigationSections(items: readonly MenuItem[]): NavigationSection[] {
       return item ? [item] : [];
     }),
   })).filter(section => section.items.length > 0);
+}
+
+function iniziali(name: string | null | undefined): string {
+  return (name ?? "U")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function roleSummary(user: unknown): string {
@@ -101,6 +113,20 @@ export default function NavigationSidebar({
   });
   const unreadChat = unread.data?.totale ?? 0;
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  // Il nome accanto resta il testo accessibile: l'immagine è decorativa e su
+  // errore di caricamento Radix ricade sul monogramma.
+  const userName = user?.name ?? null;
+  const avatarUrl = avatarUrlForName(userName);
+  const avatarSrcSet = avatarSrcSetForName(userName);
+  const avatarImage = avatarUrl ? (
+    <AvatarImage
+      src={avatarUrl}
+      srcSet={avatarSrcSet ?? undefined}
+      className="object-cover"
+      alt=""
+      aria-hidden="true"
+    />
+  ) : null;
 
   return (
     <aside
@@ -275,25 +301,39 @@ export default function NavigationSidebar({
       >
         {collapsed ? (
           <CollapsedTooltip
-            label={`${user?.name ?? "Utente"} · ${roleSummary(user)}`}
+            label={`${userName ?? "Utente"} · ${roleSummary(user)}`}
           >
-            <div className="mx-auto grid h-10 w-10 place-items-center rounded-[var(--radius-control)] bg-brand-soft text-xs font-bold text-accent-text">
-              {(user?.name ?? "U")
-                .split(/\s+/)
-                .map((part: string) => part[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase()}
-            </div>
+            {avatarImage ? (
+              <Avatar className="mx-auto size-10 border border-sidebar-border bg-brand-soft">
+                {avatarImage}
+                <AvatarFallback className="bg-brand-soft text-xs font-bold text-accent-text">
+                  {iniziali(userName)}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <div className="mx-auto grid h-10 w-10 place-items-center rounded-[var(--radius-control)] bg-brand-soft text-xs font-bold text-accent-text">
+                {iniziali(userName)}
+              </div>
+            )}
           </CollapsedTooltip>
         ) : (
-          <div className="min-w-0 rounded-[var(--radius-control)] bg-surface-2 px-3 py-2.5">
-            <p className="truncate text-sm font-semibold text-text-1">
-              {user?.name ?? "Utente"}
-            </p>
-            <p className="mt-0.5 truncate text-[11px] capitalize text-text-3">
-              {roleSummary(user)}
-            </p>
+          <div className="flex min-w-0 items-center gap-2.5 rounded-[var(--radius-control)] bg-surface-2 px-3 py-2.5">
+            {avatarImage ? (
+              <Avatar className="size-9 shrink-0 border border-sidebar-border bg-brand-soft">
+                {avatarImage}
+                <AvatarFallback className="bg-brand-soft text-[11px] font-bold text-accent-text">
+                  {iniziali(userName)}
+                </AvatarFallback>
+              </Avatar>
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-text-1">
+                {userName ?? "Utente"}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] capitalize text-text-3">
+                {roleSummary(user)}
+              </p>
+            </div>
           </div>
         )}
       </div>
