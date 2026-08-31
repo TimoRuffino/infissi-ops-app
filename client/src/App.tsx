@@ -181,7 +181,9 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light">
+      {/* Il toggle è esposto solo dalla shell v2 (menu utente); la
+          preferenza vive in rf-theme. Senza scelta esplicita: chiaro. */}
+      <ThemeProvider defaultTheme="light" switchable storageKey="rf-theme">
         <TooltipProvider>
           <Toaster
             position="top-right"

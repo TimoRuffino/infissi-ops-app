@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { ChevronDown, LogOut, PanelLeft, Search } from "lucide-react";
+import { ChevronDown, LogOut, Moon, PanelLeft, Search, Sun } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -38,6 +38,8 @@ import {
   visibile,
 } from "@/lib/navigation";
 import CommandPalette from "./CommandPalette";
+import BottomNav from "./BottomNav";
+import { useTheme } from "@/contexts/ThemeContext";
 import { AnimatePresence } from "framer-motion";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
 import { trpc } from "@/lib/trpc";
@@ -114,6 +116,7 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const capacitaQ = trpc.permessi.mie.useQuery(undefined, {
     staleTime: 60_000,
   });
@@ -415,6 +418,21 @@ function DashboardLayoutContent({
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
                 <DropdownMenuSeparator />
+                {uiV2 && toggleTheme && (
+                  <DropdownMenuItem
+                    onClick={toggleTheme}
+                    className="cursor-pointer"
+                  >
+                    {theme === "dark" ? (
+                      <Sun className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Moon className="mr-2 h-4 w-4" />
+                    )}
+                    <span>
+                      {theme === "dark" ? "Tema chiaro" : "Tema scuro"}
+                    </span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive focus:text-destructive"
@@ -452,11 +470,18 @@ function DashboardLayoutContent({
             <NotificheDropdown />
           </div>
         )}
-        <main className="flex-1 min-h-dvh bg-background p-4 sm:p-5 lg:p-6">
+        <main
+          className={`flex-1 min-h-dvh bg-background p-4 sm:p-5 lg:p-6 ${
+            uiV2 && isMobile ? "pb-20" : ""
+          }`}
+        >
           <AnimatePresence mode="wait" initial={false}>
             <PageContainer key={location}>{children}</PageContainer>
           </AnimatePresence>
         </main>
+        {uiV2 && isMobile && (
+          <BottomNav user={user} interruttori={interruttoriQ.data} />
+        )}
       </SidebarInset>
       {uiV2 && (
         <CommandPalette

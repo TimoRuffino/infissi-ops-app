@@ -22,6 +22,10 @@ const buttonVariants = cva(
         // Distruttivo dentro menu/modale: testo danger, sfondo soft su hover
         dangerGhost:
           "text-danger hover:bg-danger-soft",
+        // CTA brand: UNA per schermata (giallo Ruffino in v2, testo scuro
+        // verificato 9,4:1). Non è un default: si sceglie apposta.
+        brand:
+          "bg-brand text-on-brand shadow-xs hover:brightness-[0.96] active:scale-[0.98]",
         // Secondario
         outline:
           "bg-surface border border-border-strong text-text-1 shadow-xs hover:border-primary/45 hover:bg-accent",

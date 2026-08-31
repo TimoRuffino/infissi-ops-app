@@ -14,17 +14,21 @@ interface ThemeProviderProps {
   children: React.ReactNode;
   defaultTheme?: Theme;
   switchable?: boolean;
+  // Chiave dedicata: la storica "theme" può contenere residui di vecchie
+  // versioni dell'app e non deve decidere il tema di nessuno.
+  storageKey?: string;
 }
 
 export function ThemeProvider({
   children,
   defaultTheme = "light",
   switchable = false,
+  storageKey = "theme",
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
     if (switchable) {
-      const stored = localStorage.getItem("theme");
-      return (stored as Theme) || defaultTheme;
+      const stored = localStorage.getItem(storageKey);
+      return stored === "dark" || stored === "light" ? stored : defaultTheme;
     }
     return defaultTheme;
   });
@@ -38,9 +42,9 @@ export function ThemeProvider({
     }
 
     if (switchable) {
-      localStorage.setItem("theme", theme);
+      localStorage.setItem(storageKey, theme);
     }
-  }, [theme, switchable]);
+  }, [theme, switchable, storageKey]);
 
   const toggleTheme = switchable
     ? () => {
