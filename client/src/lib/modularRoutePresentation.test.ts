@@ -87,6 +87,33 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/create\.error/);
   });
 
+  it("compone Clienti con header, superficie dati e capability effettive", () => {
+    const source = routeSource("../pages/ClientiList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/useOperationalContext/);
+    expect(source).toMatch(/customerPermissions/);
+    expect(source).toMatch(/personName\(c/);
+  });
+
+  it("compone la scheda cliente come record capability-aware", () => {
+    const source = routeSource("../pages/ClienteDetail.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/variant="record"/);
+    expect(source).toMatch(/useOperationalContext/);
+    expect(source).toMatch(/customerPermissions/);
+    // Il nome del cliente passa dalla convenzione condivisa, non da una
+    // concatenazione locale.
+    expect(source).toMatch(/personName\(c\)/);
+    // Un `byId` nullo resta il Not Found esistente, senza dettagli né id.
+    expect(source).toMatch(/Cliente non trovato/);
+    // L'assegnatario si invia solo con la capability dedicata.
+    expect(source).toMatch(/canAssignCustomer/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 
