@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import React, { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TarsAgentCardView } from "@/components/tars/TarsAgentCard";
+
+(globalThis as typeof globalThis & { React: typeof React }).React = React;
 import {
   derivaGateQueryAgente,
   derivaStatoAgente,
@@ -96,15 +100,115 @@ describe("vista tecnica dell'agente Tars", () => {
     expect(etichettaAmbitoCosti()).toBe("Consumi globali · tutte le sedi");
   });
 
-  it("mantiene visibili i diagnostici del governor e un trigger di almeno 44px", () => {
-    const source = readFileSync(
-      new URL("../components/tars/TarsAgentCard.tsx", import.meta.url),
-      "utf8"
+  it("renderizza uno skeleton durante il caricamento senza chiamarlo degradato", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsAgentCardView, {
+        direzione: true,
+        gate: {
+          risolto: false,
+          tarsAcceso: false,
+          statoAbilitato: false,
+          costiAbilitati: false,
+        },
+        statoAgente: "caricamento",
+        interruttori: undefined,
+        stato: undefined,
+        costi: undefined,
+        costiErrore: false,
+        onRetryCosti: () => undefined,
+      })
     );
-    expect(source).toContain("perRunUsd");
-    expect(source).toContain("tokenGiorno");
-    expect(source).toContain("motivoBudgetNonValido");
-    expect(source).toContain("Circuito");
-    expect(source).toContain("min-h-11");
+
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Caricamento stato Tars");
+    expect(markup).toContain("animate-pulse");
+    expect(markup).not.toContain("Degradato");
+  });
+
+  it("renderizza l'errore costi con retry e stato complessivo degradato", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsAgentCardView, {
+        direzione: true,
+        gate: {
+          risolto: true,
+          tarsAcceso: true,
+          statoAbilitato: true,
+          costiAbilitati: true,
+        },
+        statoAgente: "degradato",
+        interruttori: { tars: true },
+        stato: { provider: "openai", modello: "gpt-test" },
+        costi: undefined,
+        costiErrore: true,
+        onRetryCosti: () => undefined,
+      })
+    );
+
+    expect(markup).toContain("Degradato");
+    expect(markup).toContain("Consumi non disponibili");
+    expect(markup).toContain(">Riprova</button>");
+  });
+
+  it("mostra diagnostici reali del governor e il trigger con target 44px", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsAgentCardView, {
+        direzione: true,
+        gate: {
+          risolto: true,
+          tarsAcceso: true,
+          statoAbilitato: true,
+          costiAbilitati: true,
+        },
+        statoAgente: "disponibile",
+        interruttori: { tars: true, tarsReadTools: true },
+        stato: {
+          provider: "openai",
+          modello: "gpt-test",
+          strumentiDisponibili: [{ nome: "cerca_commesse" }],
+          run: { totale: 4, degradati: 1, ultimo: null },
+        },
+        costi: {
+          provider: { tipo: "openai", budget: { giornalieroUsd: 10 } },
+          budgetConfigurato: {
+            perRunUsd: 0.12,
+            giornalieroUsd: 10,
+            mensileUsd: 100,
+          },
+          motivoBudgetNonValido: "Budget non valido per il mese corrente",
+          riepilogo: {
+            spesaGiornoUsd: 2,
+            spesaMeseUsd: 15,
+            residuoGiornoUsd: 8,
+            residuoMeseUsd: 85,
+            chiamateGiorno: 3,
+            runGiorno: 2,
+            costoMedioRunUsd: 0.5,
+            costoMassimoRunUsd: 0.9,
+            tokenGiorno: { input: 10, cached: 20, output: 30 },
+          },
+        },
+        costiErrore: false,
+        onRetryCosti: () => undefined,
+        dettagliApertiIniziali: true,
+      })
+    );
+
+    expect(markup).toContain("Limite per run");
+    expect(markup).toContain("0,12");
+    expect(markup).toContain("Token oggi");
+    expect(markup).toContain("10 input");
+    expect(markup).toContain("Provider");
+    expect(markup).toContain("Disponibile");
+    expect(markup).toContain("Budget / disponibilità");
+    expect(markup).toContain("Configurato");
+    expect(markup).toContain("Budget non valido per il mese corrente");
+    expect(markup).toContain("Circuito");
+    expect(markup).toContain("Gestito dal governor");
+
+    const trigger = markup.match(
+      /<button[^>]*class="[^"]*min-h-11[^"]*"[^>]*>[\s\S]*?Diagnostica, strumenti e interruttori[\s\S]*?<\/button>/
+    )?.[0];
+    expect(trigger).toBeDefined();
+    expect(trigger).not.toContain("h-9");
   });
 });

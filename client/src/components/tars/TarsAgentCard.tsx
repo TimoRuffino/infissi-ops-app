@@ -27,6 +27,7 @@ import {
   etichettaStatoAgente,
   formattaCostoUsd,
   percentualeBudget,
+  type GateQueryAgente,
   type TarsAgentStatus,
 } from "@/lib/tarsAgentView";
 
@@ -54,7 +55,6 @@ export type TarsAgentCardProps = {
 };
 
 export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
-  const [dettagliAperti, setDettagliAperti] = useState(false);
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
     retry: false,
@@ -78,9 +78,82 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
     erroreStato: Boolean(stato.error),
     erroreCosti: Boolean(costi.error),
   });
-  const providerDettaglio = stato.data?.providerDettaglio;
-  const riepilogoCosti = costi.data?.riepilogo;
-  const budget = costi.data?.budgetConfigurato;
+  return (
+    <TarsAgentCardView
+      direzione={direzione}
+      gate={gate}
+      statoAgente={statoAgente}
+      interruttori={interruttori.data}
+      stato={stato.data}
+      costi={costi.data}
+      costiErrore={Boolean(costi.error)}
+      onRetryCosti={() => void costi.refetch()}
+    />
+  );
+}
+
+type TarsAgentViewStato = {
+  provider?: string | null;
+  modello?: string | null;
+  providerDettaglio?: {
+    motivoIndisponibilita?: string | null;
+  } | null;
+  strumentiDisponibili?: readonly { nome: string }[];
+  run?: { totale: number; degradati: number; ultimo: Date | string | null };
+  contestoAttivo?: { superficie?: string | null } | null;
+};
+
+type TarsAgentViewCosti = {
+  provider?: {
+    tipo: string;
+    budget: unknown;
+  };
+  budgetConfigurato?: {
+    perRunUsd: number;
+    giornalieroUsd: number;
+    mensileUsd: number;
+  } | null;
+  motivoBudgetNonValido?: string | null;
+  riepilogo?: {
+    spesaGiornoUsd: number | null;
+    spesaMeseUsd: number | null;
+    residuoGiornoUsd: number | null;
+    residuoMeseUsd: number | null;
+    chiamateGiorno: number;
+    runGiorno: number;
+    costoMedioRunUsd: number | null;
+    costoMassimoRunUsd: number | null;
+    tokenGiorno: { input: number; cached: number; output: number };
+  } | null;
+};
+
+export type TarsAgentCardViewProps = {
+  direzione: boolean;
+  gate: GateQueryAgente;
+  statoAgente: TarsAgentStatus;
+  interruttori: Record<string, boolean> | undefined;
+  stato: TarsAgentViewStato | undefined;
+  costi: TarsAgentViewCosti | undefined;
+  costiErrore: boolean;
+  onRetryCosti: () => void;
+  dettagliApertiIniziali?: boolean;
+};
+
+export function TarsAgentCardView({
+  direzione,
+  gate,
+  statoAgente,
+  interruttori,
+  stato,
+  costi,
+  costiErrore,
+  onRetryCosti,
+  dettagliApertiIniziali = false,
+}: TarsAgentCardViewProps) {
+  const [dettagliAperti, setDettagliAperti] = useState(dettagliApertiIniziali);
+  const providerDettaglio = stato?.providerDettaglio;
+  const riepilogoCosti = costi?.riepilogo;
+  const budget = costi?.budgetConfigurato;
   const percentualeGiorno = percentualeBudget(
     riepilogoCosti?.spesaGiornoUsd,
     budget?.giornalieroUsd
@@ -89,11 +162,11 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
     riepilogoCosti?.spesaMeseUsd,
     budget?.mensileUsd
   );
-  const flag = interruttori.data
-    ? Object.entries(interruttori.data).filter(([, attivo]) => attivo)
+  const flag = interruttori
+    ? Object.entries(interruttori).filter(([, attivo]) => attivo)
     : [];
-  const strumenti = stato.data?.strumentiDisponibili ?? [];
-  const run = stato.data?.run;
+  const strumenti = stato?.strumentiDisponibili ?? [];
+  const run = stato?.run;
 
   return (
     <Card
@@ -146,13 +219,13 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">Provider</dt>
               <dd className="mt-0.5 truncate font-medium">
-                {valore(stato.data?.provider)}
+                {valore(stato?.provider)}
               </dd>
             </div>
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">Modello</dt>
               <dd className="mt-0.5 truncate font-medium">
-                {valore(stato.data?.modello)}
+                {valore(stato?.modello)}
               </dd>
             </div>
             <div>
@@ -177,7 +250,7 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
           </dl>
         )}
 
-        {direzione && gate.costiAbilitati && costi.error && (
+        {direzione && gate.costiAbilitati && costiErrore && (
           <section
             role="alert"
             aria-labelledby="tars-consumi-error-title"
@@ -198,14 +271,14 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
               variant="outline"
               size="sm"
               className="min-h-11 shrink-0"
-              onClick={() => void costi.refetch()}
+              onClick={onRetryCosti}
             >
               Riprova
             </Button>
           </section>
         )}
 
-        {direzione && gate.costiAbilitati && costi.data && (
+        {direzione && gate.costiAbilitati && costi && (
           <section
             aria-labelledby="tars-consumi-title"
             className="space-y-3 rounded-lg bg-surface-2 p-3"
@@ -273,9 +346,9 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                 </dd>
               </div>
             </dl>
-            {costi.data.motivoBudgetNonValido && (
+            {costi.motivoBudgetNonValido && (
               <p className="text-[11px] text-warning">
-                Budget non valido: {costi.data.motivoBudgetNonValido}
+                Budget non valido: {costi.motivoBudgetNonValido}
               </p>
             )}
           </section>
@@ -307,12 +380,12 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                 {providerDettaglio.motivoIndisponibilita}
               </p>
             )}
-            {direzione && gate.costiAbilitati && costi.data?.provider && (
+            {direzione && gate.costiAbilitati && costi?.provider && (
               <dl className="grid gap-2 text-xs sm:grid-cols-3">
                 <div>
                   <dt className="text-muted-foreground">Provider</dt>
                   <dd className="mt-0.5 font-medium">
-                    {costi.data.provider.tipo === "openai"
+                    {costi.provider.tipo === "openai"
                       ? "Disponibile"
                       : "Fallback"}
                   </dd>
@@ -322,9 +395,7 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                     Budget / disponibilità
                   </dt>
                   <dd className="mt-0.5 font-medium">
-                    {costi.data.provider.budget
-                      ? "Configurato"
-                      : "Non disponibile"}
+                    {costi.provider.budget ? "Configurato" : "Non disponibile"}
                   </dd>
                 </div>
                 <div>
@@ -376,10 +447,10 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                 )}
               </div>
             </div>
-            {stato.data?.contestoAttivo && (
+            {stato?.contestoAttivo && (
               <p className="text-[11px] text-muted-foreground">
                 Contesto attivo:{" "}
-                {stato.data.contestoAttivo.superficie ?? "operativo"}
+                {stato.contestoAttivo.superficie ?? "operativo"}
               </p>
             )}
           </CollapsibleContent>
