@@ -97,6 +97,29 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/personName\(c/);
   });
 
+  it("compone le commesse senza esporre cifre a chi non le riceve", () => {
+    const source = routeSource("../pages/CommesseList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/commesseListPermissions\(/);
+    // Il dialog "nuovo cliente" ha la capability cliente, non quella commessa.
+    expect(source).toMatch(/customerPermissions\(/);
+    // Le cifre si mostrano solo quando il router le ha mandate.
+    expect(source).toMatch(/vedeCifre && c\.importoTotale != null/);
+    // L'importo pattuito entra nel payload solo con `economia.read`, e mai
+    // come 0 di sostituzione.
+    expect(source).toMatch(
+      /canCreateWithAmount && importoValido != null\s*\?\s*\{ importoTotale: importoValido \}/
+    );
+    // Archiviare resta il percorso reversibile di ogni utente della sede:
+    // nessuna capability inventata.
+    expect(source).not.toMatch(/commessa\.archive/);
+    expect(source).toMatch(/personName\(/);
+  });
+
   it("compone la scheda cliente come record capability-aware", () => {
     const source = routeSource("../pages/ClienteDetail.tsx");
 
