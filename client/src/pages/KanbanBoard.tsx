@@ -621,7 +621,7 @@ export default function KanbanBoard() {
                                             handleMove(c.id, nextCol.id);
                                           }}
                                           title={`Avanza a ${nextCol.label}`}
-                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-success bg-success px-1.5 py-1 leading-tight text-white shadow-sm transition-all hover:bg-success/90 hover:shadow-md active:scale-[0.98]"
+                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-success bg-success px-1.5 py-1 leading-tight text-on-success shadow-sm transition-all hover:bg-success/90 hover:shadow-md active:scale-[0.98]"
                                         >
                                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
                                             Avanza

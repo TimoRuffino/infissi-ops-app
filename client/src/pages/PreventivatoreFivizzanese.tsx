@@ -636,7 +636,7 @@ export default function PreventivatoreFivizzanese() {
             <Calculator className="h-6 w-6 text-primary" />
             Fivizzanese — Persiane
             {isPromo && (
-              <Badge className="ml-1 bg-warning text-white hover:bg-warning gap-1">
+              <Badge className="ml-1 bg-warning text-on-warning hover:bg-warning gap-1">
                 <Sparkles className="h-3 w-3" />
                 PROMO
               </Badge>

@@ -51,7 +51,22 @@ conferme d'ordine, quantità ordinate/ricevute parziali, pagamenti con
 residuo, gli 11 stati veri, riferimenti documentali. Fixture chiaramente
 separate dalla produzione, mai PII reale negli artifact.
 
-## 5. Domande della revisione finale anti-slop
+## 5. Deroghe scritte (le uniche ammesse)
+
+Il test `client/src/lib/tokenDiscipline.test.ts` fa rispettare le regole di
+colore e conosce solo queste eccezioni:
+
+| Deroga | Dove | Perché |
+|---|---|---|
+| Verde WhatsApp `#25D366` | `WhatsAppCard.tsx`, `WhatsAppButton.tsx` | colore di un marchio di terze parti: non appartiene al nostro sistema e non deve seguirne il tema |
+| Palette avatar chat | `ChatAziendale.tsx` | sei tinte scure fisse per le iniziali: identità delle persone, leggibili in entrambi i temi |
+| Residui Manus | `ManusDialog.tsx`, `AIChatBox.tsx` | componenti senza alcun consumatore (zero import): la loro rimozione è una decisione a sé, non una modifica di skin |
+
+Ogni altra classe di colore arbitraria o `text-white` sopra un pieno
+semantico fa fallire la suite: si usano i token, o si aggiunge una riga qui
+con la ragione.
+
+## 6. Domande della revisione finale anti-slop
 
 Le cinque famiglie di pagina hanno silhouette diverse? · Scambiabile per
 Base44/Linear/Attio? · Pattern generici senza relazione col dominio? ·

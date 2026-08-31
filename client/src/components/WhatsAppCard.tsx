@@ -493,7 +493,7 @@ export default function WhatsAppCard() {
                   <div className="font-medium flex items-center gap-2">
                     {c.nome}
                     {c.attiva ? (
-                      <Badge className="bg-success hover:bg-success text-white text-xs">
+                      <Badge className="bg-success hover:bg-success text-on-success text-xs">
                         Attivo
                       </Badge>
                     ) : mancanti.length > 0 ? (

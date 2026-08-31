@@ -72,7 +72,7 @@ export default function DeleteCommessaDialog({
           <AlertDialogAction
             disabled={!canDelete}
             onClick={onConfirm}
-            className="bg-danger text-white hover:bg-danger/90 disabled:opacity-50 disabled:pointer-events-none"
+            className="bg-danger text-on-danger hover:bg-danger/90 disabled:opacity-50 disabled:pointer-events-none"
           >
             Elimina
           </AlertDialogAction>

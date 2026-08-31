@@ -66,6 +66,13 @@
   --color-danger-soft: #ffe4e8;
   --color-info: #3f5fd1;
   --color-info-soft: #e9edff;
+  /* Foreground accoppiati: un testo scritto sul pieno semantico deve
+     seguire il tema. `text-white` fisso diventa illeggibile dove il
+     pieno, in dark, è una tinta chiara. */
+  --color-on-success: #ffffff;
+  --color-on-warning: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-on-info: #ffffff;
 
   --color-st-preventivo: #2f63b7;
   --color-st-preventivo-soft: #e5efff;
@@ -81,6 +88,8 @@
   --color-st-pagamento-soft: #e3f5ec;
   --color-st-chiusura: #5e6560;
   --color-st-chiusura-soft: #ecefec;
+  --color-st-postvendita: #b52d42;
+  --color-st-postvendita-soft: #ffe4e8;
 
   --color-cal-rilievo: #2f63b7;
   --color-cal-rilievo-soft: #e5efff;
@@ -250,6 +259,10 @@
   --color-danger-soft: #40231e;
   --color-info: #9cb0ff;
   --color-info-soft: #202c52;
+  --color-on-success: #14271b;
+  --color-on-warning: #403416;
+  --color-on-danger: #301419;
+  --color-on-info: #202c52;
   --color-st-preventivo: #85bfd0;
   --color-st-preventivo-soft: #152a31;
   --color-st-misure: #b69bf6;
@@ -264,6 +277,8 @@
   --color-st-pagamento-soft: #14271b;
   --color-st-chiusura: #adb9b5;
   --color-st-chiusura-soft: #202826;
+  --color-st-postvendita: #ef8a78;
+  --color-st-postvendita-soft: #40231e;
   --color-cal-rilievo: #85bfd0;
   --color-cal-rilievo-soft: #152a31;
   --color-cal-posa: #72d6bf;
@@ -378,6 +393,10 @@
   --color-danger-soft: #f9e4e4;
   --color-info: #31649f;
   --color-info-soft: #e4edf8;
+  --color-on-success: #ffffff;
+  --color-on-warning: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-on-info: #ffffff;
   /* Famiglie di stato (11 stati -> 7 famiglie + archivio), etichette
      invariate: docs/design/ruffino-flow-tokens.md §4. */
   --color-st-preventivo: #31649f;
@@ -394,6 +413,8 @@
   --color-st-pagamento-soft: #e1f2e9;
   --color-st-chiusura: #5d5a50;
   --color-st-chiusura-soft: #ebe8df;
+  --color-st-postvendita: #b3373d;
+  --color-st-postvendita-soft: #f9e4e4;
   --color-cal-rilievo: #31649f;
   --color-cal-rilievo-soft: #e4edf8;
   --color-cal-posa: #0f7568;
@@ -485,6 +506,10 @@
   --color-danger-soft: #3a1f1d;
   --color-info: #8fb6e8;
   --color-info-soft: #1a2737;
+  --color-on-success: #0d2417;
+  --color-on-warning: #2b2208;
+  --color-on-danger: #2e1412;
+  --color-on-info: #10203a;
   --color-st-preventivo: #8fb6e8;
   --color-st-preventivo-soft: #1a2737;
   --color-st-misure: #b79de8;
@@ -499,6 +524,8 @@
   --color-st-pagamento-soft: #12291e;
   --color-st-chiusura: #a8a192;
   --color-st-chiusura-soft: #26241d;
+  --color-st-postvendita: #f09a93;
+  --color-st-postvendita-soft: #3a1f1d;
   --color-cal-rilievo: #8fb6e8;
   --color-cal-rilievo-soft: #1a2737;
   --color-cal-posa: #4fc0b0;
@@ -554,12 +581,12 @@
 /* Firma «Frame»: due angoli aperti che incorniciano l'identità di un
    record (header di commessa/cliente, momenti di contesto). Non si
    applica a ogni card: solo dove c'è identità. */
-.rf-frame {
+[data-ui-v2] .rf-frame {
   position: relative;
 }
 
-.rf-frame::before,
-.rf-frame::after {
+[data-ui-v2] .rf-frame::before,
+[data-ui-v2] [data-ui-v2] .rf-frame::after {
   content: "";
   position: absolute;
   width: 18px;
@@ -569,7 +596,7 @@
   pointer-events: none;
 }
 
-.rf-frame::before {
+[data-ui-v2] .rf-frame::before {
   top: 0;
   left: 0;
   border-top-width: 2px;
@@ -577,7 +604,7 @@
   border-top-left-radius: 6px;
 }
 
-.rf-frame::after {
+[data-ui-v2] .rf-frame::after {
   bottom: 0;
   right: 0;
   border-bottom-width: 2px;
@@ -599,17 +626,17 @@
   }
 }
 
-.rf-frame-reveal {
+[data-ui-v2] .rf-frame-reveal {
   animation: rf-frame-reveal var(--duration-slow) var(--ease-enter) both;
 }
 
 /* Firma «Latch»: risposta tattile di bottoni e selezioni. Solo transform:
    il layout non si muove. */
-.rf-latch {
+[data-ui-v2] .rf-latch {
   transition: transform var(--duration-instant) var(--ease-standard);
 }
 
-.rf-latch:active {
+[data-ui-v2] .rf-latch:active {
   transform: scale(0.98);
 }
 

@@ -36,7 +36,7 @@ export default function SediList() {
     onSuccess: () => {
       utils.sedi.invalidate();
       setDialogOpen(false);
-      toast.success("Sede creata", { icon: "🏢" });
+      toast.success("Sede creata");
     },
     onError: (e) => toast.error(e.message),
   });

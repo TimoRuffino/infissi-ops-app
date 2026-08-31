@@ -1001,7 +1001,7 @@ export default function Dashboard() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {([
-              { key: "urgente", label: "Urgente", box: "border-danger/50 bg-danger-soft/70", badge: "bg-danger text-white" },
+              { key: "urgente", label: "Urgente", box: "border-danger/50 bg-danger-soft/70", badge: "bg-danger text-on-danger" },
               // Testo scuro su fondo tenue, non bianco su tinta piena: il
               // bianco su ambra dava 1.72:1 — un badge che nessuno legge.
               { key: "alta", label: "Alta", box: "border-danger/30 bg-surface", badge: "bg-danger-soft text-danger" },

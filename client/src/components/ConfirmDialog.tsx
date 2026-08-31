@@ -37,7 +37,7 @@ export default function ConfirmDialog({
           <AlertDialogCancel>Annulla</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            className={destructive ? "bg-danger hover:bg-danger/90 text-white" : ""}
+            className={destructive ? "bg-danger hover:bg-danger/90 text-on-danger" : ""}
           >
             {confirmLabel}
           </AlertDialogAction>

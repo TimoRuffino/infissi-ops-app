@@ -348,7 +348,7 @@ export default function Magazzino() {
             <button
               key={c.id}
               onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:border-border-strong hover:shadow-sm ${
                 late > 0
                   ? "border-danger/50"
                   : complete

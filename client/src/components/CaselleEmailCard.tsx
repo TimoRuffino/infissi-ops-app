@@ -179,7 +179,7 @@ export default function CaselleEmailCard() {
                   {c.ultimoErrore ? (
                     <Badge variant="destructive" className="text-xs">Errore</Badge>
                   ) : c.attiva ? (
-                    <Badge className="bg-success hover:bg-success text-white text-xs">Attiva</Badge>
+                    <Badge className="bg-success hover:bg-success text-on-success text-xs">Attiva</Badge>
                   ) : (
                     <Badge variant="secondary" className="text-xs">Spenta</Badge>
                   )}

@@ -16,6 +16,7 @@ import {
   Paperclip,
   Sparkles,
   StickyNote,
+  CalendarDays,
 } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
@@ -273,7 +274,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                           <span
                             className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${
                               completed
-                                ? "bg-success border-success text-white"
+                                ? "bg-success border-success text-on-success"
                                 : isCurrent
                                 ? "border-primary text-primary ring-2 ring-primary/20"
                                 : "border-border-strong text-text-3"
@@ -310,8 +311,9 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                               )}
                             </div>
                             {!completed && step.dataCompletamento && (
-                              <div className="text-[11px] font-semibold text-primary mt-0.5">
-                                📅 {new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")}
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-primary mt-0.5">
+                                <CalendarDays className="h-3 w-3 shrink-0" />
+                                {new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")}
                                 {step.utente ? ` · ${step.utente}` : ""}
                               </div>
                             )}
