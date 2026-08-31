@@ -4,10 +4,11 @@ import { toast } from "sonner";
 
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
 import {
   Dialog,
   DialogContent,
@@ -38,7 +39,7 @@ export default function SediList() {
       setDialogOpen(false);
       toast.success("Sede creata");
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const update = trpc.sedi.update.useMutation({
     onSuccess: () => {
@@ -46,7 +47,7 @@ export default function SediList() {
       setDialogOpen(false);
       toast.success("Sede aggiornata");
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   function openCreate() {
@@ -86,90 +87,126 @@ export default function SediList() {
   const list = sedi.data ?? [];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Store className="h-6 w-6 text-primary" />
-            Sedi
-          </h1>
-          <p className="text-sm text-muted-foreground max-w-2xl">
-            Ogni sede (showroom) è completamente separata: commesse, clienti,
-            calendario e tutto il resto sono indipendenti. Una nuova sede parte
-            vuota. Assegna le sedi agli utenti dalla pagina Utenti.
-          </p>
-        </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-1" />
-          Nuova sede
-        </Button>
-      </div>
+    <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5">
+      <PageHeader
+        eyebrow="Amministrazione"
+        title="Sedi"
+        description="Ogni showroom è un perimetro operativo separato: commesse, clienti e calendario non si mescolano."
+        metadata={
+          <span>
+            {list.length}{" "}
+            {list.length === 1 ? "sede configurata" : "sedi configurate"}
+          </span>
+        }
+        primaryAction={
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" /> Nuova sede
+          </Button>
+        }
+      />
 
-      {/* List */}
-      {sedi.isLoading && (
-        <p className="text-sm text-muted-foreground">Caricamento…</p>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {list.map((s: any) => (
-          <Card key={s.id} className={s.attiva ? "" : "opacity-60"}>
-            <CardContent className="flex items-start justify-between gap-3 p-4">
-              <div className="min-w-0 space-y-1">
-                <div className="flex items-center gap-2">
-                  <Store className="h-4 w-4 text-primary shrink-0" />
-                  <span className="font-semibold">{s.nome}</span>
-                  {s.id === 1 && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      Predefinita
-                    </Badge>
-                  )}
-                  {!s.attiva && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Disattivata
-                    </Badge>
-                  )}
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        title="Showroom e perimetri"
+        description="Assegna una sede agli utenti dalla pagina Utenti. La sede predefinita resta sempre disponibile."
+        state={
+          sedi.isLoading
+            ? {
+                kind: "loading",
+                title: "Caricamento sedi",
+                description: "Sto preparando l'elenco degli showroom.",
+                rows: 3,
+              }
+            : sedi.isError
+              ? {
+                  kind: "error",
+                  title: "Non riesco a caricare le sedi",
+                  description: "Controlla la connessione e riprova.",
+                  action: (
+                    <Button variant="outline" onClick={() => sedi.refetch()}>
+                      Riprova
+                    </Button>
+                  ),
+                }
+              : list.length === 0
+                ? {
+                    kind: "empty",
+                    title: "Nessuna sede configurata",
+                    description:
+                      "Crea il primo showroom per separare dati e attività operative.",
+                    action: (
+                      <Button onClick={openCreate}>
+                        <Plus className="h-4 w-4" /> Nuova sede
+                      </Button>
+                    ),
+                  }
+                : undefined
+        }
+      >
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          {list.map((s: any) => (
+            <div key={s.id} className={s.attiva ? undefined : "opacity-60"}>
+              <DataSurface density="compact" tone="sunken">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Store className="h-4 w-4 text-primary shrink-0" />
+                      <span className="font-semibold">{s.nome}</span>
+                      {s.id === 1 && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          Predefinita
+                        </Badge>
+                      )}
+                      {!s.attiva && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Disattivata
+                        </Badge>
+                      )}
+                    </div>
+                    {(s.indirizzo || s.citta) && (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin className="h-3 w-3" />
+                        {s.indirizzo}
+                        {s.indirizzo && s.citta ? ", " : ""}
+                        {s.citta}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {s.id !== 1 && (
+                      <Button
+                        variant="quiet"
+                        size="icon"
+                        aria-label={
+                          s.attiva ? "Disattiva sede" : "Riattiva sede"
+                        }
+                        onClick={() =>
+                          update.mutate({ id: s.id, attiva: !s.attiva })
+                        }
+                      >
+                        <Power
+                          className={`h-3.5 w-3.5 ${
+                            s.attiva ? "text-success" : "text-muted-foreground"
+                          }`}
+                        />
+                      </Button>
+                    )}
+                    <Button
+                      variant="quiet"
+                      size="icon"
+                      onClick={() => openEdit(s)}
+                      aria-label="Modifica sede"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                {(s.indirizzo || s.citta) && (
-                  <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin className="h-3 w-3" />
-                    {s.indirizzo}
-                    {s.indirizzo && s.citta ? ", " : ""}
-                    {s.citta}
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {s.id !== 1 && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title={s.attiva ? "Disattiva" : "Riattiva"}
-                    onClick={() =>
-                      update.mutate({ id: s.id, attiva: !s.attiva })
-                    }
-                  >
-                    <Power
-                      className={`h-3.5 w-3.5 ${
-                        s.attiva ? "text-success" : "text-muted-foreground"
-                      }`}
-                    />
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openEdit(s)}
-                  title="Modifica"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </DataSurface>
+            </div>
+          ))}
+        </div>
+      </DataSurface>
 
       {/* Create / edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -186,7 +223,7 @@ export default function SediList() {
                 value={form.nome}
                 autoFocus
                 placeholder="Es. Sarzana"
-                onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                onChange={e => setForm({ ...form, nome: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -194,14 +231,14 @@ export default function SediList() {
                 <Label>Città</Label>
                 <Input
                   value={form.citta}
-                  onChange={(e) => setForm({ ...form, citta: e.target.value })}
+                  onChange={e => setForm({ ...form, citta: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>Indirizzo</Label>
                 <Input
                   value={form.indirizzo}
-                  onChange={(e) =>
+                  onChange={e =>
                     setForm({ ...form, indirizzo: e.target.value })
                   }
                 />
@@ -209,7 +246,9 @@ export default function SediList() {
             </div>
             <Button
               onClick={save}
-              disabled={!form.nome.trim() || create.isPending || update.isPending}
+              disabled={
+                !form.nome.trim() || create.isPending || update.isPending
+              }
             >
               {form.id ? "Salva modifiche" : "Crea sede"}
             </Button>
