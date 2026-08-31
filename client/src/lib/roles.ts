@@ -43,3 +43,21 @@ export function hasRuolo(user: unknown, r: Ruolo): boolean {
 export function isDirezione(user: unknown): boolean {
   return hasRuolo(user, "direzione");
 }
+
+/** Esito della guardia visuale direzione: attesa, accesso o rifiuto. */
+export type DirezioneGate = "allowed" | "blocked" | "loading";
+
+/**
+ * Adapter puro di `isDirezione` per le route guardate: descrive cosa mostrare
+ * mentre l'identità è in volo, senza aggiungere una seconda regola di ruolo.
+ *
+ * Resta una guardia UX: l'autorizzazione vera è delle procedure server
+ * (`adminProcedure` e i controlli di `server/_core/permissions.ts`).
+ */
+export function direzioneGateLabel(input: {
+  user: unknown;
+  loading: boolean;
+}): DirezioneGate {
+  if (input.loading) return "loading";
+  return isDirezione(input.user) ? "allowed" : "blocked";
+}

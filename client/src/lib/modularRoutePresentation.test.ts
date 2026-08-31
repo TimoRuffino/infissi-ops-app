@@ -330,6 +330,30 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/statoRegistro/);
   });
 
+  it("compone la gestione utenti senza esporre credenziali", () => {
+    const source = routeSource("../pages/UtentiList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Righe dense da lg, record card impilata sotto.
+    expect(source).toMatch(
+      /lg:grid-cols-\[minmax\(14rem,1fr\)_minmax\(0,1\.1fr\)_auto\]/
+    );
+    // La gestione resta direzione, specchio UX di `adminProcedure`.
+    expect(source).toMatch(/isDirezione\(user\)/);
+    // Accessi, capability e deleghe restano nel dialog dedicato.
+    expect(source).toMatch(/<UserPermissionsDialog/);
+    // Il nome passa dalla convenzione condivisa, non da concatenazioni locali.
+    expect(source).toMatch(/personName\(/);
+    // Solo l'indicatore autorizzato dal server: mai hash, token o password.
+    expect(source).toMatch(/hasPassword/);
+    expect(source).not.toMatch(/u\.password|user\.password/);
+    // Un filtro senza risultati non è "nessun utente".
+    expect(source).toMatch(/Nessun utente corrisponde ai filtri correnti/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

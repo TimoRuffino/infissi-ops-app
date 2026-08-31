@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { isDirezione } from "@/lib/roles";
+import { direzioneGateLabel } from "@/lib/roles";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -15,8 +15,11 @@ export default function RequireDirezione({
 }) {
   const { user, loading } = useAuth();
   const [, setLocation] = useLocation();
+  // L'esito della guardia è una funzione pura, verificabile senza montare la
+  // route: qui resta solo la sua presentazione.
+  const gate = direzioneGateLabel({ user, loading });
 
-  if (loading) {
+  if (gate === "loading") {
     return (
       <div
         className="grid min-h-[40dvh] place-items-center text-sm text-text-3"
@@ -28,7 +31,7 @@ export default function RequireDirezione({
     );
   }
 
-  if (!isDirezione(user)) {
+  if (gate === "blocked") {
     return (
       <div
         className="flex min-h-[60dvh] items-center justify-center p-4"
@@ -58,7 +61,7 @@ export default function RequireDirezione({
           <Button
             type="button"
             variant="quiet"
-            size="sm"
+            className="min-h-11"
             onClick={() => setLocation("/")}
           >
             Torna alla dashboard
