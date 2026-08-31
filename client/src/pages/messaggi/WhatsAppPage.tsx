@@ -184,7 +184,7 @@ export default function WhatsAppPage() {
   );
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
+    <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
       <PageHeader
         variant="workbench"
         eyebrow="Messaggistica"

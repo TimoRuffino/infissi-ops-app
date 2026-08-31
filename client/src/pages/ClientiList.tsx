@@ -388,7 +388,7 @@ export default function ClientiList() {
       />
 
       <div className="min-w-0 space-y-4">
-        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
+        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface px-1 py-3">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
               <div className="relative min-w-0 flex-1 lg:max-w-sm">

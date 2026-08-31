@@ -94,7 +94,10 @@ export default function Planning() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<Form>(emptyForm);
   const [editId, setEditId] = useState<number | null>(null);
-  const [annullaTarget, setAnnullaTarget] = useState<{ id: number; label: string } | null>(null);
+  const [annullaTarget, setAnnullaTarget] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   // External (Google) event tapped → read-only detail sheet.
   const [extDetail, setExtDetail] = useState<any>(null);
@@ -157,14 +160,15 @@ export default function Planning() {
     const squadra = i.squadraId ? squadraById.get(i.squadraId) : null;
     const nomeCognome = cliente
       ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
-      : commessa?.cliente ?? "";
+      : (commessa?.cliente ?? "");
     const indirizzo =
       i.indirizzo ||
       commessa?.indirizzo ||
       cliente?.indirizzoLavoro ||
       cliente?.indirizzo ||
       "";
-    const citta = commessa?.citta || cliente?.cittaLavoro || cliente?.citta || "";
+    const citta =
+      commessa?.citta || cliente?.cittaLavoro || cliente?.citta || "";
     return { commessa, cliente, squadra, nomeCognome, indirizzo, citta };
   }
 
@@ -223,8 +227,8 @@ export default function Planning() {
     }
     for (const k of Object.keys(map)) {
       map[k].sort((a, b) => {
-        const ta = a.allDay ? "00:00" : a.oraInizio ?? "99:99";
-        const tb = b.allDay ? "00:00" : b.oraInizio ?? "99:99";
+        const ta = a.allDay ? "00:00" : (a.oraInizio ?? "99:99");
+        const tb = b.allDay ? "00:00" : (b.oraInizio ?? "99:99");
         return ta.localeCompare(tb);
       });
     }
@@ -297,7 +301,8 @@ export default function Planning() {
   function navigate(delta: number) {
     if (view === "day") setCursor(addDays(cursor, delta));
     else if (view === "week") setCursor(addDays(cursor, 7 * delta));
-    else setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
+    else
+      setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
   }
 
   const goPrevious = () => navigate(-1);
@@ -330,7 +335,9 @@ export default function Planning() {
     if (linkKind === "commessa" && linkId && !form.indirizzo) {
       const cm = commessaById.get(parseInt(linkId));
       if (cm?.indirizzo) {
-        nextIndirizzo = cm.citta ? `${cm.indirizzo}, ${cm.citta}` : cm.indirizzo;
+        nextIndirizzo = cm.citta
+          ? `${cm.indirizzo}, ${cm.citta}`
+          : cm.indirizzo;
       }
     }
     setForm({ ...form, linkKind, linkId, indirizzo: nextIndirizzo });
@@ -338,15 +345,21 @@ export default function Planning() {
 
   function openEdit(i: any) {
     setEditId(i.id);
-    const linkKind: LinkKind = i.rifacimentoId ? "rifacimento"
-      : i.reclamoId ? "reclamo"
-      : i.ticketId ? "ticket"
-      : "commessa";
+    const linkKind: LinkKind = i.rifacimentoId
+      ? "rifacimento"
+      : i.reclamoId
+        ? "reclamo"
+        : i.ticketId
+          ? "ticket"
+          : "commessa";
     const linkId = String(
-      linkKind === "commessa" ? (i.commessaId ?? "")
-      : linkKind === "ticket" ? (i.ticketId ?? "")
-      : linkKind === "reclamo" ? (i.reclamoId ?? "")
-      : (i.rifacimentoId ?? "")
+      linkKind === "commessa"
+        ? (i.commessaId ?? "")
+        : linkKind === "ticket"
+          ? (i.ticketId ?? "")
+          : linkKind === "reclamo"
+            ? (i.reclamoId ?? "")
+            : (i.rifacimentoId ?? "")
     );
     setForm({
       linkKind,
@@ -375,10 +388,13 @@ export default function Planning() {
 
   function buildPayload(f: Form) {
     const linkIds = {
-      commessaId: f.linkKind === "commessa" && f.linkId ? parseInt(f.linkId) : null,
+      commessaId:
+        f.linkKind === "commessa" && f.linkId ? parseInt(f.linkId) : null,
       ticketId: f.linkKind === "ticket" && f.linkId ? parseInt(f.linkId) : null,
-      reclamoId: f.linkKind === "reclamo" && f.linkId ? parseInt(f.linkId) : null,
-      rifacimentoId: f.linkKind === "rifacimento" && f.linkId ? parseInt(f.linkId) : null,
+      reclamoId:
+        f.linkKind === "reclamo" && f.linkId ? parseInt(f.linkId) : null,
+      rifacimentoId:
+        f.linkKind === "rifacimento" && f.linkId ? parseInt(f.linkId) : null,
     };
     return {
       ...linkIds,
@@ -452,7 +468,9 @@ export default function Planning() {
       return (ticketList.data ?? []).map((t: any) => ({
         value: String(t.id),
         label: `#${t.id} — ${t.oggetto ?? t.titolo ?? "Ticket"}`,
-        keywords: [t.oggetto, t.titolo, t.descrizione].filter(Boolean).join(" "),
+        keywords: [t.oggetto, t.titolo, t.descrizione]
+          .filter(Boolean)
+          .join(" "),
       }));
     }
     if (form.linkKind === "reclamo") {
@@ -486,7 +504,7 @@ export default function Planning() {
       : null;
     const nomeCognome = cliente
       ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
-      : commessa.cliente ?? "";
+      : (commessa.cliente ?? "");
     const squadra = form.squadraId
       ? squadraById.get(parseInt(form.squadraId))
       : null;
@@ -508,7 +526,9 @@ export default function Planning() {
         {nomeCognome && (
           <div className="flex min-w-0 items-center gap-1.5">
             <UserIcon className="h-3.5 w-3.5 text-text-3" />
-            <span className="min-w-0 truncate font-semibold">{nomeCognome}</span>
+            <span className="min-w-0 truncate font-semibold">
+              {nomeCognome}
+            </span>
           </div>
         )}
         {(commessa.indirizzo ||
@@ -586,7 +606,12 @@ export default function Planning() {
         getJoined={getJoinedInfo}
         onNew={() => openCreateFor(toDateStr(cursor))}
         onEdit={openEdit}
-        onAnnulla={(i) => setAnnullaTarget({ id: i.id, label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim() })}
+        onAnnulla={i =>
+          setAnnullaTarget({
+            id: i.id,
+            label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim(),
+          })
+        }
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -603,7 +628,12 @@ export default function Planning() {
         getJoined={getJoinedInfo}
         onNew={openCreateFor}
         onEdit={openEdit}
-        onAnnulla={(i) => setAnnullaTarget({ id: i.id, label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim() })}
+        onAnnulla={i =>
+          setAnnullaTarget({
+            id: i.id,
+            label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim(),
+          })
+        }
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -620,7 +650,7 @@ export default function Planning() {
         getJoined={getJoinedInfo}
         onNew={openCreateFor}
         onEdit={openEdit}
-        onOpenDay={(dateStr) => {
+        onOpenDay={dateStr => {
           setCursor(new Date(dateStr + "T12:00:00"));
           setView("day");
         }}
@@ -639,7 +669,8 @@ export default function Planning() {
     ? {
         kind: "loading",
         title: "Carico il calendario",
-        description: "Recupero gli appuntamenti della sede per il periodo selezionato.",
+        description:
+          "Recupero gli appuntamenti della sede per il periodo selezionato.",
         rows: 4,
       }
     : interventi.error
@@ -682,48 +713,50 @@ export default function Planning() {
     externalSources.error || externalEvents.error
   );
 
-  const legendaCalendari: ReactNode = externalSources.isPending ? null : overlayNonDisponibile ? (
-    <p
-      role="status"
-      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2"
-    >
-      <CloudOff className="h-3.5 w-3.5 shrink-0 text-warning" />
-      Calendari esterni non raggiungibili: gli eventi Google non sono mostrati.
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="min-h-11"
-        onClick={() => {
-          externalSources.refetch();
-          externalEvents.refetch();
-        }}
+  const legendaCalendari: ReactNode =
+    externalSources.isPending ? null : overlayNonDisponibile ? (
+      <p
+        role="status"
+        className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2"
       >
-        Riprova
-      </Button>
-    </p>
-  ) : activeExternalSources.length > 0 ? (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
-      <span className="inline-flex items-center gap-1 text-text-3">
-        <Lock className="h-3 w-3" /> Google (sola lettura):
-      </span>
-      {activeExternalSources.map((s: any) => (
-        <span key={s.id} className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: s.color }}
-          />
-          {s.nome}
+        <CloudOff className="h-3.5 w-3.5 shrink-0 text-warning" />
+        Calendari esterni non raggiungibili: gli eventi Google non sono
+        mostrati.
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-h-11"
+          onClick={() => {
+            externalSources.refetch();
+            externalEvents.refetch();
+          }}
+        >
+          Riprova
+        </Button>
+      </p>
+    ) : activeExternalSources.length > 0 ? (
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
+        <span className="inline-flex items-center gap-1 text-text-3">
+          <Lock className="h-3 w-3" /> Google (sola lettura):
         </span>
-      ))}
-    </div>
-  ) : (
-    <p className="inline-flex min-w-0 items-center gap-1.5 text-xs text-text-3">
-      <CloudOff className="h-3.5 w-3.5 shrink-0" />
-      Nessun calendario esterno collegato
-    </p>
-  );
+        {activeExternalSources.map((s: any) => (
+          <span key={s.id} className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: s.color }}
+            />
+            {s.nome}
+          </span>
+        ))}
+      </div>
+    ) : (
+      <p className="inline-flex min-w-0 items-center gap-1.5 text-xs text-text-3">
+        <CloudOff className="h-3.5 w-3.5 shrink-0" />
+        Nessun calendario esterno collegato
+      </p>
+    );
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-5">
@@ -770,7 +803,7 @@ export default function Planning() {
       />
 
       <div className="min-w-0 space-y-4">
-        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
+        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface px-4 py-3">
           <PlanningToolbar
             view={view}
             cursor={cursor}
@@ -808,7 +841,7 @@ export default function Planning() {
       <PlanningInterventoSheet
         mode={editId ? "edit" : "create"}
         open={dialogOpen}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           if (!open) {
             setDialogOpen(false);
             setEditId(null);
@@ -816,8 +849,8 @@ export default function Planning() {
         }}
         draft={form}
         onDraftChange={setForm}
-        onLinkKindChange={(kind) => handleLinkChange(kind, "")}
-        onLinkIdChange={(linkId) => handleLinkChange(form.linkKind, linkId)}
+        onLinkKindChange={kind => handleLinkChange(kind, "")}
+        onLinkIdChange={linkId => handleLinkChange(form.linkKind, linkId)}
         linkOptions={linkOptions}
         squadre={squadre.data ?? []}
         contesto={contestoCommessa}
@@ -836,7 +869,8 @@ export default function Planning() {
                 setDialogOpen(false);
                 setAnnullaTarget({
                   id: intervento.id,
-                  label: `${tipoLabels[intervento.tipo] ?? intervento.tipo} ${intervento.oraInizio ?? ""}`.trim(),
+                  label:
+                    `${tipoLabels[intervento.tipo] ?? intervento.tipo} ${intervento.oraInizio ?? ""}`.trim(),
                 });
               }
             : undefined
@@ -847,7 +881,7 @@ export default function Planning() {
       <PlanningInterventoSheet
         mode="read-external"
         open={!!extDetail}
-        onOpenChange={(open) => !open && setExtDetail(null)}
+        onOpenChange={open => !open && setExtDetail(null)}
         event={extDetail}
       />
 
@@ -858,7 +892,9 @@ export default function Planning() {
         title="Elimina appuntamento"
         description={`Confermi l'eliminazione dell'appuntamento "${annullaTarget?.label}"? L'appuntamento verrà rimosso definitivamente dal calendario.`}
         confirmLabel="Elimina appuntamento"
-        onConfirm={() => annullaTarget && deleteIntervento.mutate(annullaTarget.id)}
+        onConfirm={() =>
+          annullaTarget && deleteIntervento.mutate(annullaTarget.id)
+        }
       />
     </div>
   );
@@ -870,7 +906,11 @@ function DayView(props: {
   interventi: any[];
   externalItems: any[];
   onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
+  getJoined: (i: any) => {
+    nomeCognome: string;
+    indirizzo: string;
+    citta?: string;
+  };
   onNew: () => void;
   onEdit: (i: any) => void;
   onAnnulla: (i: any) => void;
@@ -887,7 +927,11 @@ function DayView(props: {
     <Card className={isToday ? "border-primary/40" : ""}>
       <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <CardTitle className="text-base capitalize">
-          {props.date.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}
+          {props.date.toLocaleDateString("it-IT", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })}
         </CardTitle>
         {props.canCreate ? (
           <Button variant="ghost" size="sm" onClick={props.onNew}>
@@ -898,7 +942,7 @@ function DayView(props: {
       <CardContent
         className="min-h-[400px] space-y-2"
         onDragOver={props.onDragOver}
-        onDrop={(e) => props.onDrop(e, dateStr)}
+        onDrop={e => props.onDrop(e, dateStr)}
       >
         {props.interventi.length === 0 && props.externalItems.length === 0 ? (
           <p className="text-sm text-text-2 text-center py-12">
@@ -913,7 +957,7 @@ function DayView(props: {
                 joined={props.getJoined(i)}
                 onEdit={() => props.onEdit(i)}
                 onAnnulla={() => props.onAnnulla(i)}
-                onDragStart={(e) => props.onDragStart(e, i)}
+                onDragStart={e => props.onDragStart(e, i)}
                 draggingId={props.draggingId}
                 size="large"
                 canDelete={props.canDelete}
@@ -940,7 +984,11 @@ function WeekView(props: {
   byDay: Record<string, any[]>;
   externalByDay: Record<string, any[]>;
   onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
+  getJoined: (i: any) => {
+    nomeCognome: string;
+    indirizzo: string;
+    citta?: string;
+  };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
   onAnnulla: (i: any) => void;
@@ -967,13 +1015,17 @@ function WeekView(props: {
             key={dateStr}
             className={`min-w-0 min-h-[200px] ${isToday ? "border-primary/40 bg-surface-2" : ""} ${isWeekend ? "opacity-70" : ""}`}
             onDragOver={props.onDragOver}
-            onDrop={(e) => props.onDrop(e, dateStr)}
+            onDrop={e => props.onDrop(e, dateStr)}
           >
             <CardHeader className="pb-2 pt-3 px-3">
               <CardTitle className="text-xs font-medium flex items-center justify-between">
-                <span className={isToday ? "font-bold" : ""}>{dayNames[idx]}</span>
+                <span className={isToday ? "font-bold" : ""}>
+                  {dayNames[idx]}
+                </span>
                 <div className="flex items-center gap-1">
-                  <span className={`text-lg font-bold ${isToday ? "bg-primary text-primary-foreground rounded-full w-7 h-7 flex items-center justify-center" : ""}`}>
+                  <span
+                    className={`text-lg font-bold ${isToday ? "bg-primary text-primary-foreground rounded-full w-7 h-7 flex items-center justify-center" : ""}`}
+                  >
                     {day.getDate()}
                   </span>
                   {props.canCreate ? (
@@ -998,7 +1050,7 @@ function WeekView(props: {
                   joined={props.getJoined(i)}
                   onEdit={() => props.onEdit(i)}
                   onAnnulla={() => props.onAnnulla(i)}
-                  onDragStart={(e) => props.onDragStart(e, i)}
+                  onDragStart={e => props.onDragStart(e, i)}
                   draggingId={props.draggingId}
                   size="small"
                   canDelete={props.canDelete}
@@ -1026,7 +1078,11 @@ function MonthView(props: {
   byDay: Record<string, any[]>;
   externalByDay: Record<string, any[]>;
   onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => { nomeCognome: string; indirizzo: string; citta?: string };
+  getJoined: (i: any) => {
+    nomeCognome: string;
+    indirizzo: string;
+    citta?: string;
+  };
   onNew: (dateStr: string) => void;
   onEdit: (i: any) => void;
   onOpenDay: (dateStr: string) => void;
@@ -1043,9 +1099,7 @@ function MonthView(props: {
   const monthNum = props.cursor.getMonth();
   // 6th row is only rendered when the month actually spills into it — avoids a
   // near-empty trailing week.
-  const lastWeekUsed = days
-    .slice(35)
-    .some((d) => d.getMonth() === monthNum);
+  const lastWeekUsed = days.slice(35).some(d => d.getMonth() === monthNum);
   const visibleDays = lastWeekUsed ? days : days.slice(0, 35);
 
   return (
@@ -1063,7 +1117,7 @@ function MonthView(props: {
         ))}
       </div>
       <div className="grid grid-cols-7">
-        {visibleDays.map((day) => {
+        {visibleDays.map(day => {
           const dateStr = toDateStr(day);
           const isToday = dateStr === todayStr;
           const isOutsideMonth = day.getMonth() !== monthNum;
@@ -1081,17 +1135,21 @@ function MonthView(props: {
             ...extItems.map((x: any) => ({
               kind: "ext" as const,
               data: x,
-              t: x.allDay ? "00:00" : x.oraInizio ?? "99:99",
+              t: x.allDay ? "00:00" : (x.oraInizio ?? "99:99"),
             })),
           ].sort((a, b) => a.t.localeCompare(b.t));
           return (
             <div
               key={dateStr}
               className={`group min-w-0 min-h-[132px] p-1.5 border-b border-r border-border-soft last:border-r-0 transition-colors ${
-                isOutsideMonth ? "bg-surface-2/50" : isWeekend ? "bg-surface-2/30" : ""
+                isOutsideMonth
+                  ? "bg-surface-2/50"
+                  : isWeekend
+                    ? "bg-surface-2/30"
+                    : ""
               } ${isToday ? "bg-primary/[0.06]" : ""}`}
               onDragOver={props.onDragOver}
-              onDrop={(e) => props.onDrop(e, dateStr)}
+              onDrop={e => props.onDrop(e, dateStr)}
             >
               <div className="flex items-center justify-between mb-1">
                 <span
@@ -1099,8 +1157,8 @@ function MonthView(props: {
                     isToday
                       ? "bg-primary text-primary-foreground"
                       : isOutsideMonth
-                      ? "text-text-3"
-                      : "text-text-1"
+                        ? "text-text-3"
+                        : "text-text-1"
                   }`}
                 >
                   {day.getDate()}
@@ -1118,14 +1176,14 @@ function MonthView(props: {
                 )}
               </div>
               <div className="space-y-1">
-                {merged.slice(0, 3).map((m) => {
+                {merged.slice(0, 3).map(m => {
                   if (m.kind === "ext") {
                     const e = m.data;
                     return (
                       <button
                         key={`ext-${e.id}`}
                         type="button"
-                        onClick={(ev) => {
+                        onClick={ev => {
                           ev.stopPropagation();
                           props.onOpenExternal(e);
                         }}
@@ -1149,18 +1207,20 @@ function MonthView(props: {
                   const i = m.data;
                   const j = props.getJoined(i);
                   const label = j.nomeCognome || tipoLabels[i.tipo] || i.tipo;
-                  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
-                  const soft = CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
+                  const color =
+                    CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
+                  const soft =
+                    CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
                   return (
                     <div
                       key={i.id}
                       draggable
-                      onDragStart={(e) => props.onDragStart(e, i)}
+                      onDragStart={e => props.onDragStart(e, i)}
                       className={`min-w-0 ${props.draggingId === i.id ? "opacity-40" : ""}`}
                     >
                       <button
                         type="button"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           props.onEdit(i);
                         }}
@@ -1183,7 +1243,7 @@ function MonthView(props: {
                 {merged.length > 3 && (
                   <button
                     type="button"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       props.onOpenDay(dateStr);
                     }}
@@ -1318,7 +1378,9 @@ function InterventoBlock(props: {
           onClick={props.onEdit}
           className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/55"
         >
-          <span className={`${props.size === "large" ? "text-xs" : "text-[10px]"} flex items-center gap-1.5 flex-wrap`}>
+          <span
+            className={`${props.size === "large" ? "text-xs" : "text-[10px]"} flex items-center gap-1.5 flex-wrap`}
+          >
             <span
               className="rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
               style={{ backgroundColor: soft, color }}
@@ -1345,13 +1407,19 @@ function InterventoBlock(props: {
             </span>
           )}
           {indirizzoFull && (
-            <span className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"}`}>
+            <span
+              className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"}`}
+            >
               <MapPin className="h-2.5 w-2.5 shrink-0" />
               <span className="truncate">{indirizzoFull}</span>
             </span>
           )}
           {i.note && (
-            <span className={`mt-0.5 block text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"} line-clamp-2`}>{i.note}</span>
+            <span
+              className={`mt-0.5 block text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"} line-clamp-2`}
+            >
+              {i.note}
+            </span>
           )}
           <Badge
             variant={i.stato === "in_corso" ? "default" : "secondary"}
@@ -1363,7 +1431,10 @@ function InterventoBlock(props: {
         {props.canDelete ? (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); props.onAnnulla(); }}
+            onClick={e => {
+              e.stopPropagation();
+              props.onAnnulla();
+            }}
             className="shrink-0 rounded p-0.5 hover:bg-danger-soft hover:text-danger transition-colors"
             aria-label="Elimina appuntamento"
             title="Elimina appuntamento"

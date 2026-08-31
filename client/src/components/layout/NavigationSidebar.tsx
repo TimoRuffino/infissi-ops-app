@@ -317,16 +317,16 @@ export default function NavigationSidebar({
             )}
           </CollapsedTooltip>
         ) : (
-          <div className="flex min-w-0 items-center gap-2.5 rounded-[var(--radius-control)] bg-surface-2 px-3 py-2.5">
+          <div className="flex min-w-0 flex-col items-center gap-2 rounded-[var(--radius-control)] bg-surface-2 px-3 py-3.5">
             {avatarImage ? (
-              <Avatar className="size-12 shrink-0 border border-sidebar-border bg-brand-soft">
+              <Avatar className="size-20 shrink-0 border border-sidebar-border bg-brand-soft">
                 {avatarImage}
-                <AvatarFallback className="bg-brand-soft text-sm font-bold text-accent-text">
+                <AvatarFallback className="bg-brand-soft text-xl font-bold text-accent-text">
                   {iniziali(userName)}
                 </AvatarFallback>
               </Avatar>
             ) : null}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 max-w-full text-center">
               <p className="truncate text-sm font-semibold text-text-1">
                 {userName ?? "Utente"}
               </p>

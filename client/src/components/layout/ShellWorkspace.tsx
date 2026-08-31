@@ -33,11 +33,16 @@ export default function ShellWorkspace({
         </div>
         <div className="flex min-h-0 min-w-0 flex-col bg-[var(--shell-canvas)] min-[1200px]:h-full">
           {contextBar}
+          {/* Il padding verticale desktop vive nel contenuto, non nel main:
+              così una toolbar `sticky top-0` aderisce al bordo reale dell'area
+              scorrevole e nessuna riga resta visibile sopra di essa. */}
           <main
             id="contenuto-principale"
-            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6 min-[1200px]:py-6"
+            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6 min-[1200px]:pb-0 min-[1200px]:pt-0"
           >
-            {children}
+            <div className="flex min-h-0 min-w-0 flex-col min-[1200px]:min-h-full min-[1200px]:py-6">
+              {children}
+            </div>
           </main>
         </div>
       </div>

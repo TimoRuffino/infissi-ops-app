@@ -290,8 +290,9 @@ export default function Magazzino() {
   );
 
   const totProdotti = prodotti.data?.length ?? 0;
-  const totArrivati = (prodotti.data ?? []).filter((p: any) => p.arrivato)
-    .length;
+  const totArrivati = (prodotti.data ?? []).filter(
+    (p: any) => p.arrivato
+  ).length;
   const inArrivo = totProdotti - totArrivati;
   const inRitardo = (prodotti.data ?? []).filter(
     (p: any) =>
@@ -502,7 +503,7 @@ export default function Magazzino() {
       />
 
       <div className="min-w-0 space-y-4">
-        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
+        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface px-1 py-3">
           <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1 lg:max-w-sm">
               <Search
@@ -722,7 +723,8 @@ export default function Magazzino() {
               <SearchSelect
                 options={eligibili.map((c: any) => ({
                   value: String(c.id),
-                  label: `${c.codice ?? `#${c.id}`} — ${c.cliente ?? ""}`.trim(),
+                  label:
+                    `${c.codice ?? `#${c.id}`} — ${c.cliente ?? ""}`.trim(),
                   keywords: [c.codice, c.cliente, c.citta]
                     .filter(Boolean)
                     .join(" "),
@@ -782,9 +784,7 @@ export default function Magazzino() {
                 type="button"
                 variant="ghost"
                 className="min-h-11"
-                onClick={() =>
-                  setLocation(`/commesse/${commessaDettaglio.id}`)
-                }
+                onClick={() => setLocation(`/commesse/${commessaDettaglio.id}`)}
               >
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                 Apri commessa
@@ -804,9 +804,7 @@ export default function Magazzino() {
                     p={p}
                     today={today}
                     onUpdate={patch => update.mutate({ id: p.id, ...patch })}
-                    onDelete={() =>
-                      setDeleteTarget({ id: p.id, nome: p.nome })
-                    }
+                    onDelete={() => setDeleteTarget({ id: p.id, nome: p.nome })}
                     pending={consegnaInCorso === p.id}
                   />
                 ))}
@@ -1098,7 +1096,7 @@ function ProdottoRow({
           <Input
             aria-label="Numero ordine"
             placeholder="—"
-            value={ordineDraft ?? (p.numeroOrdine ?? "")}
+            value={ordineDraft ?? p.numeroOrdine ?? ""}
             onChange={e => setOrdineDraft(e.target.value)}
             onBlur={() => {
               if (ordineDraft == null) return;
@@ -1170,7 +1168,7 @@ function ProdottoRow({
         <Input
           aria-label="Nota consegna"
           placeholder="Aggiungi nota…"
-          value={noteDraft ?? (p.note ?? "")}
+          value={noteDraft ?? p.note ?? ""}
           onChange={e => setNoteDraft(e.target.value)}
           onBlur={() => {
             if (noteDraft == null) return;

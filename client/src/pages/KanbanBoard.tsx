@@ -334,7 +334,7 @@ export default function KanbanBoard() {
 
       <section
         aria-label="Strumenti Board"
-        className="sticky top-0 z-10 min-w-0 space-y-3 rounded-[var(--radius-panel)] border border-border-soft bg-[var(--shell-canvas)]/95 p-3 shadow-[var(--shadow-raised)] backdrop-blur-md"
+        className="sticky top-0 z-10 min-w-0 space-y-3 rounded-[var(--radius-panel)] border border-border-soft bg-[var(--shell-canvas)] p-3 shadow-[var(--shadow-raised)]"
       >
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">

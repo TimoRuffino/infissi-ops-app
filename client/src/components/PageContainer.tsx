@@ -22,7 +22,13 @@ export default function PageContainer({
   return (
     <motion.div
       data-page-transition
-      className={cn("min-w-0", className)}
+      // `flex-col` + `flex-1` propagano l'altezza dell'area di lavoro alle
+      // pagine a tutta altezza (Tars, chat, inbox): senza, il loro `flex-1`
+      // si fermerebbe su questo wrapper e il pannello resterebbe corto.
+      className={cn(
+        "flex min-h-0 min-w-0 flex-col min-[1200px]:flex-1",
+        className
+      )}
       initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={prefersReducedMotion ? undefined : { opacity: 0, y: -2 }}

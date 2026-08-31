@@ -251,7 +251,9 @@ function Messaggio({
         </div>
 
         {Object.keys(reazioni).length > 0 && (
-          <div className={cn("mt-1 flex flex-wrap gap-1", mio && "justify-end")}>
+          <div
+            className={cn("mt-1 flex flex-wrap gap-1", mio && "justify-end")}
+          >
             {Object.entries(reazioni).map(([emoji, ids]) => {
               const mia = ioId != null && ids.includes(ioId);
               return (
@@ -434,7 +436,7 @@ export default function ChatAziendale() {
   );
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-h-[560px] min-w-0 flex-col gap-3 overflow-hidden">
+    <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[560px] min-w-0 flex-col gap-3 overflow-hidden">
       <PageHeader
         variant="workbench"
         eyebrow="Comunicazione interna"
@@ -452,9 +454,7 @@ export default function ChatAziendale() {
                 <strong className="tabular-nums text-text-1">
                   {elencoCanali.length}
                 </strong>{" "}
-                {elencoCanali.length === 1
-                  ? "conversazione"
-                  : "conversazioni"}
+                {elencoCanali.length === 1 ? "conversazione" : "conversazioni"}
               </span>
               <span>
                 <strong className="tabular-nums text-text-1">
@@ -642,8 +642,7 @@ export default function ChatAziendale() {
               ) : (
                 <ul className="space-y-0.5">
                   {elencoCanali.map(canale => {
-                    const attivo =
-                      canale.id === canaleAttivo?.id && showThread;
+                    const attivo = canale.id === canaleAttivo?.id && showThread;
                     const diretta = canale.tipo === "diretto";
                     return (
                       <li key={canale.id}>
@@ -850,7 +849,9 @@ export default function ChatAziendale() {
                 type="button"
                 size="icon"
                 className="h-12 w-12 shrink-0 sm:h-11 sm:w-11"
-                aria-label={invia.isPending ? "Invio in corso" : "Invia messaggio"}
+                aria-label={
+                  invia.isPending ? "Invio in corso" : "Invia messaggio"
+                }
                 disabled={!canaleAttivo || !bozza.trim() || invia.isPending}
                 onClick={spedisci}
               >

@@ -135,7 +135,7 @@ function StatoPagina({
 function CaricamentoPagina() {
   return (
     <div
-      className="flex h-[calc(100dvh-8rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card"
+      className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card"
       role="status"
       aria-label="Caricamento Tars"
     >
@@ -895,7 +895,7 @@ export default function Tars() {
 
   return (
     <>
-      <div className="flex h-[calc(100dvh-8rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card">
+      <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card">
         <aside className="hidden h-full w-72 shrink-0 border-r border-border-soft md:block xl:w-80">
           <ListaWorkbench erroreAzione={erroreGestione} {...listaProps} />
         </aside>
