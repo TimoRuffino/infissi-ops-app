@@ -51,7 +51,55 @@ export function ContextTransitionScreen({
   );
 }
 
-export function DashboardLayoutSkeleton() {
+export function DashboardLayoutSkeleton({
+  modularControl = false,
+}: {
+  modularControl?: boolean;
+}) {
+  if (modularControl) {
+    return (
+      <div
+        className="min-h-dvh bg-[var(--shell-workspace)] min-[1200px]:min-h-[calc(100dvh-32px)]"
+        role="status"
+        aria-label="Preparazione interfaccia"
+      >
+        <div className="grid min-h-[inherit] grid-cols-1 min-[1200px]:grid-cols-[240px_minmax(0,1fr)]">
+          <div className="hidden border-r border-border-soft bg-sidebar p-3 min-[1200px]:block">
+            <div className="flex h-12 items-center gap-3 px-2">
+              <Skeleton className="h-8 w-8 rounded-[var(--radius-control)]" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <Skeleton className="mt-4 h-14 w-full rounded-[var(--radius-control)]" />
+            <div className="mt-6 space-y-3">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-10 w-full rounded-[var(--radius-control)]" />
+              <Skeleton className="h-10 w-full rounded-[var(--radius-control)]" />
+              <Skeleton className="h-10 w-full rounded-[var(--radius-control)]" />
+            </div>
+          </div>
+
+          <div className="min-w-0 bg-[var(--shell-canvas)]">
+            <div className="flex h-[72px] items-center gap-3 border-b border-border-soft bg-surface px-4 min-[1200px]:px-5">
+              <Skeleton className="h-5 w-44" />
+              <Skeleton className="ml-auto hidden h-10 w-48 rounded-[var(--radius-control)] md:block" />
+              <Skeleton className="h-10 w-10 rounded-[var(--radius-control)]" />
+              <Skeleton className="h-10 w-28 rounded-[var(--radius-control)]" />
+            </div>
+            <div className="space-y-4 p-4 sm:p-5 min-[1200px]:p-6">
+              <Skeleton className="h-8 w-56 rounded-[var(--radius-control)]" />
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
+                <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
+                <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
+              </div>
+              <Skeleton className="h-64 rounded-[var(--radius-panel)]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-background">
       <div className="hidden w-[280px] space-y-6 border-r border-border-soft bg-surface p-4 md:block">

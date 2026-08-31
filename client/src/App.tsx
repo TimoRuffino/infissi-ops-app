@@ -203,8 +203,8 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      {/* Il toggle è esposto solo dalla shell v2 (menu utente); la
-          preferenza vive in rf-theme. Senza scelta esplicita: chiaro. */}
+      {/* Modular Control espone il tema dal menu profilo; il renderer legacy
+          resta un rollback separato. La preferenza vive in rf-theme. */}
       <ThemeProvider defaultTheme="light" switchable storageKey="rf-theme">
         <TooltipProvider>
           <Toaster

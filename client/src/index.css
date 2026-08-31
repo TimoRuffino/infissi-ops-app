@@ -823,7 +823,7 @@
 @media (min-width: 1200px) {
   [data-ui-system="modular-control"] #root {
     width: calc(100% - 32px);
-    max-width: 1880px;
+    max-width: 1728px;
     min-height: calc(100dvh - 32px);
     margin: 16px auto;
     overflow: clip;
