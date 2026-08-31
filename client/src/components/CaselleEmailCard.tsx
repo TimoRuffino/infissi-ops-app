@@ -5,6 +5,7 @@
 // restituisce mai, nemmeno cifrata.
 
 import { trpc } from "@/lib/trpc";
+import { permessoNegato } from "@/lib/trpcErrors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import DataSurface from "@/components/patterns/DataSurface";
@@ -31,18 +32,6 @@ import {
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-
-/**
- * Vero quando la query è stata rifiutata dal confine dei permessi: la card
- * non riguarda questo utente e resta nascosta, com'era prima. Ogni altro
- * errore è un guasto e va mostrato con un ritentativo, non nascosto.
- */
-function permessoNegato(
-  errore: { data?: { code?: string } | null } | null | undefined
-): boolean {
-  const codice = errore?.data?.code;
-  return codice === "FORBIDDEN" || codice === "UNAUTHORIZED";
-}
 
 export default function CaselleEmailCard() {
   const utils = trpc.useUtils();

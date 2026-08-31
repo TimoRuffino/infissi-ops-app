@@ -5,6 +5,7 @@
 // Meta e approvazione esplicita.
 
 import { trpc } from "@/lib/trpc";
+import { permessoNegato } from "@/lib/trpcErrors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import DataSurface from "@/components/patterns/DataSurface";
@@ -36,18 +37,6 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
-
-/**
- * Vero quando la query è stata rifiutata dal confine dei permessi: la card
- * non riguarda questo utente e resta nascosta, com'era prima. Ogni altro
- * errore è un guasto e va mostrato con un ritentativo, non nascosto.
- */
-function permessoNegato(
-  errore: { data?: { code?: string } | null } | null | undefined
-): boolean {
-  const codice = errore?.data?.code;
-  return codice === "FORBIDDEN" || codice === "UNAUTHORIZED";
-}
 
 // Carica l'SDK Facebook una volta sola. Serve solo quando la direzione
 // apre questa card: non lo si impone a ogni pagina del gestionale.

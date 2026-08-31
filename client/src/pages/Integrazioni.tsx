@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
+import StatePanel from "@/components/patterns/StatePanel";
 import {
   AlertCircle,
   Calendar,
@@ -49,6 +50,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
 import { presentFicSyncStats } from "@/lib/paymentView";
 import { trpc } from "@/lib/trpc";
+import { permessoNegato } from "@/lib/trpcErrors";
 import { toast } from "sonner";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
@@ -107,18 +109,6 @@ const GESTIONE_LINKS: Array<{
   },
 ];
 
-/**
- * Vero quando la query è stata rifiutata dal confine dei permessi: il pannello
- * non riguarda questo utente e resta nascosto, come già faceva la pagina. Ogni
- * altro errore è un guasto e va mostrato con un ritentativo.
- */
-function permessoNegato(
-  errore: { data?: { code?: string } | null } | null | undefined
-): boolean {
-  const codice = errore?.data?.code;
-  return codice === "FORBIDDEN" || codice === "UNAUTHORIZED";
-}
-
 function SezioneHub({
   titolo,
   descrizione,
@@ -145,6 +135,13 @@ function SezioneHub({
 
 export default function Integrazioni() {
   const { user } = useAuth();
+  // Specchio UX del `requireDirezione` che i router mail, Fatture in Cloud e
+  // backup applicano già lato server (`adminProcedure`: `server/routers.ts`
+  // promuove ad `admin` chi ha il ruolo direzione, quindi l'esito coincide).
+  // Serve solo a non stampare intestazioni di sezione sopra pannelli che
+  // sparirebbero comunque: il confine resta il server, e i rami
+  // `permessoNegato` dentro ogni pannello restano come difesa in profondità.
+  // Non è una capability e non va usato per decidere cosa può essere scritto.
   const canManage = isDirezione(user);
 
   return (
@@ -1389,18 +1386,24 @@ function GoogleCalendarImport() {
           </Button>
         </div>
 
+        {/* Lo stato riguarda l'elenco, non la superficie: il modulo di
+            aggiunta qui sopra resta usabile, quindi StatePanel sta fra i figli
+            invece di passare dalla prop `state` di DataSurface. */}
         {list.isLoading ? (
-          <StatoInline
+          <StatePanel
             kind="loading"
-            titolo="Lettura calendari importati"
-            testo="Sto chiedendo al server le sorgenti configurate per la sede."
+            compact
+            title="Lettura calendari importati"
+            description="Sto chiedendo al server le sorgenti configurate per la sede."
+            rows={2}
           />
         ) : list.error ? (
-          <StatoInline
+          <StatePanel
             kind="error"
-            titolo="Calendari importati non disponibili"
-            testo="Il server non ha risposto: l'elenco qui sotto non è affidabile."
-            azione={
+            compact
+            title="Calendari importati non disponibili"
+            description="Il server non ha risposto: l'elenco qui sotto non è affidabile."
+            action={
               <Button
                 variant="outline"
                 className="min-h-11"
@@ -1412,10 +1415,11 @@ function GoogleCalendarImport() {
             }
           />
         ) : fonti.length === 0 ? (
-          <StatoInline
+          <StatePanel
             kind="empty"
-            titolo="Nessun calendario Google importato"
-            testo="Aggiungi un indirizzo iCal qui sopra: gli eventi compariranno nel Calendario del CRM."
+            compact
+            title="Nessun calendario Google importato"
+            description="Aggiungi un indirizzo iCal qui sopra: gli eventi compariranno nel Calendario del CRM."
           />
         ) : (
           <ul className="min-w-0 space-y-1.5">
@@ -1557,18 +1561,23 @@ function GoogleCalendarSync() {
           <li>Ripeti per ogni calendario che ti serve (rilievi, pose, …).</li>
         </ol>
 
+        {/* Come sopra: le istruzioni e la rotazione del token restano leggibili
+            anche quando l'elenco dei feed non lo è. */}
         {feeds.isLoading ? (
-          <StatoInline
+          <StatePanel
             kind="loading"
-            titolo="Lettura dei feed della sede"
-            testo="Sto chiedendo al server i link pubblicabili."
+            compact
+            title="Lettura dei feed della sede"
+            description="Sto chiedendo al server i link pubblicabili."
+            rows={2}
           />
         ) : feeds.error ? (
-          <StatoInline
+          <StatePanel
             kind="error"
-            titolo="Feed non disponibili"
-            testo="Il server non ha risposto: i link non sono leggibili in questo momento."
-            azione={
+            compact
+            title="Feed non disponibili"
+            description="Il server non ha risposto: i link non sono leggibili in questo momento."
+            action={
               <Button
                 variant="outline"
                 className="min-h-11"
@@ -1580,10 +1589,11 @@ function GoogleCalendarSync() {
             }
           />
         ) : elenco.length === 0 ? (
-          <StatoInline
+          <StatePanel
             kind="empty"
-            titolo="Nessun feed disponibile per questa sede"
-            testo="Il server non espone link iCal per la sede selezionata."
+            compact
+            title="Nessun feed disponibile per questa sede"
+            description="Il server non espone link iCal per la sede selezionata."
           />
         ) : (
           <ul className="min-w-0 space-y-1.5">
@@ -1660,41 +1670,5 @@ function GoogleCalendarSync() {
         }}
       />
     </DataSurface>
-  );
-}
-
-/**
- * Stato esplicito dentro una superficie che ha già titolo e strumenti: la
- * `state` di DataSurface sostituirebbe l'intero corpo, qui invece il modulo
- * di configurazione resta utilizzabile mentre l'elenco è in errore o vuoto.
- */
-function StatoInline({
-  kind,
-  titolo,
-  testo,
-  azione,
-}: {
-  kind: "loading" | "empty" | "error";
-  titolo: string;
-  testo: string;
-  azione?: ReactNode;
-}) {
-  const urgente = kind === "error";
-  return (
-    <div
-      data-stato={kind}
-      role={urgente ? "alert" : "status"}
-      aria-live={urgente ? "assertive" : "polite"}
-      aria-busy={kind === "loading" || undefined}
-      className={`flex min-w-0 flex-col gap-2 rounded-[var(--radius-control)] border px-3 py-3 ${
-        urgente
-          ? "border-danger/40 bg-danger-soft"
-          : "border-border-soft bg-surface-2"
-      }`}
-    >
-      <p className="text-sm font-semibold text-text-1">{titolo}</p>
-      <p className="text-xs leading-5 text-text-2">{testo}</p>
-      {azione}
-    </div>
   );
 }
