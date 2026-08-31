@@ -263,6 +263,18 @@ function EvidenzeTurno({ payload }: { payload: any }) {
 export default function Tars() {
   const [conversazioneId, setConversazioneId] = useState<number | null>(null);
   const [messaggio, setMessaggio] = useState("");
+
+  // La palette comandi arriva qui con ?q=…: il testo COMPILA il campo e
+  // basta — l'invio resta un atto esplicito dell'utente (mai chiamate al
+  // modello per il solo fatto di aver digitato). Il parametro si rimuove
+  // subito per non ricompilare a ogni ritorno sulla pagina.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) {
+      setMessaggio(q);
+      window.history.replaceState(null, "", "/tars");
+    }
+  }, []);
   // Stato «già fatto» delle azioni, per TUTTI i turni della pagina.
   const [annullati, setAnnullati] = useState<number[]>([]);
   const [applicate, setApplicate] = useState<number[]>([]);

@@ -22,38 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import {
-  BrainCircuit,
-  LayoutDashboard,
-  LogOut,
-  PanelLeft,
-  Building2,
-  CalendarDays,
-  TicketCheck,
-  Users,
-  Shield,
-  Contact,
-  Settings,
-  Truck,
-  Factory,
-  Kanban,
-  AlertTriangle,
-  User,
-  Calculator,
-  Archive,
-  Store,
-  Package,
-  Banknote,
-  TrendingUp,
-  HardHat,
-  Bot,
-  Mail,
-  MessageCircle,
-  MessageSquare,
-  MessagesSquare,
-  ChevronDown,
-  Landmark,
-} from "lucide-react";
+import { ChevronDown, LogOut, PanelLeft, Search } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -62,112 +31,20 @@ import { PromemoriaPopupHost } from "./PromemoriaPopupHost";
 import LoginPage from "@/pages/LoginPage";
 import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
-import { hasRuolo, isDirezione } from "@/lib/roles";
-import { isPathActive, navigationItemState } from "@/lib/navigation";
+import {
+  isPathActive,
+  menuItems,
+  navigationItemState,
+  visibile,
+} from "@/lib/navigation";
+import CommandPalette from "./CommandPalette";
 import { AnimatePresence } from "framer-motion";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-// Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
-// for users without the `direzione` role. Garanzie, Produzione e Fornitori
-// restano fuori — si raggiungono dall'hub Impostazioni (anch'esso riservato
-// alla direzione) per tenere la sidebar sul lavoro di tutti i giorni.
-// Squadre di posa invece è qui: serve a chiunque debba sapere chi è in
-// cantiere, e la sola lettura è aperta a tutti i ruoli.
-type MenuItem = {
-  icon: any;
-  label: string;
-  path: string;
-  badge?: string;
-  direzioneOnly?: boolean;
-  // Solo direzione e amministrazione (superfici economiche).
-  economiaOnly?: boolean;
-  // Richiede la capability `pagamento.read` (vista cassa, slice 2). Finché
-  // le capability non sono caricate vale il fallback di ruolo.
-  pagamentiOnly?: boolean;
-  // Visibile solo con FLAG_TARS acceso (kill switch server-side: la voce
-  // sparisce a flag spento, e comunque il router rifiuta).
-  tarsOnly?: boolean;
-  // Un gruppo: la voce apre/chiude le figlie invece di navigare.
-  children?: MenuItem[];
-};
-
-const menuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: BrainCircuit, label: "Tars", path: "/tars", tarsOnly: true },
-  { icon: Contact, label: "Clienti", path: "/clienti" },
-  {
-    icon: Building2,
-    label: "Commesse",
-    path: "/commesse",
-    children: [
-      { icon: Building2, label: "Commesse", path: "/commesse" },
-      { icon: Kanban, label: "Board", path: "/kanban" },
-      { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
-      { icon: Archive, label: "Archivio", path: "/archivio" },
-    ],
-  },
-  {
-    icon: HardHat,
-    label: "Cantiere",
-    path: "/planning",
-    children: [
-      { icon: CalendarDays, label: "Calendario", path: "/planning" },
-      { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
-      { icon: Package, label: "Magazzino", path: "/magazzino" },
-    ],
-  },
-  {
-    icon: TrendingUp,
-    label: "Economia",
-    path: "/economia",
-    children: [
-      { icon: Landmark, label: "Contabilità", path: "/economia", economiaOnly: true },
-      { icon: Banknote, label: "Pagamenti", path: "/pagamenti", pagamentiOnly: true },
-      { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
-    ],
-  },
-  { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
-  {
-    icon: MessagesSquare,
-    label: "Messaggi",
-    path: "/messaggi/email",
-    children: [
-      { icon: Mail, label: "Email", path: "/messaggi/email" },
-      { icon: MessageCircle, label: "WhatsApp", path: "/messaggi/whatsapp" },
-      // Interna, non con i clienti: sta accanto agli altri canali perché è
-      // lì che si va a cercare "chi mi ha scritto cosa".
-      { icon: MessageSquare, label: "Chat aziendale", path: "/chat" },
-    ],
-  },
-  { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
-  { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
-  { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
-];
-
-// Chi vede una voce: i vincoli rispecchiano quelli del server (il server
-// resta l'autorità — qui si evita solo il link morto). Le voci a capability
-// usano `permessi.mie` quando disponibile; prima del caricamento vale il
-// fallback di ruolo, così direzione e amministrazione non vedono lampeggi e
-// un override individuale compare appena la risposta arriva.
-function visibile(
-  item: MenuItem,
-  user: unknown,
-  capacita: ReadonlySet<string> | null,
-  interruttori?: { tars?: boolean } | null
-): boolean {
-  if (item.tarsOnly && !interruttori?.tars) return false;
-  if (item.direzioneOnly && !isDirezione(user)) return false;
-  if (item.economiaOnly && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
-    return false;
-  }
-  if (item.pagamentiOnly) {
-    if (capacita) return capacita.has("pagamento.read");
-    return isDirezione(user) || hasRuolo(user, "amministrazione");
-  }
-  return true;
-}
+// Il modello di navigazione (voci, gerarchia, regole di visibilità) vive in
+// lib/navigation.ts, condiviso con la palette comandi.
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
@@ -256,6 +133,24 @@ function DashboardLayoutContent({
   const activeMenuItem = tutteLeVoci.find(item => isPathActive(location, item.path));
   const isMobile = useIsMobile();
   useNotificationStream();
+
+  // Palette comandi (shell v2): scorciatoia e trigger esistono solo con la
+  // UI v2 accesa; in v1 il componente non viene nemmeno montato.
+  const uiV2 = Boolean(interruttoriQ.data?.uiV2);
+  const [paletteAperta, setPaletteAperta] = useState(false);
+  const isMac =
+    typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+  useEffect(() => {
+    if (!uiV2) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteAperta((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [uiV2]);
 
   // Non letti in chat: badge nel menu e avviso all'arrivo.
   //
@@ -362,6 +257,25 @@ function DashboardLayoutContent({
             <div className="px-2 pt-2 pb-1">
               <SedeSwitcher collapsed={isCollapsed} />
             </div>
+            {uiV2 && (
+              <SidebarMenu className="px-2 pt-0.5">
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setPaletteAperta(true)}
+                    tooltip={`Cerca (${isMac ? "⌘K" : "Ctrl+K"})`}
+                    className="h-9 font-normal"
+                  >
+                    <Search className="h-4 w-4" />
+                    <span className="flex-1 text-[var(--sidebar-chip-label)]">
+                      Cerca…
+                    </span>
+                    <kbd className="rounded border border-[var(--sidebar-hairline)] px-1 text-[10px] text-[var(--sidebar-chip-label)]">
+                      {isMac ? "⌘K" : "Ctrl+K"}
+                    </kbd>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            )}
             <SidebarMenu className="px-2 py-1">
               {menuItems
                 .map((item) =>
@@ -544,6 +458,15 @@ function DashboardLayoutContent({
           </AnimatePresence>
         </main>
       </SidebarInset>
+      {uiV2 && (
+        <CommandPalette
+          open={paletteAperta}
+          onOpenChange={setPaletteAperta}
+          user={user}
+          capacita={capacita}
+          interruttori={interruttoriQ.data}
+        />
+      )}
     </>
   );
 }
