@@ -39,15 +39,17 @@ import {
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
+import {
+  PRIORITA_VARIANT,
+  PRIORITA_LABEL,
+  statoChipClass,
+  statoColorVar,
+} from "@/lib/stato";
 
 type ColonnaConfig = {
   id: string;
   label: string;
   short: string;
-  dot: string;
-  accent: string;
-  ring: string;
 };
 
 type FaseConfig = {
@@ -57,15 +59,18 @@ type FaseConfig = {
   colonne: ReadonlyArray<ColonnaConfig>;
 };
 
+// I colori delle colonne vengono dalle famiglie di stato in lib/stato
+// (statoChipClass / statoColorVar): un'unica fonte per Board, chip, rail e
+// grafici — mai pastelli locali che dicono cose diverse dal resto del CRM.
 const FASI: ReadonlyArray<FaseConfig> = [
   {
     id: "vendita",
     label: "Vendita",
     description: "Dal preventivo alla conferma",
     colonne: [
-      { id: "preventivo",              label: "Preventivo",              short: "Preventivo",     dot: "bg-st-preventivo",  accent: "bg-slate-50",  ring: "border-slate-200" },
-      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure",         dot: "bg-st-preventivo",  accent: "bg-blue-50",   ring: "border-blue-200" },
-      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto", dot: "bg-st-preventivo",  accent: "bg-cyan-50",   ring: "border-cyan-200" },
+      { id: "preventivo",              label: "Preventivo",              short: "Preventivo" },
+      { id: "misure_esecutive",        label: "Misure Esecutive",        short: "Misure" },
+      { id: "aggiornamento_contratto", label: "Aggiornamento Contratto", short: "Agg. Contratto" },
     ],
   },
   {
@@ -73,9 +78,9 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Ordine & Produzione",
     description: "Fatturazione, ordine, costruzione",
     colonne: [
-      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture",        dot: "bg-st-ordine",  accent: "bg-amber-50",  ring: "border-amber-200" },
-      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare",    dot: "bg-st-ordine", accent: "bg-yellow-50", ring: "border-yellow-200" },
-      { id: "produzione",              label: "Produzione",              short: "Produzione",     dot: "bg-st-ordine", accent: "bg-indigo-50", ring: "border-indigo-200" },
+      { id: "fatture_pagamento",       label: "Fatture / Pagamento",     short: "Fatture" },
+      { id: "da_ordinare",             label: "Da Ordinare",             short: "Da Ordinare" },
+      { id: "produzione",              label: "Produzione",              short: "Produzione" },
     ],
   },
   {
@@ -83,8 +88,8 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Consegna & Posa",
     description: "Secondo acconto, attesa, posa",
     colonne: [
-      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto",   dot: "bg-st-produzione", accent: "bg-purple-50", ring: "border-purple-200" },
-      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa",    dot: "bg-st-produzione", accent: "bg-orange-50", ring: "border-orange-200" },
+      { id: "ordini_ultimazione",      label: "Richiesta Secondo Acconto", short: "2° Acconto" },
+      { id: "attesa_posa",             label: "Attesa Posa",             short: "Attesa Posa" },
     ],
   },
   {
@@ -92,8 +97,8 @@ const FASI: ReadonlyArray<FaseConfig> = [
     label: "Chiusura",
     description: "Saldo e interventi finali",
     colonne: [
-      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture",       dot: "bg-st-pagamento",  accent: "bg-green-50",  ring: "border-green-200" },
-      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi",     dot: "bg-st-pagamento",   accent: "bg-teal-50",   ring: "border-teal-200" },
+      { id: "finiture_saldo",          label: "Finiture / Saldo",        short: "Finiture" },
+      { id: "interventi_regolazioni",  label: "Interventi / Regolaz.",   short: "Interventi" },
     ],
   },
 ];
@@ -344,8 +349,8 @@ export default function KanbanBoard() {
       </div>
 
       {moveError && (
-        <Card className="border-red-300 bg-red-50">
-          <CardContent className="p-3 text-sm text-red-800 flex items-center gap-2">
+        <Card className="border-danger/40 bg-danger-soft">
+          <CardContent className="p-3 text-sm text-danger flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             {moveError}
           </CardContent>
@@ -384,7 +389,7 @@ export default function KanbanBoard() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {faseUrgenti > 0 && (
-                    <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5">
+                    <Badge className="bg-danger-soft text-danger text-[10px] h-5 px-1.5">
                       <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
                       {faseUrgenti}
                     </Badge>
@@ -409,13 +414,13 @@ export default function KanbanBoard() {
                       return (
                         <div key={col.id} className="flex flex-col min-w-0">
                           {/* Column header */}
-                          <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 ${col.accent} ${col.ring}`}>
-                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`} />
+                          <div className={`flex items-center gap-2 rounded-t-lg border border-b-0 border-border-soft px-3 py-2 ${statoChipClass(col.id)}`}>
+                            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: statoColorVar(col.id) }} />
                             <span className="text-xs font-semibold uppercase tracking-wide truncate flex-1">
                               {col.label}
                             </span>
                             {urgentiCount > 0 && (
-                              <Badge className="bg-red-100 text-red-800 text-[10px] h-5 px-1.5 shrink-0">
+                              <Badge className="bg-danger-soft text-danger text-[10px] h-5 px-1.5 shrink-0">
                                 <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
                                 {urgentiCount}
                               </Badge>
@@ -426,7 +431,7 @@ export default function KanbanBoard() {
                           </div>
 
                           {/* Cards container */}
-                          <div className={`flex-1 space-y-2 min-h-[120px] bg-muted/10 rounded-b-lg border border-t-0 p-2 ${col.ring}`}>
+                          <div className="flex-1 space-y-2 min-h-[120px] bg-muted/10 rounded-b-lg border border-t-0 border-border-soft p-2">
                             {(expandedCols[col.id]
                               ? items
                               : items.slice(0, VISIBLE_LIMIT)
@@ -437,12 +442,12 @@ export default function KanbanBoard() {
                               return (
                                 <Card
                                   key={c.id}
-                                  className={`cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all ${
-                                    needsConsegna ? "ring-2 ring-amber-400" : ""
+                                  className={`cursor-pointer transition-shadow hover:shadow-md ${
+                                    needsConsegna ? "ring-2 ring-warning/60" : ""
                                   }`}
                                   style={{
                                     borderLeftColor:
-                                      PRIORITA_EDGE[c.priorita] ?? "#94a3b8",
+                                      PRIORITA_EDGE[c.priorita] ?? "var(--color-border-strong)",
                                     borderLeftWidth: 3,
                                   }}
                                   onClick={() => setLocation(`/commesse/${c.id}`)}
@@ -485,7 +490,7 @@ export default function KanbanBoard() {
                                     )}
 
                                     {c.dataConsegnaConfermata ? (
-                                      <div className="flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 rounded px-1.5 py-0.5">
+                                      <div className="flex items-center gap-1 text-[11px] font-medium text-success bg-success-soft rounded px-1.5 py-0.5">
                                         <CheckCircle2 className="h-3 w-3 shrink-0" />
                                         Consegna: {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
                                       </div>
@@ -576,7 +581,7 @@ export default function KanbanBoard() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-7 w-full text-[10px] border-amber-400 text-amber-700 hover:bg-amber-50"
+                                        className="h-7 w-full text-[10px] border-warning/60 text-warning hover:bg-warning-soft"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setConsegnaTarget({ id: c.id, codice: c.codice });
@@ -596,13 +601,13 @@ export default function KanbanBoard() {
                                             handleMove(c.id, prevCol.id);
                                           }}
                                           title={`Torna a ${prevCol.label}`}
-                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-slate-300 bg-slate-50 px-1.5 py-1 leading-tight text-slate-700 transition-all hover:border-slate-400 hover:bg-slate-100 hover:shadow-sm active:scale-[0.98]"
+                                          className="group inline-flex h-10 flex-col items-center justify-center gap-0 rounded-md border border-border-strong bg-secondary px-1.5 py-1 leading-tight text-secondary-foreground transition-all hover:bg-accent hover:shadow-sm active:scale-[0.98]"
                                         >
                                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide">
                                             <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
                                             Indietro
                                           </span>
-                                          <span className="block w-full truncate text-[9px] font-normal text-slate-500">
+                                          <span className="block w-full truncate text-[9px] font-normal text-text-3">
                                             {prevCol.short}
                                           </span>
                                         </button>
