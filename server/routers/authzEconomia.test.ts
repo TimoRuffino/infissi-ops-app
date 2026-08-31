@@ -54,6 +54,32 @@ function context(
   };
 }
 
+/**
+ * Guardia «nessuna cifra nella notifica condivisa».
+ *
+ * Il confronto avviene su numeri interi, non su sottostringhe: l'id legacy
+ * porta la versione del registro (`saldo-<id>-<attivi>:<epoch>`) e `createdAt`
+ * viene serializzato in ISO con i millisecondi. Dentro quelle cifre volatili
+ * un `toMatch(/500/)` può accendersi per caso — è successo — trasformando una
+ * guardia sugli importi in un test instabile. Estraendo i numeri completi
+ * (decimali inclusi, così `10:00:00.500` resta `00.500`) l'intento resta
+ * intatto: un importo esposto come valore a sé viene ancora trovato.
+ */
+function importiEsposti(payload: unknown, vietati: number[]): string[] {
+  const serializzato = JSON.stringify(payload) ?? "";
+  const numeri = new Set(serializzato.match(/\d+(?:[.,]\d+)?/g) ?? []);
+  const trovati = vietati
+    .map(String)
+    .filter(
+      atteso =>
+        numeri.has(atteso) ||
+        numeri.has(`${atteso}.00`) ||
+        numeri.has(`${atteso},00`)
+    );
+  if (serializzato.includes("€")) trovati.push("€");
+  return trovati;
+}
+
 const direzione = (sedeId = SEDE) =>
   appRouter.createCaller(context(DIREZIONE_ID, ["direzione"], sedeId));
 const amministrazione = (sedeId = SEDE) =>
@@ -488,7 +514,7 @@ describe("superfici condivise — nessun importo fuori dalle capability", () => 
     const prima = await trovaSaldo();
     expect(prima).toBeTruthy();
     expect(prima.message).toBe("Saldo residuo da incassare");
-    expect(JSON.stringify(prima)).not.toMatch(/4000|3000|1000|€/);
+    expect(importiEsposti(prima, [4000, 3000, 1000])).toEqual([]);
 
     await amministrazione().commesse.addPagamento({
       commessaId: commessa.id,
@@ -499,7 +525,7 @@ describe("superfici condivise — nessun importo fuori dalle capability", () => 
     expect(dopo).toBeTruthy();
     // Id nuovo = ri-notifica; ancora nessuna cifra.
     expect(dopo.id).not.toBe(prima.id);
-    expect(JSON.stringify(dopo)).not.toMatch(/4000|2500|1500|500|€/);
+    expect(importiEsposti(dopo, [4000, 2500, 1500, 500])).toEqual([]);
 
     await amministrazione().commesse.addPagamento({
       commessaId: commessa.id,
