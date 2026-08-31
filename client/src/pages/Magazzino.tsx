@@ -93,9 +93,15 @@ const FORNITORI = [
 ];
 
 // `short` evita che quattro etichette lunghe sfondino la riga a 390 px.
+//
+// Il filtro `arrivo` seleziona tutto ciò che non è ancora arrivato — quindi
+// anche righe in ritardo, previste oggi o senza data. Si chiama «Da ricevere»
+// e non «In arrivo» perché quest'ultima è la copy che `deliveryStateCopy`
+// riserva al solo stato `pending` (consegna futura): due significati diversi
+// non possono condividere la stessa parola nella stessa schermata.
 const FILTRI = [
   { id: "tutte", label: "Tutte", short: "Tutte" },
-  { id: "arrivo", label: "In arrivo", short: "Arrivo" },
+  { id: "arrivo", label: "Da ricevere", short: "Ricevere" },
   { id: "ritardo", label: "In ritardo", short: "Ritardo" },
   { id: "arrivati", label: "Arrivati", short: "Arrivati" },
 ] as const;
@@ -167,8 +173,10 @@ export default function Magazzino() {
       toast.success("Prodotto aggiunto al magazzino");
     },
     // Il messaggio del server è l'unica verità sull'eleggibilità: niente
-    // regola client mascherata da certezza, e il form resta aperto.
-    onError: e => toast.error(e.message ?? "Aggiunta non riuscita"),
+    // regola client mascherata da certezza, e il form resta aperto. L'errore
+    // si legge una volta sola, nel banner accanto al form (`create.error`):
+    // un toast in più direbbe la stessa frase due volte e sparirebbe da solo
+    // proprio mentre l'operatore corregge i campi.
   });
   const update = trpc.magazzino.update.useMutation({
     onSuccess: () => utils.magazzino.invalidate(),
@@ -1058,7 +1066,7 @@ function ProdottoRow({
                 onUpdate({ quantita: n });
               setQtaDraft(null);
             }}
-            className="h-9 w-16 text-center tabular-nums"
+            className="min-h-11 w-16 text-center tabular-nums"
           />
         )}
 
@@ -1068,7 +1076,7 @@ function ProdottoRow({
             value={p.fornitore ?? ""}
             onValueChange={v => onUpdate({ fornitore: v || null })}
           >
-            <SelectTrigger aria-label="Fornitore" className="h-9 w-40">
+            <SelectTrigger aria-label="Fornitore" className="min-h-11 w-40">
               <SelectValue placeholder="—" />
             </SelectTrigger>
             <SelectContent>
@@ -1098,7 +1106,7 @@ function ProdottoRow({
                 onUpdate({ numeroOrdine: ordineDraft.trim() || null });
               setOrdineDraft(null);
             }}
-            className="h-9 w-24 font-mono text-xs"
+            className="min-h-11 w-24 font-mono text-xs"
           />
         )}
 
@@ -1109,7 +1117,7 @@ function ProdottoRow({
             type="date"
             value={p.dataOrdine ?? ""}
             onChange={e => onUpdate({ dataOrdine: e.target.value || null })}
-            className="h-9 w-[135px] text-xs"
+            className="min-h-11 w-[135px] text-xs"
           />
         )}
 
@@ -1120,7 +1128,7 @@ function ProdottoRow({
             type="date"
             value={p.dataConsegna ?? ""}
             onChange={e => onUpdate({ dataConsegna: e.target.value || null })}
-            className={`h-9 w-[135px] text-xs ${
+            className={`min-h-11 w-[135px] text-xs ${
               stato === "late" ? "border-danger/50 text-danger" : ""
             }`}
           />
@@ -1128,7 +1136,7 @@ function ProdottoRow({
 
         {field(
           "Arrivato",
-          <div className="flex h-9 items-center">
+          <div className="flex min-h-11 items-center">
             <Switch
               aria-label="Consegna ricevuta"
               checked={p.arrivato}
@@ -1170,7 +1178,7 @@ function ProdottoRow({
               onUpdate({ note: noteDraft.trim() || null });
             setNoteDraft(null);
           }}
-          className="h-9 border-transparent bg-transparent px-1.5 text-xs shadow-none hover:border-border focus-visible:border-border"
+          className="min-h-11 border-transparent bg-transparent px-1.5 text-xs shadow-none hover:border-border focus-visible:border-border"
         />
       </div>
     </div>
