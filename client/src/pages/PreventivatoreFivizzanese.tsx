@@ -1,26 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import {
-  ArrowLeft,
-  Calculator,
-  Copy,
-  Download,
-  FileCheck2,
-  Info,
-  Palette,
-  Plus,
-  Ruler,
-  RotateCcw,
-  Sparkles,
-  Trash2,
-  Wrench,
-} from "lucide-react";
+import { Copy, Download, Plus, RotateCcw, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 
+import MobileFieldHeader from "@/components/operativita/MobileFieldHeader";
+import DataSurface from "@/components/patterns/DataSurface";
+import StatePanel from "@/components/patterns/StatePanel";
+import StickyActionBar from "@/components/patterns/StickyActionBar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,10 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
+import {
+  areaMetriQuadri,
+  millimetriDaInput,
+  millimetriValidi,
+} from "@/lib/preventivatori";
 import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 
 import {
   CENTINATURE,
@@ -45,7 +39,6 @@ import {
   getCentinatura,
   getModello,
   getPromoColore,
-  getSupplemento,
   type Colorazione,
   type Supplemento,
 } from "@shared/listini/fivizzanese";
@@ -86,13 +79,16 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// I confini numerici vivono in `@/lib/preventivatori`, condivisi con l'altro
+// preventivatore: `toMm` è la lettura tollerante storica (una misura non
+// utilizzabile vale 0 e quindi non produce prezzo), `areaMq` la conversione in
+// metri quadri. Delegano, non ricalcolano: i prezzi restano identici.
 function toMm(v: string): number {
-  const n = parseFloat(v.replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  return millimetriDaInput(v);
 }
 
 function areaMq(larghezzaMm: number, altezzaMm: number): number {
-  return (larghezzaMm * altezzaMm) / 1_000_000;
+  return areaMetriQuadri(larghezzaMm, altezzaMm);
 }
 
 // Convert a Blob to a base64 string (no data: prefix) so we can ship it
@@ -616,181 +612,310 @@ export default function PreventivatoreFivizzanese() {
     ? "Salvataggio…"
     : "Scarica PDF";
 
+  // Onestà del totale: una riga senza misura utilizzabile vale zero dentro il
+  // calcolo, quindi il totale che si vede è parziale. Va detto, non nascosto.
+  const righeSenzaMisura = calc.perPersiana.filter((p) => p.areaMq <= 0).length;
+  const righeNonIntere = persiane.filter(
+    (p) =>
+      (p.larghezza.trim() !== "" && millimetriValidi(p.larghezza) === null) ||
+      (p.altezza.trim() !== "" && millimetriValidi(p.altezza) === null)
+  ).length;
+  const totaleParziale = righeSenzaMisura > 0 || calc.totale === 0;
+  const commesse = commesseQuery.data ?? [];
+
+  const statoAzione = uploadPreventivo.isPending
+    ? `Salvataggio nella commessa ${selectedCommessa?.codice ?? ""}…`
+    : righeSenzaMisura > 0
+      ? `${righeSenzaMisura} ${
+          righeSenzaMisura === 1 ? "persiana" : "persiane"
+        } senza misure: il totale non è definitivo.`
+      : selectedCommessa
+        ? `Il PDF viene scaricato e salvato nella commessa ${selectedCommessa.codice} come ${buildFilename()}.`
+        : "Il PDF viene solo scaricato: nessuna commessa collegata.";
+
   return (
-    <div className="space-y-6 pb-24 lg:pb-0">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1 -ml-2"
-              onClick={() => setLocation("/preventivatori")}
+    <div
+      data-page="preventivatore-fivizzanese"
+      className="min-w-0 max-w-6xl space-y-4 pb-2 sm:space-y-5"
+    >
+      <MobileFieldHeader
+        eyebrow="Preventivatori"
+        title="Fivizzanese · Persiane"
+        description="Prezzo al m² per modello e colorazione, con supplementi, centinature e posa. Le misure si inseriscono in millimetri."
+        backLabel="Torna ai preventivatori"
+        onBack={() => setLocation("/preventivatori")}
+        metadata={
+          <>
+            <span>
+              {calc.numPersiane}{" "}
+              {calc.numPersiane === 1 ? "persiana" : "persiane"} in preventivo
+            </span>
+            <span>
+              {prezzoMq ? `${EUR.format(prezzoMq)}/m²` : "Prezzo non a listino"}
+            </span>
+          </>
+        }
+        status={
+          isPromo ? (
+            <Badge variant="warning">Promo attiva</Badge>
+          ) : (
+            <Badge variant="outline">Listino standard</Badge>
+          )
+        }
+      />
+
+      <div className="grid min-w-0 items-start gap-4 sm:gap-5 min-[1200px]:grid-cols-12">
+        <div className="min-w-0 space-y-4 sm:space-y-5 min-[1200px]:col-span-8">
+          <DataSurface
+            id="preventivo-destinatario"
+            density="compact"
+            tone="default"
+            title="Commessa e destinatario"
+            description="La commessa è opzionale: serve solo ad archiviare il PDF nei documenti."
+          >
+            <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor="commessa" className="text-xs font-semibold">
+                  Commessa
+                </Label>
+                <Select value={commessaId} onValueChange={setCommessaId}>
+                  <SelectTrigger id="commessa" className="min-h-11 w-full">
+                    <SelectValue placeholder="Nessuna commessa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nessuna commessa</SelectItem>
+                    {commesse.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.codice} — {c.cliente}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor="riferimento" className="text-xs font-semibold">
+                  Riferimento cliente
+                </Label>
+                <Input
+                  id="riferimento"
+                  placeholder="Es. Sig. Rossi — via Garibaldi"
+                  value={riferimento}
+                  onChange={(e) => setRiferimento(e.target.value)}
+                  className="min-h-11 min-w-0 text-base md:text-sm"
+                />
+              </div>
+            </div>
+
+            {commesseQuery.isPending ? (
+              <p className="text-xs text-text-3">
+                Carico le commesse della sede…
+              </p>
+            ) : commesseQuery.isError ? (
+              <StatePanel
+                kind="error"
+                compact
+                title="Elenco commesse non disponibile"
+                description="Il preventivo si calcola e si scarica lo stesso: senza commessa il PDF non viene archiviato."
+                action={
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => commesseQuery.refetch()}
+                  >
+                    Riprova
+                  </Button>
+                }
+              />
+            ) : commesse.length === 0 ? (
+              <p className="text-xs text-text-3">
+                Nessuna commessa nella sede attiva: il PDF verrà solo scaricato.
+              </p>
+            ) : null}
+
+            <div className="min-w-0 space-y-2 border-t border-border-soft pt-4">
+              <p className="text-sm font-bold text-text-1">Tipo di posa</p>
+              <RadioGroup
+                value={posa}
+                onValueChange={(v) => setPosa(v as Posa)}
+                className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
+              >
+                <OpzioneTile
+                  value="cardini"
+                  label="Su cardini"
+                  current={posa}
+                  disabled={
+                    !!modello?.promo?.posaFissa &&
+                    modello.promo.posaFissa !== "cardini"
+                  }
+                  hint={
+                    modello?.promo?.posaFissa === "cardini" ? "promo" : undefined
+                  }
+                />
+                <OpzioneTile
+                  value="telaio"
+                  label="Su telaio"
+                  current={posa}
+                  disabled={
+                    !!modello?.promo?.posaFissa &&
+                    modello.promo.posaFissa !== "telaio"
+                  }
+                  hint={
+                    modello?.promo?.posaFissa === "telaio" ? "promo" : undefined
+                  }
+                />
+              </RadioGroup>
+              {modello?.promo?.posaFissa ? (
+                <p className="text-xs text-text-3">
+                  Il modello in promozione forza la posa{" "}
+                  {POSA_LABEL[modello.promo.posaFissa].toLowerCase()}.
+                </p>
+              ) : null}
+            </div>
+          </DataSurface>
+
+          <DataSurface
+            id="preventivo-misure"
+            density="compact"
+            tone="default"
+            title="Misure"
+            description="Una scheda per persiana, larghezza e altezza in millimetri. L'area si aggiorna mentre scrivi."
+            toolbar={
+              <Button
+                variant="outline"
+                onClick={addPersiana}
+                className="min-h-11"
+              >
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                Aggiungi persiana
+              </Button>
+            }
+          >
+            <div className="min-w-0 space-y-3">
+              {persiane.map((p, idx) => {
+                const area = areaMq(toMm(p.larghezza), toMm(p.altezza));
+                const larghezzaNonIntera =
+                  p.larghezza.trim() !== "" &&
+                  millimetriValidi(p.larghezza) === null;
+                const altezzaNonIntera =
+                  p.altezza.trim() !== "" && millimetriValidi(p.altezza) === null;
+                return (
+                  <div
+                    key={p.id}
+                    className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3"
+                  >
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <p className="min-w-0 text-sm font-bold text-text-1">
+                        Persiana {idx + 1}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Duplica la persiana ${idx + 1}`}
+                          title="Duplica persiana"
+                          onClick={() => duplicatePersiana(p.id)}
+                          className="min-h-11 min-w-11"
+                        >
+                          <Copy aria-hidden="true" className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Rimuovi la persiana ${idx + 1}`}
+                          title="Rimuovi persiana"
+                          onClick={() => removePersiana(p.id)}
+                          disabled={persiane.length <= 1}
+                          className="min-h-11 min-w-11"
+                        >
+                          <Trash2 aria-hidden="true" className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
+                      <div className="min-w-0 space-y-1.5">
+                        <Label
+                          htmlFor={`larghezza-${p.id}`}
+                          className="text-xs font-semibold"
+                        >
+                          Larghezza (mm)
+                        </Label>
+                        <Input
+                          id={`larghezza-${p.id}`}
+                          inputMode="numeric"
+                          placeholder="1200"
+                          value={p.larghezza}
+                          onChange={(e) =>
+                            updatePersiana(p.id, "larghezza", e.target.value)
+                          }
+                          className="min-h-12 min-w-0 text-base md:min-h-11 md:text-sm"
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label
+                          htmlFor={`altezza-${p.id}`}
+                          className="text-xs font-semibold"
+                        >
+                          Altezza (mm)
+                        </Label>
+                        <Input
+                          id={`altezza-${p.id}`}
+                          inputMode="numeric"
+                          placeholder="1500"
+                          value={p.altezza}
+                          onChange={(e) =>
+                            updatePersiana(p.id, "altezza", e.target.value)
+                          }
+                          className="min-h-12 min-w-0 text-base md:min-h-11 md:text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="mt-2 text-xs text-text-3">
+                      {area > 0 ? (
+                        <span className="text-text-2">
+                          Area{" "}
+                          <strong className="tabular-nums text-text-1">
+                            {MQ.format(area)} m²
+                          </strong>
+                        </span>
+                      ) : (
+                        "Senza entrambe le misure questa persiana non entra nel totale."
+                      )}
+                    </p>
+                    {larghezzaNonIntera || altezzaNonIntera ? (
+                      <p role="status" className="mt-1 text-xs text-warning">
+                        Misura non in millimetri interi: verifica il valore
+                        prima di inviare il preventivo.
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </DataSurface>
+
+          <DataSurface
+            id="preventivo-configurazione"
+            density="compact"
+            tone="default"
+            title="Configurazione"
+            description="Modello, colorazione e voci accessorie del listino Fivizzanese."
+          >
+            <BloccoCampi
+              titolo="Modello e colorazione"
+              descrizione={
+                prezzoMq
+                  ? `Prezzo applicato: ${EUR.format(prezzoMq)}/m².`
+                  : "Nessun prezzo a listino per questa combinazione."
+              }
             >
-              <ArrowLeft className="h-4 w-4" />
-              Preventivatori
-            </Button>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Calculator className="h-6 w-6 text-primary" />
-            Fivizzanese — Persiane
-            {isPromo && (
-              <Badge className="ml-1 bg-warning text-on-warning hover:bg-warning gap-1">
-                <Sparkles className="h-3 w-3" />
-                PROMO
-              </Badge>
-            )}
-          </h1>
-          <p className="text-sm text-muted-foreground max-w-2xl">
-            Preventivatore dedicato alle persiane Fivizzanese. Il prezzo è
-            calcolato al m² in base al modello, colorazione, supplementi e
-            centinature selezionati.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1"
-            onClick={handleReset}
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </Button>
-          <Button
-            onClick={handleExport}
-            className="gap-2"
-            disabled={exportDisabled}
-          >
-            <Download className="h-4 w-4" />
-            {exportLabel}
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ── Colonna form ─────────────────────────────────────────────── */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Banner PROMO */}
-          {isPromo && (
-            <Card className="border-warning/50 bg-warning-soft/60">
-              <CardContent className="pt-4 pb-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 rounded-full bg-warning flex items-center justify-center shrink-0">
-                    <Sparkles className="h-5 w-5 text-white" />
-                  </div>
-                  <div className="space-y-0.5 min-w-0">
-                    <p className="font-semibold text-text-1">
-                      Promozione attiva — {promoColore?.nome ?? "—"}{" "}
-                      {promoColore &&
-                        `(${EUR.format(promoColore.prezzoMq)}/m²)`}
-                    </p>
-                    <p className="text-xs text-warning leading-relaxed">
-                      {modello?.promo?.note ??
-                        "Promozione temporanea sul modello selezionato."}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Dati generali */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Info className="h-4 w-4 text-muted-foreground" />
-                Dati generali
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label>Commessa (opzionale)</Label>
-                  <Select value={commessaId} onValueChange={setCommessaId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Nessuna commessa" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Nessuna commessa</SelectItem>
-                      {(commesseQuery.data ?? []).map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.codice} — {c.cliente}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Riferimento cliente</Label>
-                  <Input
-                    placeholder="Es. Sig. Rossi — via Garibaldi"
-                    value={riferimento}
-                    onChange={(e) => setRiferimento(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Tipo di posa</Label>
-                <RadioGroup
-                  value={posa}
-                  onValueChange={(v) => setPosa(v as Posa)}
-                  className="grid grid-cols-2 gap-2"
-                >
-                  <PosaOption
-                    value="cardini"
-                    label="Su Cardini"
-                    current={posa}
-                    disabled={
-                      !!modello?.promo?.posaFissa &&
-                      modello.promo.posaFissa !== "cardini"
-                    }
-                    hint={
-                      modello?.promo?.posaFissa === "cardini"
-                        ? "promo"
-                        : undefined
-                    }
-                  />
-                  <PosaOption
-                    value="telaio"
-                    label="Su Telaio"
-                    current={posa}
-                    disabled={
-                      !!modello?.promo?.posaFissa &&
-                      modello.promo.posaFissa !== "telaio"
-                    }
-                    hint={
-                      modello?.promo?.posaFissa === "telaio"
-                        ? "promo"
-                        : undefined
-                    }
-                  />
-                </RadioGroup>
-                {modello?.promo?.posaFissa && (
-                  <p className="text-[11px] text-muted-foreground flex items-start gap-1">
-                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    Il modello promo forza la posa su{" "}
-                    {POSA_LABEL[modello.promo.posaFissa]}.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Configurazione prodotto */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Palette className="h-4 w-4 text-muted-foreground" />
-                Configurazione
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Modello persiana</Label>
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor="modello" className="text-xs font-semibold">
+                  Modello persiana
+                </Label>
                 <Select value={modelloKey} onValueChange={setModelloKey}>
-                  <SelectTrigger>
+                  <SelectTrigger id="modello" className="min-h-11 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -802,43 +927,48 @@ export default function PreventivatoreFivizzanese() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>
-                  Colorazione {isPromo && <Badge variant="secondary" className="ml-2">PROMO</Badge>}
-                </Label>
-                {isPromo && modello?.promo ? (
-                  <>
-                    <RadioGroup
-                      value={colorazioneKey}
-                      onValueChange={setColorazioneKey}
-                      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
-                    >
-                      {modello.promo.colori.map((c) => (
-                        <PosaOption
-                          key={c.key}
-                          value={c.key}
-                          label={c.nome}
-                          current={colorazioneKey}
-                          hint={`${EUR.format(c.prezzoMq)}/m²`}
-                        />
-                      ))}
-                    </RadioGroup>
-                    {modello.promo.note && (
-                      <p className="text-[11px] text-muted-foreground flex items-start gap-1">
-                        <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                        {modello.promo.note}
-                      </p>
-                    )}
-                  </>
-                ) : (
+
+              {isPromo && modello?.promo ? (
+                <div className="min-w-0 space-y-2">
+                  <p className="text-xs font-semibold text-text-1">
+                    Colore in promozione
+                  </p>
                   <RadioGroup
                     value={colorazioneKey}
                     onValueChange={setColorazioneKey}
-                    className="grid grid-cols-3 gap-2"
+                    className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
+                  >
+                    {modello.promo.colori.map((c) => (
+                      <OpzioneTile
+                        key={c.key}
+                        value={c.key}
+                        label={c.nome}
+                        current={colorazioneKey}
+                        hint={`${EUR.format(c.prezzoMq)}/m²`}
+                      />
+                    ))}
+                  </RadioGroup>
+                  <p
+                    role="status"
+                    className="rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-xs leading-5 text-warning"
+                  >
+                    {modello.promo.note ??
+                      "Promozione temporanea sul modello selezionato."}
+                  </p>
+                </div>
+              ) : (
+                <div className="min-w-0 space-y-2">
+                  <p className="text-xs font-semibold text-text-1">
+                    Colorazione
+                  </p>
+                  <RadioGroup
+                    value={colorazioneKey}
+                    onValueChange={setColorazioneKey}
+                    className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3"
                   >
                     {(["standard", "speciali", "legno"] as Colorazione[]).map(
                       (c) => (
-                        <PosaOption
+                        <OpzioneTile
                           key={c}
                           value={c}
                           label={COLORAZIONE_LABEL[c]}
@@ -847,498 +977,352 @@ export default function PreventivatoreFivizzanese() {
                       )
                     )}
                   </RadioGroup>
-                )}
-                {prezzoMq && (
-                  <p className="text-xs text-muted-foreground">
-                    Prezzo modello: {EUR.format(prezzoMq)}/m²
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+              )}
+            </BloccoCampi>
 
-          {/* Misure persiane */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Ruler className="h-4 w-4 text-muted-foreground" />
-                Persiane
-                <Badge variant="secondary" className="ml-1">
-                  {persiane.length}
-                </Badge>
-              </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addPersiana}
-                className="gap-1"
+            {isPromo ? (
+              <BloccoCampi
+                titolo="Supplementi e centinature"
+                descrizione="Non applicabili al modello in promozione: il prezzo al m² del colore li comprende già."
               >
-                <Plus className="h-3.5 w-3.5" />
-                Aggiungi
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {persiane.map((p, idx) => {
-                const area = areaMq(toMm(p.larghezza), toMm(p.altezza));
-                const filled = area > 0;
-                return (
-                  <div
-                    key={p.id}
-                    className={`grid grid-cols-12 gap-2 items-end p-3 rounded-md border transition-colors ${
-                      filled
-                        ? "bg-background border-primary/20"
-                        : "bg-muted/20"
-                    }`}
-                  >
-                    <div className="col-span-1 pb-2 flex items-center gap-1">
-                      <span className="text-sm font-semibold text-muted-foreground">
-                        #{idx + 1}
-                      </span>
-                    </div>
-                    <div className="col-span-4 space-y-1">
-                      <Label className="text-xs">Larghezza (mm)</Label>
-                      <Input
-                        inputMode="numeric"
-                        placeholder="1200"
-                        value={p.larghezza}
-                        onChange={(e) =>
-                          updatePersiana(p.id, "larghezza", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="col-span-4 space-y-1">
-                      <Label className="text-xs">Altezza (mm)</Label>
-                      <Input
-                        inputMode="numeric"
-                        placeholder="1500"
-                        value={p.altezza}
-                        onChange={(e) =>
-                          updatePersiana(p.id, "altezza", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="col-span-1 pb-2 text-xs font-mono text-right">
-                      {filled ? (
-                        <span className="text-foreground">
-                          {MQ.format(area)}
-                          <span className="text-muted-foreground"> m²</span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </div>
-                    <div className="col-span-2 pb-1 flex justify-end gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => duplicatePersiana(p.id)}
-                        title="Duplica persiana"
-                        className="h-8 w-8"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removePersiana(p.id)}
-                        disabled={persiane.length <= 1}
-                        title="Rimuovi persiana"
-                        className="h-8 w-8"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Supplementi + Centinature (non applicabili in promo) */}
-          {isPromo ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Wrench className="h-4 w-4 text-muted-foreground" />
-                  Supplementi e centinature
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs text-muted-foreground flex items-start gap-1">
-                  <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  Non applicabili al modello in promozione. Il prezzo €/m² del
-                  colore selezionato è già comprensivo.
+                <p className="text-xs text-text-3">
+                  Cambia modello per tornare al listino standard con supplementi
+                  e centinature.
                 </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              {/* Supplementi */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Wrench className="h-4 w-4 text-muted-foreground" />
-                    Supplementi opzionali
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {supplementiDisponibili.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
+              </BloccoCampi>
+            ) : (
+              <>
+                <BloccoCampi
+                  titolo="Supplementi opzionali"
+                  descrizione="Si applicano a ogni persiana del preventivo."
+                >
+                  {supplementiDisponibili.length === 0 ? (
+                    <p className="text-xs text-text-3">
                       Nessun supplemento a listino per questa colorazione.
                     </p>
-                  )}
-                  {supplementiDisponibili.map((s) => (
-                    <SupplementoRow
-                      key={s.key}
-                      supp={s}
-                      colorazione={colorazione}
-                      checked={effettiveSelezioni.has(s.key)}
-                      onToggle={() => toggleSupplemento(s.key)}
-                    />
-                  ))}
-                  {/* Supplementi non disponibili in questa colorazione (info) */}
-                  {SUPPLEMENTI.filter((s) => s.prezzi[colorazione] === null)
-                    .length > 0 && (
-                    <>
-                      <Separator className="my-3" />
-                      <p className="text-xs text-muted-foreground">
-                        Non a listino per colorazione{" "}
-                        <span className="font-medium">
-                          {COLORAZIONE_LABEL[colorazione]}
-                        </span>
-                        :{" "}
-                        {SUPPLEMENTI.filter(
-                          (s) => s.prezzi[colorazione] === null
-                        )
-                          .map((s) => s.nome)
-                          .join(", ")}
-                      </p>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Centinature */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-muted-foreground" />
-                    Lavorazioni speciali — Centinature
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Select
-                    value={centinaturaAnte}
-                    onValueChange={setCentinaturaAnte}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Nessuna centinatura</SelectItem>
-                      {CENTINATURE.map((c) => (
-                        <SelectItem key={c.ante} value={String(c.ante)}>
-                          {c.ante} {c.ante === 1 ? "anta" : "ante"} —{" "}
-                          {EUR.format(c.prezzo)}/cad.
-                        </SelectItem>
+                  ) : (
+                    <div className="min-w-0 space-y-2">
+                      {supplementiDisponibili.map((s) => (
+                        <SupplementoRow
+                          key={s.key}
+                          supp={s}
+                          colorazione={colorazione}
+                          checked={effettiveSelezioni.has(s.key)}
+                          onToggle={() => toggleSupplemento(s.key)}
+                        />
                       ))}
-                    </SelectContent>
-                  </Select>
-                  {calc.centinaturaAnte && (
-                    <p className="text-xs text-muted-foreground">
-                      {EUR.format(calc.centinaturaCostoUnitario)} ×{" "}
-                      {calc.numPersiane} persiane ={" "}
-                      {EUR.format(calc.centinaturaTotale)}
-                    </p>
+                    </div>
                   )}
-                </CardContent>
-              </Card>
-            </>
-          )}
+                  {SUPPLEMENTI.filter((s) => s.prezzi[colorazione] === null)
+                    .length > 0 ? (
+                    <p className="text-xs text-text-3">
+                      Non a listino per la colorazione{" "}
+                      <span className="font-semibold text-text-2">
+                        {COLORAZIONE_LABEL[colorazione]}
+                      </span>
+                      :{" "}
+                      {SUPPLEMENTI.filter(
+                        (s) => s.prezzi[colorazione] === null
+                      )
+                        .map((s) => s.nome)
+                        .join(", ")}
+                      .
+                    </p>
+                  ) : null}
+                </BloccoCampi>
 
-          {/* Smontaggio / dismissione / posa */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-                Smontaggio, dismissione e posa
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="space-y-1.5">
-                <Label>Prezzo (€)</Label>
+                <BloccoCampi
+                  titolo="Centinature"
+                  descrizione="Lavorazione speciale applicata a tutte le persiane del preventivo."
+                >
+                  <div className="min-w-0 space-y-1.5">
+                    <Label
+                      htmlFor="centinatura"
+                      className="text-xs font-semibold"
+                    >
+                      Ante centinate
+                    </Label>
+                    <Select
+                      value={centinaturaAnte}
+                      onValueChange={setCentinaturaAnte}
+                    >
+                      <SelectTrigger
+                        id="centinatura"
+                        className="min-h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nessuna centinatura</SelectItem>
+                        {CENTINATURE.map((c) => (
+                          <SelectItem key={c.ante} value={String(c.ante)}>
+                            {c.ante} {c.ante === 1 ? "anta" : "ante"} —{" "}
+                            {EUR.format(c.prezzo)}/cad.
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {calc.centinaturaAnte ? (
+                      <p className="text-xs text-text-3">
+                        {EUR.format(calc.centinaturaCostoUnitario)} ×{" "}
+                        {calc.numPersiane}{" "}
+                        {calc.numPersiane === 1 ? "persiana" : "persiane"} ={" "}
+                        {EUR.format(calc.centinaturaTotale)}
+                      </p>
+                    ) : null}
+                  </div>
+                </BloccoCampi>
+              </>
+            )}
+
+            <BloccoCampi
+              titolo="Smontaggio, dismissione e posa"
+              descrizione="Importo fisso in euro sommato all'imponibile. Lascia vuoto se non applicabile."
+            >
+              <div className="min-w-0 space-y-1.5 sm:max-w-xs">
+                <Label htmlFor="smontaggio" className="text-xs font-semibold">
+                  Prezzo (€)
+                </Label>
                 <Input
+                  id="smontaggio"
                   inputMode="decimal"
                   placeholder="0,00"
                   value={smontaggio}
                   onChange={(e) =>
                     setSmontaggio(e.target.value.replace(/[^\d.,]/g, ""))
                   }
+                  className="min-h-12 min-w-0 text-base md:min-h-11 md:text-sm"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Lascia vuoto o 0 se non applicabile. Verrà sommato al totale
-                  del preventivo.
-                </p>
               </div>
-            </CardContent>
-          </Card>
+            </BloccoCampi>
 
-          {/* IVA */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-muted-foreground" />
-                Aliquota IVA
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+            <BloccoCampi
+              titolo="Aliquota IVA"
+              descrizione="Il 10% vale solo per le ristrutturazioni agevolate; in ogni altro caso resta il 22%."
+            >
               <RadioGroup
                 value={String(iva)}
                 onValueChange={(v) => setIva(Number(v) as 10 | 22)}
-                className="grid grid-cols-2 gap-2"
+                className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
               >
-                <PosaOption
+                <OpzioneTile
                   value="10"
                   label="IVA 10%"
                   current={String(iva)}
                   hint="ristrutturazioni"
                 />
-                <PosaOption
+                <OpzioneTile
                   value="22"
                   label="IVA 22%"
                   current={String(iva)}
                   hint="ordinaria"
                 />
               </RadioGroup>
-              <p className="text-[11px] text-muted-foreground flex items-start gap-1">
-                <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                Il 10% si applica su ristrutturazioni agevolate. In ogni altro
-                caso applica il 22%.
-              </p>
-            </CardContent>
-          </Card>
+            </BloccoCampi>
+          </DataSurface>
         </div>
 
-        {/* ── Colonna riepilogo ────────────────────────────────────────── */}
-        <div className="lg:col-span-1">
-          <Card className="sticky top-6">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-muted-foreground" />
-                Riepilogo preventivo
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <RowLabel label="Posa" value={POSA_LABEL[posa]} />
-              <RowLabel label="Modello" value={modello?.nome ?? "—"} />
-              <RowLabel
-                label="Colorazione"
-                value={
-                  isPromo ? (
-                    <Badge variant="secondary" className="gap-1">
-                      {promoColore?.nome ?? "—"}
-                      <span className="text-[10px] opacity-70">PROMO</span>
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">
-                      {COLORAZIONE_LABEL[colorazione]}
-                    </Badge>
-                  )
+        <aside className="min-w-0 min-[1200px]:sticky min-[1200px]:top-4 min-[1200px]:col-span-4">
+          <DataSurface
+            id="preventivo-riepilogo"
+            density="comfortable"
+            tone="focal"
+            title="Riepilogo"
+            description="Un solo calcolo, quello del listino Fivizzanese: qui non si somma nulla di nuovo."
+          >
+            <div className="min-w-0 space-y-3">
+              <RigaRiepilogo etichetta="Posa" valore={POSA_LABEL[posa]} />
+              <RigaRiepilogo etichetta="Modello" valore={modello?.nome ?? "—"} />
+              <RigaRiepilogo
+                etichetta="Colorazione"
+                valore={
+                  isPromo
+                    ? `${promoColore?.nome ?? "—"} (promo)`
+                    : COLORAZIONE_LABEL[colorazione]
                 }
               />
-              <Separator />
 
-              {/* Persiane */}
-              <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="min-w-0 space-y-2 border-t border-on-focal/20 pt-3">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-on-focal/75">
                   Persiane
-                </div>
+                </p>
                 {calc.perPersiana.map((p, i) => (
-                  <div
+                  <RigaRiepilogo
                     key={p.id}
-                    className="flex items-baseline justify-between gap-2"
-                  >
-                    <span className="text-xs text-muted-foreground">
-                      #{i + 1} · {p.larghezzaMm || "?"}×{p.altezzaMm || "?"} ·{" "}
-                      {MQ.format(p.areaMq)} m²
-                    </span>
-                    <span className="font-mono text-xs">
-                      {EUR.format(p.prezzoBase)}
-                    </span>
-                  </div>
+                    etichetta={
+                      p.areaMq > 0
+                        ? `#${i + 1} · ${p.larghezzaMm}×${p.altezzaMm} mm · ${MQ.format(p.areaMq)} m²`
+                        : `#${i + 1} · misure mancanti`
+                    }
+                    valore={p.areaMq > 0 ? EUR.format(p.prezzoBase) : "—"}
+                  />
                 ))}
-                <div className="flex justify-between pt-1 border-t text-xs">
-                  <span>Totale base</span>
-                  <span className="font-mono">
-                    {EUR.format(calc.totaleBase)}
-                  </span>
-                </div>
+                <RigaRiepilogo
+                  etichetta="Totale base"
+                  valore={EUR.format(calc.totaleBase)}
+                />
               </div>
 
-              {/* Supplementi */}
-              {calc.suppAttivi.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Supplementi
-                    </div>
-                    {calc.suppAttivi.map((s) => {
-                      const prezzo = s.prezzi[colorazione] ?? 0;
-                      const areaTot = calc.perPersiana.reduce(
-                        (acc, p) => acc + p.areaMq,
-                        0
-                      );
-                      const tot =
-                        s.unita === "cad"
-                          ? prezzo * calc.numPersiane
-                          : areaTot * prezzo;
-                      return (
-                        <div
-                          key={s.key}
-                          className="flex items-baseline justify-between gap-2"
-                        >
-                          <span className="text-xs text-muted-foreground truncate">
-                            {s.nome}
-                          </span>
-                          <span className="font-mono text-xs shrink-0">
-                            {EUR.format(tot)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    <div className="flex justify-between pt-1 border-t text-xs">
-                      <span>Totale supplementi</span>
-                      <span className="font-mono">
-                        {EUR.format(calc.totaleSupplementi)}
-                      </span>
-                    </div>
-                  </div>
-                </>
-              )}
+              {calc.suppAttivi.length > 0 ? (
+                <div className="min-w-0 space-y-2 border-t border-on-focal/20 pt-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-on-focal/75">
+                    Supplementi
+                  </p>
+                  {calc.suppAttivi.map((s) => {
+                    const prezzo = s.prezzi[colorazione] ?? 0;
+                    const areaTot = calc.perPersiana.reduce(
+                      (acc, p) => acc + p.areaMq,
+                      0
+                    );
+                    const tot =
+                      s.unita === "cad"
+                        ? prezzo * calc.numPersiane
+                        : areaTot * prezzo;
+                    return (
+                      <RigaRiepilogo
+                        key={s.key}
+                        etichetta={s.nome}
+                        valore={EUR.format(tot)}
+                      />
+                    );
+                  })}
+                  <RigaRiepilogo
+                    etichetta="Totale supplementi"
+                    valore={EUR.format(calc.totaleSupplementi)}
+                  />
+                </div>
+              ) : null}
 
-              {/* Centinature */}
-              {calc.centinaturaAnte && (
-                <>
-                  <Separator />
-                  <RowLabel
-                    label={`Centinature ${calc.centinaturaAnte} ${
+              <div className="min-w-0 space-y-2 border-t border-on-focal/20 pt-3">
+                {calc.centinaturaAnte ? (
+                  <RigaRiepilogo
+                    etichetta={`Centinature ${calc.centinaturaAnte} ${
                       calc.centinaturaAnte === 1 ? "anta" : "ante"
                     }`}
-                    value={EUR.format(calc.centinaturaTotale)}
-                    mono
+                    valore={EUR.format(calc.centinaturaTotale)}
                   />
-                </>
-              )}
-
-              {/* Smontaggio, dismissione e posa */}
-              {calc.smontaggioEur > 0 && (
-                <>
-                  <Separator />
-                  <RowLabel
-                    label="Smontaggio, dismissione e posa"
-                    value={EUR.format(calc.smontaggioEur)}
-                    mono
+                ) : null}
+                {calc.smontaggioEur > 0 ? (
+                  <RigaRiepilogo
+                    etichetta="Smontaggio, dismissione e posa"
+                    valore={EUR.format(calc.smontaggioEur)}
                   />
-                </>
-              )}
-
-              {/* Ricarico promo */}
-              {isPromo && calc.ricaricoPct > 0 && (
-                <>
-                  <Separator />
-                  <RowLabel
-                    label={`Ricarico promo (+${calc.ricaricoPct}%)`}
-                    value={EUR.format(calc.ricaricoPromo)}
-                    mono
+                ) : null}
+                {isPromo && calc.ricaricoPct > 0 ? (
+                  <RigaRiepilogo
+                    etichetta={`Ricarico promo (+${calc.ricaricoPct}%)`}
+                    valore={EUR.format(calc.ricaricoPromo)}
                   />
-                </>
-              )}
-
-              <Separator />
-              <RowLabel
-                label="Imponibile"
-                value={EUR.format(calc.imponibile)}
-                mono
-              />
-              <RowLabel
-                label={`IVA ${calc.iva}%`}
-                value={EUR.format(calc.ivaImporto)}
-                mono
-              />
-
-              <Separator />
-              <div className="flex items-center justify-between pt-1">
-                <span className="font-semibold">Totale (IVA incl.)</span>
-                <span
-                  className={`text-lg font-bold font-mono ${
-                    calc.totale === 0 ? "text-muted-foreground" : ""
-                  }`}
-                >
-                  {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
-                </span>
+                ) : null}
+                <RigaRiepilogo
+                  etichetta="Imponibile"
+                  valore={EUR.format(calc.imponibile)}
+                />
+                <RigaRiepilogo
+                  etichetta={`IVA ${calc.iva}%`}
+                  valore={EUR.format(calc.ivaImporto)}
+                />
               </div>
 
-              <Button
-                onClick={handleExport}
-                className="w-full gap-2"
-                disabled={exportDisabled}
-              >
-                <Download className="h-4 w-4" />
-                {uploadPreventivo.isPending
-                  ? "Salvataggio…"
-                  : selectedCommessa
-                  ? "Scarica + salva in commessa"
-                  : "Scarica PDF"}
-              </Button>
-              {selectedCommessa && (
-                <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
-                  <FileCheck2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>
-                    Verrà salvato nella commessa{" "}
-                    <span className="font-medium">
-                      {selectedCommessa.codice}
-                    </span>{" "}
-                    come{" "}
-                    <span className="font-medium">{buildFilename()}</span>.
-                  </span>
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              <div className="min-w-0 border-t border-on-focal/20 pt-3">
+                <RigaRiepilogo
+                  forte
+                  etichetta="Totale (IVA inclusa)"
+                  valore={calc.totale === 0 ? "—" : EUR.format(calc.totale)}
+                />
+                {totaleParziale ? (
+                  <p
+                    role="status"
+                    className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal"
+                  >
+                    {calc.totale === 0
+                      ? "Nessuna misura valida: non c'è ancora un preventivo da mostrare."
+                      : `Totale parziale: ${righeSenzaMisura} ${
+                          righeSenzaMisura === 1 ? "persiana" : "persiane"
+                        } senza misure non entrano nel calcolo.`}
+                  </p>
+                ) : null}
+                {righeNonIntere > 0 ? (
+                  <p
+                    role="status"
+                    className="mt-2 text-xs leading-5 text-on-focal/75"
+                  >
+                    Alcune misure non sono millimetri interi: il calcolo le usa
+                    così come sono scritte.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </DataSurface>
+        </aside>
       </div>
 
-      {/* Mobile sticky bottom bar — visibile solo sotto lg */}
-      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
-        <div className="min-w-0">
-          <p className="text-[10px] text-muted-foreground leading-tight uppercase tracking-wide">
-            Totale
-          </p>
-          <p
-            className={`text-lg font-bold font-mono leading-tight ${
-              calc.totale === 0 ? "text-muted-foreground" : ""
-            }`}
+      <StickyActionBar
+        busy={uploadPreventivo.isPending}
+        status={
+          <>
+            <span className="font-bold text-text-1">
+              Totale {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
+            </span>
+            <span className="block">{statoAzione}</span>
+          </>
+        }
+        secondary={
+          <Button
+            variant="outline"
+            onClick={handleReset}
+            disabled={uploadPreventivo.isPending}
+            className="min-h-11"
           >
-            {calc.totale === 0 ? "—" : EUR.format(calc.totale)}
-          </p>
-        </div>
-        <Button
-          onClick={handleExport}
-          className="gap-2 shrink-0"
-          disabled={exportDisabled}
-        >
-          <Download className="h-4 w-4" />
-          {exportLabel}
-        </Button>
-      </div>
+            <RotateCcw aria-hidden="true" className="h-4 w-4" />
+            Azzera
+          </Button>
+        }
+        primary={
+          <Button
+            variant="brand"
+            size="lg"
+            onClick={handleExport}
+            disabled={exportDisabled}
+            className="min-h-12 w-full sm:w-auto"
+          >
+            <Download aria-hidden="true" className="h-4 w-4" />
+            {uploadPreventivo.isPending
+              ? "Salvataggio…"
+              : selectedCommessa
+                ? "Scarica e salva in commessa"
+                : exportLabel}
+          </Button>
+        }
+      />
     </div>
   );
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function PosaOption({
+function BloccoCampi({
+  titolo,
+  descrizione,
+  children,
+}: {
+  titolo: string;
+  descrizione?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="min-w-0 border-t border-border-soft pt-4 first:border-t-0 first:pt-0">
+      <h3 className="text-sm font-bold text-text-1">{titolo}</h3>
+      {descrizione ? (
+        <p className="mt-0.5 text-xs leading-5 text-text-3">{descrizione}</p>
+      ) : null}
+      <div className="mt-3 min-w-0 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function OpzioneTile({
   value,
   label,
   current,
@@ -1354,19 +1338,20 @@ function PosaOption({
   const selected = current === value;
   return (
     <Label
-      className={`flex items-center gap-2 rounded-md border p-2.5 transition-colors ${
+      className={cn(
+        "flex min-h-12 min-w-0 items-center gap-2 rounded-[var(--radius-control)] border p-3 transition-colors md:min-h-11",
         disabled
-          ? "opacity-50 cursor-not-allowed bg-muted"
+          ? "cursor-not-allowed border-border-soft bg-surface-2 opacity-60"
           : selected
-          ? "border-primary bg-primary/5 cursor-pointer"
-          : "bg-background hover:bg-accent cursor-pointer"
-      }`}
+            ? "cursor-pointer border-primary bg-brand-soft text-brand-soft-ink"
+            : "cursor-pointer border-border-soft bg-surface hover:bg-surface-2"
+      )}
     >
       <RadioGroupItem value={value} disabled={disabled} />
-      <span className="text-sm font-medium flex-1">{label}</span>
-      {hint && (
-        <span className="text-[10px] text-muted-foreground">{hint}</span>
-      )}
+      <span className="min-w-0 flex-1 text-sm font-semibold">{label}</span>
+      {hint ? (
+        <span className="shrink-0 text-xs text-text-3">{hint}</span>
+      ) : null}
     </Label>
   );
 }
@@ -1386,40 +1371,58 @@ function SupplementoRow({
   if (prezzo === null) return null;
   return (
     <label
-      className={`flex items-center gap-3 rounded-md border p-2.5 cursor-pointer transition-colors ${
-        checked ? "border-primary bg-primary/5" : "bg-background hover:bg-accent"
-      }`}
+      className={cn(
+        "flex min-h-12 min-w-0 cursor-pointer items-center gap-3 rounded-[var(--radius-control)] border p-3 transition-colors md:min-h-11",
+        checked
+          ? "border-primary bg-brand-soft text-brand-soft-ink"
+          : "border-border-soft bg-surface hover:bg-surface-2"
+      )}
     >
       <Checkbox checked={checked} onCheckedChange={onToggle} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium leading-tight truncate">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold leading-tight">
           {supp.nome}
-        </p>
-        <p className="text-xs text-muted-foreground">
+        </span>
+        <span className="block text-xs text-text-3">
           {supp.unita === "mq" ? "€/m²" : "€/cad"}
-        </p>
-      </div>
-      <span className="font-mono text-sm shrink-0">{EUR.format(prezzo)}</span>
+        </span>
+      </span>
+      <span className="shrink-0 text-sm tabular-nums">
+        {EUR.format(prezzo)}
+      </span>
     </label>
   );
 }
 
-function RowLabel({
-  label,
-  value,
-  mono,
+function RigaRiepilogo({
+  etichetta,
+  valore,
+  forte,
 }: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
+  etichetta: ReactNode;
+  valore: ReactNode;
+  forte?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <span className={`text-right ${mono ? "font-mono" : ""}`}>{value}</span>
+    <div className="flex min-w-0 items-baseline justify-between gap-3">
+      <span
+        className={cn(
+          "min-w-0 break-words",
+          forte
+            ? "text-sm font-bold text-on-focal"
+            : "text-xs leading-5 text-on-focal/75"
+        )}
+      >
+        {etichetta}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 text-right tabular-nums text-on-focal",
+          forte ? "text-lg font-bold" : "text-xs"
+        )}
+      >
+        {valore}
+      </span>
     </div>
   );
 }
-
-// Avoid unused-import warning when tree-shaken
-void getSupplemento;

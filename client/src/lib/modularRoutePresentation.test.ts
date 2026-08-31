@@ -373,6 +373,59 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/Nessuna corrispondenza/);
   });
 
+  it("compone il preventivatore Fivizzanese come flusso da campo", () => {
+    const source = routeSource("../pages/PreventivatoreFivizzanese.tsx");
+
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/import StickyActionBar/);
+    expect(source).toMatch(/<MobileFieldHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/<StickyActionBar/);
+    // I confini numerici passano dal modulo puro condiviso.
+    expect(source).toMatch(/millimetriDaInput\(/);
+    expect(source).toMatch(/areaMetriQuadri\(/);
+    // Il payload di upload resta quello del router: nessun campo nuovo.
+    expect(source).toMatch(/tipo: "preventivo"/);
+    expect(source).toMatch(/keepNome: true/);
+    // Gli importi nascono dal listino, non da endpoint economici del CRM.
+    expect(source).toMatch(/trpc\.commesse\.list/);
+    expect(source).not.toMatch(/trpc\.economia|trpc\.pagamenti|trpc\.fic/);
+    // Un totale parziale si dichiara invece di sembrare definitivo.
+    expect(source).toMatch(/Totale parziale/);
+    // Una sola superficie focale per viewport: il riepilogo.
+    expect(source.match(/tone="focal"/g)?.length).toBe(1);
+    // Misure numeriche e leggibili a 16px sul telefono.
+    expect(source).toMatch(/inputMode="numeric"/);
+    expect(source).toMatch(/min-h-12 min-w-0 text-base md:min-h-11 md:text-sm/);
+  });
+
+  it("compone Punto del Serramento con lo stesso contratto di flusso", () => {
+    const source = routeSource("../pages/PreventivatorePuntoDelSerramento.tsx");
+
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/import StickyActionBar/);
+    expect(source).toMatch(/<MobileFieldHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/<StickyActionBar/);
+    // Stesso confine numerico dell'altro preventivatore.
+    expect(source).toMatch(/millimetriDaInput\(/);
+    // Il prezzo resta quello del lookup di listino, con grouping conservato.
+    expect(source).toMatch(/lookupPrezzo\(/);
+    expect(source).toMatch(/<SelectGroup/);
+    expect(source).toMatch(/coloreSuffix\(/);
+    // Le due condizioni che rendono il totale non definitivo restano esplicite.
+    expect(source).toMatch(/Fuori dal range di listino/);
+    expect(source).toMatch(/Colore a preventivo/);
+    expect(source).toMatch(/Totale parziale/);
+    // Upload identico e nessuna derivazione da endpoint economici.
+    expect(source).toMatch(/tipo: "preventivo"/);
+    expect(source).toMatch(/keepNome: true/);
+    expect(source).not.toMatch(/trpc\.economia|trpc\.pagamenti|trpc\.fic/);
+    expect(source.match(/tone="focal"/g)?.length).toBe(1);
+    expect(source).toMatch(/inputMode="numeric"/);
+    expect(source).toMatch(/min-h-12 min-w-0 text-base md:min-h-11 md:text-sm/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

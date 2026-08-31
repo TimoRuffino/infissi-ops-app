@@ -113,6 +113,38 @@ export function filtraVociPreventivatore(
   );
 }
 
+// ── Confini numerici condivisi dai due calcolatori ──────────────────────────
+//
+// I preventivatori lavorano in millimetri interi: è così che si prende una
+// misura in cantiere ed è così che sono scritti i listini. `millimetriValidi`
+// è il confine severo usato per dire all'operatore che una misura non è
+// utilizzabile; `millimetriDaInput` è la lettura tollerante storica dei due
+// calcolatori e resta identica al carattere, perché cambiarla cambierebbe i
+// prezzi già prodotti (una misura scritta "1200,5" oggi entra nel calcolo).
+// I due helper non vanno confusi: il primo avvisa, il secondo calcola.
+
+/** Millimetri interi maggiori di zero, altrimenti `null`. */
+export function millimetriValidi(value: string): number | null {
+  const testo = value.trim();
+  if (!/^\d+$/.test(testo)) return null;
+  const millimetri = Number(testo);
+  return Number.isFinite(millimetri) && millimetri > 0 ? millimetri : null;
+}
+
+/** Lettura tollerante usata dal calcolo: 0 quando il valore non è utilizzabile. */
+export function millimetriDaInput(value: string): number {
+  const millimetri = parseFloat(value.replace(",", "."));
+  return Number.isFinite(millimetri) && millimetri > 0 ? millimetri : 0;
+}
+
+/** Area in metri quadri di una misura espressa in millimetri. */
+export function areaMetriQuadri(
+  larghezzaMm: number,
+  altezzaMm: number
+): number {
+  return (larghezzaMm * altezzaMm) / 1_000_000;
+}
+
 /** Iniziali dell'azienda per il tile del catalogo (massimo due caratteri). */
 export function inizialiAzienda(nome: string): string {
   return nome
