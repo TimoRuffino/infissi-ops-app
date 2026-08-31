@@ -36,6 +36,7 @@ import {
 } from "./commesse";
 import { getClienteById } from "./clienti";
 import type { DocumentoFicPerPiano } from "../_core/commessaPattuito";
+import { setFeatureFlagsForTesting } from "../platform/featureFlags";
 
 const SEDE = 90101;
 const ALTRA_SEDE = 90102;
@@ -65,6 +66,45 @@ const direzione = (sedeId = SEDE) =>
 
 const transazioneAtomica = vi.mocked(conTransazioneStoreAtomica);
 const implementazioneTransazione = transazioneAtomica.getMockImplementation();
+
+function differita() {
+  let risolvi!: () => void;
+  const promessa = new Promise<void>(resolve => {
+    risolvi = resolve;
+  });
+  return { promessa, risolvi };
+}
+
+function contesaConPrimoCommitFallito() {
+  const rilasciaPrimoCommit = differita();
+  const secondaTransazioneTentata = differita();
+  let coda = Promise.resolve();
+  let chiamate = 0;
+
+  transazioneAtomica.mockImplementation((async (_stores: any, operazione: any) => {
+    const numero = ++chiamate;
+    const precedente = coda;
+    const turno = differita();
+    coda = turno.promessa;
+    if (numero === 2) secondaTransazioneTentata.risolvi();
+    await precedente;
+    try {
+      return await operazione(async () => {
+        if (numero === 1) {
+          await rilasciaPrimoCommit.promessa;
+          throw new Error("commit transizione fallito");
+        }
+      });
+    } finally {
+      turno.risolvi();
+    }
+  }) as any);
+
+  return {
+    rilasciaPrimoCommit: rilasciaPrimoCommit.risolvi,
+    secondaTransazioneTentata: secondaTransazioneTentata.promessa,
+  };
+}
 
 /** Porta una commessa allo stato voluto passo per passo, con force. */
 async function portaAllo(
@@ -202,34 +242,31 @@ describe("doc gate", () => {
 });
 
 describe("serializzazione update commessa", () => {
+  it("ripristina il record se fallisce il commit di una patch non-state", async () => {
+    const caller = direzione();
+    const creata = await caller.commesse.create({ cliente: "Rollback patch" });
+    const precedente = getCommessaById(creata.id);
+    transazioneAtomica.mockImplementation((async (_stores: any, operazione: any) =>
+      operazione(async () => {
+        throw new Error("commit patch fallito");
+      })) as any);
+
+    try {
+      await expect(
+        caller.commesse.update({ id: creata.id, note: "non persistita" })
+      ).rejects.toThrow("commit patch fallito");
+
+      expect(getCommessaById(creata.id)).toBe(precedente);
+      expect(getCommessaById(creata.id)).toMatchObject({ note: null });
+    } finally {
+      transazioneAtomica.mockImplementation(implementazioneTransazione!);
+    }
+  });
+
   it("non lascia una patch non-state copiare uno stato il cui commit fallisce", async () => {
     const caller = direzione();
     const commessa = await caller.commesse.create({ cliente: "Lock update" });
-    let rilasciaCommit!: () => void;
-    const commitSospeso = new Promise<void>(risolvi => {
-      rilasciaCommit = risolvi;
-    });
-    let coda = Promise.resolve();
-    let chiamate = 0;
-    transazioneAtomica.mockImplementation((async (_stores: any, operazione: any) => {
-      const precedente = coda;
-      let rilascia!: () => void;
-      coda = new Promise<void>(risolvi => {
-        rilascia = risolvi;
-      });
-      await precedente;
-      chiamate += 1;
-      try {
-        return await operazione(async () => {
-          if (chiamate === 1) {
-            await commitSospeso;
-            throw new Error("commit transizione fallito");
-          }
-        });
-      } finally {
-        rilascia();
-      }
-    }) as any);
+    const contesa = contesaConPrimoCommitFallito();
 
     try {
       const transizione = caller.commesse.update({
@@ -244,13 +281,13 @@ describe("serializzazione update commessa", () => {
       });
 
       const patch = caller.commesse.update({ id: commessa.id, note: "valida" });
-      await Promise.resolve();
+      await contesa.secondaTransazioneTentata;
       expect(getCommessaById(commessa.id)).toMatchObject({
         stato: "misure_esecutive",
         note: null,
       });
 
-      rilasciaCommit();
+      contesa.rilasciaPrimoCommit();
       await expect(transizione).rejects.toThrow("commit transizione fallito");
       await expect(patch).resolves.toMatchObject({
         stato: "preventivo",
@@ -261,6 +298,56 @@ describe("serializzazione update commessa", () => {
         note: "valida",
       });
     } finally {
+      transazioneAtomica.mockImplementation(implementazioneTransazione!);
+    }
+  });
+
+  it("non lascia un update accodato introdurre stato senza capability dopo un rollback", async () => {
+    const posa = appRouter.createCaller(context(90112, ["squadra_posa"]));
+    const direzioneCaller = direzione();
+    const commessa = await posa.commesse.create({ cliente: "Race stato" });
+    setFeatureFlagsForTesting(
+      SEDE,
+      { policyMode: "enforce" },
+      { actorUserId: 90111, reason: "Test race capability stato" }
+    );
+    const contesa = contesaConPrimoCommitFallito();
+
+    try {
+      const transizione = direzioneCaller.commesse.update({
+        id: commessa.id,
+        stato: "misure_esecutive",
+        force: true,
+      });
+      await vi.waitFor(() => {
+        expect(getCommessaById(commessa.id)).toMatchObject({
+          stato: "misure_esecutive",
+        });
+      });
+
+      // Il posatore non ha commessa.change_state. Mentre il primo commit è
+      // sospeso, il target coincide con lo stato live provvisorio e tenta il
+      // ramo non-state: la barriera prova che la chiamata è davvero accodata.
+      const patch = posa.commesse.update({
+        id: commessa.id,
+        stato: "misure_esecutive",
+        note: "non deve passare",
+      });
+      await contesa.secondaTransazioneTentata;
+
+      contesa.rilasciaPrimoCommit();
+      await expect(transizione).rejects.toThrow("commit transizione fallito");
+      await expect(patch).rejects.toThrow(/STATO_COMMESSA_CAMBIATO/);
+      expect(getCommessaById(commessa.id)).toMatchObject({
+        stato: "preventivo",
+        note: null,
+      });
+    } finally {
+      setFeatureFlagsForTesting(
+        SEDE,
+        { policyMode: "legacy" },
+        { actorUserId: 90111, reason: "Ripristino test race capability stato" }
+      );
       transazioneAtomica.mockImplementation(implementazioneTransazione!);
     }
   });

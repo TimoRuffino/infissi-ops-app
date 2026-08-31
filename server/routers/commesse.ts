@@ -908,13 +908,31 @@ export const commesseRouter = router({
         await conTransazioneStoreAtomica(
           [_store, storeTransizioniCommessa],
           async commit => {
-            commesse[idx] = {
-              ...commesse[idx],
-              ...updates,
-              cliente: resolvedCliente ?? commesse[idx].cliente,
-              updatedAt: new Date(),
-            };
-            await commit();
+            const indiceCorrente = commesse.findIndex(commessa => commessa.id === id);
+            if (indiceCorrente === -1) throw new Error("Commessa non trovata");
+            const precedente = commesse[indiceCorrente];
+            assertSedeScope(precedente, ctx.sedeId);
+            const { stato: statoRichiesto, ...patchNonState } = updates;
+            if (
+              statoRichiesto !== undefined &&
+              statoRichiesto !== precedente.stato
+            ) {
+              throw new Error(
+                "STATO_COMMESSA_CAMBIATO: ripetere l'aggiornamento sullo stato corrente."
+              );
+            }
+            try {
+              commesse[indiceCorrente] = {
+                ...precedente,
+                ...patchNonState,
+                cliente: resolvedCliente ?? precedente.cliente,
+                updatedAt: new Date(),
+              };
+              await commit();
+            } catch (errore) {
+              commesse[indiceCorrente] = precedente;
+              throw errore;
+            }
           }
         );
       }
