@@ -16,7 +16,11 @@ export type MobileTreatment =
   | "redirect"
   | "fallback";
 
-export type RouteMigrationStatus = "planned" | "redirect" | "migrata";
+export type RouteMigrationStatus =
+  | "planned"
+  | "redirect"
+  | "migrata"
+  | "esclusa";
 
 /**
  * Metadata for migration and UI shaping only. Server procedures remain the
@@ -50,7 +54,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/clienti",
@@ -63,7 +67,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/clienti/:id",
@@ -76,7 +80,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "record",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/kanban",
@@ -89,7 +93,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/magazzino",
@@ -102,7 +106,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/pagamenti",
@@ -115,7 +119,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/economia",
@@ -129,7 +133,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/marginalita",
@@ -143,7 +147,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/commesse",
@@ -156,7 +160,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/commesse/:id",
@@ -169,7 +173,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "record",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/commesse/:commessaId/aperture/:aperturaId/rilievo",
@@ -182,7 +186,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "field",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/verbale/:interventoId",
@@ -195,7 +199,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "field",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/planning",
@@ -208,7 +212,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/ticket",
@@ -221,7 +225,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/garanzie",
@@ -235,7 +239,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/squadre",
@@ -248,7 +252,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/fornitori",
@@ -265,7 +269,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "esclusa",
   }),
   route({
     path: "/preventivatori",
@@ -279,7 +283,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/preventivatori/fivizzanese/persiane",
@@ -293,7 +297,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "field",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/preventivatori/punto-del-serramento/persiane",
@@ -307,7 +311,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "field",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/produzione/*?",
@@ -333,7 +337,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/archivio",
@@ -346,7 +350,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/utenti",
@@ -360,7 +364,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/sedi",
@@ -373,7 +377,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/messaggi/email",
@@ -386,7 +390,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "inbox",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/messaggi/whatsapp",
@@ -399,7 +403,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "inbox",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/chat",
@@ -412,7 +416,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "inbox",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/notifiche",
@@ -425,7 +429,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/comunicazioni",
@@ -452,7 +456,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "standard",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/integrazioni",
@@ -465,7 +469,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/tars",
@@ -478,7 +482,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: "FLAG_TARS",
     navigation: "primary",
     mobileTreatment: "workbench",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "/404",
@@ -491,7 +495,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "hidden",
     mobileTreatment: "fallback",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
   route({
     path: "*",
@@ -504,7 +508,7 @@ export const APP_ROUTE_CONTRACT = [
     featureFlag: null,
     navigation: "fallback",
     mobileTreatment: "fallback",
-    migrationStatus: "planned",
+    migrationStatus: "migrata",
   }),
 ] as const satisfies readonly RouteContractEntry[];
 

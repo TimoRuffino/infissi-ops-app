@@ -105,6 +105,9 @@ export default function UtentiList() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [permissionsTarget, setPermissionsTarget] = useState<any | null>(null);
+  const [erroreEditPassword, setErroreEditPassword] = useState<string | null>(
+    null
+  );
 
   const { user } = useAuth();
   // Specchio UX di `adminProcedure`: senza direzione i controlli di scrittura
@@ -180,7 +183,29 @@ export default function UtentiList() {
       password: "",
     });
     setShowPassword(false);
+    setErroreEditPassword(null);
     setEditOpen(true);
+  }
+
+  function handleSalvaModifiche() {
+    if (!editId) return;
+    if (form.password.length > 0 && form.password.length < MIN_PASSWORD) {
+      setErroreEditPassword(
+        `La nuova password deve avere almeno ${MIN_PASSWORD} caratteri: non è stata salvata.`
+      );
+      return;
+    }
+    setErroreEditPassword(null);
+    updateUtente.mutate({
+      id: editId,
+      nome: form.nome || undefined,
+      cognome: form.cognome || undefined,
+      email: form.email || undefined,
+      telefono: form.telefono || undefined,
+      ruoli: form.ruoli as any,
+      sediIds: form.sediIds,
+      ...(form.password.length >= MIN_PASSWORD ? { password: form.password } : {}),
+    });
   }
 
   function toggleSede(id: number) {
@@ -655,7 +680,10 @@ export default function UtentiList() {
         open={editOpen}
         onOpenChange={o => {
           setEditOpen(o);
-          if (!o) setEditId(null);
+          if (!o) {
+            setEditId(null);
+            setErroreEditPassword(null);
+          }
         }}
       >
         <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
@@ -696,7 +724,16 @@ export default function UtentiList() {
                   autoComplete="new-password"
                   placeholder="Lascia vuoto per non cambiarla"
                   value={form.password}
-                  onChange={e => setForm({ ...form, password: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, password: e.target.value });
+                    if (erroreEditPassword) setErroreEditPassword(null);
+                  }}
+                  aria-invalid={erroreEditPassword ? true : undefined}
+                  aria-describedby={
+                    erroreEditPassword
+                      ? "utente-edit-password-help utente-edit-password-errore"
+                      : "utente-edit-password-help"
+                  }
                   className="pr-12"
                 />
                 <Button
@@ -717,31 +754,26 @@ export default function UtentiList() {
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-text-3">
+              <p id="utente-edit-password-help" className="text-xs text-text-3">
                 La password attuale non è leggibile: si può solo sostituire,
                 con almeno {MIN_PASSWORD} caratteri.
               </p>
+              {erroreEditPassword && (
+                <p
+                  id="utente-edit-password-errore"
+                  role="alert"
+                  className="text-xs text-danger"
+                >
+                  {erroreEditPassword}
+                </p>
+              )}
             </div>
           </div>
           <div className="sticky bottom-0 border-t border-border-soft bg-surface-raised px-5 py-3">
             <Button
               type="button"
               className="min-h-12 w-full sm:min-h-11"
-              onClick={() =>
-                editId &&
-                updateUtente.mutate({
-                  id: editId,
-                  nome: form.nome || undefined,
-                  cognome: form.cognome || undefined,
-                  email: form.email || undefined,
-                  telefono: form.telefono || undefined,
-                  ruoli: form.ruoli as any,
-                  sediIds: form.sediIds,
-                  ...(form.password.length >= MIN_PASSWORD
-                    ? { password: form.password }
-                    : {}),
-                })
-              }
+              onClick={handleSalvaModifiche}
               disabled={form.ruoli.length === 0 || updateUtente.isPending}
             >
               {updateUtente.isPending ? "Salvataggio…" : "Salva modifiche"}
