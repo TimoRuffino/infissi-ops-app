@@ -18,7 +18,16 @@ vi.mock("../_core/fileStorage", async importOriginal => {
   };
 });
 
+vi.mock("../_core/persistence", async importOriginal => {
+  const actual = await importOriginal<typeof import("../_core/persistence")>();
+  return {
+    ...actual,
+    conTransazioneStoreAtomica: vi.fn(actual.conTransazioneStoreAtomica),
+  };
+});
+
 import type { TrpcContext } from "../_core/context";
+import { conTransazioneStoreAtomica } from "../_core/persistence";
 import { appRouter } from "../routers";
 import {
   STATI_COMMESSA,
@@ -53,6 +62,9 @@ function context(
 
 const direzione = (sedeId = SEDE) =>
   appRouter.createCaller(context(90111, ["direzione"], sedeId));
+
+const transazioneAtomica = vi.mocked(conTransazioneStoreAtomica);
+const implementazioneTransazione = transazioneAtomica.getMockImplementation();
 
 /** Porta una commessa allo stato voluto passo per passo, con force. */
 async function portaAllo(
@@ -186,6 +198,71 @@ describe("doc gate", () => {
         stato: "aggiornamento_contratto",
       })
     ).rejects.toThrow(/DOC_GATE_BLOCKED/);
+  });
+});
+
+describe("serializzazione update commessa", () => {
+  it("non lascia una patch non-state copiare uno stato il cui commit fallisce", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Lock update" });
+    let rilasciaCommit!: () => void;
+    const commitSospeso = new Promise<void>(risolvi => {
+      rilasciaCommit = risolvi;
+    });
+    let coda = Promise.resolve();
+    let chiamate = 0;
+    transazioneAtomica.mockImplementation((async (_stores: any, operazione: any) => {
+      const precedente = coda;
+      let rilascia!: () => void;
+      coda = new Promise<void>(risolvi => {
+        rilascia = risolvi;
+      });
+      await precedente;
+      chiamate += 1;
+      try {
+        return await operazione(async () => {
+          if (chiamate === 1) {
+            await commitSospeso;
+            throw new Error("commit transizione fallito");
+          }
+        });
+      } finally {
+        rilascia();
+      }
+    }) as any);
+
+    try {
+      const transizione = caller.commesse.update({
+        id: commessa.id,
+        stato: "misure_esecutive",
+        force: true,
+      });
+      await vi.waitFor(() => {
+        expect(getCommessaById(commessa.id)).toMatchObject({
+          stato: "misure_esecutive",
+        });
+      });
+
+      const patch = caller.commesse.update({ id: commessa.id, note: "valida" });
+      await Promise.resolve();
+      expect(getCommessaById(commessa.id)).toMatchObject({
+        stato: "misure_esecutive",
+        note: null,
+      });
+
+      rilasciaCommit();
+      await expect(transizione).rejects.toThrow("commit transizione fallito");
+      await expect(patch).resolves.toMatchObject({
+        stato: "preventivo",
+        note: "valida",
+      });
+      expect(getCommessaById(commessa.id)).toMatchObject({
+        stato: "preventivo",
+        note: "valida",
+      });
+    } finally {
+      transazioneAtomica.mockImplementation(implementazioneTransazione!);
+    }
   });
 });
 

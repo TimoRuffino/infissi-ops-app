@@ -212,12 +212,21 @@ async function conStoreBloccati<T>(
   }
 }
 
-function annullaSalvataggiPendenti(entries: readonly StoreEntry[]) {
+function annullaSalvataggiPendenti(entries: readonly StoreEntry[]): StoreEntry[] {
+  const annullati: StoreEntry[] = [];
   for (const entry of entries) {
     const timer = saveTimers.get(entry.key);
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+      annullati.push(entry);
+    }
     saveTimers.delete(entry.key);
   }
+  return annullati;
+}
+
+function rischedulaSalvataggi(entries: readonly StoreEntry[]) {
+  for (const entry of entries) scheduleSave(entry.key);
 }
 
 async function salvaEntriesAtomici(
@@ -260,8 +269,19 @@ export async function conTransazioneStoreAtomica<T>(
   return conStoreBloccati(
     entries.map(entry => entry.key),
     async () => {
-      annullaSalvataggiPendenti(entries);
-      return operazione(() => salvaEntriesAtomici(entries));
+      const salvataggiSospesi = annullaSalvataggiPendenti(entries);
+      let commitRiuscito = false;
+      try {
+        return await operazione(async () => {
+          await salvaEntriesAtomici(entries);
+          commitRiuscito = true;
+        });
+      } finally {
+        // Un timer sospeso rappresenta una mutation precedente ancora dirty.
+        // Il commit atomico la assorbe soltanto se ha davvero avuto successo;
+        // altrimenti il debounce deve poterla ritentare dopo il rollback/gate.
+        if (!commitRiuscito) rischedulaSalvataggi(salvataggiSospesi);
+      }
     }
   );
 }

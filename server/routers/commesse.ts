@@ -905,13 +905,18 @@ export const commesseRouter = router({
           dipendenzeTransizioniCommesse()
         );
       } else {
-        commesse[idx] = {
-          ...commesse[idx],
-          ...updates,
-          cliente: resolvedCliente ?? commesse[idx].cliente,
-          updatedAt: new Date(),
-        };
-        _store.save();
+        await conTransazioneStoreAtomica(
+          [_store, storeTransizioniCommessa],
+          async commit => {
+            commesse[idx] = {
+              ...commesse[idx],
+              ...updates,
+              cliente: resolvedCliente ?? commesse[idx].cliente,
+              updatedAt: new Date(),
+            };
+            await commit();
+          }
+        );
       }
       // Gli indici cliente vengono aggiornati soltanto dopo che il comando
       // principale ha avuto successo: un gate/optimistic-lock fallito non
