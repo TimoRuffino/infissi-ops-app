@@ -9,6 +9,7 @@
 // capability e deleghe vivono nel dialog dedicato, con il suo audit.
 
 import { useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import {
   Eye,
   EyeOff,
@@ -111,10 +112,17 @@ export default function UtentiList() {
   // confine resta il server.
   const puoGestire = isDirezione(user);
 
-  const utenti = trpc.utenti.list.useQuery({
-    ruolo: (filtroRuolo === TUTTI_I_RUOLI ? undefined : filtroRuolo) as any,
-    search: search || undefined,
-  });
+  // La ricerca è server-side: ogni battuta cambia la chiave della query. Senza
+  // `keepPreviousData` l'elenco spariva dietro lo scheletro a ogni carattere.
+  // Le righe precedenti restano a schermo finché arriva il nuovo risultato, e
+  // `busy` in intestazione dice che è in aggiornamento.
+  const utenti = trpc.utenti.list.useQuery(
+    {
+      ruolo: (filtroRuolo === TUTTI_I_RUOLI ? undefined : filtroRuolo) as any,
+      search: search || undefined,
+    },
+    { placeholderData: keepPreviousData }
+  );
   const stats = trpc.utenti.stats.useQuery();
   // `sedi.listAll` è una procedura admin: non la si chiama per chi non può.
   const sediAll = trpc.sedi.listAll.useQuery(undefined, {

@@ -11,6 +11,7 @@
 // confine vero lato server.
 
 import { useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarClock,
@@ -152,8 +153,12 @@ export default function GaranzieList() {
   // leggibile e i controlli di scrittura non vengono montati.
   const puoGestire = isDirezione(user);
 
+  // Cambiare chip di tipo non deve svuotare l'elenco: si tiene a schermo il
+  // risultato precedente mentre arriva il nuovo, con `busy` in intestazione a
+  // dire che è in aggiornamento.
   const garanzie = trpc.garanzie.list.useQuery(
-    filtroTipo === TUTTI_I_TIPI ? {} : { tipo: filtroTipo }
+    filtroTipo === TUTTI_I_TIPI ? {} : { tipo: filtroTipo },
+    { placeholderData: keepPreviousData }
   );
   const stats = trpc.garanzie.stats.useQuery();
   const commesse = trpc.commesse.list.useQuery({});
@@ -315,23 +320,22 @@ export default function GaranzieList() {
                 </strong>{" "}
                 registrate
               </span>
+              {/* `inScadenza` e `scadute` il server li conta dentro
+                  `stato === "attiva"`: sono sottoinsiemi, non tre gruppi
+                  separati, e la frase deve dirlo. */}
               <span>
                 <strong className="tabular-nums text-text-1">
                   {s?.attive ?? 0}
                 </strong>{" "}
-                attive
-              </span>
-              <span>
+                con stato attiva, di cui{" "}
                 <strong className="tabular-nums text-warning">
                   {s?.inScadenza ?? 0}
                 </strong>{" "}
-                in scadenza entro 90 giorni
-              </span>
-              <span>
+                in scadenza entro 90 giorni e{" "}
                 <strong className="tabular-nums text-danger">
                   {s?.scadute ?? 0}
                 </strong>{" "}
-                scadute
+                già scadute
               </span>
             </>
           )
