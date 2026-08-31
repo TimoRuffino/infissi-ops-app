@@ -207,10 +207,21 @@ export default function TarsContextPanel({
               <ClipboardList className="size-4" aria-hidden="true" />
               Briefing di oggi
             </h3>
-            {!briefing ||
-            (briefing.promemoriaOggi.length === 0 &&
+            {briefing === null ? (
+              <p className="mt-2 rounded-md bg-surface-2 px-3 py-3 text-xs leading-5 text-text-3">
+                Briefing non disponibile. I dati operativi non sono stati
+                inclusi.
+              </p>
+            ) : briefing.promemoriaOggi.length === 0 &&
               briefing.casiMiei.length === 0 &&
-              (briefing.segnalazioni?.length ?? 0) === 0) ? (
+              briefing.segnalazioni === null ? (
+              <p className="mt-2 rounded-md bg-surface-2 px-3 py-3 text-xs leading-5 text-text-3">
+                Nessun promemoria o caso assegnato da evidenziare.
+              </p>
+            ) : briefing.promemoriaOggi.length === 0 &&
+              briefing.casiMiei.length === 0 &&
+              briefing.segnalazioni !== null &&
+              briefing.segnalazioni.length === 0 ? (
               <p className="mt-2 rounded-md bg-success-soft px-3 py-3 text-xs leading-5 text-success">
                 Nessun promemoria, caso assegnato o segnale operativo da
                 evidenziare.
@@ -292,7 +303,7 @@ export default function TarsContextPanel({
                 className="mt-0.5 size-3.5 shrink-0"
                 aria-hidden="true"
               />
-              Le segnalazioni proattive non sono incluse in questo briefing.
+              Segnalazioni non incluse in questo briefing.
             </p>
           )}
         </div>

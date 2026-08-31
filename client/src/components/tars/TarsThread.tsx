@@ -37,6 +37,12 @@ export type RichiestaUndoTars = {
   id: number;
 };
 
+export type ChiaveUndoTars = `${RichiestaUndoTars["procedura"]}:${number}`;
+
+export function chiaveUndoTars(richiesta: RichiestaUndoTars): ChiaveUndoTars {
+  return `${richiesta.procedura}:${richiesta.id}`;
+}
+
 export type RichiestaApprovazioneTars = {
   procedura: "proposte.approvaEApplica";
   propostaId: number;
@@ -264,7 +270,7 @@ function EvidenzeTurno({
 
 function AzioniTurno({
   azioni,
-  annullati,
+  undoCompletati,
   applicate,
   undoInCorso,
   approvazioneInCorso,
@@ -272,7 +278,7 @@ function AzioniTurno({
   onApprova,
 }: {
   azioni: readonly AzioneTarsView[];
-  annullati: readonly number[];
+  undoCompletati: readonly ChiaveUndoTars[];
   applicate: readonly number[];
   undoInCorso: boolean;
   approvazioneInCorso: boolean;
@@ -286,7 +292,8 @@ function AzioniTurno({
         const nonEseguita =
           azione.stato === "non_eseguito" || azione.stato === "non_necessaria";
         const annullata =
-          azione.undoVia != null && annullati.includes(azione.undoVia.id);
+          azione.undoVia != null &&
+          undoCompletati.includes(chiaveUndoTars(azione.undoVia));
         const applicata =
           azione.conferma != null &&
           applicate.includes(azione.conferma.propostaId);
@@ -390,7 +397,7 @@ export type TarsThreadProps = {
   inLavoro?: boolean;
   mobile?: boolean;
   emptyState?: ReactNode;
-  annullati?: readonly number[];
+  undoCompletati?: readonly ChiaveUndoTars[];
   applicate?: readonly number[];
   undoInCorso?: boolean;
   approvazioneInCorso?: boolean;
@@ -411,7 +418,7 @@ export default function TarsThread({
   inLavoro = false,
   mobile = false,
   emptyState,
-  annullati = [],
+  undoCompletati = [],
   applicate = [],
   undoInCorso = false,
   approvazioneInCorso = false,
@@ -454,7 +461,7 @@ export default function TarsThread({
             type="button"
             size="icon"
             variant="ghost"
-            className="size-11 shrink-0 lg:hidden"
+            className="size-11 shrink-0 xl:hidden"
             onClick={onOpenContext}
             aria-label="Apri contesto operativo"
             title="Contesto operativo"
@@ -587,7 +594,7 @@ export default function TarsThread({
                           <>
                             <AzioniTurno
                               azioni={azioni}
-                              annullati={annullati}
+                              undoCompletati={undoCompletati}
                               applicate={applicate}
                               undoInCorso={undoInCorso}
                               approvazioneInCorso={approvazioneInCorso}
