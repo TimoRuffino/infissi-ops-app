@@ -4,26 +4,26 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
-// Badge / chip — handoff spec §3.3.
-// Height 22px, padx 8, radius 8, font 12/600. Sentence case at call sites.
+// Badge / chip — stato compatto, mai comunicato dal solo colore.
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-[8px] border h-[22px] px-2 text-xs font-semibold w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:ring-primary/30 focus-visible:ring-[3px] transition-colors duration-150 overflow-hidden",
+  "inline-flex h-[22px] w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-[8px] border px-2 text-xs font-semibold transition-colors duration-(--duration-fast) focus-visible:ring-[3px] focus-visible:ring-ring/45 [&>svg]:size-3 [&>svg]:pointer-events-none",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary [background-image:var(--gradient-primary)] text-primary-foreground [a&]:hover:[background-image:var(--gradient-primary-hover)]",
+          "border-transparent bg-primary text-primary-foreground [a&]:hover:bg-primary-hover",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-surface-2",
         destructive:
-          "border-transparent bg-danger text-white [a&]:hover:bg-danger/90",
-        outline:
-          "border-border-strong text-text-1 [a&]:hover:bg-surface-2",
+          "border-transparent bg-danger text-on-danger [a&]:hover:bg-danger/90",
+        outline: "border-border-strong text-text-1 [a&]:hover:bg-surface-2",
         // Soft semantic chips (colored text on tinted bg)
         success: "border-transparent bg-success-soft text-success",
         warning: "border-transparent bg-warning-soft text-warning",
         info: "border-transparent bg-info-soft text-info",
         danger: "border-transparent bg-danger-soft text-danger",
+        brand: "border-transparent bg-brand-soft text-brand-soft-ink",
+        mora: "border-transparent bg-structure-soft text-mora",
       },
     },
     defaultVariants: {

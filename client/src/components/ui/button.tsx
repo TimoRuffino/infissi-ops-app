@@ -4,34 +4,32 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
-// Button — handoff spec §3.2.
-// Default height 40px (sm 32px), radius 10px, weight 600, focus ring,
-// disabled = opacity .5 + cursor not-allowed.
+// Button — controlli finiti del sistema Modular Control.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-[background-color,background-image,border-color,color,box-shadow,opacity,transform] duration-150 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/70 aria-invalid:ring-destructive/20 aria-invalid:border-destructive",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-control)] text-sm font-semibold outline-none transition-[background-color,background-image,border-color,color,box-shadow,opacity,transform] duration-(--duration-fast) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-[3px] focus-visible:ring-ring/55 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 aria-invalid:border-destructive aria-invalid:ring-destructive/20",
   {
     variants: {
       variant: {
-        // Primario
         default:
-          "bg-primary [background-image:var(--gradient-primary)] text-primary-foreground shadow-xs hover:[background-image:var(--gradient-primary-hover)] hover:-translate-y-px hover:shadow-sm active:translate-y-0",
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover active:scale-[0.98]",
         // Confirm-modal destructive action (solid). For in-list/menu deletes
         // use `dangerGhost` instead — never expose a solid red in a row.
         destructive:
           "bg-danger text-on-danger hover:bg-danger/90 focus-visible:ring-danger/40",
         // Distruttivo dentro menu/modale: testo danger, sfondo soft su hover
-        dangerGhost:
-          "text-danger hover:bg-danger-soft",
-        // CTA brand: UNA per schermata (giallo Ruffino in v2, testo scuro
-        // verificato 9,4:1). Non è un default: si sceglie apposta.
+        dangerGhost: "text-danger hover:bg-danger-soft",
         brand:
           "bg-brand text-on-brand shadow-xs hover:brightness-[0.96] active:scale-[0.98]",
+        // Firma gradiente opt-in: una sola area focale per viewport.
+        focal:
+          "bg-focal [background-image:var(--gradient-focal)] text-on-focal shadow-sm hover:brightness-[1.06] active:scale-[0.98]",
         // Secondario
         outline:
           "bg-surface border border-border-strong text-text-1 shadow-xs hover:border-primary/45 hover:bg-accent",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-accent",
-        // Ghost / icona
+        secondary: "bg-secondary text-secondary-foreground hover:bg-accent",
+        quiet: "bg-transparent text-text-1 hover:bg-surface-2",
+        toolbar:
+          "border border-border-strong bg-surface-2 text-text-1 shadow-xs hover:bg-accent",
         ghost: "text-text-1 hover:bg-accent",
         link: "text-accent-text underline-offset-4 hover:underline",
       },

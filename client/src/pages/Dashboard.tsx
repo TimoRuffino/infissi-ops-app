@@ -1,4 +1,4 @@
-// Dashboard (`/`) — archetipo «Dashboard per ruolo» di Frame & Flow.
+// Dashboard (`/`) — archetipo operativo personalizzato per ruolo.
 //
 // Composizione: «Da fare oggi» domina la colonna principale (~8/12) con il
 // pulse dei KPI e il calendario; la colonna laterale (~4/12) porta la
@@ -727,7 +727,7 @@ export default function Dashboard() {
         {/* ── Colonna principale: il lavoro di oggi domina ── */}
         <div className="min-w-0 space-y-6 lg:col-span-8">
           {/* Da fare oggi — personalized action feed (§26.2) */}
-          <Card className="border-l-[3px] border-l-primary rf-frame-reveal">
+          <Card className="border-l-[3px] border-l-primary">
             <CardHeader className="pb-2">
               <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2">

@@ -64,18 +64,19 @@ export default function DashboardLayout({
   });
   const { loading, user } = useAuth();
 
-  // UI v2 «Frame & Flow»: la skin segue l'interruttore FLAG_UI_V2
-  // (fail-closed, letto dal server). L'attributo sulla radice commuta i
-  // token in client/src/index.css; senza attributo la resa è la v1,
-  // identica byte per byte. Prima del login l'interruttore non è leggibile
-  // (procedura protetta): la pagina di accesso resta v1 per scelta.
+  // Modular Control segue il solo FLAG_UI_V2 fail-closed letto dal server.
+  // Prima del login il flag non è disponibile e il fallback resta legacy.
   const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
     enabled: !loading && !!user,
   });
   const uiV2 = Boolean(user && interruttoriQ.data?.uiV2);
   useEffect(() => {
-    document.documentElement.toggleAttribute("data-ui-v2", uiV2);
+    const root = document.documentElement;
+    if (uiV2) root.setAttribute("data-ui-system", "modular-control");
+    else root.removeAttribute("data-ui-system");
+
+    return () => root.removeAttribute("data-ui-system");
   }, [uiV2]);
 
   useEffect(() => {

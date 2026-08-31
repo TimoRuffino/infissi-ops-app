@@ -769,9 +769,7 @@ export default function CommessaDetail() {
           <ArrowLeft className="h-4 w-4 mr-1" />
           Commesse
         </Button>
-        {/* Header identitario con la firma Frame: due angoli aperti
-            incorniciano l'identità del record. */}
-        <div className="rf-frame rounded-lg px-4 py-4">
+        <div className="rounded-lg px-4 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">

@@ -1,12 +1,10 @@
-// StatusRail — la firma «Rail» di Frame & Flow: la state machine delle
-// commesse come binario semantico, non una progress bar decorativa.
+// StatusRail — rappresentazione compatta della state machine delle commesse,
+// non una progress bar decorativa.
 //
 // Il rail RAPPRESENTA la posizione, non la calcola: lo stato arriva dal
 // server e le transizioni restano di `commesse.update` (adiacenti, doc
-// gate, force solo sul gate). Qui: passato in petrolio, presente in giallo
-// Ruffino (lo stesso marcatore di posizione della sidebar), futuro in
-// traccia neutra. Il colore non è mai l'unico segnale: etichetta corrente,
-// conteggio passi e motivo del blocco sono sempre testuali.
+// gate, force solo sul gate). Il colore non è mai l'unico segnale: etichetta
+// corrente, conteggio passi e motivo del blocco sono sempre testuali.
 import { STATI_ORDER, statoLabel } from "@/lib/stato";
 import { Lock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

@@ -38,17 +38,15 @@ import { toast } from "sonner";
 const INTERVALLO_AGGIORNAMENTO_MS = 5_000;
 const EMOJI = ["👍", "🎉", "😂", "❤️", "👀", "🙏"] as const;
 
-// Sei tinte distinguibili anche da chi confonde rosso e verde, tutte leggibili
-// sul chiaro e sullo scuro. L'avatar non è decorazione: in una lista di
-// messaggi il colore è ciò che fa riconoscere l'autore prima di leggerne il
-// nome.
+// Sei famiglie semantiche ad alto contrasto. Insieme alle iniziali aiutano a
+// riconoscere l'autore senza dipendere dal solo colore.
 const TINTE = [
-  "bg-[#2F6F4E] text-white",
-  "bg-[#1F5E86] text-white",
-  "bg-[#7A3E8F] text-white",
-  "bg-[#A8541B] text-white",
-  "bg-[#8A1F3D] text-white",
-  "bg-[#3F4C8C] text-white",
+  "bg-success text-on-success",
+  "bg-info text-on-info",
+  "bg-mora text-on-mora",
+  "bg-warning text-on-warning",
+  "bg-brand text-on-brand",
+  "bg-focal text-on-focal",
 ];
 
 function tintaPer(nome: string): string {
