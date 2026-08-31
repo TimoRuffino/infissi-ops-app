@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
 // Badge stato: unica fonte lib/stato (statoChipClass). Qui `stato` è
@@ -26,9 +28,10 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 export default function Archivio() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [restoreTarget, setRestoreTarget] = useState<
-    { id: number; label: string } | null
-  >(null);
+  const [restoreTarget, setRestoreTarget] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
 
   const list = trpc.commesse.list.useQuery({ archived: "only" });
   const clientiArch = trpc.clienti.list.useQuery({ archived: "only" });
@@ -46,7 +49,7 @@ export default function Archivio() {
       utils.commesse.invalidate();
       toast.success("Cliente ripristinato (con le sue commesse)");
     },
-    onError: (e) => toast.error(e.message ?? "Ripristino non riuscito"),
+    onError: e => toast.error(e.message ?? "Ripristino non riuscito"),
   });
 
   const filtered = useMemo(() => {
@@ -54,7 +57,7 @@ export default function Archivio() {
     const all = list.data ?? [];
     if (!q) return all;
     return all.filter(
-      (c) =>
+      c =>
         c.codice.toLowerCase().includes(q) ||
         c.cliente.toLowerCase().includes(q) ||
         c.citta?.toLowerCase().includes(q) ||
@@ -63,37 +66,25 @@ export default function Archivio() {
   }, [list.data, search]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Archive className="h-6 w-6 text-primary" />
-            Archivio commesse
-          </h1>
-          <p className="text-sm text-muted-foreground max-w-2xl">
-            Commesse archiviate quando il cliente non procede con il lavoro. I
-            dati, i file e lo stato di avanzamento sono preservati: in qualsiasi
-            momento puoi ripristinare la commessa e farla tornare attiva.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="text-xs">
-            {list.data?.length ?? 0} archiviate
-          </Badge>
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5">
+      <PageHeader
+        eyebrow="Commesse"
+        title="Archivio"
+        description="Le commesse archiviate restano complete di dati, file e stato. Puoi ripristinarle senza alterare il loro avanzamento."
+        metadata={<span>{list.data?.length ?? 0} commesse archiviate</span>}
+      />
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Cerca per codice, cliente, città…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
+      <DataSurface density="compact" tone="sunken">
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cerca per codice, cliente, città…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      </DataSurface>
 
       {/* Clienti archiviati */}
       {(clientiArch.data?.length ?? 0) > 0 && (
@@ -110,7 +101,9 @@ export default function Archivio() {
                     onClick={() => setLocation(`/clienti/${cl.id}`)}
                   >
                     <p className="font-semibold leading-tight truncate">
-                      {`${cl.cognome ?? ""} ${cl.nome ?? ""}`.trim() || cl.email || "—"}
+                      {`${cl.cognome ?? ""} ${cl.nome ?? ""}`.trim() ||
+                        cl.email ||
+                        "—"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {cl.commesseIds?.length ?? 0} commesse · archiviato{" "}
@@ -135,118 +128,125 @@ export default function Archivio() {
         </div>
       )}
 
-      {/* Commesse archiviate */}
-      {(clientiArch.data?.length ?? 0) > 0 && (
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Commesse archiviate
-        </h2>
-      )}
-      {list.isLoading && (
-        <p className="text-sm text-muted-foreground">Caricamento…</p>
-      )}
-      {!list.isLoading && filtered.length === 0 && (
-        <Card className="border-dashed">
-          <CardContent className="py-10 text-center space-y-2">
-            <Archive className="h-10 w-10 mx-auto text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">
-              {search
-                ? "Nessuna commessa archiviata corrisponde alla ricerca."
-                : "Nessuna commessa archiviata. Le commesse che archivi da qui in avanti appariranno qui."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 gap-3">
-        {filtered.map((c: any) => (
-          <Card
-            key={c.id}
-            className="hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => setLocation(`/commesse/${c.id}`)}
-          >
-            <CardContent className="py-3 px-4">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {c.codice}
-                    </span>
-                    <Badge
-                      variant="secondary"
-                      className={`text-[10px] uppercase ${
-                        statoChipClass(c.stato)
-                      }`}
-                    >
-                      {c.stato.replace(/_/g, " ")}
-                    </Badge>
-                    {c.priorita === "urgente" && (
-                      <Badge variant="destructive" className="text-[10px]">
-                        URGENTE
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        title="Commesse archiviate"
+        description="L'archivio è separato dal Board e dal Planning, senza cancellare lo storico."
+        state={
+          list.isLoading
+            ? {
+                kind: "loading",
+                title: "Caricamento archivio",
+                description: "Sto preparando le commesse archiviate.",
+                rows: 4,
+              }
+            : filtered.length === 0
+              ? {
+                  kind: "empty",
+                  title: search
+                    ? "Nessun risultato"
+                    : "Nessuna commessa archiviata",
+                  description: search
+                    ? "Prova a cercare per codice, cliente, città o indirizzo."
+                    : "Le commesse archiviate appariranno qui senza perdere il loro storico.",
+                }
+              : undefined
+        }
+      >
+        <div className="grid grid-cols-1 gap-3">
+          {filtered.map((c: any) => (
+            <Card
+              key={c.id}
+              className="hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => setLocation(`/commesse/${c.id}`)}
+            >
+              <CardContent className="py-3 px-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {c.codice}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] uppercase ${statoChipClass(
+                          c.stato
+                        )}`}
+                      >
+                        {c.stato.replace(/_/g, " ")}
                       </Badge>
-                    )}
+                      {c.priorita === "urgente" && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          URGENTE
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="font-semibold leading-tight">
+                      {c.cliente || (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      {c.indirizzo && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {c.indirizzo}
+                          {c.citta ? `, ${c.citta}` : ""}
+                        </span>
+                      )}
+                      {c.dataApertura && (
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          Aperta:{" "}
+                          {new Date(c.dataApertura).toLocaleDateString("it-IT")}
+                        </span>
+                      )}
+                      {c.archivedAt && (
+                        <span className="flex items-center gap-1">
+                          <Archive className="h-3 w-3" />
+                          Archiviata:{" "}
+                          {new Date(c.archivedAt).toLocaleDateString("it-IT")}
+                        </span>
+                      )}
+                      {c.assegnatoA && (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          Assegnata
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className="font-semibold leading-tight">
-                    {c.cliente || <span className="text-muted-foreground">—</span>}
-                  </p>
-                  <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                    {c.indirizzo && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {c.indirizzo}
-                        {c.citta ? `, ${c.citta}` : ""}
-                      </span>
-                    )}
-                    {c.dataApertura && (
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        Aperta:{" "}
-                        {new Date(c.dataApertura).toLocaleDateString("it-IT")}
-                      </span>
-                    )}
-                    {c.archivedAt && (
-                      <span className="flex items-center gap-1">
-                        <Archive className="h-3 w-3" />
-                        Archiviata:{" "}
-                        {new Date(c.archivedAt).toLocaleDateString("it-IT")}
-                      </span>
-                    )}
-                    {c.assegnatoA && (
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        Assegnata
-                      </span>
-                    )}
+                  <div
+                    className="flex items-center gap-1.5 shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setRestoreTarget({ id: c.id, label: c.codice })
+                      }
+                      disabled={restore.isPending}
+                    >
+                      <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                      Ripristina
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setLocation(`/commesse/${c.id}`)}
+                      title="Apri scheda"
+                    >
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
-                <div
-                  className="flex items-center gap-1.5 shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setRestoreTarget({ id: c.id, label: c.codice })
-                    }
-                    disabled={restore.isPending}
-                  >
-                    <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
-                    Ripristina
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setLocation(`/commesse/${c.id}`)}
-                    title="Apri scheda"
-                  >
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </DataSurface>
 
       {/* Info footer */}
       {filtered.length > 0 && (
@@ -261,7 +261,7 @@ export default function Archivio() {
       {/* Restore confirmation */}
       <ConfirmDialog
         open={!!restoreTarget}
-        onOpenChange={(open) => !open && setRestoreTarget(null)}
+        onOpenChange={open => !open && setRestoreTarget(null)}
         title="Ripristinare la commessa?"
         description={`La commessa "${restoreTarget?.label}" tornerà attiva e ricomparirà in liste, board e planning con stato e dati invariati.`}
         destructive={false}

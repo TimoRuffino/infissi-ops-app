@@ -23,4 +23,13 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/<DataSurface/);
   });
+
+  it("compone l'archivio con header e superfici del sistema", () => {
+    const source = routeSource("../pages/Archivio.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+  });
 });
