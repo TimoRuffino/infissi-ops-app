@@ -353,6 +353,9 @@ export async function eseguiRun(input: {
       contesto.utenteId
     );
     if (!trovata) throw new Error("NOT_FOUND: conversazione non trovata.");
+    if (trovata.archiviataAt != null) {
+      throw new Error("CONVERSAZIONE_ARCHIVIATA: ripristinala prima di inviare.");
+    }
   } else {
     const creata = await creaConversazione({
       sedeId: contesto.sedeId,
@@ -406,12 +409,14 @@ export async function eseguiRun(input: {
     await aggiungiTurno({
       conversazioneId: conversazioneId!,
       sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
       ruolo: "utente",
       contenuto: input.messaggio,
     });
     await aggiungiTurno({
       conversazioneId: conversazioneId!,
       sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
       ruolo: "tars",
       contenuto: testo,
       payload: {
@@ -584,6 +589,7 @@ export async function eseguiRun(input: {
   await aggiungiTurno({
     conversazioneId,
     sedeId: contesto.sedeId,
+    utenteId: contesto.utenteId,
     ruolo: "utente",
     contenuto: input.messaggio,
   });
@@ -634,6 +640,7 @@ export async function eseguiRun(input: {
     await aggiungiTurno({
       conversazioneId,
       sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
       ruolo: "tars",
       contenuto: riuso.testo,
       payload: {
@@ -729,6 +736,7 @@ export async function eseguiRun(input: {
     await aggiungiTurno({
       conversazioneId: conversazioneId!,
       sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
       ruolo: "tars",
       contenuto: motivo,
       payload: {
@@ -1142,6 +1150,7 @@ export async function eseguiRun(input: {
   await aggiungiTurno({
     conversazioneId,
     sedeId: contesto.sedeId,
+    utenteId: contesto.utenteId,
     ruolo: "tars",
     contenuto: finale.testo,
     payload: {

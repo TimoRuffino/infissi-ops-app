@@ -32,6 +32,11 @@ export type ConversazioneTars = {
   titolo: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Metadati di gestione, additivi e recuperabili. */
+  fissata: boolean;
+  archiviataAt: Date | null;
+  /** Derivata dall'ultimo turno nella lista, mai duplicata in tabella. */
+  anteprima: string | null;
   /** Additivo: i consumer legacy possono ignorarlo. */
   contesto?: ContestoConversazione;
 };
@@ -74,6 +79,12 @@ export function ensureTarsSchema(): Promise<void> {
       await kvSql!`
         ALTER TABLE tars_conversazioni
           ADD COLUMN IF NOT EXISTS contesto_versione BIGINT NOT NULL DEFAULT 0`;
+      await kvSql`
+        ALTER TABLE tars_conversazioni
+          ADD COLUMN IF NOT EXISTS fissata BOOLEAN NOT NULL DEFAULT false`;
+      await kvSql`
+        ALTER TABLE tars_conversazioni
+          ADD COLUMN IF NOT EXISTS archiviata_at TIMESTAMPTZ`;
       await kvSql!`
         CREATE TABLE IF NOT EXISTS tars_turni (
           id BIGSERIAL PRIMARY KEY,
@@ -126,6 +137,9 @@ function rigaConversazione(r: any): ConversazioneTars {
     titolo: String(r.titolo),
     createdAt: new Date(r.created_at),
     updatedAt: new Date(r.updated_at),
+    fissata: Boolean(r.fissata),
+    archiviataAt: r.archiviata_at ? new Date(r.archiviata_at) : null,
+    anteprima: r.anteprima == null ? null : String(r.anteprima),
     contesto: normalizzaContestoConversazione(
       r.contesto,
       Number(r.contesto_versione ?? 0)
@@ -184,6 +198,9 @@ export async function creaConversazione(input: {
     titolo: input.titolo,
     createdAt: new Date(),
     updatedAt: new Date(),
+    fissata: false,
+    archiviataAt: null,
+    anteprima: null,
     contesto: contestoConversazioneVuoto(),
   };
   memConversazioni.push(conversazione);
@@ -271,44 +288,198 @@ export async function conversazioneDiUtente(
   );
 }
 
+export type OpzioniListaConversazioni = {
+  archiviate?: boolean;
+  ricerca?: string;
+  limite?: number;
+};
+
+function limiteConversazioni(limite: number | undefined): number {
+  if (!Number.isInteger(limite)) return 50;
+  return Math.max(1, Math.min(100, limite!));
+}
+
+function conAnteprima(
+  conversazione: ConversazioneTars,
+  anteprima: string | null
+): ConversazioneTars {
+  return { ...conversazione, anteprima };
+}
+
 export async function listaConversazioni(
   sedeId: number,
   utenteId: number,
-  limite = 20
+  opzioni: OpzioniListaConversazioni = {}
 ): Promise<ConversazioneTars[]> {
+  const archiviate = opzioni.archiviate === true;
+  const ricerca = opzioni.ricerca?.trim() ?? "";
+  const limite = limiteConversazioni(opzioni.limite);
   if (kvSql) {
     await ensureTarsSchema();
     const righe = await kvSql`
-      SELECT * FROM tars_conversazioni
-      WHERE sede_id = ${sedeId} AND utente_id = ${utenteId}
-      ORDER BY updated_at DESC LIMIT ${limite}`;
+      SELECT c.*, ultimo.contenuto AS anteprima
+      FROM tars_conversazioni c
+      LEFT JOIN LATERAL (
+        SELECT contenuto FROM tars_turni
+        WHERE conversazione_id = c.id AND sede_id = c.sede_id
+        ORDER BY id DESC LIMIT 1
+      ) ultimo ON true
+      WHERE c.sede_id = ${sedeId}
+        AND c.utente_id = ${utenteId}
+        AND (c.archiviata_at IS NOT NULL) = ${archiviate}
+        AND (
+          ${ricerca} = ''
+          OR c.titolo ILIKE '%' || ${ricerca} || '%'
+          OR COALESCE(ultimo.contenuto, '') ILIKE '%' || ${ricerca} || '%'
+        )
+      ORDER BY c.fissata DESC, c.updated_at DESC
+      LIMIT ${limite}`;
     return righe.map(rigaConversazione);
   }
   return memConversazioni
-    .filter(c => c.sedeId === sedeId && c.utenteId === utenteId)
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    .filter(c =>
+      c.sedeId === sedeId &&
+      c.utenteId === utenteId &&
+      (c.archiviataAt != null) === archiviate
+    )
+    .map(c => {
+      const ultimo = memTurni
+        .filter(t => t.conversazioneId === c.id && t.sedeId === sedeId)
+        .sort((a, b) => b.id - a.id)[0];
+      return conAnteprima(c, ultimo?.contenuto ?? null);
+    })
+    .filter(c => {
+      const needle = ricerca.toLocaleLowerCase();
+      return !needle ||
+        c.titolo.toLocaleLowerCase().includes(needle) ||
+        c.anteprima?.toLocaleLowerCase().includes(needle);
+    })
+    .sort((a, b) =>
+      Number(b.fissata) - Number(a.fissata) ||
+      b.updatedAt.getTime() - a.updatedAt.getTime()
+    )
     .slice(0, limite);
+}
+
+export type EsitoGestioneConversazione =
+  | { stato: "aggiornata"; conversazione: ConversazioneTars }
+  | { stato: "non_trovato" };
+
+async function aggiornaConversazioneGestione(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+  titolo?: string;
+  fissata?: boolean;
+  archiviata?: boolean;
+}): Promise<EsitoGestioneConversazione> {
+  if (kvSql) {
+    await ensureTarsSchema();
+    const [r] = await kvSql`
+      UPDATE tars_conversazioni
+      SET titolo = COALESCE(${input.titolo ?? null}, titolo),
+          fissata = CASE
+            WHEN ${input.archiviata === true} THEN false
+            WHEN ${input.fissata ?? null} IS NULL THEN fissata
+            ELSE ${input.fissata ?? null}
+          END,
+          archiviata_at = CASE
+            WHEN ${input.archiviata === true} THEN now()
+            WHEN ${input.archiviata === false} THEN NULL
+            ELSE archiviata_at
+          END,
+          updated_at = now()
+      WHERE id = ${input.conversazioneId}
+        AND sede_id = ${input.sedeId}
+        AND utente_id = ${input.utenteId}
+      RETURNING *`;
+    return r
+      ? { stato: "aggiornata", conversazione: rigaConversazione(r) }
+      : { stato: "non_trovato" };
+  }
+
+  const conversazione = memConversazioni.find(
+    c => c.id === input.conversazioneId &&
+      c.sedeId === input.sedeId &&
+      c.utenteId === input.utenteId
+  );
+  if (!conversazione) return { stato: "non_trovato" };
+  if (input.titolo != null) conversazione.titolo = input.titolo;
+  if (input.archiviata === true) {
+    conversazione.archiviataAt = new Date();
+    conversazione.fissata = false;
+  } else if (input.archiviata === false) {
+    conversazione.archiviataAt = null;
+  } else if (input.fissata != null) {
+    conversazione.fissata = input.fissata;
+  }
+  conversazione.updatedAt = new Date();
+  return { stato: "aggiornata", conversazione };
+}
+
+export function rinominaConversazione(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+  titolo: string;
+}): Promise<EsitoGestioneConversazione> {
+  return aggiornaConversazioneGestione(input);
+}
+
+export function impostaConversazioneFissata(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+  fissata: boolean;
+}): Promise<EsitoGestioneConversazione> {
+  return aggiornaConversazioneGestione(input);
+}
+
+export function impostaConversazioneArchiviata(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+  archiviata: boolean;
+}): Promise<EsitoGestioneConversazione> {
+  return aggiornaConversazioneGestione(input);
 }
 
 export async function aggiungiTurno(input: {
   conversazioneId: number;
   sedeId: number;
+  utenteId: number;
   ruolo: TurnoTars["ruolo"];
   contenuto: string;
   payload?: Record<string, unknown> | null;
 }): Promise<TurnoTars> {
   if (kvSql) {
     await ensureTarsSchema();
-    const [r] = await kvSql`
+    const righe = await kvSql`
+      WITH proprietaria AS (
+        UPDATE tars_conversazioni
+        SET updated_at = now()
+        WHERE id = ${input.conversazioneId}
+          AND sede_id = ${input.sedeId}
+          AND utente_id = ${input.utenteId}
+          AND archiviata_at IS NULL
+        RETURNING id
+      )
       INSERT INTO tars_turni (conversazione_id, sede_id, ruolo, contenuto, payload)
-      VALUES (${input.conversazioneId}, ${input.sedeId}, ${input.ruolo},
-              ${input.contenuto}, ${JSON.stringify(input.payload ?? null)}::jsonb)
+      SELECT id, ${input.sedeId}, ${input.ruolo}, ${input.contenuto},
+             ${JSON.stringify(input.payload ?? null)}::jsonb
+      FROM proprietaria
       RETURNING *`;
-    await kvSql`
-      UPDATE tars_conversazioni SET updated_at = now()
-      WHERE id = ${input.conversazioneId}`;
+    const r = righe[0];
+    if (!r) throw new Error("NOT_FOUND: conversazione non trovata.");
     return rigaTurno(r);
   }
+  const conversazione = memConversazioni.find(
+    c => c.id === input.conversazioneId &&
+      c.sedeId === input.sedeId &&
+      c.utenteId === input.utenteId &&
+      c.archiviataAt == null
+  );
+  if (!conversazione) throw new Error("NOT_FOUND: conversazione non trovata.");
   const turno: TurnoTars = {
     id: memTurnoId++,
     conversazioneId: input.conversazioneId,
@@ -319,10 +490,7 @@ export async function aggiungiTurno(input: {
     createdAt: new Date(),
   };
   memTurni.push(turno);
-  const conversazione = memConversazioni.find(
-    c => c.id === input.conversazioneId
-  );
-  if (conversazione) conversazione.updatedAt = new Date();
+  conversazione.updatedAt = new Date();
   return turno;
 }
 

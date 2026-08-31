@@ -8,7 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import { getUtentiStore } from "../routers/utenti";
-import { azzeraArchivioPerTest } from "./archivio";
+import {
+  azzeraArchivioPerTest,
+  conversazioneDiUtente,
+  creaConversazione,
+  impostaConversazioneArchiviata,
+  turniDiConversazione,
+} from "./archivio";
 import { costruisciContesto } from "./contesto";
 import {
   azzeraCacheTarsPerTest,
@@ -739,6 +745,46 @@ describe("tars — budget e retry del provider", () => {
 });
 
 describe("tars — degradazione e sicurezza", () => {
+  it("una conversazione archiviata non salva turni, non aggiorna la data e non chiama il provider", async () => {
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const conversazione = await creaConversazione({
+      sedeId: SEDE,
+      utenteId: DIREZIONE_ID,
+      titolo: "Sola lettura",
+    });
+    await impostaConversazioneArchiviata({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: DIREZIONE_ID,
+      archiviata: true,
+    });
+    const prima = await conversazioneDiUtente(
+      conversazione.id,
+      SEDE,
+      DIREZIONE_ID
+    );
+    let chiamateProvider = 0;
+    const provider = creaProviderFinto(() => {
+      chiamateProvider += 1;
+      return rispostaTesto("Non devo essere chiamato.");
+    });
+
+    await expect(
+      eseguiRun({
+        contesto,
+        provider,
+        messaggio: "Tentativo su archivio",
+        conversazioneId: conversazione.id,
+      })
+    ).rejects.toThrow("CONVERSAZIONE_ARCHIVIATA");
+
+    expect(chiamateProvider).toBe(0);
+    await expect(turniDiConversazione(conversazione.id, SEDE)).resolves.toEqual([]);
+    await expect(
+      conversazioneDiUtente(conversazione.id, SEDE, DIREZIONE_ID)
+    ).resolves.toMatchObject({ updatedAt: prima!.updatedAt });
+  });
+
   it("provider rotto → risposta degradata onesta, mai un 500", async () => {
     const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
     const provider = creaProviderFinto(() => "errore_fatale");

@@ -18,6 +18,9 @@ import {
   statisticheRun,
   turniDiConversazione,
   conversazioneDiUtente,
+  impostaConversazioneArchiviata,
+  impostaConversazioneFissata,
+  rinominaConversazione,
 } from "../tars/archivio";
 import { costruisciContesto } from "../tars/contesto";
 import {
@@ -217,6 +220,12 @@ function comeErrore(errore: any): never {
   if (messaggio.startsWith("UNAUTHORIZED")) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessione non valida." });
   }
+  if (messaggio.startsWith("CONVERSAZIONE_ARCHIVIATA")) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Ripristina la conversazione prima di inviare un messaggio.",
+    });
+  }
   console.error("[tars] errore router:", errore);
   throw new TRPCError({
     code: "INTERNAL_SERVER_ERROR",
@@ -283,14 +292,88 @@ export const tarsRouter = router({
       }
     }),
 
-  conversazioni: procedura.query(async ({ ctx }) => {
+  conversazioni: procedura
+    .input(
+      z.object({
+        archiviate: z.boolean().optional(),
+        ricerca: z.string().max(100).optional(),
+        limite: z.number().int().min(1).max(100).optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
     try {
       const contesto = await costruisciContesto(ctx);
-      return listaConversazioni(contesto.sedeId, contesto.utenteId);
+      return listaConversazioni(contesto.sedeId, contesto.utenteId, input);
     } catch (errore) {
       comeErrore(errore);
     }
   }),
+
+  rinominaConversazione: procedura
+    .input(z.object({
+      conversazioneId: z.number().int().positive(),
+      titolo: z.string().trim().min(1).max(80),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const contesto = await costruisciContesto(ctx);
+        const esito = await rinominaConversazione({
+          ...input,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+        });
+        if (esito.stato === "non_trovato") {
+          throw new Error("NOT_FOUND: conversazione non trovata.");
+        }
+        return esito.conversazione;
+      } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
+
+  fissaConversazione: procedura
+    .input(z.object({
+      conversazioneId: z.number().int().positive(),
+      fissata: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const contesto = await costruisciContesto(ctx);
+        const esito = await impostaConversazioneFissata({
+          ...input,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+        });
+        if (esito.stato === "non_trovato") {
+          throw new Error("NOT_FOUND: conversazione non trovata.");
+        }
+        return esito.conversazione;
+      } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
+
+  archiviaConversazione: procedura
+    .input(z.object({
+      conversazioneId: z.number().int().positive(),
+      archiviata: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const contesto = await costruisciContesto(ctx);
+        const esito = await impostaConversazioneArchiviata({
+          ...input,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+        });
+        if (esito.stato === "non_trovato") {
+          throw new Error("NOT_FOUND: conversazione non trovata.");
+        }
+        return esito.conversazione;
+      } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
 
   turni: procedura
     .input(z.object({ conversazioneId: z.number().int().positive() }))
@@ -434,6 +517,21 @@ export const tarsRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         const contesto = await costruisciContesto(ctx);
+        if (input.conversazioneId != null) {
+          const conversazione = await conversazioneDiUtente(
+            input.conversazioneId,
+            contesto.sedeId,
+            contesto.utenteId
+          );
+          if (!conversazione) {
+            throw new Error("NOT_FOUND: conversazione non trovata.");
+          }
+          if (conversazione.archiviataAt != null) {
+            throw new Error(
+              "CONVERSAZIONE_ARCHIVIATA: ripristinala prima di inviare."
+            );
+          }
+        }
         assicuraRateLimitInvio(contesto.sedeId, contesto.utenteId);
 
         const chiave = chiaveInvio({
