@@ -35,7 +35,7 @@ export default function ShellWorkspace({
           {contextBar}
           <main
             id="contenuto-principale"
-            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-4 py-4 sm:px-5 sm:py-5 min-[1200px]:px-6 min-[1200px]:py-6"
+            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:px-6 min-[1200px]:py-6"
           >
             {children}
           </main>

@@ -6,6 +6,7 @@ import NotificheDropdown from "@/components/NotificheDropdown";
 import { Button } from "@/components/ui/button";
 import { useOperationalContext } from "@/contexts/OperationalContext";
 import type { RouteContractEntry } from "@/lib/routeContract";
+import { routePresentation } from "@/lib/shellPresentation";
 import UserMenu from "./UserMenu";
 
 export type ContextBarProps = {
@@ -14,67 +15,6 @@ export type ContextBarProps = {
   onOpenNavigation: () => void;
   actions?: ReactNode;
 };
-
-type RoutePresentation = { section: string; title: string };
-
-const ROUTE_PRESENTATION: Record<string, RoutePresentation> = {
-  "/": { section: "Oggi", title: "Dashboard" },
-  "/clienti": { section: "Clienti", title: "Elenco clienti" },
-  "/clienti/:id": { section: "Clienti", title: "Dettaglio cliente" },
-  "/kanban": { section: "Commesse", title: "Board operativo" },
-  "/magazzino": { section: "Ordini e cantiere", title: "Magazzino" },
-  "/pagamenti": { section: "Economia", title: "Pagamenti" },
-  "/economia": { section: "Economia", title: "Contabilità" },
-  "/marginalita": { section: "Economia", title: "Marginalità" },
-  "/commesse": { section: "Commesse", title: "Elenco commesse" },
-  "/commesse/:id": { section: "Commesse", title: "Commessa 360" },
-  "/commesse/:commessaId/aperture/:aperturaId/rilievo": {
-    section: "Commesse",
-    title: "Rilievo apertura",
-  },
-  "/verbale/:interventoId": {
-    section: "Cantiere",
-    title: "Verbale di chiusura",
-  },
-  "/planning": { section: "Cantiere", title: "Planning" },
-  "/ticket": { section: "Post-vendita", title: "Ticket" },
-  "/garanzie": { section: "Post-vendita", title: "Garanzie" },
-  "/squadre": { section: "Cantiere", title: "Squadre di posa" },
-  "/fornitori": { section: "Ordini", title: "Fornitori e ordini" },
-  "/preventivatori": { section: "Commesse", title: "Preventivatori" },
-  "/preventivatori/fivizzanese/persiane": {
-    section: "Preventivatori",
-    title: "Fivizzanese · Persiane",
-  },
-  "/preventivatori/punto-del-serramento/persiane": {
-    section: "Preventivatori",
-    title: "Punto del Serramento · Persiane",
-  },
-  "/reclami": { section: "Post-vendita", title: "Reclami e rifacimenti" },
-  "/archivio": { section: "Commesse", title: "Archivio" },
-  "/utenti": { section: "Amministrazione", title: "Utenti" },
-  "/sedi": { section: "Amministrazione", title: "Sedi" },
-  "/messaggi/email": { section: "Comunicazioni", title: "Email" },
-  "/messaggi/whatsapp": { section: "Comunicazioni", title: "WhatsApp" },
-  "/chat": { section: "Comunicazioni", title: "Chat aziendale" },
-  "/notifiche": { section: "Oggi", title: "Centro azioni" },
-  "/conoscenza": { section: "Amministrazione", title: "Conoscenza" },
-  "/integrazioni": { section: "Amministrazione", title: "Impostazioni" },
-  "/tars": { section: "Tars", title: "Centro decisionale" },
-  "/404": { section: "Navigazione", title: "Pagina non trovata" },
-  "*": { section: "Navigazione", title: "Pagina non trovata" },
-};
-
-export function routePresentation(
-  route: RouteContractEntry
-): RoutePresentation {
-  return (
-    ROUTE_PRESENTATION[route.path] ?? {
-      section: "Ruffino Flow",
-      title: route.target,
-    }
-  );
-}
 
 export default function ContextBar({
   currentRoute,
@@ -89,12 +29,12 @@ export default function ContextBar({
     typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[72px] min-w-0 items-center gap-2 border-b border-[var(--context-border)] bg-[var(--context-surface)] px-3 sm:gap-3 sm:px-4 min-[1200px]:px-5">
+    <header className="sticky top-0 z-30 flex min-h-16 min-w-0 items-center gap-2 border-b border-[var(--context-border)] bg-[var(--context-surface)] px-3 sm:gap-3 sm:px-4 min-[1200px]:min-h-[72px] min-[1200px]:px-5">
       <Button
         type="button"
         variant="quiet"
         size="icon-lg"
-        className="min-[1200px]:hidden"
+        className="h-11 w-11 min-[1200px]:hidden"
         onClick={onOpenNavigation}
         aria-label="Apri navigazione"
       >
@@ -102,7 +42,7 @@ export default function ContextBar({
       </Button>
 
       <div className="min-w-0 flex-1">
-        <div className="hidden items-center gap-1.5 text-[11px] font-medium text-text-3 sm:flex">
+        <div className="hidden items-center gap-1.5 text-[11px] font-medium text-text-3 min-[1200px]:flex">
           <span>Ruffino Flow</span>
           <span aria-hidden="true">/</span>
           <span className="truncate">{presentation.section}</span>
@@ -121,7 +61,7 @@ export default function ContextBar({
       <button
         type="button"
         onClick={onOpenCommand}
-        className="hidden h-10 min-w-40 items-center gap-2 rounded-[var(--radius-control)] border border-border-strong bg-surface-2 px-3 text-sm text-text-3 shadow-xs transition-colors hover:border-primary/45 hover:bg-accent hover:text-text-1 focus-visible:ring-[var(--focus-width)] focus-visible:ring-[var(--focus-color)] md:flex xl:min-w-52"
+        className="hidden h-10 min-w-40 items-center gap-2 rounded-[var(--radius-control)] border border-border-strong bg-surface-2 px-3 text-sm text-text-3 shadow-xs transition-colors hover:border-primary/45 hover:bg-accent hover:text-text-1 focus-visible:ring-[var(--focus-width)] focus-visible:ring-[var(--focus-color)] min-[1200px]:flex xl:min-w-52"
         aria-label={`Cerca e apri comandi (${isMac ? "Comando K" : "Control K"})`}
       >
         <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -136,7 +76,7 @@ export default function ContextBar({
         type="button"
         variant="quiet"
         size="icon-lg"
-        className="md:hidden"
+        className="h-11 w-11 min-[1200px]:hidden"
         onClick={onOpenCommand}
         aria-label="Cerca e apri comandi"
       >
@@ -160,7 +100,7 @@ export default function ContextBar({
         type="button"
         variant="quiet"
         size="icon-lg"
-        className="hidden lg:inline-flex"
+        className="hidden h-11 w-11 lg:inline-flex min-[1200px]:h-10 min-[1200px]:w-10"
         onClick={() => setLocation("/notifiche")}
         aria-label="Apri Centro azioni"
         title="Centro azioni"

@@ -4,26 +4,29 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 import { useAuth } from "@/_core/hooks/useAuth";
+import BottomNav from "@/components/BottomNav";
 import CommandPalette from "@/components/CommandPalette";
+import NotificheDropdown from "@/components/NotificheDropdown";
 import PageContainer from "@/components/PageContainer";
 import { PromemoriaPopupHost } from "@/components/PromemoriaPopupHost";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { useOperationalContext } from "@/contexts/OperationalContext";
+import { useIsMobile } from "@/hooks/useMobile";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
 import type { NavigationAccess } from "@/lib/navigation";
 import { scopedStorageKey } from "@/lib/operationalContext";
 import { routeContractForLocation } from "@/lib/routeContract";
+import {
+  predictableMobileBackTarget,
+  routePresentation,
+} from "@/lib/shellPresentation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import CompactNavigation from "./CompactNavigation";
 import ContextBar from "./ContextBar";
+import MobileTopBar from "./MobileTopBar";
 import NavigationSidebar from "./NavigationSidebar";
 import ShellWorkspace from "./ShellWorkspace";
+import UserMenu from "./UserMenu";
 
 const NAVIGATION_COLLAPSED_KEY = "layout.modular-navigation-collapsed";
 
@@ -40,6 +43,8 @@ export default function ModularControlLayout({
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const navigationReturnFocus = useRef<HTMLElement | null>(null);
   const commandReturnFocus = useRef<HTMLElement | null>(null);
   const hydratedStorageKey = useRef<string | null>(null);
   const navigationStorageKey = scopeKey
@@ -55,6 +60,7 @@ export default function ModularControlLayout({
     [capabilities, flags, user]
   );
   const currentRoute = routeContractForLocation(location);
+  const currentPresentation = routePresentation(currentRoute);
 
   useNotificationStream();
 
@@ -133,8 +139,30 @@ export default function ModularControlLayout({
     });
   }, [chat.data?.ultimo, location, setLocation]);
 
+  const changeNavigationOpen = (open: boolean) => {
+    if (open && document.activeElement instanceof HTMLElement) {
+      navigationReturnFocus.current = document.activeElement;
+    }
+    setNavigationOpen(open);
+    if (!open) {
+      window.requestAnimationFrame(() =>
+        navigationReturnFocus.current?.focus()
+      );
+    }
+  };
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1200px)");
+    const closeCompactNavigation = () => {
+      if (desktop.matches) setNavigationOpen(false);
+    };
+    desktop.addEventListener("change", closeCompactNavigation);
+    closeCompactNavigation();
+    return () => desktop.removeEventListener("change", closeCompactNavigation);
+  }, []);
+
   const navigate = (path: string) => {
-    setNavigationOpen(false);
+    if (navigationOpen) changeNavigationOpen(false);
     setLocation(path);
   };
 
@@ -169,11 +197,25 @@ export default function ModularControlLayout({
       <ShellWorkspace
         navigation={navigation}
         contextBar={
-          <ContextBar
-            currentRoute={currentRoute}
-            onOpenCommand={() => changeCommandOpen(true)}
-            onOpenNavigation={() => setNavigationOpen(true)}
-          />
+          isMobile ? (
+            <MobileTopBar
+              title={currentPresentation.title}
+              backTarget={predictableMobileBackTarget(location)}
+              onNavigate={navigate}
+              onOpenCommand={() => changeCommandOpen(true)}
+              onOpenNavigation={() => changeNavigationOpen(true)}
+              notificationTrigger={
+                <NotificheDropdown triggerClassName="h-11 w-11" />
+              }
+              profileTrigger={<UserMenu />}
+            />
+          ) : (
+            <ContextBar
+              currentRoute={currentRoute}
+              onOpenCommand={() => changeCommandOpen(true)}
+              onOpenNavigation={() => changeNavigationOpen(true)}
+            />
+          )
         }
       >
         <AnimatePresence mode="wait" initial={false}>
@@ -181,27 +223,21 @@ export default function ModularControlLayout({
         </AnimatePresence>
       </ShellWorkspace>
 
-      <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}>
-        <SheetContent
-          side="left"
-          className="w-[min(20rem,92vw)] border-r border-sidebar-border bg-sidebar p-0 [&>button]:z-50"
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Navigazione Ruffino Flow</SheetTitle>
-            <SheetDescription>
-              Scegli una destinazione del gestionale.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="h-full [&_[data-nav-collapse]]:hidden">
-            <NavigationSidebar
-              currentPath={location}
-              collapsed={false}
-              onNavigate={navigate}
-              onCollapsedChange={() => setNavigationOpen(false)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
+      <CompactNavigation
+        open={navigationOpen}
+        onOpenChange={changeNavigationOpen}
+        currentPath={location}
+        onNavigate={navigate}
+      />
+
+      {isMobile ? (
+        <BottomNav
+          access={access}
+          currentPath={location}
+          drawerOpen={navigationOpen}
+          onOpenDrawer={() => changeNavigationOpen(true)}
+        />
+      ) : null}
 
       <CommandPalette
         open={commandOpen}

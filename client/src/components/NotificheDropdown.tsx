@@ -57,7 +57,7 @@ export default function NotificheDropdown({
           type="button"
           aria-label={count ? `${count} notifiche da leggere` : "Notifiche"}
           className={cn(
-            "relative flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] text-text-2 transition-colors hover:bg-accent hover:text-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-10 lg:w-10",
+            "relative flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] text-text-2 transition-colors hover:bg-accent hover:text-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1200px]:h-10 min-[1200px]:w-10",
             triggerClassName
           )}
         >

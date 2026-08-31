@@ -7,6 +7,7 @@ import {
   type NavigationAccess,
   isNavigationItemVisible,
   menuItems,
+  mobileDestinations,
   navigationDestinations,
   navigationGroups,
   navigationItemState,
@@ -246,5 +247,89 @@ describe("effective-capability navigation matrix", () => {
     expect(commesse?.children?.map(item => item.path)).toEqual([
       "/preventivatori",
     ]);
+  });
+});
+
+describe("mobileDestinations", () => {
+  const labels = (currentAccess: NavigationAccess) =>
+    mobileDestinations(currentAccess).map(destination => destination.label);
+
+  it("keeps a stable five-item office dock for a multi-role principal", () => {
+    expect(
+      labels(
+        access({
+          user: { ruoli: ["commerciale", "amministrazione"] },
+          capabilities: new Set([
+            "cliente.read",
+            "commessa.read",
+            "pagamento.read",
+            "tars.use",
+          ]),
+        })
+      )
+    ).toEqual(["Oggi", "Board", "Messaggi", "Tars", "Altro"]);
+  });
+
+  it("prioritizes Agenda for field roles without bypassing visibility", () => {
+    expect(
+      labels(
+        access({
+          user: { ruoli: ["tecnico_rilievi"] },
+          capabilities: new Set(["cliente.read", "commessa.read"]),
+          flags: { tars: false },
+        })
+      )
+    ).toEqual(["Oggi", "Agenda", "Messaggi", "Clienti", "Altro"]);
+  });
+
+  it("surfaces an effective override without granting unrelated links", () => {
+    const overrideOnly = access({
+      user: { ruoli: ["commerciale"] },
+      capabilities: new Set(["pagamento.read"]),
+      flags: { tars: false },
+    });
+    const destinations = mobileDestinations(overrideOnly);
+    const visiblePaths = new Set(
+      navigationDestinations(overrideOnly).map(destination => destination.path)
+    );
+
+    expect(destinations.map(destination => destination.label)).toEqual([
+      "Oggi",
+      "Agenda",
+      "Messaggi",
+      "Pagamenti",
+      "Altro",
+    ]);
+    for (const destination of destinations) {
+      if (destination.kind === "route") {
+        expect(visiblePaths.has(destination.path)).toBe(true);
+      }
+    }
+  });
+
+  it("never shows Tars when its flag is off", () => {
+    expect(
+      labels(
+        access({
+          capabilities: new Set([
+            "commessa.read",
+            "pagamento.read",
+            "tars.use",
+          ]),
+          flags: { tars: false },
+        })
+      )
+    ).toEqual(["Oggi", "Board", "Messaggi", "Pagamenti", "Altro"]);
+  });
+
+  it("returns fewer than five items when no fourth route is authorized", () => {
+    expect(
+      labels(
+        access({
+          capabilities: new Set(),
+          flags: { tars: false },
+        })
+      )
+    ).toEqual(["Oggi", "Agenda", "Messaggi", "Altro"]);
   });
 });

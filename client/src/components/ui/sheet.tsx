@@ -74,7 +74,7 @@ function SheetContent({
         {children}
         <SheetPrimitive.Close className="absolute top-3 right-3 grid size-9 place-items-center rounded-[var(--radius-control)] text-text-2 transition-colors hover:bg-surface-2 hover:text-text-1 focus-visible:ring-[3px] focus-visible:ring-ring/45 focus-visible:outline-none disabled:pointer-events-none">
           <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">Chiudi</span>
         </SheetPrimitive.Close>
       </SheetPrimitive.Content>
     </SheetPortal>

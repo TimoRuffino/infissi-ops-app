@@ -42,4 +42,17 @@ describe("Modular Control shell boundary", () => {
     expect(modular).toContain("useOperationalContext");
     expect(modular).not.toMatch(/permessi\.mie|platform\.interruttori/);
   });
+
+  it("uses one responsive shell model for drawer, mobile bar and dock", () => {
+    const modular = source("layout/ModularControlLayout.tsx");
+    const compact = source("layout/CompactNavigation.tsx");
+    const dock = source("BottomNav.tsx");
+
+    expect(modular).toContain("CompactNavigation");
+    expect(modular).toContain("MobileTopBar");
+    expect(modular).toContain("BottomNav");
+    expect(compact).toContain("NavigationSidebar");
+    expect(dock).toContain("mobileDestinations");
+    expect(dock).not.toMatch(/useSidebar|hasRuolo/);
+  });
 });

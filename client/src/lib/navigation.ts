@@ -11,6 +11,7 @@ import {
   Landmark,
   LayoutDashboard,
   Mail,
+  Menu,
   MessageCircle,
   MessageSquare,
   MessagesSquare,
@@ -223,6 +224,80 @@ export function navigationGroups(access: NavigationAccess): MenuItem[] {
 // Voci raggiungibili (gruppi appiattiti) per palette, dock e ricerche.
 export function navigationDestinations(access: NavigationAccess): MenuItem[] {
   return navigationGroups(access).flatMap(item => item.children ?? [item]);
+}
+
+export type MobileNavigationDestination =
+  | {
+      kind: "route";
+      icon: LucideIcon;
+      label: string;
+      path: string;
+    }
+  | {
+      kind: "drawer";
+      icon: LucideIcon;
+      label: "Altro";
+    };
+
+/**
+ * Stable, thumb-reachable subset of the shared navigation model. Roles may
+ * change which already-visible operational route is preferred, but they never
+ * make a route visible: that decision stays in `navigationDestinations` and
+ * therefore in the effective capability/flag contract.
+ */
+export function mobileDestinations(
+  access: NavigationAccess
+): MobileNavigationDestination[] {
+  const visible = new Map(
+    navigationDestinations(access).map(destination => [
+      destination.path,
+      destination,
+    ])
+  );
+  const routes: Extract<MobileNavigationDestination, { kind: "route" }>[] = [];
+
+  const addRoute = (path: string, label: string): boolean => {
+    const destination = visible.get(path);
+    if (!destination || routes.some(route => route.path === path)) return false;
+    routes.push({
+      kind: "route",
+      icon: destination.icon,
+      label,
+      path,
+    });
+    return true;
+  };
+
+  addRoute("/", "Oggi");
+
+  const fieldRole =
+    hasRuolo(access.user, "squadra_posa") ||
+    hasRuolo(access.user, "tecnico_rilievi");
+  const operationalCandidates = fieldRole
+    ? ([
+        ["/planning", "Agenda"],
+        ["/kanban", "Board"],
+      ] as const)
+    : ([
+        ["/kanban", "Board"],
+        ["/planning", "Agenda"],
+      ] as const);
+  operationalCandidates.some(([path, label]) => addRoute(path, label));
+
+  addRoute("/messaggi/email", "Messaggi");
+
+  const fourthCandidates = [
+    ["/tars", "Tars"],
+    ["/pagamenti", "Pagamenti"],
+    ["/clienti", "Clienti"],
+    ["/commesse", "Commesse"],
+  ] as const;
+  fourthCandidates.some(([path, label]) => addRoute(path, label));
+
+  return [
+    ...routes.slice(0, 4),
+    { kind: "drawer", icon: Menu, label: "Altro" },
+  ];
 }
 
 export function isPathActive(location: string, path: string): boolean {

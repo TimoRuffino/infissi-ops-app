@@ -1550,14 +1550,18 @@ Fatto finora:
   `ModularControlLayout`. A flag ON la shell desktop usa frame freddo,
   workspace centrato, rail 240/72 px, gruppi operativi e context bar; a flag
   OFF il renderer legacy non monta alcun marker o componente Modular Control;
+- fra 768–1199 px la shell usa context bar compatta e drawer; sotto 768 px usa
+  top bar con back gerarchico, dock capability-aware con massimo cinque voci,
+  drawer completo, target 44 px e padding safe-area. Il dock non usa ruoli per
+  rendere visibili route: seleziona soltanto fra destinazioni già autorizzate;
 - baseline e verifiche append-only sono in
   `docs/design/modular-control/verification-log.md`; le fixture browser sono
   esclusivamente locali e in-memory.
 
-Prossimi passi: regimi shell tablet/mobile, hardening della palette comandi e
-primitive di pagina; poi golden screens (Dashboard, Commessa 360, Board, Tars,
-flusso mobile rilievi, DI fornitori), migrazione per archetipi, hardening e
-revisioni indipendenti. Rollout e rollback:
+Prossimi passi: hardening della palette comandi e primitive di pagina; poi
+golden screens (Dashboard, Commessa 360, Board, Tars, flusso mobile rilievi,
+DI fornitori), migrazione per archetipi, hardening e revisioni indipendenti.
+Rollout e rollback:
 spegnere/accendere `FLAG_UI_V2`, nessuna migrazione dati.
 
 ## 11-octodecies. Tars v2 — provider REALE acceso (31/08/2026)

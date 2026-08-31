@@ -1,90 +1,86 @@
-// Bottom navigation mobile (shell v2) — cinque destinazioni role-aware,
-// posizioni stabili, pollice-friendly. Le voci rispettano le stesse regole
-// di visibilità della sidebar (lib/navigation): il server resta l'autorità.
-//
-// La quinta voce apre il menu completo (la sidebar mobile come sheet):
-// niente hamburger irraggiungibile in alto quando si lavora a una mano.
-import { useSidebar } from "@/components/ui/sidebar";
 import {
   isPathActive,
+  mobileDestinations,
   type NavigationAccess,
-  navigationDestinations,
 } from "@/lib/navigation";
-import { hasRuolo } from "@/lib/roles";
-import type { LucideIcon } from "lucide-react";
-import {
-  BrainCircuit,
-  CalendarDays,
-  Kanban,
-  LayoutDashboard,
-  Menu,
-  MessagesSquare,
-} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 
-type Voce = { icon: LucideIcon; label: string; path: string };
+export type BottomNavProps = {
+  access: NavigationAccess;
+  currentPath: string;
+  drawerOpen: boolean;
+  onOpenDrawer: () => void;
+};
 
-export default function BottomNav({ access }: { access: NavigationAccess }) {
-  const [location, setLocation] = useLocation();
-  const { toggleSidebar, openMobile } = useSidebar();
-  const visiblePaths = new Set(
-    navigationDestinations(access).map(destination => destination.path)
-  );
-
-  // Chi vive in cantiere apre l'agenda, chi vive in ufficio apre il Board.
-  const campo =
-    hasRuolo(access.user, "squadra_posa") ||
-    hasRuolo(access.user, "tecnico_rilievi");
-  const operationalDestination =
-    campo || !visiblePaths.has("/kanban")
-      ? { icon: CalendarDays, label: "Agenda", path: "/planning" }
-      : { icon: Kanban, label: "Board", path: "/kanban" };
-  const voci: Voce[] = [
-    { icon: LayoutDashboard, label: "Oggi", path: "/" },
-    operationalDestination,
-    { icon: MessagesSquare, label: "Messaggi", path: "/messaggi/email" },
-  ];
-  if (visiblePaths.has("/tars")) {
-    voci.push({ icon: BrainCircuit, label: "Tars", path: "/tars" });
-  }
+/**
+ * Mobile-only, capability-aware dock. The first four positions are derived
+ * from the shared navigation model; the final `Altro` control always opens
+ * the complete accessible navigation.
+ */
+export default function BottomNav({
+  access,
+  currentPath,
+  drawerOpen,
+  onOpenDrawer,
+}: BottomNavProps) {
+  const [, setLocation] = useLocation();
+  const destinations = mobileDestinations(access);
 
   return (
     <nav
-      aria-label="Navigazione principale"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border-soft bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+      aria-label="Navigazione rapida"
+      data-mobile-bottom-nav
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border-soft bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_28px_color-mix(in_srgb,var(--shell-chrome)_18%,transparent)] backdrop-blur-md md:hidden"
     >
-      <div className="flex items-stretch">
-        {voci.map(v => {
-          const attiva = isPathActive(location, v.path);
+      <div className="mx-auto flex min-h-14 max-w-lg items-stretch px-1">
+        {destinations.map(destination => {
+          if (destination.kind === "drawer") {
+            return (
+              <button
+                key={destination.kind}
+                type="button"
+                onClick={onOpenDrawer}
+                aria-expanded={drawerOpen}
+                aria-label="Apri tutta la navigazione"
+                className="flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[var(--radius-control)] px-1 py-1.5 text-[10px] font-semibold text-text-3 transition-colors active:bg-surface-2 focus-visible:ring-[var(--focus-width)] focus-visible:ring-[var(--focus-color)]"
+              >
+                <destination.icon className="h-5 w-5" aria-hidden="true" />
+                <span className="max-w-full truncate">{destination.label}</span>
+              </button>
+            );
+          }
+
+          const active = isPathActive(currentPath, destination.path);
           return (
             <button
-              key={v.path}
-              onClick={() => setLocation(v.path)}
-              aria-current={attiva ? "page" : undefined}
-              className={`relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition-colors ${
-                attiva ? "font-semibold text-text-1" : "text-text-3"
-              }`}
+              key={destination.path}
+              type="button"
+              onClick={() => setLocation(destination.path)}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "relative flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[var(--radius-control)] px-1 py-1.5 text-[10px] font-semibold transition-colors active:bg-surface-2 focus-visible:ring-[var(--focus-width)] focus-visible:ring-[var(--focus-color)]",
+                active ? "text-accent-text" : "text-text-3"
+              )}
             >
-              {attiva && (
+              {active ? (
                 <span
                   aria-hidden="true"
-                  className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-brand"
+                  className="absolute inset-x-[22%] top-0 h-0.5 rounded-full bg-primary"
                 />
-              )}
-              <v.icon className="h-5 w-5" aria-hidden="true" />
-              <span className="max-w-full truncate">{v.label}</span>
+              ) : null}
+              <span
+                className={cn(
+                  "grid h-7 w-9 place-items-center rounded-full",
+                  active && "bg-brand-soft"
+                )}
+              >
+                <destination.icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span className="max-w-full truncate">{destination.label}</span>
             </button>
           );
         })}
-        <button
-          onClick={toggleSidebar}
-          aria-expanded={openMobile}
-          aria-label="Apri il menu completo"
-          className="flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium text-text-3 transition-colors"
-        >
-          <Menu className="h-5 w-5" aria-hidden="true" />
-          <span>Altro</span>
-        </button>
       </div>
     </nav>
   );

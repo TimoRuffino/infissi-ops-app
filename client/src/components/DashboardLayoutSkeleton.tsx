@@ -79,13 +79,14 @@ export function DashboardLayoutSkeleton({
           </div>
 
           <div className="min-w-0 bg-[var(--shell-canvas)]">
-            <div className="flex h-[72px] items-center gap-3 border-b border-border-soft bg-surface px-4 min-[1200px]:px-5">
-              <Skeleton className="h-5 w-44" />
-              <Skeleton className="ml-auto hidden h-10 w-48 rounded-[var(--radius-control)] md:block" />
-              <Skeleton className="h-10 w-10 rounded-[var(--radius-control)]" />
-              <Skeleton className="h-10 w-28 rounded-[var(--radius-control)]" />
+            <div className="flex h-14 items-center gap-2 border-b border-border-soft bg-surface px-2 md:h-16 md:px-4 min-[1200px]:h-[72px] min-[1200px]:gap-3 min-[1200px]:px-5">
+              <Skeleton className="h-11 w-11 rounded-[var(--radius-control)] min-[1200px]:hidden" />
+              <Skeleton className="h-5 w-36 sm:w-44" />
+              <Skeleton className="ml-auto hidden h-10 w-48 rounded-[var(--radius-control)] min-[1200px]:block" />
+              <Skeleton className="h-11 w-11 rounded-[var(--radius-control)] min-[1200px]:h-10 min-[1200px]:w-10" />
+              <Skeleton className="h-11 w-11 rounded-[var(--radius-control)] min-[1200px]:h-10 min-[1200px]:w-28" />
             </div>
-            <div className="space-y-4 p-4 sm:p-5 min-[1200px]:p-6">
+            <div className="space-y-4 px-3 pb-20 pt-3 sm:p-5 md:pb-5 min-[1200px]:p-6">
               <Skeleton className="h-8 w-56 rounded-[var(--radius-control)]" />
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
@@ -95,6 +96,14 @@ export function DashboardLayoutSkeleton({
               <Skeleton className="h-64 rounded-[var(--radius-panel)]" />
             </div>
           </div>
+        </div>
+        <div className="fixed inset-x-0 bottom-0 flex h-14 items-center gap-2 border-t border-border-soft bg-surface px-2 md:hidden">
+          {[0, 1, 2, 3, 4].map(item => (
+            <Skeleton
+              key={item}
+              className="h-9 min-w-0 flex-1 rounded-[var(--radius-control)]"
+            />
+          ))}
         </div>
       </div>
     );
