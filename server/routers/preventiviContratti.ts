@@ -4,8 +4,18 @@ import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
-import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
+import { Readable } from "stream";
+import {
+  deleteFileQuiet,
+  getFile,
+  openFileReadStream,
+  putFile,
+} from "../_core/fileStorage";
 import { registerMigratableCollection } from "../_core/fileStorageMigrate";
+import {
+  COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES,
+  erroreUploadCommessa,
+} from "@shared/commessaUpload";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,7 +93,8 @@ registerMigratableCollection({
   items: documenti,
 });
 
-// Cap per-file size: ~10MB base64 = ~7.5MB raw.
+// Il limite storico resta per allegati importati da comunicazioni e FiC.
+// L'upload manuale della scheda commessa usa il contratto dedicato da 250 MB.
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
 // Allowlist of mimeTypes accepted for upload. Deliberately excludes
@@ -117,16 +128,48 @@ export function validaAllegatoFascicolo(
   }
 }
 
-// Actual decoded byte length of a base64 payload. Used to validate file
-// size against MAX_SIZE_BYTES — the client-supplied `size` field is NOT
-// trusted (an attacker can send size:0 with a huge payload to bypass the cap).
-function base64ByteLength(b64: string): number {
+export function validaUploadManualeFascicolo(
+  actualBytes: number,
+  mimeType: string
+): void {
+  const errore = erroreUploadCommessa(actualBytes, mimeType);
+  if (errore) throw new Error(errore);
+}
+
+// Decodifica stretta: Buffer.from(base64) da solo è permissivo e accetterebbe
+// anche payload come "=", producendo byte vuoti e metadati con size errata.
+export function decodificaBase64Upload(b64: string): Buffer {
   const len = b64.length;
-  if (len === 0) return 0;
+  if (len === 0 || len % 4 !== 0) {
+    throw new Error("Payload base64 non valido.");
+  }
   let padding = 0;
   if (b64.endsWith("==")) padding = 2;
   else if (b64.endsWith("=")) padding = 1;
-  return Math.floor((len * 3) / 4) - padding;
+
+  const payloadEnd = len - padding;
+  for (let i = 0; i < payloadEnd; i++) {
+    const code = b64.charCodeAt(i);
+    const valido =
+      (code >= 65 && code <= 90) ||
+      (code >= 97 && code <= 122) ||
+      (code >= 48 && code <= 57) ||
+      code === 43 ||
+      code === 47;
+    if (!valido) throw new Error("Payload base64 non valido.");
+  }
+  for (let i = payloadEnd; i < len; i++) {
+    if (b64.charCodeAt(i) !== 61) {
+      throw new Error("Payload base64 non valido.");
+    }
+  }
+
+  const buffer = Buffer.from(b64, "base64");
+  const expectedBytes = (len / 4) * 3 - padding;
+  if (buffer.length !== expectedBytes) {
+    throw new Error("Payload base64 non valido.");
+  }
+  return buffer;
 }
 
 // Build the stored filename from the chosen document TYPE (not the board
@@ -548,12 +591,137 @@ export function getDocumentoRecordById(id: number): Documento | null {
   return documenti.find(d => d.id === id) ?? null;
 }
 
+export function getDocumentoCommessaById(
+  id: number,
+  sedeId: number | null
+): Documento | null {
+  const documento = documenti.find(d => d.id === id) ?? null;
+  if (!documento) return null;
+  return commessaInSede(documento.commessaId, sedeId) ? documento : null;
+}
+
 // Registro versioni di Tars (T3, revisione): la lista dei documenti di
 // una commessa serve a invalidare fascicoli e cache quando il gate
 // documentale cambia. Sola lettura; lo scope di sede lo applica chi
 // chiama tramite la commessa.
 export function getDocumentiDiCommessa(commessaId: number): Documento[] {
   return documenti.filter(d => d.commessaId === commessaId);
+}
+
+export async function apriDocumentoCommessaDaStorage(
+  id: number,
+  sedeId: number | null,
+  range?: { start: number; end: number }
+): Promise<{
+  documento: Documento;
+  stream: Readable;
+  totalBytes: number;
+  contentLength: number;
+} | null> {
+  const documento = getDocumentoCommessaById(id, sedeId);
+  if (!documento) return null;
+  if (documento.dataBase64) {
+    const buffer = Buffer.from(documento.dataBase64, "base64");
+    const start = range?.start ?? 0;
+    const end = range?.end ?? Math.max(0, buffer.length - 1);
+    if (start > end || end >= buffer.length) return null;
+    const chunk = buffer.subarray(start, end + 1);
+    return {
+      documento,
+      stream: Readable.from(chunk),
+      totalBytes: buffer.length,
+      contentLength: chunk.length,
+    };
+  }
+  if (documento.storageKey) {
+    const opened = await openFileReadStream(documento.storageKey, range);
+    if (!opened) return null;
+    return { documento, ...opened };
+  }
+  return null;
+}
+
+export async function caricaDocumentoCommessaDaBuffer(input: {
+  commessaId: number;
+  nome: string;
+  tipo: DocTipo;
+  mimeType: string;
+  buffer: Buffer;
+  note?: string;
+  keepNome?: boolean;
+  sedeId: number | null;
+  createdBy: number | null;
+  dataBase64Fallback?: string;
+}) {
+  const commessa = commessaInSede(input.commessaId, input.sedeId);
+  if (!commessa) throw new Error("Commessa non trovata");
+
+  validaUploadManualeFascicolo(input.buffer.length, input.mimeType);
+  const baseNome =
+    input.keepNome || DOC_TIPI_NOME_ORIGINALE.includes(input.tipo)
+      ? input.nome
+      : buildNomeFromTipo(input.nome, input.tipo, commessa.cliente);
+  const nome = dedupeName(baseNome, input.commessaId);
+  const doc: Documento = {
+    id: nextId++,
+    commessaId: input.commessaId,
+    nome,
+    tipo: input.tipo,
+    mimeType: input.mimeType,
+    size: input.buffer.length,
+    note: input.note ?? null,
+    statoAtUpload: commessa.stato ?? null,
+    createdBy: input.createdBy,
+    createdAt: new Date(),
+  };
+
+  try {
+    const stored = await putFile(
+      "preventivi_documenti",
+      input.commessaId,
+      doc.id,
+      nome,
+      input.buffer,
+      input.mimeType
+    );
+    doc.storageKey = stored.storageKey;
+    doc.checksum = stored.checksum;
+  } catch (e) {
+    if (input.buffer.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
+      throw new StorageAllegatoTemporaneamenteNonDisponibile();
+    }
+    console.warn(
+      "[preventiviContratti] storage put fallito, fallback base64 inline:",
+      e
+    );
+    doc.dataBase64 =
+      input.dataBase64Fallback ?? input.buffer.toString("base64");
+  }
+
+  documenti.push(doc);
+  _documentiStore.save();
+  const { dataBase64, ...rest } = doc;
+  return { ...rest, hasData: true };
+}
+
+export async function leggiDocumentoCommessaDaStorage(
+  id: number,
+  sedeId: number | null
+): Promise<{ documento: Documento; buffer: Buffer } | null> {
+  const documento = documenti.find(d => d.id === id);
+  if (!documento || !commessaInSede(documento.commessaId, sedeId)) return null;
+
+  if (documento.dataBase64) {
+    return {
+      documento,
+      buffer: Buffer.from(documento.dataBase64, "base64"),
+    };
+  }
+  if (documento.storageKey) {
+    const buffer = await getFile(documento.storageKey);
+    return buffer ? { documento, buffer } : null;
+  }
+  return null;
 }
 
 export const preventiviContrattiRouter = router({
@@ -605,68 +773,22 @@ export const preventiviContrattiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
-        throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
+      if (!commessaInSede(input.commessaId, ctx.sedeId)) {
+        throw new Error("Commessa non trovata");
       }
-      // Validate the ACTUAL payload size — not the client-supplied `size`.
-      const actualBytes = base64ByteLength(input.dataBase64);
-      if (actualBytes > MAX_SIZE_BYTES) {
-        throw new Error(
-          `File troppo grande (max ${MAX_SIZE_BYTES / (1024 * 1024)}MB)`
-        );
-      }
-      const commessa = commessaInSede(input.commessaId, ctx.sedeId);
-      if (!commessa) throw new Error("Commessa non trovata");
-      // Auto-rename: files are renamed to "{tipo scelto} {cliente}.{ext}" so
-      // the download name reflects the DOCUMENT TYPE picked from the dropdown
-      // (not the board stato). Opt-out via `keepNome` when the caller already
-      // built a meaningful name (e.g. the preventivatori PDF export).
-      const baseNome =
-        input.keepNome || DOC_TIPI_NOME_ORIGINALE.includes(input.tipo)
-          ? input.nome
-          : buildNomeFromTipo(input.nome, input.tipo, commessa?.cliente);
-      // Disambiguate duplicates within the same commessa: if the name is
-      // already taken, append " (2)", " (3)", ... before the extension so the
-      // browser doesn't silently overwrite on download.
-      const nome = dedupeName(baseNome, input.commessaId);
-      const doc: Documento = {
-        id: nextId++,
+      const buffer = decodificaBase64Upload(input.dataBase64);
+      return caricaDocumentoCommessaDaBuffer({
         commessaId: input.commessaId,
-        nome,
+        nome: input.nome,
         tipo: input.tipo,
         mimeType: input.mimeType,
-        size: actualBytes,
-        note: input.note ?? null,
-        statoAtUpload: commessa?.stato ?? null,
+        buffer,
+        note: input.note,
+        keepNome: input.keepNome,
+        sedeId: ctx.sedeId,
         createdBy: ctx.user?.id ?? null,
-        createdAt: new Date(),
-      };
-      // Bytes go to the storage driver; the JSONB record keeps metadata only.
-      // If storage is down, fall back to the legacy inline base64 so an
-      // upload never fails for infrastructure reasons.
-      try {
-        const buffer = Buffer.from(input.dataBase64, "base64");
-        const stored = await putFile(
-          "preventivi_documenti",
-          input.commessaId,
-          doc.id,
-          nome,
-          buffer,
-          input.mimeType
-        );
-        doc.storageKey = stored.storageKey;
-        doc.checksum = stored.checksum;
-      } catch (e) {
-        console.warn(
-          "[preventiviContratti] storage put fallito, fallback base64 inline:",
-          e
-        );
-        doc.dataBase64 = input.dataBase64;
-      }
-      documenti.push(doc);
-      _documentiStore.save();
-      const { dataBase64, ...rest } = doc;
-      return { ...rest, hasData: true };
+        dataBase64Fallback: input.dataBase64,
+      });
     }),
 
   // Rinomina e/o riclassifica un documento esistente. Il tipo conta per il

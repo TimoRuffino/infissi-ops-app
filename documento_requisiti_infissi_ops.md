@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente del checkout (31/08/2026).
-**Versione:** 5.26 - Tars v2 è presente su `main` locale con runtime,
+**Versione:** 5.27 - Tars v2 è presente su `main` locale con runtime,
 strumenti tipizzati e budget governor. La verità T0 su azioni disponibili,
 gap e accettazione è in `docs/tars/matrice-azioni-tars.md` e
 `docs/tars/architettura-tars-v2.md`; la documentazione non deduce né attesta
@@ -36,10 +36,10 @@ Pilastri:
 - **Frontend.** React 19 + Vite 7 + Wouter (routing) + tRPC 11 (client) + React Query (caching) + Tailwind 4 + shadcn/ui + lucide-react + sonner (toast) + jsPDF/jspdf‑autotable. Le pagine sono caricate per rotta con `React.lazy`; i vendor sono separati per React, UI, dati e grafici.
 - **Backend.** Node + Express + tRPC 11. Persistenza prevalente in `kv_store` (Postgres JSONB) tramite `persistedStore`, con save debounciato, retry su errori transienti e recovery in background. Le Comunicazioni usano una tabella PostgreSQL dedicata.
 - **Autenticazione.** Locale via email/password con JWT firmato (jose, HS256, TTL 7 giorni) + cookie httpOnly. Sessione server‑side cacheata in memoria con eviction periodica.
-- **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione reale del payload base64. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
+- **Sicurezza.** Tutti gli endpoint business sono `protectedProcedure` (utente loggato obbligatorio); le mutazioni su `utenti` e l'intero router `backup`/`fattureInCloud` sono `adminProcedure` (ruolo direzione). Header `X‑Content‑Type‑Options`, `X‑Frame‑Options=SAMEORIGIN`, `Referrer‑Policy`, HSTS in produzione. Upload con allowlist mimeType + validazione dei byte reali. La rotta binaria per i file grandi verifica same-origin e sessione prima di leggere il body e ammette un solo upload concorrente per processo. CSRF same‑origin check su `/api/trpc`. `trust proxy` abilitato (deploy dietro Railway).
 - **Worker e scheduler interni.** Backup notturno Google Drive (00:00 Europe/Rome, `setTimeout` ri-armato), sync Fatture in Cloud (ogni 6 h quando abilitato), promemoria personali (giro immediato e poi ogni 15 s), poller IMAP (ogni 5 minuti, più watcher IDLE) e riconciliazione Centro Azioni (ogni 60 s, debounce 750 ms, primo giro circa 5 s dopo il bootstrap).
 - **PDF.** jsPDF + jspdf‑autotable sia client‑side (preventivatori, scheda cliente) sia server‑side (scheda cliente nel backup).
-- **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura. Cap per‑file 10 MB.
+- **Storage file.** Driver `local` o S3‑compatible/R2. I record conservano `storageKey` + checksum SHA‑256; `dataBase64` resta supportato per i record legacy e come fallback in scrittura dei soli file fino a 10 MB. L'upload manuale nel fascicolo commessa accetta fino a 250 MB; allegati importati da comunicazioni/FiC e allegati ticket restano a 10 MB.
 - **Tars v2 con confini deterministici.** Il runtime server esiste (§54), ma
   match, regole, state machine, permessi, importi e scadenze restano
   deterministici. Il modello non può aggirare servizi di dominio, sede,
@@ -307,8 +307,11 @@ schema dei dati esposti agli operatori.
   - `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/heic`, `image/heif`
   - `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
   - `application/vnd.ms-excel`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+  - upload manuale commessa: `video/mp4`, `video/quicktime`, `video/webm`
   - **Esclusi esplicitamente** `text/html` e `image/svg+xml`.
-- **Dimensione**: validata sul payload reale (lunghezza base64 decodificata, NON il campo `size` lato client). Cap 10 MB.
+- **Dimensione**: validata sui byte reali, senza fidarsi del campo `size` lato client. Cap 250 MB per l'upload manuale commessa; 10 MB per allegati importati da comunicazioni/FiC e allegati ticket.
+- L'upload manuale usa un endpoint binario autenticato (`POST /api/commesse/:commessaId/documenti/file`): il browser non crea copie base64/JSON del file e il parser maggiorato non è esposto agli utenti anonimi. Gli endpoint JSON restano al limite di 50 MB.
+- Se lo storage fallisce, il fallback `dataBase64` resta ammesso soltanto fino a 10 MB: un file più grande fallisce visibilmente e non viene inserito nel JSONB.
 - Il `size` archiviato è quello calcolato dal server.
 
 ### 8.4 Auto‑rename e rinomina
@@ -319,7 +322,7 @@ schema dei dati esposti agli operatori.
 - La scheda commessa espone **Rinomina**: cambia nome libero e tipo di un documento già caricato (`preventiviContratti.update`). Il tipo conta per il doc gate, quindi correggere una classificazione sbagliata non richiede più di ricaricare il file.
 
 ### 8.5 Anteprima e download
-- Anteprima inline in `<iframe>` per PDF (URL `blob:` derivato dal base64) o in `<img>` con zoom/rotate per immagini.
+- Anteprima inline in `<iframe>` per PDF, in `<img>` con zoom/rotate per immagini o in `<video controls>` per i video supportati. I byte arrivano dall'endpoint autenticato `GET /api/documenti/:id/file`, che supporta richieste HTTP Range e download senza ricodifica base64.
 - Download via `<a download>`.
 - Invio email via `mailto:` con corpo precompilato (no upload server‑side dell'allegato).
 
@@ -327,7 +330,7 @@ schema dei dati esposti agli operatori.
 - Soft delete NON previsto. La cancellazione è definitiva.
 
 ### 8.7 Allegati ticket
-- Pattern identico (router `ticketAllegati`), con `storageKey`/checksum e fallback base64, stessa allowlist mime, stesso size check, cap 10 MB.
+- Il router `ticketAllegati` mantiene `storageKey`/checksum, fallback base64, allowlist documenti/immagini e cap 10 MB; l'estensione a 250 MB e ai video riguarda soltanto l'upload manuale del fascicolo commessa.
 - Cancellando un ticket si cancellano in cascata i suoi allegati (`deleteAllegatiByTicket`).
 
 ---
@@ -1086,6 +1089,7 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.27 (31/08/2026)** - Upload manuale del fascicolo commessa esteso a 250 MB e ai video MP4/MOV/WebM, con anteprima video e validazione condivisa client/server. Il trasferimento usa una rotta binaria che autentica prima di leggere il body, limita la concorrenza e non crea copie base64/JSON; lettura e download usano una rotta autenticata con supporto HTTP Range. I file oltre 10 MB non ricadono mai nel fallback JSONB quando lo storage fallisce. Allegati importati da comunicazioni/FiC e allegati ticket restano a 10 MB.
 - **v5.26 (31/08/2026)** - Tars operativo T3, transizioni commessa: estratta da `commesse.update` una sola state machine canonica con adiacenza, doc gate, rollback cleanup e allineamento timeline; contratto tRPC storico e `force` del solo router invariati. Aggiunti `verifica_transizione_commessa` R0/L0 e `transizione_adiacente_commessa` R1/L2 (comando esplicito derivato dal testo utente e legato server-side a commessa e target/direzione, entrambe `commessa.update_operational` + `commessa.change_state`, sede fail-closed, nessun `force`), rilettura/versione pre-effetto, ledger R1, audit prima/dopo e Undo server-side monouso solo se stato/versione e vincoli correnti coincidono. Prompt v6; catalogo 23 tool. La catena allegato Maccari resta successiva; nessun file client, flag, provider o costo modificato e nessuna operazione esterna eseguita.
 - **v5.24 (30/08/2026)** - Tars v2 ATTIVATO in produzione su autorizzazione della direzione, con provider FINTO e quindi a costo zero: impostati i sette flag `FLAG_TARS`, `FLAG_TARS_READ_TOOLS`, `FLAG_TARS_REMINDERS`, `FLAG_TARS_MEMORY`, `FLAG_TARS_L2_ACTIONS`, `FLAG_TARS_PROACTIVE`, `FLAG_TARS_COMMUNICATIONS` (un solo redeploy, servizio ripartito e verificato). NON impostati `TARS_PROVIDER` (la chiave residua è ancora su Railway: lo farebbe spendere fuori perimetro), `FLAG_TARS_PROPOSALS` (richiede il rollout DI mai avviato) e i flag DI/OCR. Le azioni di Tars sono reali (promemoria, prese in carico, rinvii, memoria, letture con capability e sede), il ragionamento no: il copione dimostrativo riconosce tre forme di richiesta e per il resto risponde con un messaggio di servizio. La pagina `/tars` è visibile a tutti gli utenti della sede. Budget ai default approvati (0,10/2,00/20,00 USD), governor attivo ma inerte in assenza di provider reale. Spegnimento: rimuovere `FLAG_TARS` e ridistribuire.
 - **v5.23 (30/08/2026)** - PR #2 MERGIATA su `main` (merge commit `2096a43`, 34 commit atomici conservati, CI verde) su autorizzazione della direzione, e deploy verificato senza credenziali: le procedure `tars.*` esistono nel codice distribuito (marcatore da «No procedure found» a `UNAUTHORIZED`), i router del CRM rispondono, SPA e `/produzione/*` servite, errori di autenticazione sanificati. **Tutti i flag Tars restano spenti** (fail-closed: in produzione servono variabili esplicite, nessuna impostata) e il provider reale non può nascere (mancano `TARS_PROVIDER=openai` e la chiave dedicata). Tars è implementativamente completo ma NON operativo: attivazione, gate OpenAI, eval reali e rollout restano decisioni della direzione.
@@ -1611,12 +1615,12 @@ Prima di questa versione ogni documento viveva in base64 dentro la JSONB della p
 Variabili: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`.
 
 ### 47.3 Modello del documento
-Il record conserva i soli metadati più `storageKey` e `checksum` (sha256). La lettura è **retro‑compatibile**: i record che portano ancora `dataBase64` funzionano immutati, e `byId` ricostruisce il base64 dallo storage così che il client resti identico.
+Il record conserva i soli metadati più `storageKey` e `checksum` (sha256). La lettura è **retro‑compatibile**: i record che portano ancora `dataBase64` funzionano immutati; `byId` continua a ricostruire il base64 per i consumer storici, mentre la scheda commessa usa la rotta binaria autenticata.
 
-Se il driver fallisce in scrittura, l'upload **ricade sul base64 inline**: un caricamento non deve mai fallire per ragioni infrastrutturali.
+Se il driver fallisce in scrittura, soltanto i file fino a 10 MB possono ricadere sul base64 inline. Oltre 10 MB il caricamento fallisce visibilmente senza creare il record: i file grandi non devono entrare nel JSONB.
 
 ### 47.4 Guardia sul filesystem effimero
-Su Railway senza volume il filesystem è effimero: un record otterrebbe `storageKey` e i byte morirebbero al deploy successivo. `putFile` **rifiuta** quando il driver è `local`, l'ambiente è Railway e `STORAGE_ALLOW_EPHEMERAL` non è `1` — e l'upload ricade sull'inline, cioè sul comportamento precedente.
+Su Railway senza volume il filesystem è effimero: un record otterrebbe `storageKey` e i byte morirebbero al deploy successivo. `putFile` **rifiuta** quando il driver è `local`, l'ambiente è Railway e `STORAGE_ALLOW_EPHEMERAL` non è `1`: i file fino a 10 MB ricadono sull'inline, quelli più grandi falliscono senza persistere metadati orfani.
 
 ### 47.5 Migrazione
 `scripts/migrate-documents-to-storage.ts` (e le procedure direzione `fileStorage.status` / `fileStorage.migrate`):

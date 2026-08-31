@@ -59,7 +59,7 @@ operatore prevale sul match o sul sync e non viene riscritta.
 | Idempotenza ingestione | Chiave `(casella_id, canale, message_id)` | |
 | Collegamento conversazione WhatsApp | Override umano (`whatsapp_conversation_aliases`) > match automatico | `registraMessaggio` consulta l'alias **prima** del matcher |
 | Classificazione comunicazioni | Operatore (dal 28/08/2026: nessuna classificazione automatica) | Tutto entra `da_classificare` col solo match deterministico |
-| Documenti e allegati | Metadati in store, byte dietro `storageKey`+SHA-256 | `dataBase64` solo legacy/fallback; upload cap 10 MB, allowlist MIME |
+| Documenti e allegati | Metadati in store, byte dietro `storageKey`+SHA-256 | Upload manuale commessa: 250 MB e video MP4/MOV/WebM; import comunicazioni/FiC e ticket: 10 MB. `dataBase64` solo legacy/fallback e mai per nuovi file oltre 10 MB |
 | Backup | Snapshot Drive notturno che rilegge i byte dallo storage | Fallisce visibilmente su oggetto mancante/corrotto |
 
 ## Piattaforma

@@ -18,7 +18,8 @@ export type TrpcContext = {
 };
 
 export async function createContext(
-  opts: CreateExpressContextOptions
+  opts: Pick<CreateExpressContextOptions, "req" | "res"> &
+    Partial<Pick<CreateExpressContextOptions, "info">>
 ): Promise<TrpcContext> {
   let user: (User | LocalUser) | null = null;
 

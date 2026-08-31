@@ -27,6 +27,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { Readable } from "stream";
 
 // ── Driver interface ────────────────────────────────────────────────────────
 
@@ -34,6 +35,14 @@ export type StorageDriver = {
   name: "local" | "s3";
   put(key: string, buffer: Buffer, mimeType: string): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  openRead(
+    key: string,
+    range?: { start: number; end: number }
+  ): Promise<{
+    stream: Readable;
+    totalBytes: number;
+    contentLength: number;
+  } | null>;
   delete(key: string): Promise<void>;
 };
 
@@ -89,6 +98,31 @@ const localDriver: StorageDriver = {
   async get(key) {
     try {
       return await fs.promises.readFile(localPathFor(key));
+    } catch (e: any) {
+      if (e?.code === "ENOENT") return null;
+      throw e;
+    }
+  },
+  async openRead(key, range) {
+    try {
+      const fullPath = localPathFor(key);
+      const stat = await fs.promises.stat(fullPath);
+      const totalBytes = stat.size;
+      if (range) {
+        const start = Math.max(0, range.start);
+        const end = Math.min(range.end, totalBytes - 1);
+        if (start > end) return null;
+        return {
+          stream: fs.createReadStream(fullPath, { start, end }),
+          totalBytes,
+          contentLength: end - start + 1,
+        };
+      }
+      return {
+        stream: fs.createReadStream(fullPath),
+        totalBytes,
+        contentLength: totalBytes,
+      };
     } catch (e: any) {
       if (e?.code === "ENOENT") return null;
       throw e;
@@ -171,15 +205,58 @@ function hmac(key: Buffer | string, data: string): Buffer {
   return crypto.createHmac("sha256", key).update(data, "utf8").digest();
 }
 
+function parseS3ContentRange(
+  value: string | null | undefined
+): { start: number; end: number; total: number } | null {
+  if (!value) return null;
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(value.trim());
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const total = Number(match[3]);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(total)
+  ) {
+    return null;
+  }
+  return { start, end, total };
+}
+
+function parseContentLengthFromS3Headers(headers: Headers): {
+  totalBytes: number;
+  contentLength: number;
+} {
+  const contentLengthRaw = Number(headers.get("content-length"));
+  const parsedContentLength = Number.isFinite(contentLengthRaw)
+    ? contentLengthRaw
+    : null;
+  const contentRange = parseS3ContentRange(headers.get("content-range"));
+  if (contentRange) {
+    const totalBytes = contentRange.total;
+    const computed = contentRange.end - contentRange.start + 1;
+    return {
+      totalBytes,
+      contentLength: parsedContentLength ?? Math.max(0, computed),
+    };
+  }
+  return {
+    totalBytes: parsedContentLength ?? 0,
+    contentLength: parsedContentLength ?? 0,
+  };
+}
+
 // Minimal AWS Signature V4 for path-style S3 requests. Only what we need:
 // no query params, single object per request, payload hash always computed.
-async function s3Request(
+async function s3Fetch(
   cfg: S3Config,
   method: "PUT" | "GET" | "DELETE",
   key: string,
   body?: Buffer,
-  mimeType?: string
-): Promise<{ status: number; body: Buffer }> {
+  mimeType?: string,
+  extraHeaders?: Record<string, string>
+): Promise<Response> {
   const url = new URL(`${cfg.endpoint}/${cfg.bucket}/${key}`);
   const now = new Date();
   const amzDate = now
@@ -203,6 +280,11 @@ async function s3Request(
     "x-amz-date": amzDate,
   };
   if (body && mimeType) headers["content-type"] = mimeType;
+  if (extraHeaders) {
+    for (const [name, value] of Object.entries(extraHeaders)) {
+      headers[name.toLowerCase()] = value;
+    }
+  }
   const signedHeaderNames = Object.keys(headers).sort();
   const canonicalHeaders = signedHeaderNames
     .map(h => `${h}:${headers[h].trim()}\n`)
@@ -235,12 +317,22 @@ async function s3Request(
     .digest("hex");
 
   const authorization = `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const res = await fetch(url, {
+  return await fetch(url, {
     method,
     headers: { ...headers, authorization },
     body: body as any,
   });
+}
+
+// Minimal AWS Signature V4 for path-style S3 requests.
+async function s3Request(
+  cfg: S3Config,
+  method: "PUT" | "GET" | "DELETE",
+  key: string,
+  body?: Buffer,
+  mimeType?: string
+): Promise<{ status: number; body: Buffer }> {
+  const res = await s3Fetch(cfg, method, key, body, mimeType);
   const resBody = Buffer.from(await res.arrayBuffer());
   return { status: res.status, body: resBody };
 }
@@ -277,6 +369,44 @@ function makeS3Driver(cfg: S3Config): StorageDriver {
         );
       }
       return res.body;
+    },
+    async openRead(key, range) {
+      const headers: Record<string, string> = {};
+      if (range) {
+        headers.range = `bytes=${range.start}-${range.end}`;
+      }
+      const res = await s3Fetch(cfg, "GET", key, undefined, undefined, headers);
+      if (res.status === 404) {
+        const corpo = await res.text();
+        if (corpo.includes("NoSuchBucket")) {
+          throw new Error(
+            `STORAGE S3: bucket inesistente o errato (404 NoSuchBucket): ${corpo.slice(0, 200)}`
+          );
+        }
+        return null;
+      }
+      if (res.status < 200 || res.status >= 300) {
+        const corpo = await res.text();
+        throw new Error(
+          `STORAGE S3: lettura fallita (${res.status}): ${corpo.slice(0, 300)}`
+        );
+      }
+
+      const { totalBytes, contentLength } = parseContentLengthFromS3Headers(
+        res.headers
+      );
+      if (!res.body) {
+        return {
+          stream: Readable.from([]),
+          totalBytes,
+          contentLength: 0,
+        };
+      }
+      return {
+        stream: Readable.fromWeb(res.body as any),
+        totalBytes,
+        contentLength,
+      };
     },
     async delete(key) {
       const res = await s3Request(cfg, "DELETE", key);
@@ -350,6 +480,15 @@ export async function putFile(
 
 export async function getFile(storageKey: string): Promise<Buffer | null> {
   return getStorageDriver().get(storageKey);
+}
+
+export async function openFileReadStream(
+  storageKey: string,
+  range?: { start: number; end: number }
+): Promise<{ stream: Readable; totalBytes: number; contentLength: number } | null> {
+  const driver = getStorageDriver();
+  if (!driver.openRead) return null;
+  return driver.openRead(storageKey, range);
 }
 
 /** Best-effort delete — storage orphans are harmless, missing files are not. */

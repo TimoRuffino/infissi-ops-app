@@ -18,6 +18,7 @@ vi.mock("../_core/fileStorage", async importOriginal => {
 
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import { validaUploadManualeFascicolo } from "./preventiviContratti";
 import {
   deleteDocumentoFic,
   findDocumentoFic,
@@ -46,6 +47,74 @@ function ctx(sedeId: number): TrpcContext {
     sediIds: [sedeId],
   };
 }
+
+const MEBIBYTE = 1024 * 1024;
+
+describe("upload manuale del fascicolo commessa", () => {
+  beforeEach(() => {
+    storageProbe.fail = false;
+  });
+
+  it("accetta fino a 250 MB e i formati video comuni", () => {
+    for (const mimeType of ["video/mp4", "video/quicktime", "video/webm"]) {
+      expect(() =>
+        validaUploadManualeFascicolo(250 * MEBIBYTE, mimeType)
+      ).not.toThrow();
+    }
+  });
+
+  it("rifiuta il primo byte oltre 250 MB e i formati attivi", () => {
+    expect(() =>
+      validaUploadManualeFascicolo(250 * MEBIBYTE + 1, "video/mp4")
+    ).toThrow(/250 MB/);
+    expect(() => validaUploadManualeFascicolo(1, "text\/html")).toThrow(
+      /non consentito/
+    );
+  });
+
+  it("rifiuta base64 malformato senza creare metadati vuoti", async () => {
+    const sedeId = 309;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Base64 rotto" });
+
+    await expect(
+      caller.preventiviContratti.upload({
+        commessaId: commessa.id,
+        nome: "rotto.pdf",
+        tipo: "preventivo",
+        mimeType: "application/pdf",
+        size: 1,
+        dataBase64: "=",
+      })
+    ).rejects.toThrow(/base64 non valido/i);
+
+    await expect(
+      caller.preventiviContratti.byCommessa(commessa.id)
+    ).resolves.toHaveLength(0);
+  });
+
+  it("non riversa nel JSONB un file grande quando lo storage non risponde", async () => {
+    const sedeId = 308;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Video grande" });
+    storageProbe.fail = true;
+
+    await expect(
+      caller.preventiviContratti.upload({
+        commessaId: commessa.id,
+        nome: "cantiere.mp4",
+        tipo: "altro",
+        mimeType: "video/mp4",
+        size: 10 * MEBIBYTE + 1,
+        dataBase64: Buffer.alloc(10 * MEBIBYTE + 1).toString("base64"),
+      })
+    ).rejects.toThrow(/storage documenti non è disponibile/);
+
+    await expect(
+      caller.preventiviContratti.byCommessa(commessa.id)
+    ).resolves.toHaveLength(0);
+  });
+});
 
 describe("storage documenti FiC", () => {
   beforeEach(() => {

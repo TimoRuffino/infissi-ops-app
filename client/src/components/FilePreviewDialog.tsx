@@ -24,7 +24,8 @@ export type FilePreviewDialogProps = {
 /**
  * Large, reusable file preview dialog. Near-fullscreen (95vw × 92vh, capped at
  * 1400px) so PDFs and images are actually readable. Handles images with zoom +
- * rotate controls, PDFs via iframe, other types via download fallback.
+ * rotate controls, PDFs via iframe, video via player, other types via download
+ * fallback.
  */
 export default function FilePreviewDialog({
   preview,
@@ -41,6 +42,7 @@ export default function FilePreviewDialog({
   }, [preview?.url]);
 
   const isImage = preview?.mimeType?.startsWith("image/");
+  const isVideo = preview?.mimeType?.startsWith("video/");
   const isPdf =
     preview?.mimeType === "application/pdf" ||
     preview?.nome?.toLowerCase().endsWith(".pdf");
@@ -77,6 +79,7 @@ export default function FilePreviewDialog({
                   className="h-7 w-7"
                   onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}
                   title="Zoom out"
+                  aria-label="Riduci zoom"
                 >
                   <ZoomOut className="h-4 w-4" />
                 </Button>
@@ -89,6 +92,7 @@ export default function FilePreviewDialog({
                   className="h-7 w-7"
                   onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
                   title="Zoom in"
+                  aria-label="Aumenta zoom"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
@@ -98,6 +102,7 @@ export default function FilePreviewDialog({
                   className="h-7 w-7"
                   onClick={() => setRotate((r) => (r + 90) % 360)}
                   title="Ruota"
+                  aria-label="Ruota immagine"
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
@@ -117,6 +122,7 @@ export default function FilePreviewDialog({
               size="icon"
               className="h-7 w-7"
               onClick={onClose}
+              aria-label="Chiudi anteprima"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -141,6 +147,14 @@ export default function FilePreviewDialog({
               src={preview.url}
               title={preview.nome}
               className="w-full h-full border-0"
+            />
+          ) : isVideo ? (
+            <video
+              src={preview.url}
+              controls
+              preload="metadata"
+              className="max-w-full max-h-full"
+              aria-label={`Video ${preview.nome}`}
             />
           ) : (
             <div className="text-center p-8 space-y-3">
