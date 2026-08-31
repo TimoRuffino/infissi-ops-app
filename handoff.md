@@ -121,6 +121,12 @@ pnpm storage:migrate
 
 - I record documentali possono contenere `storageKey` e `checksum` al posto di
   `dataBase64`.
+- L'upload manuale nel fascicolo commessa accetta file fino a 250 MB e video
+  MP4/MOV/WebM. Usa una rotta binaria che verifica same-origin e autenticazione
+  prima di leggere il body, con un solo upload concorrente per processo; la
+  lettura usa una rotta autenticata con HTTP Range. Sopra 10 MB un errore
+  storage interrompe l'operazione invece di salvare centinaia di MB in JSONB.
+  Import da comunicazioni/FiC e allegati ticket restano a 10 MB.
 - Il backup Drive risolve prima `storageKey`, verifica SHA-256 e mantiene la
   compatibilità con i record inline legacy.
 - Il backup comprende documenti e allegati ticket, anche per commesse orfane.

@@ -86,6 +86,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useOperationalContext } from "@/contexts/OperationalContext";
+import {
+  COMMESSA_UPLOAD_ACCEPT,
+  COMMESSA_UPLOAD_MAX_MB,
+  erroreUploadCommessa,
+  normalizzaMimeUploadCommessa,
+} from "@shared/commessaUpload";
 
 const tipoDocColors: Record<string, string> = {
   preventivo: "bg-info-soft text-info",
@@ -229,6 +235,8 @@ export default function CommessaDetail() {
     tipo: "preventivo" as string,
     note: "",
   });
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   // Rinomina e riclassifica un documento gia caricato. Il tipo conta per il
   // doc gate: un contratto caricato come "altro" blocca un avanzamento
@@ -268,7 +276,7 @@ export default function CommessaDetail() {
     note: "",
   });
 
-  // PDF / image preview
+  // PDF / image / video preview
   const [previewDoc, setPreviewDoc] = useState<{
     id: number;
     nome: string;
@@ -334,13 +342,6 @@ export default function CommessaDetail() {
       utils.commesse.byId.invalidate(commessaId);
       setConsegnaDialog(false);
       setConsegnaDate("");
-    },
-  });
-  const uploadDocumento = trpc.preventiviContratti.upload.useMutation({
-    onSuccess: () => {
-      utils.preventiviContratti.invalidate();
-      setUploadDialog(false);
-      setUploadForm({ file: null, tipo: "preventivo", note: "" });
     },
   });
   const deleteCommessa = trpc.commesse.delete.useMutation({
@@ -418,7 +419,9 @@ export default function CommessaDetail() {
   // Revoke object URL when preview dialog closes (avoid memory leaks).
   useEffect(() => {
     return () => {
-      if (previewDoc?.url) URL.revokeObjectURL(previewDoc.url);
+      if (previewDoc?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(previewDoc.url);
+      }
     };
   }, [previewDoc?.url]);
 
@@ -502,48 +505,70 @@ export default function CommessaDetail() {
   async function handleUpload() {
     if (!uploadForm.file) return;
     const file = uploadForm.file;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.split(",")[1] ?? "";
-      uploadDocumento.mutate({
-        commessaId,
-        nome: file.name,
-        tipo: uploadForm.tipo as any,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        dataBase64: base64,
-        note: uploadForm.note || undefined,
-      });
-    };
-    reader.readAsDataURL(file);
+    const mimeType = normalizzaMimeUploadCommessa(file.name, file.type);
+    const errore = erroreUploadCommessa(file.size, mimeType);
+    if (errore) {
+      setUploadError(errore);
+      return;
+    }
+    setUploadError(null);
+    setIsUploadingFile(true);
+    try {
+      const response = await fetch(
+        `/api/commesse/${commessaId}/documenti/file`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-File-Name": encodeURIComponent(file.name),
+            "X-File-Mime-Type": encodeURIComponent(mimeType),
+            "X-Document-Type": uploadForm.tipo,
+            ...(uploadForm.note
+              ? { "X-File-Note": encodeURIComponent(uploadForm.note) }
+              : {}),
+          },
+          body: file,
+        }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Caricamento non riuscito.");
+      }
+      await utils.preventiviContratti.invalidate();
+      setUploadDialog(false);
+      setUploadForm({ file: null, tipo: "preventivo", note: "" });
+      setUploadError(null);
+      toast.success("File caricato nella commessa");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Caricamento non riuscito.";
+      setUploadError(message);
+      toast.error("Caricamento non riuscito", { description: message });
+    } finally {
+      setIsUploadingFile(false);
+    }
   }
 
-  function docToBlobUrl(doc: any): string {
-    const byteChars = atob(doc.dataBase64);
-    const bytes = new Uint8Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([bytes], { type: doc.mimeType });
-    return URL.createObjectURL(blob);
+  function documentoFileUrl(docId: number, download = false): string {
+    return `/api/documenti/${docId}/file${download ? "?download=1" : ""}`;
   }
 
   function downloadDocumento(docId: number) {
-    utils.preventiviContratti.byId.fetch(docId).then((doc: any) => {
-      if (!doc?.dataBase64) return;
-      const url = docToBlobUrl(doc);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.nome;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+    const a = document.createElement("a");
+    a.href = documentoFileUrl(docId, true);
+    a.click();
   }
 
-  function openPreview(docId: number) {
-    utils.preventiviContratti.byId.fetch(docId).then((doc: any) => {
-      if (!doc?.dataBase64) return;
-      const url = docToBlobUrl(doc);
-      setPreviewDoc({ id: doc.id, nome: doc.nome, mimeType: doc.mimeType, url });
+  function openPreview(doc: {
+    id: number;
+    nome: string;
+    mimeType: string;
+  }) {
+    setPreviewDoc({
+      id: doc.id,
+      nome: doc.nome,
+      mimeType: doc.mimeType,
+      url: documentoFileUrl(doc.id),
     });
   }
 
@@ -1154,6 +1179,7 @@ export default function CommessaDetail() {
               onOpenChange={(open) => {
                 setUploadDialog(open);
                 if (open) {
+                  setUploadError(null);
                   // Preset tipo to the state-required document when the user
                   // opens the upload dialog — one less click in 90% of cases.
                   const suggested = SUGGESTED_TIPO_FOR_STATO[c.stato];
@@ -1201,19 +1227,62 @@ export default function CommessaDetail() {
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>File (max 10MB)</Label>
+                    <Label htmlFor="commessa-upload-file">
+                      File (max {COMMESSA_UPLOAD_MAX_MB} MB)
+                    </Label>
                     <Input
+                      id="commessa-upload-file"
                       type="file"
-                      onChange={(e) =>
+                      accept={COMMESSA_UPLOAD_ACCEPT}
+                      aria-invalid={!!uploadError}
+                      aria-describedby={
+                        uploadError
+                          ? "commessa-upload-help commessa-upload-error"
+                          : "commessa-upload-help"
+                      }
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        const errore = file
+                          ? erroreUploadCommessa(
+                              file.size,
+                              normalizzaMimeUploadCommessa(
+                                file.name,
+                                file.type
+                              )
+                            )
+                          : null;
+                        setUploadError(errore);
                         setUploadForm({
                           ...uploadForm,
-                          file: e.target.files?.[0] ?? null,
-                        })
-                      }
+                          file,
+                        });
+                      }}
                     />
+                    <p
+                      id="commessa-upload-help"
+                      className="text-xs text-muted-foreground"
+                    >
+                      PDF, immagini, documenti e video MP4, MOV o WebM.
+                    </p>
+                    {uploadError && (
+                      <p
+                        id="commessa-upload-error"
+                        role="alert"
+                        className="text-xs text-destructive"
+                      >
+                        {uploadError}
+                      </p>
+                    )}
                     {uploadForm.file && (
                       <p className="text-xs text-muted-foreground">
-                        {uploadForm.file.name} — {(uploadForm.file.size / 1024).toFixed(1)} KB
+                        {uploadForm.file.name} — {uploadForm.file.size >= 1024 * 1024
+                          ? `${(uploadForm.file.size / (1024 * 1024)).toFixed(1)} MB`
+                          : `${(uploadForm.file.size / 1024).toFixed(1)} KB`}
+                      </p>
+                    )}
+                    {isUploadingFile && (
+                      <p className="text-xs text-muted-foreground" aria-live="polite">
+                        I file grandi possono richiedere qualche minuto. Non chiudere la pagina.
                       </p>
                     )}
                   </div>
@@ -1227,9 +1296,13 @@ export default function CommessaDetail() {
                   </div>
                   <Button
                     onClick={handleUpload}
-                    disabled={!uploadForm.file || uploadDocumento.isPending}
+                    disabled={
+                      !uploadForm.file ||
+                      !!uploadError ||
+                      isUploadingFile
+                    }
                   >
-                    {uploadDocumento.isPending ? "Caricamento..." : "Carica"}
+                    {isUploadingFile ? "Caricamento..." : "Carica"}
                   </Button>
                 </div>
               </DialogContent>
@@ -1271,7 +1344,11 @@ export default function CommessaDetail() {
                           )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                          <span>{(d.size / 1024).toFixed(1)} KB</span>
+                          <span>
+                            {d.size >= 1024 * 1024
+                              ? `${(d.size / (1024 * 1024)).toFixed(1)} MB`
+                              : `${(d.size / 1024).toFixed(1)} KB`}
+                          </span>
                           <span>{new Date(d.createdAt).toLocaleDateString("it-IT")}</span>
                         </div>
                         {d.note && (
@@ -1280,13 +1357,16 @@ export default function CommessaDetail() {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      {(d.mimeType === "application/pdf" || d.mimeType?.startsWith("image/")) && (
+                      {(d.mimeType === "application/pdf" ||
+                        d.mimeType?.startsWith("image/") ||
+                        d.mimeType?.startsWith("video/")) && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
                           title="Anteprima"
-                          onClick={() => openPreview(d.id)}
+                          aria-label={`Anteprima ${d.nome}`}
+                          onClick={() => openPreview(d)}
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>

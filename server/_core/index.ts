@@ -189,7 +189,13 @@ async function startServer() {
     }
   );
 
-  // Configure body parser with larger size limit for file uploads
+  // Il file manuale arriva come body binario su una rotta autenticata prima
+  // del parser. In questo modo 250 MiB non diventano ~334 MiB di base64/JSON;
+  // un solo upload grande per processo protegge inoltre la memoria del server.
+  const { registerCommessaFileRoutes } = await import("./commessaFileRoutes");
+  registerCommessaFileRoutes(app);
+
+  // Gli endpoint JSON (tRPC compreso) mantengono il limite storico.
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   const { createNotificationSseHandler } = await import("../notifications/sse");
