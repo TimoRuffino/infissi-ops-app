@@ -223,7 +223,7 @@ function comeErrore(errore: any): never {
   if (messaggio.startsWith("CONVERSAZIONE_ARCHIVIATA")) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
-      message: "Ripristina la conversazione prima di inviare un messaggio.",
+      message: "Ripristina la conversazione prima di modificarla o inviare un messaggio.",
     });
   }
   console.error("[tars] errore router:", errore);
@@ -325,6 +325,9 @@ export const tarsRouter = router({
         if (esito.stato === "non_trovato") {
           throw new Error("NOT_FOUND: conversazione non trovata.");
         }
+        if (esito.stato === "archiviata") {
+          throw new Error("CONVERSAZIONE_ARCHIVIATA");
+        }
         return esito.conversazione;
       } catch (errore) {
         comeErrore(errore);
@@ -347,6 +350,9 @@ export const tarsRouter = router({
         if (esito.stato === "non_trovato") {
           throw new Error("NOT_FOUND: conversazione non trovata.");
         }
+        if (esito.stato === "archiviata") {
+          throw new Error("CONVERSAZIONE_ARCHIVIATA");
+        }
         return esito.conversazione;
       } catch (errore) {
         comeErrore(errore);
@@ -368,6 +374,9 @@ export const tarsRouter = router({
         });
         if (esito.stato === "non_trovato") {
           throw new Error("NOT_FOUND: conversazione non trovata.");
+        }
+        if (esito.stato === "archiviata") {
+          throw new Error("CONVERSAZIONE_ARCHIVIATA");
         }
         return esito.conversazione;
       } catch (errore) {

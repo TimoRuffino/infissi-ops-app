@@ -42,3 +42,16 @@ Implementato nel worktree `tars-main` a partire da `ba979c6`.
 ## Fuori perimetro
 
 Nessuna modifica a UI/client, provider/cost governor, flag, prompt, catalogo strumenti, dati Railway o servizi esterni.
+
+## Fix round 1/5
+
+- Una conversazione archiviata è ora strettamente sola lettura: rinomina, fissaggio e nuova archiviazione restituiscono l'esito dedicato `archiviata`, non cambiano `fissata` né `updatedAt`; soltanto `archiviata: false` la ripristina. Il router converte tale esito in `PRECONDITION_FAILED` senza rivelare record fuori scope.
+- La ricerca PostgreSQL usa `strpos(lower(...), lower(...))`, quindi `%`, `_` e `\\` sono caratteri letterali come nel fallback memoria.
+- Il test di confine usa ora il caller reale `tars.invia` su conversazione archiviata e verifica timestamp primitivo, nessun turno, factory provider, reservation R1 o riga ledger.
+- Aggiunta `server/tars/archivio.pg.test.ts`: è gated da `DATABASE_URL` e copre DDL additivo su tabella preesistente, CTE owner+sede, ricerca letterale, anteprima/ordine e sola lettura dell'archivio. In questo ambiente `DATABASE_URL` è assente, pertanto i suoi 3 test sono skipped esplicitamente; non costituiscono copertura PostgreSQL locale.
+
+### TDD e verifica del fix
+
+1. RED: le primitive permettevano rinomina su archivio e il router la risolveva; test falliti con `aggiornata` al posto di `archiviata` e mutation risolta invece di `PRECONDITION_FAILED`.
+2. GREEN: `pnpm test -- server/tars/conversazioni.test.ts server/tars/orchestratore.test.ts server/tars/archivio.pg.test.ts` ha completato con 876 test passati e 8 skipped (inclusi i 3 PostgreSQL gated).
+3. `pnpm check` e `git diff --check` hanno completato senza errori.

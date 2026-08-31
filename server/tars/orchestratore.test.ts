@@ -21,6 +21,8 @@ import {
   eseguiRun,
 } from "./orchestratore";
 import { creaProviderFinto, chiamataTool, rispostaTesto } from "./openai/fake";
+import * as providerGovernato from "./costi/providerGovernato";
+import * as esecuzioniR1 from "./azioni/executions";
 import { azzeraRateLimitTarsPerTest } from "../routers/tars";
 import { filtraStrumenti, strumentiPerContesto } from "./profili";
 import { STRUMENTI_L0 } from "./strumenti/letture";
@@ -745,8 +747,7 @@ describe("tars — budget e retry del provider", () => {
 });
 
 describe("tars — degradazione e sicurezza", () => {
-  it("una conversazione archiviata non salva turni, non aggiorna la data e non chiama il provider", async () => {
-    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+  it("tars.invia rifiuta un archivio prima di provider, costi e reservation", async () => {
     const conversazione = await creaConversazione({
       sedeId: SEDE,
       utenteId: DIREZIONE_ID,
@@ -758,31 +759,32 @@ describe("tars — degradazione e sicurezza", () => {
       utenteId: DIREZIONE_ID,
       archiviata: true,
     });
-    const prima = await conversazioneDiUtente(
+    const updatedAtPrima = (await conversazioneDiUtente(
       conversazione.id,
       SEDE,
       DIREZIONE_ID
-    );
-    let chiamateProvider = 0;
-    const provider = creaProviderFinto(() => {
-      chiamateProvider += 1;
-      return rispostaTesto("Non devo essere chiamato.");
-    });
+    ))!.updatedAt.getTime();
+    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledger);
+    const providerSpy = vi.spyOn(providerGovernato, "creaProviderPerRun");
+    const reservationSpy = vi.spyOn(esecuzioniR1, "prenotaEsecuzioneR1");
 
     await expect(
-      eseguiRun({
-        contesto,
-        provider,
-        messaggio: "Tentativo su archivio",
+      direzione().tars.invia({
+        messaggio: "Prendi in carico il caso 1",
         conversazioneId: conversazione.id,
       })
-    ).rejects.toThrow("CONVERSAZIONE_ARCHIVIATA");
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    expect(chiamateProvider).toBe(0);
+    expect(providerSpy).not.toHaveBeenCalled();
+    expect(reservationSpy).not.toHaveBeenCalled();
+    await expect(ledger.lista({ sedeId: SEDE })).resolves.toEqual([]);
     await expect(turniDiConversazione(conversazione.id, SEDE)).resolves.toEqual([]);
-    await expect(
-      conversazioneDiUtente(conversazione.id, SEDE, DIREZIONE_ID)
-    ).resolves.toMatchObject({ updatedAt: prima!.updatedAt });
+    expect((await conversazioneDiUtente(
+      conversazione.id,
+      SEDE,
+      DIREZIONE_ID
+    ))!.updatedAt.getTime()).toBe(updatedAtPrima);
   });
 
   it("provider rotto → risposta degradata onesta, mai un 500", async () => {

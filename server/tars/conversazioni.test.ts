@@ -146,6 +146,96 @@ describe("archivio conversazioni Tars", () => {
     ]);
   });
 
+  it("tratta l'archivio come sola lettura fino al ripristino", async () => {
+    const conversazione = await creaConversazione({
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      titolo: "Bloccata",
+    });
+    await impostaConversazioneFissata({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      fissata: true,
+    });
+    await impostaConversazioneArchiviata({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      archiviata: true,
+    });
+    const timestampArchivio = (
+      await listaConversazioni(SEDE, UTENTE, { archiviate: true })
+    )[0].updatedAt.getTime();
+
+    await expect(
+      rinominaConversazione({
+        conversazioneId: conversazione.id,
+        sedeId: SEDE,
+        utenteId: UTENTE,
+        titolo: "Non deve cambiare",
+      })
+    ).resolves.toEqual({ stato: "archiviata" });
+    await expect(
+      impostaConversazioneFissata({
+        conversazioneId: conversazione.id,
+        sedeId: SEDE,
+        utenteId: UTENTE,
+        fissata: true,
+      })
+    ).resolves.toEqual({ stato: "archiviata" });
+    await expect(
+      impostaConversazioneArchiviata({
+        conversazioneId: conversazione.id,
+        sedeId: SEDE,
+        utenteId: UTENTE,
+        archiviata: true,
+      })
+    ).resolves.toEqual({ stato: "archiviata" });
+
+    await expect(
+      listaConversazioni(SEDE, UTENTE, { archiviate: true })
+    ).resolves.toMatchObject([
+      {
+        titolo: "Bloccata",
+        fissata: false,
+        updatedAt: new Date(timestampArchivio),
+      },
+    ]);
+  });
+
+  it("cerca percentuale, underscore e backslash come caratteri letterali", async () => {
+    const percentuale = await creaConversazione({
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      titolo: "Preventivo 100%",
+    });
+    const underscore = await creaConversazione({
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      titolo: "Codice_A",
+    });
+    const backslash = await creaConversazione({
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      titolo: "Cartella\\infissi",
+    });
+    await aggiungiTurno({
+      conversazioneId: percentuale.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      ruolo: "tars",
+      contenuto: "Anteprima con % letterale",
+    });
+
+    await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "%" }))
+      .resolves.toMatchObject([{ id: percentuale.id }]);
+    await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "_" }))
+      .resolves.toMatchObject([{ id: underscore.id }]);
+    await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "\\" }))
+      .resolves.toMatchObject([{ id: backslash.id }]);
+  });
+
   it("non modifica né aggiorna una conversazione di altra sede o proprietario", async () => {
     const conversazione = await creaConversazione({
       sedeId: SEDE,
@@ -224,6 +314,18 @@ describe("router conversazioni Tars", () => {
         archiviata: true,
       })
     ).resolves.toMatchObject({ archiviataAt: expect.any(Date), fissata: false });
+    await expect(
+      api.tars.rinominaConversazione({
+        conversazioneId: conversazione.id,
+        titolo: "Non consentito",
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(
+      api.tars.fissaConversazione({
+        conversazioneId: conversazione.id,
+        fissata: true,
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(
       api.tars.archiviaConversazione({
         conversazioneId: conversazione.id,

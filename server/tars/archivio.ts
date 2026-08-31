@@ -329,8 +329,8 @@ export async function listaConversazioni(
         AND (c.archiviata_at IS NOT NULL) = ${archiviate}
         AND (
           ${ricerca} = ''
-          OR c.titolo ILIKE '%' || ${ricerca} || '%'
-          OR COALESCE(ultimo.contenuto, '') ILIKE '%' || ${ricerca} || '%'
+          OR strpos(lower(c.titolo), lower(${ricerca})) > 0
+          OR strpos(lower(COALESCE(ultimo.contenuto, '')), lower(${ricerca})) > 0
         )
       ORDER BY c.fissata DESC, c.updated_at DESC
       LIMIT ${limite}`;
@@ -363,6 +363,7 @@ export async function listaConversazioni(
 
 export type EsitoGestioneConversazione =
   | { stato: "aggiornata"; conversazione: ConversazioneTars }
+  | { stato: "archiviata" }
   | { stato: "non_trovato" };
 
 async function aggiornaConversazioneGestione(input: {
@@ -392,9 +393,16 @@ async function aggiornaConversazioneGestione(input: {
       WHERE id = ${input.conversazioneId}
         AND sede_id = ${input.sedeId}
         AND utente_id = ${input.utenteId}
+        AND (archiviata_at IS NULL OR ${input.archiviata === false})
       RETURNING *`;
-    return r
-      ? { stato: "aggiornata", conversazione: rigaConversazione(r) }
+    if (r) return { stato: "aggiornata", conversazione: rigaConversazione(r) };
+    const [visibile] = await kvSql`
+      SELECT archiviata_at FROM tars_conversazioni
+      WHERE id = ${input.conversazioneId}
+        AND sede_id = ${input.sedeId}
+        AND utente_id = ${input.utenteId}`;
+    return visibile?.archiviata_at
+      ? { stato: "archiviata" }
       : { stato: "non_trovato" };
   }
 
@@ -404,6 +412,9 @@ async function aggiornaConversazioneGestione(input: {
       c.utenteId === input.utenteId
   );
   if (!conversazione) return { stato: "non_trovato" };
+  if (conversazione.archiviataAt != null && input.archiviata !== false) {
+    return { stato: "archiviata" };
+  }
   if (input.titolo != null) conversazione.titolo = input.titolo;
   if (input.archiviata === true) {
     conversazione.archiviataAt = new Date();
