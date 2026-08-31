@@ -85,12 +85,24 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 
 ## Agente AI
 
-- Non esiste: Tars è stato rimosso per intero il 28/08/2026 e verrà rifatto da
-  zero come progetto separato. Storia e decisioni aperte in
-  `docs/tars-rimosso-2026-08-28.md`; ricognizione, invarianti e vincoli in
-  `docs/discovery-dossier-2026-08-28.md` e `docs/source-of-truth-matrix.md`.
-- Ogni automatismo attuale è deterministico: match, regole e aritmetica.
-  Nessun LLM in percorsi di stato, permessi, importi o scadenze.
+- Tars v2 esiste in `server/tars/`: il registro storico della rimozione del
+  28/08/2026 resta in `docs/tars-rimosso-2026-08-28.md`, ma non descrive lo
+  stato corrente. Contratti, matrice verificata e gap sono in
+  `docs/tars/architettura-tars-v2.md` e `docs/tars/matrice-azioni-tars.md`.
+- Ogni automatismo che determina verità business resta deterministico: match,
+  regole, state machine, permessi, importi, scadenze e gate. Il modello non
+  decide né reimplementa questi vincoli.
+- Ogni azione Tars passa da un servizio di dominio tipizzato e dalla policy
+  server-side: mai `force`, mai mutazioni tRPC invocate dal modello, mai SQL
+  generico, `executeSql`, `updateRecord` o scritture dirette. Il provider
+  reale nasce solo dietro il governor; nessun percorso parallelo può aggirarlo.
+- Il catalogo è fail-closed per capability, sede e flag. Un record di un'altra
+  sede dà `NOT_FOUND`; L1 esplicito può agire senza una seconda conferma, gli
+  effetti condivisi/esterni usano l'unica anteprima e conferma prevista dalla
+  policy, L5/R4 è tecnicamente inesistente.
+- Il mandato documentale T0 Tars è server/documentazione: non aggiunge né
+  modifica file `client/`. Le estensioni operative successive devono prima
+  aggiornare la matrice dominio→servizio→tool e i test di accettazione.
 - Non rimuovere i residui di compatibilità senza una decisione registrata e
   una matrice campo→consumer: colonne `tars_*` su `comunicazioni`,
   `fic_fatture.tarsAnalizzata`, capability `tars.*` (in particolare
@@ -98,9 +110,8 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   `contextEngineMode`/`plannerMode`/`semanticSearchMode`/`autonomyCapabilities`.
 - `server/_core/llm.ts`, `voiceTranscription.ts` e `imageGeneration.ts` sono
   infrastruttura candidata senza consumatori attivi: tenerli, sostituirli o
-  eliminarli si decide durante il design del nuovo agente.
-- Il futuro agente si appoggerà a contratti dati/eventi tipizzati e ad
-  approvazione umana: non anticiparne pezzi dentro i router business.
+  eliminarli richiede una decisione e una matrice campo→consumer. Non sono
+  scorciatoie per aggirare il governor di Tars.
 
 ## Definizione di completato
 

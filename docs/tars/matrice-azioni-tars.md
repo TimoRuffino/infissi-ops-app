@@ -3,26 +3,66 @@
 **Rilevata il 31/08/2026 sul checkout locale `main`.** Questa matrice descrive
 il codice presente, non lo stato di un ambiente esterno. `Esistente` significa
 che il percorso server è stato trovato; non significa che un flag sia acceso
-né che una capacità possa essere dichiarata completa. I riferimenti a R0-R4
-del mandato corrispondono ai livelli tecnici L0-L5 già registrati nella
-specifica: R1/R2/R3 richiedono sempre policy, sede, capability, rilettura
-server-side, idempotenza e audit.
+né che una capacità futura sia già completa.
 
-| Dominio / operazioni CRM trovate | Servizio canonico o confine attuale | Tool Tars / rischio | Capability e flag | Stato reale e test trovati | Gap verificato |
-| --- | --- | --- | --- | --- | --- |
-| Commesse: cerca, leggere stato/gate/ordini, aggiornare e cambiare stato | Letture: `routers/commesse` + `preventiviContratti`; `commesse.update` contiene ancora la logica di transizione e gate, quindi non è un servizio riusabile | `cerca_commesse`, `leggi_commessa`, `verifica_gate_commessa`, `leggi_fascicolo_commessa` / L0 | `commessa.read`; `FLAG_TARS` + `FLAG_TARS_READ_TOOLS` | Letture sede-scoped, shaping economia e `NOT_FOUND`; `server/tars/orchestratore.test.ts`, `fascicoli.test.ts`, `routers/commesse.test.ts` | Nessun tool di transizione o nota operativa. Estrarre un servizio canonico che non accetti `force`, con versione, audit e Undo/compensazione: necessario per Maccari. Il `force` legacy del router non è utilizzabile da Tars. |
-| Email/WhatsApp: leggere thread, allegati, collegamento e archiviazione | Archivio `comunicazioni`; `mail.email.archiviaAllegato` e `archiviaAllegatoComunicazione`; lettura raw in `comunicazioni/allegati` | `leggi_comunicazioni` / L0, soli metadati+estratti | `commessa.read`; `FLAG_TARS_COMMUNICATIONS` oltre a master/read | Tool limita il corpo a 240 caratteri e tratta il contenuto come dato; `server/tars/t6Documenti.test.ts`, `comunicazioni/mail.test.ts` | Nessun tool per trovare l'ultima email, leggere l'allegato, collegarla/classificarla o archiviarla nel fascicolo. Servono servizi tipizzati e una catena Maccari con match certo/ambiguo. Nessun invio è implementato. |
-| Document Intelligence: analisi conferma d'ordine e confronto con ordine | `documenti/analisiOrdine.analizzaConfermaPerOrdine`, idempotenza per firma | `analizza_conferma_ordine` / L2, derivazione append-only | Direzione; `FLAG_TARS_L2_ACTIONS` + `FLAG_DOCUMENT_INTELLIGENCE` | Riusa la stessa fonte del router, non modifica commesse/ordini; `server/tars/t6Documenti.test.ts`, `documenti/analisiConferma.test.ts` | Copre una conferma già nel fascicolo, non un allegato email generico né classificazione/collegamento Maccari. Nessun OCR/analisi non supportata va inventata. |
-| Ordini fornitore: leggere e proporre data consegna da conferma | `fornitori` + `proposte/generazione.generaDaOrdineEDocumento` + gateway | `leggi_ordini_fornitore` L0; `proponi_data_consegna` L3 (proposta inerte) | `fornitore.manage_ordini`, direzione; `FLAG_DOCUMENT_INTELLIGENCE` + `FLAG_PROPOSTE` + `FLAG_TARS_PROPOSALS` | Una sola conferma umana mediante `proposte.approvaEApplica`; modello senza tool di approvazione; `server/tars/t5Azioni.test.ts` | Registro azioni limitato alla data consegna: nessuna trasmissione ordine, planning o effetto esterno. |
-| Promemoria personali: creare, spostare, annullare, completare, agenda | `reminders/service` e worker esistenti | `crea/sposta/annulla/completa_promemoria`, `leggi_promemoria` / L1 e L0 | Ownership principal; `FLAG_TARS_REMINDERS` | Parsing Europe/Rome, idempotenza `canonicalKey`, link commessa/cliente, audit e Undo create; `server/tars/promemoria.test.ts`, `reminders` test | Il tool esiste e può collegare una commessa già risolta. Manca il test E2E che risolva «Maccari» e provi un solo risultato sul retry. |
-| Centro Azioni: leggere, prendere in carico e rinviare casi | `actionCenter/service.transitionActionCase` + repository/eventi | `leggi_centro_azioni` L0; `prendi_in_carico_caso`, `rinvia_caso` / L2 | `commessa.read`; `FLAG_TARS_L2_ACTIONS` | Anti-stale `expectedFingerprint`, authz mine/direzione, audit; `server/tars/t5Azioni.test.ts`, `actionCenter/service.test.ts` | Solo due azioni L2; nessuna azione ticket, checklist, note condivise o associazione documentale. |
-| Memoria operativa | `tars/memoria.ts` su `tars_memoria` | `ricorda`, `dimentica`, `leggi_memorie` / L1/L0 | Direzione per sede, altrimenti utente; `FLAG_TARS_MEMORY` | Tipi chiusi, invalidazione invece di delete, memoria non autorevole; `server/tars/t7Memoria.test.ts` | Nessuna ricerca semantica: flag e codice restano spenti/differiti; serve policy retention esplicita. |
-| Economia/FiC: fatture, incassi, residui | `ficFatture` e registro pagamenti sono fonti/servizi autonomi; Tars legge dati sagomati dalla commessa | Nessun tool economico di scrittura / L0 lettura condizionata | `pagamento.read` o `economia.read`; read tools | Importi omessi senza capability; `orchestratore.test.ts`, test authz economica | Nessuna mutation economica Tars, né tool generico: incassi, note di credito e fonti fiscali restano fuori catalogo. |
-| Comunicazioni esterne | Non esiste un adapter SMTP/WhatsApp send nel perimetro Tars | Nessuno / futuro R2-R3 o L4 | N/A | La spec e `t6Documenti.test.ts` provano l'assenza di strumenti di invio | Prima di qualsiasi invio: integrazione esterna, preview immutabile, una conferma, revalidation, audit e action registry tipizzato. |
-| Proattività L1: singola commessa | `tars/briefing.ts`, detector deterministici a richiesta | Nessun tool di mutazione; shadow | `commessa.read`; `FLAG_TARS_PROACTIVE` | Due segnali: ordine in ritardo e conflitto data prevista/confermata; no emissioni; `server/tars/briefing.test.ts` | Mancano molti detector obbligatori, coda persistente, fingerprint/stato esposto completo, auto-risoluzione e azione operativa. |
-| Proattività L2: pattern aziendali | Nessun servizio/detector trasversale Tars trovato | Nessuno | Nessuno | Non implementata; nessun test dedicato | Costruire snapshot per sede, ranking/deduplica/cooldown, evidenze e linguaggio di correlazione non causale; test per pattern reale e falso positivo. |
-| Proattività L3: miglioramento CRM/processi | Nessun `SafeProductCatalog` o `TarsImprovementProposal` trovato | Nessuno | Nessuno | Non implementata; nessun test dedicato | Catalogo di soli metadati autorizzati, telemetria privacy-safe e proposta strutturata; Tars non riceve repository/segreti e non può modificare codice, commit, push o deploy. |
-| Provider, budget e policy | `tars/costi/providerGovernato.ts` è il confine; adapter grezzo è ristretto | Nessun tool provider; L5 vietato | Master `FLAG_TARS`, configurazione provider e governor | Guardie strutturali/rete e test costi; `server/tars/costi/*test*`, `server/_core/testSetup.ts` | Conservare il confine unico: nessun provider fuori governor, nessuna chiave reale nei test; i limiti del governor non sono autorizzazioni di dominio. |
+## Livelli correnti e classificazione target
+
+I livelli **L** sono il contratto tecnico corrente (`L0`–`L5` della specifica)
+e non vengono rinominati. La colonna **R target/gap** applica separatamente il
+mandato: `R0` lettura/analisi/preparazione; `R1` azione interna limitata e
+reversibile richiesta esplicitamente; `R2` effetto condiviso o esterno con
+anteprima+una conferma; `R3` economico/legale/alto impatto con conferma forte;
+`R4` vietato. Non esiste una conversione automatica di cinque classi R in sei
+classi L: `da classificare` significa che l'action registry futuro deve
+decidere il rischio in base all'effetto reale.
+
+Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
+`RT` = `FLAG_TARS_READ_TOOLS`, `RM` = `FLAG_TARS_REMINDERS`, `L2` =
+`FLAG_TARS_L2_ACTIONS`, `TP` = `FLAG_TARS_PROPOSALS`, `TC` =
+`FLAG_TARS_COMMUNICATIONS`, `TM` = `FLAG_TARS_MEMORY`, `DI` =
+`FLAG_DOCUMENT_INTELLIGENCE`, `PG` = `FLAG_PROPOSTE`.
+
+## Inventario integrale dei 21 tool correnti
+
+| Tool e dominio | Servizio canonico / confine | Livello corrente L | R target/gap | Capability e altri vincoli | Flag richiesti | Test trovato / stato reale e gap |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cerca_commesse` — commesse | `routers/commesse` (lettura sede-scoped) | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, senza importi non autorizzati. |
+| `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
+| `verifica_gate_commessa` — gate | `preventiviContratti.statoHasRequiredDoc` | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, nessuna transizione. |
+| `leggi_ordini_fornitore` — ordini | `routers/fornitori` | L0 | R0 | `commessa.read`; economia opzionale e sagomata | T + RT | `orchestratore.test.ts`; esistente. Non richiede capability/flag proposte. |
+| `leggi_analisi_ordine` — Document Intelligence | `documenti/analisi` | L0 | R0 | `commessa.read` + direzione | T + RT + DI | `t6Documenti.test.ts`; esistente, legge run/evidenze senza agire. |
+| `leggi_centro_azioni` — Centro Azioni | `actionCenter/service.listActionCases` | L0 | R0 | `commessa.read`; scope `site` solo direzione | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
+| `leggi_comunicazioni` — email/WhatsApp | `comunicazioni/listComunicazioni` | L0 | R0 | `commessa.read`; commessa o cliente obbligatorio | T + RT + TC | `t6Documenti.test.ts`; esistente, soli metadati+estratti. Manca lettura allegato/classificazione/archivio per Maccari. |
+| `leggi_fascicolo_commessa` — fascicolo C3 | `tars/fascicoli.fascicoloCommessa` | L0 | R0 | `commessa.read` | T + RT | `fascicoli.test.ts`; esistente, economia esclusa per costruzione. |
+| `leggi_promemoria_in_scadenza` — promemoria | `reminders/service.listPopupDue` | L0 | R0 | ownership principal | T + RT | `orchestratore.test.ts`; esistente. È una lettura L0 e richiede read-tools, non `RM`. |
+| `leggi_promemoria` — agenda | `reminders/service.listPersonal` | L0 | R0 | ownership principal | T + RT | `promemoria.test.ts`; esistente. È una lettura L0 e richiede read-tools, non `RM`. |
+| `crea_promemoria` — promemoria | `reminders/service.createApproved` + worker | L1 | R1 | ownership principal; commessa/cliente verificati se forniti | T + RM | `promemoria.test.ts`; esistente, parser Europe/Rome, `canonicalKey`, audit e Undo. E2E Maccari con risoluzione implicita è gap. |
+| `sposta_promemoria` — promemoria | `reminders/service` | L1 | R1 | ownership principal | T + RM | `promemoria.test.ts`; esistente, idempotenza/tempo deterministico. |
+| `annulla_promemoria` — promemoria | `reminders/service` | L1 | R1 | ownership principal | T + RM | `promemoria.test.ts`; esistente, annullamento tracciato. |
+| `completa_promemoria` — promemoria | `reminders/service` | L1 | R1 | ownership principal | T + RM | `promemoria.test.ts`; esistente, completamento tracciato. |
+| `prendi_in_carico_caso` — Centro Azioni | `actionCenter/service.transitionActionCase` | L2 | R1 | `commessa.read`; authz mine/direzione, fingerprint anti-stale | T + L2 | `t5Azioni.test.ts`, `actionCenter/service.test.ts`; esistente, audit e compensazione dichiarata. |
+| `rinvia_caso` — Centro Azioni | `actionCenter/service.transitionActionCase` | L2 | R1 | `commessa.read`; authz mine/direzione, fingerprint anti-stale | T + L2 | `t5Azioni.test.ts`, `actionCenter/service.test.ts`; esistente, rinvio interno reversibile. |
+| `analizza_conferma_ordine` — Document Intelligence | `documenti/analisiOrdine.analizzaConfermaPerOrdine` | L2 | R0 (analisi derivata) | direzione; run append-only e idempotenza per firma | T + L2 + DI | `t6Documenti.test.ts`, `analisiConferma.test.ts`; esistente, non modifica ordine/commessa. Manca l'allegato email generico Maccari. |
+| `proponi_data_consegna` — ordine fornitore | `proposte/generazione.generaDaOrdineEDocumento` + gateway | L3 | da classificare R2/R3 | `fornitore.manage_ordini` + direzione; proposta inerte, una conferma UI | T + TP + DI + PG | `t5Azioni.test.ts`; esistente come proposta, non come applicazione del modello. Il registro futuro decide R2 o R3 in base all'impatto. |
+| `ricorda` — memoria | `tars/memoria` | L1 | R1 | ownership; perimetro sede solo direzione | T + TM | `t7Memoria.test.ts`; esistente, fonte esplicita e tipi chiusi. |
+| `dimentica` — memoria | `tars/memoria` | L1 | R1 | ownership; memoria sede solo direzione | T + TM | `t7Memoria.test.ts`; esistente, invalida senza cancellare audit. |
+| `leggi_memorie` — memoria | `tars/memoria.memorieValide` | L0 | R0 | solo memorie valide di utente+sede | T + TM | `t7Memoria.test.ts`; esistente, non richiede read-tools. |
+
+**Inventario verificabile.** Il comando seguente ricava questi 21 nomi dalla
+sorgente: `for file in server/tars/strumenti/*.ts; do rg -o 'nome: "[^"]+"'
+"$file"; done | sed -E 's/.*nome: "([^"]+)"/\\1/' | sort -u`. Il numero
+atteso e documentato è **21**; ogni nome compare una volta nella tabella.
+
+## Percorsi CRM e proattività senza tool corrente
+
+| Dominio / operazione trovata | Stato reale e gap |
+| --- | --- |
+| Transizione commessa, note e associazione documento | `commesse.update` contiene ancora transizione/gate e il suo `force` legacy. Tars non lo invoca. Estrarre un servizio canonico senza `force`, con versione/audit/Undo, è necessario per Maccari. |
+| Allegato email, match, archivio e classificazione | Esistono `mail.email.archiviaAllegato`, `archiviaAllegatoComunicazione` e lettura raw, ma nessun tool Tars. Servono servizi tipizzati per match certo/ambiguo e la regressione Maccari. |
+| Economia/FiC e comunicazioni esterne | Le scritture economiche e ogni invio restano fuori catalogo. Nessun tool generico è ammesso; per un invio servono integrazione, preview, una conferma, revalidation e audit. |
+| Proattività L1 | `tars/briefing.ts` ha solo due detector shadow (ordine in ritardo; conflitto date), testati in `briefing.test.ts`. Mancano coda persistente, auto-risoluzione e i detector obbligatori. |
+| Proattività L2 | Nessun detector trasversale Tars trovato: servono snapshot per sede, ranking/deduplica/cooldown, evidenze e test pattern reale/falso. |
+| Proattività L3 | Nessun `SafeProductCatalog` o `TarsImprovementProposal`: servono catalogo autorizzato, telemetria privacy-safe e proposta strutturata senza repository/segreti/commit/deploy. |
 
 ## Guardrail non negoziabili
 
