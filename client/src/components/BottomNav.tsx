@@ -5,7 +5,11 @@
 // La quinta voce apre il menu completo (la sidebar mobile come sheet):
 // niente hamburger irraggiungibile in alto quando si lavora a una mano.
 import { useSidebar } from "@/components/ui/sidebar";
-import { isPathActive } from "@/lib/navigation";
+import {
+  isPathActive,
+  type NavigationAccess,
+  navigationDestinations,
+} from "@/lib/navigation";
 import { hasRuolo } from "@/lib/roles";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -20,27 +24,27 @@ import { useLocation } from "wouter";
 
 type Voce = { icon: LucideIcon; label: string; path: string };
 
-export default function BottomNav({
-  user,
-  interruttori,
-}: {
-  user: unknown;
-  interruttori?: { tars?: boolean } | null;
-}) {
+export default function BottomNav({ access }: { access: NavigationAccess }) {
   const [location, setLocation] = useLocation();
   const { toggleSidebar, openMobile } = useSidebar();
+  const visiblePaths = new Set(
+    navigationDestinations(access).map(destination => destination.path)
+  );
 
   // Chi vive in cantiere apre l'agenda, chi vive in ufficio apre il Board.
   const campo =
-    hasRuolo(user, "squadra_posa") || hasRuolo(user, "tecnico_rilievi");
+    hasRuolo(access.user, "squadra_posa") ||
+    hasRuolo(access.user, "tecnico_rilievi");
+  const operationalDestination =
+    campo || !visiblePaths.has("/kanban")
+      ? { icon: CalendarDays, label: "Agenda", path: "/planning" }
+      : { icon: Kanban, label: "Board", path: "/kanban" };
   const voci: Voce[] = [
     { icon: LayoutDashboard, label: "Oggi", path: "/" },
-    campo
-      ? { icon: CalendarDays, label: "Agenda", path: "/planning" }
-      : { icon: Kanban, label: "Board", path: "/kanban" },
+    operationalDestination,
     { icon: MessagesSquare, label: "Messaggi", path: "/messaggi/email" },
   ];
-  if (interruttori?.tars) {
+  if (visiblePaths.has("/tars")) {
     voci.push({ icon: BrainCircuit, label: "Tars", path: "/tars" });
   }
 
@@ -50,7 +54,7 @@ export default function BottomNav({
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border-soft bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       <div className="flex items-stretch">
-        {voci.map((v) => {
+        {voci.map(v => {
           const attiva = isPathActive(location, v.path);
           return (
             <button

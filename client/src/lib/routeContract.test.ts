@@ -113,7 +113,7 @@ describe("APP_ROUTE_CONTRACT", () => {
     }
   });
 
-  it("makes direct payment shaping and the Tars kill switch explicit", () => {
+  it("makes economic shaping and the Tars kill switch explicit", () => {
     expect(
       APP_ROUTE_CONTRACT.find(route => route.path === "/pagamenti")
     ).toMatchObject({
@@ -123,9 +123,24 @@ describe("APP_ROUTE_CONTRACT", () => {
       serverAuthority: "commesseRouter + policy engine",
     });
     expect(
+      APP_ROUTE_CONTRACT.find(route => route.path === "/economia")
+    ).toMatchObject({
+      uxGuard: "capability:economia.read",
+      requiredCapabilities: ["economia.read"],
+      roleRule: null,
+    });
+    expect(
+      APP_ROUTE_CONTRACT.find(route => route.path === "/marginalita")
+    ).toMatchObject({
+      uxGuard: "RequireDirezione",
+      requiredCapabilities: [],
+      roleRule: "direzione",
+    });
+    expect(
       APP_ROUTE_CONTRACT.find(route => route.path === "/tars")
     ).toMatchObject({
       kind: "page",
+      requiredCapabilities: ["tars.use"],
       featureFlag: "FLAG_TARS",
       serverAuthority: "tarsRouter + procedureConInterruttore(tars)",
     });

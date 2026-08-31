@@ -1,4 +1,3 @@
-
 import {
   Archive,
   Banknote,
@@ -23,7 +22,18 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { hasRuolo, isDirezione } from "@/lib/roles";
+import { hasRuolo, isDirezione, type Ruolo } from "@/lib/roles";
+import type { Capability } from "../../../server/authz/capabilities";
+
+export type CapabilityName = Capability;
+export type CapabilityStatus = "loading" | "resolved";
+
+export type NavigationAccess = {
+  user: unknown;
+  capabilities: ReadonlySet<string> | null;
+  flags?: { tars?: boolean } | null;
+  capabilityStatus: CapabilityStatus;
+};
 
 // Modello di navigazione condiviso da sidebar, palette comandi e bottom
 // nav: un'unica fonte per voci, gerarchia e regole di visibilità.
@@ -32,38 +42,75 @@ export type MenuItem = {
   label: string;
   path: string;
   badge?: string;
-  direzioneOnly?: boolean;
-  // Solo direzione e amministrazione (superfici economiche).
-  economiaOnly?: boolean;
-  // Richiede la capability `pagamento.read` (vista cassa, slice 2). Finché
-  // le capability non sono caricate vale il fallback di ruolo.
-  pagamentiOnly?: boolean;
-  // Visibile solo con FLAG_TARS acceso (kill switch server-side: la voce
-  // sparisce a flag spento, e comunque il router rifiuta).
-  tarsOnly?: boolean;
+  requiredCapabilities?: readonly CapabilityName[];
+  roleRule?: "direzione";
+  featureFlag?: "tars";
+  loadingFallbackRoles?: readonly Ruolo[];
   // Un gruppo: la voce apre/chiude le figlie invece di navigare.
-  children?: MenuItem[];
+  children?: readonly MenuItem[];
 };
 
-// Sidebar menu. Items marked `direzioneOnly` are filtered out at render time
-// for users without the `direzione` role. Garanzie, Produzione e Fornitori
-// restano fuori — si raggiungono dall'hub Impostazioni (anch'esso riservato
-// alla direzione) per tenere la sidebar sul lavoro di tutti i giorni.
-// Squadre di posa invece è qui: serve a chiunque debba sapere chi è in
-// cantiere, e la sola lettura è aperta a tutti i ruoli.
-export const menuItems: MenuItem[] = [
+const EVERY_AUTHENTICATED_ROLE = [
+  "direzione",
+  "amministrazione",
+  "commerciale",
+  "tecnico_rilievi",
+  "squadra_posa",
+  "post_vendita",
+  "ordini",
+] as const satisfies readonly Ruolo[];
+
+export const DOCUMENT_INTELLIGENCE_DECISION_CAPABILITIES = [
+  "documento.approve_proposals",
+  "fornitore.manage_ordini",
+] as const satisfies readonly CapabilityName[];
+
+// Unica sorgente per sidebar, drawer, dock e palette. Garanzie, Produzione e
+// Fornitori restano fuori dalla navigazione primaria; Squadre di posa resta
+// visibile perché la lettura serve sia al campo sia all'ufficio.
+export const menuItems: readonly MenuItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: BrainCircuit, label: "Tars", path: "/tars", tarsOnly: true },
-  { icon: Contact, label: "Clienti", path: "/clienti" },
+  {
+    icon: BrainCircuit,
+    label: "Tars",
+    path: "/tars",
+    requiredCapabilities: ["tars.use"],
+    featureFlag: "tars",
+  },
+  {
+    icon: Contact,
+    label: "Clienti",
+    path: "/clienti",
+    requiredCapabilities: ["cliente.read"],
+    loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+  },
   {
     icon: Building2,
     label: "Commesse",
     path: "/commesse",
     children: [
-      { icon: Building2, label: "Commesse", path: "/commesse" },
-      { icon: Kanban, label: "Board", path: "/kanban" },
+      {
+        icon: Building2,
+        label: "Commesse",
+        path: "/commesse",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
+      {
+        icon: Kanban,
+        label: "Board",
+        path: "/kanban",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
       { icon: Calculator, label: "Preventivatori", path: "/preventivatori" },
-      { icon: Archive, label: "Archivio", path: "/archivio" },
+      {
+        icon: Archive,
+        label: "Archivio",
+        path: "/archivio",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
     ],
   },
   {
@@ -73,7 +120,13 @@ export const menuItems: MenuItem[] = [
     children: [
       { icon: CalendarDays, label: "Calendario", path: "/planning" },
       { icon: HardHat, label: "Squadre di posa", path: "/squadre" },
-      { icon: Package, label: "Magazzino", path: "/magazzino" },
+      {
+        icon: Package,
+        label: "Magazzino",
+        path: "/magazzino",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
     ],
   },
   {
@@ -81,9 +134,25 @@ export const menuItems: MenuItem[] = [
     label: "Economia",
     path: "/economia",
     children: [
-      { icon: Landmark, label: "Contabilità", path: "/economia", economiaOnly: true },
-      { icon: Banknote, label: "Pagamenti", path: "/pagamenti", pagamentiOnly: true },
-      { icon: TrendingUp, label: "Marginalità", path: "/marginalita", direzioneOnly: true },
+      {
+        icon: Landmark,
+        label: "Contabilità",
+        path: "/economia",
+        requiredCapabilities: ["economia.read"],
+      },
+      {
+        icon: Banknote,
+        label: "Pagamenti",
+        path: "/pagamenti",
+        requiredCapabilities: ["pagamento.read"],
+        loadingFallbackRoles: ["direzione", "amministrazione"],
+      },
+      {
+        icon: TrendingUp,
+        label: "Marginalità",
+        path: "/marginalita",
+        roleRule: "direzione",
+      },
     ],
   },
   { icon: TicketCheck, label: "Post-Vendita", path: "/reclami" },
@@ -99,43 +168,61 @@ export const menuItems: MenuItem[] = [
       { icon: MessageSquare, label: "Chat aziendale", path: "/chat" },
     ],
   },
-  { icon: Users, label: "Utenti", path: "/utenti", direzioneOnly: true },
-  { icon: Store, label: "Sedi", path: "/sedi", direzioneOnly: true },
+  { icon: Users, label: "Utenti", path: "/utenti", roleRule: "direzione" },
+  { icon: Store, label: "Sedi", path: "/sedi", roleRule: "direzione" },
   { icon: Settings, label: "Impostazioni", path: "/integrazioni" },
 ];
 
-// Chi vede una voce: i vincoli rispecchiano quelli del server (il server
-// resta l'autorità — qui si evita solo il link morto). Le voci a capability
-// usano `permessi.mie` quando disponibile; prima del caricamento vale il
-// fallback di ruolo, così direzione e amministrazione non vedono lampeggi e
-// un override individuale compare appena la risposta arriva.
-export function visibile(
+/**
+ * UX shaping only. `permessi.mie` contains the effective server decision
+ * (roles, overrides and active delegations); no visible item grants access to
+ * a route or procedure.
+ */
+export function isNavigationItemVisible(
   item: MenuItem,
-  user: unknown,
-  capacita: ReadonlySet<string> | null,
-  interruttori?: { tars?: boolean } | null
+  access: NavigationAccess
 ): boolean {
-  if (item.tarsOnly && !interruttori?.tars) return false;
-  if (item.direzioneOnly && !isDirezione(user)) return false;
-  if (item.economiaOnly && !isDirezione(user) && !hasRuolo(user, "amministrazione")) {
+  if (!access.user) return false;
+  if (item.featureFlag && access.flags?.[item.featureFlag] !== true)
     return false;
+  if (item.roleRule === "direzione" && !isDirezione(access.user)) return false;
+
+  const required = item.requiredCapabilities ?? [];
+  if (required.length === 0) return true;
+
+  if (access.capabilityStatus === "resolved") {
+    return Boolean(
+      access.capabilities &&
+        required.every(capability => access.capabilities?.has(capability))
+    );
   }
-  if (item.pagamentiOnly) {
-    if (capacita) return capacita.has("pagamento.read");
-    return isDirezione(user) || hasRuolo(user, "amministrazione");
-  }
-  return true;
+
+  // During loading there is no capability guess. A destination is shown only
+  // when its contract opts into a role fallback. Economy and Tars deliberately
+  // define none, so protected controls never appear optimistically.
+  const fallbackRoles = item.loadingFallbackRoles ?? [];
+  if (item.featureFlag === "tars" || fallbackRoles.length === 0) return false;
+  if (fallbackRoles.some(role => hasRuolo(access.user, role))) return true;
+  return false;
 }
 
-// Voci raggiungibili (gruppi appiattiti) per palette e ricerche.
-export function vociNavigazione(
-  user: unknown,
-  capacita: ReadonlySet<string> | null,
-  interruttori?: { tars?: boolean } | null
-): MenuItem[] {
-  return menuItems
-    .flatMap((i) => (i.children ? i.children : [i]))
-    .filter((i) => visibile(i, user, capacita, interruttori));
+// Gruppi già sagomati per sidebar e drawer. Un gruppo senza figlie visibili
+// scompare, evitando intestazioni vuote o link a superfici non accessibili.
+export function navigationGroups(access: NavigationAccess): MenuItem[] {
+  return menuItems.flatMap(item => {
+    if (!isNavigationItemVisible(item, access)) return [];
+    if (!item.children) return [item];
+
+    const children = item.children.filter(child =>
+      isNavigationItemVisible(child, access)
+    );
+    return children.length > 0 ? [{ ...item, children }] : [];
+  });
+}
+
+// Voci raggiungibili (gruppi appiattiti) per palette, dock e ricerche.
+export function navigationDestinations(access: NavigationAccess): MenuItem[] {
+  return navigationGroups(access).flatMap(item => item.children ?? [item]);
 }
 
 export function isPathActive(location: string, path: string): boolean {

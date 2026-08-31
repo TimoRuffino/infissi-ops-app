@@ -16,7 +16,10 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { vociNavigazione } from "@/lib/navigation";
+import {
+  type NavigationAccess,
+  navigationDestinations,
+} from "@/lib/navigation";
 import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 import { BrainCircuit, Building2, Clock, Contact } from "lucide-react";
@@ -33,9 +36,7 @@ type Recente = { label: string; path: string };
 // I recenti seguono utente, sede e autorizzazioni. Il cambio contesto elimina
 // il namespace precedente prima che la palette possa rimontare.
 function chiaveRecenti(scopeKey: string | null): string | null {
-  return scopeKey
-    ? scopedStorageKey(RECENTI_KEY_BASE, scopeKey)
-    : null;
+  return scopeKey ? scopedStorageKey(RECENTI_KEY_BASE, scopeKey) : null;
 }
 
 function leggiRecenti(chiave: string | null): Recente[] {
@@ -52,7 +53,7 @@ function leggiRecenti(chiave: string | null): Recente[] {
 function ricordaRecente(chiave: string | null, voce: Recente) {
   if (!chiave) return;
   try {
-    const senza = leggiRecenti(chiave).filter((r) => r.path !== voce.path);
+    const senza = leggiRecenti(chiave).filter(r => r.path !== voce.path);
     localStorage.setItem(
       chiave,
       JSON.stringify([voce, ...senza].slice(0, MAX_RISULTATI))
@@ -65,16 +66,12 @@ function ricordaRecente(chiave: string | null, voce: Recente) {
 export default function CommandPalette({
   open,
   onOpenChange,
-  user,
-  capacita,
-  interruttori,
+  access,
   scopeKey,
 }: {
   open: boolean;
   onOpenChange: (aperta: boolean) => void;
-  user: unknown;
-  capacita: ReadonlySet<string> | null;
-  interruttori?: { tars?: boolean } | null;
+  access: NavigationAccess;
   scopeKey: string | null;
 }) {
   const [, setLocation] = useLocation();
@@ -121,14 +118,11 @@ export default function CommandPalette({
     opzioniRicerca
   );
 
-  const voci = useMemo(
-    () => vociNavigazione(user, capacita, interruttori),
-    [user, capacita, interruttori]
-  );
+  const voci = useMemo(() => navigationDestinations(access), [access]);
   const vociFiltrate = useMemo(() => {
     if (!query) return voci;
     const q = query.toLowerCase();
-    return voci.filter((v) => v.label.toLowerCase().includes(q));
+    return voci.filter(v => v.label.toLowerCase().includes(q));
   }, [voci, query]);
 
   const clienti = (clientiQ.data ?? []).slice(0, MAX_RISULTATI);
@@ -178,7 +172,7 @@ export default function CommandPalette({
         {!query && recenti.length > 0 && (
           <>
             <CommandGroup heading="Recenti">
-              {recenti.map((r) => (
+              {recenti.map(r => (
                 <CommandItem
                   key={`rec-${r.path}`}
                   value={`rec-${r.path}`}
@@ -195,7 +189,7 @@ export default function CommandPalette({
 
         {vociFiltrate.length > 0 && (
           <CommandGroup heading="Naviga">
-            {vociFiltrate.map((v) => (
+            {vociFiltrate.map(v => (
               <CommandItem
                 key={`nav-${v.path}`}
                 value={`nav-${v.path}`}
@@ -248,11 +242,15 @@ export default function CommandPalette({
               <CommandItem
                 key={`com-${c.id}`}
                 value={`com-${c.id}`}
-                onSelect={() => vai(`/commesse/${c.id}`, c.codice ?? `Commessa ${c.id}`)}
+                onSelect={() =>
+                  vai(`/commesse/${c.id}`, c.codice ?? `Commessa ${c.id}`)
+                }
               >
                 <Building2 className="text-text-3" />
                 <span className="codice-mono">{c.codice}</span>
-                <span className="min-w-0 truncate text-text-2">{c.cliente}</span>
+                <span className="min-w-0 truncate text-text-2">
+                  {c.cliente}
+                </span>
                 {c.stato && (
                   <span className="ml-auto text-xs text-text-3">
                     {statoLabel(c.stato)}
@@ -263,7 +261,7 @@ export default function CommandPalette({
           </CommandGroup>
         )}
 
-        {interruttori?.tars && (
+        {voci.some(voce => voce.path === "/tars") && (
           <>
             <CommandSeparator />
             <CommandGroup heading="Tars">
@@ -283,7 +281,10 @@ export default function CommandPalette({
                   </span>
                 </CommandItem>
               )}
-              <CommandItem value="tars-apri" onSelect={() => vai("/tars", "Tars")}>
+              <CommandItem
+                value="tars-apri"
+                onSelect={() => vai("/tars", "Tars")}
+              >
                 <BrainCircuit className="text-text-3" />
                 <span>Apri Tars</span>
               </CommandItem>

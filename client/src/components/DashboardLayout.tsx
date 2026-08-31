@@ -22,10 +22,17 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { ChevronDown, LogOut, Moon, PanelLeft, Search, Sun } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import {
+  ChevronDown,
+  LogOut,
+  Moon,
+  PanelLeft,
+  Search,
+  Sun,
+} from "lucide-react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import NotificheDropdown from "./NotificheDropdown";
 import { PromemoriaPopupHost } from "./PromemoriaPopupHost";
 import LoginPage from "@/pages/LoginPage";
@@ -33,9 +40,10 @@ import PageContainer from "./PageContainer";
 import SedeSwitcher from "./SedeSwitcher";
 import {
   isPathActive,
-  menuItems,
+  type NavigationAccess,
+  navigationDestinations,
+  navigationGroups,
   navigationItemState,
-  visibile,
 } from "@/lib/navigation";
 import CommandPalette from "./CommandPalette";
 import BottomNav from "./BottomNav";
@@ -94,7 +102,7 @@ export default function DashboardLayout({
   }, [sidebarStorageKey, sidebarWidth]);
 
   if (loading) {
-    return <DashboardLayoutSkeleton />
+    return <DashboardLayoutSkeleton />;
   }
 
   if (!user) {
@@ -138,8 +146,26 @@ function DashboardLayoutContent({
   // quando contiene la pagina corrente.
   const [gruppiAperti, setGruppiAperti] = useState<Record<string, boolean>>({});
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const tutteLeVoci = menuItems.flatMap((i) => (i.children ? i.children : [i]));
-  const activeMenuItem = tutteLeVoci.find(item => isPathActive(location, item.path));
+  const navigationAccess = useMemo<NavigationAccess>(
+    () => ({
+      user,
+      capabilities: capacita,
+      flags,
+      capabilityStatus: capacita === null ? "loading" : "resolved",
+    }),
+    [capacita, flags, user]
+  );
+  const gruppiNavigazione = useMemo(
+    () => navigationGroups(navigationAccess),
+    [navigationAccess]
+  );
+  const tutteLeVoci = useMemo(
+    () => navigationDestinations(navigationAccess),
+    [navigationAccess]
+  );
+  const activeMenuItem = tutteLeVoci.find(item =>
+    isPathActive(location, item.path)
+  );
   const isMobile = useIsMobile();
   useNotificationStream();
 
@@ -153,7 +179,7 @@ function DashboardLayoutContent({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPaletteAperta((prev) => !prev);
+        setPaletteAperta(prev => !prev);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -285,116 +311,106 @@ function DashboardLayoutContent({
               </SidebarMenu>
             )}
             <SidebarMenu className="px-2 py-1">
-              {menuItems
-                .map((item) =>
-                  item.children
-                    ? {
-                        ...item,
-                        children: item.children.filter((c) =>
-                          visibile(c, user, capacita, flags)
-                        ),
-                      }
-                    : item
-                )
-                .filter((item) =>
-                  item.children
-                    ? item.children.length > 0
-                    : visibile(item, user, capacita, flags)
-                )
-                .map((item) => {
-                  const figlie = item.children ?? [];
-                  const itemState = navigationItemState(
-                    location,
-                    item.path,
-                    figlie.map(c => c.path)
-                  );
+              {gruppiNavigazione.map(item => {
+                const figlie = item.children ?? [];
+                const itemState = navigationItemState(
+                  location,
+                  item.path,
+                  figlie.map(c => c.path)
+                );
 
-                  // Gruppo: la voce apre/chiude; le figlie navigano. Aperto
-                  // da solo quando una figlia è la pagina corrente.
-                  if (figlie.length > 0) {
-                    const aperto =
-                      gruppiAperti[item.label] ?? itemState.containsActiveChild;
-                    return (
-                      <SidebarMenuItem key={item.label}>
-                        <SidebarMenuButton
-                          onClick={() =>
-                            setGruppiAperti((s) => ({ ...s, [item.label]: !aperto }))
-                          }
-                          tooltip={item.label}
-                          className="relative h-10 font-normal transition-all"
-                        >
-                          <item.icon className="h-4 w-4 transition-colors" />
-                          <span className="flex-1">{item.label}</span>
-                          <ChevronDown
-                            className={`h-3.5 w-3.5 opacity-60 transition-transform ${aperto ? "" : "-rotate-90"}`}
-                          />
-                        </SidebarMenuButton>
-                        {aperto && (
-                          <div className="ml-4 border-l border-[var(--sidebar-hairline)] pl-1 mt-0.5 space-y-0.5">
-                            {figlie.map((c) => {
-                              const attiva = isPathActive(location, c.path);
-                              return (
-                                <SidebarMenuButton
-                                  key={c.path}
-                                  isActive={attiva}
-                                  onClick={() => setLocation(c.path)}
-                                  tooltip={c.label}
-                                  className={`relative h-9 transition-all ${
-                                    attiva
-                                      ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                                      : "font-normal"
-                                  }`}
-                                >
-                                  {attiva && (
-                                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
-                                  )}
-                                  <c.icon
-                                    className={`h-4 w-4 transition-colors ${attiva ? "text-sidebar-accent-foreground" : ""}`}
-                                  />
-                                  <span className="flex-1">{c.label}</span>
-                                  {c.path === "/chat" && chatNonLetti > 0 && (
-                                    <Badge className="h-5 shrink-0 px-1.5 text-[10px]">
-                                      {chatNonLetti > 9 ? "9+" : chatNonLetti}
-                                    </Badge>
-                                  )}
-                                </SidebarMenuButton>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </SidebarMenuItem>
-                    );
-                  }
-
+                // Gruppo: la voce apre/chiude; le figlie navigano. Aperto
+                // da solo quando una figlia è la pagina corrente.
+                if (figlie.length > 0) {
+                  const aperto =
+                    gruppiAperti[item.label] ?? itemState.containsActiveChild;
                   return (
-                    <SidebarMenuItem key={item.path}>
-                      {/* Keep the active destination crisp against the dark rail. */}
+                    <SidebarMenuItem key={item.label}>
                       <SidebarMenuButton
-                        isActive={itemState.active}
-                        onClick={() => setLocation(item.path)}
+                        onClick={() =>
+                          setGruppiAperti(s => ({
+                            ...s,
+                            [item.label]: !aperto,
+                          }))
+                        }
                         tooltip={item.label}
-                        className={`relative h-10 transition-all ${
-                          itemState.active
-                            ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                            : "font-normal"
-                        }`}
+                        className="relative h-10 font-normal transition-all"
                       >
-                        {itemState.active && (
-                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
-                        )}
-                        <item.icon
-                          className={`h-4 w-4 transition-colors ${itemState.active ? "text-sidebar-accent-foreground" : ""}`}
-                        />
+                        <item.icon className="h-4 w-4 transition-colors" />
                         <span className="flex-1">{item.label}</span>
-                        {item.badge && (
-                          <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-medium opacity-60">
-                            {item.badge}
-                          </Badge>
-                        )}
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 opacity-60 transition-transform ${aperto ? "" : "-rotate-90"}`}
+                        />
                       </SidebarMenuButton>
+                      {aperto && (
+                        <div className="ml-4 border-l border-[var(--sidebar-hairline)] pl-1 mt-0.5 space-y-0.5">
+                          {figlie.map(c => {
+                            const attiva = isPathActive(location, c.path);
+                            return (
+                              <SidebarMenuButton
+                                key={c.path}
+                                isActive={attiva}
+                                onClick={() => setLocation(c.path)}
+                                tooltip={c.label}
+                                className={`relative h-9 transition-all ${
+                                  attiva
+                                    ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                                    : "font-normal"
+                                }`}
+                              >
+                                {attiva && (
+                                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
+                                )}
+                                <c.icon
+                                  className={`h-4 w-4 transition-colors ${attiva ? "text-sidebar-accent-foreground" : ""}`}
+                                />
+                                <span className="flex-1">{c.label}</span>
+                                {c.path === "/chat" && chatNonLetti > 0 && (
+                                  <Badge className="h-5 shrink-0 px-1.5 text-[10px]">
+                                    {chatNonLetti > 9 ? "9+" : chatNonLetti}
+                                  </Badge>
+                                )}
+                              </SidebarMenuButton>
+                            );
+                          })}
+                        </div>
+                      )}
                     </SidebarMenuItem>
                   );
-                })}
+                }
+
+                return (
+                  <SidebarMenuItem key={item.path}>
+                    {/* Keep the active destination crisp against the dark rail. */}
+                    <SidebarMenuButton
+                      isActive={itemState.active}
+                      onClick={() => setLocation(item.path)}
+                      tooltip={item.label}
+                      className={`relative h-10 transition-all ${
+                        itemState.active
+                          ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                          : "font-normal"
+                      }`}
+                    >
+                      {itemState.active && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
+                      )}
+                      <item.icon
+                        className={`h-4 w-4 transition-colors ${itemState.active ? "text-sidebar-accent-foreground" : ""}`}
+                      />
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge && (
+                        <Badge
+                          variant="secondary"
+                          className="text-[9px] px-1.5 py-0 h-4 font-medium opacity-60"
+                        >
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarContent>
 
@@ -404,7 +420,12 @@ function DashboardLayoutContent({
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
                   <Avatar className="h-9 w-9 border border-sidebar-border shrink-0 bg-[var(--sidebar-avatar-bg)]">
                     <AvatarFallback className="text-xs font-semibold text-[var(--sidebar-avatar-fg)] bg-[var(--sidebar-avatar-bg)]">
-                      {user?.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                      {user?.name
+                        ?.split(" ")
+                        .map((n: string) => n[0])
+                        .join("")
+                        .slice(0, 2)
+                        .toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
@@ -412,7 +433,9 @@ function DashboardLayoutContent({
                       {user?.name || "-"}
                     </p>
                     <p className="text-xs text-sidebar-foreground truncate mt-1">
-                      {(user as any)?.ruolo?.replace(/_/g, " ") || user?.role || "-"}
+                      {(user as any)?.ruolo?.replace(/_/g, " ") ||
+                        user?.role ||
+                        "-"}
                     </p>
                   </div>
                 </button>
@@ -484,17 +507,13 @@ function DashboardLayoutContent({
             <PageContainer key={location}>{children}</PageContainer>
           </AnimatePresence>
         </main>
-        {uiV2 && isMobile && (
-          <BottomNav user={user} interruttori={flags} />
-        )}
+        {uiV2 && isMobile && <BottomNav access={navigationAccess} />}
       </SidebarInset>
       {uiV2 && (
         <CommandPalette
           open={paletteAperta}
           onOpenChange={setPaletteAperta}
-          user={user}
-          capacita={capacita}
-          interruttori={flags}
+          access={navigationAccess}
           scopeKey={scopeKey}
         />
       )}
