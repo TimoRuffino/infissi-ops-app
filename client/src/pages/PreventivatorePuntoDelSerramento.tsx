@@ -786,6 +786,7 @@ export default function PreventivatorePuntoDelSerramento() {
                 const altezzaNonIntera =
                   p.altezza.trim() !== "" &&
                   millimetriValidi(p.altezza) === null;
+                const avvisoMisuraId = `misure-${p.id}-avviso`;
                 return (
                   <div
                     key={p.id}
@@ -838,6 +839,9 @@ export default function PreventivatorePuntoDelSerramento() {
                           inputMode="numeric"
                           placeholder={modello ? String(larghezzaMin) : "—"}
                           value={p.larghezza}
+                          aria-describedby={
+                            larghezzaNonIntera ? avvisoMisuraId : undefined
+                          }
                           onChange={(e) =>
                             updatePersiana(p.id, "larghezza", e.target.value)
                           }
@@ -861,6 +865,9 @@ export default function PreventivatorePuntoDelSerramento() {
                           inputMode="numeric"
                           placeholder={modello ? String(altezzaMin) : "—"}
                           value={p.altezza}
+                          aria-describedby={
+                            altezzaNonIntera ? avvisoMisuraId : undefined
+                          }
                           onChange={(e) =>
                             updatePersiana(p.id, "altezza", e.target.value)
                           }
@@ -872,8 +879,13 @@ export default function PreventivatorePuntoDelSerramento() {
                     <div className="mt-2 min-w-0">
                       <PersianaInfo calc={pc} />
                     </div>
+                    {/* Avviso di campo: descrive gli input a cui è collegato via
+                        `aria-describedby`, quindi non serve una live region. */}
                     {larghezzaNonIntera || altezzaNonIntera ? (
-                      <p role="status" className="mt-1 text-xs text-warning">
+                      <p
+                        id={avvisoMisuraId}
+                        className="mt-1 text-xs text-warning"
+                      >
                         Misura non in millimetri interi: verifica il valore
                         prima di inviare il preventivo.
                       </p>
@@ -883,10 +895,7 @@ export default function PreventivatorePuntoDelSerramento() {
               })}
 
               {calc.anyMisuraFuoriListino ? (
-                <p
-                  role="status"
-                  className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-danger/40 bg-danger-soft px-3 py-2 text-xs leading-5 text-danger"
-                >
+                <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-danger/40 bg-danger-soft px-3 py-2 text-xs leading-5 text-danger">
                   <AlertTriangle
                     aria-hidden="true"
                     className="mt-0.5 h-4 w-4 shrink-0"
@@ -939,7 +948,15 @@ export default function PreventivatorePuntoDelSerramento() {
                   Colore / finitura
                 </Label>
                 <Select value={coloreKey} onValueChange={setColoreKey}>
-                  <SelectTrigger id="colore" className="min-h-11 w-full">
+                  <SelectTrigger
+                    id="colore"
+                    aria-describedby={
+                      colore?.tipo === "aPreventivo"
+                        ? "colore-a-preventivo"
+                        : undefined
+                    }
+                    className="min-h-11 w-full"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="max-h-[60vh]">
@@ -958,9 +975,11 @@ export default function PreventivatorePuntoDelSerramento() {
                     ))}
                   </SelectContent>
                 </Select>
+                {/* Descrizione del campo colore: collegata al controllo via
+                    `aria-describedby`, quindi non è una live region. */}
                 {colore && colore.tipo === "aPreventivo" ? (
                   <p
-                    role="status"
+                    id="colore-a-preventivo"
                     className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-xs leading-5 text-warning"
                   >
                     <AlertTriangle
@@ -1010,13 +1029,17 @@ export default function PreventivatorePuntoDelSerramento() {
                   inputMode="decimal"
                   placeholder="0"
                   value={sconto}
+                  aria-describedby={
+                    scontoOltreMassimo ? "sconto-avviso" : undefined
+                  }
                   onChange={(e) =>
                     setSconto(e.target.value.replace(/[^\d.,]/g, ""))
                   }
                   className="min-h-12 min-w-0 text-base md:min-h-11 md:text-sm"
                 />
+                {/* Avviso di campo collegato all'input: nessuna live region. */}
                 {scontoOltreMassimo ? (
-                  <p role="status" className="text-xs text-warning">
+                  <p id="sconto-avviso" className="text-xs text-warning">
                     Sconto limitato automaticamente a {SCONTO_MAX}%: il calcolo
                     usa {calc.scontoPct}%.
                   </p>
@@ -1133,11 +1156,11 @@ export default function PreventivatorePuntoDelSerramento() {
                   }
                   valore={calc.totale === 0 ? "—" : EUR.format(calc.totale)}
                 />
+                {/* Il riepilogo si legge, non si annuncia: l'unico annuncio
+                    resta quello della barra azioni, per non moltiplicare le
+                    live region su una pagina che cambia a ogni tasto. */}
                 {totaleParziale ? (
-                  <p
-                    role="status"
-                    className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal"
-                  >
+                  <p className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal">
                     {calc.totale === 0
                       ? "Nessuna misura a listino: non c'è ancora un preventivo da mostrare."
                       : `Totale parziale: ${righeSenzaPrezzo} ${
@@ -1146,19 +1169,13 @@ export default function PreventivatorePuntoDelSerramento() {
                   </p>
                 ) : null}
                 {calc.aPreventivo ? (
-                  <p
-                    role="status"
-                    className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal"
-                  >
+                  <p className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal">
                     Il colore scelto è a preventivo: il sovrapprezzo va
                     confermato dall'azienda prima dell'ordine.
                   </p>
                 ) : null}
                 {righeNonIntere > 0 ? (
-                  <p
-                    role="status"
-                    className="mt-2 text-xs leading-5 text-on-focal/75"
-                  >
+                  <p className="mt-2 text-xs leading-5 text-on-focal/75">
                     Alcune misure non sono millimetri interi: il calcolo le usa
                     così come sono scritte.
                   </p>

@@ -798,6 +798,7 @@ export default function PreventivatoreFivizzanese() {
                   millimetriValidi(p.larghezza) === null;
                 const altezzaNonIntera =
                   p.altezza.trim() !== "" && millimetriValidi(p.altezza) === null;
+                const avvisoMisuraId = `misure-${p.id}-avviso`;
                 return (
                   <div
                     key={p.id}
@@ -845,6 +846,9 @@ export default function PreventivatoreFivizzanese() {
                           inputMode="numeric"
                           placeholder="1200"
                           value={p.larghezza}
+                          aria-describedby={
+                            larghezzaNonIntera ? avvisoMisuraId : undefined
+                          }
                           onChange={(e) =>
                             updatePersiana(p.id, "larghezza", e.target.value)
                           }
@@ -863,6 +867,9 @@ export default function PreventivatoreFivizzanese() {
                           inputMode="numeric"
                           placeholder="1500"
                           value={p.altezza}
+                          aria-describedby={
+                            altezzaNonIntera ? avvisoMisuraId : undefined
+                          }
                           onChange={(e) =>
                             updatePersiana(p.id, "altezza", e.target.value)
                           }
@@ -883,8 +890,13 @@ export default function PreventivatoreFivizzanese() {
                         "Senza entrambe le misure questa persiana non entra nel totale."
                       )}
                     </p>
+                    {/* Avviso di campo: descrive gli input a cui è collegato via
+                        `aria-describedby`, quindi non serve una live region. */}
                     {larghezzaNonIntera || altezzaNonIntera ? (
-                      <p role="status" className="mt-1 text-xs text-warning">
+                      <p
+                        id={avvisoMisuraId}
+                        className="mt-1 text-xs text-warning"
+                      >
                         Misura non in millimetri interi: verifica il valore
                         prima di inviare il preventivo.
                       </p>
@@ -948,10 +960,9 @@ export default function PreventivatoreFivizzanese() {
                       />
                     ))}
                   </RadioGroup>
-                  <p
-                    role="status"
-                    className="rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-xs leading-5 text-warning"
-                  >
+                  {/* Copy stabile della promozione: non è uno stato che cambia
+                      sotto le dita, quindi resta un paragrafo normale. */}
+                  <p className="rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-xs leading-5 text-warning">
                     {modello.promo.note ??
                       "Promozione temporanea sul modello selezionato."}
                   </p>
@@ -1231,11 +1242,11 @@ export default function PreventivatoreFivizzanese() {
                   etichetta="Totale (IVA inclusa)"
                   valore={calc.totale === 0 ? "—" : EUR.format(calc.totale)}
                 />
+                {/* Il riepilogo si legge, non si annuncia: l'unico annuncio
+                    resta quello della barra azioni, per non moltiplicare le
+                    live region su una pagina che cambia a ogni tasto. */}
                 {totaleParziale ? (
-                  <p
-                    role="status"
-                    className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal"
-                  >
+                  <p className="mt-2 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 px-3 py-2 text-xs leading-5 text-on-focal">
                     {calc.totale === 0
                       ? "Nessuna misura valida: non c'è ancora un preventivo da mostrare."
                       : `Totale parziale: ${righeSenzaMisura} ${
@@ -1244,10 +1255,7 @@ export default function PreventivatoreFivizzanese() {
                   </p>
                 ) : null}
                 {righeNonIntere > 0 ? (
-                  <p
-                    role="status"
-                    className="mt-2 text-xs leading-5 text-on-focal/75"
-                  >
+                  <p className="mt-2 text-xs leading-5 text-on-focal/75">
                     Alcune misure non sono millimetri interi: il calcolo le usa
                     così come sono scritte.
                   </p>
