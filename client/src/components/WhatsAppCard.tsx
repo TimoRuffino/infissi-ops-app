@@ -353,7 +353,7 @@ export default function WhatsAppCard() {
         )}
 
         {!chiaveOk && (
-          <div className="flex items-start gap-2 text-amber-600 dark:text-amber-500 text-xs">
+          <div className="flex items-start gap-2 text-warning text-xs">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               <code>MAIL_ENCRYPTION_KEY</code> non configurata: serve a cifrare
@@ -374,7 +374,7 @@ export default function WhatsAppCard() {
             />
             <Button size="icon" variant="outline" onClick={copiaUrl}>
               {copiato ? (
-                <Check className="h-4 w-4 text-green-600" />
+                <Check className="h-4 w-4 text-success" />
               ) : (
                 <Copy className="h-4 w-4" />
               )}
@@ -392,7 +392,7 @@ export default function WhatsAppCard() {
             />
             <Button size="icon" variant="outline" onClick={copiaToken}>
               {tokenCopiato ? (
-                <Check className="h-4 w-4 text-green-600" />
+                <Check className="h-4 w-4 text-success" />
               ) : (
                 <Copy className="h-4 w-4" />
               )}
@@ -493,7 +493,7 @@ export default function WhatsAppCard() {
                   <div className="font-medium flex items-center gap-2">
                     {c.nome}
                     {c.attiva ? (
-                      <Badge className="bg-green-600 hover:bg-green-600 text-xs">
+                      <Badge className="bg-success hover:bg-success text-white text-xs">
                         Attivo
                       </Badge>
                     ) : mancanti.length > 0 ? (
@@ -562,7 +562,7 @@ export default function WhatsAppCard() {
                   }}
                 >
                   {copiatoVt === c.id ? (
-                    <Check className="h-3 w-3 text-green-600" />
+                    <Check className="h-3 w-3 text-success" />
                   ) : (
                     <Copy className="h-3 w-3" />
                   )}
@@ -571,7 +571,7 @@ export default function WhatsAppCard() {
 
               {mancanti.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-amber-600 dark:text-amber-500">
+                  <span className="text-xs text-warning">
                     Da completare dopo aver registrato il numero: {mancanti.join(", ")}
                   </span>
                   <Button
@@ -690,7 +690,7 @@ export default function WhatsAppCard() {
                           Ultimo echo {new Date(c.diagnosticaWebhook.ultimoEchoAt).toLocaleString("it-IT")} · {c.diagnosticaWebhook.messaggiEchoRegistrati}/{c.diagnosticaWebhook.messaggiEchoRicevuti} registrati
                         </p>
                       ) : (
-                        <p className="text-amber-700 dark:text-amber-400">
+                        <p className="text-warning">
                           Meta non ha ancora consegnato eventi <code>smb_message_echoes</code>
                         </p>
                       )}
@@ -728,7 +728,7 @@ export default function WhatsAppCard() {
                         className={cn(
                           "text-[11px] font-mono",
                           c.ok
-                            ? "text-green-600 dark:text-green-500"
+                            ? "text-success"
                             : "text-destructive"
                         )}
                       >

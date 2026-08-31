@@ -35,18 +35,18 @@ import TicketList from "./TicketList";
 type DeleteTarget = { type: "reclamo" | "rifacimento"; id: number; label: string } | null;
 
 const statoReclamoColors: Record<string, string> = {
-  aperto: "bg-red-100 text-red-800",
-  in_gestione: "bg-amber-100 text-amber-800",
+  aperto: "bg-danger-soft text-danger",
+  in_gestione: "bg-warning-soft text-warning",
   // risolto ritirato: il server piega i vecchi record su chiuso
-  chiuso: "bg-green-100 text-green-700",
+  chiuso: "bg-success-soft text-success",
 };
 
 const statoRifacimentoColors: Record<string, string> = {
-  aperto: "bg-red-100 text-red-800",
-  in_gestione: "bg-amber-100 text-amber-800",
-  in_produzione: "bg-indigo-100 text-indigo-800",
-  completato: "bg-green-100 text-green-800",
-  chiuso: "bg-gray-100 text-gray-600",
+  aperto: "bg-danger-soft text-danger",
+  in_gestione: "bg-warning-soft text-warning",
+  in_produzione: "bg-st-produzione-soft text-st-produzione",
+  completato: "bg-success-soft text-success",
+  chiuso: "bg-surface-2 text-text-2",
 };
 
 export default function ReclamiRifacimenti() {
@@ -99,7 +99,7 @@ export default function ReclamiRifacimenti() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-              <AlertTriangle className="h-3.5 w-3.5 text-red-600" /> Reclami aperti
+              <AlertTriangle className="h-3.5 w-3.5 text-danger" /> Reclami aperti
             </div>
             <p className="text-2xl font-bold">{reclamiStats.data?.aperti ?? 0}</p>
           </CardContent>
@@ -115,7 +115,7 @@ export default function ReclamiRifacimenti() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-              <RefreshCw className="h-3.5 w-3.5 text-indigo-600" /> Rifacimenti aperti
+              <RefreshCw className="h-3.5 w-3.5 text-info" /> Rifacimenti aperti
             </div>
             <p className="text-2xl font-bold">
               {(rifacimentiStats.data?.aperti ?? 0) + (rifacimentiStats.data?.inGestione ?? 0) + (rifacimentiStats.data?.inProduzione ?? 0)}
@@ -165,7 +165,7 @@ export default function ReclamiRifacimenti() {
                     </div>
                     <p className="text-sm">{r.descrizione}</p>
                     {r.soluzione && (
-                      <p className="text-xs text-green-700 bg-green-50 rounded px-2 py-1">Soluzione: {r.soluzione}</p>
+                      <p className="text-xs text-success bg-success-soft rounded px-2 py-1">Soluzione: {r.soluzione}</p>
                     )}
                     <div className="flex gap-3 text-xs text-muted-foreground">
                       <span>Apertura: {r.dataApertura}</span>
@@ -184,7 +184,7 @@ export default function ReclamiRifacimenti() {
                         Chiudi
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setDeleteTarget({ type: "reclamo", id: r.id, label: r.descrizione.slice(0, 30) })}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger" onClick={() => setDeleteTarget({ type: "reclamo", id: r.id, label: r.descrizione.slice(0, 30) })}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -250,7 +250,7 @@ export default function ReclamiRifacimenti() {
                         Chiudi
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setDeleteTarget({ type: "rifacimento", id: r.id, label: r.descrizione.slice(0, 30) })}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-danger" onClick={() => setDeleteTarget({ type: "rifacimento", id: r.id, label: r.descrizione.slice(0, 30) })}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>

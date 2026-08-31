@@ -83,22 +83,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const tipoDocColors: Record<string, string> = {
-  preventivo: "bg-blue-100 text-blue-800",
-  contratto: "bg-green-100 text-green-800",
-  misure: "bg-sky-100 text-sky-800",
-  fattura: "bg-amber-100 text-amber-800",
-  ordine: "bg-yellow-100 text-yellow-800",
-  conferma_ordine: "bg-yellow-100 text-yellow-800",
-  ddt_consegna: "bg-orange-100 text-orange-800",
-  ddt_posa: "bg-orange-100 text-orange-800",
-  ddt_finale: "bg-teal-100 text-teal-800",
-  saldo: "bg-purple-100 text-purple-800",
+  preventivo: "bg-info-soft text-info",
+  contratto: "bg-success-soft text-success",
+  misure: "bg-st-misure-soft text-st-misure",
+  fattura: "bg-st-pagamento-soft text-st-pagamento",
+  ordine: "bg-st-ordine-soft text-st-ordine",
+  conferma_ordine: "bg-st-ordine-soft text-st-ordine",
+  ddt_consegna: "bg-st-produzione-soft text-st-produzione",
+  ddt_posa: "bg-st-produzione-soft text-st-produzione",
+  ddt_finale: "bg-st-produzione-soft text-st-produzione",
+  saldo: "bg-st-pagamento-soft text-st-pagamento",
   foto: "bg-pink-100 text-pink-800",
-  documento_identita: "bg-indigo-100 text-indigo-800",
-  visura: "bg-cyan-100 text-cyan-800",
+  documento_identita: "bg-surface-2 text-text-2",
+  visura: "bg-surface-2 text-text-2",
   planimetria: "bg-violet-100 text-violet-800",
-  certificazione: "bg-lime-100 text-lime-800",
-  altro: "bg-slate-100 text-slate-700",
+  certificazione: "bg-structure-soft text-structure",
+  altro: "bg-surface-2 text-text-2",
 };
 
 const DOC_TIPO_LABEL: Record<string, string> = {
@@ -1086,8 +1086,8 @@ export default function CommessaDetail() {
                     variant="outline"
                     className={
                       r.satisfied
-                        ? "border-emerald-400 bg-emerald-100 text-emerald-800"
-                        : "border-amber-400 bg-amber-100 text-amber-800"
+                        ? "border-success/50 bg-success-soft text-success"
+                        : "border-warning/50 bg-warning-soft text-warning"
                     }
                   >
                     {r.satisfied ? (
@@ -1203,7 +1203,7 @@ export default function CommessaDetail() {
                       </SelectContent>
                     </Select>
                     {SUGGESTED_TIPO_FOR_STATO[c.stato] && uploadForm.tipo === SUGGESTED_TIPO_FOR_STATO[c.stato] && (
-                      <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                      <p className="text-[11px] text-success bg-success-soft border border-success/40 rounded px-2 py-1">
                         Tipo suggerito per lo stato corrente — caricando questo file si sbloccher&agrave; l&apos;avanzamento
                       </p>
                     )}
@@ -1303,7 +1303,7 @@ export default function CommessaDetail() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          className="h-7 w-7 text-info hover:text-info hover:bg-info-soft"
                           title="Invia via email"
                           onClick={() => openEmailDialog(d)}
                         >
@@ -1348,7 +1348,7 @@ export default function CommessaDetail() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
                         onClick={() => setDeleteTarget({ type: "documento", id: d.id, label: d.nome })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1418,7 +1418,7 @@ export default function CommessaDetail() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
                         onClick={() => setDeleteTarget({ type: "prodotto", id: p.id, label: p.nome })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1581,7 +1581,7 @@ export default function CommessaDetail() {
                         )}
                         <Button
                           variant="ghost" size="sm"
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2"
+                          className="text-danger hover:text-danger hover:bg-danger-soft px-2"
                           onClick={() => setDeleteTarget({ type: "intervento", id: i.id, label: `${i.tipo} ${i.dataPianificata ?? ""}` })}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1643,7 +1643,7 @@ export default function CommessaDetail() {
                       </div>
                       <p className="text-sm">{a.descrizione}</p>
                       {a.risoluzione && (
-                        <p className="text-xs text-muted-foreground border-l-2 border-green-500 pl-2">
+                        <p className="text-xs text-muted-foreground border-l-2 border-success pl-2">
                           Risoluzione: {a.risoluzione}
                         </p>
                       )}
@@ -1703,7 +1703,7 @@ export default function CommessaDetail() {
                 </div>
               </div>
               {clienteIdOfCommessa == null && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                <p className="text-[11px] text-warning bg-warning-soft border border-warning/40 rounded px-2 py-1">
                   Questa commessa non è collegata a un cliente in anagrafica —
                   le modifiche all'anagrafica vengono salvate solo come nome
                   visualizzato sulla commessa.
@@ -2335,7 +2335,7 @@ export default function CommessaDetail() {
                 onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
               />
             </div>
-            <p className="text-xs text-muted-foreground border-l-2 border-emerald-400 pl-2">
+            <p className="text-xs text-muted-foreground border-l-2 border-success/60 pl-2">
               <b>Outlook desktop (.eml)</b>: scarica il file allegato già dentro, doppio click apre Outlook in bozza pronta. Le altre opzioni aprono il client scelto e scaricano l'allegato da attaccare a mano.
             </p>
             <div className="grid gap-2">

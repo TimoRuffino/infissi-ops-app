@@ -44,13 +44,13 @@ const RUOLI = [
 type RuoloValue = (typeof RUOLI)[number]["value"];
 
 const RUOLO_COLORS: Record<string, string> = {
-  direzione: "bg-purple-100 text-purple-800",
-  amministrazione: "bg-blue-100 text-blue-800",
-  commerciale: "bg-green-100 text-green-800",
-  tecnico_rilievi: "bg-amber-100 text-amber-800",
-  squadra_posa: "bg-orange-100 text-orange-800",
-  post_vendita: "bg-rose-100 text-rose-800",
-  ordini: "bg-indigo-100 text-indigo-800",
+  direzione: "bg-brand-soft text-accent-text",
+  amministrazione: "bg-st-contratto-soft text-st-contratto",
+  commerciale: "bg-info-soft text-info",
+  tecnico_rilievi: "bg-st-misure-soft text-st-misure",
+  squadra_posa: "bg-st-produzione-soft text-st-produzione",
+  post_vendita: "bg-danger-soft text-danger",
+  ordini: "bg-st-ordine-soft text-st-ordine",
 };
 
 const MAX_RUOLI = 3;
@@ -306,7 +306,7 @@ export default function UtentiList() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={`h-6 text-[10px] shrink-0 ${u.attivo ? "text-green-600" : "text-red-600"}`}
+                    className={`h-6 text-[10px] shrink-0 ${u.attivo ? "text-success" : "text-danger"}`}
                     onClick={() => toggleAttivo(u)}
                   >
                     {u.attivo ? "Attivo" : "Disattivato"}

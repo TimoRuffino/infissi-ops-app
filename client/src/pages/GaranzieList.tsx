@@ -43,10 +43,10 @@ function daysUntil(dateStr: string): number {
 
 function getScadenzaStatus(dateStr: string) {
   const days = daysUntil(dateStr);
-  if (days < 0) return { label: "Scaduta", color: "bg-red-100 text-red-800", icon: AlertTriangle };
-  if (days <= 90) return { label: `Scade tra ${days}gg`, color: "bg-amber-100 text-amber-800", icon: Clock };
-  if (days <= 365) return { label: `${Math.ceil(days / 30)} mesi`, color: "bg-blue-100 text-blue-800", icon: Calendar };
-  return { label: `${Math.floor(days / 365)} anni`, color: "bg-green-100 text-green-800", icon: CheckCircle2 };
+  if (days < 0) return { label: "Scaduta", color: "bg-danger-soft text-danger", icon: AlertTriangle };
+  if (days <= 90) return { label: `Scade tra ${days}gg`, color: "bg-warning-soft text-warning", icon: Clock };
+  if (days <= 365) return { label: `${Math.ceil(days / 30)} mesi`, color: "bg-info-soft text-info", icon: Calendar };
+  return { label: `${Math.floor(days / 365)} anni`, color: "bg-success-soft text-success", icon: CheckCircle2 };
 }
 
 const tipoLabels: Record<string, string> = {
@@ -296,7 +296,7 @@ export default function GaranzieList() {
             <p className="text-xs text-muted-foreground uppercase tracking-wide">
               Attive
             </p>
-            <p className="text-2xl font-bold text-green-700">
+            <p className="text-2xl font-bold text-success">
               {s?.attive ?? "—"}
             </p>
           </CardContent>
@@ -312,7 +312,7 @@ export default function GaranzieList() {
             <p className="text-xs text-muted-foreground uppercase tracking-wide">
               In scadenza (90gg)
             </p>
-            <p className="text-2xl font-bold text-amber-600">
+            <p className="text-2xl font-bold text-warning">
               {s?.inScadenza ?? "—"}
             </p>
           </CardContent>
@@ -407,7 +407,7 @@ export default function GaranzieList() {
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(g)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => setDeleteTarget({ id: g.id, label: g.descrizione })}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:text-danger" onClick={() => setDeleteTarget({ id: g.id, label: g.descrizione })}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
