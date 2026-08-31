@@ -38,6 +38,9 @@ import {
 import { useLocation } from "wouter";
 import { lazy, Suspense, useState, useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import CapabilityDashboard from "@/components/dashboard/CapabilityDashboard";
+import { useOperationalContext } from "@/contexts/OperationalContext";
+import { selectDashboardModules } from "@/lib/goldenScreenContracts";
 import { isDirezione } from "@/lib/roles";
 import StatoChip from "@/components/StatoChip";
 import TarsBriefing from "@/components/TarsBriefing";
@@ -93,7 +96,8 @@ function StatCard({
   accentClass?: string;
   onClick?: () => void;
 }) {
-  const numeric = typeof value === "number" ? value : parseInt(String(value), 10);
+  const numeric =
+    typeof value === "number" ? value : parseInt(String(value), 10);
   const isZero = numeric === 0;
   const dead = isZero || !onClick;
 
@@ -110,7 +114,7 @@ function StatCard({
       onKeyDown={
         dead
           ? undefined
-          : (e) => {
+          : e => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onClick?.();
@@ -139,9 +143,7 @@ function StatCard({
         >
           {value}
         </div>
-        {subtitle && (
-          <p className="text-[13px] text-text-2 mt-1">{subtitle}</p>
-        )}
+        {subtitle && <p className="text-[13px] text-text-2 mt-1">{subtitle}</p>}
       </CardContent>
     </Card>
   );
@@ -157,10 +159,10 @@ function PipelineCommesse({
   commesse: any[];
   onOpen: () => void;
 }) {
-  const conteggi = STATI_ORDER.map((s) => ({
+  const conteggi = STATI_ORDER.map(s => ({
     stato: s,
-    n: commesse.filter((c) => c.stato === s).length,
-  })).filter((x) => x.n > 0);
+    n: commesse.filter(c => c.stato === s).length,
+  })).filter(x => x.n > 0);
   const totale = conteggi.reduce((acc, x) => acc + x.n, 0);
 
   return (
@@ -171,7 +173,12 @@ function PipelineCommesse({
             <Building2 className="h-4 w-4" />
             Commesse per stato
           </CardTitle>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onOpen}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onOpen}
+          >
             Apri il Board
             <ArrowRight className="h-3.5 w-3.5" />
           </Button>
@@ -191,7 +198,7 @@ function PipelineCommesse({
               className="flex h-2.5 items-stretch gap-px overflow-hidden rounded-full"
               aria-hidden="true"
             >
-              {conteggi.map((x) => (
+              {conteggi.map(x => (
                 <span
                   key={x.stato}
                   style={{
@@ -204,7 +211,7 @@ function PipelineCommesse({
               ))}
             </div>
             <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-              {conteggi.map((x) => (
+              {conteggi.map(x => (
                 <li key={x.stato} className="flex items-center gap-1.5 text-xs">
                   <span
                     aria-hidden="true"
@@ -245,7 +252,20 @@ function formatDateKey(d: Date) {
 }
 
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
-const MESI = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
+const MESI = [
+  "Gen",
+  "Feb",
+  "Mar",
+  "Apr",
+  "Mag",
+  "Giu",
+  "Lug",
+  "Ago",
+  "Set",
+  "Ott",
+  "Nov",
+  "Dic",
+];
 
 function CalendarioSettimana({
   interventi,
@@ -256,7 +276,7 @@ function CalendarioSettimana({
 }) {
   const [baseDate, setBaseDate] = useState(() => new Date());
   const [activeCalendari, setActiveCalendari] = useState<Set<string>>(
-    () => new Set(CALENDARI.map((c) => c.key))
+    () => new Set(CALENDARI.map(c => c.key))
   );
 
   const weekDates = useMemo(() => getWeekDates(baseDate), [baseDate]);
@@ -264,10 +284,10 @@ function CalendarioSettimana({
 
   const eventiByDay = useMemo(() => {
     const map: Record<string, any[]> = {};
-    weekDates.forEach((d) => (map[formatDateKey(d)] = []));
+    weekDates.forEach(d => (map[formatDateKey(d)] = []));
     interventi
-      .filter((i) => activeCalendari.has(i.tipo))
-      .forEach((i) => {
+      .filter(i => activeCalendari.has(i.tipo))
+      .forEach(i => {
         if (i.dataPianificata && map[i.dataPianificata]) {
           map[i.dataPianificata].push(i);
         }
@@ -276,14 +296,14 @@ function CalendarioSettimana({
   }, [interventi, weekDates, activeCalendari]);
 
   function prevWeek() {
-    setBaseDate((d) => {
+    setBaseDate(d => {
       const n = new Date(d);
       n.setDate(n.getDate() - 7);
       return n;
     });
   }
   function nextWeek() {
-    setBaseDate((d) => {
+    setBaseDate(d => {
       const n = new Date(d);
       n.setDate(n.getDate() + 7);
       return n;
@@ -294,7 +314,7 @@ function CalendarioSettimana({
   }
 
   function toggleCalendario(key: string) {
-    setActiveCalendari((prev) => {
+    setActiveCalendari(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -313,13 +333,30 @@ function CalendarioSettimana({
             Calendario settimanale
           </CardTitle>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevWeek} aria-label="Settimana precedente">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={prevWeek}
+              aria-label="Settimana precedente"
+            >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={goToday}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={goToday}
+            >
               Oggi
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextWeek} aria-label="Settimana successiva">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={nextWeek}
+              aria-label="Settimana successiva"
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -328,7 +365,7 @@ function CalendarioSettimana({
         {/* Filtri per calendario: testo colorato su fondo tenue, leggibile
             in entrambi i temi (niente bianco su tinta piena). */}
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {CALENDARI.map((cal) => {
+          {CALENDARI.map(cal => {
             const attivo = activeCalendari.has(cal.key);
             return (
               <button
@@ -372,7 +409,9 @@ function CalendarioSettimana({
                   }`}
                 >
                   <div>{GIORNI[idx]}</div>
-                  <div className={`text-base font-bold ${isToday ? "" : "text-foreground"}`}>
+                  <div
+                    className={`text-base font-bold ${isToday ? "" : "text-foreground"}`}
+                  >
                     {d.getDate()}
                   </div>
                 </div>
@@ -384,8 +423,11 @@ function CalendarioSettimana({
                       className="text-[10px] font-medium leading-tight p-1 rounded cursor-pointer hover:opacity-80 transition-opacity truncate"
                       style={{
                         backgroundColor:
-                          CALENDAR_SOFT_MAP[ev.tipo] ?? "var(--color-cal-altro-soft)",
-                        color: CALENDAR_COLOR_MAP[ev.tipo] ?? "var(--color-cal-altro)",
+                          CALENDAR_SOFT_MAP[ev.tipo] ??
+                          "var(--color-cal-altro-soft)",
+                        color:
+                          CALENDAR_COLOR_MAP[ev.tipo] ??
+                          "var(--color-cal-altro)",
                       }}
                       title={ev.note}
                     >
@@ -393,7 +435,9 @@ function CalendarioSettimana({
                     </div>
                   ))}
                   {dayEvents.length === 0 && (
-                    <div className="text-[10px] text-muted-foreground text-center py-2">—</div>
+                    <div className="text-[10px] text-muted-foreground text-center py-2">
+                      —
+                    </div>
                   )}
                 </div>
               </div>
@@ -407,6 +451,13 @@ function CalendarioSettimana({
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
+  const { capabilities, flags } = useOperationalContext();
+  const dashboardModules = selectDashboardModules(
+    capabilities ?? new Set<string>()
+  ).filter(module => module !== "tars" || Boolean(flags?.tars));
+  const puoVedereCommesse = dashboardModules.includes("commesse");
+  const puoVedereEconomia = dashboardModules.includes("economia");
+  const tarsAcceso = dashboardModules.includes("tars");
 
   // Keep dashboard synced: poll every 30s + refetch on focus/mount/reconnect
   // (focus/mount/reconnect come from global QueryClient defaults in main.tsx).
@@ -415,8 +466,14 @@ export default function Dashboard() {
     refetchIntervalInBackground: false,
   } as const;
 
-  const commesseStats = trpc.commesse.stats.useQuery(undefined, liveOpts);
-  const anomalieStats = trpc.anomalie.stats.useQuery(undefined, liveOpts);
+  const commesseStats = trpc.commesse.stats.useQuery(undefined, {
+    ...liveOpts,
+    enabled: puoVedereCommesse,
+  });
+  const anomalieStats = trpc.anomalie.stats.useQuery(undefined, {
+    ...liveOpts,
+    enabled: puoVedereCommesse,
+  });
   const ticketStats = trpc.ticket.stats.useQuery(undefined, liveOpts);
   const garanzieStats = trpc.garanzie.stats.useQuery(undefined, liveOpts);
   const interventiOggiRaw = trpc.interventi.list.useQuery(
@@ -427,8 +484,14 @@ export default function Dashboard() {
     liveOpts
   );
   const interventiSettimanaRaw = trpc.interventi.list.useQuery({}, liveOpts);
-  const commesseRecenti = trpc.commesse.list.useQuery({}, liveOpts);
-  const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, liveOpts);
+  const commesseRecenti = trpc.commesse.list.useQuery(
+    {},
+    { ...liveOpts, enabled: puoVedereCommesse }
+  );
+  const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, {
+    ...liveOpts,
+    enabled: puoVedereCommesse,
+  });
   const squadre = trpc.squadre.list.useQuery(undefined, liveOpts);
   // Sources for the personalized "Da fare oggi" feed.
   const ticketListQ = trpc.ticket.list.useQuery({}, liveOpts);
@@ -441,14 +504,8 @@ export default function Dashboard() {
   });
   const ficListQ = trpc.ficFatture.list.useQuery(
     { anno: new Date().getFullYear() },
-    { ...liveOpts, retry: false }
+    { ...liveOpts, retry: false, enabled: puoVedereEconomia }
   );
-  // Briefing Tars nella colonna laterale: deterministico, zero token, e a
-  // flag spento la query non parte nemmeno.
-  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
-    staleTime: 300_000,
-  });
-  const tarsAcceso = Boolean(interruttoriQ.data?.tars);
 
   // Filter out any legacy "annullato" records so deleted appointments never
   // show up on the dashboard even before the server-side cleanup kicks in.
@@ -462,7 +519,9 @@ export default function Dashboard() {
   const interventiSettimana = useMemo(
     () => ({
       ...interventiSettimanaRaw,
-      data: interventiSettimanaRaw.data?.filter((i: any) => i.stato !== "annullato"),
+      data: interventiSettimanaRaw.data?.filter(
+        (i: any) => i.stato !== "annullato"
+      ),
     }),
     [interventiSettimanaRaw]
   );
@@ -577,7 +636,12 @@ export default function Dashboard() {
     // compare solo per chi ha `pagamento.read` (il server la omette agli
     // altri); il bit `daSaldare` arriva per tutti (slice 2).
     for (const c of commesse) {
-      if (!["attesa_posa", "finiture_saldo", "interventi_regolazioni"].includes(c.stato)) continue;
+      if (
+        !["attesa_posa", "finiture_saldo", "interventi_regolazioni"].includes(
+          c.stato
+        )
+      )
+        continue;
       if (!(c as any).daSaldare) continue;
       if (!isMine(c)) continue;
       const tot = (c as any).importoTotale;
@@ -642,7 +706,8 @@ export default function Dashboard() {
     // 6. Il lavoro nuovo, aggregato in una riga per fonte: le fatture senza
     //    riscontro nel CRM.
     const daRiconciliare = (ficListQ.data ?? []).filter(
-      (fa: any) => fa.stato === "da_riconciliare" || fa.stato === "non_abbinabile"
+      (fa: any) =>
+        fa.stato === "da_riconciliare" || fa.stato === "non_abbinabile"
     ).length;
     if (daRiconciliare > 0) {
       items.push({
@@ -683,7 +748,10 @@ export default function Dashboard() {
 
   // Compute squadre workload
   const squadreWorkload = (() => {
-    const map: Record<number, { nome: string; attivi: number; completati: number }> = {};
+    const map: Record<
+      number,
+      { nome: string; attivi: number; completati: number }
+    > = {};
     squadre.data?.forEach((s: any) => {
       map[s.id] = { nome: s.nome, attivi: 0, completati: 0 };
     });
@@ -714,136 +782,134 @@ export default function Dashboard() {
     interventiByTipo.length > 0 || squadreWorkload.length > 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header — greeting + date (§26.1) */}
-      <div>
-        <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
-          {firstName ? `Ciao ${firstName}` : "Ciao"} — ecco la tua giornata
-        </h1>
-        <p className="text-text-2 text-sm mt-1 capitalize">{todayLabel}</p>
-      </div>
-
-      <div className="grid items-start gap-6 lg:grid-cols-12">
-        {/* ── Colonna principale: il lavoro di oggi domina ── */}
-        <div className="min-w-0 space-y-6 lg:col-span-8">
-          {/* Da fare oggi — personalized action feed (§26.2) */}
-          <Card className="border-l-[3px] border-l-primary">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2">
-                  <ClipboardList className="h-4 w-4 text-primary" />
-                  Da fare oggi
-                </span>
-                <span className="eyebrow !text-text-3 font-normal">
-                  {direzione ? "Tutta la sede" : "Le tue attività"}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {feedInCaricamento && todoItems.length === 0 ? (
-                <div className="space-y-2 py-1" aria-hidden="true">
-                  <Skeleton className="h-9 rounded-md" />
-                  <Skeleton className="h-9 rounded-md" />
-                  <Skeleton className="h-9 w-2/3 rounded-md" />
-                </div>
-              ) : todoItems.length === 0 ? (
-                <div className="flex items-center gap-3 rounded-md px-2 py-3">
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
-                    <CheckCircle2 className="h-4 w-4" />
+    <CapabilityDashboard
+      title={`${firstName ? `Ciao ${firstName}` : "Ciao"} — ecco la tua giornata`}
+      description={<span className="capitalize">{todayLabel}</span>}
+      scopeLabel={direzione ? "Tutta la sede" : "Le tue attività"}
+      modules={dashboardModules}
+      sections={{
+        priorita: (
+          <div className="space-y-4 sm:space-y-5">
+            <Card className="border-l-[3px] border-l-primary">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-[15px] font-semibold flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                    <ClipboardList className="h-4 w-4 text-primary" />
+                    Da fare oggi
                   </span>
-                  <p className="text-sm text-text-2">
-                    Niente da fare per ora — nessuna urgenza, consegna o ticket
-                    {direzione ? " in sede" : " assegnato a te"}.
-                  </p>
-                </div>
-              ) : (
-                todoItems.map((item) => (
-                  <div
-                    key={item.key}
-                    className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
-                    {...attivabile(item.onClick)}
-                  >
-                    <span
-                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
-                    >
-                      <item.icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-1 truncate">
-                        {item.title}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        {item.sub && (
-                          <span className="codice-mono text-text-3">{item.sub}</span>
-                        )}
-                        {item.stato && <StatoChip stato={item.stato} />}
-                      </div>
-                    </div>
-                    {item.cta ? (
-                      <Button size="sm" variant="outline" className="shrink-0">
-                        {item.cta}
-                      </Button>
-                    ) : (
-                      <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
-                    )}
+                  <span className="eyebrow !text-text-3 font-normal">
+                    {direzione ? "Tutta la sede" : "Le tue attività"}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {feedInCaricamento && todoItems.length === 0 ? (
+                  <div className="space-y-2 py-1" aria-hidden="true">
+                    <Skeleton className="h-9 rounded-md" />
+                    <Skeleton className="h-9 rounded-md" />
+                    <Skeleton className="h-9 w-2/3 rounded-md" />
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                ) : todoItems.length === 0 ? (
+                  <div className="flex items-center gap-3 rounded-md px-2 py-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-success-soft text-success">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </span>
+                    <p className="text-sm text-text-2">
+                      Niente da fare per ora — nessuna urgenza, consegna o
+                      ticket
+                      {direzione ? " in sede" : " assegnato a te"}.
+                    </p>
+                  </div>
+                ) : (
+                  todoItems.map(item => (
+                    <div
+                      key={item.key}
+                      className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
+                      {...attivabile(item.onClick)}
+                    >
+                      <span
+                        className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
+                      >
+                        <item.icon className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-1 truncate">
+                          {item.title}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          {item.sub && (
+                            <span className="codice-mono text-text-3">
+                              {item.sub}
+                            </span>
+                          )}
+                          {item.stato && <StatoChip stato={item.stato} />}
+                        </div>
+                      </div>
+                      {item.cta ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                        >
+                          {item.cta}
+                        </Button>
+                      ) : (
+                        <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+                      )}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Pulse — the 4 actionable KPIs (§26.3) */}
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-            <StatCard
-              title="Commesse attive"
-              value={cs?.inCorso ?? 0}
-              subtitle={`${cs?.inCorso ?? 0} attive · ${cs?.total ?? 0} in totale`}
-              icon={Building2}
-              accentClass="bg-primary"
-              onClick={() => setLocation("/commesse")}
-            />
-            <StatCard
-              title="Urgenze"
-              value={cs?.urgenti ?? 0}
-              subtitle="commesse urgenti"
-              icon={Flame}
-              accentClass="bg-danger"
-              onClick={() => setLocation("/commesse")}
-            />
-            <StatCard
-              title="Consegne da confermare"
-              value={consegneDaConfermare.length}
-              subtitle="in produzione, senza data"
-              icon={CalendarClock}
-              accentClass="bg-warning"
-              onClick={() => setLocation("/kanban")}
-            />
-            <StatCard
-              title="Ticket aperti"
-              value={ticketAperti}
-              subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
-              icon={TicketCheck}
-              accentClass="bg-info"
-              onClick={() => setLocation("/reclami")}
-            />
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+              <StatCard
+                title="Commesse attive"
+                value={cs?.inCorso ?? 0}
+                subtitle={`${cs?.inCorso ?? 0} attive · ${cs?.total ?? 0} in totale`}
+                icon={Building2}
+                accentClass="bg-primary"
+                onClick={() => setLocation("/commesse")}
+              />
+              <StatCard
+                title="Urgenze"
+                value={cs?.urgenti ?? 0}
+                subtitle="commesse urgenti"
+                icon={Flame}
+                accentClass="bg-danger"
+                onClick={() => setLocation("/commesse")}
+              />
+              <StatCard
+                title="Consegne da confermare"
+                value={consegneDaConfermare.length}
+                subtitle="in produzione, senza data"
+                icon={CalendarClock}
+                accentClass="bg-warning"
+                onClick={() => setLocation("/kanban")}
+              />
+              <StatCard
+                title="Ticket aperti"
+                value={ticketAperti}
+                subtitle={`${ts?.inLavorazione ?? 0} in lavorazione`}
+                icon={TicketCheck}
+                accentClass="bg-info"
+                onClick={() => setLocation("/reclami")}
+              />
+            </div>
           </div>
-
-          {/* Calendar (§26.4) */}
+        ),
+        agenda: (
           <CalendarioSettimana
             interventi={interventiSettimana.data ?? []}
-            onEventClick={(ev) => {
+            onEventClick={() => {
               // Ogni evento apre il Planning: la vecchia rotta /posa/:id non
               // esiste piu e portava sul 404.
               setLocation("/planning");
             }}
           />
-        </div>
-
-        {/* ── Colonna laterale: situazione e contesto ── */}
-        <div className="min-w-0 space-y-6 lg:col-span-4">
-          <TarsBriefing enabled={tarsAcceso} />
-
-          {/* Interventi del giorno */}
+        ),
+        tars: tarsAcceso ? <TarsBriefing enabled /> : null,
+        ticket: (
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -855,8 +921,14 @@ export default function Dashboard() {
               {!interventiOggi.data?.length ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center">
                   <CalendarClock className="h-9 w-9 text-text-3" />
-                  <p className="text-[15px] font-semibold">Nessun intervento oggi</p>
-                  <Button size="sm" variant="outline" onClick={() => setLocation("/planning")}>
+                  <p className="text-[15px] font-semibold">
+                    Nessun intervento oggi
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setLocation("/planning")}
+                  >
                     Pianifica un rilievo
                   </Button>
                 </div>
@@ -875,7 +947,9 @@ export default function Dashboard() {
                         </p>
                       </div>
                       <Badge
-                        variant={i.stato === "in_corso" ? "default" : "secondary"}
+                        variant={
+                          i.stato === "in_corso" ? "default" : "secondary"
+                        }
                         className="text-xs shrink-0"
                       >
                         {i.stato.replace(/_/g, " ")}
@@ -886,8 +960,8 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-
-          {/* Commesse recenti */}
+        ),
+        commesse: (
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -910,14 +984,21 @@ export default function Dashboard() {
                     >
                       <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="codice-mono text-text-3">{c.codice}</span>
+                          <span className="codice-mono text-text-3">
+                            {c.codice}
+                          </span>
                           {c.priorita === "urgente" && (
-                            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                            <Badge
+                              variant="destructive"
+                              className="text-[10px] px-1.5 py-0"
+                            >
                               URGENTE
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm font-medium truncate">{c.cliente}</p>
+                        <p className="text-sm font-medium truncate">
+                          {c.cliente}
+                        </p>
                       </div>
                       <StatoChip stato={c.stato} className="shrink-0" />
                     </div>
@@ -926,170 +1007,221 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </div>
+        ),
+      }}
+      details={
+        <>
+          {/* Secondary KPIs — small, shown only when > 0 (§26.3) */}
+          {(() => {
+            const interventiTot = interventiSettimana.data?.length ?? 0;
+            const anomalieOpen = (as_?.aperte ?? 0) + (as_?.inGestione ?? 0);
+            const secondary = [
+              (gs?.attive ?? 0) > 0 && (
+                <StatCard
+                  key="gar"
+                  title="Garanzie attive"
+                  value={gs?.attive ?? 0}
+                  subtitle={
+                    gs?.inScadenza ? `${gs.inScadenza} in scadenza` : undefined
+                  }
+                  icon={Shield}
+                  accentClass="bg-warning"
+                  onClick={() => setLocation("/garanzie")}
+                />
+              ),
+              (squadre.data?.length ?? 0) > 0 && (
+                <StatCard
+                  key="sq"
+                  title="Squadre attive"
+                  value={squadre.data?.length ?? 0}
+                  icon={Users}
+                  accentClass="bg-primary"
+                  onClick={() => setLocation("/squadre")}
+                />
+              ),
+              interventiTot > 0 && (
+                <StatCard
+                  key="int"
+                  title="Interventi settimana"
+                  value={interventiTot}
+                  subtitle={`${interventiSettimana.data?.filter((i: any) => i.stato === "completato").length ?? 0} completati`}
+                  icon={Hammer}
+                  accentClass="bg-info"
+                  onClick={() => setLocation("/planning")}
+                />
+              ),
+              puoVedereCommesse && anomalieOpen > 0 && (
+                <StatCard
+                  key="ano"
+                  title="Anomalie aperte"
+                  value={anomalieOpen}
+                  subtitle={
+                    as_?.critiche ? `${as_.critiche} critiche` : undefined
+                  }
+                  icon={AlertTriangle}
+                  accentClass="bg-danger"
+                  onClick={() => setLocation("/commesse")}
+                />
+              ),
+              (comStats.data?.nuove ?? 0) > 0 && (
+                <StatCard
+                  key="com"
+                  title="Comunicazioni nuove"
+                  value={comStats.data!.nuove}
+                  subtitle="email e WhatsApp da leggere"
+                  icon={MailIcon}
+                  accentClass="bg-info"
+                  onClick={() => setLocation("/comunicazioni")}
+                />
+              ),
+            ].filter(Boolean);
+            if (secondary.length === 0) return null;
+            return (
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                {secondary}
+              </div>
+            );
+          })()}
 
-      {/* Secondary KPIs — small, shown only when > 0 (§26.3) */}
-      {(() => {
-        const interventiTot = interventiSettimana.data?.length ?? 0;
-        const anomalieOpen = (as_?.aperte ?? 0) + (as_?.inGestione ?? 0);
-        const secondary = [
-          (gs?.attive ?? 0) > 0 && (
-            <StatCard
-              key="gar"
-              title="Garanzie attive"
-              value={gs?.attive ?? 0}
-              subtitle={gs?.inScadenza ? `${gs.inScadenza} in scadenza` : undefined}
-              icon={Shield}
-              accentClass="bg-warning"
-              onClick={() => setLocation("/garanzie")}
+          {/* Pipeline per stato — al posto del donut (§26.3) */}
+          {puoVedereCommesse && (
+            <PipelineCommesse
+              commesse={commesseAttive}
+              onOpen={() => setLocation("/kanban")}
             />
-          ),
-          (squadre.data?.length ?? 0) > 0 && (
-            <StatCard
-              key="sq"
-              title="Squadre attive"
-              value={squadre.data?.length ?? 0}
-              icon={Users}
-              accentClass="bg-primary"
-              onClick={() => setLocation("/squadre")}
-            />
-          ),
-          interventiTot > 0 && (
-            <StatCard
-              key="int"
-              title="Interventi settimana"
-              value={interventiTot}
-              subtitle={`${interventiSettimana.data?.filter((i: any) => i.stato === "completato").length ?? 0} completati`}
-              icon={Hammer}
-              accentClass="bg-info"
-              onClick={() => setLocation("/planning")}
-            />
-          ),
-          anomalieOpen > 0 && (
-            <StatCard
-              key="ano"
-              title="Anomalie aperte"
-              value={anomalieOpen}
-              subtitle={as_?.critiche ? `${as_.critiche} critiche` : undefined}
-              icon={AlertTriangle}
-              accentClass="bg-danger"
-              onClick={() => setLocation("/commesse")}
-            />
-          ),
-          (comStats.data?.nuove ?? 0) > 0 && (
-            <StatCard
-              key="com"
-              title="Comunicazioni nuove"
-              value={comStats.data!.nuove}
-              subtitle="email e WhatsApp da leggere"
-              icon={MailIcon}
-              accentClass="bg-info"
-              onClick={() => setLocation("/comunicazioni")}
-            />
-          ),
-        ].filter(Boolean);
-        if (secondary.length === 0) return null;
-        return (
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{secondary}</div>
-        );
-      })()}
+          )}
 
-      {/* Pipeline per stato — al posto del donut (§26.3) */}
-      <PipelineCommesse
-        commesse={commesseAttive}
-        onOpen={() => setLocation("/kanban")}
-      />
-
-      {/* Approfondimenti (recharts, chunk lazy): montati solo se c'è
+          {/* Approfondimenti (recharts, chunk lazy): montati solo se c'è
           qualcosa da disegnare — una sede vuota non scarica i grafici. */}
-      {mostraApprofondimenti && (
-        <Suspense
-          fallback={
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Skeleton className="h-[300px] rounded-xl" />
-              <Skeleton className="h-[300px] rounded-xl" />
-            </div>
-          }
-        >
-          <DashboardApprofondimenti
-            interventiByTipo={interventiByTipo}
-            squadreWorkload={squadreWorkload}
-          />
-        </Suspense>
-      )}
-
-      {/* Clienti per priorità commesse */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Flame className="h-4 w-4" />
-            Clienti per priorità commesse
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {([
-              { key: "urgente", label: "Urgente", box: "border-danger/50 bg-danger-soft/70", badge: "bg-danger text-on-danger" },
-              // Testo scuro su fondo tenue, non bianco su tinta piena: il
-              // bianco su ambra dava 1.72:1 — un badge che nessuno legge.
-              { key: "alta", label: "Alta", box: "border-danger/30 bg-surface", badge: "bg-danger-soft text-danger" },
-              { key: "media", label: "Media", box: "border-warning/30 bg-surface", badge: "bg-warning-soft text-warning" },
-              { key: "bassa", label: "Bassa", box: "border-border-strong bg-surface-2", badge: "bg-surface-2 text-text-2" },
-            ] as const).map((pri) => {
-              const list: any[] = (commessePerPriorita.data as any)?.[pri.key] ?? [];
-              return (
-                <div key={pri.key} className={`rounded-md border ${pri.box} p-3`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${pri.badge}`}>
-                      {pri.label}
-                    </span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{list.length}</span>
-                  </div>
-                  {list.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-2">—</p>
-                  ) : (
-                    <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
-                      {list.map((c) => (
-                        <div
-                          key={c.id}
-                          className="cursor-pointer rounded-sm border border-border-soft bg-surface p-2 hover:border-border-strong transition-colors"
-                          {...attivabile(() => setLocation(`/commesse/${c.id}`))}
-                        >
-                          <div className="codice-mono text-[10px] text-muted-foreground">{c.codice}</div>
-                          <div className="text-xs font-medium truncate">{c.cliente}</div>
-                          <div className="text-[10px] text-muted-foreground truncate">
-                            {statoLabel(c.stato)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+          {mostraApprofondimenti && (
+            <Suspense
+              fallback={
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <Skeleton className="h-[300px] rounded-xl" />
+                  <Skeleton className="h-[300px] rounded-xl" />
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+              }
+            >
+              <DashboardApprofondimenti
+                interventiByTipo={interventiByTipo}
+                squadreWorkload={squadreWorkload}
+              />
+            </Suspense>
+          )}
 
-      {/* Quick anomalies view */}
-      {(as_?.critiche ?? 0) > 0 && (
-        <Card className="border-danger/30 bg-danger-soft/40">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2 text-danger">
-              <AlertTriangle className="h-4 w-4" />
-              Anomalie critiche da gestire
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm">
-              Ci sono{" "}
-              <strong>{as_?.critiche} anomalie con priorità critica</strong> non
-              ancora risolte. Verifica lo stato nella sezione commesse.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          {/* Clienti per priorità commesse */}
+          {puoVedereCommesse && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Flame className="h-4 w-4" />
+                  Clienti per priorità commesse
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(
+                    [
+                      {
+                        key: "urgente",
+                        label: "Urgente",
+                        box: "border-danger/50 bg-danger-soft/70",
+                        badge: "bg-danger text-on-danger",
+                      },
+                      // Testo scuro su fondo tenue, non bianco su tinta piena: il
+                      // bianco su ambra dava 1.72:1 — un badge che nessuno legge.
+                      {
+                        key: "alta",
+                        label: "Alta",
+                        box: "border-danger/30 bg-surface",
+                        badge: "bg-danger-soft text-danger",
+                      },
+                      {
+                        key: "media",
+                        label: "Media",
+                        box: "border-warning/30 bg-surface",
+                        badge: "bg-warning-soft text-warning",
+                      },
+                      {
+                        key: "bassa",
+                        label: "Bassa",
+                        box: "border-border-strong bg-surface-2",
+                        badge: "bg-surface-2 text-text-2",
+                      },
+                    ] as const
+                  ).map(pri => {
+                    const list: any[] =
+                      (commessePerPriorita.data as any)?.[pri.key] ?? [];
+                    return (
+                      <div
+                        key={pri.key}
+                        className={`rounded-md border ${pri.box} p-3`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span
+                            className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-sm ${pri.badge}`}
+                          >
+                            {pri.label}
+                          </span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {list.length}
+                          </span>
+                        </div>
+                        {list.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-2">
+                            —
+                          </p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+                            {list.map(c => (
+                              <div
+                                key={c.id}
+                                className="cursor-pointer rounded-sm border border-border-soft bg-surface p-2 hover:border-border-strong transition-colors"
+                                {...attivabile(() =>
+                                  setLocation(`/commesse/${c.id}`)
+                                )}
+                              >
+                                <div className="codice-mono text-[10px] text-muted-foreground">
+                                  {c.codice}
+                                </div>
+                                <div className="text-xs font-medium truncate">
+                                  {c.cliente}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground truncate">
+                                  {statoLabel(c.stato)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Quick anomalies view */}
+          {puoVedereCommesse && (as_?.critiche ?? 0) > 0 && (
+            <Card className="border-danger/30 bg-danger-soft/40">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold flex items-center gap-2 text-danger">
+                  <AlertTriangle className="h-4 w-4" />
+                  Anomalie critiche da gestire
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Ci sono{" "}
+                  <strong>{as_?.critiche} anomalie con priorità critica</strong>{" "}
+                  non ancora risolte. Verifica lo stato nella sezione commesse.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      }
+    />
   );
 }
