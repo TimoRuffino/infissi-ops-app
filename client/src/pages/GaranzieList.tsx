@@ -480,6 +480,7 @@ export default function GaranzieList() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title="Elimina garanzia"
         description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
+        confirmLabel="Elimina garanzia"
         onConfirm={() => deleteTarget && deleteGaranzia.mutate(deleteTarget.id)}
       />
     </div>

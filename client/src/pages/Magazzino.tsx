@@ -649,6 +649,7 @@ export default function Magazzino() {
         onOpenChange={(o: boolean) => !o && setDeleteTarget(null)}
         title="Elimina prodotto"
         description={`Rimuovere "${deleteTarget?.nome}" dal magazzino della commessa?`}
+        confirmLabel="Rimuovi prodotto"
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
     </div>

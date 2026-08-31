@@ -22,7 +22,7 @@ const buttonVariants = cva(
           "bg-brand text-on-brand shadow-xs hover:brightness-[0.96] active:scale-[0.98]",
         // Firma gradiente opt-in: una sola area focale per viewport.
         focal:
-          "bg-focal [background-image:var(--gradient-focal)] text-on-focal shadow-sm hover:brightness-[1.06] active:scale-[0.98]",
+          "bg-focal text-on-focal shadow-sm hover:brightness-[1.06] active:scale-[0.98]",
         // Secondario
         outline:
           "bg-surface border border-border-strong text-text-1 shadow-xs hover:border-primary/45 hover:bg-accent",

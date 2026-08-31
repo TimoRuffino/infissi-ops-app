@@ -388,6 +388,7 @@ export default function ReclamiRifacimenti() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title={deleteTarget?.type === "reclamo" ? "Elimina reclamo" : "Elimina rifacimento"}
         description={`Eliminare "${deleteTarget?.label}"?`}
+        confirmLabel={deleteTarget?.type === "reclamo" ? "Elimina reclamo" : "Elimina rifacimento"}
         onConfirm={() => {
           if (!deleteTarget) return;
           if (deleteTarget.type === "reclamo") deleteReclamo.mutate(deleteTarget.id);

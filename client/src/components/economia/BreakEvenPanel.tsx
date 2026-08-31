@@ -222,7 +222,7 @@ export default function BreakEvenPanel({ onReview }: { onReview: () => void }) {
   const stato = statoCopertura(data.stato, data.ancoraDaFatturare);
 
   return (
-    <Card className="overflow-hidden border-primary/25 bg-gradient-to-br from-surface via-surface to-primary/5">
+    <Card className="overflow-hidden border-primary/25 bg-surface">
       <CardContent className="p-0">
         <div className="flex flex-col gap-5 p-4 sm:p-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 lg:max-w-[360px]">

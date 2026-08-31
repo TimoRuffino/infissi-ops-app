@@ -909,6 +909,7 @@ export default function FornitoriList() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title={deleteTarget?.type === "ordine" ? "Elimina ordine" : deleteTarget?.type === "listino" ? "Elimina listino" : "Elimina fornitore"}
         description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
+        confirmLabel={deleteTarget?.type === "ordine" ? "Elimina ordine" : deleteTarget?.type === "listino" ? "Elimina listino" : "Elimina fornitore"}
         onConfirm={() => {
           if (!deleteTarget) return;
           if (deleteTarget.type === "ordine") deleteOrdine.mutate(deleteTarget.id);

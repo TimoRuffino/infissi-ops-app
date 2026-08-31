@@ -853,6 +853,7 @@ export default function Planning() {
         onOpenChange={(open: boolean) => !open && setAnnullaTarget(null)}
         title="Elimina appuntamento"
         description={`Confermi l'eliminazione dell'appuntamento "${annullaTarget?.label}"? L'appuntamento verrà rimosso definitivamente dal calendario.`}
+        confirmLabel="Elimina appuntamento"
         onConfirm={() => annullaTarget && deleteIntervento.mutate(annullaTarget.id)}
       />
     </div>

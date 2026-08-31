@@ -200,7 +200,7 @@ export function ActionCenter({ direction }: { direction: boolean }) {
   return (
     <div className="space-y-3">
       <section className="overflow-hidden rounded-lg border bg-card">
-        <div className="flex flex-col gap-3 border-b bg-[image:var(--gradient-soft)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b bg-surface-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase text-primary">
               <CircleAlert className="h-3.5 w-3.5" /> Centro Azioni

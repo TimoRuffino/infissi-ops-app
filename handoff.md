@@ -1559,13 +1559,20 @@ Fatto finora:
   apertura. Le ricerche clienti/commesse partono solo se autorizzate; un nuovo
   prefisso rimuove subito i risultati vecchi. “Chiedi a Tars” crea soltanto la
   bozza `/tars?q=…`: nessuna procedura Tars vive nella superficie di typing;
+- il vocabolario di pagina è ora finito e tipizzato: `PageHeader`,
+  `DataSurface`, `StatePanel`, `StickyActionBar` e `ContextInspector` non fanno
+  fetch e non accettano colori pagina-specifici. Il solo gradiente condiviso è
+  `DataSurface tone="focal"`; una guardia strutturale impedisce nuovi gradienti
+  altrove. Stati, skeleton, chart, chip di stato e conferme usano copy e
+  segnali accessibili; ogni `ConfirmDialog` richiede al caller una label
+  esplicita e mantiene target 44 px su mobile;
 - baseline e verifiche append-only sono in
   `docs/design/modular-control/verification-log.md`; le fixture browser sono
   esclusivamente locali e in-memory.
 
-Prossimi passi: primitive condivise di pagina; poi golden screens (Dashboard,
-Commessa 360, Board, Tars, flusso mobile rilievi, DI fornitori), migrazione per
-archetipi, hardening e revisioni indipendenti. Rollout e rollback:
+Prossimi passi: golden screens (Dashboard, Commessa 360, Board, Tars, flusso
+mobile rilievi, DI fornitori), migrazione per archetipi, hardening e revisioni
+indipendenti. Rollout e rollback:
 spegnere/accendere `FLAG_UI_V2`, nessuna migrazione dati.
 
 ## 11-octodecies. Tars v2 — provider REALE acceso (31/08/2026)

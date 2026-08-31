@@ -1246,6 +1246,7 @@ export default function TicketList({ embedded = false }: { embedded?: boolean })
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title="Elimina ticket"
         description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
+        confirmLabel="Elimina ticket"
         onConfirm={() => deleteTarget && deleteTicket.mutate(deleteTarget.id)}
       />
     </div>

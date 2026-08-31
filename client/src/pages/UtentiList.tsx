@@ -613,6 +613,7 @@ export default function UtentiList() {
         onOpenChange={(open: boolean) => !open && setDeleteTarget(null)}
         title="Elimina utente"
         description={`Confermi l'eliminazione di "${deleteTarget?.label}"?`}
+        confirmLabel="Elimina utente"
         onConfirm={() => deleteTarget && deleteUtente.mutate(deleteTarget.id)}
       />
       <UserPermissionsDialog

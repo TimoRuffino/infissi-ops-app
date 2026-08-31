@@ -5,14 +5,20 @@ import { cn } from "@/lib/utils";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
+type ChartTokenColor = `var(--${string})`;
 
 export type ChartConfig = {
   [k in string]: {
     label?: React.ReactNode;
     icon?: React.ComponentType;
+    /** Una sola serie protagonista; le altre restano visivamente di supporto. */
+    emphasis?: "protagonist" | "supporting";
   } & (
-    | { color?: string; theme?: never }
-    | { color?: never; theme: Record<keyof typeof THEMES, string> }
+    | { color?: ChartTokenColor; theme?: never }
+    | {
+        color?: never;
+        theme: Record<keyof typeof THEMES, ChartTokenColor>;
+      }
   );
 };
 
@@ -53,7 +59,7 @@ function ChartContainer({
         data-slot="chart"
         data-chart={chartId}
         className={cn(
-          "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+          "[&_.recharts-cartesian-axis-tick_text]:fill-text-3 [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border-soft [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border-strong [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border-soft [&_.recharts-radial-bar-background-sector]:fill-surface-2 [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-surface-2 [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border-soft flex aspect-video justify-center text-xs text-text-2 [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
           className
         )}
         {...props}
@@ -171,7 +177,7 @@ function ChartTooltipContent({
   return (
     <div
       className={cn(
-        "border-border/50 bg-background grid min-w-[8rem] items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl",
+        "grid min-w-[8rem] items-start gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-focal px-2.5 py-2 text-xs text-on-focal shadow-[var(--shadow-floating)]",
         className
       )}
     >
@@ -189,7 +195,8 @@ function ChartTooltipContent({
                 key={item.dataKey}
                 className={cn(
                   "[&>svg]:text-muted-foreground flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5",
-                  indicator === "dot" && "items-center"
+                  indicator === "dot" && "items-center",
+                  itemConfig?.emphasis === "supporting" && "opacity-75"
                 )}
               >
                 {formatter && item?.value !== undefined && item.name ? (
@@ -228,12 +235,12 @@ function ChartTooltipContent({
                     >
                       <div className="grid gap-1.5">
                         {nestLabel ? tooltipLabel : null}
-                        <span className="text-muted-foreground">
+                        <span className="text-on-focal/70">
                           {itemConfig?.label || item.name}
                         </span>
                       </div>
-                      {item.value && (
-                        <span className="text-foreground font-mono font-medium tabular-nums">
+                      {item.value !== undefined && item.value !== null && (
+                        <span className="font-mono font-semibold tabular-nums text-on-focal">
                           {item.value.toLocaleString()}
                         </span>
                       )}
@@ -285,7 +292,8 @@ function ChartLegendContent({
             <div
               key={item.value}
               className={cn(
-                "[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3"
+                "[&>svg]:text-text-2 flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3",
+                itemConfig?.emphasis === "supporting" && "text-text-3"
               )}
             >
               {itemConfig?.icon && !hideIcon ? (

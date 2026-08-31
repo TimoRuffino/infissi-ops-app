@@ -1807,6 +1807,7 @@ export default function ClienteDetail() {
         onOpenChange={setDeleteOpen}
         title="Eliminare cliente?"
         description={`Stai per eliminare "${displayName}". Questa azione non puo essere annullata.`}
+        confirmLabel="Elimina cliente"
         onConfirm={() => deleteCliente.mutate(clienteId)}
       />
     </div>

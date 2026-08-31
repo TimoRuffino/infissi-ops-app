@@ -11,7 +11,7 @@ export default function NotFound() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background bg-[image:var(--gradient-page)]">
+    <div className="min-h-screen w-full flex items-center justify-center bg-surface-2">
       <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-card/90 backdrop-blur-sm">
         <CardContent className="pt-8 pb-8 text-center">
           <div className="flex justify-center mb-6">
