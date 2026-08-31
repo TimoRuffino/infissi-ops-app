@@ -7,7 +7,7 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import DataSurface from "@/components/patterns/DataSurface";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +36,18 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
+
+/**
+ * Vero quando la query è stata rifiutata dal confine dei permessi: la card
+ * non riguarda questo utente e resta nascosta, com'era prima. Ogni altro
+ * errore è un guasto e va mostrato con un ritentativo, non nascosto.
+ */
+function permessoNegato(
+  errore: { data?: { code?: string } | null } | null | undefined
+): boolean {
+  const codice = errore?.data?.code;
+  return codice === "FORBIDDEN" || codice === "UNAUTHORIZED";
+}
 
 // Carica l'SDK Facebook una volta sola. Serve solo quando la direzione
 // apre questa card: non lo si impone a ogni pagina del gestionale.
@@ -248,8 +260,8 @@ export default function WhatsAppCard() {
     );
   };
 
-  // Query direzione-only: se fallisce, la card non riguarda l'utente.
-  if (lista.isError) return null;
+  // Query direzione-only: un rifiuto di permesso nasconde la card, come prima.
+  if (permessoNegato(lista.error)) return null;
 
   const rows = lista.data ?? [];
   const chiaveOk = webhook.data?.chiaveConfigurata ?? false;
@@ -283,53 +295,103 @@ export default function WhatsAppCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageCircle className="h-4 w-4 text-[#25D366]" />
-            WhatsApp Business
-            {rows.length > 0 && (
-              <Badge variant="secondary">
-                {rows.filter((c: any) => c.attiva).length}/{rows.length} attivi
-              </Badge>
-            )}
-          </CardTitle>
-          <div className="flex gap-2">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title={
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          <MessageCircle
+            className="size-4 shrink-0 text-[#25D366]"
+            aria-hidden="true"
+          />
+          WhatsApp Business
+          {rows.length > 0 && (
+            <Badge variant="secondary">
+              {rows.filter((c: any) => c.attiva).length}/{rows.length} attivi
+            </Badge>
+          )}
+        </span>
+      }
+      description="I messaggi in arrivo entrano nel CRM agganciati alla commessa tramite il numero di telefono. Solo ricezione: il CRM non invia nulla, e il numero resta usabile dall'app sul telefono (coexistence)."
+      toolbar={
+        lista.isLoading || lista.error ? undefined : (
+          <>
             {app.data?.pronta && (
               <Button
                 size="sm"
+                className="min-h-11"
                 disabled={!sdkPronto || onboardingInCorso || onboarding.isPending}
                 onClick={avviaSignup}
               >
                 {onboardingInCorso || onboarding.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  <Loader2
+                    className="size-3.5 motion-safe:animate-spin"
+                    aria-hidden="true"
+                  />
                 ) : (
-                  <QrCode className="h-3.5 w-3.5 mr-1" />
+                  <QrCode className="size-3.5" aria-hidden="true" />
                 )}
                 Collega col QR
               </Button>
             )}
             <Button
               size="sm"
+              className="min-h-11"
               variant={app.data?.pronta ? "outline" : "default"}
               disabled={!chiaveOk}
               onClick={() => setAperto(true)}
             >
-              <Plus className="h-3.5 w-3.5 mr-1" />
+              <Plus className="size-3.5" aria-hidden="true" />
               A mano
             </Button>
+          </>
+        )
+      }
+      state={
+        lista.isLoading
+          ? {
+              kind: "loading",
+              title: "Lettura numeri collegati",
+              description:
+                "Sto chiedendo al server i numeri WhatsApp della sede.",
+              rows: 2,
+            }
+          : lista.error
+            ? {
+                kind: "error",
+                title: "Numeri WhatsApp non disponibili",
+                description:
+                  "Il server non ha risposto: non è possibile dire quali numeri siano collegati né se stiano ricevendo messaggi.",
+                action: (
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => void lista.refetch()}
+                  >
+                    <Check className="size-4" aria-hidden="true" />
+                    Riprova
+                  </Button>
+                ),
+              }
+            : undefined
+      }
+    >
+      <div className="min-w-0 space-y-3 text-sm">
+        {rows.length === 0 && (
+          <div
+            role="status"
+            className="rounded-md border border-border bg-surface-2 p-3"
+          >
+            <p className="text-sm font-semibold text-foreground">
+              Nessun numero collegato
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {chiaveOk
+                ? "Collega un numero col QR (coexistence) oppure configuralo a mano: il webhook si verifica prima ancora che il numero esista."
+                : "Configura prima MAIL_ENCRYPTION_KEY sul server: senza chiave il token di accesso non può essere salvato."}
+            </p>
           </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">
-          I messaggi in arrivo entrano nel CRM e vengono agganciati alla
-          commessa <strong>tramite il numero di telefono</strong>, diventando
-          cronologia del cliente. <strong>Solo ricezione:</strong> il CRM non invia
-          nulla, e il numero resta usabile dall'app sul telefono (coexistence).
-        </p>
+        )}
 
         {app.data?.pronta && (
           <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1.5">
@@ -757,13 +819,14 @@ export default function WhatsAppCard() {
           <Button
             size="sm"
             variant="outline"
+            className="min-h-11"
             onClick={() => setLocation("/messaggi/whatsapp")}
           >
             Vai a WhatsApp
-            <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            <ArrowRight className="size-3.5" aria-hidden="true" />
           </Button>
         )}
-      </CardContent>
+      </div>
 
       {/* Passo 1 — basta il verify token: su Meta il webhook si verifica
           PRIMA che il numero esista, quindi il resto arriva dopo. */}
@@ -923,6 +986,6 @@ export default function WhatsAppCard() {
           remove.mutate({ id: daEliminare.id, cancellaComunicazioni: false })
         }
       />
-    </Card>
+    </DataSurface>
   );
 }

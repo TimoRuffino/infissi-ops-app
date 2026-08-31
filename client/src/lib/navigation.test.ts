@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { Circle } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
@@ -281,6 +284,39 @@ describe("voce Preventivatori", () => {
     expect(paths).not.toContain(
       "/preventivatori/punto-del-serramento/persiane"
     );
+  });
+});
+
+describe("hub Impostazioni", () => {
+  const sorgente = readFileSync(
+    resolve(process.cwd(), "client/src/pages/Integrazioni.tsx"),
+    "utf8"
+  );
+
+  // Una card che vive di solo stato locale racconta un contratto server che
+  // non esiste: nessun router, nessun OAuth, nessun sync. L'hub deve mostrare
+  // soltanto integrazioni realmente supportate.
+  it("non simula integrazioni prive di contratto server", () => {
+    expect(sorgente).not.toContain("Microsoft To Do");
+    expect(sorgente).not.toContain(
+      "Sincronizzazione task operativi bidirezionale"
+    );
+    expect(sorgente).not.toContain("todoEnabled");
+  });
+
+  it("espone in Gestione soltanto route registrate in App.tsx", () => {
+    const app = readFileSync(
+      resolve(process.cwd(), "client/src/App.tsx"),
+      "utf8"
+    );
+    const percorsi = [...sorgente.matchAll(/path:\s*"(\/[^"]*)"/g)].map(
+      match => match[1]
+    );
+
+    expect(percorsi.length).toBeGreaterThan(0);
+    for (const percorso of percorsi) {
+      expect(app).toContain(`path="${percorso}"`);
+    }
   });
 });
 

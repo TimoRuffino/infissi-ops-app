@@ -1,19 +1,27 @@
+// /integrazioni — hub Impostazioni.
+//
+// Regola della pagina: si mostra soltanto ciò che un router espone davvero.
+// Nessuna card vive di stato locale, nessuno stato «attivo» è scritto a mano:
+// badge, ultimo esito ed errori vengono dal payload della query. Le operazioni
+// che scrivono dichiarano la conseguenza prima del pulsante.
+//
+// I gate restano quelli già presenti: `isDirezione` per le superfici di
+// direzione (specchio di `adminProcedure`, che promuove ad admin chi ha il
+// ruolo direzione) e l'errore FORBIDDEN della query per i pannelli che il
+// server nasconde. Un errore che non è di permesso non viene più mascherato:
+// diventa uno stato di errore con ritentativo.
+
 import { Badge } from "@/components/ui/badge";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
 import {
-  Settings,
-  CheckCircle2,
   AlertCircle,
-  Loader2,
-  ExternalLink,
   Calendar,
-  ListTodo,
   RefreshCw,
   Truck,
   Users,
@@ -26,14 +34,15 @@ import {
   Plus,
   Trash2,
   Power,
-  Download,
-  Database,
   Play,
   Link2,
   Unlink2,
   KeyRound,
   Square,
+  Store,
+  BookOpen,
 } from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -45,11 +54,11 @@ import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
 
-// Direzione-only surfaces exposed from the Impostazioni hub. Paths match the
-// guarded routes in App.tsx; adding a new entry here automatically surfaces
-// it to direzione users without touching the sidebar.
+// Scorciatoie di direzione verso route già registrate in App.tsx. L'elenco non
+// autorizza nulla: ogni destinazione ha la sua guardia (RequireDirezione) e il
+// suo router. Non si aggiunge una voce se la route non esiste.
 const GESTIONE_LINKS: Array<{
-  icon: any;
+  icon: ComponentType<{ className?: string }>;
   label: string;
   path: string;
   description: string;
@@ -78,305 +87,213 @@ const GESTIONE_LINKS: Array<{
     path: "/preventivatori",
     description: "Calcolatori prezzo per azienda e prodotto",
   },
+  {
+    icon: Users,
+    label: "Utenti",
+    path: "/utenti",
+    description: "Persone, ruoli e deleghe di capability",
+  },
+  {
+    icon: Store,
+    label: "Sedi",
+    path: "/sedi",
+    description: "Anagrafica sedi e ambito dei dati",
+  },
+  {
+    icon: BookOpen,
+    label: "Conoscenza",
+    path: "/conoscenza",
+    description: "Regole e convenzioni aziendali scritte",
+  },
 ];
+
+/**
+ * Vero quando la query è stata rifiutata dal confine dei permessi: il pannello
+ * non riguarda questo utente e resta nascosto, come già faceva la pagina. Ogni
+ * altro errore è un guasto e va mostrato con un ritentativo.
+ */
+function permessoNegato(
+  errore: { data?: { code?: string } | null } | null | undefined
+): boolean {
+  const codice = errore?.data?.code;
+  return codice === "FORBIDDEN" || codice === "UNAUTHORIZED";
+}
+
+function SezioneHub({
+  titolo,
+  descrizione,
+  children,
+}: {
+  titolo: string;
+  descrizione: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="min-w-0 space-y-3">
+      <div className="min-w-0">
+        <h2 className="text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+          {titolo}
+        </h2>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-text-2">
+          {descrizione}
+        </p>
+      </div>
+      <div className="min-w-0 space-y-4">{children}</div>
+    </section>
+  );
+}
 
 export default function Integrazioni() {
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
   const canManage = isDirezione(user);
 
-  // Integration states (would be persisted in real app)
-  const [todoEnabled, setTodoEnabled] = useState(false);
-  const [todoConfig, setTodoConfig] = useState({
-    clientId: "",
-    tenantId: "",
-    autoCreateTasks: true,
-    syncBidirectional: true,
-    defaultList: "Ruffino Flow",
-  });
-
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Settings className="h-6 w-6" />
-          Impostazioni
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Gestione avanzata e configurazione integrazioni
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Caselle email, WhatsApp e Fatture in Cloud valgono{" "}
-          <strong>per la sede selezionata</strong> (la scegli in alto nella
-          barra laterale): ogni sede ha i suoi collegamenti e può tenerne alcuni
-          spenti. Il backup su Google Drive è l'eccezione — è uno per tutta
-          l'installazione, e salva i dati di tutte le sedi.
-        </p>
-      </div>
+    <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
+      <PageHeader
+        eyebrow="Amministrazione"
+        title="Impostazioni"
+        description="Canali, contabilità, calendari e backup. Ogni pannello riporta lo stato che il server conosce: se un collegamento manca, lo dice invece di mostrarsi attivo."
+        metadata={
+          <>
+            <span>
+              Email, WhatsApp, Fatture in Cloud e calendari valgono{" "}
+              <strong className="font-semibold text-text-2">per la sede</strong>{" "}
+              selezionata nella barra laterale.
+            </span>
+            <span>
+              Il backup su Google Drive è{" "}
+              <strong className="font-semibold text-text-2">
+                unico per l&apos;installazione
+              </strong>{" "}
+              e copre i dati di tutte le sedi.
+            </span>
+          </>
+        }
+      />
 
-      {/* Gestione — direzione only. Hub per le sezioni operative avanzate
-          non esposte nella sidebar principale. */}
       {canManage && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Gestione
-            </h2>
-            <Badge variant="outline" className="text-[10px] gap-1">
-              <Lock className="h-3 w-3" />
-              Direzione
-            </Badge>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            {GESTIONE_LINKS.map(link => (
-              <button
-                key={link.path}
-                onClick={() => setLocation(link.path)}
-                className="group text-left rounded-lg border bg-background hover:bg-accent hover:border-primary/40 transition-all p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <link.icon className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium">{link.label}</p>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                      {link.description}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
+        <SezioneHub
+          titolo="Canali"
+          descrizione="Posta e WhatsApp entrano nel CRM in sola lettura e diventano cronologia del cliente. Le credenziali si scrivono una volta e non si rileggono."
+        >
+          <CaselleEmailCard />
+          <WhatsAppCard />
+        </SezioneHub>
       )}
 
-      {/* Integrazioni */}
-      <section className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Integrazioni
-        </h2>
-
-        {/* Microsoft To Do */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent">
-                  <ListTodo className="h-5 w-5 text-accent-foreground" />
-                </div>
-                <div className="min-w-0">
-                  <CardTitle className="text-base">Microsoft To Do</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Sincronizzazione task operativi bidirezionale
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3 sm:justify-end">
-                {todoEnabled ? (
-                  <Badge className="text-xs bg-success-soft text-success hover:bg-success-soft">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Attiva
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-xs">
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    Non configurata
-                  </Badge>
-                )}
-                <Switch
-                  aria-label="Attiva la sincronizzazione con Microsoft To Do"
-                  checked={todoEnabled}
-                  onCheckedChange={setTodoEnabled}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          {todoEnabled && (
-            <CardContent className="space-y-4 border-t pt-4">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Client ID (Azure AD)</Label>
-                  <Input
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    value={todoConfig.clientId}
-                    onChange={e =>
-                      setTodoConfig({ ...todoConfig, clientId: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Tenant ID</Label>
-                  <Input
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    value={todoConfig.tenantId}
-                    onChange={e =>
-                      setTodoConfig({ ...todoConfig, tenantId: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Lista predefinita</Label>
-                <Input
-                  value={todoConfig.defaultList}
-                  onChange={e =>
-                    setTodoConfig({
-                      ...todoConfig,
-                      defaultList: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <Separator />
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Comportamento
-                </h4>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">
-                      Creazione automatica task
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Crea task su To Do alla creazione di interventi, anomalie
-                      e ticket
-                    </p>
-                  </div>
-                  <Switch
-                    checked={todoConfig.autoCreateTasks}
-                    onCheckedChange={v =>
-                      setTodoConfig({ ...todoConfig, autoCreateTasks: v })
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">
-                      Sincronizzazione bidirezionale
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Completando il task su To Do, lo stato si aggiorna
-                      nell'app
-                    </p>
-                  </div>
-                  <Switch
-                    checked={todoConfig.syncBidirectional}
-                    onCheckedChange={v =>
-                      setTodoConfig({ ...todoConfig, syncBidirectional: v })
-                    }
-                  />
-                </div>
-              </div>
-              <Separator />
-              <div className="flex items-center gap-3">
-                <Button size="sm" disabled={!todoConfig.clientId}>
-                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                  Autorizza con Microsoft
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!todoConfig.clientId}
-                >
-                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                  Test connessione
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Richiede un'app registrata su Azure Active Directory con
-                permessi Tasks.ReadWrite. Il token verrà gestito in modo sicuro
-                dal server con refresh automatico.
-              </p>
-            </CardContent>
-          )}
-        </Card>
-
-        {/* La diagnostica tecnica di Tars vive qui, fuori dalla superficie
-            conversazionale; le query sono gated dentro la card. */}
-        <TarsAgentCard direzione={canManage} />
-
-        <div className="space-y-2 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
-            Canali — email e WhatsApp
-          </h3>
-          <div className="space-y-4">
-            <CaselleEmailCard />
-            <WhatsAppCard />
-          </div>
-        </div>
-
-        <div className="space-y-2 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
-            Contabilità
-          </h3>
+      {canManage && (
+        <SezioneHub
+          titolo="Contabilità"
+          descrizione="Fatture in Cloud allinea documenti, pagamenti e anagrafica della sede. Le operazioni che scrivono si simulano prima e dichiarano cosa cambia."
+        >
           <FattureInCloudCard />
           <ImportaClientiCard />
           <ResetPattuitiCard />
-        </div>
+        </SezioneHub>
+      )}
 
-        <div className="space-y-2 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
-            Calendari
-          </h3>
-          <div className="space-y-4">
-            <GoogleCalendarImport />
-            <GoogleCalendarSync />
-          </div>
-        </div>
+      <SezioneHub
+        titolo="Calendari"
+        descrizione="Due direzioni distinte e indipendenti: i calendari Google si leggono dentro il CRM, e gli appuntamenti del CRM si pubblicano come feed iCal."
+      >
+        <GoogleCalendarImport />
+        <GoogleCalendarSync />
+      </SezioneHub>
 
-        <div className="space-y-2 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1.5">
-            Sistema
-          </h3>
+      {canManage && (
+        <SezioneHub
+          titolo="Backup e storage"
+          descrizione="Il salvataggio notturno dell'installazione. Finché Drive non è collegato il backup viene comunque eseguito, ma resta sul disco del server."
+        >
           <BackupDrive />
-        </div>
+        </SezioneHub>
+      )}
 
-        {/* Info */}
-        <Card className="bg-muted/30 mt-4">
-          <CardContent className="p-4">
-            <h4 className="text-sm font-semibold mb-2">
-              Come funzionano le integrazioni
-            </h4>
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <p>
-                <strong>Microsoft To Do:</strong> Alla creazione di un
-                intervento, anomalia o ticket, viene generato un task con deep
-                link alla risorsa. Le checklist di posa vengono mappate come
-                sotto-task. Lo stato si sincronizza in entrambe le direzioni.
-              </p>
-              <p>
-                <strong>Google Calendar:</strong> ogni sede pubblica feed iCal
-                (uno per tipo di appuntamento + uno con tutti). Aggiungi il link
-                in Google Calendar con «Altri calendari → Da URL» e gli
-                appuntamenti compaiono e si aggiornano da soli (sola lettura su
-                Google). Ruota il token per revocare tutte le iscrizioni.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+      <SezioneHub
+        titolo="Agente"
+        descrizione="Diagnostica tecnica di Tars: interruttori, provider e budget. Le proposte restano inerti finché una persona non le approva."
+      >
+        {/* La card è gated al suo interno su interruttori e ruolo: qui non si
+            aggiunge un secondo controllo. */}
+        <TarsAgentCard direzione={canManage} />
+      </SezioneHub>
+
+      {canManage && (
+        <SezioneHub
+          titolo="Gestione direzione"
+          descrizione="Scorciatoie verso le superfici raggiungibili dalla direzione. Ogni destinazione applica la propria guardia e il proprio router."
+        >
+          <DataSurface
+            density="compact"
+            tone="sunken"
+            title={
+              <span className="flex flex-wrap items-center gap-2">
+                Superfici collegate
+                <Badge variant="outline" className="gap-1 text-[10px]">
+                  <Lock className="h-3 w-3" aria-hidden="true" />
+                  Direzione
+                </Badge>
+              </span>
+            }
+          >
+            <ul className="grid min-w-0 gap-2 sm:grid-cols-2">
+              {GESTIONE_LINKS.map(link => (
+                <li key={link.path} className="min-w-0">
+                  <CollegamentoGestione {...link} />
+                </li>
+              ))}
+            </ul>
+          </DataSurface>
+        </SezioneHub>
+      )}
     </div>
   );
 }
 
+function CollegamentoGestione({
+  icon: Icona,
+  label,
+  path,
+  description,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  path: string;
+  description: string;
+}) {
+  const [, setLocation] = useLocation();
 
+  return (
+    <button
+      type="button"
+      onClick={() => setLocation(path)}
+      className="group flex min-h-11 w-full min-w-0 items-start gap-3 rounded-[var(--radius-control)] border border-border-soft bg-surface p-3 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span
+        aria-hidden="true"
+        className="grid size-9 shrink-0 place-items-center rounded-[var(--radius-control)] bg-surface-2 text-text-2"
+      >
+        <Icona className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate text-sm font-semibold text-text-1">
+            {label}
+          </span>
+          <ArrowRight
+            aria-hidden="true"
+            className="size-4 shrink-0 text-text-3"
+          />
+        </span>
+        <span className="mt-0.5 block text-xs leading-5 text-text-2">
+          {description}
+        </span>
+      </span>
+    </button>
+  );
+}
 
-// ── Fatture in Cloud → clienti automatici ────────────────────────────────────
-// Every 6h (or on demand) the CRM reads the year's issued invoices and
-// creates any client that's still missing — keeps the anagrafica aligned
-// with the fatturazione without manual imports.
-// Reset di pattuito, rate e pagamenti manuali — direzione soltanto.
-//
-// Sta qui e non solo nello script perche' uno script esterno non regge: il
-// server tiene le commesse in memoria e le riscrive intere al primo salvataggio,
-// quindi una scrittura fatta da fuori viene sovrascritta dal primo sync utile.
-// Da questo bottone la mutazione avviene dentro il processo vivo.
-// Import anagrafica da un export Fatture in Cloud — direzione soltanto.
+// ── Import anagrafica da un export Fatture in Cloud — direzione soltanto ─────
 //
 // Il file lo legge il browser e ne manda il testo: l'alternativa era un
 // upload con storage temporaneo per un'operazione che si fa due volte l'anno.
@@ -413,20 +330,14 @@ function ImportaClientiCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">
-          Importa clienti da Fatture in Cloud
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">
-          Carica l&apos;export dei clienti in <strong>CSV</strong>. Chi c&apos;è
-          già viene riconosciuto da partita IVA, codice fiscale o nome e{" "}
-          <strong>non viene duplicato</strong>. Nessun cliente viene mai
-          eliminato o sovrascritto.
-        </p>
-        <p className="text-xs text-muted-foreground">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title="Importa clienti da Fatture in Cloud"
+      description="Carica l'export dei clienti in CSV. Chi c'è già viene riconosciuto da partita IVA, codice fiscale o nome e non viene duplicato: nessun cliente viene mai eliminato o sovrascritto."
+    >
+      <div className="min-w-0 space-y-3 text-sm">
+        <p className="text-xs text-text-2">
           Da Excel: <em>File → Salva come → CSV UTF-8</em>. Da Fatture in Cloud
           si può esportare direttamente in CSV.
         </p>
@@ -439,21 +350,22 @@ function ImportaClientiCard() {
             className="sr-only"
             onChange={e => scegli(e.target.files?.[0])}
           />
-          <Button asChild variant="outline" size="sm" className="h-10">
+          <Button asChild variant="outline" size="sm" className="min-h-11">
             <label htmlFor="import-clienti-file" className="cursor-pointer">
               Scegli il file CSV
             </label>
           </Button>
           {nomeFile && (
-            <span className="min-w-0 truncate text-xs text-muted-foreground">
+            <span className="min-w-0 truncate text-xs text-text-2">
               {nomeFile}
             </span>
           )}
         </div>
 
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
+        <label className="flex cursor-pointer items-start gap-2 text-xs text-text-2">
           <input
             type="checkbox"
+            className="mt-0.5"
             checked={arricchisci}
             onChange={e => setArricchisci(e.target.checked)}
           />
@@ -464,13 +376,13 @@ function ImportaClientiCard() {
         </label>
 
         {report && (
-          <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-2">
-            <p className="font-medium">
+          <div className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3 text-xs">
+            <p className="font-semibold text-text-1">
               {report.dryRun ? "Simulazione — nessuna scrittura" : "Importato"}
             </p>
-            <ul className="space-y-0.5 tabular-nums">
+            <ul className="mt-1 space-y-0.5 tabular-nums text-text-2">
               <li>Righe lette: {report.righeLette}</li>
-              <li className="font-medium">
+              <li className="font-semibold text-text-1">
                 {report.dryRun ? "Da creare" : "Creati"}: {report.creati}
               </li>
               <li>Già in anagrafica: {report.giaPresenti}</li>
@@ -481,36 +393,32 @@ function ImportaClientiCard() {
               )}
             </ul>
             {report.esempiDaCreare?.length > 0 && (
-              <div>
-                <p className="text-muted-foreground">
-                  Esempi fra i nuovi:
-                </p>
-                <p className="mt-0.5">
-                  {report.esempiDaCreare.slice(0, 8).join(" · ")}
-                </p>
-              </div>
+              <p className="mt-2 min-w-0 break-words text-text-2">
+                Esempi fra i nuovi:{" "}
+                {report.esempiDaCreare.slice(0, 8).join(" · ")}
+              </p>
             )}
           </div>
         )}
 
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="outline"
-            className="h-10"
+            className="min-h-11"
             disabled={!csv || importa.isPending}
             onClick={() =>
               importa.mutate({ csv: csv!, apply: false, arricchisci })
             }
           >
             {importa.isPending && (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              <RefreshCw className="size-4 motion-safe:animate-spin" />
             )}
             Simula
           </Button>
           <Button
             size="sm"
-            className="h-10"
+            className="min-h-11"
             disabled={!csv || !report || !report.dryRun || importa.isPending}
             onClick={() =>
               importa.mutate({ csv: csv!, apply: true, arricchisci })
@@ -520,15 +428,21 @@ function ImportaClientiCard() {
           </Button>
         </div>
         {!report && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-text-3">
             Simula prima: il numero della simulazione è quello che verrà creato.
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </DataSurface>
   );
 }
 
+// ── Reset di pattuito, rate e pagamenti manuali — direzione soltanto ─────────
+//
+// Sta qui e non solo nello script perche' uno script esterno non regge: il
+// server tiene le commesse in memoria e le riscrive intere al primo salvataggio,
+// quindi una scrittura fatta da fuori viene sovrascritta dal primo sync utile.
+// Da questo bottone la mutazione avviene dentro il processo vivo.
 function ResetPattuitiCard() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -566,32 +480,37 @@ function ResetPattuitiCard() {
     });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title={
+        <span className="flex flex-wrap items-center gap-2">
           Reset pattuito e pagamenti manuali
           <Badge variant="destructive">Distruttivo</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground">
-          Azzera <strong>importo pattuito</strong> e <strong>piano rate</strong> ed
-          elimina i pagamenti inseriti a mano. I movimenti che arrivano da Fatture
-          in Cloud restano intatti. Dopo il reset, <strong>Sincronizza ora</strong>{" "}
-          ricostruisce il pattuito dalle fatture.
-        </p>
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs">
-          <AlertCircle className="h-4 w-4 shrink-0 text-destructive mt-0.5" />
+        </span>
+      }
+      description="Azzera importo pattuito e piano rate ed elimina i pagamenti inseriti a mano. I movimenti che arrivano da Fatture in Cloud restano intatti; «Sincronizza ora» ricostruisce poi il pattuito dalle fatture."
+    >
+      <div className="min-w-0 space-y-3 text-sm">
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-[var(--radius-control)] border border-danger/40 bg-danger-soft p-3 text-xs text-text-1"
+        >
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-danger"
+          />
           <span>
-            I pagamenti manuali vengono <strong>eliminati, non stornati</strong>.
-            Quelli che Fatture in Cloud conosce tornano al prossimo sync; gli
-            acconti mai fatturati no. Serve un backup Drive riuscito nelle ultime
-            24 ore, altrimenti l&apos;esecuzione viene rifiutata.
+            I pagamenti manuali vengono{" "}
+            <strong>eliminati, non stornati</strong>. Quelli che Fatture in
+            Cloud conosce tornano al prossimo sync; gli acconti mai fatturati
+            no. Serve un backup Drive riuscito nelle ultime 24 ore, altrimenti
+            l&apos;esecuzione viene rifiutata.
           </span>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
             <input
               type="checkbox"
               checked={includiArchiviate}
@@ -599,7 +518,7 @@ function ResetPattuitiCard() {
             />
             <span>Includi anche le commesse archiviate</span>
           </label>
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
             <input
               type="checkbox"
               checked={tutteLeSedi}
@@ -610,8 +529,8 @@ function ResetPattuitiCard() {
         </div>
 
         {report && (
-          <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1">
-            <p className="font-medium">
+          <div className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3 text-xs">
+            <p className="font-semibold text-text-1">
               {report.refusedReason
                 ? "Rifiutato"
                 : report.dryRun
@@ -619,16 +538,18 @@ function ResetPattuitiCard() {
                   : "Eseguito"}
             </p>
             {report.refusedReason ? (
-              <p className="text-destructive">{report.refusedReason}</p>
+              <p className="mt-1 text-danger">{report.refusedReason}</p>
             ) : (
-              <ul className="space-y-0.5 tabular-nums">
+              <ul className="mt-1 space-y-0.5 tabular-nums text-text-2">
                 <li>Commesse esaminate: {report.commesseEsaminate}</li>
                 <li>Pattuiti azzerati: {report.pattuitiAzzerati}</li>
                 <li>Piani rate rimossi: {report.pianiRimossi}</li>
-                <li className="text-destructive">
+                <li className="font-semibold text-danger">
                   Pagamenti manuali eliminati: {report.pagamentiManualiRimossi}
                 </li>
-                <li>Pagamenti FiC conservati: {report.pagamentiFicConservati}</li>
+                <li>
+                  Pagamenti FiC conservati: {report.pagamentiFicConservati}
+                </li>
                 {report.commesseSaltate?.length > 0 && (
                   <li>Saltate (archiviate): {report.commesseSaltate.length}</li>
                 )}
@@ -637,10 +558,11 @@ function ResetPattuitiCard() {
           </div>
         )}
 
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="outline"
+            className="min-h-11"
             disabled={reset.isPending}
             onClick={() => lancia(false)}
           >
@@ -649,6 +571,7 @@ function ResetPattuitiCard() {
           <Button
             size="sm"
             variant="destructive"
+            className="min-h-11"
             disabled={reset.isPending || !report || report.dryRun === false}
             onClick={() => setConfermaAperta(true)}
           >
@@ -656,29 +579,32 @@ function ResetPattuitiCard() {
           </Button>
         </div>
         {!report && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-text-3">
             Simula prima: i numeri della simulazione sono quelli che verranno
             applicati.
           </p>
         )}
+      </div>
 
-        <ConfirmDialog
-          open={confermaAperta}
-          onOpenChange={setConfermaAperta}
-          title="Eliminare i pagamenti inseriti a mano?"
-          description={
-            report
-              ? `Verranno azzerati ${report.pattuitiAzzerati} pattuiti ed eliminati ${report.pagamentiManualiRimossi} pagamenti manuali su ${report.commesseEsaminate} commesse. I ${report.pagamentiFicConservati} movimenti di Fatture in Cloud restano. L'operazione non ha un annullamento: si torna indietro solo dal backup Drive.`
-              : ""
-          }
-          confirmLabel="Elimina"
-          onConfirm={() => lancia(true)}
-        />
-      </CardContent>
-    </Card>
+      <ConfirmDialog
+        open={confermaAperta}
+        onOpenChange={setConfermaAperta}
+        title="Eliminare i pagamenti inseriti a mano?"
+        description={
+          report
+            ? `Verranno azzerati ${report.pattuitiAzzerati} pattuiti ed eliminati ${report.pagamentiManualiRimossi} pagamenti manuali su ${report.commesseEsaminate} commesse. I ${report.pagamentiFicConservati} movimenti di Fatture in Cloud restano. L'operazione non ha un annullamento: si torna indietro solo dal backup Drive.`
+            : ""
+        }
+        confirmLabel="Elimina"
+        onConfirm={() => lancia(true)}
+      />
+    </DataSurface>
   );
 }
 
+// ── Fatture in Cloud → contabilità e clienti della sede ──────────────────────
+// Ogni 6h (o su richiesta) il CRM rilegge i documenti dell'anno e allinea
+// anagrafica, pattuito e pagamenti. Lo stato mostrato è quello del payload.
 function FattureInCloudCard() {
   const status = trpc.fattureInCloud.status.useQuery(undefined, {
     retry: false,
@@ -761,82 +687,117 @@ function FattureInCloudCard() {
     onError: e => toast.error(e.message),
   });
 
-  if (status.error) return null;
+  // Il pannello è direzione-only lato server: un FORBIDDEN significa che non
+  // riguarda questo utente, e resta nascosto come prima.
+  if (permessoNegato(status.error)) return null;
+
+  if (status.isLoading || status.error || !status.data) {
+    return (
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        title="Fatture in Cloud"
+        description="Contabilità della sede: documenti, pagamenti e anagrafica."
+        state={
+          status.error
+            ? {
+                kind: "error",
+                title: "Stato Fatture in Cloud non disponibile",
+                description:
+                  "Il server non ha risposto sullo stato del collegamento. Nessuna operazione è stata eseguita.",
+                action: (
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => void status.refetch()}
+                  >
+                    <RefreshCw className="size-4" aria-hidden="true" />
+                    Riprova
+                  </Button>
+                ),
+              }
+            : {
+                kind: "loading",
+                title: "Lettura stato Fatture in Cloud",
+                description: "Sto chiedendo al server com'è il collegamento.",
+                rows: 2,
+              }
+        }
+      />
+    );
+  }
+
   const st = status.data;
-  if (!st) return null;
   const lastStats = st.lastStats ? presentFicSyncStats(st.lastStats) : [];
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
-              <RefreshCw className="h-5 w-5 text-structure" />
-            </div>
-            <div>
-              <CardTitle className="text-base">
-                Fatture in Cloud · Contabilita
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Sincronizza vendite, note di credito, acquisti, pagamenti e
-                clienti della sede
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {st.configured && (
-              <Switch
-                checked={st.enabled}
-                onCheckedChange={v => save.mutate({ enabled: v })}
-                disabled={st.syncInCorso}
-              />
-            )}
-            {st.syncInCorso ? (
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => annullaSync.mutate()}
-                disabled={annullaSync.isPending}
-              >
-                <Square className="h-3.5 w-3.5 fill-current" />
-                {annullaSync.isPending ? "Arresto…" : "Ferma sincronizzazione"}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={() => sync.mutate()}
-                disabled={!st.configured || sync.isPending}
-              >
-                <RefreshCw
-                  className={
-                    sync.isPending ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"
-                  }
-                />
-                {sync.isPending ? "Avvio…" : "Sincronizza ora"}
-              </Button>
-            )}
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title="Fatture in Cloud"
+      description="Sincronizza vendite, note di credito, acquisti, pagamenti e clienti della sede selezionata."
+      toolbar={
+        <>
+          {st.configured && (
+            <Switch
+              aria-label="Abilita la sincronizzazione Fatture in Cloud"
+              checked={st.enabled}
+              onCheckedChange={v => save.mutate({ enabled: v })}
+              disabled={st.syncInCorso}
+            />
+          )}
+          {st.syncInCorso ? (
             <Button
               size="sm"
-              variant="outline"
-              title="Ricollega le fatture già scaricate e ricostruisce pattuito e rate, senza contattare Fatture in Cloud"
-              onClick={() => riallinea.mutate()}
-              disabled={!st.configured || riallinea.isPending || sync.isPending}
+              variant="destructive"
+              className="min-h-11"
+              onClick={() => annullaSync.mutate()}
+              disabled={annullaSync.isPending}
             >
-              <Link2
+              <Square className="size-3.5 fill-current" aria-hidden="true" />
+              {annullaSync.isPending ? "Arresto…" : "Ferma sincronizzazione"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="min-h-11"
+              onClick={() => sync.mutate()}
+              disabled={!st.configured || sync.isPending}
+            >
+              <RefreshCw
+                aria-hidden="true"
                 className={
-                  riallinea.isPending
-                    ? "h-3.5 w-3.5 animate-pulse"
-                    : "h-3.5 w-3.5"
+                  sync.isPending
+                    ? "size-3.5 motion-safe:animate-spin"
+                    : "size-3.5"
                 }
               />
-              {riallinea.isPending ? "Riallineo…" : "Riallinea dalle fatture"}
+              {sync.isPending ? "Avvio…" : "Sincronizza ora"}
             </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 border-t pt-4">
-        <div className="flex items-center gap-2 flex-wrap text-sm">
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11"
+            title="Ricollega le fatture già scaricate e ricostruisce pattuito e rate, senza contattare Fatture in Cloud"
+            onClick={() => riallinea.mutate()}
+            disabled={!st.configured || riallinea.isPending || sync.isPending}
+          >
+            <Link2
+              aria-hidden="true"
+              className={
+                riallinea.isPending
+                  ? "size-3.5 motion-safe:animate-pulse"
+                  : "size-3.5"
+              }
+            />
+            {riallinea.isPending ? "Riallineo…" : "Riallinea dalle fatture"}
+          </Button>
+        </>
+      }
+    >
+      <div className="min-w-0 space-y-4 border-t border-border-soft pt-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           {st.connected ? (
             <>
               <Badge variant="success">
@@ -857,10 +818,7 @@ function FattureInCloudCard() {
               {st.syncAvviataAt
                 ? ` dalle ${new Date(st.syncAvviataAt).toLocaleTimeString(
                     "it-IT",
-                    {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }
+                    { hour: "2-digit", minute: "2-digit" }
                   )}`
                 : ""}
             </Badge>
@@ -869,13 +827,16 @@ function FattureInCloudCard() {
             <span
               className={`text-xs ${st.lastResult.startsWith("ERRORE") ? "text-danger" : "text-text-2"}`}
             >
-              Ultimo: {st.lastResult}
+              Ultimo esito: {st.lastResult}
             </span>
           )}
         </div>
 
         {lastStats.length > 0 && (
-          <div className="flex flex-wrap gap-1.5" aria-label="Esito ultimo sync FiC">
+          <div
+            className="flex flex-wrap gap-1.5"
+            aria-label="Esito ultimo sync FiC"
+          >
             {lastStats.map(item => (
               <Badge key={item} variant="outline" className="text-[10px]">
                 {item}
@@ -885,7 +846,7 @@ function FattureInCloudCard() {
         )}
 
         {st.permessiEconomiciDaAggiornare && (
-          <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-3">
+          <div className="rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-3">
             <p className="text-sm font-semibold text-text-1">
               Aggiorna i permessi economici
             </p>
@@ -897,26 +858,27 @@ function FattureInCloudCard() {
             {st.oauthClientReady && (
               <Button
                 size="sm"
-                className="mt-3 min-h-10"
+                className="mt-3 min-h-11"
                 onClick={() => oauthStart.mutate()}
                 disabled={oauthStart.isPending}
               >
-                <Link2 className="mr-2 h-4 w-4" />
+                <Link2 className="size-4" aria-hidden="true" />
                 Ricollega e aggiorna permessi
               </Button>
             )}
           </div>
         )}
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           {st.oauthClientReady ? (
             <Button
               size="sm"
+              className="min-h-11"
               variant={st.authMode === "oauth" ? "outline" : "default"}
               onClick={() => oauthStart.mutate()}
               disabled={oauthStart.isPending}
             >
-              <Link2 className="h-3.5 w-3.5 mr-1.5" />
+              <Link2 className="size-3.5" aria-hidden="true" />
               {st.authMode === "oauth"
                 ? "Ricollega account"
                 : "Collega con OAuth"}
@@ -929,6 +891,7 @@ function FattureInCloudCard() {
           <Button
             variant="outline"
             size="sm"
+            className="min-h-11"
             disabled={!st.connected || loadCompanies.isPending}
             onClick={() => loadCompanies.mutate()}
           >
@@ -938,23 +901,24 @@ function FattureInCloudCard() {
             <Button
               variant="ghost"
               size="sm"
-              className="text-danger"
+              className="min-h-11 text-danger"
               onClick={() => disconnect.mutate()}
               disabled={disconnect.isPending}
             >
-              <Unlink2 className="h-3.5 w-3.5 mr-1.5" />
+              <Unlink2 className="size-3.5" aria-hidden="true" />
               Scollega
             </Button>
           )}
         </div>
 
         {companies && companies.length > 1 && (
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex flex-wrap gap-1.5">
             {companies.map(c => (
               <Button
                 key={c.id}
                 variant={st.companyId === c.id ? "default" : "outline"}
                 size="sm"
+                className="min-h-11"
                 onClick={() => save.mutate({ companyId: c.id })}
               >
                 {c.name}
@@ -964,7 +928,7 @@ function FattureInCloudCard() {
         )}
 
         {!st.oauthClientReady && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-text-2">
             Imposta <code>FIC_OAUTH_CLIENT_ID</code>,{" "}
             <code>FIC_OAUTH_CLIENT_SECRET</code> e la callback{" "}
             <code>/api/oauth/fic/callback</code> per attivare il rinnovo
@@ -972,27 +936,34 @@ function FattureInCloudCard() {
           </p>
         )}
 
-        <details className="group rounded-lg border bg-muted/20 px-3 py-2">
-          <summary className="cursor-pointer list-none text-xs font-medium flex items-center gap-2">
-            <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+        {/* Il token non viene mai riletto: il campo è in scrittura, e il
+            server restituisce al massimo un mascheramento come segnaposto. */}
+        <details className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-text-1">
+            <KeyRound className="size-3.5 text-text-3" aria-hidden="true" />
             Token manuale di emergenza
           </summary>
-          <div className="flex gap-2 items-end flex-wrap pt-3">
-            <div className="space-y-1 flex-1 min-w-[240px]">
-              <Label className="text-xs">Access token</Label>
+          <div className="flex flex-wrap items-end gap-2 pt-3">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <Label htmlFor="fic-token" className="text-xs">
+                Access token
+              </Label>
               <Input
+                id="fic-token"
                 type="password"
+                autoComplete="new-password"
                 placeholder={
                   st.authMode === "manual" ? (st.tokenMasked ?? "a/…") : "a/…"
                 }
                 value={token}
                 onChange={e => setToken(e.target.value)}
-                className="h-9 font-mono text-xs"
+                className="h-11 font-mono text-xs"
               />
             </div>
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11"
               disabled={token.trim().length < 10 || save.isPending}
               onClick={() => save.mutate({ accessToken: token.trim() })}
             >
@@ -1000,14 +971,14 @@ function FattureInCloudCard() {
             </Button>
           </div>
         </details>
-      </CardContent>
-    </Card>
+      </div>
+    </DataSurface>
   );
 }
 
-// ── Nightly backup to Google Drive ───────────────────────────────────────────
-// Direzione-only card: status of the scheduled 00:00 backup, manual run,
-// destination folder config and service-account setup instructions.
+// ── Backup notturno su Google Drive ─────────────────────────────────────────
+// Pannello di installazione (non per sede): stato del backup delle 00:00,
+// esecuzione manuale, cartella di destinazione e istruzioni di collegamento.
 function BackupDrive() {
   const status = trpc.backup.status.useQuery(undefined, {
     refetchInterval: 30000,
@@ -1051,56 +1022,81 @@ function BackupDrive() {
     },
   });
 
-  // Hidden for non-direzione (the procedures are admin-only).
-  if (status.error) return null;
-  const s = status.data;
-  if (!s) return null;
+  // Procedure admin: un FORBIDDEN nasconde il pannello, come prima.
+  if (permessoNegato(status.error)) return null;
 
+  if (status.isLoading || status.error || !status.data) {
+    return (
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        title="Backup notturno su Google Drive"
+        description="Vale per l'intera installazione, non per la singola sede."
+        state={
+          status.error
+            ? {
+                kind: "error",
+                title: "Stato del backup non disponibile",
+                description:
+                  "Il server non ha risposto sullo stato del backup. Non è possibile dire se l'ultimo salvataggio sia riuscito.",
+                action: (
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => void status.refetch()}
+                  >
+                    <RefreshCw className="size-4" aria-hidden="true" />
+                    Riprova
+                  </Button>
+                ),
+              }
+            : {
+                kind: "loading",
+                title: "Lettura stato del backup",
+                description: "Sto chiedendo al server l'ultimo salvataggio.",
+                rows: 2,
+              }
+        }
+      />
+    );
+  }
+
+  const s = status.data;
   const last = s.ultimoBackup;
   const nextMin =
     s.prossimoTraMs != null ? Math.round(s.prossimoTraMs / 60000) : null;
   const folderValue = folderId ?? s.folderId;
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
-              <Database className="h-5 w-5 text-structure" />
-            </div>
-            <div>
-              <CardTitle className="text-base">
-                Backup notturno su Google Drive
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Ogni notte alle 00:00 salva clienti, commesse, preventivi,
-                misure e tutti i file in cartelle ordinate per sede e cliente
-              </p>
-            </div>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => runNow.mutate()}
-            disabled={runNow.isPending || s.inCorso}
-          >
-            <Play className="h-3.5 w-3.5 mr-1" />
-            {runNow.isPending || s.inCorso ? "In corso…" : "Esegui ora"}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3 border-t pt-4">
-        <div className="flex items-center gap-2 flex-wrap text-sm">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title="Backup notturno su Google Drive"
+      description="Ogni notte alle 00:00 salva clienti, commesse, preventivi, misure e tutti i file in cartelle ordinate per sede e cliente. È unico per l'installazione."
+      toolbar={
+        <Button
+          size="sm"
+          className="min-h-11"
+          onClick={() => runNow.mutate()}
+          disabled={runNow.isPending || s.inCorso}
+        >
+          <Play className="size-3.5" aria-hidden="true" />
+          {runNow.isPending || s.inCorso ? "In corso…" : "Esegui ora"}
+        </Button>
+      }
+    >
+      <div className="min-w-0 space-y-3 border-t border-border-soft pt-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           {s.mode === "oauth" ? (
             <>
               <Badge variant="success">Drive collegato</Badge>
-              <span className="codice-mono text-[11px] text-text-3 truncate">
+              <span className="codice-mono min-w-0 truncate text-[11px] text-text-3">
                 {s.oauthEmail ?? "account Google"}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-danger"
+                className="min-h-11 text-xs text-danger"
                 onClick={() => oauthDisconnect.mutate()}
                 disabled={oauthDisconnect.isPending}
               >
@@ -1110,7 +1106,7 @@ function BackupDrive() {
           ) : s.mode === "service_account" ? (
             <>
               <Badge variant="success">Drive collegato (service account)</Badge>
-              <span className="codice-mono text-[11px] text-text-3 truncate">
+              <span className="codice-mono min-w-0 truncate text-[11px] text-text-3">
                 {s.serviceAccountEmail}
               </span>
             </>
@@ -1122,7 +1118,7 @@ function BackupDrive() {
               {s.oauthClientReady && (
                 <Button
                   size="sm"
-                  className="h-7 text-xs"
+                  className="min-h-11 text-xs"
                   onClick={() => oauthStart.mutate()}
                   disabled={oauthStart.isPending}
                 >
@@ -1157,14 +1153,15 @@ function BackupDrive() {
               «Backup CRM Ruffino»
             </a>{" "}
             del tuo Drive: puoi spostarla o condividerla liberamente (anche
-            dentro un'altra cartella condivisa) — il CRM continua a trovarla.
+            dentro un&apos;altra cartella condivisa) — il CRM continua a
+            trovarla.
           </p>
         )}
 
         {last && (
-          <div className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs space-y-0.5">
-            <p>
-              <span className="font-semibold">Ultimo backup:</span>{" "}
+          <div className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2 text-xs">
+            <p className="min-w-0">
+              <span className="font-semibold text-text-1">Ultimo backup:</span>{" "}
               {new Date(last.startedAt).toLocaleString("it-IT")} ·{" "}
               {last.ok == null ? (
                 <Badge variant="secondary" className="text-[10px]">
@@ -1180,29 +1177,31 @@ function BackupDrive() {
                 </Badge>
               )}
             </p>
-            <p className="text-text-2">
+            <p className="mt-0.5 text-text-2">
               {last.rootName} — {last.files} file,{" "}
               {(last.bytes / 1024 / 1024).toFixed(1)} MB
             </p>
-            {last.error && <p className="text-danger">{last.error}</p>}
+            {last.error && <p className="mt-0.5 text-danger">{last.error}</p>}
           </div>
         )}
 
         {s.mode === "service_account" && (
-          <div className="flex gap-2 items-end flex-wrap">
-            <div className="space-y-1 flex-1 min-w-[260px]">
-              <Label className="text-xs">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[260px] flex-1 space-y-1">
+              <Label htmlFor="backup-folder" className="text-xs">
                 ID cartella Google Drive di destinazione
               </Label>
               <Input
+                id="backup-folder"
                 value={folderValue}
                 onChange={e => setFolderId(e.target.value)}
-                className="h-9 font-mono text-xs"
+                className="h-11 font-mono text-xs"
               />
             </div>
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11"
               disabled={
                 folderId == null ||
                 folderId.trim() === s.folderId ||
@@ -1218,12 +1217,12 @@ function BackupDrive() {
         )}
 
         {!s.driveConfigurato && !s.oauthClientReady && (
-          <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5">
-            <p className="text-xs font-semibold mb-1">
+          <div className="rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2.5">
+            <p className="mb-1 text-xs font-semibold text-text-1">
               Per collegare Google Drive (account Google normale, una sola
               volta):
             </p>
-            <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+            <ol className="list-decimal space-y-1 pl-5 text-xs text-text-2">
               <li>
                 Su{" "}
                 <span className="font-medium text-text-1">
@@ -1232,7 +1231,7 @@ function BackupDrive() {
                 → «API e servizi» → «Schermata consenso OAuth»: configurala
                 (tipo <span className="font-medium text-text-1">Esterno</span>),
                 aggiungi la tua email e poi{" "}
-                <span className="font-medium text-text-1">pubblica l'app</span>{" "}
+                <span className="font-medium text-text-1">pubblica l&apos;app</span>{" "}
                 (stato «In produzione»).
               </li>
               <li>
@@ -1251,7 +1250,7 @@ function BackupDrive() {
                 «Collega Google Drive».
               </li>
             </ol>
-            <p className="text-[11px] text-text-3 mt-1.5">
+            <p className="mt-1.5 text-[11px] text-text-3">
               Finché Drive non è collegato il backup notturno viene comunque
               eseguito e salvato sul disco del server (cartella{" "}
               <span className="codice-mono">backups/</span>).
@@ -1265,21 +1264,20 @@ function BackupDrive() {
             <span className="font-medium text-text-1">
               «Collega Google Drive»
             </span>{" "}
-            qui sopra, scegli l'account e autorizza. Da quel momento il backup
-            notturno finisce su Drive.
+            qui sopra, scegli l&apos;account e autorizza. Da quel momento il
+            backup notturno finisce su Drive.
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </DataSurface>
   );
 }
 
-// ── Import Google calendars INTO the CRM (read-only overlay) ─────────────────
-// The operator pastes the "Secret address in iCal format" of each Google
-// calendar. The server fetches + parses them; the Planning view overlays the
-// events. Multiple calendars supported.
+// ── Import dei calendari Google DENTRO il CRM (overlay in sola lettura) ──────
+// L'operatore incolla l'«indirizzo segreto in formato iCal» di ogni calendario
+// Google. Il server li scarica e li interpreta; il Calendario li sovrappone.
 function GoogleCalendarImport() {
-  const list = trpc.externalCalendars.list.useQuery();
+  const list = trpc.externalCalendars.list.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const [nome, setNome] = useState("");
   const [url, setUrl] = useState("");
@@ -1295,48 +1293,50 @@ function GoogleCalendarImport() {
   });
   const remove = trpc.externalCalendars.remove.useMutation({
     onSuccess: () => utils.externalCalendars.invalidate(),
+    onError: e => toast.error(e.message ?? "Rimozione non riuscita"),
   });
   const update = trpc.externalCalendars.update.useMutation({
     onSuccess: () => utils.externalCalendars.invalidate(),
+    onError: e => toast.error(e.message ?? "Aggiornamento non riuscito"),
   });
   const refresh = trpc.externalCalendars.refresh.useMutation({
     onSuccess: () => {
       utils.externalCalendars.invalidate();
       toast.success("Aggiornamento richiesto");
     },
+    onError: e => toast.error(e.message ?? "Aggiornamento non riuscito"),
   });
 
+  if (permessoNegato(list.error)) return null;
+
+  const fonti = list.data ?? [];
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
-              <Download className="h-5 w-5 text-structure" />
-            </div>
-            <div>
-              <CardTitle className="text-base">
-                Mostra Google nel calendario CRM
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Importa uno o più calendari Google: i loro eventi compaiono nel
-                Calendario del CRM (sola lettura)
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refresh.mutate()}
-            disabled={refresh.isPending}
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            Aggiorna
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 border-t pt-4">
-        <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title="Mostra Google nel calendario CRM"
+      description="Importa uno o più calendari Google: i loro eventi compaiono nel Calendario del CRM in sola lettura e si aggiornano ogni ~10 minuti."
+      toolbar={
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending || list.isLoading || Boolean(list.error)}
+        >
+          <RefreshCw
+            aria-hidden="true"
+            className={
+              refresh.isPending ? "size-3.5 motion-safe:animate-spin" : "size-3.5"
+            }
+          />
+          Aggiorna
+        </Button>
+      }
+    >
+      <div className="min-w-0 space-y-4 border-t border-border-soft pt-4">
+        <ol className="list-decimal space-y-1 pl-5 text-xs text-text-2">
           <li>
             In Google Calendar apri{" "}
             <span className="font-medium text-text-1">
@@ -1345,7 +1345,7 @@ function GoogleCalendarImport() {
             .
           </li>
           <li>
-            Copia l'
+            Copia l&apos;
             <span className="font-medium text-text-1">
               «Indirizzo segreto in formato iCal»
             </span>{" "}
@@ -1354,118 +1354,157 @@ function GoogleCalendarImport() {
           <li>Incollalo qui sotto con un nome. Ripeti per ogni calendario.</li>
         </ol>
 
-        {/* Add form */}
-        <div className="flex gap-2 flex-wrap items-end">
-          <div className="space-y-1 flex-1 min-w-[140px]">
-            <Label className="text-xs">Nome</Label>
+        <div className="flex min-w-0 flex-wrap items-end gap-2">
+          <div className="min-w-[140px] flex-1 space-y-1">
+            <Label htmlFor="cal-nome" className="text-xs">
+              Nome
+            </Label>
             <Input
+              id="cal-nome"
               placeholder="Es. Squadra posa"
               value={nome}
               onChange={e => setNome(e.target.value)}
-              className="h-9"
+              className="h-11"
             />
           </div>
-          <div className="space-y-1 flex-[2] min-w-[220px]">
-            <Label className="text-xs">Indirizzo iCal (segreto)</Label>
+          <div className="min-w-[220px] flex-[2] space-y-1">
+            <Label htmlFor="cal-url" className="text-xs">
+              Indirizzo iCal (segreto)
+            </Label>
             <Input
+              id="cal-url"
               placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
               value={url}
               onChange={e => setUrl(e.target.value)}
-              className="h-9"
+              className="h-11"
             />
           </div>
           <Button
-            onClick={() =>
-              add.mutate({ nome: nome.trim(), icsUrl: url.trim() })
-            }
+            className="min-h-11"
+            onClick={() => add.mutate({ nome: nome.trim(), icsUrl: url.trim() })}
             disabled={!nome.trim() || !url.trim() || add.isPending}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" />
+            <Plus className="size-3.5" aria-hidden="true" />
             Aggiungi
           </Button>
         </div>
 
-        {/* Sources */}
-        <div className="space-y-1.5">
-          {(list.data ?? []).map((s: any) => (
-            <div
-              key={s.id}
-              className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2"
-            >
-              <span
-                className="h-3 w-3 rounded-full shrink-0"
-                style={{ backgroundColor: s.color }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{s.nome}</p>
-                  {s.status === "error" ? (
-                    <Badge variant="danger" className="text-[10px]">
-                      Errore
-                    </Badge>
-                  ) : s.status === "ok" ? (
-                    <Badge variant="success" className="text-[10px]">
-                      Sincronizzato
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="text-[10px]">
-                      In attesa
-                    </Badge>
-                  )}
-                  {!s.attivo && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Nascosto
-                    </Badge>
+        {list.isLoading ? (
+          <StatoInline
+            kind="loading"
+            titolo="Lettura calendari importati"
+            testo="Sto chiedendo al server le sorgenti configurate per la sede."
+          />
+        ) : list.error ? (
+          <StatoInline
+            kind="error"
+            titolo="Calendari importati non disponibili"
+            testo="Il server non ha risposto: l'elenco qui sotto non è affidabile."
+            azione={
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => void list.refetch()}
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                Riprova
+              </Button>
+            }
+          />
+        ) : fonti.length === 0 ? (
+          <StatoInline
+            kind="empty"
+            titolo="Nessun calendario Google importato"
+            testo="Aggiungi un indirizzo iCal qui sopra: gli eventi compariranno nel Calendario del CRM."
+          />
+        ) : (
+          <ul className="min-w-0 space-y-1.5">
+            {fonti.map((s: any) => (
+              <li
+                key={s.id}
+                className="flex min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="min-w-0 truncate text-sm font-medium text-text-1">
+                      {s.nome}
+                    </p>
+                    {s.status === "error" ? (
+                      <Badge variant="danger" className="text-[10px]">
+                        Errore
+                      </Badge>
+                    ) : s.status === "ok" ? (
+                      <Badge variant="success" className="text-[10px]">
+                        Sincronizzato
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px]">
+                        In attesa
+                      </Badge>
+                    )}
+                    {!s.attivo && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Nascosto
+                      </Badge>
+                    )}
+                  </div>
+                  {s.error && (
+                    <p className="min-w-0 truncate text-[11px] text-danger">
+                      {s.error}
+                    </p>
                   )}
                 </div>
-                <p className="codice-mono text-[10px] text-text-3 truncate">
-                  {s.icsUrl}
-                </p>
-                {s.error && (
-                  <p className="text-[10px] text-danger truncate">{s.error}</p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title={
-                  s.attivo ? "Nascondi dal calendario" : "Mostra nel calendario"
-                }
-                onClick={() => update.mutate({ id: s.id, attivo: !s.attivo })}
-              >
-                <Power
-                  className={`h-3.5 w-3.5 ${s.attivo ? "text-success" : "text-text-3"}`}
-                />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-danger"
-                title="Rimuovi"
-                onClick={() => remove.mutate(s.id)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-          {(list.data?.length ?? 0) === 0 && !list.isLoading && (
-            <p className="text-xs text-text-2 text-center py-3">
-              Nessun calendario Google importato. Aggiungine uno qui sopra.
-            </p>
-          )}
-        </div>
-        <p className="text-[10px] text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 shrink-0"
+                  aria-label={
+                    s.attivo
+                      ? `Nascondi «${s.nome}» dal calendario`
+                      : `Mostra «${s.nome}» nel calendario`
+                  }
+                  title={
+                    s.attivo ? "Nascondi dal calendario" : "Mostra nel calendario"
+                  }
+                  onClick={() => update.mutate({ id: s.id, attivo: !s.attivo })}
+                >
+                  <Power
+                    aria-hidden="true"
+                    className={`size-4 ${s.attivo ? "text-success" : "text-text-3"}`}
+                  />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 shrink-0 text-danger"
+                  aria-label={`Rimuovi «${s.nome}»`}
+                  title="Rimuovi"
+                  onClick={() => remove.mutate(s.id)}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="text-[11px] text-text-3">
           Sola lettura: gli eventi Google appaiono nel calendario CRM ma non si
-          modificano da qui. L'aggiornamento avviene ogni ~10 minuti.
+          modificano da qui.
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </DataSurface>
   );
 }
 
-// ── Google Calendar — subscribable ICS feeds (export CRM → Google) ───────────
+// ── Feed iCal sottoscrivibili (export CRM → Google) ──────────────────────────
 function GoogleCalendarSync() {
-  const feeds = trpc.calendarSync.feeds.useQuery();
+  const feeds = trpc.calendarSync.feeds.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const rotate = trpc.calendarSync.rotateToken.useMutation({
     onSuccess: () => {
@@ -1476,6 +1515,7 @@ function GoogleCalendarSync() {
   });
 
   const [copied, setCopied] = useState<string | null>(null);
+  const [confermaRotazione, setConfermaRotazione] = useState(false);
 
   function copyUrl(key: string, path: string) {
     const url = `${window.location.origin}${path}`;
@@ -1489,30 +1529,19 @@ function GoogleCalendarSync() {
       .catch(() => toast.error("Copia non riuscita"));
   }
 
+  if (permessoNegato(feeds.error)) return null;
+
+  const elenco = feeds.data?.feeds ?? [];
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
-              <Calendar className="h-5 w-5 text-structure" />
-            </div>
-            <div>
-              <CardTitle className="text-base">Google Calendar</CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Feed iCal per sede — un calendario per ogni tipo di appuntamento
-              </p>
-            </div>
-          </div>
-          <Badge variant="success" className="gap-1">
-            <CheckCircle2 className="h-3 w-3" />
-            Attiva
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 border-t pt-4">
-        {/* Step-by-step istruzioni */}
-        <ol className="list-decimal pl-5 space-y-1 text-xs text-text-2">
+    <DataSurface
+      density="comfortable"
+      tone="default"
+      title="Pubblica il calendario CRM su Google"
+      description="Un feed iCal per ogni tipo di appuntamento della sede, più uno con tutti. Google li rilegge periodicamente, in genere entro poche ore."
+    >
+      <div className="min-w-0 space-y-4 border-t border-border-soft pt-4">
+        <ol className="list-decimal space-y-1 pl-5 text-xs text-text-2">
           <li>Copia il link del calendario che vuoi sincronizzare.</li>
           <li>
             Apri Google Calendar →{" "}
@@ -1528,66 +1557,144 @@ function GoogleCalendarSync() {
           <li>Ripeti per ogni calendario che ti serve (rilievi, pose, …).</li>
         </ol>
 
-        {/* Feed list */}
-        <div className="space-y-1.5">
-          {(feeds.data?.feeds ?? []).map(f => (
-            <div
-              key={f.key}
-              className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2"
-            >
-              <Calendar className="h-4 w-4 text-text-3 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{f.label}</p>
-                <p className="codice-mono text-[11px] text-text-3 truncate">
-                  {window.location.origin}
-                  {f.path}
-                </p>
-              </div>
+        {feeds.isLoading ? (
+          <StatoInline
+            kind="loading"
+            titolo="Lettura dei feed della sede"
+            testo="Sto chiedendo al server i link pubblicabili."
+          />
+        ) : feeds.error ? (
+          <StatoInline
+            kind="error"
+            titolo="Feed non disponibili"
+            testo="Il server non ha risposto: i link non sono leggibili in questo momento."
+            azione={
               <Button
                 variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => copyUrl(f.key, f.path)}
+                className="min-h-11"
+                onClick={() => void feeds.refetch()}
               >
-                {copied === f.key ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 mr-1 text-success" /> Copiato
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5 mr-1" /> Copia link
-                  </>
-                )}
+                <RefreshCw className="size-4" aria-hidden="true" />
+                Riprova
               </Button>
-            </div>
-          ))}
-          {feeds.isLoading && (
-            <p className="text-xs text-text-2">Caricamento feed…</p>
-          )}
-        </div>
+            }
+          />
+        ) : elenco.length === 0 ? (
+          <StatoInline
+            kind="empty"
+            titolo="Nessun feed disponibile per questa sede"
+            testo="Il server non espone link iCal per la sede selezionata."
+          />
+        ) : (
+          <ul className="min-w-0 space-y-1.5">
+            {elenco.map(f => (
+              <li
+                key={f.key}
+                className="flex min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
+              >
+                <Calendar
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-text-3"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-1">{f.label}</p>
+                  <p className="codice-mono min-w-0 truncate text-[11px] text-text-3">
+                    {window.location.origin}
+                    {f.path}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 shrink-0"
+                  onClick={() => copyUrl(f.key, f.path)}
+                >
+                  {copied === f.key ? (
+                    <>
+                      <Check
+                        className="size-3.5 text-success"
+                        aria-hidden="true"
+                      />{" "}
+                      Copiato
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="size-3.5" aria-hidden="true" /> Copia
+                      link
+                    </>
+                  )}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-        <Separator />
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[11px] text-text-2 max-w-md">
-            I link contengono un token segreto della sede. Se un link finisce
-            nelle mani sbagliate, rigeneralo: tutte le iscrizioni esistenti
-            smettono di funzionare.
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-border-soft pt-3">
+          <p className="max-w-md text-[11px] text-text-2">
+            I link contengono un token segreto della sede. Rigenerandolo{" "}
+            <strong>tutte le iscrizioni esistenti smettono di funzionare</strong>{" "}
+            e vanno rifatte a mano su ogni calendario Google.
           </p>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => rotate.mutate()}
+            className="min-h-11"
+            onClick={() => setConfermaRotazione(true)}
             disabled={rotate.isPending}
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            <RefreshCw className="size-3.5" aria-hidden="true" />
             Rigenera token
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground">
-          Sincronizzazione in sola lettura (app → Google). Google aggiorna i
-          feed iscritti periodicamente, in genere entro poche ore.
-        </p>
-      </CardContent>
-    </Card>
+      </div>
+
+      <ConfirmDialog
+        open={confermaRotazione}
+        onOpenChange={setConfermaRotazione}
+        title="Rigenerare il token dei feed?"
+        description="Tutti i link già incollati in Google Calendar smettono di aggiornarsi: chi li usa dovrà iscriversi di nuovo con i link nuovi. Gli appuntamenti nel CRM non cambiano."
+        confirmLabel="Rigenera"
+        onConfirm={() => {
+          setConfermaRotazione(false);
+          rotate.mutate();
+        }}
+      />
+    </DataSurface>
+  );
+}
+
+/**
+ * Stato esplicito dentro una superficie che ha già titolo e strumenti: la
+ * `state` di DataSurface sostituirebbe l'intero corpo, qui invece il modulo
+ * di configurazione resta utilizzabile mentre l'elenco è in errore o vuoto.
+ */
+function StatoInline({
+  kind,
+  titolo,
+  testo,
+  azione,
+}: {
+  kind: "loading" | "empty" | "error";
+  titolo: string;
+  testo: string;
+  azione?: ReactNode;
+}) {
+  const urgente = kind === "error";
+  return (
+    <div
+      data-stato={kind}
+      role={urgente ? "alert" : "status"}
+      aria-live={urgente ? "assertive" : "polite"}
+      aria-busy={kind === "loading" || undefined}
+      className={`flex min-w-0 flex-col gap-2 rounded-[var(--radius-control)] border px-3 py-3 ${
+        urgente
+          ? "border-danger/40 bg-danger-soft"
+          : "border-border-soft bg-surface-2"
+      }`}
+    >
+      <p className="text-sm font-semibold text-text-1">{titolo}</p>
+      <p className="text-xs leading-5 text-text-2">{testo}</p>
+      {azione}
+    </div>
   );
 }
