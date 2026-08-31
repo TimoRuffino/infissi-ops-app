@@ -79,4 +79,23 @@ describe("boundary presentational delle golden screen", () => {
     expect(page).toMatch(/capabilities\?\.has\("tars\.use"\)/);
     expect(page).toMatch(/aria-relevant="additions text"/);
   });
+
+  it("mantiene le superfici sul campo indipendenti da query e mutation", () => {
+    const header = readPresentation(
+      "../components/operativita/MobileFieldHeader.tsx"
+    );
+    const signature = readPresentation(
+      "../components/operativita/SignaturePad.tsx"
+    );
+
+    for (const source of [header, signature]) {
+      expect(source).not.toMatch(/\btrpc\b|useQuery|useMutation/);
+    }
+    expect(header).toMatch(/export type MobileFieldHeaderProps/);
+    expect(signature).toMatch(/export type SignaturePadProps/);
+    expect(signature).toMatch(/onPointerDown/);
+    expect(signature).toMatch(/onPointerMove/);
+    expect(signature).toMatch(/onPointerUp/);
+    expect(signature).toMatch(/setPointerCapture/);
+  });
 });

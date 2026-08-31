@@ -47,6 +47,10 @@
   --color-on-focal: var(--on-focal);
   --color-mora: var(--mora);
   --color-on-mora: var(--on-mora);
+  /* La firma deve restare leggibile anche se acquisita in dark mode e poi
+     stampata su carta bianca. */
+  --color-signature-paper: #ffffff;
+  --color-signature-ink: #20171b;
 }
 
 @theme {
