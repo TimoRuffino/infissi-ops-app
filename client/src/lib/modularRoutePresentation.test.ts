@@ -37,6 +37,22 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/<DataSurface/);
   });
 
+  it("compone il calendario come workbench capability-aware", () => {
+    const source = routeSource("../pages/Planning.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/<DataSurface/);
+    // Le CTA passano dalla matrice pura, non da ruoli letti nella pagina.
+    expect(source).toMatch(/planningPermissions\(/);
+    expect(source).toMatch(/<PlanningToolbar/);
+    expect(source).toMatch(/<PlanningAgenda/);
+    // L'evento Google apre solo lo sheet in sola lettura.
+    expect(source).toMatch(/mode="read-external"/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 
