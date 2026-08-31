@@ -1,5 +1,10 @@
 # Frame & Flow — Gate anti-AI-slop
 
+> **Direzione estetica superata (31/08/2026).** Questo gate conserva valore
+> storico e le regole anti-decorazione compatibili, ma la direzione visuale e
+> i criteri di firma sono ora definiti dal master prompt v3 “Modular Control /
+> Borgogna Operativa”. In caso di conflitto prevale il master prompt v3.
+
 > Requisito di accettazione, non consiglio. Una schermata fallisce se,
 > cambiando logo e nome, potrebbe appartenere a cento dashboard generate.
 > Ogni revisione (autocritica sulle golden screens + revisione finale

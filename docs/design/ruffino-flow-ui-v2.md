@@ -1,5 +1,11 @@
 # Ruffino Flow UI v2 — «Frame & Flow / Officina Digitale»
 
+> **Direzione estetica superata (31/08/2026).** Il linguaggio visivo Frame &
+> Flow è sostituito dal master prompt v3 “Modular Control / Borgogna
+> Operativa”. Le sezioni tecniche e storiche ancora coerenti con il codice
+> restano materiale di riferimento, ma questo documento non autorizza nuove
+> scelte estetiche. Fonte vincolante: master-prompt-ruffino-flow-ui-ux-v3.md.
+
 > Dossier di direzione del redesign. Mandato della direzione del 31/08/2026,
 > eseguito sul branch `feature/ui-v2-frame-flow`. Base: `main` @ `de0ce77`
 > (Tars v2 completo, cost hardening, potenziamento, provider reale acceso).

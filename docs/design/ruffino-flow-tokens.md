@@ -1,5 +1,11 @@
 # Frame & Flow — Token
 
+> **Direzione estetica superata (31/08/2026).** I valori e le firme visuali
+> Frame & Flow sono sostituiti dal master prompt v3 “Modular Control /
+> Borgogna Operativa”. Restano utili soltanto le note tecniche o storiche che
+> non confliggono con il codice corrente. Fonte vincolante:
+> master-prompt-ruffino-flow-ui-ux-v3.md.
+
 > Architettura e valori dei token UI v2. Ogni coppia testo/sfondo qui sotto
 > è passata dal calcolo WCAG (script ripetibile: relative luminance sRGB):
 > **59/59 controlli ≥ soglia** — testo normale ≥4,5:1, confini di controllo

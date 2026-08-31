@@ -1,5 +1,11 @@
 # Frame & Flow — Motion
 
+> **Direzione estetica superata (31/08/2026).** Le firme di movimento Frame &
+> Flow sono sostituite dal master prompt v3 “Modular Control / Borgogna
+> Operativa”. Reduced motion e le altre prescrizioni accessibili ancora
+> valide restano riferimento tecnico. Fonte vincolante:
+> master-prompt-ruffino-flow-ui-ux-v3.md.
+
 > Il movimento è parte dell'identità: vivo e reattivo, mai teatrale. Ogni
 > animazione ha uno scopo (origine, cambiamento, conferma, progresso);
 > quello che non ne ha uno, non esiste.
