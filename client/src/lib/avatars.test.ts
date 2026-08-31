@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -88,5 +88,21 @@ describe("asset degli avatar", () => {
       )
     );
     expect(mancanti).toEqual([]);
+  });
+
+  // Il riquadro più grande nella shell è 40 px (footer compresso): un avatar
+  // pesante è banda sprecata su ogni primo caricamento. Gli asset sono stati
+  // ridotti a 96/192 px; questa soglia impedisce di reintrodurre gli originali.
+  it("non reintroduce asset sovradimensionati", () => {
+    const TETTO_BYTE = 64 * 1024;
+    const pesanti = AVATAR_SLUGS.flatMap(slug =>
+      [`${slug}.png`, `${slug}@2x.png`]
+        .map(file => ({
+          file,
+          byte: statSync(join("client", "public", "avatars", file)).size,
+        }))
+        .filter(asset => asset.byte > TETTO_BYTE)
+    );
+    expect(pesanti).toEqual([]);
   });
 });
