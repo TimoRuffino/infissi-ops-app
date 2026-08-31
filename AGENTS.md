@@ -82,24 +82,25 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - I segreti cifrati dipendono da `MAIL_ENCRYPTION_KEY`.
 - Non loggare access token, refresh token, password o payload cliente completi.
 
-## Agente AI
+## Agente AI (Tars v2)
 
-- Non esiste: Tars è stato rimosso per intero il 28/08/2026 e verrà rifatto da
-  zero come progetto separato. Storia e decisioni aperte in
-  `docs/tars-rimosso-2026-08-28.md`; ricognizione, invarianti e vincoli in
-  `docs/discovery-dossier-2026-08-28.md` e `docs/source-of-truth-matrix.md`.
-- Ogni automatismo attuale è deterministico: match, regole e aritmetica.
-  Nessun LLM in percorsi di stato, permessi, importi o scadenze.
-- Non rimuovere i residui di compatibilità senza una decisione registrata e
-  una matrice campo→consumer: colonne `tars_*` su `comunicazioni`,
-  `fic_fatture.tarsAnalizzata`, capability `tars.*` (in particolare
-  `tars.manage_policy`, che governa regole già salvate), flag
-  `contextEngineMode`/`plannerMode`/`semanticSearchMode`/`autonomyCapabilities`.
-- `server/_core/llm.ts`, `voiceTranscription.ts` e `imageGeneration.ts` sono
-  infrastruttura candidata senza consumatori attivi: tenerli, sostituirli o
-  eliminarli si decide durante il design del nuovo agente.
-- Il futuro agente si appoggerà a contratti dati/eventi tipizzati e ad
-  approvazione umana: non anticiparne pezzi dentro i router business.
+- Tars v2 ESISTE: ricostruito il 29–30/08/2026 (`server/tars/`, slice T0–T9),
+  mergiato con PR #2 e attivo in produzione dal 31/08 col provider reale.
+  La spec vincolante è `docs/tars/architettura-tars-v2.md`; runbook in
+  `docs/runbooks/rollout-tars.md`; gate costi in `docs/tars/gate-openai.md`.
+  Il vecchio agente rimosso il 28/08 è storia: `docs/tars-rimosso-2026-08-28.md`.
+- Kill switch fail-closed: `FLAG_TARS*` via `server/platform/interruttori.ts`.
+  Tars spento non cambia il CRM; la UI si nasconde, il router rifiuta.
+- Le proposte materiali (L3) restano inerti fino all'approvazione umana; il
+  modello non approva se stesso. Nessun LLM in percorsi deterministici di
+  stato, permessi, importi o scadenze.
+- Cost governor, budget ledger e circuit breaker non si toccano senza
+  decisione registrata nella spec (§20+ prima del codice, come da prassi).
+- Nessuna chiave provider nel client; nessuna chiamata al modello mentre
+  l'utente digita; niente pezzi dell'agente dentro i router business.
+- Non rimuovere i residui di compatibilità (`tars_*` su `comunicazioni`,
+  `fic_fatture.tarsAnalizzata`, capability `tars.*`) senza matrice
+  campo→consumer e decisione registrata.
 
 ## Definizione di completato
 

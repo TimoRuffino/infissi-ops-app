@@ -70,7 +70,7 @@ operatore prevale sul match o sul sync e non viene riscritta.
 | Notifiche | `notifications` + proiettore; campanella dietro `notificationMode` | Legacy store `notifiche_read` finché il confronto non è chiuso |
 | Casi operativi (Centro Azioni) | `azioni_operative` (chiave `(sede_id, canonical_key)`) + segnali deterministici | Modalità da `ACTION_CENTER_MODE` (env), default `shadow` |
 | Promemoria personali | `promemoria` + worker | Visibili solo al richiedente |
-| AI | **Nessuna**: rimossa il 28/08/2026 | Mai fonte primaria di un fatto business. Le colonne `tars_*` su `comunicazioni` e `fic_fatture.tarsAnalizzata` restano senza consumatore, per il futuro agente |
+| AI | **Tars v2** (`server/tars/`, dal 30/08/2026; spec `docs/tars/architettura-tars-v2.md`) | Mai fonte primaria di un fatto business: legge dalle fonti autorevoli con evidenze/omissioni; ogni modifica materiale passa dal gateway proposte con approvazione umana; kill switch `FLAG_TARS*` fail-closed. Le colonne `tars_*` legacy su `comunicazioni` e `fic_fatture.tarsAnalizzata` restano senza consumatore |
 
 ## Regole di conflitto
 
