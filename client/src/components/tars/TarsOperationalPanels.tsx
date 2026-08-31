@@ -101,8 +101,7 @@ export default function TarsOperationalPanels({
   historyToolbar,
   costs,
 }: TarsOperationalPanelsProps) {
-  const terminal =
-    availability.kind === "disabled" || availability.kind === "loading";
+  const terminal = availability.kind !== "available";
 
   return (
     <div
@@ -146,7 +145,7 @@ export default function TarsOperationalPanels({
           </DataSurface>
 
           <div className="grid min-w-0 items-start gap-4 sm:gap-5 min-[1200px]:grid-cols-12">
-            <div className="min-w-0 space-y-4 sm:space-y-5 min-[1200px]:col-span-8">
+            <div className="order-last min-w-0 space-y-4 sm:space-y-5 min-[1200px]:order-first min-[1200px]:col-span-8">
               {actions ? (
                 <DataSurface
                   id="tars-actions"
@@ -182,7 +181,7 @@ export default function TarsOperationalPanels({
 
             <aside
               aria-label="Stato di Tars"
-              className="min-w-0 space-y-4 sm:space-y-5 min-[1200px]:sticky min-[1200px]:top-5 min-[1200px]:col-span-4"
+              className="order-first min-w-0 space-y-4 sm:space-y-5 min-[1200px]:order-last min-[1200px]:sticky min-[1200px]:top-5 min-[1200px]:col-span-4"
             >
               {status}
               {costs}

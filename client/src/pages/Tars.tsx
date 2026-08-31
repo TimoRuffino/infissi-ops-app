@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import TarsBriefing from "@/components/TarsBriefing";
 import TarsOperationalPanels from "@/components/tars/TarsOperationalPanels";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import { isDirezione } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -135,7 +136,7 @@ function AzioniTurno({
                   )}
                   <Button
                     size="sm"
-                    className="h-6 px-2 text-[11px]"
+                    className="h-11 px-3 text-xs md:h-8 md:px-2 md:text-[11px]"
                     disabled={
                       approvaEApplica.isPending ||
                       applicate.includes(azione.conferma.propostaId)
@@ -157,7 +158,7 @@ function AzioniTurno({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-[11px] shrink-0"
+                className="h-11 shrink-0 px-3 text-xs md:h-8 md:px-2 md:text-[11px]"
                 disabled={annulla.isPending || giaAnnullato}
                 onClick={() => annulla.mutate({ id: idPromemoria })}
               >
@@ -302,6 +303,9 @@ function EvidenzeTurno({ payload }: { payload: any }) {
 }
 
 export default function Tars() {
+  const { capabilities } = useOperationalContext();
+  const capabilitiesPending = capabilities == null;
+  const puoUsareTars = capabilities?.has("tars.use") ?? false;
   const [conversazioneId, setConversazioneId] = useState<number | null>(null);
   const [messaggio, setMessaggio] = useState("");
 
@@ -325,24 +329,25 @@ export default function Tars() {
   const inVoloRef = useRef<number | null>(null);
   const utils = trpc.useUtils();
 
-  // Le query tars.* partono SOLO con i flag accesi: con Tars spento la
-  // pagina (raggiunta per URL) non produce né richieste né errori console.
+  // Le query tars.* partono SOLO con flag e capability attivi: una route
+  // diretta non deve aggirare il contratto di navigazione del CRM.
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
   });
   const tarsAcceso = Boolean((interruttori.data as any)?.tars);
+  const tarsQueryEnabled = puoUsareTars && tarsAcceso;
 
   const stato = trpc.tars.stato.useQuery(undefined, {
     retry: false,
-    enabled: tarsAcceso,
+    enabled: tarsQueryEnabled,
   });
   const conversazioni = trpc.tars.conversazioni.useQuery(undefined, {
     retry: false,
-    enabled: tarsAcceso,
+    enabled: tarsQueryEnabled,
   });
   const turni = trpc.tars.turni.useQuery(
     { conversazioneId: conversazioneId ?? 0 },
-    { enabled: tarsAcceso && conversazioneId != null, retry: false }
+    { enabled: tarsQueryEnabled && conversazioneId != null, retry: false }
   );
 
   const invia = trpc.tars.invia.useMutation({
@@ -376,15 +381,25 @@ export default function Tars() {
   const platformNonDisponibile = interruttori.error
     ? "Non è possibile verificare lo stato di Tars in questo momento."
     : null;
-  const availability = classifyTarsAvailability({
-    enabled:
-      interruttori.isPending ||
-      Boolean(interruttori.error) ||
-      (tarsAcceso && !erroreKillSwitch),
-    pending: interruttori.isPending || (tarsAcceso && stato.isPending),
-    provider: stato.data?.provider ?? null,
-    unavailableReason: platformNonDisponibile || statoNonDisponibile,
-  });
+  const availability =
+    !capabilitiesPending && !puoUsareTars
+      ? ({
+          kind: "unavailable" as const,
+          reason: "Il tuo profilo non dispone della capability tars.use.",
+        } as const)
+      : classifyTarsAvailability({
+          enabled:
+            capabilitiesPending ||
+            interruttori.isPending ||
+            Boolean(interruttori.error) ||
+            (tarsQueryEnabled && !erroreKillSwitch),
+          pending:
+            capabilitiesPending ||
+            interruttori.isPending ||
+            (tarsQueryEnabled && stato.isPending),
+          provider: stato.data?.provider ?? null,
+          unavailableReason: platformNonDisponibile || statoNonDisponibile,
+        });
   const turniOperativi = (turni.data ?? []).filter(turno => {
     if (turno.ruolo !== "tars") return false;
     const payload = turno.payload as any;
@@ -397,7 +412,7 @@ export default function Tars() {
 
   const inviaOra = () => {
     const testo = messaggio.trim();
-    if (!testo || invia.isPending) return;
+    if (!testo || invia.isPending || availability.kind !== "available") return;
     inVoloRef.current = conversazioneId;
     invia.mutate({
       messaggio: testo,
@@ -408,9 +423,9 @@ export default function Tars() {
   return (
     <TarsOperationalPanels
       availability={availability}
-      briefing={<TarsBriefing enabled={tarsAcceso} />}
+      briefing={<TarsBriefing enabled={availability.kind === "available"} />}
       status={<StatoPannello stato={stato.data} />}
-      costs={<CostiPannello enabled={tarsAcceso} />}
+      costs={<CostiPannello enabled={availability.kind === "available"} />}
       actions={
         turniOperativi.length > 0 ? (
           <div className="space-y-3">
@@ -453,7 +468,7 @@ export default function Tars() {
             }
           >
             <SelectTrigger
-              className="h-9 w-[min(17rem,65vw)] text-xs"
+              className="h-11 min-h-11 w-[min(17rem,65vw)] text-xs sm:h-9"
               aria-label="Conversazioni"
             >
               <SelectValue placeholder="Nuova conversazione" />
@@ -473,7 +488,7 @@ export default function Tars() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             title="Nuova conversazione"
             aria-label="Nuova conversazione"
             onClick={() => setConversazioneId(null)}
@@ -486,6 +501,7 @@ export default function Tars() {
         <div
           role="log"
           aria-live="polite"
+          aria-relevant="additions text"
           aria-label="Conversazione con Tars"
           className="max-h-[32rem] min-h-64 space-y-3 overflow-y-auto rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3"
         >
@@ -534,7 +550,7 @@ export default function Tars() {
         </div>
       }
       composer={
-        tarsAcceso ? (
+        availability.kind === "available" ? (
           <div className="flex min-w-0 items-end gap-2">
             <Textarea
               aria-label="Richiesta a Tars"

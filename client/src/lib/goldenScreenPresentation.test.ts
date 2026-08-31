@@ -70,9 +70,13 @@ describe("boundary presentational delle golden screen", () => {
     const source = readPresentation(
       "../components/tars/TarsOperationalPanels.tsx"
     );
+    const page = readPresentation("../pages/Tars.tsx");
 
     expect(source).not.toMatch(/\btrpc\b|useQuery|useMutation/);
     expect(source).toMatch(/export type TarsOperationalPanelsProps/);
     expect(source).toMatch(/availability: TarsAvailability/);
+    expect(source).toMatch(/availability\.kind === "unavailable"/);
+    expect(page).toMatch(/capabilities\?\.has\("tars\.use"\)/);
+    expect(page).toMatch(/aria-relevant="additions text"/);
   });
 });
