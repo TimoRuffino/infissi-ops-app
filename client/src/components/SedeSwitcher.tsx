@@ -86,13 +86,13 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   if (!canSwitch) {
     if (!activeSede) return null;
     return (
-      <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs">
+      <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-[var(--sidebar-chip-bg)] px-2.5 py-2 text-sidebar-foreground shadow-xs">
         {Badge}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[10px] font-medium uppercase text-white/48">
+          <div className="text-[10px] font-medium uppercase text-[var(--sidebar-chip-label)]">
             Sede attiva
           </div>
-          <div className="truncate text-sm font-semibold text-white">
+          <div className="truncate text-sm font-semibold text-[var(--sidebar-chip-text)]">
             {activeSede.nome}
           </div>
         </div>
@@ -105,19 +105,19 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="group flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs transition-[background-color,border-color,box-shadow] hover:border-sidebar-primary/45 hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="group flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-[var(--sidebar-chip-bg)] px-2.5 py-2 text-sidebar-foreground shadow-xs transition-[background-color,border-color,box-shadow] hover:border-sidebar-primary/45 hover:bg-[var(--sidebar-chip-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           title="Cambia sede"
         >
           {Badge}
           <div className="min-w-0 flex-1 text-left leading-tight">
-            <div className="text-[10px] font-medium uppercase text-white/48">
+            <div className="text-[10px] font-medium uppercase text-[var(--sidebar-chip-label)]">
               Sede attiva
             </div>
-            <div className="truncate text-sm font-semibold text-white">
+            <div className="truncate text-sm font-semibold text-[var(--sidebar-chip-text)]">
               {activeSede?.nome ?? "Seleziona sede"}
             </div>
           </div>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-white/48 transition-colors group-hover:text-white" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-[var(--sidebar-chip-label)] transition-colors group-hover:text-[var(--sidebar-chip-text)]" />
         </button>
       </DropdownMenuTrigger>
       <SwitcherMenu

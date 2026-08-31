@@ -347,7 +347,7 @@ function DashboardLayoutContent({
                   <img
                     src="/logo.svg"
                     alt="Ruffino Group"
-                    className="h-5 w-auto max-w-[116px] brightness-0 invert shrink-0"
+                    className="sidebar-logo h-5 w-auto max-w-[116px] shrink-0"
                   />
                   <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />
@@ -408,7 +408,7 @@ function DashboardLayoutContent({
                           />
                         </SidebarMenuButton>
                         {aperto && (
-                          <div className="ml-4 border-l border-white/10 pl-1 mt-0.5 space-y-0.5">
+                          <div className="ml-4 border-l border-[var(--sidebar-hairline)] pl-1 mt-0.5 space-y-0.5">
                             {figlie.map((c) => {
                               const attiva = isPathActive(location, c.path);
                               return (
@@ -419,7 +419,7 @@ function DashboardLayoutContent({
                                   tooltip={c.label}
                                   className={`relative h-9 transition-all ${
                                     attiva
-                                      ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-white font-semibold"
+                                      ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                                       : "font-normal"
                                   }`}
                                 >
@@ -427,7 +427,7 @@ function DashboardLayoutContent({
                                     <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
                                   )}
                                   <c.icon
-                                    className={`h-4 w-4 transition-colors ${attiva ? "text-white" : ""}`}
+                                    className={`h-4 w-4 transition-colors ${attiva ? "text-sidebar-accent-foreground" : ""}`}
                                   />
                                   <span className="flex-1">{c.label}</span>
                                   {c.path === "/chat" && chatNonLetti > 0 && (
@@ -453,7 +453,7 @@ function DashboardLayoutContent({
                         tooltip={item.label}
                         className={`relative h-10 transition-all ${
                           itemState.active
-                            ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-white font-semibold"
+                            ? "bg-sidebar-accent hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                             : "font-normal"
                         }`}
                       >
@@ -461,7 +461,7 @@ function DashboardLayoutContent({
                           <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-sidebar-primary" />
                         )}
                         <item.icon
-                          className={`h-4 w-4 transition-colors ${itemState.active ? "text-white" : ""}`}
+                          className={`h-4 w-4 transition-colors ${itemState.active ? "text-sidebar-accent-foreground" : ""}`}
                         />
                         <span className="flex-1">{item.label}</span>
                         {item.badge && (
@@ -480,13 +480,13 @@ function DashboardLayoutContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-                  <Avatar className="h-9 w-9 border border-sidebar-border shrink-0 bg-sidebar-primary/15">
-                    <AvatarFallback className="text-xs font-semibold text-sidebar-primary bg-sidebar-primary/15">
+                  <Avatar className="h-9 w-9 border border-sidebar-border shrink-0 bg-[var(--sidebar-avatar-bg)]">
+                    <AvatarFallback className="text-xs font-semibold text-[var(--sidebar-avatar-fg)] bg-[var(--sidebar-avatar-bg)]">
                       {user?.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none text-white">
+                    <p className="text-sm font-medium truncate leading-none text-[var(--sidebar-chip-text)]">
                       {user?.name || "-"}
                     </p>
                     <p className="text-xs text-sidebar-foreground truncate mt-1">

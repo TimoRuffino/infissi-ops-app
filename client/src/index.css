@@ -169,6 +169,17 @@
   --gradient-soft: linear-gradient(135deg, #ffe9ee 0%, #e3f7f1 100%);
   --gradient-page: linear-gradient(135deg, #fff9fb 0%, #f6fbf9 56%, #fff7f4 100%);
   --gradient-sidebar: linear-gradient(165deg, #123c35 0%, #1d302b 58%, #3a202b 100%);
+
+  /* Token componente della sidebar: valori identici a quelli che prima
+     erano classi bianche hardcoded, così la v1 non cambia di un pixel e
+     la v2 può ribaltare la sidebar in chiaro senza toccare i componenti. */
+  --sidebar-hairline: rgba(255, 255, 255, 0.1);
+  --sidebar-chip-bg: rgba(255, 255, 255, 0.055);
+  --sidebar-chip-bg-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-chip-label: rgba(255, 255, 255, 0.48);
+  --sidebar-chip-text: #ffffff;
+  --sidebar-avatar-bg: color-mix(in srgb, var(--sidebar-primary) 15%, transparent);
+  --sidebar-avatar-fg: var(--sidebar-primary);
 }
 
 .dark {
@@ -209,6 +220,14 @@
   --gradient-soft: linear-gradient(135deg, #3d252d 0%, #173c35 100%);
   --gradient-page: linear-gradient(135deg, #1b1719 0%, #141d1b 58%, #201719 100%);
   --gradient-sidebar: linear-gradient(165deg, #0d2b26 0%, #162622 58%, #301b24 100%);
+
+  --sidebar-hairline: rgba(255, 255, 255, 0.1);
+  --sidebar-chip-bg: rgba(255, 255, 255, 0.055);
+  --sidebar-chip-bg-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-chip-label: rgba(255, 255, 255, 0.48);
+  --sidebar-chip-text: #ffffff;
+  --sidebar-avatar-bg: color-mix(in srgb, var(--sidebar-primary) 15%, transparent);
+  --sidebar-avatar-fg: var(--sidebar-primary);
 
   --color-surface: #222421;
   --color-surface-2: #2c2f2b;
@@ -304,17 +323,24 @@
   --chart-3: #31649f;
   --chart-4: #a03e64;
   --chart-5: #5d5a50;
-  /* La sidebar resta petrolio scuro (piatto, senza gradiente) finché la
-     shell v2 non atterra: le classi text-white esistenti la richiedono.
-     La versione chiara «recessiva» arriva con la slice shell. */
-  --sidebar: #14332e;
-  --sidebar-foreground: #d8ebe7;
+  /* Sidebar chiara «recessiva»: canvas caldo un gradino sotto il
+     contenuto, inchiostro, giallo Ruffino solo come marcatore attivo.
+     La navigazione recede, il lavoro avanza. */
+  --sidebar: #f0ede4;
+  --sidebar-foreground: #38332a;
   --sidebar-primary: #f2b705;
   --sidebar-primary-foreground: #231b00;
-  --sidebar-accent: #235248;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #2c5a51;
-  --sidebar-ring: #f2b705;
+  --sidebar-accent: #e4dfd2;
+  --sidebar-accent-foreground: #211e18;
+  --sidebar-border: #ddd6c6;
+  --sidebar-ring: #176b68;
+  --sidebar-hairline: #ddd6c6;
+  --sidebar-chip-bg: rgba(33, 30, 24, 0.05);
+  --sidebar-chip-bg-hover: rgba(33, 30, 24, 0.08);
+  --sidebar-chip-label: #6e6758;
+  --sidebar-chip-text: #211e18;
+  --sidebar-avatar-bg: #f3e3b2;
+  --sidebar-avatar-fg: #5c4a05;
   /* Anti-slop: i gradienti decorativi della v1 non esistono in v2. */
   --gradient-primary: none;
   --gradient-primary-hover: none;
@@ -418,6 +444,13 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #24443d;
   --sidebar-ring: #f4c430;
+  --sidebar-hairline: #24443d;
+  --sidebar-chip-bg: rgba(255, 255, 255, 0.05);
+  --sidebar-chip-bg-hover: rgba(255, 255, 255, 0.09);
+  --sidebar-chip-label: #9ab0aa;
+  --sidebar-chip-text: #f5f1e6;
+  --sidebar-avatar-bg: #3a3010;
+  --sidebar-avatar-fg: #f0d584;
   --gradient-primary: none;
   --gradient-primary-hover: none;
   --gradient-soft: none;
@@ -506,6 +539,16 @@
   background-color: var(--sidebar-accent);
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--sidebar-primary) 22%, transparent);
+}
+
+/* Logo in sidebar: bianco sulla sidebar scura (v1 e v2 dark), inchiostro
+   sulla sidebar chiara della v2. */
+.sidebar-logo {
+  filter: brightness(0) invert(1);
+}
+
+[data-ui-v2]:not(.dark) .sidebar-logo {
+  filter: brightness(0) opacity(0.85);
 }
 
 /* Firma «Frame reveal»: ingresso di superfici importanti (record,
