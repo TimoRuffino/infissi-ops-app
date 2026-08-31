@@ -1,21 +1,22 @@
+import StatePanel from "@/components/patterns/StatePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { EmailMessage } from "@/lib/messaggi";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   CheckCheck,
   ChevronLeft,
   ChevronRight,
-  Inbox,
   Link2,
   Loader2,
   Mail,
   Megaphone,
   Paperclip,
   RefreshCw,
+  Search,
   ShieldBan,
 } from "lucide-react";
 
@@ -128,17 +129,20 @@ function MessageRow({
   return (
     <div
       className={cn(
-        "relative flex min-h-[120px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
+        "relative flex min-h-[112px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
         selected
-          ? "bg-accent/70"
+          ? "bg-accent"
           : unread
             ? "bg-primary-soft/35 hover:bg-primary-soft/55"
-            : "bg-card hover:bg-muted/65"
+            : "bg-surface hover:bg-surface-2"
       )}
     >
-      {unread && (
+      {(selected || unread) && (
         <span
-          className="absolute inset-y-3 left-0 w-[3px] rounded-r-full bg-accent-brand"
+          className={cn(
+            "absolute inset-y-0 left-0 w-[3px]",
+            selected ? "bg-primary" : "bg-accent-brand"
+          )}
           aria-hidden="true"
         />
       )}
@@ -256,7 +260,7 @@ function BulkToolbar({
   onNewsletter: () => void;
 }) {
   return (
-    <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2/70 px-2">
+    <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2 px-2">
       <label className="grid size-10 shrink-0 cursor-pointer place-items-center">
         <span className="sr-only">Seleziona tutte le email della pagina</span>
         <Checkbox
@@ -338,13 +342,16 @@ export default function EmailMessageList({
   messages,
   selectedId,
   viewLabel,
+  search,
   loading,
   fetching,
   error,
+  emptyTitle,
   emptyMessage,
   page,
   hasPreviousPage,
   hasNextPage,
+  onSearchChange,
   onOpen,
   selectedIds,
   bulkPending,
@@ -360,13 +367,16 @@ export default function EmailMessageList({
   messages: EmailMessage[];
   selectedId: number | null;
   viewLabel: string;
+  search: string;
   loading: boolean;
   fetching: boolean;
   error: string | null;
+  emptyTitle: string;
   emptyMessage: string;
   page: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
+  onSearchChange: (value: string) => void;
   onOpen: (message: EmailMessage) => void;
   selectedIds: Set<number>;
   bulkPending: boolean;
@@ -379,29 +389,50 @@ export default function EmailMessageList({
   onPreviousPage: () => void;
   onNextPage: () => void;
 }) {
+  // Il conteggio è onesto: mentre la coda carica o è in errore non esiste
+  // ancora un numero da mostrare, e "0" sarebbe una bugia.
+  const countLabel = loading || error ? null : `${messages.length} in pagina`;
+
   return (
     <section
       aria-label="Elenco email"
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-card"
+      className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border-soft px-3">
-        <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase text-text-3">
-          {viewLabel}
-        </span>
-        {fetching && !loading && (
-          <span
-            className="inline-flex items-center gap-1.5 text-xs text-text-3"
-            role="status"
-          >
-            <Loader2 className="size-3.5 animate-spin" />
-            Aggiornamento
+      <div className="shrink-0 border-b border-border-soft px-3 py-2.5">
+        <label htmlFor="email-search" className="sr-only">
+          Cerca nelle email
+        </label>
+        <div className="relative min-w-0">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3"
+            aria-hidden="true"
+          />
+          <Input
+            id="email-search"
+            className="h-11 pl-9"
+            placeholder="Cerca testo, cliente o commessa"
+            value={search}
+            onChange={event => onSearchChange(event.target.value)}
+          />
+        </div>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+            {viewLabel}
           </span>
-        )}
-        {!fetching && (
-          <span className="text-xs tabular-nums text-text-3">
-            {messages.length}
-          </span>
-        )}
+          {fetching && !loading ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3"
+              role="status"
+            >
+              <Loader2 className="size-3.5 motion-safe:animate-spin" />
+              Aggiornamento
+            </span>
+          ) : countLabel ? (
+            <span className="shrink-0 text-xs tabular-nums text-text-3">
+              {countLabel}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {!loading && !error && messages.length > 0 && (
@@ -420,34 +451,32 @@ export default function EmailMessageList({
         {loading ? (
           <ListSkeleton />
         ) : error ? (
-          <div className="grid min-h-64 place-items-center px-5 py-10 text-center">
-            <div>
-              <AlertCircle className="mx-auto size-6 text-destructive" />
-              <p className="mt-3 text-sm font-semibold">
-                Impossibile caricare le email
-              </p>
-              <p className="mt-1 text-xs leading-5 text-text-3">{error}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-4"
-                onClick={onRetry}
-              >
-                <RefreshCw className="size-3.5" />
-                Riprova
-              </Button>
-            </div>
+          <div className="p-3">
+            <StatePanel
+              kind="error"
+              compact
+              title="Impossibile caricare le email"
+              description={error}
+              action={
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={onRetry}
+                >
+                  <RefreshCw className="size-4" />
+                  Riprova
+                </Button>
+              }
+            />
           </div>
         ) : messages.length === 0 ? (
-          <div className="grid min-h-64 place-items-center px-5 py-10 text-center">
-            <div>
-              <div className="mx-auto grid size-11 place-items-center rounded-md bg-surface-2 text-text-3">
-                <Inbox className="size-5" />
-              </div>
-              <p className="mt-3 max-w-xs text-sm leading-6 text-text-3">
-                {emptyMessage}
-              </p>
-            </div>
+          <div className="p-3">
+            <StatePanel
+              kind="empty"
+              compact
+              title={emptyTitle}
+              description={emptyMessage}
+            />
           </div>
         ) : (
           messages.map(message => (
@@ -464,11 +493,11 @@ export default function EmailMessageList({
       </div>
 
       {!loading && !error && (hasPreviousPage || hasNextPage) && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-t border-border-soft px-3">
+        <div className="flex shrink-0 items-center justify-between border-t border-border-soft px-3 py-1.5">
           <Button
             size="icon"
             variant="ghost"
-            className="size-10"
+            className="size-11"
             disabled={!hasPreviousPage || fetching}
             onClick={onPreviousPage}
             aria-label="Pagina precedente"
@@ -482,7 +511,7 @@ export default function EmailMessageList({
           <Button
             size="icon"
             variant="ghost"
-            className="size-10"
+            className="size-11"
             disabled={!hasNextPage || fetching}
             onClick={onNextPage}
             aria-label="Pagina successiva"

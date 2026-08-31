@@ -35,8 +35,15 @@ export function parseEmailMessageId(search: string): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-export function emailMessageHref(id: number): string {
-  const params = new URLSearchParams({ messaggio: String(id) });
+/**
+ * Link canonico a un messaggio: `view` prima di `messaggio`, lo stesso ordine
+ * prodotto dalla pagina e da `legacyMessageRedirect`. Senza vista il link resta
+ * valido e la pagina ricade sulla coda operativa.
+ */
+export function emailMessageHref(id: number, view?: EmailView): string {
+  const params = new URLSearchParams();
+  if (view) params.set("view", view);
+  params.set("messaggio", String(id));
   return `/messaggi/email?${params.toString()}`;
 }
 

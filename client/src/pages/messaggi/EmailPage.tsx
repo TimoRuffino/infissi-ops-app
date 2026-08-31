@@ -7,6 +7,9 @@ import EmailMessageList, {
   type EmailCategory,
 } from "@/components/messaggi/EmailMessageList";
 import EmailMessageReader from "@/components/messaggi/EmailMessageReader";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
+import StatePanel from "@/components/patterns/StatePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -24,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { emailPaneVisibility } from "@/lib/emailLayout";
+import { EMAIL_COMPACT_QUERY, emailPaneVisibility } from "@/lib/emailLayout";
 import {
   EMAIL_VIEWS,
   emailBulkExclusionCopy,
@@ -33,27 +35,30 @@ import {
   type EmailMessage,
   type EmailView,
 } from "@/lib/messaggi";
+import { personName } from "@/lib/name";
 import { isDirezione } from "@/lib/roles";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
-  AlertTriangle,
   CheckCheck,
   Inbox,
+  Link2,
   Loader2,
-  Mail,
   Paperclip,
   RefreshCw,
-  Search,
   Settings2,
   ShieldBan,
   Sparkles,
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 50;
@@ -67,50 +72,66 @@ const VIEW_LABELS: Record<EmailView, string> = {
   escluse: "Escluse",
 };
 
+const VIEW_ICONS: Record<EmailView, typeof Inbox> = {
+  da_gestire: Inbox,
+  lead: Sparkles,
+  allegati: Paperclip,
+  collegate: Link2,
+  gestite: CheckCheck,
+  escluse: ShieldBan,
+};
+
+const EMPTY_TITLES: Record<EmailView, string> = {
+  da_gestire: "Coda operativa vuota",
+  lead: "Nessun nuovo lead",
+  allegati: "Nessuna email con allegati",
+  collegate: "Nessuna email collegata",
+  gestite: "Nessuna email gestita",
+  escluse: "Nessuna email esclusa",
+};
+
 const EMPTY_MESSAGES: Record<EmailView, string> = {
-  da_gestire: "Tutto gestito. La coda operativa e vuota.",
+  da_gestire: "Tutto gestito: qui restano solo le email ancora da lavorare.",
   lead: "Non ci sono nuovi lead con questi filtri.",
   allegati: "Nessuna email con allegati con questi filtri.",
-  collegate: "Nessuna email collegata con questi filtri.",
+  collegate: "Nessuna email collegata a cliente o commessa con questi filtri.",
   gestite: "Non ci sono email gestite con questi filtri.",
   escluse: "Non ci sono email escluse con questi filtri.",
 };
 
-function waitLabel(value: string | Date | null | undefined): string | null {
-  if (!value) return null;
-  const minutes = Math.max(
-    0,
-    Math.floor((Date.now() - new Date(value).getTime()) / 60_000)
-  );
-  if (minutes < 1) return "meno di un minuto";
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} ${hours === 1 ? "ora" : "ore"}`;
-  const days = Math.floor(hours / 24);
-  return `${days} ${days === 1 ? "giorno" : "giorni"}`;
+/** Un conteggio esiste solo quando il server lo ha davvero mandato. */
+function countLabel(value: number | null): string {
+  return value == null ? "—" : String(value);
 }
 
+function readEmailSelection(search: string): {
+  id: number | null;
+  invalid: boolean;
+} {
+  const raw = new URLSearchParams(search).get("messaggio");
+  const id = parseEmailMessageId(search);
+  return { id, invalid: raw != null && id == null };
+}
+
+/** Query state canonico: `?view=<EmailView>&messaggio=<intero positivo>`. */
 function replaceEmailQuery(view: EmailView, messageId: number | null) {
-  const params = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams();
   params.set("view", view);
-  if (messageId == null) params.delete("messaggio");
-  else params.set("messaggio", String(messageId));
-  const query = params.toString();
+  if (messageId != null) params.set("messaggio", String(messageId));
   window.history.replaceState(
     window.history.state,
     "",
-    `${window.location.pathname}${query ? `?${query}` : ""}`
+    `${window.location.pathname}?${params.toString()}`
   );
 }
 
 function useCompactEmailLayout(): boolean {
-  const query = "(max-width: 1279px)";
   const [matches, setMatches] = useState(
-    () => window.matchMedia(query).matches
+    () => window.matchMedia(EMAIL_COMPACT_QUERY).matches
   );
 
   useEffect(() => {
-    const media = window.matchMedia(query);
+    const media = window.matchMedia(EMAIL_COMPACT_QUERY);
     const update = () => setMatches(media.matches);
     update();
     media.addEventListener("change", update);
@@ -132,8 +153,8 @@ export default function EmailPage() {
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const [category, setCategory] = useState<EmailCategory | null>(null);
   const [page, setPage] = useState(0);
-  const [selectedId, setSelectedId] = useState<number | null>(() =>
-    parseEmailMessageId(window.location.search)
+  const [selection, setSelection] = useState(() =>
+    readEmailSelection(window.location.search)
   );
   const [focusMode, setFocusMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -142,11 +163,12 @@ export default function EmailPage() {
     "spam" | "offerta_marketing" | null
   >(null);
   const deferredSearch = useDeferredValue(search.trim());
+  const selectedId = selection.id;
 
   useEffect(() => {
     const onPopState = () => {
       setView(parseEmailView(window.location.search));
-      setSelectedId(parseEmailMessageId(window.location.search));
+      setSelection(readEmailSelection(window.location.search));
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -155,6 +177,12 @@ export default function EmailPage() {
   useEffect(() => {
     if (compact) setFocusMode(false);
   }, [compact]);
+
+  // Un `messaggio` non valido non apre nulla: l'URL torna canonico e il
+  // problema resta scritto in testa alla pagina, non nascosto.
+  useEffect(() => {
+    if (selection.invalid) replaceEmailQuery(view, null);
+  }, [selection.invalid, view]);
 
   const stats = trpc.mail.email.stats.useQuery();
   const mailboxOptions = trpc.mail.caselle.opzioni.useQuery();
@@ -195,9 +223,7 @@ export default function EmailPage() {
     () =>
       (users.data ?? [])
         .filter(person => person.attivo && relevantAssigneeIds.has(person.id))
-        .sort((a, b) =>
-          `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)
-        ),
+        .sort((a, b) => personName(a).localeCompare(personName(b))),
     [relevantAssigneeIds, users.data]
   );
   const rawMessages = rows.data ?? [];
@@ -256,11 +282,11 @@ export default function EmailPage() {
     replaceEmailQuery(nextView, selectedId);
   };
   const openMessage = (message: EmailMessage) => {
-    setSelectedId(message.id);
+    setSelection({ id: message.id, invalid: false });
     replaceEmailQuery(view, message.id);
   };
   const closeMessage = () => {
-    setSelectedId(null);
+    setSelection({ id: null, invalid: false });
     setFocusMode(false);
     replaceEmailQuery(view, null);
   };
@@ -296,304 +322,296 @@ export default function EmailPage() {
     gestite: stats.data?.gestite ?? null,
     escluse: stats.data?.escluse ?? null,
   };
+  const queueSummary = stats.isLoading
+    ? "Conteggi coda in aggiornamento"
+    : toManage == null
+      ? "Conteggi coda non disponibili"
+      : `${toManage} da gestire`;
+
+  const warnings: ReactNode[] = [];
+  if (selection.invalid)
+    warnings.push(
+      <p key="link">
+        Il link conteneva un identificativo email non valido: sei tornato
+        all'elenco della coda.
+      </p>
+    );
+  if (stats.isError)
+    warnings.push(
+      <p key="stats" className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1">
+          Statistiche email non disponibili: i contatori delle code restano
+          vuoti.
+        </span>
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={() => stats.refetch()}
+        >
+          <RefreshCw className="size-4" />
+          Riprova
+        </Button>
+      </p>
+    );
+
+  // Gli stessi controlli servono nel rail (>=1280px) e nella barra compatta
+  // sotto la soglia: una sola definizione, due contenitori.
+  const filterControls = (
+    <>
+      <Select
+        value={mailboxId == null ? "tutte" : String(mailboxId)}
+        onValueChange={value => {
+          setMailboxId(value === "tutte" ? null : Number(value));
+          resetPage();
+        }}
+      >
+        <SelectTrigger className="min-h-11 w-full" aria-label="Casella email">
+          <SelectValue placeholder="Casella" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="tutte">Tutte le caselle</SelectItem>
+          {(mailboxOptions.data ?? []).map(mailbox => (
+            <SelectItem key={mailbox.id} value={String(mailbox.id)}>
+              {mailbox.nome}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={assigneeId == null ? "tutti" : String(assigneeId)}
+        onValueChange={value => {
+          setAssigneeId(value === "tutti" ? null : Number(value));
+          resetPage();
+        }}
+      >
+        <SelectTrigger className="min-h-11 w-full" aria-label="Assegnatario">
+          <UserRound className="size-3.5" />
+          <SelectValue placeholder="Assegnatario" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
+          {assigneeOptions.map(person => (
+            <SelectItem key={person.id} value={String(person.id)}>
+              {personName(person, `Utente #${person.id}`)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={category ?? "tutte"}
+        onValueChange={value => {
+          setCategory(value === "tutte" ? null : (value as EmailCategory));
+          resetPage();
+        }}
+        disabled={view === "lead"}
+      >
+        <SelectTrigger className="min-h-11 w-full" aria-label="Categoria">
+          <SelectValue placeholder="Categoria" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="tutte">Tutte le categorie</SelectItem>
+          {EMAIL_CATEGORIES.map(item => (
+            <SelectItem key={item} value={item}>
+              {EMAIL_CATEGORY_UI[item].label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-xs">
-            <Mail className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold leading-tight sm:text-2xl">
-              Email
-            </h1>
-            <p className="truncate text-sm text-text-2">
-              Posta operativa, documenti e richieste
-            </p>
-          </div>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="hidden sm:inline-flex"
-              disabled={markAllRead.isPending}
-              onClick={() => markAllRead.mutate()}
-            >
-              <CheckCheck className="size-3.5" />
-              Tutte viste
-            </Button>
-          )}
+      <PageHeader
+        variant="workbench"
+        eyebrow="Posta operativa"
+        title="Email"
+        description="Coda unica di richieste, documenti e lead in arrivo dalle caselle della sede."
+        busy={rows.isFetching}
+        metadata={
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <Inbox className="size-3.5" aria-hidden="true" />
+              {queueSummary}
+            </span>
+            <span>Vista corrente: {VIEW_LABELS[view]}</span>
+          </>
+        }
+        warning={
+          warnings.length > 0 ? (
+            <div className="space-y-2">{warnings}</div>
+          ) : undefined
+        }
+        secondaryActions={
+          <>
+            {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
+              <Button
+                variant="outline"
+                className="min-h-11"
+                disabled={markAllRead.isPending}
+                onClick={() => markAllRead.mutate()}
+              >
+                <CheckCheck className="size-4" />
+                Tutte viste
+              </Button>
+            )}
+            {isDirezione(user) && (
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setMailboxesOpen(true)}
+              >
+                <Settings2 className="size-4" />
+                Caselle
+              </Button>
+            )}
+          </>
+        }
+        primaryAction={
           <Button
-            size="icon"
-            variant="outline"
-            className="size-11 sm:h-9 sm:w-auto sm:px-3"
+            className="min-h-11"
             disabled={sync.isPending}
             onClick={() => sync.mutate({})}
-            aria-label="Aggiorna email"
-            title="Aggiorna email"
           >
             {sync.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Loader2 className="size-4 motion-safe:animate-spin" />
             ) : (
               <RefreshCw className="size-4" />
             )}
-            <span className="hidden sm:inline">
-              {sync.isPending ? "Aggiornamento" : "Aggiorna"}
-            </span>
+            {sync.isPending ? "Aggiornamento" : "Aggiorna"}
           </Button>
-          {isDirezione(user) && (
-            <Button
-              size="icon"
-              variant="outline"
-              className="size-11 sm:h-9 sm:w-auto sm:px-3"
-              onClick={() => setMailboxesOpen(true)}
-              aria-label="Gestisci caselle"
-              title="Gestisci caselle"
-            >
-              <Settings2 className="size-4" />
-              <span className="hidden sm:inline">Caselle</span>
-            </Button>
-          )}
-        </div>
-      </header>
-
-      <section
-        aria-label="Metriche email"
-        className="grid shrink-0 grid-cols-2 divide-x divide-y divide-border-soft overflow-hidden rounded-md border border-border-soft bg-card sm:grid-cols-4 sm:divide-y-0"
-      >
-        {[
-          { label: "Da gestire", value: toManage, icon: Inbox },
-          {
-            label: "Nuovi lead",
-            value: stats.data?.nuoviLead ?? null,
-            icon: Sparkles,
-          },
-          {
-            label: "Con allegati",
-            value: stats.data?.conAllegati ?? null,
-            icon: Paperclip,
-          },
-          {
-            label: "Collegate",
-            value: stats.data?.collegate ?? null,
-            icon: UserRound,
-          },
-        ].map(metric => (
-          <div
-            key={metric.label}
-            className="flex min-w-0 items-center gap-2 px-3 py-2.5"
-          >
-            <metric.icon className="size-4 shrink-0 text-text-3" />
-            <div className="min-w-0">
-              <div className="truncate text-[11px] font-semibold uppercase text-text-3">
-                {metric.label}
-              </div>
-              <div className="text-lg font-bold tabular-nums leading-5">
-                {stats.isLoading || stats.isError || metric.value == null
-                  ? "-"
-                  : metric.value}
-              </div>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      {stats.isError && (
-        <div
-          role="alert"
-          className="flex shrink-0 items-center gap-2 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-        >
-          <AlertCircle className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1">
-            Statistiche email non disponibili.
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-10 shrink-0"
-            onClick={() => stats.refetch()}
-          >
-            Riprova
-          </Button>
-        </div>
-      )}
+        }
+      />
 
       {showList && (
-        <div className="shrink-0 space-y-2">
-          {compact ? (
-            <Select
-              value={view}
-              onValueChange={value => changeView(value as EmailView)}
-            >
-              <SelectTrigger
-                className="min-h-11 w-full"
-                aria-label="Vista email"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EMAIL_VIEWS.map(item => (
-                  <SelectItem key={item} value={item}>
-                    {VIEW_LABELS[item]}
-                    {viewCounts[item] != null ? ` - ${viewCounts[item]}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Tabs
-              value={view}
-              onValueChange={value => changeView(value as EmailView)}
-            >
-              <TabsList className="grid h-auto w-full grid-cols-6 gap-1 p-1">
-                {EMAIL_VIEWS.map(item => (
-                  <TabsTrigger
-                    key={item}
-                    className="min-h-9 min-w-0 gap-1.5 px-2"
-                    value={item}
+        <div className="shrink-0 xl:hidden">
+          <DataSurface density="compact" tone="sunken">
+            <div className="space-y-2">
+              {compact ? (
+                <Select
+                  value={view}
+                  onValueChange={value => changeView(value as EmailView)}
+                >
+                  <SelectTrigger
+                    className="min-h-11 w-full"
+                    aria-label="Vista email"
                   >
-                    <span className="truncate">{VIEW_LABELS[item]}</span>
-                    {viewCounts[item] != null && (
-                      <span className="shrink-0 text-[11px] tabular-nums opacity-70">
-                        {viewCounts[item]}
-                      </span>
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
-
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(9rem,auto))]">
-            <div className="relative min-w-0">
-              <label htmlFor="email-search" className="sr-only">
-                Cerca nelle email
-              </label>
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3" />
-              <Input
-                id="email-search"
-                className="h-11 pl-9 sm:h-10"
-                placeholder="Cerca testo, cliente o commessa"
-                value={search}
-                onChange={event => {
-                  setSearch(event.target.value);
-                  resetPage();
-                }}
-              />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMAIL_VIEWS.map(item => (
+                      <SelectItem key={item} value={item}>
+                        {VIEW_LABELS[item]} · {countLabel(viewCounts[item])}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Tabs
+                  value={view}
+                  onValueChange={value => changeView(value as EmailView)}
+                >
+                  <TabsList className="grid h-auto w-full grid-cols-6 gap-1 p-1">
+                    {EMAIL_VIEWS.map(item => (
+                      <TabsTrigger
+                        key={item}
+                        className="min-h-11 min-w-0 gap-1.5 px-2"
+                        value={item}
+                      >
+                        <span className="truncate">{VIEW_LABELS[item]}</span>
+                        <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                          {countLabel(viewCounts[item])}
+                        </span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              )}
+              <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+                {filterControls}
+              </div>
             </div>
-            <Select
-              value={mailboxId == null ? "tutte" : String(mailboxId)}
-              onValueChange={value => {
-                setMailboxId(value === "tutte" ? null : Number(value));
-                resetPage();
-              }}
-            >
-              <SelectTrigger
-                className="min-h-11 w-full sm:min-h-10"
-                aria-label="Casella email"
-              >
-                <SelectValue placeholder="Casella" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tutte">Tutte le caselle</SelectItem>
-                {(mailboxOptions.data ?? []).map(mailbox => (
-                  <SelectItem key={mailbox.id} value={String(mailbox.id)}>
-                    {mailbox.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={assigneeId == null ? "tutti" : String(assigneeId)}
-              onValueChange={value => {
-                setAssigneeId(value === "tutti" ? null : Number(value));
-                resetPage();
-              }}
-            >
-              <SelectTrigger
-                className="min-h-11 w-full sm:min-h-10"
-                aria-label="Assegnatario"
-              >
-                <UserRound className="size-3.5" />
-                <SelectValue placeholder="Assegnatario" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
-                {assigneeOptions.map(person => (
-                  <SelectItem key={person.id} value={String(person.id)}>
-                    {person.nome} {person.cognome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={category ?? "tutte"}
-              onValueChange={value => {
-                setCategory(
-                  value === "tutte" ? null : (value as EmailCategory)
-                );
-                resetPage();
-              }}
-              disabled={view === "lead"}
-            >
-              <SelectTrigger
-                className="min-h-11 w-full sm:min-h-10"
-                aria-label="Categoria"
-              >
-                <SelectValue placeholder="Categoria" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tutte">Tutte le categorie</SelectItem>
-                {EMAIL_CATEGORIES.map(item => (
-                  <SelectItem key={item} value={item}>
-                    {EMAIL_CATEGORY_UI[item].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-11 w-full sm:hidden"
-              disabled={markAllRead.isPending}
-              onClick={() => markAllRead.mutate()}
-            >
-              <CheckCheck className="size-3.5" />
-              Segna tutte come viste
-            </Button>
-          )}
+          </DataSurface>
         </div>
       )}
 
-      <div
+      <section
+        aria-label="Workspace Email"
         className={cn(
-          "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border bg-card shadow-xs",
-          showList &&
-            showReader &&
-            "xl:grid-cols-[minmax(18rem,20rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(19rem,21rem)_minmax(0,1fr)]"
+          "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface",
+          showList
+            ? "lg:grid-cols-[minmax(19rem,0.9fr)_minmax(0,1.65fr)] xl:grid-cols-[15rem_minmax(19rem,0.9fr)_minmax(0,1.65fr)]"
+            : "xl:grid-cols-[15rem_minmax(0,1fr)]"
         )}
       >
+        <nav
+          aria-label="Code e filtri email"
+          className="hidden min-h-0 min-w-0 flex-col gap-4 overflow-y-auto border-r border-border-soft bg-surface-2 p-3 xl:flex"
+        >
+          <div className="min-w-0">
+            <h2 className="px-1 text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+              Code
+            </h2>
+            <ul className="mt-2 space-y-1">
+              {EMAIL_VIEWS.map(item => {
+                const Icon = VIEW_ICONS[item];
+                const active = item === view;
+                return (
+                  <li key={item}>
+                    <button
+                      type="button"
+                      onClick={() => changeView(item)}
+                      aria-current={active ? "true" : undefined}
+                      className={cn(
+                        "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[var(--radius-control)] px-2.5 text-left text-sm font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "bg-surface text-text-1 shadow-[var(--shadow-raised)]"
+                          : "text-text-2 hover:bg-surface"
+                      )}
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {VIEW_LABELS[item]}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-text-3">
+                        {countLabel(viewCounts[item])}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="min-w-0 space-y-2 border-t border-border-soft pt-3">
+            <h2 className="px-1 text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+              Filtri
+            </h2>
+            {filterControls}
+          </div>
+        </nav>
+
         {showList && (
           <EmailMessageList
             messages={messages}
             selectedId={selectedId}
             viewLabel={VIEW_LABELS[view]}
+            search={search}
             loading={rows.isLoading}
             fetching={rows.isFetching}
             error={rows.error?.message ?? null}
+            emptyTitle={search ? "Nessun risultato" : EMPTY_TITLES[view]}
             emptyMessage={
               search
-                ? "Nessuna email corrisponde alla ricerca e ai filtri."
+                ? "Nessuna email corrisponde alla ricerca e ai filtri correnti."
                 : EMPTY_MESSAGES[view]
             }
             page={page}
             hasPreviousPage={page > 0}
             hasNextPage={rawMessages.length === PAGE_SIZE}
+            onSearchChange={value => {
+              setSearch(value);
+              resetPage();
+            }}
             onOpen={openMessage}
             selectedIds={selectedIds}
             bulkPending={bulkUpdate.isPending}
@@ -620,12 +638,12 @@ export default function EmailPage() {
             onNextPage={() => setPage(current => current + 1)}
           />
         )}
+
         {showReader && selectedId != null ? (
           <div
             className={cn(
-              "min-h-0 min-w-0 border-border-soft",
-              showList && "xl:border-l",
-              compact && "w-full"
+              "min-h-0 min-w-0",
+              showList && "border-border-soft lg:border-l"
             )}
           >
             <EmailMessageReader
@@ -641,18 +659,20 @@ export default function EmailPage() {
             />
           </div>
         ) : (
-          !compact && (
-            <div className="hidden min-w-0 place-items-center bg-surface-2/35 text-sm text-text-3 xl:grid">
-              <div className="space-y-3 text-center">
-                <div className="mx-auto grid size-12 place-items-center rounded-md bg-accent/70 text-accent-text">
-                  <Mail className="size-5" />
-                </div>
-                <p className="font-medium">Apri un'email</p>
-              </div>
-            </div>
-          )
+          <div
+            className={cn(
+              "hidden min-h-0 min-w-0 overflow-y-auto p-4 lg:block",
+              showList && "border-border-soft lg:border-l"
+            )}
+          >
+            <StatePanel
+              kind="empty"
+              title="Nessuna email aperta"
+              description="Scegli un messaggio dall'elenco: qui trovi testo, allegati e le azioni per classificarlo e collegarlo."
+            />
+          </div>
         )}
-      </div>
+      </section>
 
       <Dialog open={mailboxesOpen} onOpenChange={setMailboxesOpen}>
         <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto">
@@ -670,13 +690,13 @@ export default function EmailPage() {
               </div>
               <Badge variant="secondary">{filterRules.data?.length ?? 0}</Badge>
             </div>
-            <div className="mt-3 divide-y divide-border-soft rounded-md border border-border-soft">
+            <div className="mt-3 divide-y divide-border-soft rounded-[var(--radius-control)] border border-border-soft">
               {(filterRules.data ?? []).map(rule => (
                 <div
                   key={rule.id}
                   className="flex min-w-0 items-center gap-3 px-3 py-2.5"
                 >
-                  <ShieldBan className="size-4 shrink-0 text-destructive" />
+                  <ShieldBan className="size-4 shrink-0 text-danger" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">
                       {rule.mittente}
@@ -687,8 +707,8 @@ export default function EmailPage() {
                   </div>
                   <Button
                     size="icon"
-                    variant="ghost"
-                    className="size-10 shrink-0"
+                    variant="dangerGhost"
+                    className="size-11 shrink-0"
                     disabled={removeRule.isPending}
                     onClick={() => removeRule.mutate({ id: rule.id })}
                     aria-label={`Rimuovi regola per ${rule.mittente}`}

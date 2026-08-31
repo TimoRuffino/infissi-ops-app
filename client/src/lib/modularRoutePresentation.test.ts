@@ -192,6 +192,27 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/formatEuroSimbolo\(/);
   });
 
+  it("compone l'inbox Email come workspace a tre zone", () => {
+    const source = routeSource("../pages/messaggi/EmailPage.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/<DataSurface/);
+    // Tre zone solo da 1280px, due da 1024px: sotto resta un pane alla volta.
+    expect(source).toMatch(
+      /xl:grid-cols-\[15rem_minmax\(19rem,0\.9fr\)_minmax\(0,1\.65fr\)\]/
+    );
+    expect(source).toMatch(/aria-label="Workspace Email"/);
+    // Niente griglia di metriche decorative: restano i conteggi delle code.
+    expect(source).not.toMatch(/aria-label="Metriche email"/);
+    // Un conteggio assente si scrive, non si finge zero.
+    expect(source).toMatch(/countLabel\(/);
+    // Le caselle restano direzione-only, specchio UX del router.
+    expect(source).toMatch(/isDirezione\(user\)/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

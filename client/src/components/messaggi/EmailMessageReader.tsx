@@ -3,9 +3,9 @@ import SearchSelect from "@/components/SearchSelect";
 import {
   EMAIL_CATEGORIES,
   EMAIL_CATEGORY_UI,
-  EmailCategoryBadge,
   type EmailCategory,
 } from "@/components/messaggi/EmailMessageList";
+import StatePanel from "@/components/patterns/StatePanel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,16 +23,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import type { EmailDetail } from "@/lib/messaggi";
+import { personName } from "@/lib/name";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   Archive,
   ArrowLeft,
   Bot,
-  BriefcaseBusiness,
   CheckCheck,
   Link2,
   Loader2,
@@ -42,12 +40,9 @@ import {
   PanelLeftOpen,
   Paperclip,
   RefreshCw,
-  Send,
   ShieldBan,
-  Sparkles,
   Tags,
   Trash2,
-  UserPlus,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
@@ -73,7 +68,7 @@ function ReaderSkeleton({
   onBack: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
       <div className="flex items-start gap-3 border-b border-border-soft px-4 py-4 sm:px-5">
         {mobile && (
           <Button
@@ -134,8 +129,6 @@ export default function EmailMessageReader({
   const [exclusion, setExclusion] = useState<
     "spam" | "offerta_marketing" | null
   >(null);
-  const [instruction, setInstruction] = useState("");
-  const [latestSummary, setLatestSummary] = useState<string | null>(null);
 
   const jobs = trpc.commesse.list.useQuery(undefined, { enabled: linkOpen });
   const clients = trpc.clienti.list.useQuery(
@@ -211,37 +204,46 @@ export default function EmailMessageReader({
     return <ReaderSkeleton mobile={mobile} onBack={onBack} />;
 
   if (detail.isError || !message) {
+    // Errore del dettaglio e messaggio sparito dal CRM sono due cose diverse:
+    // il primo si riprova, il secondo si torna alla coda.
+    const back = (
+      <Button variant="outline" className="min-h-11" onClick={onBack}>
+        <ArrowLeft className="size-4" />
+        Torna alla coda
+      </Button>
+    );
     return (
-      <div className="grid h-full min-h-64 place-items-center bg-card px-5 text-center">
-        <div>
-          <AlertCircle className="mx-auto size-6 text-destructive" />
-          <p className="mt-3 text-sm font-semibold">
-            {detail.isError
-              ? "Impossibile aprire l'email"
-              : "Email non disponibile"}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-text-3">
-            {detail.error?.message ?? "Potrebbe essere stata rimossa dal CRM."}
-          </p>
-          <div className="mt-4 flex justify-center gap-2">
-            {mobile && (
-              <Button size="sm" variant="outline" onClick={onBack}>
-                <ArrowLeft className="size-3.5" />
-                Elenco
-              </Button>
-            )}
-            {detail.isError && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => detail.refetch()}
-              >
-                <RefreshCw className="size-3.5" />
-                Riprova
-              </Button>
-            )}
-          </div>
-        </div>
+      <div className="min-h-0 min-w-0 overflow-y-auto bg-surface p-4 sm:p-5">
+        {detail.isError ? (
+          <StatePanel
+            kind="error"
+            title="Impossibile aprire l'email"
+            description={
+              detail.error?.message ??
+              "Il dettaglio non è stato caricato. Riprova."
+            }
+            action={
+              <>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => detail.refetch()}
+                >
+                  <RefreshCw className="size-4" />
+                  Riprova
+                </Button>
+                {back}
+              </>
+            }
+          />
+        ) : (
+          <StatePanel
+            kind="unavailable"
+            title="Email non disponibile"
+            description="Il messaggio non esiste più nel CRM: potrebbe essere stato eliminato. Resta comunque nella casella di posta."
+            action={back}
+          />
+        )}
       </div>
     );
   }
@@ -254,61 +256,19 @@ export default function EmailMessageReader({
     updateCategory.mutate({ id: message.id, categoria: category });
   };
 
-  const presets =
-    message.commessaId == null
-      ? [
-          {
-            label: "Crea lead",
-            icon: UserPlus,
-            text: "Verifica che non esistano gia cliente e commessa. Se e una richiesta reale, mostrami gli assegnatari e chiedimi a chi affidarla; solo dopo prepara cliente, commessa in preventivo e collegamento della comunicazione.",
-          },
-          {
-            label: "Apri ticket",
-            icon: BriefcaseBusiness,
-            text: "Valuta il contenuto e prepara un ticket senza commessa se serve una presa in carico, indicando priorita e contatto.",
-          },
-          {
-            label: "Prepara risposta",
-            icon: Send,
-            text: "Verifica il contesto e prepara una risposta professionale. Non inventare date, prezzi o impegni.",
-          },
-        ]
-      : [
-          {
-            label: "Aggiorna commessa",
-            icon: BriefcaseBusiness,
-            text: "Leggi la commessa collegata e proponi gli aggiornamenti operativi necessari in base a questa comunicazione.",
-          },
-          {
-            label: "Prepara risposta",
-            icon: Send,
-            text: "Controlla il fascicolo della commessa e prepara una risposta coerente con lo stato reale.",
-          },
-          {
-            label: "Analizza allegati",
-            icon: Paperclip,
-            text: "Analizza gli allegati operativi, confrontali con la commessa e proponi soltanto le azioni supportate dai documenti.",
-          },
-        ];
+  const gestita = message.stato === "gestita";
 
   return (
-    <article className="flex h-full min-h-0 min-w-0 flex-col bg-card">
-      <header className="shrink-0 border-b border-border-soft px-4 py-4 sm:px-5">
-        {selectionRemoved && (
-          <div
-            role="status"
-            className="mb-3 rounded-md border border-info/25 bg-info/10 px-3 py-2 text-xs leading-5 text-text-2"
-          >
-            Questa email non compare piu nella vista corrente. Puoi continuare a
-            gestirla qui.
-          </div>
-        )}
-        <div className="flex min-w-0 flex-wrap items-start gap-3">
+    <article className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
+      {/* Unica area borgogna scura del workspace: identità del messaggio.
+          Corpo, allegati e form di collegamento restano su superficie chiara. */}
+      <header className="shrink-0 bg-focal px-4 py-3.5 text-on-focal sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
           {mobile && (
             <Button
               size="icon"
               variant="ghost"
-              className="-ml-2 size-10"
+              className="-ml-2 size-11 text-on-focal hover:bg-on-focal/15 hover:text-on-focal"
               onClick={onBack}
               aria-label="Torna all'elenco"
               title="Torna all'elenco"
@@ -316,103 +276,126 @@ export default function EmailMessageReader({
               <ArrowLeft className="size-5" />
             </Button>
           )}
-          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground shadow-xs">
+          <div className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-control)] bg-on-focal/15 text-xs font-bold">
             {initials(message)}
           </div>
-          <div className="min-w-[12rem] flex-1 space-y-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
               <Mail
-                className="size-4 shrink-0 text-text-3"
+                className="size-4 shrink-0 text-on-focal/70"
                 aria-hidden="true"
               />
               <span className="min-w-0 break-words text-sm font-bold [overflow-wrap:anywhere]">
                 {message.mittenteNome ?? message.mittente}
               </span>
-              <EmailCategoryBadge
-                categoria={message.categoria ?? "da_classificare"}
-              />
+              {message.mittenteNome && (
+                <span className="min-w-0 break-words text-xs text-on-focal/70 [overflow-wrap:anywhere]">
+                  {message.mittente}
+                </span>
+              )}
             </div>
-            {message.mittenteNome && (
-              <div className="break-words text-xs text-text-3 [overflow-wrap:anywhere]">
-                {message.mittente}
-              </div>
-            )}
-            <div className="text-xs leading-5 text-text-3">
+            <h2 className="mt-1 break-words text-base font-bold leading-snug sm:text-lg">
+              {message.oggetto || "(senza oggetto)"}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-on-focal/70">
               {new Date(message.receivedAt).toLocaleString("it-IT")}
               {mailbox
-                ? ` - ricevuta su ${mailbox.nome} (${mailbox.indirizzo})`
+                ? ` · ricevuta su ${mailbox.nome} (${mailbox.indirizzo})`
                 : ""}
-            </div>
+            </p>
           </div>
-          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1">
-            {canFocus && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-10"
-                onClick={onToggleFocus}
-                aria-label={focus ? "Mostra elenco email" : "Espandi email"}
-                title={focus ? "Mostra elenco email" : "Espandi email"}
-              >
-                {focus ? (
-                  <PanelLeftOpen className="size-4" />
-                ) : (
-                  <PanelLeftClose className="size-4" />
-                )}
-              </Button>
-            )}
+          {canFocus && (
             <Button
               size="icon"
               variant="ghost"
-              className="size-10"
-              disabled={updateState.isPending}
-              aria-label={
-                message.stato === "gestita"
-                  ? "Riapri email"
-                  : "Segna come gestita"
-              }
-              title={
-                message.stato === "gestita"
-                  ? "Riapri email"
-                  : "Segna come gestita"
-              }
-              onClick={() =>
-                updateState.mutate({
-                  id: message.id,
-                  stato: message.stato === "gestita" ? "vista" : "gestita",
-                })
-              }
+              className="size-11 shrink-0 text-on-focal hover:bg-on-focal/15 hover:text-on-focal"
+              onClick={onToggleFocus}
+              aria-label={focus ? "Mostra elenco email" : "Espandi email"}
+              title={focus ? "Mostra elenco email" : "Espandi email"}
             >
-              {updateState.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
+              {focus ? (
+                <PanelLeftOpen className="size-4" />
               ) : (
-                <CheckCheck
-                  className={cn(
-                    "size-4",
-                    message.stato === "gestita" && "text-success"
-                  )}
-                />
+                <PanelLeftClose className="size-4" />
               )}
             </Button>
-            <Button
-              size="icon"
-              variant="dangerGhost"
-              className="size-10"
-              aria-label="Elimina dal CRM"
-              title="Elimina dal CRM"
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
+          )}
         </div>
-        <h2 className="mt-4 break-words text-lg font-bold leading-snug">
-          {message.oggetto || "(senza oggetto)"}
-        </h2>
       </header>
 
-      <div className="shrink-0 border-b border-border-soft bg-surface-2/65 px-4 py-3 sm:px-5">
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+      {selectionRemoved && (
+        <div
+          role="status"
+          className="shrink-0 border-b border-info/25 bg-info-soft px-4 py-2 text-xs leading-5 text-text-2 sm:px-5"
+        >
+          Questa email non compare più nella vista corrente. Puoi continuare a
+          gestirla qui.
+        </div>
+      )}
+
+      <div className="shrink-0 border-b border-border-soft bg-surface-2 px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Button
+            variant={gestita ? "outline" : "default"}
+            className="min-h-11"
+            disabled={updateState.isPending}
+            onClick={() =>
+              updateState.mutate({
+                id: message.id,
+                stato: gestita ? "vista" : "gestita",
+              })
+            }
+          >
+            {updateState.isPending ? (
+              <Loader2 className="size-4 motion-safe:animate-spin" />
+            ) : (
+              <CheckCheck className={cn("size-4", gestita && "text-success")} />
+            )}
+            {gestita ? "Riapri" : "Segna gestita"}
+          </Button>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => setLinkOpen(value => !value)}
+          >
+            <Link2 className="size-4" />
+            {message.clienteId != null || message.commessaId != null
+              ? "Cambia collegamento"
+              : "Collega"}
+          </Button>
+          <Select
+            value={message.categoria ?? "da_classificare"}
+            onValueChange={value => chooseCategory(value as EmailCategory)}
+            disabled={updateCategory.isPending}
+          >
+            <SelectTrigger
+              className="min-h-11 w-full sm:w-[190px]"
+              aria-label="Classificazione"
+            >
+              <Tags className="size-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EMAIL_CATEGORIES.map(category => (
+                <SelectItem key={category} value={category}>
+                  {EMAIL_CATEGORY_UI[category].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="icon"
+            variant="dangerGhost"
+            className="ml-auto size-11 shrink-0"
+            aria-label="Elimina dal CRM"
+            title="Elimina dal CRM"
+            onClick={() => setConfirmDelete(true)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+
+        <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             {message.commessaId != null ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -453,9 +436,10 @@ export default function EmailMessageReader({
                 >
                   <Link2 className="size-3.5 shrink-0" />
                   <span className="break-words [overflow-wrap:anywhere]">
-                    {linkedClient.data
-                      ? `${linkedClient.data.cognome ?? ""} ${linkedClient.data.nome ?? ""}`.trim()
-                      : `Cliente #${message.clienteId}`}
+                    {personName(
+                      linkedClient.data,
+                      `Cliente #${message.clienteId}`
+                    )}
                   </span>
                 </Link>
                 <Button
@@ -478,43 +462,12 @@ export default function EmailMessageReader({
               <span className="text-xs text-text-3">Nessun collegamento</span>
             )}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-10 shrink-0"
-            onClick={() => setLinkOpen(value => !value)}
-          >
-            <Link2 className="size-3.5" />
-            {message.clienteId != null || message.commessaId != null
-              ? "Cambia collegamento"
-              : "Collega"}
-          </Button>
-          <Select
-            value={message.categoria ?? "da_classificare"}
-            onValueChange={value => chooseCategory(value as EmailCategory)}
-            disabled={updateCategory.isPending}
-          >
-            <SelectTrigger
-              className="h-9 w-full sm:w-[180px]"
-              aria-label="Classificazione"
-            >
-              <Tags className="size-3.5" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EMAIL_CATEGORIES.map(category => (
-                <SelectItem key={category} value={category}>
-                  {EMAIL_CATEGORY_UI[category].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         {linkOpen && (
           <div className="mt-3 space-y-2">
             <div
-              className="inline-flex rounded-md border border-border-soft bg-card p-1"
+              className="inline-flex rounded-[var(--radius-control)] border border-border-soft bg-surface p-1"
               aria-label="Tipo di collegamento"
             >
               <Button
@@ -554,8 +507,7 @@ export default function EmailMessageReader({
                         }))
                       : (clients.data ?? []).map(client => ({
                           value: String(client.id),
-                          label:
-                            `${client.cognome ?? ""} ${client.nome ?? ""}`.trim(),
+                          label: personName(client, `Cliente #${client.id}`),
                           keywords: [client.email, client.telefono]
                             .filter(Boolean)
                             .join(" "),
@@ -581,7 +533,7 @@ export default function EmailMessageReader({
                 }
               >
                 {linkMessage.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Loader2 className="size-4 motion-safe:animate-spin" />
                 ) : (
                   <Link2 className="size-4" />
                 )}
@@ -592,10 +544,10 @@ export default function EmailMessageReader({
         )}
 
         {message.classificazioneMotivo && (
-          <div className="mt-2 flex items-start gap-2 rounded-md border border-border-soft bg-surface-2/60 px-3 py-2">
+          <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface px-3 py-2">
             <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" />
             <div className="min-w-0 text-xs leading-5 text-text-2">
-              <span className="font-semibold text-foreground">
+              <span className="font-semibold text-text-1">
                 Classificazione automatica
               </span>{" "}
               {message.classificazioneMotivo}
@@ -605,8 +557,8 @@ export default function EmailMessageReader({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="order-1 px-4 py-5 sm:px-5">
-          <div className="mx-auto w-full max-w-5xl space-y-5">
+        <div className="px-4 py-5 sm:px-5">
+          <div className="w-full min-w-0 space-y-5">
             <div className="max-w-[78ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
               {message.testo || "(messaggio vuoto)"}
             </div>
@@ -619,7 +571,7 @@ export default function EmailMessageReader({
                   {message.allegati.map((attachment, index) => (
                     <div
                       key={`${attachment.nome}-${index}`}
-                      className="flex min-w-0 items-center gap-2 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5"
+                      className="flex min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
                     >
                       <Paperclip className="size-4 shrink-0 text-accent-text" />
                       <span className="min-w-0 flex-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
@@ -632,7 +584,7 @@ export default function EmailMessageReader({
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="size-10 shrink-0"
+                          className="size-11 shrink-0"
                           disabled={archiveAttachment.isPending}
                           onClick={() =>
                             archiveAttachment.mutate({
@@ -647,7 +599,7 @@ export default function EmailMessageReader({
                           {archiveAttachment.isPending &&
                           archiveAttachment.variables?.allegatoIndex ===
                             index ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <Loader2 className="size-4 motion-safe:animate-spin" />
                           ) : (
                             <Archive className="size-4" />
                           )}

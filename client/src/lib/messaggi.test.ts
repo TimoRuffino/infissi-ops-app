@@ -41,6 +41,14 @@ describe("Email message navigation", () => {
     );
   });
 
+  it("conserva la vista corrente nel link al messaggio", () => {
+    expect(emailMessageHref(42, "lead")).toBe(
+      "/messaggi/email?view=lead&messaggio=42"
+    );
+    expect(parseEmailView("?view=lead&messaggio=42")).toBe("lead");
+    expect(parseEmailMessageId("?view=lead&messaggio=42")).toBe(42);
+  });
+
   it("accepts only positive integer message IDs", () => {
     expect(parseEmailMessageId("?messaggio=42")).toBe(42);
     expect(parseEmailMessageId("?messaggio=-1")).toBeNull();
