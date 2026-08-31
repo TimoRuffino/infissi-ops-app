@@ -137,6 +137,61 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/canAssignCustomer/);
   });
 
+  it("apre la cassa solo dietro pagamento.read e separa la registrazione", () => {
+    const source = routeSource("../pages/Pagamenti.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Il capability set arriva dal provider: niente seconda `permessi.mie`.
+    expect(source).toMatch(/useOperationalContext/);
+    expect(source).toMatch(/economicRoutePermissions\(/);
+    expect(source).not.toMatch(/trpc\.permessi\.mie/);
+    // Senza lettura la route non monta nessuna query economica.
+    expect(source).toMatch(/if \(!permissions\.canReadPayments\)/);
+    expect(source).toMatch(/kind: "permission"/);
+    // Registrare è una capability a sé, e l'incassato non è un input.
+    expect(source).toMatch(/canRecordPayments/);
+    expect(source).toMatch(/parseEuroPositivo\(/);
+    expect(source).not.toMatch(/importoIncassato: /);
+  });
+
+  it("chiude la contabilità sulla capability effettiva, non sul ruolo", () => {
+    const source = routeSource("../pages/Economia.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/economicRoutePermissions\(/);
+    // Il controllo per ruolo è sostituito, non affiancato.
+    expect(source).not.toMatch(/isDirezione\(/);
+    expect(source).not.toMatch(/hasRuolo\(/);
+    // Nessuna query FiC parte prima del via libera del contesto.
+    const gate = /enabled: operationalStatus === "ready" && canReadEconomy/g;
+    expect(source.match(gate)?.length).toBe(3);
+    expect(source).toMatch(/kind: "permission"/);
+  });
+
+  it("mantiene la marginalità direzione-only e dichiarata come stima", () => {
+    const source = routeSource("../pages/Marginalita.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // La guardia resta quella di route: nessuna capability la sostituisce.
+    expect(source).not.toMatch(/economicRoutePermissions/);
+    expect(source).not.toMatch(/useOperationalContext/);
+    // Il disclaimer è visibile, non solo nei commenti del codice.
+    expect(source).toMatch(/Stima CRM, non contabilità/);
+    expect(source).toMatch(/warning=\{DISCLAIMER\}/);
+    // Il colore della fascia non è mai l'unico segnale.
+    expect(source).toMatch(/fasciaLabel\(/);
+    expect(source).toMatch(/formatEuroSimbolo\(/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

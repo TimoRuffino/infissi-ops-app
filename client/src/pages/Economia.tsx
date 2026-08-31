@@ -12,7 +12,6 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -21,14 +20,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
+import type { StatePanelProps } from "@/components/patterns/StatePanel";
 import SearchSelect from "@/components/SearchSelect";
 import { Input } from "@/components/ui/input";
 import CostiFicReview from "@/components/economia/CostiFicReview";
 import CostiFissi from "@/components/economia/CostiFissi";
 import EconomiaPanoramica from "@/components/economia/EconomiaPanoramica";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { hasRuolo, isDirezione } from "@/lib/roles";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import { formatEuroSimbolo } from "@/lib/euro";
+import { economicRoutePermissions } from "@/lib/operationalRoutes";
 import {
   AlertTriangle,
   FilePlus2,
@@ -37,7 +39,6 @@ import {
   Unlink,
   Loader2,
   EyeOff,
-  ShieldAlert,
   Search,
   Sparkles,
   X,
@@ -48,7 +49,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const STATO_FATTURA: Record<string, { label: string; classe: string }> = {
-  riconciliata: { label: "Riconciliata", classe: "bg-success hover:bg-success" },
+  riconciliata: {
+    label: "Riconciliata",
+    classe: "bg-success hover:bg-success",
+  },
   da_riconciliare: { label: "Incasso da registrare", classe: "" },
   attesa_incasso: { label: "In attesa di pagamento", classe: "" },
   non_abbinabile: { label: "Senza commessa", classe: "" },
@@ -91,7 +95,11 @@ const FILTRI = [
     label: "Da controllare",
     tiene: (f: any) => Boolean(f.avvisoCollegamento),
   },
-  { id: "escluse", label: "Escluse", tiene: (f: any) => f.stato === "ignorata" },
+  {
+    id: "escluse",
+    label: "Escluse",
+    tiene: (f: any) => f.stato === "ignorata",
+  },
   { id: "tutte", label: "Tutte", tiene: () => true },
 ] as const;
 
@@ -149,8 +157,13 @@ function RigaFattura({ f }: { f: any }) {
   const candidati: any[] = f.candidati ?? [];
 
   return (
-    <Card className={cn(f.stato === "ignorata" && "border-dashed opacity-75")}>
-      <CardContent className="py-3 space-y-2">
+    <article
+      className={cn(
+        "min-w-0 space-y-2 rounded-[var(--radius-panel)] border border-border-soft bg-surface p-3",
+        f.stato === "ignorata" && "border-dashed opacity-75"
+      )}
+    >
+      <div className="min-w-0 space-y-2">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap text-sm font-medium">
@@ -215,7 +228,10 @@ function RigaFattura({ f }: { f: any }) {
 
         {f.avvisoCollegamento && (
           <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft p-2.5 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <AlertTriangle
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
             <p className="min-w-0">
               Collegata a {f.commessaCodice} ma {f.avvisoCollegamento}. Se la
               fattura non è di questa commessa, scollegala: pattuito e incassi
@@ -228,48 +244,56 @@ function RigaFattura({ f }: { f: any }) {
             trasforma una ricerca a mano in un click, e il motivo accanto dice
             perché il server li propone — così la scelta resta dell'operatore
             invece di essere un atto di fede. */}
-        {f.commessaId == null && f.stato !== "ignorata" && candidati.length > 0 && (
-          <div className="space-y-1.5 rounded-md border border-border bg-surface-2 p-2.5">
-            <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-2">
-              <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-              {candidati.every(c => c.incerto)
-                ? "Da confermare a mano"
-                : candidati.length === 1
-                  ? "Una commessa combacia"
-                  : `${candidati.length} commesse combaciano`}
-            </p>
-            <div className="flex flex-col gap-1.5">
-              {candidati.map(c => (
-                <Button
-                  key={c.commessaId}
-                  type="button"
-                  variant="outline"
-                  className="h-auto min-h-11 w-full justify-start gap-2 px-2.5 py-2 text-left sm:min-h-10"
-                  disabled={collegaMut.isPending}
-                  onClick={() => collega(c.commessaId)}
-                >
-                  <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">
-                      {c.codice}
-                      {c.cliente ? ` — ${c.cliente}` : ""}
-                    </span>
-                    <span className="block truncate text-[11px] font-normal text-text-3">
-                      {c.motivo}
-                    </span>
-                    {/* Il dubbio va detto qui, accanto al pulsante che lo
-                        ignorerebbe: e' l'unico punto in cui serve. */}
-                    {c.dubbio && (
-                      <span className="block truncate text-[11px] font-normal text-warning">
-                        Attenzione: {c.dubbio}
+        {f.commessaId == null &&
+          f.stato !== "ignorata" &&
+          candidati.length > 0 && (
+            <div className="space-y-1.5 rounded-md border border-border bg-surface-2 p-2.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-2">
+                <Sparkles
+                  className="h-3.5 w-3.5 text-primary"
+                  aria-hidden="true"
+                />
+                {candidati.every(c => c.incerto)
+                  ? "Da confermare a mano"
+                  : candidati.length === 1
+                    ? "Una commessa combacia"
+                    : `${candidati.length} commesse combaciano`}
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {candidati.map(c => (
+                  <Button
+                    key={c.commessaId}
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-11 w-full justify-start gap-2 px-2.5 py-2 text-left sm:min-h-10"
+                    disabled={collegaMut.isPending}
+                    onClick={() => collega(c.commessaId)}
+                  >
+                    <Link2
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">
+                        {c.codice}
+                        {c.cliente ? ` — ${c.cliente}` : ""}
                       </span>
-                    )}
-                  </span>
-                </Button>
-              ))}
+                      <span className="block truncate text-[11px] font-normal text-text-3">
+                        {c.motivo}
+                      </span>
+                      {/* Il dubbio va detto qui, accanto al pulsante che lo
+                        ignorerebbe: e' l'unico punto in cui serve. */}
+                      {c.dubbio && (
+                        <span className="block truncate text-[11px] font-normal text-warning">
+                          Attenzione: {c.dubbio}
+                        </span>
+                      )}
+                    </span>
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {f.commessaId == null && candidati.length === 0 && f.motivo && (
           <p className="text-xs italic text-text-3">{f.motivo}</p>
@@ -293,7 +317,9 @@ function RigaFattura({ f }: { f: any }) {
               className="h-8 text-xs"
               disabled={collegaMut.isPending}
               title="Toglie la fattura dalla commessa: il PDF esce dal fascicolo, pattuito e incassi si ricalcolano"
-              onClick={() => collegaMut.mutate({ ficId: f.id, commessaId: null })}
+              onClick={() =>
+                collegaMut.mutate({ ficId: f.id, commessaId: null })
+              }
             >
               <Unlink className="mr-1 h-3 w-3" />
               Scollega
@@ -360,9 +386,8 @@ function RigaFattura({ f }: { f: any }) {
             </Button>
           </div>
         )}
-
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }
 
@@ -383,9 +408,11 @@ function testoRicerca(f: any): string {
     .toLowerCase();
 }
 
-function Fatture({ anno }: { anno: number }) {
+function Fatture({ anno, abilitata }: { anno: number; abilitata: boolean }) {
   const utils = trpc.useUtils();
-  const q = trpc.ficFatture.list.useQuery({ anno });
+  // Anche la coda fatture monta la sua query solo dietro `economia.read`:
+  // nessuna riga riservata entra nella cache della route da questa porta.
+  const q = trpc.ficFatture.list.useQuery({ anno }, { enabled: abilitata });
   const [filtro, setFiltro] = useState<FiltroId>("da_collegare");
   const [cerca, setCerca] = useState("");
   const tutte = q.data ?? [];
@@ -430,11 +457,37 @@ function Fatture({ anno }: { anno: number }) {
     FILTRI.map(f => [f.id, tutte.filter(f.tiene).length])
   ) as Record<FiltroId, number>;
 
-  if (q.isLoading) {
+  if (q.isPending || q.isError) {
     return (
-      <div className="py-12 text-center">
-        <Loader2 className="h-5 w-5 mx-auto animate-spin text-text-3" />
-      </div>
+      <DataSurface
+        density="compact"
+        tone="sunken"
+        state={
+          q.isPending
+            ? {
+                kind: "loading",
+                title: "Carico le fatture",
+                description: `Recupero i documenti emessi del ${anno}.`,
+                rows: 4,
+              }
+            : {
+                kind: "error",
+                title: "Fatture non caricate",
+                description:
+                  "Non è stato possibile leggere le fatture della sede. Nessun documento è stato modificato.",
+                action: (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => q.refetch()}
+                  >
+                    Riprova
+                  </Button>
+                ),
+              }
+        }
+      />
     );
   }
 
@@ -588,31 +641,40 @@ function Fatture({ anno }: { anno: number }) {
         )}
       </div>
 
-      {righe.length === 0 && (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-text-3">
-            {inRicerca
-              ? `Nessuna fattura per «${cerca.trim()}».`
-              : filtro === "da_collegare"
-                ? "Ogni fattura ha la sua commessa."
-                : filtro === "da_riconciliare"
-                  ? "Nessun incasso da registrare."
-                  : filtro === "attesa_incasso"
-                    ? "Nessuna fattura in attesa di pagamento."
-                    : "Nessuna fattura in questa vista."}
-          </CardContent>
-        </Card>
-      )}
-
-      {righe.map((f: any) => (
-        <RigaFattura key={f.id} f={f} />
-      ))}
+      <DataSurface
+        density="compact"
+        tone="sunken"
+        state={
+          righe.length === 0
+            ? {
+                kind: "empty",
+                title: inRicerca
+                  ? `Nessuna fattura per «${cerca.trim()}»`
+                  : "Nessuna fattura in questa coda",
+                description: inRicerca
+                  ? "Prova con il numero, il cliente, la commessa o l'importo."
+                  : filtro === "da_collegare"
+                    ? "Ogni fattura ha la sua commessa."
+                    : filtro === "da_riconciliare"
+                      ? "Nessun incasso da registrare."
+                      : filtro === "attesa_incasso"
+                        ? "Nessuna fattura in attesa di pagamento."
+                        : "Cambia filtro per vedere le altre fatture dell'anno.",
+              }
+            : undefined
+        }
+      >
+        <div className="grid min-w-0 gap-2">
+          {righe.map((f: any) => (
+            <RigaFattura key={f.id} f={f} />
+          ))}
+        </div>
+      </DataSurface>
     </div>
   );
 }
 
 export default function Economia() {
-  const { user } = useAuth();
   const [anno, setAnno] = useState(new Date().getFullYear());
   const [tab, setTab] = useState<
     "panoramica" | "fatture" | "fissi" | "acquisti"
@@ -625,25 +687,66 @@ export default function Economia() {
       : "panoramica";
   });
 
-  const puoVedere =
-    !user || isDirezione(user) || hasRuolo(user, "amministrazione");
+  // La lettura economica è una capability effettiva risolta dal server, non un
+  // ruolo letto nella pagina: un amministratore senza `economia.read` non
+  // entra, e la direzione senza la capability nemmeno. Finché il contesto non
+  // è `ready` la matrice resta fail-closed.
+  const { capabilities, status: operationalStatus } = useOperationalContext();
+  const { canReadEconomy } = economicRoutePermissions(
+    operationalStatus === "ready" ? capabilities : null
+  );
 
   // I conteggi delle due code stanno nelle linguette: aprire un tab per
   // scoprire che è vuoto è il costo che questa pagina faceva pagare ogni volta.
+  // Nessuna delle tre query parte senza capability: la route non deve
+  // nemmeno provocare la chiamata che il server rifiuterebbe.
   const fatture = trpc.ficFatture.list.useQuery(
     { anno },
-    { enabled: puoVedere }
+    { enabled: operationalStatus === "ready" && canReadEconomy }
   );
   const costi = trpc.ficCosti.list.useQuery(
     { anno, classificazione: "dubbio" },
-    { enabled: puoVedere }
+    { enabled: operationalStatus === "ready" && canReadEconomy }
   );
   // L'arretrato di TUTTI gli anni: 265 documenti del 2025 non comparivano da
   // nessuna parte finché non si cambiava l'anno a mano, e nessuno aveva un
   // motivo per cambiarlo.
   const arretrati = trpc.ficCosti.arretrati.useQuery(undefined, {
-    enabled: puoVedere,
+    enabled: operationalStatus === "ready" && canReadEconomy,
   });
+
+  if (!canReadEconomy) {
+    return (
+      <div className="min-w-0 space-y-4 sm:space-y-5">
+        <PageHeader
+          variant="workbench"
+          eyebrow="Amministrazione"
+          title={
+            <span className="inline-flex items-center gap-2">
+              <Landmark className="h-6 w-6 text-primary" aria-hidden="true" />
+              Contabilità
+            </span>
+          }
+          description="Fatture emesse, costi ricevuti e andamento della sede attiva."
+        />
+        <DataSurface
+          density="compact"
+          tone="sunken"
+          state={
+            {
+              kind: "permission",
+              title: "Contabilità non disponibile",
+              // Nessun totale, nessun conteggio, nessuna coda: chi non ha la
+              // capability non deve dedurre niente da questa pagina.
+              description:
+                "La lettura dei dati economici richiede il permesso «lettura economia». Se ti serve per lavoro, chiedilo alla direzione.",
+            } satisfies StatePanelProps
+          }
+        />
+      </div>
+    );
+  }
+
   // Il badge conta solo il lavoro. `attesa_incasso` — fattura emessa e non
   // ancora pagata — resta fuori: non c'è niente da fare finché il cliente
   // non paga, e contarlo teneva il badge acceso per sempre.
@@ -664,25 +767,54 @@ export default function Economia() {
     ])
   ).sort((a, b) => b - a);
 
-  if (!puoVedere) {
-    return (
-      <div className="py-16 text-center text-text-3 space-y-2">
-        <ShieldAlert className="h-8 w-8 mx-auto opacity-50" />
-        <p className="text-sm">
-          Solo direzione e amministrazione possono vedere i dati economici.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Landmark className="h-5 w-5" />
-        <h1 className="text-xl font-semibold">Contabilità</h1>
-        <div className="ml-auto flex items-center gap-2">
+    <div className="min-w-0 space-y-4 sm:space-y-5">
+      <PageHeader
+        variant="workbench"
+        eyebrow="Amministrazione"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Landmark className="h-6 w-6 text-primary" aria-hidden="true" />
+            Contabilità
+          </span>
+        }
+        description="Fatture emesse, costi ricevuti e andamento della sede attiva."
+        busy={fatture.isFetching || costi.isFetching || arretrati.isFetching}
+        metadata={
+          <>
+            <span>Anno contabile {anno}</span>
+            {fatture.isPending ? (
+              <span>Coda fatture in caricamento…</span>
+            ) : fatture.isError ? (
+              <span>Coda fatture non disponibile</span>
+            ) : (
+              <span>
+                <strong className="tabular-nums text-text-1">
+                  {fattureAperte}
+                </strong>{" "}
+                fatture da lavorare
+              </span>
+            )}
+            {arretrati.isPending ? (
+              <span>Arretrato acquisti in caricamento…</span>
+            ) : arretrati.isError ? (
+              <span>Arretrato acquisti non disponibile</span>
+            ) : (
+              <span>
+                <strong className="tabular-nums text-text-1">
+                  {arretratoTotale}
+                </strong>{" "}
+                acquisti da classificare
+              </span>
+            )}
+          </>
+        }
+        secondaryActions={
           <Select value={String(anno)} onValueChange={v => setAnno(Number(v))}>
-            <SelectTrigger className="h-9 w-[110px]" aria-label="Anno contabile">
+            <SelectTrigger
+              className="min-h-11 w-32"
+              aria-label="Anno contabile"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -693,8 +825,8 @@ export default function Economia() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-      </div>
+        }
+      />
 
       <Tabs value={tab} onValueChange={v => setTab(v as any)}>
         <TabsList className="w-full justify-start overflow-x-auto">
@@ -724,10 +856,20 @@ export default function Economia() {
       </Tabs>
 
       {tab === "panoramica" && (
-        <EconomiaPanoramica anno={anno} onVaiAdAcquisti={() => setTab("acquisti")} />
+        <EconomiaPanoramica
+          anno={anno}
+          onVaiAdAcquisti={() => setTab("acquisti")}
+        />
       )}
-      {tab === "fatture" && <Fatture anno={anno} />}
-      {tab === "fissi" && <CostiFissi onVaiAdAcquisti={() => setTab("acquisti")} />}
+      {tab === "fatture" && (
+        <Fatture
+          anno={anno}
+          abilitata={operationalStatus === "ready" && canReadEconomy}
+        />
+      )}
+      {tab === "fissi" && (
+        <CostiFissi onVaiAdAcquisti={() => setTab("acquisti")} />
+      )}
       {tab === "acquisti" && (
         <CostiFicReview anno={anno} onCambiaAnno={setAnno} />
       )}
