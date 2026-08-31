@@ -22,6 +22,8 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/import DataSurface/);
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/min-h-11 min-w-11/);
+    expect(source).toMatch(/<Button className="min-h-11" onClick=\{openCreate\}/);
   });
 
   it("compone l'archivio con header e superfici del sistema", () => {

@@ -99,7 +99,7 @@ export default function SediList() {
           </span>
         }
         primaryAction={
-          <Button onClick={openCreate}>
+          <Button className="min-h-11" onClick={openCreate}>
             <Plus className="h-4 w-4" /> Nuova sede
           </Button>
         }
@@ -178,6 +178,7 @@ export default function SediList() {
                       <Button
                         variant="quiet"
                         size="icon"
+                        className="min-h-11 min-w-11"
                         aria-label={
                           s.attiva ? "Disattiva sede" : "Riattiva sede"
                         }
@@ -195,6 +196,7 @@ export default function SediList() {
                     <Button
                       variant="quiet"
                       size="icon"
+                      className="min-h-11 min-w-11"
                       onClick={() => openEdit(s)}
                       aria-label="Modifica sede"
                     >
