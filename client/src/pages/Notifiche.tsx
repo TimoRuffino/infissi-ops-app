@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { useLocation } from "wouter";
+// /notifiche — Centro azioni.
+//
+// La vista vive nella query (`?view=mine|critical|resolved|impostazioni`) come
+// sull'inbox Email: un link è condivisibile, un refresh non riporta alla coda
+// di default e il tasto indietro fa quello che promette. `useSearch` di wouter
+// osserva popstate e le scritture su history, quindi anche la scorciatoia
+// "Preferenze" della campanella arriva qui mentre la pagina è già aperta.
+
+import { useMemo } from "react";
+import { useLocation, useSearch } from "wouter";
 import { Bell, BellRing, CheckCheck, RefreshCw, Settings2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -9,17 +17,28 @@ import PageHeader from "@/components/patterns/PageHeader";
 import { NotificationGroup } from "@/components/notifications/NotificationGroup";
 import type { NotificationItemData } from "@/components/notifications/NotificationItem";
 import { PushPreference } from "@/components/notifications/PushPreference";
-
-type View = "mine" | "critical" | "resolved";
+import {
+  notificationQueueView,
+  notificationViewHref,
+  parseNotificationView,
+  type NotificationQueueView,
+} from "@/lib/notificationView";
 
 export default function Notifiche() {
-  const [location, setLocation] = useLocation();
-  const [view, setView] = useState<View>("mine");
+  const [, setLocation] = useLocation();
+  const search = useSearch();
+  const view = parseNotificationView(search);
+  const queueView = notificationQueueView(view);
+  const settingsView = view === "impostazioni";
+  // Cambiare filtro non è un passo di navigazione: sostituisce la voce
+  // corrente. Aprire le preferenze sì, così indietro torna alla coda.
+  const goToQueueView = (next: NotificationQueueView) =>
+    setLocation(notificationViewHref(next), { replace: true });
   const utils = trpc.useUtils();
   const query = trpc.notifiche.feed.useQuery({
     limit: 50,
-    statuses: view === "resolved" ? ["resolved"] : undefined,
-    priorities: view === "critical" ? ["critical"] : undefined,
+    statuses: queueView === "resolved" ? ["resolved"] : undefined,
+    priorities: queueView === "critical" ? ["critical"] : undefined,
   });
   const unread = trpc.notifiche.unreadCount.useQuery();
   const refresh = () => utils.notifiche.invalidate();
@@ -36,9 +55,6 @@ export default function Notifiche() {
   }, [items]);
   const readId = (item: NotificationItemData) =>
     item.legacy ? item.id : Number(item.id);
-  const settingsView =
-    location.includes("view=impostazioni") ||
-    window.location.search.includes("view=impostazioni");
 
   return (
     <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5">
@@ -68,14 +84,28 @@ export default function Notifiche() {
         primaryAction={
           <Button
             variant="outline"
-            onClick={() => setLocation("/notifiche?view=impostazioni")}
+            aria-expanded={settingsView}
+            aria-controls="preferenze-notifiche"
+            onClick={() =>
+              settingsView
+                ? setLocation(notificationViewHref(queueView), {
+                    replace: true,
+                  })
+                : setLocation(notificationViewHref("impostazioni"))
+            }
           >
-            <Settings2 className="h-4 w-4" /> Preferenze
+            <Settings2 className="h-4 w-4" />
+            {settingsView ? "Chiudi preferenze" : "Preferenze"}
           </Button>
         }
       />
 
-      {settingsView && <PushPreference />}
+      {/* Disclosure, non overlay: la coda resta leggibile e filtrabile sotto. */}
+      {settingsView && (
+        <div id="preferenze-notifiche">
+          <PushPreference />
+        </div>
+      )}
 
       <DataSurface
         density="compact"
@@ -86,10 +116,11 @@ export default function Notifiche() {
           </p>
         }
       >
-        <Tabs value={view} onValueChange={value => setView(value as View)}>
-          <TabsList
-            className={`grid w-full grid-cols-3 sm:w-auto ${settingsView ? "opacity-70" : ""}`}
-          >
+        <Tabs
+          value={queueView}
+          onValueChange={value => goToQueueView(value as NotificationQueueView)}
+        >
+          <TabsList className="grid w-full grid-cols-3 sm:w-auto">
             <TabsTrigger value="mine">
               <Bell className="h-4 w-4" /> Per me
             </TabsTrigger>

@@ -18,6 +18,26 @@ describe("notification stream helpers", () => {
     expect(parseNotificationEvent(JSON.stringify({ notificationId: "12", body: "segreto" }))).toBeNull();
   });
 
+  it("rifiuta un evento senza riferimenti entita completi", () => {
+    // Un ref senza `id` non è navigabile: l'evento intero viene scartato invece
+    // di arrivare al client mezzo vuoto.
+    expect(
+      parseNotificationEvent(
+        JSON.stringify({ notificationId: 7, entityRefs: [{ type: "ticket" }] })
+      )
+    ).toBeNull();
+    expect(
+      parseNotificationEvent(
+        JSON.stringify({ notificationId: 7, entityRefs: [{ id: "9" }] })
+      )
+    ).toBeNull();
+    expect(
+      parseNotificationEvent(
+        JSON.stringify({ notificationId: 7, entityRefs: [{ type: "ticket", id: 9 }] })
+      )
+    ).toBeNull();
+  });
+
   it("elegge deterministicamente una sola scheda viva", () => {
     const now = 10_000;
     expect(

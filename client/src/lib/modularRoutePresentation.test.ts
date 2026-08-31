@@ -13,6 +13,13 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/import DataSurface/);
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/<DataSurface/);
+    // La vista vive nell'URL: nessuno stato locale che si perde al refresh.
+    expect(source).toMatch(/parseNotificationView\(/);
+    expect(source).toMatch(/notificationViewHref\(/);
+    expect(source).toMatch(/useSearch\(\)/);
+    expect(source).not.toMatch(/useState<View>/);
+    // Le preferenze sono una disclosure accanto alla coda, non un overlay.
+    expect(source).toMatch(/aria-expanded=\{settingsView\}/);
   });
 
   it("compone la gestione sedi con header e superfici del sistema", () => {
