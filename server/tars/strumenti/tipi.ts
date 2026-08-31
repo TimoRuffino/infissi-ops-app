@@ -10,6 +10,31 @@ import type { z } from "zod";
 import type { Capability } from "../../authz/capabilities";
 import type { Interruttore } from "../../platform/interruttori";
 
+export type SuperficieTars =
+  | "generale"
+  | "commessa"
+  | "documenti-ordini"
+  | "promemoria"
+  | "comunicazioni"
+  | "economia"
+  | "direzione"
+  | "post-vendita";
+
+export type TipoEntitaTars =
+  | "commessa"
+  | "cliente"
+  | "ordine_fornitore"
+  | "documento"
+  | "caso"
+  | "promemoria"
+  | "memoria";
+
+export type IntentoTars =
+  | "lettura"
+  | "azione_esplicita"
+  | "analisi"
+  | "proposta";
+
 export type ContestoRun = {
   utenteId: number;
   sedeId: number;
@@ -20,6 +45,13 @@ export type ContestoRun = {
   capabilityFingerprint: string;
   lingua: "it";
   fuso: "Europe/Rome";
+  /**
+   * Selettori di profilo opzionali. Il router/orchestratore corrente può
+   * ometterli (compatibilità); il resolver d'intento li popolerà dalla T2.
+   */
+  superficie?: SuperficieTars;
+  entitaAttiva?: { tipo: TipoEntitaTars; id: number };
+  intento?: IntentoTars;
 };
 
 export type EvidenzaTars = {

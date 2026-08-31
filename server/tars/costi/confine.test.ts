@@ -141,6 +141,42 @@ describe("confine dei costi — nessuna chiamata a pagamento fuori dal governor"
     expect(corpo).not.toContain("ledgerOverride");
   });
 
+  it("il registro azioni non espone primitive generiche, force o auto-approvazione", async () => {
+    const { REGISTRO_AZIONI } = await import("../azioni/registry");
+    const { comeDefinizioneProvider } = await import("../profili");
+    const nomi = REGISTRO_AZIONI.map(a => a.nome);
+
+    expect(nomi).not.toContain("executeSql");
+    expect(nomi).not.toContain("updateRecord");
+    expect(nomi.some(nome => /(approva|applica|autorizza)/i.test(nome))).toBe(false);
+    for (const azione of REGISTRO_AZIONI) {
+      const schema = comeDefinizioneProvider(azione.strumento);
+      expect(schema.parametri).not.toHaveProperty("properties.force");
+    }
+  });
+
+  it("il ledger R1 è PostgreSQL in produzione e la memoria è confinata ai test", () => {
+    const sorgente = readFileSync(
+      join(RADICE, "server", "tars", "azioni", "executions.ts"),
+      "utf8"
+    );
+    expect(sorgente).toContain("CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni");
+    expect(sorgente).toContain('process.env.NODE_ENV === "test"');
+    expect(sorgente).toContain('input.ledger && process.env.NODE_ENV !== "test"');
+    expect(sorgente).toContain("LEDGER_ESECUZIONI_ASSENTE");
+    expect(sorgente).not.toMatch(/\b(?:UPDATE|DELETE)\s+tars_azioni_esecuzioni\b/i);
+  });
+
+  it("registro, policy e ledger non importano provider grezzi", () => {
+    for (const nome of ["registry.ts", "policy.ts", "executions.ts"]) {
+      const sorgente = readFileSync(
+        join(RADICE, "server", "tars", "azioni", nome),
+        "utf8"
+      );
+      expect(sorgente).not.toMatch(/from\s+["'][^"']*(?:provider|_core\/llm|openai)[^"']*["']/i);
+    }
+  });
+
   it("l'override del ledger e l'iniezione diretta vivono SOLO nei test", () => {
     // `impostaLedgerPerTest` disattiverebbe i tetti lasciando in piedi il
     // provider reale: nessun modulo di produzione può chiamarla, e

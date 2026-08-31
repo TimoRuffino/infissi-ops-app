@@ -27,6 +27,8 @@ import {
 } from "./provider";
 import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./strumenti/tipi";
 import { versioniAncoraValide } from "./versioni";
+import { descrittoreAzione } from "./azioni/registry";
+import { registraEsecuzioneR1 } from "./azioni/executions";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -149,6 +151,9 @@ function chiaveC0(
         // risolve il referente dalla cronologia). Due conversazioni
         // fresche condividono l'impronta vuota: il riuso buono resta.
         st: improntaStoria,
+        superficie: contesto.superficie ?? null,
+        entita: contesto.entitaAttiva ?? null,
+        intento: contesto.intento ?? null,
         // T7 (decisione 35): una memoria nuova/invalidata nega il riuso.
         mem: tarsAttivo("tarsMemory")
           ? fingerprintMemorie(contesto.sedeId, contesto.utenteId)
@@ -187,7 +192,17 @@ const CIRCUITO_PAUSA_MS = 60_000;
 
 function chiaveCachePrompt(contesto: ContestoRun, modello: string): string {
   const ambiente = process.env.NODE_ENV ?? "development";
-  return `tars:${ambiente}:${modello}:${PROMPT_VERSIONE}:${PROFILO_VERSIONE}:${contesto.capabilityFingerprint}`;
+  const profilo = createHash("sha256")
+    .update(
+      JSON.stringify({
+        superficie: contesto.superficie ?? null,
+        entita: contesto.entitaAttiva?.tipo ?? null,
+        intento: contesto.intento ?? null,
+      })
+    )
+    .digest("hex")
+    .slice(0, 10);
+  return `tars:${ambiente}:${modello}:${PROMPT_VERSIONE}:${PROFILO_VERSIONE}:${contesto.capabilityFingerprint}:${profilo}`;
 }
 
 function sanifica(errore: unknown): string {
@@ -542,6 +557,13 @@ export async function eseguiRun(input: {
             const grezzi = JSON.parse(chiamata.argomenti || "{}");
             const validati = strumento.schemaInput.parse(grezzi);
             const esito = await strumento.esegui(contesto, validati);
+            const descrittore = descrittoreAzione(strumento.nome);
+            if (!descrittore) {
+              throw new Error(
+                `FORBIDDEN: strumento «${strumento.nome}» fuori registro.`
+              );
+            }
+            descrittore.schemaRisultato.parse(esito);
             if (esito && Array.isArray((esito as any).evidenze)) {
               evidenze.push(...(esito as any).evidenze);
               for (const o of (esito as any).omissioni ?? []) omissioni.add(o);
@@ -552,6 +574,13 @@ export async function eseguiRun(input: {
             );
             if ((esito as EsitoAzione)?.tipo === "azione") {
               const azione = esito as EsitoAzione;
+              await registraEsecuzioneR1({
+                descrittore,
+                contesto,
+                runId,
+                argomenti: validati,
+                esito: azione,
+              });
               azioni.push({
                 strumento: azione.strumento,
                 stato: azione.stato,

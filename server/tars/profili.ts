@@ -5,16 +5,12 @@
 
 import { z } from "zod";
 import { interruttoreAttivo } from "../platform/interruttori";
-import { STRUMENTI_CASI } from "./strumenti/casi";
-import { STRUMENTI_DOCUMENTI } from "./strumenti/documenti";
-import { STRUMENTI_L0 } from "./strumenti/letture";
-import { STRUMENTI_MEMORIA } from "./strumenti/memorie";
-import { STRUMENTI_PROMEMORIA } from "./strumenti/promemoria";
-import { STRUMENTI_PROPOSTE } from "./strumenti/proposte";
+import { catalogoAzioniPerContesto } from "./azioni/policy";
+import { VERSIONE_REGISTRO_AZIONI } from "./azioni/registry";
 import type { ContestoRun, StrumentoTars } from "./strumenti/tipi";
 import type { DefinizioneToolProvider } from "./provider";
 
-export const PROFILO_VERSIONE = "l3-v3";
+export const PROFILO_VERSIONE = `azioni-${VERSIONE_REGISTRO_AZIONI}`;
 
 /** Il filtro di ammissione, esportato per essere provabile da solo. */
 export function filtraStrumenti(
@@ -38,21 +34,7 @@ export function filtraStrumenti(
 export function strumentiPerContesto(
   contesto: ContestoRun
 ): StrumentoTars[] {
-  // Ogni famiglia esiste solo col SUO interruttore: letture e promemoria
-  // sono indipendenti (il singolo strumento può poi averne altri, es. DI).
-  const catalogo: StrumentoTars[] = [];
-  if (interruttoreAttivo("tarsReadTools")) catalogo.push(...STRUMENTI_L0);
-  if (interruttoreAttivo("tarsReminders")) {
-    catalogo.push(...STRUMENTI_PROMEMORIA);
-  }
-  if (interruttoreAttivo("tarsL2Actions")) {
-    catalogo.push(...STRUMENTI_CASI, ...STRUMENTI_DOCUMENTI);
-  }
-  if (interruttoreAttivo("tarsProposals")) {
-    catalogo.push(...STRUMENTI_PROPOSTE);
-  }
-  if (interruttoreAttivo("tarsMemory")) catalogo.push(...STRUMENTI_MEMORIA);
-  return filtraStrumenti(catalogo, contesto);
+  return catalogoAzioniPerContesto(contesto).map(a => a.strumento);
 }
 
 /** JSON Schema strict per il provider, derivato dagli schemi zod. */
