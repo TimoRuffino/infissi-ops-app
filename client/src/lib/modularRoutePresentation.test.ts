@@ -354,6 +354,25 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/Nessun utente corrisponde ai filtri correnti/);
   });
 
+  it("compone l'hub preventivatori come ingresso guidato", () => {
+    const source = routeSource("../pages/Preventivatori.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Le route passano dal modulo puro: la pagina non tiene una sua mappa.
+    expect(source).toMatch(/from "@\/lib\/preventivatori"/);
+    expect(source).not.toMatch(/"\/preventivatori\/fivizzanese\/persiane"/);
+    // Un prodotto senza calcolatore è informazione passiva, non un bottone.
+    expect(source).toMatch(/Non disponibile in Ruffino Flow/);
+    expect(source).not.toMatch(/In sviluppo/);
+    // L'unica superficie focale è quella dei preventivatori pronti.
+    expect(source.match(/tone="focal"/g)?.length).toBe(1);
+    // Una ricerca senza risultati non è "nessun preventivatore".
+    expect(source).toMatch(/Nessuna corrispondenza/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

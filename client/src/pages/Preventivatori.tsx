@@ -1,467 +1,186 @@
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Calculator,
-  Building2,
-  Package,
-  ArrowRight,
-  Sparkles,
-  Plus,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { ArrowRight, Calculator, Search } from "lucide-react";
 import { useLocation } from "wouter";
 
-// ── Aziende ─────────────────────────────────────────────────────────────────
-//
-// Catalog of azienda preventivatori. Independent from the Fornitori anagrafica
-// — adding a fornitore here or removing one elsewhere has no effect. New
-// aziende are added by appending to this list; later we'll back this with a
-// persisted store so the user can manage it from the UI.
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
+import type { StatePanelProps } from "@/components/patterns/StatePanel";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  filtraVociPreventivatore,
+  inizialiAzienda,
+  vociPreventivatore,
+  type VocePreventivatore,
+} from "@/lib/preventivatori";
 
-type Azienda = {
-  id: string;
-  nome: string;
-  descrizione?: string;
-  accent: string; // tailwind classes for the icon tile
-  prodotti: string[]; // keys into PRODOTTI_CATALOG
-};
-
-const AZIENDE: Azienda[] = [
-  {
-    id: "fivizzanese",
-    nome: "Fivizzanese",
-    descrizione: "Persiane",
-    accent: "bg-st-misure-soft text-st-misure",
-    prodotti: ["persiane"],
-  },
-  {
-    id: "punto_del_serramento",
-    nome: "Punto del Serramento",
-    descrizione: "Persiane",
-    accent: "bg-structure-soft text-structure",
-    prodotti: ["persiane"],
-  },
-  {
-    id: "alias",
-    nome: "Alias",
-    descrizione: "Portoncini blindati",
-    accent: "bg-st-ordine-soft text-st-ordine",
-    prodotti: ["blindati"],
-  },
-];
-
-// ── Prodotti ────────────────────────────────────────────────────────────────
-//
-// Catalogo delle tipologie di preventivatore. Ogni azienda elenca in
-// `prodotti` le chiavi che supporta — nuove tipologie si aggiungono qui e
-// poi si abbinano all'azienda di competenza.
-
-type Prodotto = { key: string; label: string };
-
-const PRODOTTI_CATALOG: Record<string, Prodotto> = {
-  persiane: { key: "persiane", label: "Persiane" },
-  blindati: { key: "blindati", label: "Blindati" },
-};
-
-function getProdotto(key: string): Prodotto {
-  return PRODOTTI_CATALOG[key] ?? { key, label: key };
-}
-
-// Prodotti effettivamente in uso — derivati dall'unione di quelli dichiarati
-// da ciascuna azienda. Mantiene stabile l'ordine di apparizione.
-const PRODOTTI_ATTIVI: Prodotto[] = (() => {
-  const seen = new Set<string>();
-  const out: Prodotto[] = [];
-  for (const a of AZIENDE) {
-    for (const key of a.prodotti) {
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(getProdotto(key));
-    }
-  }
-  return out;
-})();
-
-type Target = {
-  aziendaId: string;
-  aziendaNome: string;
-  prodotto: string;
-  prodottoLabel: string;
-};
-
-// Route map per i preventivatori già implementati. Se un target non è qui
-// dentro mostriamo il dialog placeholder "In sviluppo".
-const PREVENTIVATORE_ROUTES: Record<string, string> = {
-  "fivizzanese:persiane": "/preventivatori/fivizzanese/persiane",
-  "punto_del_serramento:persiane":
-    "/preventivatori/punto-del-serramento/persiane",
-};
-
-function isReady(aziendaId: string, prodottoKey: string): boolean {
-  return `${aziendaId}:${prodottoKey}` in PREVENTIVATORE_ROUTES;
-}
-
-// Iniziali azienda per il tile colorato (max 2 char).
-function aziendaInitials(nome: string): string {
-  return nome
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
-// ────────────────────────────────────────────────────────────────────────────
+// Il catalogo è statico: si calcola una volta sola, fuori dal componente.
+const VOCI = vociPreventivatore();
+const VOCI_PRONTE = VOCI.filter(voce => voce.route !== null).length;
 
 export default function Preventivatori() {
-  const [view, setView] = useState<"aziende" | "prodotti">("aziende");
-  const [selected, setSelected] = useState<Target | null>(null);
   const [, setLocation] = useLocation();
+  const [ricerca, setRicerca] = useState("");
 
-  // Se il target ha una route dedicata naviga lì, altrimenti apre il dialog
-  // placeholder così i preventivatori non ancora pronti restano visibili.
-  function pick(target: Target) {
-    const route = PREVENTIVATORE_ROUTES[`${target.aziendaId}:${target.prodotto}`];
-    if (route) {
-      setLocation(route);
-      return;
-    }
-    setSelected(target);
-  }
+  const voci = useMemo(() => filtraVociPreventivatore(VOCI, ricerca), [ricerca]);
+  const pronti = voci.filter(voce => voce.route !== null);
+  const nonDisponibili = voci.filter(voce => voce.route === null);
 
-  // Total = somma dei prodotti dichiarati da ciascuna azienda (no prodotto
-  // cartesiano — un'azienda che fa solo persiane conta 1, non length(PRODOTTI)).
-  const totalPreventivatori = AZIENDE.reduce(
-    (acc, a) => acc + a.prodotti.length,
-    0
-  );
-  const disponibiliCount = AZIENDE.reduce(
-    (acc, a) => acc + a.prodotti.filter((p) => isReady(a.id, p)).length,
-    0
-  );
+  // Una ricerca senza risultati non è "nessun preventivatore": lo stato lo dice.
+  const statoCatalogo: StatePanelProps | undefined =
+    voci.length === 0
+      ? {
+          kind: "empty",
+          title: "Nessuna corrispondenza",
+          description: `Nessuna azienda o prodotto a catalogo corrisponde a «${ricerca.trim()}».`,
+        }
+      : undefined;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em] flex items-center gap-2">
-            <Calculator className="h-6 w-6 text-primary" />
-            Preventivatori
-          </h1>
-          <p className="text-sm text-text-2 max-w-2xl">
-            Calcolatori di preventivo divisi per azienda e prodotto. Seleziona
-            un'azienda per vedere i preventivatori disponibili, oppure filtra
-            per tipo di prodotto.
-          </p>
-        </div>
-        <Button
-          disabled
-          className="gap-2"
-          title="Aggiunta di nuove aziende non ancora disponibile — in arrivo"
-        >
-          <Plus className="h-4 w-4" />
-          Nuova azienda
-        </Button>
-      </div>
+    <div className="min-w-0 space-y-4 sm:space-y-5">
+      <PageHeader
+        eyebrow="Commesse"
+        title="Preventivatori"
+        description="Calcolatori di preventivo per azienda e prodotto. Apri quello pronto: misure, listino, riepilogo e PDF restano dentro Ruffino Flow."
+        metadata={
+          <>
+            <span>
+              <strong className="tabular-nums text-text-1">
+                {VOCI_PRONTE}
+              </strong>{" "}
+              calcolatori disponibili su{" "}
+              <strong className="tabular-nums text-text-1">
+                {VOCI.length}
+              </strong>{" "}
+              a catalogo
+            </span>
+            <span>Catalogo definito nel codice, non configurabile da qui</span>
+          </>
+        }
+      />
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="pt-6 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Aziende</p>
-                <p className="text-2xl font-bold">{AZIENDE.length}</p>
-              </div>
-              <Building2 className="h-8 w-8 text-muted-foreground/30" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Prodotti</p>
-                <p className="text-2xl font-bold">{PRODOTTI_ATTIVI.length}</p>
-              </div>
-              <Package className="h-8 w-8 text-muted-foreground/30" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Preventivatori</p>
-                <p className="text-2xl font-bold">{totalPreventivatori}</p>
-              </div>
-              <Calculator className="h-8 w-8 text-muted-foreground/30" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Disponibili</p>
-                <p className="text-2xl font-bold">
-                  {disponibiliCount}
-                  <span className="text-sm text-muted-foreground font-normal">
-                    {" "}
-                    / {totalPreventivatori}
-                  </span>
-                </p>
-              </div>
-              <CheckCircle2 className="h-8 w-8 text-success/40" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* View switcher */}
-      <Tabs value={view} onValueChange={(v) => setView(v as any)}>
-        <TabsList>
-          <TabsTrigger value="aziende" className="gap-2">
-            <Building2 className="h-4 w-4" />
-            Per azienda
-          </TabsTrigger>
-          <TabsTrigger value="prodotti" className="gap-2">
-            <Package className="h-4 w-4" />
-            Per prodotto
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ── Per azienda ─────────────────────────────────────────────────── */}
-        <TabsContent value="aziende" className="mt-4 space-y-4">
-          {AZIENDE.map((a) => (
-            <AziendaCard
-              key={a.id}
-              azienda={a}
-              onPick={(prod) =>
-                pick({
-                  aziendaId: a.id,
-                  aziendaNome: a.nome,
-                  prodotto: prod.key,
-                  prodottoLabel: prod.label,
-                })
-              }
+      <DataSurface density="compact" tone="sunken">
+        <div className="min-w-0">
+          <Label
+            htmlFor="ricerca-preventivatori"
+            className="text-xs font-semibold"
+          >
+            Cerca azienda o prodotto
+          </Label>
+          <div className="relative mt-1.5 min-w-0 sm:max-w-md">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-3"
             />
-          ))}
-        </TabsContent>
-
-        {/* ── Per prodotto ────────────────────────────────────────────────── */}
-        <TabsContent value="prodotti" className="mt-4 space-y-4">
-          {PRODOTTI_ATTIVI.map((p) => {
-            const aziendeForProdotto = AZIENDE.filter((a) =>
-              a.prodotti.includes(p.key)
-            );
-            return (
-            <Card key={p.key}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-base">{p.label}</CardTitle>
-                  <span className="text-xs text-muted-foreground">
-                    · {aziendeForProdotto.length}{" "}
-                    {aziendeForProdotto.length === 1 ? "azienda" : "aziende"}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {aziendeForProdotto.map((a) => {
-                  const ready = isReady(a.id, p.key);
-                  return (
-                    <button
-                      key={a.id}
-                      onClick={() =>
-                        pick({
-                          aziendaId: a.id,
-                          aziendaNome: a.nome,
-                          prodotto: p.key,
-                          prodottoLabel: p.label,
-                        })
-                      }
-                      className={`text-left rounded-md border transition-all p-3 group ${
-                        ready
-                          ? "bg-background hover:bg-primary/5 hover:border-primary/50 border-primary/20"
-                          : "bg-muted/40 hover:bg-muted"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 font-bold text-xs tracking-tight ${a.accent}`}
-                        >
-                          {aziendaInitials(a.nome)}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{a.nome}</p>
-                          <div className="mt-1">
-                            {ready ? (
-                              <Badge variant="success" className="gap-1">
-                                <CheckCircle2 className="h-3 w-3" />
-                                Pronto
-                              </Badge>
-                            ) : (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
-                                <Clock className="h-3 w-3" />
-                                In sviluppo
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ArrowRight
-                          className={`h-4 w-4 shrink-0 transition mt-0.5 ${
-                            ready
-                              ? "text-primary opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5"
-                              : "text-muted-foreground opacity-30"
-                          }`}
-                        />
-                      </div>
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-            );
-          })}
-        </TabsContent>
-      </Tabs>
-
-      {/* Placeholder dialog — real calculator wired in later */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calculator className="h-5 w-5 text-primary" />
-              {selected?.aziendaNome} — {selected?.prodottoLabel}
-            </DialogTitle>
-            <DialogDescription>
-              Preventivatore dedicato a {selected?.prodottoLabel?.toLowerCase()}{" "}
-              di {selected?.aziendaNome}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-md border border-dashed bg-muted/40 p-6 text-center space-y-2">
-            <Sparkles className="h-8 w-8 text-muted-foreground mx-auto" />
-            <p className="text-sm font-medium">In sviluppo</p>
-            <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-              Il calcolatore verrà costruito qui. Definiremo i parametri
-              (dimensioni, tipologia, vetro, accessori...) e la formula di
-              prezzo specifica per {selected?.aziendaNome}.
-            </p>
+            <Input
+              id="ricerca-preventivatori"
+              value={ricerca}
+              onChange={event => setRicerca(event.target.value)}
+              placeholder="Es. Fivizzanese, persiane…"
+              className="min-h-11 min-w-0 pl-9 text-base md:text-sm"
+            />
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DataSurface>
+
+      {statoCatalogo ? (
+        <DataSurface
+          density="comfortable"
+          tone="default"
+          title="Catalogo preventivatori"
+          state={statoCatalogo}
+        />
+      ) : (
+        <>
+          {pronti.length > 0 ? (
+            <DataSurface
+              density="comfortable"
+              tone="focal"
+              title="Pronti al calcolo"
+              description="Aprono il calcolatore dedicato dell'azienda: misure in millimetri, listino applicato e PDF da allegare alla commessa."
+            >
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                {pronti.map(voce => (
+                  <VoceProntaButton
+                    key={voce.id}
+                    voce={voce}
+                    onOpen={route => setLocation(route)}
+                  />
+                ))}
+              </div>
+            </DataSurface>
+          ) : null}
+
+          {nonDisponibili.length > 0 ? (
+            <DataSurface
+              density="compact"
+              tone="default"
+              title="Non disponibili in Ruffino Flow"
+              description="Restano a catalogo per memoria del listino cartaceo: senza calcolatore non c'è nulla da aprire."
+            >
+              <ul className="-mx-3 -mb-3 min-w-0 divide-y divide-border-soft border-t border-border-soft sm:-mx-4 sm:-mb-4">
+                {nonDisponibili.map(voce => (
+                  <li
+                    key={voce.id}
+                    className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-3 sm:px-4"
+                  >
+                    <span className="min-w-0 text-sm font-semibold text-text-1">
+                      {voce.aziendaNome}
+                    </span>
+                    <span className="min-w-0 text-sm text-text-2">
+                      {voce.prodottoLabel}
+                    </span>
+                    <span className="ml-auto shrink-0 text-xs text-text-3">
+                      Non disponibile in Ruffino Flow
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </DataSurface>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
-
-function AziendaCard({
-  azienda,
-  onPick,
+function VoceProntaButton({
+  voce,
+  onOpen,
 }: {
-  azienda: Azienda;
-  onPick: (prod: Prodotto) => void;
+  voce: VocePreventivatore;
+  onOpen: (route: string) => void;
 }) {
-  const readyCount = azienda.prodotti.filter((k) =>
-    isReady(azienda.id, k)
-  ).length;
+  const route = voce.route;
+  if (!route) return null;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start gap-3">
-          <div
-            className={`h-11 w-11 rounded-lg flex items-center justify-center shrink-0 font-bold text-sm tracking-tight ${azienda.accent}`}
-          >
-            {aziendaInitials(azienda.nome)}
-          </div>
-          <div className="min-w-0 flex-1">
-            <CardTitle className="text-base truncate">{azienda.nome}</CardTitle>
-            {azienda.descrizione && (
-              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                {azienda.descrizione}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <Badge variant="secondary" className="text-[10px]">
-              {azienda.prodotti.length}{" "}
-              {azienda.prodotti.length === 1
-                ? "preventivatore"
-                : "preventivatori"}
-            </Badge>
-            {readyCount > 0 && (
-              <span className="text-[10px] text-success flex items-center gap-0.5">
-                <CheckCircle2 className="h-3 w-3" />
-                {readyCount} pronto
-                {readyCount !== 1 && "i"}
-              </span>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        {azienda.prodotti.map((key) => {
-          const p = getProdotto(key);
-          const ready = isReady(azienda.id, p.key);
-          return (
-            <button
-              key={p.key}
-              onClick={() => onPick(p)}
-              className={`rounded-md border transition-all p-3 text-left group ${
-                ready
-                  ? "bg-background hover:bg-primary/5 hover:border-primary/50 border-primary/20"
-                  : "bg-muted/40 hover:bg-muted"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{p.label}</p>
-                  <div className="mt-1">
-                    {ready ? (
-                      <Badge variant="success" className="gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Pronto
-                      </Badge>
-                    ) : (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        In sviluppo
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <ArrowRight
-                  className={`h-4 w-4 shrink-0 transition ${
-                    ready
-                      ? "text-primary opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5"
-                      : "text-muted-foreground opacity-30"
-                  }`}
-                />
-              </div>
-            </button>
-          );
-        })}
-      </CardContent>
-    </Card>
+    <button
+      type="button"
+      onClick={() => onOpen(route)}
+      className="group flex min-h-12 min-w-0 items-start gap-3 rounded-[var(--radius-control)] border border-on-focal/25 bg-on-focal/10 p-3 text-left transition-colors hover:bg-on-focal/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-on-focal sm:p-4"
+    >
+      <span
+        aria-hidden="true"
+        className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-control)] border border-on-focal/25 text-xs font-bold tracking-tight text-on-focal"
+      >
+        {inizialiAzienda(voce.aziendaNome)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-on-focal">
+          <Calculator aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 break-words">
+            {voce.aziendaNome} · {voce.prodottoLabel}
+          </span>
+        </span>
+        <span className="mt-1 block text-xs leading-5 text-on-focal/75">
+          {voce.aziendaDescrizione}
+        </span>
+      </span>
+      <ArrowRight
+        aria-hidden="true"
+        className="mt-0.5 h-4 w-4 shrink-0 text-on-focal/75 transition-transform motion-safe:group-hover:translate-x-0.5"
+      />
+    </button>
   );
 }

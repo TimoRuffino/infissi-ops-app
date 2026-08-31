@@ -250,6 +250,40 @@ describe("effective-capability navigation matrix", () => {
   });
 });
 
+describe("voce Preventivatori", () => {
+  it("resta nel gruppo Commesse, con la sua route e senza capability inventate", () => {
+    const preventivatori = itemAt("/preventivatori");
+
+    expect(preventivatori.label).toBe("Preventivatori");
+    // L'hub è un catalogo statico dietro la shell autenticata: la migrazione
+    // della pagina non sposta la voce né le aggiunge un gate.
+    expect(preventivatori.requiredCapabilities).toBeUndefined();
+    expect(preventivatori.roleRule).toBeUndefined();
+    expect(preventivatori.featureFlag).toBeUndefined();
+    expect(preventivatori.children).toBeUndefined();
+
+    const commesse = navigationGroups(
+      access({ capabilities: new Set() })
+    ).find(group => group.label === "Commesse");
+
+    expect(commesse?.children?.map(item => item.path)).toContain(
+      "/preventivatori"
+    );
+  });
+
+  it("non promuove i due calcolatori a destinazioni di navigazione", () => {
+    const paths = destinationPaths(
+      access({ capabilities: new Set(["commessa.read", "cliente.read"]) })
+    );
+
+    expect(paths).toContain("/preventivatori");
+    expect(paths).not.toContain("/preventivatori/fivizzanese/persiane");
+    expect(paths).not.toContain(
+      "/preventivatori/punto-del-serramento/persiane"
+    );
+  });
+});
+
 describe("mobileDestinations", () => {
   const labels = (currentAccess: NavigationAccess) =>
     mobileDestinations(currentAccess).map(destination => destination.label);
