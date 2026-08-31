@@ -419,7 +419,7 @@ export default function FornitoriList() {
                 className="pl-9"
               />
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               <Button variant={!catFilter ? "default" : "outline"} size="sm" onClick={() => setCatFilter(undefined)}>
                 Tutti
               </Button>
