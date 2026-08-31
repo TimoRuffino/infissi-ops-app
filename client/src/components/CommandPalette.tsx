@@ -1,13 +1,8 @@
-// Palette comandi (⌘K / Ctrl+K) — shell UI v2.
+// Palette comandi (⌘K / Ctrl+K) — shell Modular Control.
 //
-// Tre garanzie non negoziabili:
-// 1. La ricerca è DETERMINISTICA: clienti e commesse passano dalle stesse
-//    procedure sede-scoped e capability-aware delle liste. Nessuna chiamata
-//    al provider del modello mentre si digita.
-// 2. Il passaggio a Tars è un atto esplicito: la voce dedicata compila la
-//    pagina /tars con il testo, senza inviare nulla.
-// 3. Le voci di navigazione sono le stesse della sidebar (lib/navigation),
-//    quindi capability, ruoli e flag valgono anche qui: nessun link morto.
+// La ricerca resta deterministica e sede-scoped. Tars compare come passaggio
+// esplicito che compila una bozza; nessuna procedura del modello parte mentre
+// l'utente digita o seleziona la voce.
 import {
   CommandDialog,
   CommandGroup,
@@ -17,132 +12,161 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import {
+  compileTarsDraftPath,
+  MAX_PALETTE_QUERY_LENGTH,
+  readPaletteRecents,
+  rememberPaletteRecent,
+  revalidateRecent,
+  type PaletteRecent,
+} from "@/lib/commandPalette";
+import {
   type NavigationAccess,
   navigationDestinations,
 } from "@/lib/navigation";
 import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
-import { BrainCircuit, Building2, Clock, Contact } from "lucide-react";
-import { keepPreviousData } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  BrainCircuit,
+  Building2,
+  Clock,
+  Contact,
+  Loader2,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { scopedStorageKey } from "@/lib/operationalContext";
 
-const RECENTI_KEY_BASE = "rf-palette-recenti";
-const MAX_RISULTATI = 6;
+const MAX_SEARCH_RESULTS = 6;
 
-type Recente = { label: string; path: string };
-
-// I recenti seguono utente, sede e autorizzazioni. Il cambio contesto elimina
-// il namespace precedente prima che la palette possa rimontare.
-function chiaveRecenti(scopeKey: string | null): string | null {
-  return scopeKey ? scopedStorageKey(RECENTI_KEY_BASE, scopeKey) : null;
-}
-
-function leggiRecenti(chiave: string | null): Recente[] {
-  if (!chiave) return [];
-  try {
-    const grezzo = localStorage.getItem(chiave);
-    const lista = grezzo ? JSON.parse(grezzo) : [];
-    return Array.isArray(lista) ? lista.slice(0, MAX_RISULTATI) : [];
-  } catch {
-    return [];
-  }
-}
-
-function ricordaRecente(chiave: string | null, voce: Recente) {
-  if (!chiave) return;
-  try {
-    const senza = leggiRecenti(chiave).filter(r => r.path !== voce.path);
-    localStorage.setItem(
-      chiave,
-      JSON.stringify([voce, ...senza].slice(0, MAX_RISULTATI))
-    );
-  } catch {
-    // Un localStorage indisponibile non deve rompere la navigazione.
-  }
-}
+export type CommandPaletteProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  access: NavigationAccess;
+  scopeKey: string | null;
+};
 
 export default function CommandPalette({
   open,
   onOpenChange,
   access,
   scopeKey,
-}: {
-  open: boolean;
-  onOpenChange: (aperta: boolean) => void;
-  access: NavigationAccess;
-  scopeKey: string | null;
-}) {
+}: CommandPaletteProps) {
   const [, setLocation] = useLocation();
-  const chiave = chiaveRecenti(scopeKey);
-  const [testo, setTesto] = useState("");
-  // Il testo digitato guida i filtri locali all'istante; la ricerca sul
-  // server aspetta una pausa di battitura (200ms), altrimenti ogni
-  // carattere sarebbe una query nuova.
-  const [testoCercato, setTestoCercato] = useState("");
-  const [recenti, setRecenti] = useState<Recente[]>([]);
+  const previousScope = useRef(scopeKey);
+  const [queryText, setQueryText] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [recents, setRecents] = useState<PaletteRecent[]>([]);
+
+  // Any committed scope change invalidates both visible state and the open
+  // dialog. OperationalContext has already cancelled/removed protected query
+  // results before publishing this new scope.
+  useEffect(() => {
+    if (previousScope.current === scopeKey) return;
+    previousScope.current = scopeKey;
+    setQueryText("");
+    setDebouncedQuery("");
+    setRecents([]);
+    if (open) onOpenChange(false);
+  }, [onOpenChange, open, scopeKey]);
 
   useEffect(() => {
-    if (open) {
-      setTesto("");
-      setTestoCercato("");
-      setRecenti(leggiRecenti(chiave));
+    if (!open) return;
+    setQueryText("");
+    setDebouncedQuery("");
+    setRecents(
+      readPaletteRecents(window.localStorage, scopeKey).filter(recent =>
+        revalidateRecent(recent, access)
+      )
+    );
+  }, [access, open, scopeKey]);
+
+  useEffect(() => {
+    const pause = window.setTimeout(
+      () => setDebouncedQuery(queryText.trim()),
+      200
+    );
+    return () => window.clearTimeout(pause);
+  }, [queryText]);
+
+  const query = queryText.trim();
+  const navigation = useMemo(() => navigationDestinations(access), [access]);
+  const visiblePaths = useMemo(
+    () => new Set(navigation.map(destination => destination.path)),
+    [navigation]
+  );
+  const filteredNavigation = useMemo(() => {
+    if (!query) return navigation;
+    const normalized = query.toLocaleLowerCase("it");
+    return navigation.filter(destination =>
+      destination.label.toLocaleLowerCase("it").includes(normalized)
+    );
+  }, [navigation, query]);
+
+  const canSearchClients = visiblePaths.has("/clienti");
+  const canSearchJobs = visiblePaths.has("/commesse");
+  const hasEntitySearch = canSearchClients || canSearchJobs;
+  const debounceReady = debouncedQuery === query;
+  const searchEntities =
+    open && query.length >= 2 && debounceReady && hasEntitySearch;
+
+  // Existing list procedures remain the authority: no palette-specific
+  // endpoint and no model/provider procedure is called here.
+  const clientsQuery = trpc.clienti.list.useQuery(
+    { search: debouncedQuery },
+    {
+      enabled: searchEntities && canSearchClients,
+      staleTime: 30_000,
+      retry: false,
     }
-  }, [open, chiave]);
-
-  useEffect(() => {
-    const pausa = setTimeout(() => setTestoCercato(testo.trim()), 200);
-    return () => clearTimeout(pausa);
-  }, [testo]);
-
-  const query = testo.trim();
-  const cercaEntita = open && testoCercato.length >= 2;
-
-  // Stesse procedure delle liste: sede applicata dal server, campi già
-  // filtrati per capability. Niente endpoint nuovi per la palette.
-  const opzioniRicerca = {
-    enabled: cercaEntita,
-    staleTime: 30_000,
-    retry: false,
-    // I risultati del prefisso precedente restano a schermo mentre
-    // arrivano i nuovi: la palette non sfarfalla a ogni carattere.
-    placeholderData: keepPreviousData,
-  } as const;
-  const clientiQ = trpc.clienti.list.useQuery(
-    { search: testoCercato },
-    opzioniRicerca
   );
-  const commesseQ = trpc.commesse.list.useQuery(
-    { search: testoCercato },
-    opzioniRicerca
+  const jobsQuery = trpc.commesse.list.useQuery(
+    { search: debouncedQuery },
+    {
+      enabled: searchEntities && canSearchJobs,
+      staleTime: 30_000,
+      retry: false,
+    }
   );
 
-  const voci = useMemo(() => navigationDestinations(access), [access]);
-  const vociFiltrate = useMemo(() => {
-    if (!query) return voci;
-    const q = query.toLowerCase();
-    return voci.filter(v => v.label.toLowerCase().includes(q));
-  }, [voci, query]);
+  const clients =
+    searchEntities && canSearchClients
+      ? (clientsQuery.data ?? []).slice(0, MAX_SEARCH_RESULTS)
+      : [];
+  const jobs =
+    searchEntities && canSearchJobs
+      ? (jobsQuery.data ?? []).slice(0, MAX_SEARCH_RESULTS)
+      : [];
+  const loading =
+    open &&
+    query.length >= 2 &&
+    hasEntitySearch &&
+    (!debounceReady ||
+      (canSearchClients && clientsQuery.isPending) ||
+      (canSearchJobs && jobsQuery.isPending));
+  const searchError =
+    searchEntities &&
+    ((canSearchClients && clientsQuery.isError) ||
+      (canSearchJobs && jobsQuery.isError));
+  const noDeterministicResult =
+    Boolean(query) &&
+    !loading &&
+    !searchError &&
+    filteredNavigation.length === 0 &&
+    clients.length === 0 &&
+    jobs.length === 0;
+  const tarsVisible = visiblePaths.has("/tars");
 
-  const clienti = (clientiQ.data ?? []).slice(0, MAX_RISULTATI);
-  const commesse = (commesseQ.data ?? []).slice(0, MAX_RISULTATI);
-  const inCaricamento =
-    (open && query.length >= 2 && !cercaEntita) ||
-    (cercaEntita && (clientiQ.isPending || commesseQ.isPending));
-  const nessunRisultato =
-    cercaEntita &&
-    !inCaricamento &&
-    vociFiltrate.length === 0 &&
-    clienti.length === 0 &&
-    commesse.length === 0;
-
-  const vai = (path: string, label: string) => {
-    // Nei recenti si ricorda la PAGINA, mai la query: un «Chiedi a Tars»
-    // di ieri non deve ricompilare la domanda di ieri.
-    ricordaRecente(chiave, { label, path: path.split("?")[0] });
+  const navigate = (targetPath: string, recent: PaletteRecent | null): void => {
+    if (recent && revalidateRecent(recent, access)) {
+      rememberPaletteRecent(window.localStorage, scopeKey, recent);
+    }
     onOpenChange(false);
-    setLocation(path);
+    setLocation(targetPath);
+  };
+
+  const retrySearch = () => {
+    if (canSearchClients) void clientsQuery.refetch();
+    if (canSearchJobs) void jobsQuery.refetch();
   };
 
   const mac =
@@ -153,151 +177,213 @@ export default function CommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       title="Cerca e naviga"
-      description="Cerca clienti, commesse o azioni"
+      description="Cerca destinazioni, clienti e commesse oppure prepara una domanda per Tars"
       shouldFilter={false}
       showCloseButton={false}
+      className="max-w-[calc(100%-1rem)] sm:max-w-2xl"
     >
       <CommandInput
-        value={testo}
-        onValueChange={setTesto}
-        placeholder="Cerca clienti, commesse o azioni…"
+        value={queryText}
+        onValueChange={setQueryText}
+        placeholder="Cerca clienti, commesse o destinazioni…"
+        aria-label="Cerca nella palette comandi"
+        maxLength={MAX_PALETTE_QUERY_LENGTH}
       />
-      <CommandList>
-        {nessunRisultato && (
-          <div className="py-6 text-center text-sm text-text-3">
-            Nessun risultato per «{query}».
+      <CommandList className="max-h-[min(65dvh,32rem)]">
+        {noDeterministicResult ? (
+          <div
+            className="px-4 py-5 text-center text-sm text-text-3"
+            role="status"
+          >
+            Nessuna corrispondenza deterministica per «{query}».
           </div>
-        )}
+        ) : null}
 
-        {!query && recenti.length > 0 && (
+        {!query && recents.length > 0 ? (
           <>
             <CommandGroup heading="Recenti">
-              {recenti.map(r => (
+              {recents.map(recent => (
                 <CommandItem
-                  key={`rec-${r.path}`}
-                  value={`rec-${r.path}`}
-                  onSelect={() => vai(r.path, r.label)}
+                  key={`recent-${recent.kind}-${recent.path}`}
+                  value={`recent-${recent.kind}-${recent.path}`}
+                  onSelect={() => navigate(recent.path, recent)}
                 >
-                  <Clock className="text-text-3" />
-                  <span>{r.label}</span>
+                  <Clock className="text-text-3" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {recent.label}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wide text-text-3">
+                    {recent.kind === "route" ? "Pagina" : recent.kind}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>
             <CommandSeparator />
           </>
-        )}
+        ) : null}
 
-        {vociFiltrate.length > 0 && (
+        {filteredNavigation.length > 0 ? (
           <CommandGroup heading="Naviga">
-            {vociFiltrate.map(v => (
+            {filteredNavigation.map(destination => (
               <CommandItem
-                key={`nav-${v.path}`}
-                value={`nav-${v.path}`}
-                onSelect={() => vai(v.path, v.label)}
+                key={`navigation-${destination.path}`}
+                value={`navigation-${destination.path}`}
+                onSelect={() =>
+                  navigate(destination.path, {
+                    kind: "route",
+                    label: destination.label,
+                    path: destination.path,
+                  })
+                }
               >
-                <v.icon className="text-text-3" />
-                <span>{v.label}</span>
+                <destination.icon className="text-text-3" aria-hidden="true" />
+                <span>{destination.label}</span>
               </CommandItem>
             ))}
           </CommandGroup>
-        )}
+        ) : null}
 
-        {inCaricamento && (
+        {loading ? (
           <CommandGroup heading="Ricerca">
-            <CommandItem value="loading" disabled>
+            <CommandItem value="search-loading" disabled>
+              <Loader2
+                className="animate-spin text-text-3"
+                aria-hidden="true"
+              />
               Cerco «{query}» tra clienti e commesse…
             </CommandItem>
           </CommandGroup>
-        )}
+        ) : null}
 
-        {clienti.length > 0 && (
+        {searchError ? (
+          <CommandGroup heading="Ricerca">
+            <CommandItem value="search-retry" onSelect={retrySearch}>
+              <AlertTriangle className="text-warning" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                Alcuni risultati non sono disponibili.
+              </span>
+              <span className="text-xs font-semibold text-accent-text">
+                Riprova
+              </span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
+
+        {clients.length > 0 ? (
           <CommandGroup heading="Clienti">
-            {clienti.map((c: any) => {
-              const nome = [c.cognome, c.nome]
-                .filter((parte: string) => parte && parte.trim())
-                .join(" ")
-                .trim();
+            {clients.map((client: any) => {
+              const name =
+                [client.cognome, client.nome]
+                  .filter((part: string) => part && part.trim())
+                  .join(" ")
+                  .trim() || `Cliente ${client.id}`;
+              const recent: PaletteRecent = {
+                kind: "cliente",
+                label: name,
+                path: `/clienti/${client.id}`,
+              };
               return (
                 <CommandItem
-                  key={`cli-${c.id}`}
-                  value={`cli-${c.id}`}
-                  onSelect={() => vai(`/clienti/${c.id}`, nome)}
+                  key={`client-${client.id}`}
+                  value={`client-${client.id}`}
+                  onSelect={() => navigate(recent.path, recent)}
                 >
-                  <Contact className="text-text-3" />
-                  <span className="min-w-0 truncate">{nome}</span>
-                  {c.citta && (
-                    <span className="ml-auto text-xs text-text-3">
-                      {c.citta}
+                  <Contact className="text-text-3" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                  {client.citta ? (
+                    <span className="max-w-32 truncate text-xs text-text-3">
+                      {client.citta}
                     </span>
-                  )}
+                  ) : null}
                 </CommandItem>
               );
             })}
           </CommandGroup>
-        )}
+        ) : null}
 
-        {commesse.length > 0 && (
+        {jobs.length > 0 ? (
           <CommandGroup heading="Commesse">
-            {commesse.map((c: any) => (
-              <CommandItem
-                key={`com-${c.id}`}
-                value={`com-${c.id}`}
-                onSelect={() =>
-                  vai(`/commesse/${c.id}`, c.codice ?? `Commessa ${c.id}`)
-                }
-              >
-                <Building2 className="text-text-3" />
-                <span className="codice-mono">{c.codice}</span>
-                <span className="min-w-0 truncate text-text-2">
-                  {c.cliente}
-                </span>
-                {c.stato && (
-                  <span className="ml-auto text-xs text-text-3">
-                    {statoLabel(c.stato)}
+            {jobs.map((job: any) => {
+              const label = job.codice ?? `Commessa ${job.id}`;
+              const recent: PaletteRecent = {
+                kind: "commessa",
+                label,
+                path: `/commesse/${job.id}`,
+              };
+              return (
+                <CommandItem
+                  key={`job-${job.id}`}
+                  value={`job-${job.id}`}
+                  onSelect={() => navigate(recent.path, recent)}
+                >
+                  <Building2 className="text-text-3" aria-hidden="true" />
+                  <span className="codice-mono shrink-0">{job.codice}</span>
+                  <span className="min-w-0 flex-1 truncate text-text-2">
+                    {job.cliente}
                   </span>
-                )}
-              </CommandItem>
-            ))}
+                  {job.stato ? (
+                    <span className="hidden text-xs text-text-3 sm:inline">
+                      {statoLabel(job.stato)}
+                    </span>
+                  ) : null}
+                </CommandItem>
+              );
+            })}
           </CommandGroup>
-        )}
+        ) : null}
 
-        {voci.some(voce => voce.path === "/tars") && (
+        {tarsVisible ? (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Tars">
-              {query && (
+            <CommandGroup heading="Chiedi a Tars">
+              {query ? (
                 <CommandItem
-                  value="tars-chiedi"
-                  onSelect={() =>
-                    vai(`/tars?q=${encodeURIComponent(query)}`, "Tars")
-                  }
+                  value="tars-draft"
+                  onSelect={() => {
+                    const draftPath = compileTarsDraftPath(query);
+                    if (!draftPath) return;
+                    navigate(draftPath, {
+                      kind: "route",
+                      label: "Tars",
+                      path: "/tars",
+                    });
+                  }}
                 >
-                  <BrainCircuit className="text-text-3" />
-                  <span className="min-w-0 truncate">
-                    Chiedi a Tars: «{query}»
+                  <BrainCircuit
+                    className="text-accent-text"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    Prepara: «{query}»
                   </span>
-                  <span className="ml-auto text-xs text-text-3">
-                    compila senza inviare
+                  <span className="hidden text-xs text-text-3 sm:inline">
+                    bozza, non invia
                   </span>
                 </CommandItem>
-              )}
+              ) : null}
               <CommandItem
-                value="tars-apri"
-                onSelect={() => vai("/tars", "Tars")}
+                value="tars-open"
+                onSelect={() =>
+                  navigate("/tars", {
+                    kind: "route",
+                    label: "Tars",
+                    path: "/tars",
+                  })
+                }
               >
-                <BrainCircuit className="text-text-3" />
-                <span>Apri Tars</span>
+                <BrainCircuit className="text-text-3" aria-hidden="true" />
+                <span>Apri Tars senza domanda</span>
               </CommandItem>
             </CommandGroup>
           </>
-        )}
+        ) : null}
 
-        {!query && (
+        {!query ? (
           <div className="border-t border-border-soft px-3 py-2 text-[11px] text-text-3">
-            Frecce per muoverti, Invio per aprire, Esc per chiudere ·{" "}
+            Frecce per muoverti · Invio per aprire · Esc per chiudere ·{" "}
             {mac ? "⌘K" : "Ctrl+K"}
           </div>
-        )}
+        ) : null}
       </CommandList>
     </CommandDialog>
   );
