@@ -3,8 +3,10 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 28/08/2026<br>
-**Base Git descritta:** `main`, senza agente: Tars è stato rimosso il 28/08/2026<br>
+**Aggiornato:** 31/08/2026<br>
+**Base Git descritta:** `main` (Tars v2 attivo dal 30/08, provider reale
+dal 31/08 — §11-sexdecies e seguenti); la UI v2 vive sul branch
+`feature/ui-v2-frame-flow` (§11-novodecies)<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
@@ -1506,6 +1508,41 @@ esplicito, memorie ≠ verità CRM). C5 semantica differita al gate
 chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
+
+## 11-novodecies. UI v2 «Frame & Flow» — fondazioni sotto flag (31/08/2026)
+
+Mandato della direzione: redesign completo dell'esperienza visiva senza
+toccare regole di business, autorizzazioni o contratti. Lavoro sul branch
+`feature/ui-v2-frame-flow` (base `de0ce77`); nessun merge né deploy senza
+autorizzazione esplicita.
+
+Fatto finora:
+
+- **Dossier di design** in `docs/design/` (direzione, token, motion,
+  responsive, matrice pagine per archetipo, gate anti-slop). Decisione di
+  brand: il giallo saturo documentato dal PRD §52.1 — mai implementato —
+  diventa l'accento reale (`#F2B705`); il cremisi Manus esce con la v1.
+- **`FLAG_UI_V2`** nel registro interruttori (fail-closed: acceso solo in
+  dev/test; in produzione serve la variabile su Railway). Governa SOLO la
+  skin e la shell del client: nessun percorso server ne dipende. Il client
+  applica `data-ui-v2` alla radice; senza attributo la resa è la v1.
+- **Token v2** in quattro quadranti (`:root`, `.dark`, `[data-ui-v2]`,
+  `[data-ui-v2].dark`), contrasti verificati con calcolo WCAG (83
+  controlli, tabella in `docs/design/ruffino-flow-tokens.md`); gradienti
+  decorativi spenti; corpo 15/22 desktop, 16/24 mobile.
+- Durante la Fase 0 sono emersi documenti stantii («Tars non esiste» in
+  CLAUDE.md/AGENTS.md, header di questo file, matrice fonti): riallineati
+  al codice su questo branch.
+
+Baseline registrata prima delle modifiche e riconfermata dopo: `pnpm
+check` ok, 769 test verdi, build ok; quadranti verificati dal vivo su
+`:5199` (light/dark, flag on/off).
+
+Prossimi passi: primitive e shell (sidebar chiara recessiva, context bar,
+palette comandi ⌘K), poi golden screens (Dashboard, Commessa 360, Board,
+Tars, flusso mobile rilievi, DI fornitori), migrazione per archetipi,
+hardening e revisioni indipendenti. Rollout e rollback: spegnere/accendere
+`FLAG_UI_V2`, nessuna migrazione dati.
 
 ## 11-octodecies. Tars v2 — provider REALE acceso (31/08/2026)
 
