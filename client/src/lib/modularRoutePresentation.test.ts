@@ -256,6 +256,10 @@ describe("route migrate alla grammatica Modular Control", () => {
     );
     // Una coda filtrata a vuoto non è "tutto a posto".
     expect(source).toMatch(/Nessun ticket corrisponde ai filtri correnti/);
+    // Un solo controllo apre la zona espansa, e dichiara cosa apre.
+    expect(source.match(/aria-expanded=\{isExpanded\}/g)?.length).toBe(1);
+    expect(source).toMatch(/aria-controls=\{dettaglioId\}/);
+    expect(source).toMatch(/dettaglio e allegati/);
     // Il nome del cliente passa dalla convenzione condivisa.
     expect(source).toMatch(/personName\(/);
   });
@@ -300,6 +304,8 @@ describe("route migrate alla grammatica Modular Control", () => {
     // Il composer resta perché `chat.invia` esiste davvero, e non fa doppio invio.
     expect(source).toMatch(/trpc\.chat\.invia\.useMutation/);
     expect(source).toMatch(/!bozza\.trim\(\) \|\| invia\.isPending/);
+    // L'invio non disabilita il campo: il fuoco resta dov'è.
+    expect(source).toMatch(/disabled=\{!canaleAttivo\}/);
     // Le tinte avatar restano coppie token, non hex né palette numerica.
     expect(source).toMatch(/bg-success text-on-success/);
   });

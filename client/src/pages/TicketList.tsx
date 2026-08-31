@@ -727,6 +727,10 @@ export default function TicketList({
             const commessa = t.commessaId ? commessaById.get(t.commessaId) : null;
             const chi = intestatario(t);
             const isExpanded = expandedTicket === t.id;
+            // Una sola zona espansa per riga: descrizione e allegati insieme,
+            // così `aria-controls` punta a un id solo e l'etichetta del
+            // controllo corrisponde a ciò che si apre davvero.
+            const dettaglioId = `ticket-${t.id}-dettaglio`;
             const avanzamento = nextQueueAdvance(t.stato);
             const solleciti = t.solleciti ?? [];
             const ultimoSollecito = solleciti[solleciti.length - 1];
@@ -811,34 +815,24 @@ export default function TicketList({
                       {CATEGORIA_LABEL[t.categoria] ??
                         String(t.categoria).replace(/_/g, " ")}
                     </span>
-                    {t.descrizione && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedTicket(isExpanded ? null : t.id)
-                        }
-                        aria-expanded={isExpanded}
-                        className="inline-flex min-h-11 items-center gap-1 text-accent-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
-                      >
-                        {isExpanded ? "Nascondi dettaglio" : "Mostra dettaglio"}
-                      </button>
-                    )}
+                    {/* Il conteggio è informazione, non un comando: il controllo
+                        che apre la zona espansa è uno solo, e la sua etichetta
+                        nomina tutto quello che apre. */}
+                    <span className="inline-flex items-center gap-1">
+                      <Paperclip className="h-3 w-3" aria-hidden="true" />
+                      <AllegatiCount ticketId={t.id} />
+                    </span>
                     <button
                       type="button"
                       onClick={() => setExpandedTicket(isExpanded ? null : t.id)}
                       aria-expanded={isExpanded}
+                      aria-controls={dettaglioId}
                       className="inline-flex min-h-11 items-center gap-1 text-accent-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
                     >
-                      <Paperclip className="h-3 w-3" aria-hidden="true" />
-                      <AllegatiCount ticketId={t.id} />
+                      {isExpanded ? "Nascondi" : "Mostra"}{" "}
+                      {t.descrizione ? "dettaglio e allegati" : "allegati"}
                     </button>
                   </div>
-
-                  {isExpanded && t.descrizione && (
-                    <p className="mt-2 whitespace-pre-line rounded-[var(--radius-control)] bg-surface-2 px-2.5 py-2 text-xs text-text-2">
-                      {t.descrizione}
-                    </p>
-                  )}
 
                   {/* Interventi collegati */}
                   {interventiTicket.map((i: any) => (
@@ -1007,7 +1001,15 @@ export default function TicketList({
                 </div>
 
                 {isExpanded && (
-                  <div className="min-w-0 lg:col-span-3">
+                  <div
+                    id={dettaglioId}
+                    className="min-w-0 space-y-2 lg:col-span-3"
+                  >
+                    {t.descrizione && (
+                      <p className="whitespace-pre-line rounded-[var(--radius-control)] bg-surface-2 px-2.5 py-2 text-xs text-text-2">
+                        {t.descrizione}
+                      </p>
+                    )}
                     <AllegatiPanel
                       ticketId={t.id}
                       uploading={uploadingFor === t.id}

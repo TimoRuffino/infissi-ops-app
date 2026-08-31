@@ -840,7 +840,11 @@ export default function ChatAziendale() {
                 }
                 rows={2}
                 className="min-h-12 resize-none"
-                disabled={!canaleAttivo || invia.isPending}
+                // Solo l'assenza di canale disabilita il campo: disabilitarlo
+                // anche durante l'invio faceva perdere il fuoco a ogni
+                // messaggio. Il doppio invio è già bloccato in `spedisci` e
+                // sul bottone, non serve toglierti la tastiera da sotto le dita.
+                disabled={!canaleAttivo}
               />
               <Button
                 type="button"
