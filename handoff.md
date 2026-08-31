@@ -1507,6 +1507,41 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
+## 11-octodecies. Tars v2 — provider REALE acceso (31/08/2026)
+
+La direzione ha impostato su Railway le tre variabili mancanti:
+`TARS_PROVIDER=openai`, `TARS_MODEL_INTERACTIVE=gpt-5.6-sol`,
+`TARS_REASONING_INTERACTIVE=high`. Verificate una a una (valori esatti,
+nessun typo: un nome di modello sbagliato farebbe ricadere sul provider
+finto in silenzio, perché il catalogo è fail-closed). `DATABASE_URL` e
+`OPENAI_API_KEY` erano già presenti, quindi tutte e sei le condizioni
+cumulative del confine sono soddisfatte: **Tars ragiona davvero, in
+produzione, sulla chiave OpenAI condivisa esistente**.
+
+Contestualmente ho confrontato il mapping dell'adapter con la
+documentazione viva della Responses API, che non era mai stato fatto
+(nei test la rete è bloccata di proposito). Il mapping delle richieste è
+risultato CORRETTO in ogni campo: `tools` con `name` al livello
+superiore e non annidato, `function_call`/`function_call_output` con
+`call_id`, `max_output_tokens`, `store`, `prompt_cache_key`,
+`reasoning.effort`; e l'usage su `input_tokens`,
+`input_tokens_details.cached_tokens`, `output_tokens`,
+`output_tokens_details.reasoning_tokens`.
+
+Ma la stessa verifica ha fatto emergere un DIFETTO REALE del cost
+hardening, corretto in `1834919`: su GPT-5.6 le scritture in cache
+costano 1,25× l'input non cachato, e il catalogo non lo prevedeva. Il
+ledger sotto-contabilizzava fino al 25% su ogni prompt nuovo. Il dato
+`cache_write_tokens` era già letto, sommato e registrato in telemetria:
+mancava solo il moltiplicatore. Vale come promemoria — un numero
+raccolto non è un numero controllato.
+
+Nessun test era rosso prima della correzione, il che era la vera
+notizia: nessuno interrogava quella dimensione. Ora due mutazioni
+mordono, e la seconda ha richiesto di misurare il soffitto della stima
+SENZA margine, perché il margine 1,25 compensava per coincidenza il
+moltiplicatore 1,25 e mascherava il difetto.
+
 ## 11-septdecies. Tars v2 — potenziamento approvato (30/08/2026)
 
 Indirizzo della direzione: «Tars va reso potente, non preoccuparti dei
