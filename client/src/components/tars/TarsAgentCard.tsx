@@ -18,6 +18,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import {
   derivaGateQueryAgente,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/tarsAgentView";
 
 const LABEL_STATO: Record<TarsAgentStatus, string> = {
+  caricamento: "bg-surface-2 text-text-3",
   spento: "bg-surface-2 text-text-3",
   disponibile: "bg-success-soft text-success",
   degradato: "bg-warning-soft text-warning",
@@ -72,7 +74,9 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
   const statoAgente = derivaStatoAgente({
     interruttori: interruttori.data,
     stato: stato.data,
-    erroreStato: Boolean(interruttori.error || stato.error),
+    erroreInterruttori: Boolean(interruttori.error),
+    erroreStato: Boolean(stato.error),
+    erroreCosti: Boolean(costi.error),
   });
   const providerDettaglio = stato.data?.providerDettaglio;
   const riepilogoCosti = costi.data?.riepilogo;
@@ -92,7 +96,10 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
   const run = stato.data?.run;
 
   return (
-    <Card aria-label="Stato tecnico dell'agente Tars">
+    <Card
+      aria-label="Stato tecnico dell'agente Tars"
+      aria-busy={statoAgente === "caricamento"}
+    >
       <CardHeader className="gap-3">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -106,47 +113,97 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
               </p>
             </div>
           </div>
-          <Badge className={`gap-1 ${LABEL_STATO[statoAgente]}`}>
-            <IconaStato stato={statoAgente} />
-            {etichettaStatoAgente(statoAgente)}
-          </Badge>
+          {statoAgente === "caricamento" ? (
+            <div
+              role="status"
+              aria-label="Caricamento stato Tars"
+              className="flex items-center gap-2"
+            >
+              <Skeleton className="h-[22px] w-24 rounded-[8px]" />
+              <span className="sr-only">Caricamento</span>
+            </div>
+          ) : (
+            <Badge className={`gap-1 ${LABEL_STATO[statoAgente]}`}>
+              <IconaStato stato={statoAgente} />
+              {etichettaStatoAgente(statoAgente)}
+            </Badge>
+          )}
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4 border-t pt-4">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-5">
-          <div className="min-w-0">
-            <dt className="text-xs text-muted-foreground">Provider</dt>
-            <dd className="mt-0.5 truncate font-medium">
-              {valore(stato.data?.provider)}
-            </dd>
+        {statoAgente === "caricamento" ? (
+          <div
+            className="grid grid-cols-2 gap-3 sm:grid-cols-5"
+            aria-hidden="true"
+          >
+            {Array.from({ length: 5 }, (_, index) => (
+              <Skeleton key={index} className="h-9 w-full" />
+            ))}
           </div>
-          <div className="min-w-0">
-            <dt className="text-xs text-muted-foreground">Modello</dt>
-            <dd className="mt-0.5 truncate font-medium">
-              {valore(stato.data?.modello)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Run totali</dt>
-            <dd className="mt-0.5 font-medium">{valore(run?.totale)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Run degradati</dt>
-            <dd className="mt-0.5 font-medium">{valore(run?.degradati)}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-xs text-muted-foreground">Ultimo run</dt>
-            <dd className="mt-0.5 truncate font-medium">
-              {run?.ultimo
-                ? new Intl.DateTimeFormat("it-IT", {
-                    dateStyle: "short",
-                    timeStyle: "short",
-                  }).format(new Date(run.ultimo))
-                : "—"}
-            </dd>
-          </div>
-        </dl>
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-5">
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Provider</dt>
+              <dd className="mt-0.5 truncate font-medium">
+                {valore(stato.data?.provider)}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Modello</dt>
+              <dd className="mt-0.5 truncate font-medium">
+                {valore(stato.data?.modello)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Run totali</dt>
+              <dd className="mt-0.5 font-medium">{valore(run?.totale)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Run degradati</dt>
+              <dd className="mt-0.5 font-medium">{valore(run?.degradati)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Ultimo run</dt>
+              <dd className="mt-0.5 truncate font-medium">
+                {run?.ultimo
+                  ? new Intl.DateTimeFormat("it-IT", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    }).format(new Date(run.ultimo))
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+        )}
+
+        {direzione && gate.costiAbilitati && costi.error && (
+          <section
+            role="alert"
+            aria-labelledby="tars-consumi-error-title"
+            className="flex items-start justify-between gap-3 rounded-lg bg-warning-soft p-3"
+          >
+            <div className="min-w-0">
+              <h3
+                id="tars-consumi-error-title"
+                className="text-sm font-semibold text-warning"
+              >
+                Consumi non disponibili
+              </h3>
+              <p className="mt-0.5 text-xs text-warning">
+                Non riesco a leggere ora i dati del budget globale.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11 shrink-0"
+              onClick={() => void costi.refetch()}
+            >
+              Riprova
+            </Button>
+          </section>
+        )}
 
         {direzione && gate.costiAbilitati && costi.data && (
           <section
@@ -194,6 +251,33 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                 {formattaCostoUsd(riepilogoCosti.costoMassimoRunUsd)}
               </p>
             )}
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/70 pt-3 text-xs sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">Limite per run</dt>
+                <dd className="mt-0.5 font-medium">
+                  {formattaCostoUsd(budget?.perRunUsd)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Token oggi</dt>
+                <dd className="mt-0.5 font-medium">
+                  {riepilogoCosti
+                    ? `${riepilogoCosti.tokenGiorno.input} input · ${riepilogoCosti.tokenGiorno.cached} cache · ${riepilogoCosti.tokenGiorno.output} output`
+                    : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Budget</dt>
+                <dd className="mt-0.5 font-medium">
+                  {budget ? "Configurato" : "Non configurato"}
+                </dd>
+              </div>
+            </dl>
+            {costi.data.motivoBudgetNonValido && (
+              <p className="text-[11px] text-warning">
+                Budget non valido: {costi.data.motivoBudgetNonValido}
+              </p>
+            )}
           </section>
         )}
 
@@ -201,7 +285,7 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
           <CollapsibleTrigger asChild>
             <Button
               variant="outline"
-              className="h-9 w-full justify-between px-3 text-xs"
+              className="min-h-11 w-full justify-between px-3 text-xs"
             >
               <span className="flex items-center gap-2">
                 <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
@@ -222,6 +306,35 @@ export function TarsAgentCard({ direzione }: TarsAgentCardProps) {
                 />
                 {providerDettaglio.motivoIndisponibilita}
               </p>
+            )}
+            {direzione && gate.costiAbilitati && costi.data?.provider && (
+              <dl className="grid gap-2 text-xs sm:grid-cols-3">
+                <div>
+                  <dt className="text-muted-foreground">Provider</dt>
+                  <dd className="mt-0.5 font-medium">
+                    {costi.data.provider.tipo === "openai"
+                      ? "Disponibile"
+                      : "Fallback"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    Budget / disponibilità
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {costi.data.provider.budget
+                      ? "Configurato"
+                      : "Non disponibile"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Circuito</dt>
+                  <dd className="mt-0.5 font-medium">Gestito dal governor</dd>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Stato dettagliato non esposto da questo endpoint.
+                  </p>
+                </div>
+              </dl>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="min-w-0 space-y-2">

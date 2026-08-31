@@ -1,4 +1,8 @@
-export type TarsAgentStatus = "spento" | "disponibile" | "degradato";
+export type TarsAgentStatus =
+  | "caricamento"
+  | "spento"
+  | "disponibile"
+  | "degradato";
 
 export type TarsAgentInterruttori = {
   tars?: boolean;
@@ -42,11 +46,16 @@ export function derivaStatoAgente(input: {
   interruttori: TarsAgentInterruttori | undefined;
   stato: TarsAgentStato | undefined;
   erroreStato: boolean;
+  erroreInterruttori?: boolean;
+  erroreCosti?: boolean;
 }): TarsAgentStatus {
+  if (input.erroreInterruttori) return "degradato";
+  if (!input.interruttori) return "caricamento";
   const gate = derivaGateQueryAgente(input.interruttori, false);
-  if (!gate.risolto || input.erroreStato) return "degradato";
+  if (!gate.risolto) return "caricamento";
   if (!gate.tarsAcceso) return "spento";
-  if (!input.stato) return "degradato";
+  if (input.erroreStato || input.erroreCosti) return "degradato";
+  if (!input.stato) return "caricamento";
   if (
     input.stato.provider === "finto" ||
     Boolean(input.stato.providerDettaglio?.motivoIndisponibilita)
@@ -92,6 +101,8 @@ export function etichettaAmbitoCosti(): string {
 
 export function etichettaStatoAgente(stato: TarsAgentStatus): string {
   switch (stato) {
+    case "caricamento":
+      return "Caricamento";
     case "spento":
       return "Spento";
     case "disponibile":

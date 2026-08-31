@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   derivaGateQueryAgente,
   derivaStatoAgente,
@@ -15,7 +16,7 @@ describe("vista tecnica dell'agente Tars", () => {
         stato: undefined,
         erroreStato: false,
       })
-    ).toBe("degradato");
+    ).toBe("caricamento");
     expect(
       derivaStatoAgente({
         interruttori: { tars: false },
@@ -30,6 +31,14 @@ describe("vista tecnica dell'agente Tars", () => {
         erroreStato: false,
       })
     ).toBe("disponibile");
+    expect(
+      derivaStatoAgente({
+        interruttori: { tars: true },
+        stato: { provider: "openai" },
+        erroreStato: false,
+        erroreCosti: true,
+      })
+    ).toBe("degradato");
     expect(
       derivaStatoAgente({
         interruttori: { tars: true },
@@ -85,5 +94,17 @@ describe("vista tecnica dell'agente Tars", () => {
 
   it("dichiara sempre che i consumi sono globali a tutte le sedi", () => {
     expect(etichettaAmbitoCosti()).toBe("Consumi globali · tutte le sedi");
+  });
+
+  it("mantiene visibili i diagnostici del governor e un trigger di almeno 44px", () => {
+    const source = readFileSync(
+      new URL("../components/tars/TarsAgentCard.tsx", import.meta.url),
+      "utf8"
+    );
+    expect(source).toContain("perRunUsd");
+    expect(source).toContain("tokenGiorno");
+    expect(source).toContain("motivoBudgetNonValido");
+    expect(source).toContain("Circuito");
+    expect(source).toContain("min-h-11");
   });
 });
