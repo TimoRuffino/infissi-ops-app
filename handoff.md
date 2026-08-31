@@ -1345,6 +1345,8 @@ pnpm storage:dry-run
 | `docs/runbooks/piattaforma-recovery.md` | boot, guasti tipici e recovery del CRM |
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
+| `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
+| `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
 | `guida_pubblicazione.md` | pubblicazione e deploy |
 
@@ -1806,6 +1808,64 @@ PostgreSQL per commessa+audit. Prossima tranche Maccari: comunicazione,
 allegato, analisi/classificazione e archivio certo; non dichiarare ancora la
 catena completa. Nessun file client/UI, cost governor, provider o flag è stato
 toccato; nessuna operazione Railway/OpenAI.
+
+## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
+
+Branch `codex/modular-control-completion` (worktree
+`.worktrees/codex-modular-control-completion`), **non pushato**: nessun deploy,
+nessuna operazione Railway. Vale la regola nota — push su `main` = deploy
+Railway automatico — quindi finché il branch non viene integrato la produzione
+non cambia.
+
+**Stato.** Tutte le route registrate in `client/src/App.tsx` sono migrate alla
+grammatica Modular Control (`PageHeader`, `DataSurface`, `StatePanel`,
+`StickyActionBar`, `ContextInspector`), tranne due esclusioni motivate:
+
+- `/fornitori` — **esclusa per decisione dell'utente**: la pagina è candidata
+  alla rimozione, quindi non è stata toccata (comportamento, router, permessi e
+  gateway DI restano quelli correnti). Se venisse confermata, va migrata come
+  le altre, con la sua decisione registrata.
+- `LoginPage` — fuori dalla shell e fuori dal flag, per il confine di
+  autenticazione già documentato nel manifest.
+
+I redirect (`/produzione/*?`, `/comunicazioni`) restano superfici senza pagina,
+coperte dai test di redirect.
+
+**Come è stato fatto.** Slice 03 (route operative) e 04 (supporto e
+amministrazione) eseguite a batch, ognuno con revisione condotta da un revisore
+separato dall'implementatore; round, decisioni e rilievi minori rimandati sono
+nei ledger
+`.superpowers/sdd/2026-08-31-modular-control-03-operational-routes/progress.md`
+e
+`.superpowers/sdd/2026-08-31-modular-control-04-support-admin-routes/progress.md`.
+In coda al programma: avatar utente nella shell (footer e trigger profilo, con
+test di guardia sulla dimensione dell'asset) e deep link delle viste del Centro
+azioni (`/notifiche?view=mine|critical|resolved|impostazioni`, helper puro in
+`client/src/lib/notificationView.ts`).
+
+**Prove.** `docs/design/modular-control/route-manifest.md` (stato per route) e
+`docs/design/modular-control/verification-log.md` (gate del 31/08: `pnpm
+check`, `pnpm test` 1106 passati e 8 saltati, `pnpm build`, vitest mirati per
+batch, spot-check browser 1440×900 e 390×844 su route campione, console senza
+errori). **Non eseguita** la matrice completa di evidenze viewport × axe × zoom
+per route: è una decisione registrata, non una dimenticanza, e le colonne
+`evidence/...` del manifest restano destinazioni previste, non file esistenti.
+
+**Follow-up aperti.**
+
+1. Divergenza R6 — su `/pagamenti` il `BreakEvenPanel` resta gated sul ruolo
+   (`requireDirezioneOAmministrazione`), fuori dal modello capability.
+   Preesistente e fail-safe; cambiarlo richiede una decisione di prodotto.
+2. Divergenza R7 — `/economia` apre lato client su `economia.read` mentre i
+   router FiC richiedono ancora il ruolo direzione/amministrazione: chi ha la
+   capability senza il ruolo vede pannelli di errore (fail-closed, nessuna
+   cifra esposta). L'allineamento server è una decisione di prodotto separata.
+3. `StickyActionBar`: lo slot di stato annuncia in `aria-live` a ogni ricalcolo
+   del totale. Va risolto sul pattern condiviso, non nelle singole pagine.
+4. Idea registrata: componente condiviso `<PersonAvatar name>` — le iniziali
+   sono ancora inline in circa sette pagine.
+5. I rilievi minori rimandati batch per batch sono elencati nei due ledger SDD
+   sopra: è il backlog UI più onesto che esista oggi.
 
 ## 12. Debito aperto prioritario
 

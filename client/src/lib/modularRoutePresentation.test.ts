@@ -441,4 +441,41 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/<DataSurface/);
   });
+
+  it("compone l'hub Impostazioni sugli stati che il server conosce", () => {
+    const source = routeSource("../pages/Integrazioni.tsx");
+
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import StatePanel/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    expect(source).toMatch(/<StatePanel/);
+    // Il gate di pagina è dichiarato specchio del server, non una capability.
+    expect(source).toMatch(/const canManage = isDirezione\(user\)/);
+    expect(source).toMatch(/Specchio UX del `requireDirezione`/);
+    // Un FORBIDDEN nasconde il pannello, un errore vero resta visibile.
+    expect(source).toMatch(/permessoNegato\(/);
+    expect(source).toMatch(/kind: "error"/);
+    // Hub di amministrazione: nessuna superficie focale, nessun gradiente.
+    expect(source).not.toMatch(/tone="focal"/);
+  });
+
+  it("compone il 404 come errore operativo dentro la shell", () => {
+    const source = routeSource("../pages/NotFound.tsx");
+
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Il landmark `main` è di ShellWorkspace: la pagina non ne apre un secondo.
+    expect(source).not.toMatch(/<main/);
+    // Stato esplicito con la via di uscita, non una pagina vuota.
+    expect(source).toMatch(/kind: "unavailable"/);
+    expect(source).toMatch(/Torna alla dashboard/);
+    // La query di un deep link può portare id o filtri: fuori dall'errore.
+    expect(source).toMatch(/location\.split\("\?"\)\[0\]/);
+    // Errore operativo: niente marketing, niente superficie focale.
+    expect(source).not.toMatch(/tone="focal"/);
+  });
 });
