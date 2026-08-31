@@ -44,11 +44,14 @@ import { AnimatePresence } from "framer-motion";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { useOperationalContext } from "@/contexts/OperationalContext";
+import { useModularControl } from "@/contexts/UiGenerationContext";
+import { scopedStorageKey } from "@/lib/operationalContext";
 
 // Il modello di navigazione (voci, gerarchia, regole di visibilità) vive in
 // lib/navigation.ts, condiviso con la palette comandi.
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
+const SIDEBAR_WIDTH_KEY = "layout.sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
@@ -58,30 +61,37 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
+  const { scopeKey } = useOperationalContext();
+  const sidebarStorageKey = scopeKey
+    ? scopedStorageKey(SIDEBAR_WIDTH_KEY, scopeKey)
+    : null;
+  const hydratedStorageKey = useRef<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const { loading, user } = useAuth();
 
-  // Modular Control segue il solo FLAG_UI_V2 fail-closed letto dal server.
-  // Prima del login il flag non è disponibile e il fallback resta legacy.
-  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
-    staleTime: 300_000,
-    enabled: !loading && !!user,
-  });
-  const uiV2 = Boolean(user && interruttoriQ.data?.uiV2);
   useEffect(() => {
-    const root = document.documentElement;
-    if (uiV2) root.setAttribute("data-ui-system", "modular-control");
-    else root.removeAttribute("data-ui-system");
-
-    return () => root.removeAttribute("data-ui-system");
-  }, [uiV2]);
+    hydratedStorageKey.current = null;
+    if (!sidebarStorageKey) {
+      setSidebarWidth(DEFAULT_WIDTH);
+      return;
+    }
+    const saved = localStorage.getItem(sidebarStorageKey);
+    const parsed = saved ? Number.parseInt(saved, 10) : DEFAULT_WIDTH;
+    setSidebarWidth(
+      Number.isFinite(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH
+        ? parsed
+        : DEFAULT_WIDTH
+    );
+  }, [sidebarStorageKey]);
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
+    if (!sidebarStorageKey) return;
+    if (hydratedStorageKey.current !== sidebarStorageKey) {
+      hydratedStorageKey.current = sidebarStorageKey;
+      return;
+    }
+    localStorage.setItem(sidebarStorageKey, sidebarWidth.toString());
+  }, [sidebarStorageKey, sidebarWidth]);
 
   if (loading) {
     return <DashboardLayoutSkeleton />
@@ -118,13 +128,8 @@ function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const capacitaQ = trpc.permessi.mie.useQuery(undefined, {
-    staleTime: 60_000,
-  });
-  const capacita = capacitaQ.data ? new Set(capacitaQ.data) : null;
-  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
-    staleTime: 300_000,
-  });
+  const { capabilities: capacita, flags, scopeKey } = useOperationalContext();
+  const uiV2 = useModularControl();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -140,7 +145,6 @@ function DashboardLayoutContent({
 
   // Palette comandi (shell v2): scorciatoia e trigger esistono solo con la
   // UI v2 accesa; in v1 il componente non viene nemmeno montato.
-  const uiV2 = Boolean(interruttoriQ.data?.uiV2);
   const [paletteAperta, setPaletteAperta] = useState(false);
   const isMac =
     typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -287,7 +291,7 @@ function DashboardLayoutContent({
                     ? {
                         ...item,
                         children: item.children.filter((c) =>
-                          visibile(c, user, capacita, interruttoriQ.data)
+                          visibile(c, user, capacita, flags)
                         ),
                       }
                     : item
@@ -295,7 +299,7 @@ function DashboardLayoutContent({
                 .filter((item) =>
                   item.children
                     ? item.children.length > 0
-                    : visibile(item, user, capacita, interruttoriQ.data)
+                    : visibile(item, user, capacita, flags)
                 )
                 .map((item) => {
                   const figlie = item.children ?? [];
@@ -481,7 +485,7 @@ function DashboardLayoutContent({
           </AnimatePresence>
         </main>
         {uiV2 && isMobile && (
-          <BottomNav user={user} interruttori={interruttoriQ.data} />
+          <BottomNav user={user} interruttori={flags} />
         )}
       </SidebarInset>
       {uiV2 && (
@@ -490,7 +494,8 @@ function DashboardLayoutContent({
           onOpenChange={setPaletteAperta}
           user={user}
           capacita={capacita}
-          interruttori={interruttoriQ.data}
+          interruttori={flags}
+          scopeKey={scopeKey}
         />
       )}
     </>

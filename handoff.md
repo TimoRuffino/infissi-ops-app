@@ -1509,40 +1509,48 @@ chiave (spec §25.36). 8 test + 3 mutation. APERTO: retention formale
 delle memorie (oggi invalidazione manuale; una policy di scadenza va
 decisa), ricerca ibrida vera con embeddings (gate).
 
-## 11-novodecies. UI v2 «Frame & Flow» — fondazioni sotto flag (31/08/2026)
+## 11-novodecies. UI v2 «Modular Control» — fondazioni sotto flag (31/08/2026)
 
 Mandato della direzione: redesign completo dell'esperienza visiva senza
 toccare regole di business, autorizzazioni o contratti. Lavoro sul branch
 `feature/ui-v2-frame-flow` (base `de0ce77`); nessun merge né deploy senza
 autorizzazione esplicita.
 
+La prima direzione estetica è stata rifiutata e resta soltanto come storia nei
+documenti superseded. La fonte vincolante è ora
+`docs/design/master-prompt-ruffino-flow-ui-ux-v3.md`, con linguaggio
+**Modular Control** e palette **Borgogna Operativa**.
+
 Fatto finora:
 
-- **Dossier di design** in `docs/design/` (direzione, token, motion,
-  responsive, matrice pagine per archetipo, gate anti-slop). Decisione di
-  brand: il giallo saturo documentato dal PRD §52.1 — mai implementato —
-  diventa l'accento reale (`#F2B705`); il cremisi Manus esce con la v1.
-- **`FLAG_UI_V2`** nel registro interruttori (fail-closed: acceso solo in
-  dev/test; in produzione serve la variabile su Railway). Governa SOLO la
-  skin e la shell del client: nessun percorso server ne dipende. Il client
-  applica `data-ui-v2` alla radice; senza attributo la resa è la v1.
-- **Token v2** in quattro quadranti (`:root`, `.dark`, `[data-ui-v2]`,
-  `[data-ui-v2].dark`), contrasti verificati con calcolo WCAG (83
-  controlli, tabella in `docs/design/ruffino-flow-tokens.md`); gradienti
-  decorativi spenti; corpo 15/22 desktop, 16/24 mobile.
-- Durante la Fase 0 sono emersi documenti stantii («Tars non esiste» in
-  CLAUDE.md/AGENTS.md, header di questo file, matrice fonti): riallineati
-  al codice su questo branch.
+- dossier di evidenza, matrice di trasformazione, manifest delle 35 route e
+  contratti dei componenti in `docs/design/modular-control/`;
+- `FLAG_UI_V2` resta il kill switch fail-closed e governa soltanto la
+  generazione visuale. Il marker client è
+  `data-ui-system="modular-control"`; nessun selettore o firma della direzione
+  rifiutata sopravvive in `client/src`;
+- quattro quadranti: `:root` e `.dark` sono il fallback legacy; i due
+  quadranti Modular Control applicano chrome freddo, canvas, surface e token
+  primitive → semantic → component. Il gradiente è opt-in solo per `focal`;
+- `pnpm ui:contrast` verifica 44 coppie: testo normale ≥4,5:1, bordi e focus
+  ≥3:1. Report in `docs/design/modular-control/contrast-report.md`; commit
+  token `2f831cb`;
+- `OperationalContext` centralizza sede attiva, sedi assegnate, capability e
+  interruttori. Durante il cambio sede blocca il rendering, cancella le query
+  protette prima della mutation, rimuove la cache solo dopo conferma, rifà
+  `sedi.active` e `permessi.mie`, quindi committa la nuova scope opaca;
+- preferenze layout e recenti della palette sono namespaced per
+  utente+sede+fingerprint autorizzativo. Logout cancella query e namespace
+  precedente prima di pubblicare `auth.me=null`;
+- baseline e verifiche append-only sono in
+  `docs/design/modular-control/verification-log.md`; le fixture browser sono
+  esclusivamente locali e in-memory.
 
-Baseline registrata prima delle modifiche e riconfermata dopo: `pnpm
-check` ok, 769 test verdi, build ok; quadranti verificati dal vivo su
-`:5199` (light/dark, flag on/off).
-
-Prossimi passi: primitive e shell (sidebar chiara recessiva, context bar,
-palette comandi ⌘K), poi golden screens (Dashboard, Commessa 360, Board,
-Tars, flusso mobile rilievi, DI fornitori), migrazione per archetipi,
-hardening e revisioni indipendenti. Rollout e rollback: spegnere/accendere
-`FLAG_UI_V2`, nessuna migrazione dati.
+Prossimi passi: navigazione capability-aware, shell desktop/tablet/mobile,
+palette comandi e primitive di pagina; poi golden screens (Dashboard,
+Commessa 360, Board, Tars, flusso mobile rilievi, DI fornitori), migrazione per
+archetipi, hardening e revisioni indipendenti. Rollout e rollback:
+spegnere/accendere `FLAG_UI_V2`, nessuna migrazione dati.
 
 ## 11-octodecies. Tars v2 — provider REALE acceso (31/08/2026)
 

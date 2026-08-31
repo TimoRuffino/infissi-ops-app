@@ -23,21 +23,23 @@ import { BrainCircuit, Building2, Clock, Contact } from "lucide-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { scopedStorageKey } from "@/lib/operationalContext";
 
 const RECENTI_KEY_BASE = "rf-palette-recenti";
 const MAX_RISULTATI = 6;
 
 type Recente = { label: string; path: string };
 
-// Chiave per utente: su una postazione condivisa i recenti di un collega
-// (magari di un'altra sede) non devono comparire nella tua palette.
-function chiaveRecenti(utenteId: unknown): string {
-  return typeof utenteId === "number" || typeof utenteId === "string"
-    ? `${RECENTI_KEY_BASE}-${utenteId}`
-    : RECENTI_KEY_BASE;
+// I recenti seguono utente, sede e autorizzazioni. Il cambio contesto elimina
+// il namespace precedente prima che la palette possa rimontare.
+function chiaveRecenti(scopeKey: string | null): string | null {
+  return scopeKey
+    ? scopedStorageKey(RECENTI_KEY_BASE, scopeKey)
+    : null;
 }
 
-function leggiRecenti(chiave: string): Recente[] {
+function leggiRecenti(chiave: string | null): Recente[] {
+  if (!chiave) return [];
   try {
     const grezzo = localStorage.getItem(chiave);
     const lista = grezzo ? JSON.parse(grezzo) : [];
@@ -47,7 +49,8 @@ function leggiRecenti(chiave: string): Recente[] {
   }
 }
 
-function ricordaRecente(chiave: string, voce: Recente) {
+function ricordaRecente(chiave: string | null, voce: Recente) {
+  if (!chiave) return;
   try {
     const senza = leggiRecenti(chiave).filter((r) => r.path !== voce.path);
     localStorage.setItem(
@@ -65,15 +68,17 @@ export default function CommandPalette({
   user,
   capacita,
   interruttori,
+  scopeKey,
 }: {
   open: boolean;
   onOpenChange: (aperta: boolean) => void;
   user: unknown;
   capacita: ReadonlySet<string> | null;
   interruttori?: { tars?: boolean } | null;
+  scopeKey: string | null;
 }) {
   const [, setLocation] = useLocation();
-  const chiave = chiaveRecenti((user as { id?: unknown } | null)?.id);
+  const chiave = chiaveRecenti(scopeKey);
   const [testo, setTesto] = useState("");
   // Il testo digitato guida i filtri locali all'istante; la ricerca sul
   // server aspetta una pausa di battitura (200ms), altrimenti ogni

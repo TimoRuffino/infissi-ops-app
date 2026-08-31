@@ -2,9 +2,9 @@ import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-import { trpc } from "@/lib/trpc";
 import { isDirezione } from "@/lib/roles";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,36 +15,30 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 // Sede (location) switcher. Shows the active sede and lets the operator
-// switch among the sedi assigned to them. Switching writes the server-side
-// `active_sede` cookie (via sedi.switch) then invalidates ALL queries so every
-// page re-fetches scoped to the new sede.
+// switch among the sedi assigned to them. Cache isolation and the transition
+// screen live in OperationalContext; this component is presentation only.
 export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
-  const utils = trpc.useUtils();
-  const sediList = trpc.sedi.list.useQuery();
-  const active = trpc.sedi.active.useQuery();
-
-  const switchSede = trpc.sedi.switch.useMutation({
-    onMutate: async () => {
-      await utils.promemoria.due.cancel();
-      utils.promemoria.due.setData(undefined, { items: [] });
-    },
-    onSuccess: async (sede) => {
-      // Refresh everything — data is scoped to the active sede server-side.
-      await utils.invalidate();
-      toast.success(`Sede attiva: ${sede?.nome ?? ""}`);
-    },
-    onError: (err) => {
-      void utils.promemoria.due.invalidate();
-      toast.error(err.message ?? "Cambio sede non riuscito");
-    },
-  });
-
-  const sedi = sediList.data ?? [];
-  const activeSede = active.data;
+  const { activeSede, sedi, status, switchSede } = useOperationalContext();
   const canManage = isDirezione(user);
   const canSwitch = sedi.length > 1;
+  const pending = status === "switching";
+
+  const pickSede = async (id: number) => {
+    if (id === activeSede?.id || pending) return;
+    const selected = sedi.find(sede => sede.id === id);
+    try {
+      await switchSede(id);
+      toast.success(`Sede attiva: ${selected?.nome ?? ""}`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Cambio sede non riuscito"
+      );
+    }
+  };
 
   // Compact icon badge reused by both layouts.
   const Badge = (
@@ -74,8 +68,8 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
           sedi={sedi}
           activeId={activeSede?.id}
           canManage={canManage}
-          pending={switchSede.isPending}
-          onPick={(id) => id !== activeSede?.id && switchSede.mutate({ sedeId: id })}
+          pending={pending}
+          onPick={id => void pickSede(id)}
           onManage={() => setLocation("/sedi")}
         />
       </DropdownMenu>
@@ -124,8 +118,8 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
         sedi={sedi}
         activeId={activeSede?.id}
         canManage={canManage}
-        pending={switchSede.isPending}
-        onPick={(id) => id !== activeSede?.id && switchSede.mutate({ sedeId: id })}
+        pending={pending}
+        onPick={id => void pickSede(id)}
         onManage={() => setLocation("/sedi")}
       />
     </DropdownMenu>
