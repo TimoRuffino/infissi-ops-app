@@ -1183,11 +1183,13 @@ export default function ClientiList() {
                     interesseFinanziamento: form.interesseFinanziamento,
                     praticaEdilizia: form.praticaEdilizia,
                     note: form.note || undefined,
-                    // Senza `cliente.assign` il campo resta fuori dal payload:
-                    // il default del router (utente corrente) è l'unica verità.
-                    ...(permissions.canAssignCustomer
-                      ? { assegnatoA: form.assegnatoA }
-                      : {}),
+                    // `clienti.create` non ha un gate `cliente.assign`: se il
+                    // campo mancasse, il router assegnerebbe il cliente a chi
+                    // lo crea. Senza capability inviamo lo stesso `null` di
+                    // prima, così il cliente nasce non assegnato come sempre.
+                    assegnatoA: permissions.canAssignCustomer
+                      ? form.assegnatoA
+                      : null,
                   });
                 }}
                 disabled={

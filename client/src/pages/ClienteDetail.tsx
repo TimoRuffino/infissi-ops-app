@@ -628,24 +628,33 @@ export default function ClienteDetail() {
 
   // Interventi, ticket e garanzie si collegano al cliente attraverso le sue
   // commesse: senza quell'elenco un risultato vuoto non significa "nessuno".
-  const collegamentoIgnoto: StatePanelProps | undefined = commesse.isError
+  // Vale anche mentre le commesse stanno arrivando: le query figlie possono
+  // risolvere prima e dichiarerebbero "nessun record" su un cliente che ne ha.
+  const collegamentoIgnoto: StatePanelProps | undefined = commesse.isPending
     ? {
-        kind: "unavailable",
-        title: "Collegamento alle commesse non disponibile",
-        description:
-          "Senza l'elenco delle commesse non è possibile sapere quali record appartengono a questo cliente.",
-        action: (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11"
-            onClick={() => commesse.refetch()}
-          >
-            Riprova
-          </Button>
-        ),
+        kind: "loading",
+        title: "Carico i dati",
+        description: "Recupero le commesse che collegano i record al cliente.",
+        rows: 3,
       }
-    : undefined;
+    : commesse.isError
+      ? {
+          kind: "unavailable",
+          title: "Collegamento alle commesse non disponibile",
+          description:
+            "Senza l'elenco delle commesse non è possibile sapere quali record appartengono a questo cliente.",
+          action: (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => commesse.refetch()}
+            >
+              Riprova
+            </Button>
+          ),
+        }
+      : undefined;
 
   const statoInterventi = statoSezione(
     interventi,
