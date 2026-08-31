@@ -85,6 +85,16 @@ export type ContestoRun = {
     nuovoStato: string;
     versione: string;
   };
+  /**
+   * Autorità effimera di archiviazione (T4): nasce solo da un comando
+   * esplicito dell'utente, legata dal server alla commessa verificata.
+   * Le condizioni («se appartiene», «se non trovi problemi») vengono
+   * valutate dall'orchestratore sull'esito reale, mai dal modello.
+   */
+  autorizzazioneArchiviazione?: {
+    commessaId: number;
+    condizioni: { appartenenza: boolean; nessunProblema: boolean };
+  };
 };
 
 export type EvidenzaTars = {

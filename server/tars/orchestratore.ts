@@ -51,6 +51,11 @@ import {
   analizzaRichiestaTransizione,
   concretizzaRichiestaTransizione,
 } from "./strumenti/commesse";
+import {
+  analizzaRichiestaArchiviazione,
+  analizzaRichiestaTransizioneCondizionata,
+  condizioniTransizioneSoddisfatte,
+} from "./strumenti/archivioAllegati";
 import { versioneCommessa } from "../commesse/transizioni";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
@@ -333,11 +338,20 @@ export async function eseguiRun(input: {
 }): Promise<RispostaRun> {
   const config = { ...configurazioneRunDefault(), ...input.configurazione };
   const richiestaTransizione = analizzaRichiestaTransizione(input.messaggio);
+  const richiestaArchiviazione = analizzaRichiestaArchiviazione(
+    input.messaggio
+  );
+  // Transizione subordinata alle sole condizioni verificabili in-run: resta
+  // inerte finché il codice deterministico non le verifica sull'esito reale.
+  let richiestaCondizionata = analizzaRichiestaTransizioneCondizionata(
+    input.messaggio
+  );
   let contesto: ContestoRun = {
     ...input.contesto,
     // Un chiamante non può precompilare autorità R1: verrà legata soltanto
     // dopo che il resolver avrà verificato una commessa della sede corrente.
     autorizzazioneTransizione: undefined,
+    autorizzazioneArchiviazione: undefined,
   };
   const runId = createHash("sha256")
     .update(`${Date.now()}:${contesto.utenteId}:${Math.random()}`)
@@ -564,7 +578,7 @@ export async function eseguiRun(input: {
     contestoConversazione
   );
   const commessaAutorizzata =
-    richiestaTransizione &&
+    (richiestaTransizione || richiestaArchiviazione) &&
     contesto.entitaAttiva?.tipo === "commessa" &&
     contesto.contestoConversazione?.commessaId === contesto.entitaAttiva.id &&
     contesto.contestoConversazione.verifiche.commessa === "verificato"
@@ -583,6 +597,13 @@ export async function eseguiRun(input: {
             commessaId: commessaAutorizzata.id,
             nuovoStato: targetAutorizzato,
             versione: versioneCommessa(commessaAutorizzata),
+          },
+    autorizzazioneArchiviazione:
+      commessaAutorizzata == null || richiestaArchiviazione == null
+        ? undefined
+        : {
+            commessaId: commessaAutorizzata.id,
+            condizioni: richiestaArchiviazione.condizioni,
           },
   };
 
@@ -1046,6 +1067,52 @@ export async function eseguiRun(input: {
                 descrizione:
                   azione.evidenze[0]?.descrizione ?? azione.strumento,
               });
+              if (
+                azione.strumento === "archivia_allegato_comunicazione" &&
+                (azione.stato === "archiviato" ||
+                  azione.stato === "gia_archiviato")
+              ) {
+                // Autorità monouso consumata; la transizione condizionata
+                // nasce SOLO qui, quando il codice deterministico verifica
+                // le condizioni sull'esito reale dell'archiviazione.
+                const archiviazione = contesto.autorizzazioneArchiviazione;
+                contesto = {
+                  ...contesto,
+                  autorizzazioneArchiviazione: undefined,
+                };
+                if (
+                  richiestaCondizionata &&
+                  archiviazione &&
+                  azione.entitaToccate.includes(
+                    `commessa:${archiviazione.commessaId}`
+                  ) &&
+                  condizioniTransizioneSoddisfatte(
+                    richiestaCondizionata.condizioni,
+                    azione
+                  )
+                ) {
+                  const commessa: any = getCommessaById(
+                    archiviazione.commessaId
+                  );
+                  if (commessa && commessa.sedeId === contesto.sedeId) {
+                    const target = concretizzaRichiestaTransizione(
+                      richiestaCondizionata.richiesta,
+                      commessa
+                    );
+                    if (target) {
+                      contesto = {
+                        ...contesto,
+                        autorizzazioneTransizione: {
+                          commessaId: commessa.id,
+                          nuovoStato: target,
+                          versione: versioneCommessa(commessa),
+                        },
+                      };
+                    }
+                  }
+                }
+                richiestaCondizionata = null;
+              }
             }
             try {
               contestoConversazione = await aggiornaContestoDaEsitoTool({

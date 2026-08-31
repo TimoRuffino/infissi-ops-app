@@ -6,6 +6,8 @@ import { versioneCommessa } from "../../commesse/transizioni";
 import { STRUMENTI_CASI } from "../strumenti/casi";
 import { STRUMENTI_COMMESSE } from "../strumenti/commesse";
 import { STRUMENTI_COMUNICAZIONI_R0 } from "../strumenti/allegati";
+import { STRUMENTI_ARCHIVIO_COMUNICAZIONI } from "../strumenti/archivioAllegati";
+import { findDocumentoComunicazione } from "../../routers/preventiviContratti";
 import { STRUMENTI_DOCUMENTI } from "../strumenti/documenti";
 import { STRUMENTI_L0 } from "../strumenti/letture";
 import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
@@ -23,7 +25,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.5.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.6.0";
 
 const schemaLettura = z
   .object({
@@ -242,6 +244,41 @@ const METADATI: Record<string, Metadati> = {
   sposta_promemoria: r1("sposta_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
   annulla_promemoria: r1("annulla_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
   completa_promemoria: r1("completa_promemoria", "personale", ["promemoria"], ["promemoria"], ["tars", "tarsReminders"], false),
+  archivia_allegato_comunicazione: r1(
+    "archivia_allegato_comunicazione",
+    "entita",
+    ["comunicazioni", "commessa"],
+    ["commessa", "documento"],
+    ["tars", "tarsL2Actions", "tarsCommunications"],
+    false,
+    false,
+    async (contesto, argomenti, esito) => {
+      if (esito.stato !== "archiviato" && esito.stato !== "gia_archiviato") {
+        return false;
+      }
+      const input = argomenti && typeof argomenti === "object"
+        ? argomenti as { comunicazioneId?: unknown; allegatoIndex?: unknown }
+        : {};
+      if (
+        !Number.isInteger(input.comunicazioneId) ||
+        !Number.isInteger(input.allegatoIndex)
+      ) {
+        return false;
+      }
+      const documento = findDocumentoComunicazione(
+        contesto.sedeId,
+        Number(input.comunicazioneId),
+        Number(input.allegatoIndex)
+      );
+      const documentoId = (esito.dati as { documentoId?: unknown } | null)
+        ?.documentoId;
+      return (
+        documento != null &&
+        Number.isInteger(documentoId) &&
+        documento.id === documentoId
+      );
+    }
+  ),
   prendi_in_carico_caso: r1("prendi_in_carico_caso", "entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], false),
   rinvia_caso: r1("rinvia_caso", "entita", ["generale", "commessa"], ["caso", "commessa"], ["tars", "tarsL2Actions"], false),
   analizza_conferma_ordine: {
@@ -284,6 +321,7 @@ const METADATI: Record<string, Metadati> = {
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_L0,
   ...STRUMENTI_COMUNICAZIONI_R0,
+  ...STRUMENTI_ARCHIVIO_COMUNICAZIONI,
   ...STRUMENTI_COMMESSE,
   ...STRUMENTI_PROMEMORIA,
   ...STRUMENTI_CASI,

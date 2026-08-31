@@ -40,7 +40,9 @@ const SOLO_VALUTAZIONE_INIZIALE =
   /^(?:dimmi\s+se|verifica\s+se|controlla\s+se|(?:sai|sapresti|mi\s+dici|mi\s+puoi\s+dire)\s+se|posso|potrei|cosa\s+(?:succede|serve)|conviene|sarebbe\s+(?:possibile|meglio)|proponi|consiglia)\b/i;
 const NEGAZIONE_COMANDO =
   /\b(?:non\s+(?:puoi|potresti|devi|dovresti|voglio\s+che|passare|portare|spostare|avanzare|arretrare|riportare|cambiare|modificare)|mai\s+(?:passare|portare|spostare|avanzare|arretrare|riportare|cambiare)|senza\s+(?:passare|portare|spostare|avanzare|arretrare|riportare|cambiare))\b/i;
-const CONDIZIONE_NON_VERIFICABILE = /(?:^|[^\p{L}])(?:se|qualora|purché)(?=$|[^\p{L}])|(?:^|[^\p{L}])a\s+condizione\s+che(?=$|[^\p{L}])/iu;
+// Esportata per il classificatore condizionale dell'archiviazione (T4): le
+// condizioni fuori dal suo set chiuso restano non verificabili anche lì.
+export const CONDIZIONE_NON_VERIFICABILE = /(?:^|[^\p{L}])(?:se|qualora|purché)(?=$|[^\p{L}])|(?:^|[^\p{L}])a\s+condizione\s+che(?=$|[^\p{L}])/iu;
 
 const TARGET_STATO: readonly {
   stato: StatoCommessa;

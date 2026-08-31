@@ -353,6 +353,26 @@ async function serializzaArchivioComunicazione<T>(
   }
 }
 
+/** Documento del fascicolo già creato da questo allegato di comunicazione. */
+export function findDocumentoComunicazione(
+  sedeId: number,
+  comunicazioneId: number,
+  allegatoIndex: number
+): Documento | null {
+  const sourceRef = comunicazioneSourceRef(
+    sedeId,
+    comunicazioneId,
+    allegatoIndex
+  );
+  return (
+    documenti.find(
+      documento =>
+        documento.source === "comunicazione" &&
+        documento.sourceRef === sourceRef
+    ) ?? null
+  );
+}
+
 /** Archivia un allegato di comunicazione approvato senza duplicare i retry. */
 export async function archiviaAllegatoComunicazione(args: {
   sedeId: number;
@@ -363,10 +383,23 @@ export async function archiviaAllegatoComunicazione(args: {
   tipo: DocTipo;
   note?: string;
   mimeType: string;
-  buffer: Buffer;
+  /**
+   * Byte già letti, oppure una rilettura eseguita DENTRO la sezione
+   * serializzata: chi deve garantire che i byte archiviati coincidano con
+   * una fonte verificata passa la funzione, che può rifiutare l'effetto.
+   */
+  buffer: Buffer | (() => Promise<Buffer>);
   createdBy: number | null;
+  /**
+   * Un sourceRef già archiviato su un'ALTRA commessa blocca l'operazione
+   * (`SOURCE_REF_OCCUPATO`) invece di spostare il documento. Il flusso
+   * manuale del router mail conserva lo spostamento storico.
+   */
+  vietaRiassegnazione?: boolean;
 }): Promise<Documento> {
-  validaAllegatoFascicolo(args.buffer, args.mimeType);
+  if (Buffer.isBuffer(args.buffer)) {
+    validaAllegatoFascicolo(args.buffer, args.mimeType);
+  }
   const commessa = commessaInSede(args.commessaId, args.sedeId);
   if (!commessa) throw new Error("Commessa non trovata");
 
@@ -382,6 +415,15 @@ export async function archiviaAllegatoComunicazione(args: {
         documento.sourceRef === sourceRef
     );
     if (existing?.commessaId === args.commessaId) return existing;
+    if (existing && args.vietaRiassegnazione) {
+      throw new Error(
+        "SOURCE_REF_OCCUPATO: allegato già archiviato su un'altra commessa."
+      );
+    }
+    const bytes = Buffer.isBuffer(args.buffer)
+      ? args.buffer
+      : await args.buffer();
+    validaAllegatoFascicolo(bytes, args.mimeType);
 
     const id = existing?.id ?? nextId++;
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);
@@ -394,7 +436,7 @@ export async function archiviaAllegatoComunicazione(args: {
           nome,
           tipo: args.tipo,
           mimeType: args.mimeType,
-          size: args.buffer.length,
+          size: bytes.length,
           note: null,
           statoAtUpload: commessa.stato ?? null,
           createdBy: args.createdBy,
@@ -405,7 +447,7 @@ export async function archiviaAllegatoComunicazione(args: {
     documento.nome = nome;
     documento.tipo = args.tipo;
     documento.mimeType = args.mimeType;
-    documento.size = args.buffer.length;
+    documento.size = bytes.length;
     documento.note =
       args.note ?? "Archiviato manualmente da un allegato di comunicazione.";
     documento.statoAtUpload = commessa.stato ?? null;
@@ -418,7 +460,7 @@ export async function archiviaAllegatoComunicazione(args: {
         args.commessaId,
         documento.id,
         nome,
-        args.buffer,
+        bytes,
         args.mimeType
       );
       documento.storageKey = stored.storageKey;
