@@ -85,17 +85,29 @@ describe("contratti puri delle golden screen", () => {
     expect(
       mobilePrioritySections([
         "extra-b",
+        "tars",
+        "comunicazioni",
+        "economia",
+        "operativita",
         "documenti",
+        "azioni",
         "stato",
         "extra-a",
         "identita",
         "timeline",
+        "dettagli",
       ])
     ).toEqual([
       "identita",
       "stato",
+      "azioni",
       "timeline",
       "documenti",
+      "operativita",
+      "economia",
+      "comunicazioni",
+      "tars",
+      "dettagli",
       "extra-b",
       "extra-a",
     ]);
