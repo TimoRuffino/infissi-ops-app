@@ -23,6 +23,10 @@ import {
 import { creaProviderFinto, chiamataTool, rispostaTesto } from "./openai/fake";
 import * as providerGovernato from "./costi/providerGovernato";
 import * as esecuzioniR1 from "./azioni/executions";
+import {
+  creaLedgerMemoriaPerTest,
+  impostaLedgerPerTest,
+} from "./costi/ledger";
 import { azzeraRateLimitTarsPerTest } from "../routers/tars";
 import { filtraStrumenti, strumentiPerContesto } from "./profili";
 import { STRUMENTI_L0 } from "./strumenti/letture";
@@ -99,6 +103,7 @@ afterEach(() => {
   delete process.env.TARS_RATE_LIMIT_INVII;
   azzeraRateLimitTarsPerTest();
   impostaLedgerEsecuzioniPerTest(null);
+  impostaLedgerPerTest(null);
   vi.restoreAllMocks();
 });
 
@@ -764,10 +769,13 @@ describe("tars — degradazione e sicurezza", () => {
       SEDE,
       DIREZIONE_ID
     ))!.updatedAt.getTime();
-    const ledger = creaLedgerEsecuzioniMemoriaPerTest();
-    impostaLedgerEsecuzioniPerTest(ledger);
+    const ledgerR1 = creaLedgerEsecuzioniMemoriaPerTest();
+    impostaLedgerEsecuzioniPerTest(ledgerR1);
+    const ledgerCosti = creaLedgerMemoriaPerTest();
+    impostaLedgerPerTest(ledgerCosti);
     const providerSpy = vi.spyOn(providerGovernato, "creaProviderPerRun");
     const reservationSpy = vi.spyOn(esecuzioniR1, "prenotaEsecuzioneR1");
+    const costoSpy = vi.spyOn(ledgerCosti, "prenota");
 
     await expect(
       direzione().tars.invia({
@@ -778,7 +786,9 @@ describe("tars — degradazione e sicurezza", () => {
 
     expect(providerSpy).not.toHaveBeenCalled();
     expect(reservationSpy).not.toHaveBeenCalled();
-    await expect(ledger.lista({ sedeId: SEDE })).resolves.toEqual([]);
+    expect(costoSpy).not.toHaveBeenCalled();
+    await expect(ledgerR1.lista({ sedeId: SEDE })).resolves.toEqual([]);
+    expect(ledgerCosti.righe()).toEqual([]);
     await expect(turniDiConversazione(conversazione.id, SEDE)).resolves.toEqual([]);
     expect((await conversazioneDiUtente(
       conversazione.id,

@@ -55,3 +55,14 @@ Nessuna modifica a UI/client, provider/cost governor, flag, prompt, catalogo str
 1. RED: le primitive permettevano rinomina su archivio e il router la risolveva; test falliti con `aggiornata` al posto di `archiviata` e mutation risolta invece di `PRECONDITION_FAILED`.
 2. GREEN: `pnpm test -- server/tars/conversazioni.test.ts server/tars/orchestratore.test.ts server/tars/archivio.pg.test.ts` ha completato con 876 test passati e 8 skipped (inclusi i 3 PostgreSQL gated).
 3. `pnpm check` e `git diff --check` hanno completato senza errori.
+
+## Fix round 2/5
+
+- Il test reale `tars.invia` su una conversazione archiviata installa ora sia il ledger R1 sia il ledger costi in memoria. Verifica separatamente zero reservation R1, zero chiamate a `LedgerCosti.prenota`, zero righe costo, zero provider, zero turni e timestamp invariato.
+- La suite PostgreSQL usa anche `ALTRA_SEDE` e prova sia il turno sia la mutation cross-sede con `NOT_FOUND`/`non_trovato`.
+- L'ordine PostgreSQL non dipende più dalla granularità di `now()`: la fissata è impostata tre ore indietro, quindi vengono verificate tutte e tre le conversazioni nell'ordine fissata, recente, non fissata meno recente. Le ricerche speciali confrontano l'intero array di id.
+
+### Verifica fix round 2/5
+
+- `pnpm test -- server/tars/orchestratore.test.ts server/tars/archivio.pg.test.ts`: 876 passati, 8 skip espliciti; i 3 test PostgreSQL restano gated perché `DATABASE_URL` è assente.
+- `pnpm check` e `git diff --check`: superati.

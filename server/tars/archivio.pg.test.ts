@@ -23,13 +23,14 @@ import {
 
 const conDatabase = Boolean(process.env.DATABASE_URL && kvSql);
 const SEDE = 77_109_901;
+const ALTRA_SEDE = 77_109_902;
 const UTENTE = 77_109_911;
 const ALTRO_UTENTE = 77_109_912;
 
 async function pulisciDatiTest(): Promise<void> {
   if (!kvSql) return;
-  await kvSql`DELETE FROM tars_turni WHERE sede_id = ${SEDE}`;
-  await kvSql`DELETE FROM tars_conversazioni WHERE sede_id = ${SEDE}`;
+  await kvSql`DELETE FROM tars_turni WHERE sede_id IN (${SEDE}, ${ALTRA_SEDE})`;
+  await kvSql`DELETE FROM tars_conversazioni WHERE sede_id IN (${SEDE}, ${ALTRA_SEDE})`;
 }
 
 describe.skipIf(!conDatabase)(
@@ -77,6 +78,21 @@ describe.skipIf(!conDatabase)(
         })
       ).rejects.toThrow("NOT_FOUND");
       await expect(turniDiConversazione(conversazione.id, SEDE)).resolves.toEqual([]);
+      await expect(
+        aggiungiTurno({
+          conversazioneId: conversazione.id,
+          sedeId: ALTRA_SEDE,
+          utenteId: UTENTE,
+          ruolo: "utente",
+          contenuto: "Non scrivere da altra sede",
+        })
+      ).rejects.toThrow("NOT_FOUND");
+      await expect(rinominaConversazione({
+        conversazioneId: conversazione.id,
+        sedeId: ALTRA_SEDE,
+        utenteId: UTENTE,
+        titolo: "Non rinominare da altra sede",
+      })).resolves.toEqual({ stato: "non_trovato" });
 
       await aggiungiTurno({
         conversazioneId: conversazione.id,
@@ -88,7 +104,7 @@ describe.skipIf(!conDatabase)(
       await expect(turniDiConversazione(conversazione.id, SEDE)).resolves.toHaveLength(1);
     });
 
-    it("cerca letteralmente %, underscore e backslash, deriva preview e ordina le fissate", async () => {
+    it("cerca letteralmente %, underscore e backslash, deriva preview e ordina tutte le conversazioni", async () => {
       const percentuale = await creaConversazione({
         sedeId: SEDE,
         utenteId: UTENTE,
@@ -117,15 +133,27 @@ describe.skipIf(!conDatabase)(
         utenteId: UTENTE,
         fissata: true,
       });
+      // Date deliberate: la fissata è più vecchia, poi una recente e una
+      // non fissata meno recente. L'ordine non dipende dalla granularità now().
+      await kvSql!`UPDATE tars_conversazioni
+        SET updated_at = NOW() - INTERVAL '3 hours' WHERE id = ${percentuale.id}`;
+      await kvSql!`UPDATE tars_conversazioni
+        SET updated_at = NOW() WHERE id = ${underscore.id}`;
+      await kvSql!`UPDATE tars_conversazioni
+        SET updated_at = NOW() - INTERVAL '1 hour' WHERE id = ${backslash.id}`;
 
-      await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "%" }))
-        .resolves.toMatchObject([{ id: percentuale.id, anteprima: "Preview %" }]);
-      await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "_" }))
-        .resolves.toMatchObject([{ id: underscore.id }]);
-      await expect(listaConversazioni(SEDE, UTENTE, { ricerca: "\\" }))
-        .resolves.toMatchObject([{ id: backslash.id }]);
-      await expect(listaConversazioni(SEDE, UTENTE)).resolves.toMatchObject([
-        { id: percentuale.id, fissata: true },
+      const perPercentuale = await listaConversazioni(SEDE, UTENTE, { ricerca: "%" });
+      const perUnderscore = await listaConversazioni(SEDE, UTENTE, { ricerca: "_" });
+      const perBackslash = await listaConversazioni(SEDE, UTENTE, { ricerca: "\\" });
+      const complete = await listaConversazioni(SEDE, UTENTE);
+      expect(perPercentuale.map(c => c.id)).toEqual([percentuale.id]);
+      expect(perPercentuale[0].anteprima).toBe("Preview %");
+      expect(perUnderscore.map(c => c.id)).toEqual([underscore.id]);
+      expect(perBackslash.map(c => c.id)).toEqual([backslash.id]);
+      expect(complete.map(c => c.id)).toEqual([
+        percentuale.id,
+        underscore.id,
+        backslash.id,
       ]);
     });
 
