@@ -4,10 +4,13 @@ import {
   RECLAMO_STATES,
   RIFACIMENTO_STATES,
   SUPPORT_QUEUE_STATES,
+  WARRANTY_DUE_DAYS,
   nextQueueAdvance,
   nextReclamoAdvance,
   nextRifacimentoAdvance,
   ticketMatchesQueueFilter,
+  warrantyExpiryLabel,
+  warrantyExpiryTone,
 } from "./supportQueue";
 
 describe("ticketMatchesQueueFilter", () => {
@@ -149,5 +152,29 @@ describe("reclami e rifacimenti", () => {
     expect(nextRifacimentoAdvance("in_produzione")?.stato).toBe("completato");
     expect(nextRifacimentoAdvance("completato")?.stato).toBe("chiuso");
     expect(nextRifacimentoAdvance("chiuso")).toBeNull();
+  });
+});
+
+describe("warrantyExpiryTone", () => {
+  it("distingue scaduta, in scadenza e attiva", () => {
+    expect(warrantyExpiryTone(-1)).toBe("expired");
+    expect(warrantyExpiryTone(30)).toBe("due");
+    expect(warrantyExpiryTone(31)).toBe("current");
+  });
+
+  // Chi scade oggi non è già scaduto, ma non è nemmeno "tranquillo".
+  it("tiene il giorno stesso della scadenza dentro la finestra", () => {
+    expect(warrantyExpiryTone(0)).toBe("due");
+  });
+
+  it("resta una soglia di sola lettura, distinta dai 90 giorni del server", () => {
+    expect(WARRANTY_DUE_DAYS).toBe(30);
+    expect(warrantyExpiryTone(90)).toBe("current");
+  });
+
+  it("dichiara il tono a parole, non solo con un colore", () => {
+    expect(warrantyExpiryLabel("expired")).toBe("Scaduta");
+    expect(warrantyExpiryLabel("due")).toBe("In scadenza entro 30 giorni");
+    expect(warrantyExpiryLabel("current")).toBe("Attiva");
   });
 });

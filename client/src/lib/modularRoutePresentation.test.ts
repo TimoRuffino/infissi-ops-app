@@ -310,6 +310,26 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/bg-success text-on-success/);
   });
 
+  it("compone il registro garanzie con scadenze dichiarate a parole", () => {
+    const source = routeSource("../pages/GaranzieList.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+    // Il tono della scadenza passa dall'helper puro: nessuna soglia locale.
+    expect(source).toMatch(/warrantyExpiryTone\(/);
+    expect(source).toMatch(/warrantyExpiryLabel\(/);
+    // La finestra del server resta dichiarata per quella che è (90 giorni).
+    expect(source).toMatch(/in scadenza entro 90 giorni/);
+    // Registrare e modificare resta direzione, specchio UX di `adminProcedure`.
+    expect(source).toMatch(/isDirezione\(user\)/);
+    // Un filtro senza risultati non è "nessuna garanzia registrata".
+    expect(source).toMatch(/Nessuna garanzia di questo tipo/);
+    // Lo stato del record non viene dedotto dalla data.
+    expect(source).toMatch(/statoRegistro/);
+  });
+
   it("compone la conoscenza aziendale con header e superfici del sistema", () => {
     const source = routeSource("../pages/Conoscenza.tsx");
 

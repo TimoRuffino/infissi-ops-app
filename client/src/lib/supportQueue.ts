@@ -119,6 +119,43 @@ export function nextRifacimentoAdvance(
   return RIFACIMENTO_ADVANCE[stato] ?? null;
 }
 
+// ── Garanzie ───────────────────────────────────────────────────────────────
+//
+// La scadenza di una garanzia è già calcolata dal server (`dataScadenza`):
+// qui si decide solo come leggerla a schermo. Nessun calcolo di scadenza,
+// nessuna modifica dello `stato` del record.
+
+/**
+ * Unica soglia di lettura della UI, in giorni. Il router usa una finestra
+ * diversa (90 giorni) per le sue statistiche: le due cose restano distinte e
+ * vanno etichettate per quello che sono.
+ */
+export const WARRANTY_DUE_DAYS = 30;
+
+export type WarrantyExpiryTone = "expired" | "due" | "current";
+
+/**
+ * Tono della scadenza a partire dai giorni mancanti. `days` deve essere
+ * finito: una data illeggibile la gestisce la pagina, che non può fingere
+ * una garanzia "attiva" quando non sa quando scade.
+ */
+export function warrantyExpiryTone(days: number): WarrantyExpiryTone {
+  if (days < 0) return "expired";
+  if (days <= WARRANTY_DUE_DAYS) return "due";
+  return "current";
+}
+
+const WARRANTY_EXPIRY_LABEL: Record<WarrantyExpiryTone, string> = {
+  expired: "Scaduta",
+  due: `In scadenza entro ${WARRANTY_DUE_DAYS} giorni`,
+  current: "Attiva",
+};
+
+/** La parola che accompagna il colore: il tono da solo non è un'informazione. */
+export function warrantyExpiryLabel(tone: WarrantyExpiryTone): string {
+  return WARRANTY_EXPIRY_LABEL[tone];
+}
+
 export type SupportQueueTicket = {
   stato: string;
   oggetto?: string | null;
