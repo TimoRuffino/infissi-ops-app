@@ -43,7 +43,7 @@ Plan: `docs/superpowers/plans/2026-08-31-modular-control-01-foundations-shell.md
 
 Plan: `docs/superpowers/plans/2026-08-31-modular-control-02-golden-screens.md`
 
-- [ ] Implement the capability-composable Dashboard, Commessa 360, Kanban, Tars, mobile Rilievo/Verbale, and Fornitori/Document Intelligence.
+- [ ] Implement the capability-composable Dashboard, Commessa 360, Kanban, Tars and mobile Rilievo/Verbale. Fornitori/Document Intelligence is excluded by explicit user decision dated 31/08/2026.
 - [ ] Exercise shared list, dossier, workbench, governed-intelligence, and mobile-form patterns before wider migration.
 - [ ] Produce the single high-fidelity visual checkpoint required by the spec with sanitized fixtures and explicit state coverage.
 - [ ] Correct the design system itself when a golden screen exposes a structural inconsistency; do not add page-local exceptions.
@@ -57,7 +57,7 @@ Plan: `docs/superpowers/plans/2026-08-31-modular-control-02-golden-screens.md`
 Plan: `docs/superpowers/plans/2026-08-31-modular-control-03-operational-routes.md`
 
 - [ ] Migrate customer/job indexes and customer detail.
-- [ ] Migrate planning, squads, warehouse, payments, economy, and margin views; Fornitori/Document Intelligence is already owned and completed by Slice 02.
+- [ ] Migrate planning, squads, warehouse, payments, economy, and margin views; do not touch Fornitori/Document Intelligence, which is excluded from the redesign by explicit user decision.
 - [ ] Reuse the proven archetypes and preserve URL/query state, mutation semantics, mobile task completion, capability shaping, and `sedeId` isolation.
 
 **Entry gate:** The Slice 02 checkpoint is accepted and its Critical/High findings are resolved.

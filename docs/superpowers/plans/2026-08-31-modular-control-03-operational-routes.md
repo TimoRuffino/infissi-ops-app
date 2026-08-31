@@ -48,7 +48,7 @@
 | `/economia`    | Console riservata   | accesso `economia.read`, dati FiC e azioni esistenti solo dopo il gate                   | nuova riconciliazione, calcoli, sync o policy FiC              |
 | `/marginalita` | Analisi direzione   | tabella/stati leggibili con disclaimer stima CRM                                         | apertura per capability economiche, audit o calcoli server     |
 
-Le route golden `/commesse/:id`, `/kanban`, `/tars`, `/fornitori`, rilievo e verbale restano fuori scope, come `/produzione/*` che continua a redirigere a `/kanban`. Questa slice non cambia navigazione, redirect, shell, API o feature flag.
+Le route golden `/commesse/:id`, `/kanban`, `/tars`, rilievo e verbale restano fuori scope. `/fornitori` e la UI Document Intelligence sono escluse dall'intero redesign per decisione esplicita dell'utente del 31/08/2026. `/produzione/*` continua a redirigere a `/kanban`. Questa slice non cambia navigazione, redirect, shell, API o feature flag.
 
 ## File structure
 

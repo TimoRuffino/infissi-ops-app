@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ridisegnare Dashboard, Commessa, Kanban, Tars, Rilievo/Verbale mobile e Fornitori/Document Intelligence come golden screens Modular Control / Borgogna Operativa, senza cambiare flussi, dati o contratti di produzione.
+**Goal:** Ridisegnare Dashboard, Commessa, Kanban, Tars e Rilievo/Verbale mobile come golden screens Modular Control / Borgogna Operativa, senza cambiare flussi, dati o contratti di produzione. La pagina Fornitori e la sua UI Document Intelligence sono escluse per decisione esplicita dell'utente del 31/08/2026.
 
 **Architecture:** Le route mantengono ownership di query tRPC, mutation, invalidazioni, URL e autorizzazioni. La slice estrae mapping puri e componenti presentational. La slice 01 deve già fornire token v3, shell, primitive, dark mode, stati e FLAG_UI_V2; questa slice non li duplica.
 
@@ -35,7 +35,6 @@
 | client/src/components/kanban/KanbanDesktopBoard.tsx e KanbanMobilePhaseList.tsx | Workbench desktop e lista-per-fase mobile.                               |
 | client/src/components/tars/TarsOperationalPanels.tsx                            | Pannelli typed per briefing, prove, proposte e degradazione.             |
 | client/src/components/operativita/MobileFieldHeader.tsx e SignaturePad.tsx      | Campo mobile e firma pointer-event compatibile col data URL legacy.      |
-| client/src/components/fornitori/FornitoriWorkbench.tsx                          | Toolbar/liste/tabs densi; handler passati dal page owner.                |
 | docs/design/modular-control/golden-screens-evidence.md                          | Matrice browser/axe/tastiera/zoom e screenshot sanitizzati.              |
 | docs/design/modular-control/evidence/golden/                                    | Screenshot light/dark/mobile sanitizzati con nomi deterministici.        |
 
@@ -341,45 +340,14 @@ Browser 390×844/360×800: measure, disclosure, conditions, attachment remove, p
   git add client/src/pages/RilievoDetail.tsx client/src/pages/VerbaleChiusura.tsx client/src/components/operativita/MobileFieldHeader.tsx client/src/components/operativita/SignaturePad.tsx client/src/lib/goldenScreenContracts.test.ts client/src/lib/goldenScreenPresentation.test.ts
   git commit -m "feat: ottimizza rilievo e verbale per campo"
 
-### Task 7: Fornitori/DI workbench
+### Task 7: Fornitori/DI esclusa
 
-**Files:**
-
-- Create: client/src/components/fornitori/FornitoriWorkbench.tsx
-- Modify: client/src/pages/FornitoriList.tsx:46-921
-- Modify: client/src/components/fornitori/AnalisiConfermaOrdine.tsx:1-286
-- Modify: client/src/components/fornitori/ProposteOrdine.tsx:1-245
-- Test: client/src/lib/goldenScreenContracts.test.ts
-- Modify: client/src/lib/goldenScreenPresentation.test.ts
-
-**Interfaces:** Consumes page query/mutation/dialog plus fornitori._, analisiDocumenti._, proposte.\*, platform.interruttori. Produces FornitoriWorkbench({ suppliers, orders, priceLists, filters, dialogs, handlers }), no query/mutation/PDF interpretation.
-
-- [ ] **Step 1: Write a failing Fornitori workbench-boundary test**
-
-  Estendere `goldenScreenPresentation.test.ts` per leggere `FornitoriWorkbench.tsx`, vietare tRPC/query/mutation e richiedere props esplicite per `suppliers`, `orders`, `priceLists`, `filters`, `dialogs` e `handlers`. Il test è rosso finché il workbench non esiste. Conservare nel test puro del Task 1 l'asserzione dell'ordine mobile identità→ordine→evidenze→proposte.
-
-- [ ] **Step 2: Verify failure**
-
-Run: pnpm test -- client/src/lib/goldenScreenPresentation.test.ts
-
-Expected: FAIL perché il workbench presentational non esiste ancora.
-
-- [ ] **Step 3: Extract workbench and retain DI safeguards**
-
-One filter toolbar, correct tabs, dense desktop list and designed mobile cards. Orders show supplier/code/status/delivery then analysis/proposals together. Page retains dialogs/mutations/invalidations. Analysis distinguishes immutable source PDF, running/completed/scansione_senza_testo/error, confidence, page/fragment evidence, differences, retry and integration-off. Proposals preserve separate approve/apply/reject/cancel, reason per proposal and exact effect/evidence; never auto-apply.
-
-- [ ] **Step 4: Verify**
-
-Run: pnpm test -- client/src/lib/goldenScreenContracts.test.ts client/src/lib/goldenScreenPresentation.test.ts client/src/lib/tokenDiscipline.test.ts && pnpm check
-
-Run: `pnpm vitest run server/documenti/analisiConferma.test.ts server/documenti/collegamentoOrdine.test.ts server/documenti/estrazioneConferma.test.ts server/documenti/ocr.test.ts server/routers/proposte.test.ts`
-
-Browser fixtures PDF success, scan no text, error/retry, DI off, proposal proposed→approved→applied/rejected; keyboard tabs/select/icon/dialog, evidence near difference, no auto-apply, desktop/mobile no clipping.
-
-- [ ] **Step 5: Commit**
-
-  git add client/src/pages/FornitoriList.tsx client/src/components/fornitori/FornitoriWorkbench.tsx client/src/components/fornitori/AnalisiConfermaOrdine.tsx client/src/components/fornitori/ProposteOrdine.tsx client/src/lib/goldenScreenContracts.test.ts client/src/lib/goldenScreenPresentation.test.ts
-  git commit -m "feat: rinnova workbench fornitori e DI"
+Decisione esplicita dell'utente del 31/08/2026: non modificare
+`client/src/pages/FornitoriList.tsx`, `client/src/components/fornitori/` o le
+relative superfici Document Intelligence in questa slice o nelle successive.
+La route resta funzionalmente invariata e sarà registrata come
+`esclusa con motivazione` nel manifest; nessuna evidenza visuale v3 viene
+prodotta per questa pagina.
 
 ### Task 8: Hardening and evidence
 
@@ -414,9 +382,6 @@ Save at least these sanitized files:
 - `docs/design/modular-control/evidence/golden/rilievo-390x844-light.png`
 - `docs/design/modular-control/evidence/golden/rilievo-390x844-dark.png`
 - `docs/design/modular-control/evidence/golden/verbale-390x844-light.png`
-- `docs/design/modular-control/evidence/golden/fornitori-di-1440x900-light.png`
-- `docs/design/modular-control/evidence/golden/fornitori-di-1440x900-dark.png`
-- `docs/design/modular-control/evidence/golden/fornitori-di-390x844-light.png`
 
 - [ ] **Step 2: Run full automatic suite**
 
@@ -447,10 +412,10 @@ If truth matrix changed, stage it; otherwise do not add noise. Final report stat
 
 ## Dependencies and acceptance
 
-Order: slice 01 → Task 1 → Tasks 2–7 in listed order → Task 8. Tasks 2–7 are intentionally sequential because each extends the same presentation-boundary guard; do not parallelize edits to that file. Acceptance: Dashboard uses capability union/no financial leakage; Commessa preserves deep links/mutations; Kanban preserves canonical states/accessibile move; Tars typed/honest/non-chat-first; Rilievo/Verbale complete at 390px; DI shows evidence and never applies automatically. Final gates: all package commands pass, no console/global overflow, observed browser matrix and rollback OFF verified.
+Order: slice 01 → Task 1 → Tasks 2–6 in listed order → Task 7 excluded → Task 8. Tasks 2–6 are intentionally sequential because each extends the same presentation-boundary guard; do not parallelize edits to that file. Acceptance: Dashboard uses capability union/no financial leakage; Commessa preserves deep links/mutations; Kanban preserves canonical states/accessibile move; Tars typed/honest/non-chat-first; Rilievo/Verbale complete at 390px. Fornitori/DI remains untouched and is documented as excluded. Final gates: all package commands pass, no console/global overflow, observed browser matrix and rollback OFF verified.
 
 ## Plan self-review
 
-- **Coverage:** Tasks 2–7 cover all six screens; constraints and Task 8 cover responsive, accessibility, motion, anti-copy, rollback and verification.
+- **Coverage:** Tasks 2–6 cover the five approved screen families; Task 7 records the explicit Fornitori/DI exclusion; constraints and Task 8 cover responsive, accessibility, motion, anti-copy, rollback and verification.
 - **No placeholders:** each task has exact files, boundaries, failing test, commands, implementation scope, browser proof and commit.
-- **Type consistency:** Task 1 declares all four pure helpers; each Task 2–7 adds its own initially-red source-boundary test before creating the relevant presentational component. Pages retain query/mutation ownership and extracts remain presentational.
+- **Type consistency:** Task 1 declares all four pure helpers; each Task 2–6 adds its own initially-red source-boundary test before creating the relevant presentational component. Pages retain query/mutation ownership and extracts remain presentational.
