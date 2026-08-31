@@ -28,6 +28,7 @@
 
 **Files:**
 - Modify: `server/tars/archivio.ts`
+- Modify: `server/tars/orchestratore.ts`
 - Modify: `server/routers/tars.ts`
 - Create: `server/tars/conversazioni.test.ts`
 
@@ -35,6 +36,7 @@
 - Produces: `ConversazioneTars` con `fissata: boolean`, `archiviataAt: Date | null`, `anteprima: string | null` nelle liste.
 - Produces: `listaConversazioni(sedeId, utenteId, { archiviate, ricerca, limite })` ordinata per `fissata DESC, updatedAt DESC`.
 - Produces: `rinominaConversazione`, `impostaConversazioneFissata`, `impostaConversazioneArchiviata` con esito owner-scoped.
+- Produces: `aggiungiTurno({ conversazioneId, sedeId, utenteId, ... })` con aggiornamento conversazione scoped a tutti e tre i campi.
 - Produces tRPC: `tars.conversazioni({ archiviate?, ricerca?, limite? })`, `tars.rinominaConversazione`, `tars.fissaConversazione`, `tars.archiviaConversazione`.
 
 - [ ] **Step 1: scrivere test RED sull'archivio**
@@ -55,11 +57,11 @@
   archiviata_at TIMESTAMPTZ
   ```
 
-  L'archiviazione imposta anche `fissata=false`; ogni update include `id`, `sede_id`, `utente_id`; SQL e fallback memoria hanno la stessa semantica. La lista limita `1..100`, default 50, e deriva l'anteprima dall'ultimo turno senza salvare testo duplicato.
+  L'archiviazione imposta anche `fissata=false`; ogni update include `id`, `sede_id`, `utente_id`; SQL e fallback memoria hanno la stessa semantica. Estendere `aggiungiTurno` con `utenteId` e negare l'update quando la conversazione non appartiene al principal. La lista limita `1..100`, default 50, e deriva l'anteprima dall'ultimo turno senza salvare testo duplicato.
 
 - [ ] **Step 4: aggiungere test RED del router**
 
-  Verificare input massimi, `NOT_FOUND` cross-owner, costi non toccati, conversazione archiviata rifiutata da `invia`, ripristino e invalidazione semantica.
+  Verificare input massimi, `NOT_FOUND` cross-owner, costi non toccati, ripristino e invalidazione semantica. Per una conversazione archiviata, `invia` deve fallire **prima** di `aggiungiTurno`, provider e ledger costi: testare zero nuovi turni, `updatedAt` invariato e zero invocazioni provider.
 
 - [ ] **Step 5: implementare endpoint tRPC additivi**
 
@@ -90,12 +92,13 @@
 
 **Interfaces:**
 - Produces: `filtraConversazioni`, `raggruppaConversazioni`, `unisciTurniConOttimistico`, `etichettaTempoConversazione` come funzioni pure.
+- Produces: `deveInviareDaTastiera({ key, shiftKey, isComposing })` e primitive ottimistiche pure usate realmente da `Tars.tsx`.
 - Produces: `TarsAvatar({ stato: "disponibile" | "in_lavoro" | "degradato" | "spento", size? })`.
 - Produces componenti presentazionali senza query tRPC proprie; `TarsContextPanel` riceve briefing e contesto già gated dal parent.
 
 - [ ] **Step 1: scrivere test RED delle funzioni pure**
 
-  Coprire ricerca per titolo/anteprima senza mutare l'input, gruppi Fissate/Recenti/Archiviate, deduplica del turno ottimistico quando arriva il turno server e label temporali italiane stabili.
+  Coprire ricerca per titolo/anteprima senza mutare l'input, gruppi Fissate/Recenti/Archiviate, deduplica del turno ottimistico quando arriva il turno server, label temporali italiane stabili e matrice tastiera: Enter invia, Maiusc+Enter non invia, IME non invia.
 
 - [ ] **Step 2: eseguire RED**
 
@@ -135,7 +138,7 @@
 
 - [ ] **Step 1: scrivere test RED di presentazione e gate**
 
-  Testare derivazione `spento | disponibile | degradato`, formattazione USD e percentuali budget senza `NaN`, visibilità costi solo Direzione e configurazione query `enabled=false` finché il gate non è risolto/acceso.
+  Testare derivazione `spento | disponibile | degradato`, formattazione USD e percentuali budget senza `NaN`, etichetta obbligatoria «globale · tutte le sedi», visibilità costi solo Direzione e configurazione query `enabled=false` finché il gate non è risolto/acceso.
 
 - [ ] **Step 2: eseguire RED**
 
@@ -144,7 +147,7 @@
 
 - [ ] **Step 3: implementare helper e card**
 
-  Header leggibile con stato; provider/modello/run in riepilogo; diagnostica, tool e interruttori dentro `Collapsible`; costi con `Intl.NumberFormat("it-IT", { style: "currency", currency: "USD" })` e progress bar testuale/visiva solo Direzione. Nessun segreto o contenuto.
+  Header leggibile con stato; provider/modello/run in riepilogo; diagnostica, tool e interruttori dentro `Collapsible`; costi con `Intl.NumberFormat("it-IT", { style: "currency", currency: "USD" })`, label visibile «Consumi globali · tutte le sedi» e progress bar testuale/visiva solo Direzione. Nessun segreto o contenuto.
 
 - [ ] **Step 4: innestare la card nel blocco Agente**
 
@@ -152,7 +155,7 @@
 
 - [ ] **Step 5: verificare e committare**
 
-  Run: `pnpm test -- client/src/lib/tarsAgentView.test.ts server/routers/tars.test.ts && pnpm check`
+  Run: `pnpm test -- client/src/lib/tarsAgentView.test.ts server/tars/costi/integrazione.test.ts && pnpm check`
 
   Commit: `feat(settings): centralize Tars technical status`
 
@@ -168,9 +171,9 @@
 - Consumes: componenti Task 2, endpoint Task 1 e `tars.stato({ conversazioneId })`.
 - Preserves: azioni Undo/approvazione, kill switch fail-closed, briefing, prefill query se già presente al momento dell'integrazione.
 
-- [ ] **Step 1: scrivere test RED strutturale della pagina**
+- [ ] **Step 1: scrivere test RED del contratto di composizione**
 
-  Aggiungere asserzioni mirate che vietino provider/modello/costi/tool-list nel sorgente della pagina, richiedano `role="log"`, gestione IME e query `stato` con `conversazioneId`. Il test deve fallire sul layout corrente.
+  Estendere `client/src/lib/tarsView.test.ts` per i comportamenti puri realmente consumati dalla pagina: selezione/ripristino, decisione Enter/Maiusc+Enter/IME, creazione e riconciliazione del turno ottimistico. Una guardia sorgente separata può vietare provider/modello/costi/tool-list in `Tars.tsx`, ma `role="log"`, focus e Sheet restano verifiche browser della Task 5, non successi dedotti dal testo sorgente.
 
 - [ ] **Step 2: comporre mobile-first**
 

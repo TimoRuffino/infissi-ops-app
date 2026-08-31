@@ -35,6 +35,7 @@ Sotto 768 px si vede una superficie alla volta. La lista conversazioni e il cont
 - Nessuna cancellazione definitiva: audit e cronologia restano recuperabili.
 - Ogni mutation è limitata a `sedeId + utenteId`; un id estraneo risponde `NOT_FOUND`.
 - Una conversazione archiviata è sola lettura finché non viene ripristinata.
+- Il blocco avviene prima di salvare turni o invocare il provider; nessun tentativo su una conversazione archiviata può consumare token o modificare `updatedAt`.
 
 ### Thread e composer
 
@@ -53,7 +54,7 @@ Tutte le informazioni tecniche vengono rimosse da `/tars` e concentrate nella ca
 - provider e modello effettivi;
 - ultimo run, run totali e degradati;
 - strumenti/capacità attive e interruttori Tars, dentro dettaglio richiudibile;
-- solo Direzione: spesa giorno/mese, residui, limiti per run/giorno/mese, chiamate, token, costo medio/massimo e stato del budget/circuito.
+- solo Direzione: spesa giorno/mese, residui, limiti per run/giorno/mese, chiamate, token, costo medio/massimo e stato del budget/circuito. Spesa e residui sono etichettati esplicitamente come **globali a tutte le sedi**.
 
 La card interroga prima `platform.interruttori`; con Tars spento non avvia query `tars.*`. Non mostra chiavi, prompt, contenuti cliente o dettagli sensibili a utenti non autorizzati.
 
