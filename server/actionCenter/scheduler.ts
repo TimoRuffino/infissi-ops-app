@@ -1,4 +1,5 @@
 import { getSediStore } from "../routers/sedi";
+import { osservaDaReconcile } from "../tars/proattivita/worker";
 import { getActionCaseRepository } from "./repository";
 import { parseActionCenterMode, reconcileActionCases } from "./reconcile";
 import { collectCurrentDrafts } from "./sources";
@@ -43,6 +44,16 @@ export async function runActionReconcile(sedeId: number): Promise<void> {
         cases: drafts.length,
         suppressedDuplicates: Math.max(0, signals.length - drafts.length),
         ...result,
+      });
+    }
+    // Osservatore Tars (T6): consuma gli stessi draft riconciliati, dietro
+    // flag fail-closed. Un suo errore non tocca il Centro Azioni.
+    try {
+      await osservaDaReconcile({ sedeId, drafts, now });
+    } catch (error) {
+      console.error("[tars-osservatore] osservazione fallita", {
+        sedeId,
+        message: error instanceof Error ? error.message : "unknown",
       });
     }
   } catch (error) {

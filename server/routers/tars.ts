@@ -41,6 +41,8 @@ import {
   type PassoCopione,
 } from "../tars/openai/fake";
 import { strumentiPerContesto } from "../tars/profili";
+import { repositoryOsservazioniCorrente } from "../tars/proattivita/repository";
+import { osservatoreEspone } from "../tars/proattivita/worker";
 import { AZIONI_DICHIARATE_INDISPONIBILI } from "../tars/azioni/registry";
 import {
   applicaContestoConversazioneAlRun,
@@ -494,6 +496,61 @@ export const tarsRouter = router({
       comeErrore(errore);
     }
   }),
+
+  /**
+   * Osservazioni dell'osservatore proattivo (T6): visibili solo in
+   * modalità active, con flag acceso, capability di lettura e sede del
+   * principal. Nessuna cache di vista: il filtro avviene a ogni richiesta.
+   */
+  osservazioni: procedura
+    .input(
+      z
+        .object({
+          stato: z.enum(["aperta", "auto_risolta"]).optional(),
+          limite: z.number().int().min(1).max(200).default(50),
+        })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        if (!osservatoreEspone()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "L'osservatore di Tars è in modalità shadow: calcola ma non espone (TARS_OBSERVER_MODE).",
+          });
+        }
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.capability.has("commessa.read")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Operazione non autorizzata." });
+        }
+        const record = await repositoryOsservazioniCorrente().lista({
+          sedeId: contesto.sedeId,
+          stato: input?.stato,
+          limite: input?.limite ?? 50,
+        });
+        return record.map(osservazione => ({
+          id: osservazione.id,
+          detector: osservazione.detector,
+          commessaId: osservazione.commessaId,
+          targetType: osservazione.targetType,
+          targetId: osservazione.targetId,
+          titolo: osservazione.titolo,
+          sintesi: osservazione.sintesi,
+          priorita: osservazione.priorita,
+          materialita: osservazione.materialita,
+          confidenza: osservazione.confidenza,
+          stato: osservazione.stato,
+          apertaAt: osservazione.apertaAt,
+          aggiornataAt: osservazione.aggiornataAt,
+          risoltaAt: osservazione.risoltaAt,
+        }));
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
 
   /**
    * Fascicolo C3 per il pannello contestuale (T3): nessun run del

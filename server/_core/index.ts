@@ -55,6 +55,12 @@ async function startServer() {
   );
   startActionCenterScheduler();
 
+  // Osservatore Tars (T6): schema additivo, solo con storage autorevole.
+  const osservazioni = await import("../tars/proattivita/repository");
+  if (osservazioni.repositoryOsservazioniAutorevoleDisponibile()) {
+    await osservazioni.repositoryOsservazioniCorrente().ensureSchema();
+  }
+
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();
   const { getPolicyRepository } = await import("../authz/repository");
