@@ -16,7 +16,7 @@ export default function ConfirmDialog({
   description,
   onConfirm,
   destructive = true,
-  confirmLabel,
+  confirmLabel = "Conferma",
   cancelLabel = "Annulla",
   busy = false,
 }: {
@@ -26,7 +26,7 @@ export default function ConfirmDialog({
   description: string;
   onConfirm: () => void;
   destructive?: boolean;
-  confirmLabel: string;
+  confirmLabel?: string;
   cancelLabel?: string;
   busy?: boolean;
 }) {

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import {
   associaTurnoOttimisticoAConversazione,
   creaTurnoOttimistico,
@@ -340,6 +341,8 @@ function ListaWorkbench({
 
 export default function Tars() {
   const [, navigate] = useLocation();
+  const { capabilities } = useOperationalContext();
+  const puoUsareTars = capabilities?.has("tars.use") ?? false;
   const utils = trpc.useUtils();
   const [conversazioneId, setConversazioneId] = useState<number | null>(null);
   const conversazioneIdRef = useRef<number | null>(null);
@@ -382,7 +385,7 @@ export default function Tars() {
     retry: false,
     staleTime: 300_000,
   });
-  const tarsAcceso = interruttori.data?.tars === true;
+  const tarsAcceso = puoUsareTars && interruttori.data?.tars === true;
   const inputStato = conversazioneId == null ? undefined : { conversazioneId };
   const stato = trpc.tars.stato.useQuery(inputStato, {
     enabled: tarsAcceso,
@@ -828,6 +831,16 @@ export default function Tars() {
     },
   };
 
+  if (capabilities == null) return <CaricamentoPagina />;
+  if (!puoUsareTars) {
+    return (
+      <StatoPagina
+        stato="spento"
+        titolo="Tars non disponibile"
+        descrizione="Il tuo profilo non dispone della capability tars.use."
+      />
+    );
+  }
   if (interruttori.isLoading) return <CaricamentoPagina />;
   if (interruttori.error) {
     return (

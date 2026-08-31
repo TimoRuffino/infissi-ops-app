@@ -77,7 +77,7 @@ describe("boundary presentational delle golden screen", () => {
     expect(source).toMatch(/availability: TarsAvailability/);
     expect(source).toMatch(/availability\.kind === "unavailable"/);
     expect(page).toMatch(/capabilities\?\.has\("tars\.use"\)/);
-    expect(page).toMatch(/aria-relevant="additions text"/);
+    expect(page).toMatch(/<TarsThread/);
   });
 
   it("mantiene le superfici sul campo indipendenti da query e mutation", () => {
