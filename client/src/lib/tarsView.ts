@@ -36,6 +36,26 @@ export type TurnoTarsOttimistico = {
 
 export type TurnoTarsVisualizzato = TurnoTarsView | TurnoTarsOttimistico;
 
+export function selezioneDopoCambioArchivio(input: {
+  selezioneCorrente: number | null;
+  conversazioneId: number;
+  archiviata: boolean;
+}): number | null {
+  return input.archiviata && input.selezioneCorrente === input.conversazioneId
+    ? null
+    : input.selezioneCorrente;
+}
+
+export function selezioneDopoRispostaInvio(input: {
+  selezioneCorrente: number | null;
+  conversazioneInvioId: number | null;
+  conversazioneRispostaId: number;
+}): number | null {
+  return input.selezioneCorrente === input.conversazioneInvioId
+    ? input.conversazioneRispostaId
+    : input.selezioneCorrente;
+}
+
 export function filtraConversazioni<T extends ConversazioneTarsView>(
   conversazioni: readonly T[],
   ricerca: string
@@ -47,6 +67,19 @@ export function filtraConversazioni<T extends ConversazioneTarsView>(
       conversazione.titolo.toLocaleLowerCase("it-IT").includes(testo) ||
       conversazione.anteprima?.toLocaleLowerCase("it-IT").includes(testo)
   );
+}
+
+export function unisciConversazioniSenzaDuplicati<
+  T extends ConversazioneTarsView,
+>(...raccolte: readonly (readonly T[])[]): T[] {
+  const perId = new Map<number, T>();
+  for (const raccolta of raccolte) {
+    for (const conversazione of raccolta) {
+      if (!perId.has(conversazione.id))
+        perId.set(conversazione.id, conversazione);
+    }
+  }
+  return [...perId.values()];
 }
 
 export function raggruppaConversazioni<T extends ConversazioneTarsView>(
@@ -143,6 +176,13 @@ export function creaTurnoOttimistico(input: {
   };
 }
 
+export function associaTurnoOttimisticoAConversazione(
+  turno: TurnoTarsOttimistico,
+  conversazioneId: number
+): TurnoTarsOttimistico {
+  return { ...turno, conversazioneId };
+}
+
 export function unisciTurniConOttimistico(
   turniServer: readonly TurnoTarsView[],
   ottimistico: TurnoTarsOttimistico | null
@@ -153,8 +193,8 @@ export function unisciTurniConOttimistico(
       turno.id > ottimistico.dopoTurnoId &&
       turno.ruolo === "utente" &&
       turno.contenuto.trim() === ottimistico.contenuto.trim() &&
-      (ottimistico.conversazioneId == null ||
-        turno.conversazioneId === ottimistico.conversazioneId)
+      ottimistico.conversazioneId != null &&
+      turno.conversazioneId === ottimistico.conversazioneId
   );
   return arrivatoDalServer ? [...turniServer] : [...turniServer, ottimistico];
 }

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  associaTurnoOttimisticoAConversazione,
   creaTurnoOttimistico,
   deveInviareDaTastiera,
   etichettaTempoConversazione,
   filtraConversazioni,
   raggruppaConversazioni,
+  selezioneDopoCambioArchivio,
+  selezioneDopoRispostaInvio,
+  unisciConversazioniSenzaDuplicati,
   unisciTurniConOttimistico,
   type ConversazioneTarsView,
   type TurnoTarsView,
@@ -85,6 +89,49 @@ describe("vista conversazioni Tars", () => {
       "7 dic 2025"
     );
   });
+
+  it("apre una nuova conversazione solo quando viene archiviata quella attiva", () => {
+    expect(
+      selezioneDopoCambioArchivio({
+        selezioneCorrente: 2,
+        conversazioneId: 2,
+        archiviata: true,
+      })
+    ).toBeNull();
+    expect(
+      selezioneDopoCambioArchivio({
+        selezioneCorrente: 2,
+        conversazioneId: 1,
+        archiviata: true,
+      })
+    ).toBe(2);
+  });
+
+  it("un ripristino non forza la selezione corrente", () => {
+    expect(
+      selezioneDopoCambioArchivio({
+        selezioneCorrente: 2,
+        conversazioneId: 3,
+        archiviata: false,
+      })
+    ).toBe(2);
+    expect(
+      selezioneDopoCambioArchivio({
+        selezioneCorrente: null,
+        conversazioneId: 3,
+        archiviata: false,
+      })
+    ).toBeNull();
+  });
+
+  it("unisce attive e archiviate senza duplicare un id", () => {
+    expect(
+      unisciConversazioniSenzaDuplicati(
+        [conversazioni[0], conversazioni[1]],
+        [conversazioni[1], conversazioni[2]]
+      ).map(conversazione => conversazione.id)
+    ).toEqual([1, 2, 3]);
+  });
 });
 
 describe("turno ottimistico Tars", () => {
@@ -154,6 +201,61 @@ describe("turno ottimistico Tars", () => {
         ottimistico
       ).at(-1)?.id
     ).toBe("locale:invio-2");
+  });
+
+  it("lega una nuova chat all'id server prima di riconciliare il suo echo", () => {
+    const nuovaChat = creaTurnoOttimistico({
+      chiaveLocale: "invio-nuovo",
+      conversazioneId: null,
+      contenuto: "Situazione di oggi",
+      createdAt: new Date("2026-08-31T10:05:00.000Z"),
+      dopoTurnoId: 0,
+    });
+    const echoAltrui: TurnoTarsView = {
+      id: 1,
+      conversazioneId: 99,
+      ruolo: "utente",
+      contenuto: "Situazione di oggi",
+      payload: null,
+      createdAt: new Date("2026-08-31T10:05:01.000Z"),
+    };
+
+    expect(unisciTurniConOttimistico([echoAltrui], nuovaChat).at(-1)?.id).toBe(
+      "locale:invio-nuovo"
+    );
+
+    const associato = associaTurnoOttimisticoAConversazione(nuovaChat, 7);
+    expect(associato.conversazioneId).toBe(7);
+    expect(
+      unisciTurniConOttimistico(
+        [{ ...echoAltrui, conversazioneId: 7 }],
+        associato
+      ).map(turno => turno.id)
+    ).toEqual([1]);
+  });
+
+  it("adotta l'id restituito solo se la selezione non è cambiata durante l'invio", () => {
+    expect(
+      selezioneDopoRispostaInvio({
+        selezioneCorrente: null,
+        conversazioneInvioId: null,
+        conversazioneRispostaId: 7,
+      })
+    ).toBe(7);
+    expect(
+      selezioneDopoRispostaInvio({
+        selezioneCorrente: 12,
+        conversazioneInvioId: null,
+        conversazioneRispostaId: 7,
+      })
+    ).toBe(12);
+    expect(
+      selezioneDopoRispostaInvio({
+        selezioneCorrente: 4,
+        conversazioneInvioId: 4,
+        conversazioneRispostaId: 4,
+      })
+    ).toBe(4);
   });
 });
 
