@@ -6,6 +6,7 @@
 
 import { trpc } from "@/lib/trpc";
 import TarsBriefing from "@/components/TarsBriefing";
+import TarsOperationalPanels from "@/components/tars/TarsOperationalPanels";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isDirezione } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import {
   AlertTriangle,
-  BrainCircuit,
   Check,
   Clock,
   Loader2,
@@ -30,14 +30,16 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { classifyTarsAvailability } from "@/lib/goldenScreenContracts";
 
 // Il briefing deterministico (T4) è condiviso con la Dashboard:
 // components/TarsBriefing.tsx. Zero token, solo letture.
 
 function IconaAzione({ azione }: { azione: any }) {
   if (azione.stato === "non_eseguito" || azione.stato === "non_necessaria") {
-    return <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-warning" />;
+    return (
+      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-warning" />
+    );
   }
   if (azione.conferma) {
     return <Clock className="h-3.5 w-3.5 mt-0.5 shrink-0 text-text-3" />;
@@ -232,30 +234,47 @@ function CostiPannello({ enabled }: { enabled: boolean }) {
       {d.riepilogo ? (
         <div className="space-y-0.5 text-[11px] text-text-2 tabular-nums">
           <p>
-            Oggi: <span className="font-semibold text-text-1">{eur(d.riepilogo.spesaGiornoUsd)}</span>
+            Oggi:{" "}
+            <span className="font-semibold text-text-1">
+              {eur(d.riepilogo.spesaGiornoUsd)}
+            </span>
             {d.riepilogo.residuoGiornoUsd != null && (
-              <span className="text-text-3"> · residuo {eur(d.riepilogo.residuoGiornoUsd)}</span>
+              <span className="text-text-3">
+                {" "}
+                · residuo {eur(d.riepilogo.residuoGiornoUsd)}
+              </span>
             )}
           </p>
           <p>
-            Mese: <span className="font-semibold text-text-1">{eur(d.riepilogo.spesaMeseUsd)}</span>
+            Mese:{" "}
+            <span className="font-semibold text-text-1">
+              {eur(d.riepilogo.spesaMeseUsd)}
+            </span>
             {d.riepilogo.residuoMeseUsd != null && (
-              <span className="text-text-3"> · residuo {eur(d.riepilogo.residuoMeseUsd)}</span>
+              <span className="text-text-3">
+                {" "}
+                · residuo {eur(d.riepilogo.residuoMeseUsd)}
+              </span>
             )}
           </p>
-          <p className="text-text-3">Ambito {d.riepilogo.ambito}: il tetto è unico per tutte le sedi.</p>
+          <p className="text-text-3">
+            Ambito {d.riepilogo.ambito}: il tetto è unico per tutte le sedi.
+          </p>
         </div>
       ) : (
         <p className="text-[11px] text-text-3">Nessuna spesa registrata.</p>
       )}
       {d.budgetConfigurato && (
         <p className="text-[11px] text-text-3 tabular-nums">
-          Tetti: {d.budgetConfigurato.perRunUsd} / {d.budgetConfigurato.giornalieroUsd} /{" "}
+          Tetti: {d.budgetConfigurato.perRunUsd} /{" "}
+          {d.budgetConfigurato.giornalieroUsd} /{" "}
           {d.budgetConfigurato.mensileUsd} USD (run / giorno / mese)
         </p>
       )}
       {d.motivoBudgetNonValido && (
-        <p className="text-[11px] text-warning break-words">{d.motivoBudgetNonValido}</p>
+        <p className="text-[11px] text-warning break-words">
+          {d.motivoBudgetNonValido}
+        </p>
       )}
     </div>
   );
@@ -332,7 +351,9 @@ export default function Tars() {
       setConversazioneId(prev =>
         prev === inVoloRef.current ? risposta.conversazioneId : prev
       );
-      utils.tars.turni.invalidate({ conversazioneId: risposta.conversazioneId });
+      utils.tars.turni.invalidate({
+        conversazioneId: risposta.conversazioneId,
+      });
       utils.tars.conversazioni.invalidate();
       if (risposta.stato === "degradato") {
         // Il motivo lo dice il server (budget, limite della richiesta,
@@ -349,32 +370,30 @@ export default function Tars() {
 
   const erroreKillSwitch =
     (stato.error as any)?.data?.code === "PRECONDITION_FAILED";
-  if ((interruttori.data && !tarsAcceso) || erroreKillSwitch) {
-    return (
-      <div className="p-6 max-w-2xl">
-        <h1 className="text-lg font-semibold flex items-center gap-2">
-          <BrainCircuit className="h-5 w-5" /> Tars
-        </h1>
-        <p className="text-sm text-text-3 mt-2">
-          Tars è disattivato su questa installazione (kill switch). Il CRM
-          funziona normalmente senza di lui.
-        </p>
-      </div>
+  const statoNonDisponibile = stato.error
+    ? "Tars non risponde in questo momento. Il CRM funziona normalmente: riprova tra poco."
+    : null;
+  const platformNonDisponibile = interruttori.error
+    ? "Non è possibile verificare lo stato di Tars in questo momento."
+    : null;
+  const availability = classifyTarsAvailability({
+    enabled:
+      interruttori.isPending ||
+      Boolean(interruttori.error) ||
+      (tarsAcceso && !erroreKillSwitch),
+    pending: interruttori.isPending || (tarsAcceso && stato.isPending),
+    provider: stato.data?.provider ?? null,
+    unavailableReason: platformNonDisponibile || statoNonDisponibile,
+  });
+  const turniOperativi = (turni.data ?? []).filter(turno => {
+    if (turno.ruolo !== "tars") return false;
+    const payload = turno.payload as any;
+    return Boolean(
+      payload?.azioni?.length ||
+        payload?.evidenze?.length ||
+        payload?.omissioni?.length
     );
-  }
-  if (stato.error) {
-    return (
-      <div className="p-6 max-w-2xl">
-        <h1 className="text-lg font-semibold flex items-center gap-2">
-          <BrainCircuit className="h-5 w-5" /> Tars
-        </h1>
-        <p className="text-sm text-text-3 mt-2">
-          Tars non risponde in questo momento. Il CRM funziona normalmente:
-          riprova tra poco.
-        </p>
-      </div>
-    );
-  }
+  });
 
   const inviaOra = () => {
     const testo = messaggio.trim();
@@ -387,39 +406,66 @@ export default function Tars() {
   };
 
   return (
-    <div className="h-full min-w-0 p-4 md:p-6">
-      <div className="grid gap-4 lg:h-full lg:grid-cols-12">
-      {/* ── Conversazione ── */}
-      <div className="flex min-h-[60dvh] min-w-0 flex-col gap-3 lg:col-span-8 lg:h-full lg:min-h-0">
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Identità Tars: inchiostro + giallo segnale, mai un robot. */}
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-brand text-on-brand">
-          <BrainCircuit className="h-[18px] w-[18px]" />
-        </span>
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold leading-tight">Tars</h1>
-          <p className="text-[11px] text-text-3 leading-tight">
-            Risponde sui dati del CRM, con fonti e omissioni dichiarate.
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
+    <TarsOperationalPanels
+      availability={availability}
+      briefing={<TarsBriefing enabled={tarsAcceso} />}
+      status={<StatoPannello stato={stato.data} />}
+      costs={<CostiPannello enabled={tarsAcceso} />}
+      actions={
+        turniOperativi.length > 0 ? (
+          <div className="space-y-3">
+            {turniOperativi.map(turno => (
+              <section
+                key={turno.id}
+                aria-label={`Dettagli operativi turno ${turno.id}`}
+                className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3"
+              >
+                <p className="codice-mono mb-2 text-text-3">
+                  Turno #{turno.id}
+                </p>
+                <EvidenzeTurno payload={turno.payload} />
+                <AzioniTurno
+                  payload={turno.payload}
+                  annullati={annullati}
+                  applicate={applicate}
+                  segnaAnnullato={id =>
+                    setAnnullati(previous =>
+                      previous.includes(id) ? previous : [...previous, id]
+                    )
+                  }
+                  segnaApplicata={id =>
+                    setApplicate(previous =>
+                      previous.includes(id) ? previous : [...previous, id]
+                    )
+                  }
+                />
+              </section>
+            ))}
+          </div>
+        ) : null
+      }
+      historyToolbar={
+        <div className="flex min-w-0 items-center gap-1.5">
           <Select
             value={conversazioneId != null ? String(conversazioneId) : "nuova"}
-            onValueChange={valore =>
-              setConversazioneId(valore === "nuova" ? null : Number(valore))
+            onValueChange={value =>
+              setConversazioneId(value === "nuova" ? null : Number(value))
             }
           >
             <SelectTrigger
-              className="h-8 text-xs w-[220px]"
+              className="h-9 w-[min(17rem,65vw)] text-xs"
               aria-label="Conversazioni"
             >
               <SelectValue placeholder="Nuova conversazione" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="nuova">Nuova conversazione</SelectItem>
-              {(conversazioni.data ?? []).map(c => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.titolo}
+              {(conversazioni.data ?? []).map(conversation => (
+                <SelectItem
+                  key={conversation.id}
+                  value={String(conversation.id)}
+                >
+                  {conversation.titolo}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -427,7 +473,7 @@ export default function Tars() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-9 w-9"
             title="Nuova conversazione"
             aria-label="Nuova conversazione"
             onClick={() => setConversazioneId(null)}
@@ -435,112 +481,85 @@ export default function Tars() {
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-      </div>
-
-      <div
-        role="log"
-        aria-live="polite"
-        aria-label="Conversazione con Tars"
-        className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border p-3 space-y-3 bg-surface"
-      >
-        {conversazioneId == null && !invia.isPending && (
-          <div className="text-sm text-text-3 space-y-2">
-            <p>
-              Chiedimi delle commesse, dei gate, degli ordini fornitori, del
-              Centro Azioni.
-              {stato.data?.strumentiDisponibili.some(
-                s => s.nome === "crea_promemoria"
-              )
-                ? " Posso anche creare, spostare e annullare i tuoi promemoria personali («ricordami domani alle 9 di…»)."
-                : " In questa versione leggo soltanto: non modifico nulla."}
-            </p>
-            {stato.data && (
-              <p className="text-[11px] break-words">
-                Strumenti attivi:{" "}
-                {stato.data.strumentiDisponibili.map(s => s.nome).join(", ") ||
-                  "nessuno (FLAG_TARS_READ_TOOLS spento)"}
-              </p>
-            )}
-          </div>
-        )}
-        {(turni.data ?? []).map(turno => (
-          <div
-            key={turno.id}
-            className={
-              turno.ruolo === "utente"
-                ? "ml-auto max-w-[85%] rounded-md bg-surface-2 px-3 py-2"
-                : "mr-auto max-w-[85%] rounded-md border border-border px-3 py-2"
-            }
-          >
-            <p className="text-sm whitespace-pre-wrap break-words">
-              {turno.contenuto}
-            </p>
-            {turno.ruolo === "tars" && (
-              <>
-                {(turno.payload as any)?.degradato && (
-                  <Badge className="mt-1 bg-warning-soft text-warning text-[10px]">
-                    degradato
-                  </Badge>
-                )}
-                <AzioniTurno
-                  payload={turno.payload}
-                  annullati={annullati}
-                  applicate={applicate}
-                  segnaAnnullato={id =>
-                    setAnnullati(prev =>
-                      prev.includes(id) ? prev : [...prev, id]
-                    )
-                  }
-                  segnaApplicata={id =>
-                    setApplicate(prev =>
-                      prev.includes(id) ? prev : [...prev, id]
-                    )
-                  }
-                />
-                <EvidenzeTurno payload={turno.payload} />
-              </>
-            )}
-          </div>
-        ))}
-        {invia.isPending && (
-          <div className="mr-auto flex items-center gap-2 text-text-3 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" /> Tars sta lavorando…
-          </div>
-        )}
-        <div ref={fondoRef} />
-      </div>
-
-      <div className="flex gap-2 items-end">
-        <Textarea
-          value={messaggio}
-          onChange={e => setMessaggio(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              inviaOra();
-            }
-          }}
-          placeholder="Scrivi a Tars… (Invio per inviare)"
-          className="min-h-[44px] max-h-40"
-        />
-        <Button
-          className="h-10"
-          disabled={!messaggio.trim() || invia.isPending}
-          onClick={inviaOra}
-          aria-label="Invia"
+      }
+      turns={
+        <div
+          role="log"
+          aria-live="polite"
+          aria-label="Conversazione con Tars"
+          className="max-h-[32rem] min-h-64 space-y-3 overflow-y-auto rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3"
         >
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
-      </div>
-
-      {/* ── Lato: situazione di oggi, stato del sistema, costi (direzione) ── */}
-      <div className="min-w-0 space-y-4 lg:col-span-4">
-        <TarsBriefing enabled={tarsAcceso} />
-        <StatoPannello stato={stato.data} />
-        <CostiPannello enabled={tarsAcceso} />
-      </div>
-      </div>
-    </div>
+          {conversazioneId == null && !invia.isPending ? (
+            <div className="space-y-2 text-sm text-text-2">
+              <p>
+                Chiedi informazioni su commesse, gate e Centro Azioni. L'invio
+                resta sempre un gesto esplicito.
+              </p>
+              {stato.data ? (
+                <p className="text-xs text-text-3">
+                  Strumenti attivi:{" "}
+                  {stato.data.strumentiDisponibili
+                    .map(tool => tool.nome)
+                    .join(", ") || "nessuno (FLAG_TARS_READ_TOOLS spento)"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {(turni.data ?? []).map(turno => (
+            <article
+              key={turno.id}
+              className={
+                turno.ruolo === "utente"
+                  ? "ml-auto max-w-[88%] rounded-[var(--radius-control)] bg-surface px-3 py-2 shadow-[var(--shadow-raised)]"
+                  : "mr-auto max-w-[88%] rounded-[var(--radius-control)] border border-border-strong bg-surface px-3 py-2"
+              }
+            >
+              <p className="whitespace-pre-wrap break-words text-sm">
+                {turno.contenuto}
+              </p>
+              {turno.ruolo === "tars" && (turno.payload as any)?.degradato ? (
+                <Badge className="mt-1 bg-warning-soft text-[10px] text-warning">
+                  degradato
+                </Badge>
+              ) : null}
+            </article>
+          ))}
+          {invia.isPending ? (
+            <div className="mr-auto flex items-center gap-2 text-sm text-text-3">
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
+              Tars sta lavorando…
+            </div>
+          ) : null}
+          <div ref={fondoRef} />
+        </div>
+      }
+      composer={
+        tarsAcceso ? (
+          <div className="flex min-w-0 items-end gap-2">
+            <Textarea
+              aria-label="Richiesta a Tars"
+              value={messaggio}
+              onChange={event => setMessaggio(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  inviaOra();
+                }
+              }}
+              placeholder="Scrivi a Tars… (Invio per inviare)"
+              className="min-h-11 max-h-40 min-w-0 text-base"
+            />
+            <Button
+              className="h-11 shrink-0"
+              disabled={!messaggio.trim() || invia.isPending}
+              onClick={inviaOra}
+              aria-label="Invia"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null
+      }
+    />
   );
 }

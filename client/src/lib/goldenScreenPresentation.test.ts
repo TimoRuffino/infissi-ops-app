@@ -65,4 +65,14 @@ describe("boundary presentational delle golden screen", () => {
     expect(desktop).toMatch(/export type KanbanDesktopBoardProps/);
     expect(mobile).toMatch(/export type KanbanMobilePhaseListProps/);
   });
+
+  it("mantiene la cabina Tars indipendente dall'esecuzione", () => {
+    const source = readPresentation(
+      "../components/tars/TarsOperationalPanels.tsx"
+    );
+
+    expect(source).not.toMatch(/\btrpc\b|useQuery|useMutation/);
+    expect(source).toMatch(/export type TarsOperationalPanelsProps/);
+    expect(source).toMatch(/availability: TarsAvailability/);
+  });
 });
