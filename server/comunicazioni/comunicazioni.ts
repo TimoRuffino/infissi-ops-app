@@ -1117,6 +1117,132 @@ export type FiltroComunicazioni = {
   offset?: number;
 };
 
+/**
+ * Cursore autorevole della timeline collegata. La coppia rende la pagina
+ * stabile anche quando più messaggi hanno lo stesso timestamp; il wrapper
+ * Tars la serializza in forma opaca e la lega a sede/commessa/canale.
+ */
+export type CursoreComunicazioniCollegate = {
+  receivedAt: Date;
+  id: number;
+};
+
+export type PaginaComunicazioniCollegate = {
+  /** In ordine cronologico dentro la pagina (dal meno al più recente). */
+  messaggi: Comunicazione[];
+  hasMore: boolean;
+  /** Confine esclusivo per chiedere la pagina immediatamente precedente. */
+  nextBefore: CursoreComunicazioniCollegate | null;
+  omissioni: {
+    eliminate: number;
+    categorieEscluse: number;
+    /** Fuori dal perimetro della query: non vengono mai enumerate. */
+    nonCollegate: 0;
+  };
+};
+
+/**
+ * Timeline delle sole comunicazioni già collegate autorevolmente a una
+ * commessa. Non cerca nomi nel testo e non inferisce collegamenti.
+ */
+export async function listComunicazioniCollegatePagina(input: {
+  sedeId: number;
+  commessaId: number;
+  canale?: Comunicazione["canale"];
+  before?: CursoreComunicazioniCollegate;
+  limite?: number;
+}): Promise<PaginaComunicazioniCollegate> {
+  const limite = Math.max(1, Math.min(input.limite ?? 10, 20));
+  if (
+    input.before &&
+    (!Number.isInteger(input.before.id) ||
+      input.before.id <= 0 ||
+      Number.isNaN(input.before.receivedAt.getTime()))
+  ) {
+    throw new Error("INVALID_CURSOR: cursore comunicazioni non valido.");
+  }
+
+  if (!kvSql) {
+    const ambito = memRows.filter(
+      r =>
+        r.sedeId === input.sedeId &&
+        r.commessaId === input.commessaId &&
+        (!input.canale || r.canale === input.canale)
+    );
+    const omissioni = {
+      eliminate: ambito.filter(r => r.deletedAt != null).length,
+      categorieEscluse: ambito.filter(
+        r => r.deletedAt == null && categoriaEsclusa(r.categoria)
+      ).length,
+      nonCollegate: 0 as const,
+    };
+    const candidati = ambito
+      .filter(
+        r =>
+          r.deletedAt == null &&
+          !categoriaEsclusa(r.categoria) &&
+          (!input.before || precedenteAlCursore(r, input.before))
+      )
+      .sort(confrontaMessaggiRecenti);
+    const recenti = candidati.slice(0, limite);
+    const messaggi = [...recenti].reverse();
+    return {
+      messaggi,
+      hasMore: candidati.length > limite,
+      nextBefore: messaggi[0] ? cursoreDaMessaggio(messaggi[0]) : null,
+      omissioni,
+    };
+  }
+
+  await ensureComunicazioniSchema();
+  const sql = kvSql;
+  const ambito: any[] = [
+    sql`sede_id = ${input.sedeId}`,
+    sql`commessa_id = ${input.commessaId}`,
+  ];
+  if (input.canale) ambito.push(sql`canale = ${input.canale}`);
+  const whereAmbito = ambito.reduce((a, b) => sql`${a} AND ${b}`);
+  const operativi: any[] = [
+    ...ambito,
+    sql`deleted_at IS NULL`,
+    sql`COALESCE(categoria, 'da_classificare') NOT IN ('offerta_marketing', 'spam')`,
+  ];
+  if (input.before) {
+    operativi.push(
+      sql`(received_at < ${input.before.receivedAt} OR (received_at = ${input.before.receivedAt} AND id < ${input.before.id}))`
+    );
+  }
+  const whereOperativi = operativi.reduce((a, b) => sql`${a} AND ${b}`);
+  const [rows, conteggi] = await Promise.all([
+    sql`
+      SELECT * FROM comunicazioni
+      WHERE ${whereOperativi}
+      ORDER BY received_at DESC, id DESC
+      LIMIT ${limite + 1}`,
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE deleted_at IS NOT NULL) AS eliminate,
+        COUNT(*) FILTER (
+          WHERE deleted_at IS NULL
+            AND COALESCE(categoria, 'da_classificare') IN ('offerta_marketing', 'spam')
+        ) AS categorie_escluse
+      FROM comunicazioni
+      WHERE ${whereAmbito}`,
+  ]);
+  const recenti = rows.slice(0, limite).map(fromRow);
+  const messaggi = [...recenti].reverse();
+  return {
+    messaggi,
+    hasMore: rows.length > limite,
+    nextBefore: messaggi[0] ? cursoreDaMessaggio(messaggi[0]) : null,
+    omissioni: {
+      eliminate: Number(conteggi[0]?.eliminate ?? 0),
+      categorieEscluse: Number(conteggi[0]?.categorie_escluse ?? 0),
+      nonCollegate: 0,
+    },
+  };
+}
+
 type AmbitoCollegamenti = {
   clienteIds: number[];
   commessaIds: number[];
@@ -2028,6 +2154,26 @@ export async function getComunicazione(
   await ensureComunicazioniSchema();
   const rows = await kvSql`
     SELECT * FROM comunicazioni WHERE id = ${id} AND sede_id = ${sedeId} LIMIT 1`;
+  return rows.length ? fromRow(rows[0]) : null;
+}
+
+/** Getter canonico per effetti/letture Tars: sede-scoped e tombstone-safe. */
+export async function getLiveComunicazione(
+  id: number,
+  sedeId: number
+): Promise<Comunicazione | null> {
+  if (!kvSql) {
+    return (
+      memRows.find(
+        r => r.id === id && r.sedeId === sedeId && r.deletedAt == null
+      ) ?? null
+    );
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT * FROM comunicazioni
+    WHERE id = ${id} AND sede_id = ${sedeId} AND deleted_at IS NULL
+    LIMIT 1`;
   return rows.length ? fromRow(rows[0]) : null;
 }
 

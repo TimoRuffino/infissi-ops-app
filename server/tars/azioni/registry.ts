@@ -5,6 +5,7 @@ import { getCommessaById } from "../../routers/commesse";
 import { versioneCommessa } from "../../commesse/transizioni";
 import { STRUMENTI_CASI } from "../strumenti/casi";
 import { STRUMENTI_COMMESSE } from "../strumenti/commesse";
+import { STRUMENTI_COMUNICAZIONI_R0 } from "../strumenti/allegati";
 import { STRUMENTI_DOCUMENTI } from "../strumenti/documenti";
 import { STRUMENTI_L0 } from "../strumenti/letture";
 import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
@@ -22,7 +23,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.4.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.5.0";
 
 const schemaLettura = z
   .object({
@@ -195,6 +196,14 @@ const METADATI: Record<string, Metadati> = {
   },
   leggi_centro_azioni: lettura("sede", ["generale", "commessa"], ["caso", "commessa"]),
   leggi_comunicazioni: lettura("entita", ["comunicazioni", "commessa"], ["commessa", "cliente"], ["tars", "tarsReadTools", "tarsCommunications"]),
+  leggi_thread_comunicazioni: lettura("entita", ["comunicazioni", "commessa"], ["commessa"], ["tars", "tarsReadTools", "tarsCommunications"]),
+  leggi_allegato_comunicazione: {
+    ...lettura("entita", ["comunicazioni", "commessa"], ["commessa", "documento"], ["tars", "tarsReadTools", "tarsCommunications"]),
+    // Il PDF può richiedere l'OCR locale; 10 secondi descriverebbero un
+    // contratto falso anche se il tool non effettua chiamate a pagamento.
+    timeoutMs: 120_000,
+    costo: { unita: "operazione", massimo: 1, classe: "medio" },
+  },
   leggi_fascicolo_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "documento"]),
   leggi_promemoria_in_scadenza: lettura("personale", ["generale", "promemoria"], ["promemoria"]),
   leggi_promemoria: lettura("personale", ["promemoria"], ["promemoria"]),
@@ -274,6 +283,7 @@ const METADATI: Record<string, Metadati> = {
 
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_L0,
+  ...STRUMENTI_COMUNICAZIONI_R0,
   ...STRUMENTI_COMMESSE,
   ...STRUMENTI_PROMEMORIA,
   ...STRUMENTI_CASI,

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { getClienteById } from "../../routers/clienti";
 import { getCommessaById } from "../../routers/commesse";
-import { getComunicazione } from "../../comunicazioni/comunicazioni";
+import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import {
   conversazioneDiUtente,
   salvaContestoConversazioneInArchivio,
@@ -79,7 +79,7 @@ async function sanitizzaContestoConversazione(
 
   const comunicazione = comunicazioneId == null
     ? null
-    : await getComunicazione(comunicazioneId, sedeId);
+    : await getLiveComunicazione(comunicazioneId, sedeId);
   if (!comunicazione) {
     comunicazioneId = null;
     allegatoIndex = null;
@@ -146,7 +146,7 @@ export async function salvaContestoConversazione(input: {
     ? patch.comunicazioneId
     : corrente.comunicazioneId;
   if (comunicazioneId != null) {
-    const comunicazione = await getComunicazione(comunicazioneId, input.sedeId);
+    const comunicazione = await getLiveComunicazione(comunicazioneId, input.sedeId);
     if (!comunicazione) {
       throw new Error("NOT_FOUND: comunicazione non trovata.");
     }
@@ -298,7 +298,7 @@ export async function aggiornaContestoDaEsitoTool(input: {
     if (cliente && cliente.sedeId === input.sedeId) patch.clienteId = cliente.id;
   }
   if (comunicazioni.length === 1) {
-    const comunicazione = await getComunicazione(comunicazioni[0], input.sedeId);
+    const comunicazione = await getLiveComunicazione(comunicazioni[0], input.sedeId);
     if (comunicazione) {
       const sostituita = corrente.comunicazioneId !== comunicazione.id;
       patch.comunicazioneId = comunicazione.id;
@@ -307,7 +307,7 @@ export async function aggiornaContestoDaEsitoTool(input: {
   }
   if (allegati.length === 1) {
     const allegato = allegati[0];
-    const comunicazione = await getComunicazione(
+    const comunicazione = await getLiveComunicazione(
       allegato.comunicazioneId,
       input.sedeId
     );

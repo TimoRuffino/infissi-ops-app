@@ -41,6 +41,7 @@ beforeEach(() => {
   delete process.env.FLAG_TARS_REMINDERS;
   delete process.env.FLAG_TARS_L2_ACTIONS;
   delete process.env.FLAG_TARS_PROPOSALS;
+  delete process.env.FLAG_TARS_COMMUNICATIONS;
   delete process.env.FLAG_TARS_MEMORY;
   delete process.env.FLAG_DOCUMENT_INTELLIGENCE;
   delete process.env.FLAG_PROPOSTE;
@@ -51,9 +52,9 @@ afterEach(() => {
 });
 
 describe("registro centrale delle azioni Tars", () => {
-  it("registra una volta sola tutti i 23 tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(23);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(23);
+  it("registra una volta sola tutti i 25 tool correnti con un descrittore completo", () => {
+    expect(REGISTRO_AZIONI).toHaveLength(25);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(25);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -115,9 +116,11 @@ describe("registro centrale delle azioni Tars", () => {
       crea_promemoria: "R1",
       dimentica: "R1",
       leggi_analisi_ordine: "R0",
+      leggi_allegato_comunicazione: "R0",
       leggi_centro_azioni: "R0",
       leggi_commessa: "R0",
       leggi_comunicazioni: "R0",
+      leggi_thread_comunicazioni: "R0",
       leggi_fascicolo_commessa: "R0",
       leggi_memorie: "R0",
       leggi_ordini_fornitore: "R0",
@@ -156,6 +159,33 @@ describe("registro centrale delle azioni Tars", () => {
     ).toThrow(/flag.*incoerent/i);
   });
 
+  it("espone i lettori di thread/allegato solo con capability e flag comunicazioni", () => {
+    for (const nome of [
+      "leggi_thread_comunicazioni",
+      "leggi_allegato_comunicazione",
+    ]) {
+      expect(descrittoreAzione(nome)).toMatchObject({
+        rischio: "R0",
+        capability: ["commessa.read"],
+        interruttori: ["tars", "tarsReadTools", "tarsCommunications"],
+      });
+    }
+    expect(descrittoreAzione("leggi_allegato_comunicazione")).toMatchObject({
+      timeoutMs: 120_000,
+      costo: { classe: "medio" },
+    });
+    process.env.FLAG_TARS_COMMUNICATIONS = "off";
+    const spento = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
+    expect(spento).not.toContain("leggi_thread_comunicazioni");
+    expect(spento).not.toContain("leggi_allegato_comunicazione");
+    process.env.FLAG_TARS_COMMUNICATIONS = "on";
+    const senzaCapability = catalogoAzioniPerContesto(contesto([])).map(
+      a => a.nome
+    );
+    expect(senzaCapability).not.toContain("leggi_thread_comunicazioni");
+    expect(senzaCapability).not.toContain("leggi_allegato_comunicazione");
+  });
+
   it("dichiara lo scope esplicitamente per tutti i tool", () => {
     expect(Object.fromEntries(REGISTRO_AZIONI.map(a => [a.nome, a.scope]))).toEqual({
       analizza_conferma_ordine: "entita",
@@ -165,9 +195,11 @@ describe("registro centrale delle azioni Tars", () => {
       crea_promemoria: "personale",
       dimentica: "sede",
       leggi_analisi_ordine: "entita",
+      leggi_allegato_comunicazione: "entita",
       leggi_centro_azioni: "sede",
       leggi_commessa: "entita",
       leggi_comunicazioni: "entita",
+      leggi_thread_comunicazioni: "entita",
       leggi_fascicolo_commessa: "entita",
       leggi_memorie: "sede",
       leggi_ordini_fornitore: "entita",
@@ -275,7 +307,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(23);
+    expect(completo).toHaveLength(25);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
