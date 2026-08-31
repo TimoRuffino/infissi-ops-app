@@ -111,6 +111,23 @@
   --duration-fast: 160ms;
   --duration-base: 220ms;
   --duration-slow: 320ms;
+
+  /* Token introdotti con Frame & Flow (docs/design/ruffino-flow-tokens.md).
+     Qui portano valori coerenti con la v1: i valori v2 arrivano sotto
+     [data-ui-v2]. `brand` è l'accento firmato, `structure` il colore
+     strutturale secondario, `surface-raised` popover e dialog. */
+  --color-brand: #d92f55;
+  --color-on-brand: #ffffff;
+  --color-brand-soft: #ffe6eb;
+  --color-structure: #176b68;
+  --color-on-structure: #ffffff;
+  --color-structure-soft: #d8f5ed;
+  --color-surface-raised: #ffffff;
+
+  --duration-expressive: 450ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.5, 0, 0.75, 0.2);
 }
 
 :root {
@@ -240,6 +257,283 @@
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.34);
   --shadow-md: 0 10px 26px rgba(0, 0, 0, 0.44);
   --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.56);
+
+  --color-brand: #ff6b79;
+  --color-on-brand: #2d1419;
+  --color-brand-soft: #3d252d;
+  --color-structure: #4fb3ab;
+  --color-on-structure: #092422;
+  --color-structure-soft: #15302e;
+  --color-surface-raised: #27292c;
+}
+
+/* ==========================================================================
+   UI v2 «Frame & Flow» — attiva solo con FLAG_UI_V2 (interruttore
+   fail-closed): il client applica `data-ui-v2` alla radice leggendo
+   platform.interruttori. Quattro quadranti espliciti: :root (v1 light),
+   .dark (v1 dark), [data-ui-v2] (v2 light), [data-ui-v2].dark (v2 dark).
+   I blocchi v2 ridefiniscono OGNI token che toccano in ENTRAMBI i temi:
+   un token definito qui e dimenticato nel quadrante dark trapelerebbe.
+   Palette con contrasti verificati: docs/design/ruffino-flow-tokens.md.
+   ========================================================================== */
+
+[data-ui-v2] {
+  --background: #f5f3ed;
+  --foreground: #211e18;
+  --card: #fdfcf8;
+  --card-foreground: #211e18;
+  --popover: #ffffff;
+  --popover-foreground: #211e18;
+  /* Il bottone di default è inchiostro: il giallo Ruffino è riservato alla
+     CTA brand contestuale (una per schermata), mai a 56 bottoni insieme. */
+  --primary: #211e18;
+  --primary-foreground: #f7f3ea;
+  --secondary: #efece3;
+  --secondary-foreground: #38332a;
+  --muted: #efece3;
+  --muted-foreground: #6e6758;
+  --accent: #f1ede2;
+  --accent-foreground: #211e18;
+  --destructive: #b3373d;
+  --destructive-foreground: #ffffff;
+  --border: #e2dcce;
+  --input: #8f8672;
+  --ring: #176b68;
+  --chart-1: #176b68;
+  --chart-2: #a87e00;
+  --chart-3: #31649f;
+  --chart-4: #a03e64;
+  --chart-5: #5d5a50;
+  /* La sidebar resta petrolio scuro (piatto, senza gradiente) finché la
+     shell v2 non atterra: le classi text-white esistenti la richiedono.
+     La versione chiara «recessiva» arriva con la slice shell. */
+  --sidebar: #14332e;
+  --sidebar-foreground: #d8ebe7;
+  --sidebar-primary: #f2b705;
+  --sidebar-primary-foreground: #231b00;
+  --sidebar-accent: #235248;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2c5a51;
+  --sidebar-ring: #f2b705;
+  /* Anti-slop: i gradienti decorativi della v1 non esistono in v2. */
+  --gradient-primary: none;
+  --gradient-primary-hover: none;
+  --gradient-soft: none;
+  --gradient-page: none;
+  --gradient-sidebar: none;
+
+  --color-primary-hover: #38332a;
+  --color-primary-soft: #efece3;
+  --color-ink: #211e18;
+  --color-accent-brand: #f2b705;
+  /* Testo d'accento leggibile: ambra scura, mai giallo puro su chiaro. */
+  --color-accent-text: #8a5800;
+  --color-accent-soft: #fbecc3;
+  --color-brand: #f2b705;
+  --color-on-brand: #231b00;
+  --color-brand-soft: #fbecc3;
+  --color-structure: #176b68;
+  --color-on-structure: #ffffff;
+  --color-structure-soft: #ddeeec;
+  --color-surface: #fdfcf8;
+  --color-surface-2: #efece3;
+  --color-surface-raised: #ffffff;
+  --color-border-soft: #e2dcce;
+  --color-border-strong: #8f8672;
+  --color-text-1: #211e18;
+  --color-text-2: #544e42;
+  --color-text-3: #6e6758;
+  --color-success: #1b7350;
+  --color-success-soft: #e1f2e9;
+  /* Il warning è ambra bruciata: NON è il giallo brand. */
+  --color-warning: #8a5800;
+  --color-warning-soft: #faeecf;
+  --color-danger: #b3373d;
+  --color-danger-soft: #f9e4e4;
+  --color-info: #31649f;
+  --color-info-soft: #e4edf8;
+  /* Famiglie di stato (11 stati -> 7 famiglie + archivio), etichette
+     invariate: docs/design/ruffino-flow-tokens.md §4. */
+  --color-st-preventivo: #31649f;
+  --color-st-preventivo-soft: #e4edf8;
+  --color-st-misure: #6a4fa3;
+  --color-st-misure-soft: #ede7f7;
+  --color-st-contratto: #a03e64;
+  --color-st-contratto-soft: #f8e6ee;
+  --color-st-ordine: #8a5800;
+  --color-st-ordine-soft: #faeecf;
+  --color-st-produzione: #0f7568;
+  --color-st-produzione-soft: #ddf0ed;
+  --color-st-pagamento: #1b7350;
+  --color-st-pagamento-soft: #e1f2e9;
+  --color-st-chiusura: #5d5a50;
+  --color-st-chiusura-soft: #ebe8df;
+  --color-cal-rilievo: #31649f;
+  --color-cal-rilievo-soft: #e4edf8;
+  --color-cal-posa: #0f7568;
+  --color-cal-posa-soft: #ddf0ed;
+  --color-cal-assistenza: #a03e64;
+  --color-cal-assistenza-soft: #f8e6ee;
+  --color-cal-altro: #5d5a50;
+  --color-cal-altro-soft: #ebe8df;
+  /* Ombre calde a bassa opacità: la gerarchia la fanno surface e border. */
+  --shadow-xs: 0 1px 2px rgba(33, 30, 24, 0.05);
+  --shadow-sm: 0 2px 6px rgba(33, 30, 24, 0.06);
+  --shadow-md: 0 10px 24px rgba(33, 30, 24, 0.08);
+  --shadow-lg: 0 20px 44px rgba(33, 30, 24, 0.12);
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+}
+
+[data-ui-v2].dark {
+  --background: #171511;
+  --foreground: #f5f1e6;
+  --card: #1e1c17;
+  --card-foreground: #f5f1e6;
+  --popover: #26231d;
+  --popover-foreground: #f5f1e6;
+  --primary: #e8e2d2;
+  --primary-foreground: #211e18;
+  --secondary: #2b2820;
+  --secondary-foreground: #f5f1e6;
+  --muted: #2b2820;
+  --muted-foreground: #9a9282;
+  --accent: #2b2820;
+  --accent-foreground: #f5f1e6;
+  --destructive: #f09a93;
+  --destructive-foreground: #301419;
+  --border: #3b382f;
+  --input: #6e6754;
+  --ring: #5fbcb4;
+  --chart-1: #4fb3ab;
+  --chart-2: #e3b455;
+  --chart-3: #8fb6e8;
+  --chart-4: #e294b5;
+  --chart-5: #a8a192;
+  --sidebar: #101e1b;
+  --sidebar-foreground: #d8ebe7;
+  --sidebar-primary: #f4c430;
+  --sidebar-primary-foreground: #231b00;
+  --sidebar-accent: #1d3a34;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #24443d;
+  --sidebar-ring: #f4c430;
+  --gradient-primary: none;
+  --gradient-primary-hover: none;
+  --gradient-soft: none;
+  --gradient-page: none;
+  --gradient-sidebar: none;
+
+  --color-primary-hover: #f5f1e6;
+  --color-primary-soft: #2b2820;
+  --color-ink: #171511;
+  --color-accent-brand: #f4c430;
+  --color-accent-text: #e3b455;
+  --color-accent-soft: #3a3010;
+  --color-brand: #f4c430;
+  --color-on-brand: #231b00;
+  --color-brand-soft: #3a3010;
+  --color-structure: #4fb3ab;
+  --color-on-structure: #092422;
+  --color-structure-soft: #15302e;
+  --color-surface: #1e1c17;
+  --color-surface-2: #131109;
+  --color-surface-raised: #26231d;
+  --color-border-soft: #3b382f;
+  --color-border-strong: #6e6754;
+  --color-text-1: #f5f1e6;
+  --color-text-2: #c4bcac;
+  --color-text-3: #9a9282;
+  --color-success: #63c797;
+  --color-success-soft: #12291e;
+  --color-warning: #e3b455;
+  --color-warning-soft: #33280f;
+  --color-danger: #f09a93;
+  --color-danger-soft: #3a1f1d;
+  --color-info: #8fb6e8;
+  --color-info-soft: #1a2737;
+  --color-st-preventivo: #8fb6e8;
+  --color-st-preventivo-soft: #1a2737;
+  --color-st-misure: #b79de8;
+  --color-st-misure-soft: #271e3a;
+  --color-st-contratto: #e294b5;
+  --color-st-contratto-soft: #341b27;
+  --color-st-ordine: #e3b455;
+  --color-st-ordine-soft: #33280f;
+  --color-st-produzione: #4fc0b0;
+  --color-st-produzione-soft: #11302b;
+  --color-st-pagamento: #63c797;
+  --color-st-pagamento-soft: #12291e;
+  --color-st-chiusura: #a8a192;
+  --color-st-chiusura-soft: #26241d;
+  --color-cal-rilievo: #8fb6e8;
+  --color-cal-rilievo-soft: #1a2737;
+  --color-cal-posa: #4fc0b0;
+  --color-cal-posa-soft: #11302b;
+  --color-cal-assistenza: #e294b5;
+  --color-cal-assistenza-soft: #341b27;
+  --color-cal-altro: #a8a192;
+  --color-cal-altro-soft: #26241d;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 44px rgba(0, 0, 0, 0.6);
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+}
+
+/* Corpo v2: 15/22 su desktop, 16/24 su mobile (mai input sotto 16px). */
+[data-ui-v2] body {
+  font-size: 15px;
+  line-height: 1.4667;
+  background-image: none;
+}
+
+@media (max-width: 767px) {
+  [data-ui-v2] body {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+}
+
+/* Sidebar v2 piatta: niente gradiente, niente attivo a gradiente. */
+[data-ui-v2] [data-sidebar="sidebar"] {
+  background-image: none;
+}
+
+[data-ui-v2] [data-sidebar="menu-button"][data-active="true"] {
+  background-image: none;
+  background-color: var(--sidebar-accent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--sidebar-primary) 22%, transparent);
+}
+
+/* Firma «Frame reveal»: ingresso di superfici importanti (record,
+   dashboard). Mai su liste operative lunghe. Reduced motion la azzera
+   con il kill switch globale in fondo al file. */
+@keyframes rf-frame-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rf-frame-reveal {
+  animation: rf-frame-reveal var(--duration-slow) var(--ease-enter) both;
+}
+
+/* Firma «Latch»: risposta tattile di bottoni e selezioni. Solo transform:
+   il layout non si muove. */
+.rf-latch {
+  transition: transform var(--duration-instant) var(--ease-standard);
+}
+
+.rf-latch:active {
+  transform: scale(0.98);
 }
 
 @layer base {

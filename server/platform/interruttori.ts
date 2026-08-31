@@ -31,7 +31,10 @@ export type Interruttore =
   | "tarsProactive"
   | "tarsCommunications"
   | "tarsMemory"
-  | "tarsSemanticSearch";
+  | "tarsSemanticSearch"
+  // UI v2 «Frame & Flow» (31/08/2026): governa solo la skin e la shell del
+  // client. Nessun percorso server dipende da questo interruttore.
+  | "uiV2";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -46,6 +49,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsCommunications: "FLAG_TARS_COMMUNICATIONS",
   tarsMemory: "FLAG_TARS_MEMORY",
   tarsSemanticSearch: "FLAG_TARS_SEMANTIC_SEARCH",
+  uiV2: "FLAG_UI_V2",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -61,6 +65,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsCommunications: "Le bozze di comunicazione di Tars",
   tarsMemory: "La memoria di Tars",
   tarsSemanticSearch: "La ricerca semantica di Tars",
+  uiV2: "L'interfaccia Frame & Flow (UI v2)",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -91,14 +96,14 @@ export function statoInterruttori(): Record<Interruttore, boolean> {
  * Le funzioni di Tars richiedono il master E il proprio interruttore:
  * `FLAG_TARS=off` spegne tutto qualunque sia il resto (fail-closed).
  */
-export function tarsAttivo(funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr">): boolean {
+export function tarsAttivo(funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr" | "uiV2">): boolean {
   if (!interruttoreAttivo("tars")) return false;
   if (!funzione || funzione === "tars") return true;
   return interruttoreAttivo(funzione);
 }
 
 export function assicuraTars(
-  funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr">
+  funzione?: Exclude<Interruttore, "documentIntelligence" | "proposte" | "ocr" | "uiV2">
 ): void {
   assicuraInterruttore("tars");
   if (funzione && funzione !== "tars") assicuraInterruttore(funzione);
