@@ -8,6 +8,10 @@
 // token, errori sanificati.
 
 import { kvSql } from "../_core/persistence";
+import {
+  contestoConversazioneVuoto,
+  type ContestoConversazione,
+} from "./conversazione/types";
 
 export type TurnoTars = {
   id: number;
@@ -27,6 +31,8 @@ export type ConversazioneTars = {
   titolo: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Additivo: i consumer legacy possono ignorarlo. */
+  contesto?: ContestoConversazione;
 };
 
 export type RunTars = {
@@ -61,6 +67,12 @@ export function ensureTarsSchema(): Promise<void> {
       await kvSql!`
         CREATE INDEX IF NOT EXISTS tars_conv_sede_utente
           ON tars_conversazioni (sede_id, utente_id, updated_at DESC)`;
+      await kvSql!`
+        ALTER TABLE tars_conversazioni
+          ADD COLUMN IF NOT EXISTS contesto JSONB NOT NULL DEFAULT '{}'::jsonb`;
+      await kvSql!`
+        ALTER TABLE tars_conversazioni
+          ADD COLUMN IF NOT EXISTS contesto_versione BIGINT NOT NULL DEFAULT 0`;
       await kvSql!`
         CREATE TABLE IF NOT EXISTS tars_turni (
           id BIGSERIAL PRIMARY KEY,
@@ -113,6 +125,50 @@ function rigaConversazione(r: any): ConversazioneTars {
     titolo: String(r.titolo),
     createdAt: new Date(r.created_at),
     updatedAt: new Date(r.updated_at),
+    contesto: normalizzaContestoConversazione(
+      r.contesto,
+      Number(r.contesto_versione ?? 0)
+    ),
+  };
+}
+
+function normalizzaContestoConversazione(
+  valore: unknown,
+  versione: number
+): ContestoConversazione {
+  const base = contestoConversazioneVuoto();
+  const grezzo = valore && typeof valore === "object" ? valore as any : {};
+  return {
+    ...base,
+    commessaId: Number.isInteger(grezzo.commessaId) && grezzo.commessaId > 0
+      ? grezzo.commessaId
+      : null,
+    clienteId: Number.isInteger(grezzo.clienteId) && grezzo.clienteId > 0
+      ? grezzo.clienteId
+      : null,
+    comunicazioneId:
+      Number.isInteger(grezzo.comunicazioneId) && grezzo.comunicazioneId > 0
+        ? grezzo.comunicazioneId
+        : null,
+    allegatoIndex:
+      Number.isInteger(grezzo.allegatoIndex) && grezzo.allegatoIndex >= 0
+        ? grezzo.allegatoIndex
+        : null,
+    superficie: typeof grezzo.superficie === "string" ? grezzo.superficie : null,
+    versioniEntita:
+      grezzo.versioniEntita && typeof grezzo.versioniEntita === "object"
+        ? Object.fromEntries(
+            Object.entries(grezzo.versioniEntita)
+              .filter(([, v]) => typeof v === "string")
+          ) as Record<string, string>
+        : {},
+    chiarificazionePendente:
+      grezzo.chiarificazionePendente &&
+      grezzo.chiarificazionePendente.tipo === "commessa" &&
+      typeof grezzo.chiarificazionePendente.domanda === "string"
+        ? grezzo.chiarificazionePendente
+        : null,
+    versione: Number.isInteger(versione) && versione >= 0 ? versione : 0,
   };
 }
 
@@ -148,9 +204,72 @@ export async function creaConversazione(input: {
     titolo: input.titolo,
     createdAt: new Date(),
     updatedAt: new Date(),
+    contesto: contestoConversazioneVuoto(),
   };
   memConversazioni.push(conversazione);
   return conversazione;
+}
+
+export type EsitoSalvataggioContestoArchivio =
+  | { stato: "aggiornato"; contesto: ContestoConversazione }
+  | { stato: "versione_obsoleta" }
+  | { stato: "non_trovato" };
+
+/** Primitive atomica; il layer conversazione applica semantica e verifiche. */
+export async function salvaContestoConversazioneInArchivio(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+  versioneAttesa: number;
+  contesto: Omit<ContestoConversazione, "versione">;
+}): Promise<EsitoSalvataggioContestoArchivio> {
+  if (kvSql) {
+    await ensureTarsSchema();
+    const righe = await kvSql`
+      UPDATE tars_conversazioni
+      SET contesto = ${JSON.stringify(input.contesto)}::jsonb,
+          contesto_versione = contesto_versione + 1,
+          updated_at = now()
+      WHERE id = ${input.conversazioneId}
+        AND sede_id = ${input.sedeId}
+        AND utente_id = ${input.utenteId}
+        AND contesto_versione = ${input.versioneAttesa}
+      RETURNING contesto, contesto_versione`;
+    if (righe.length) {
+      return {
+        stato: "aggiornato",
+        contesto: normalizzaContestoConversazione(
+          righe[0].contesto,
+          Number(righe[0].contesto_versione)
+        ),
+      };
+    }
+    const visibili = await kvSql`
+      SELECT contesto_versione FROM tars_conversazioni
+      WHERE id = ${input.conversazioneId}
+        AND sede_id = ${input.sedeId}
+        AND utente_id = ${input.utenteId}`;
+    return visibili.length
+      ? { stato: "versione_obsoleta" }
+      : { stato: "non_trovato" };
+  }
+
+  const conversazione = memConversazioni.find(
+    c => c.id === input.conversazioneId &&
+      c.sedeId === input.sedeId &&
+      c.utenteId === input.utenteId
+  );
+  if (!conversazione) return { stato: "non_trovato" };
+  const corrente = conversazione.contesto ?? contestoConversazioneVuoto();
+  if (corrente.versione !== input.versioneAttesa) {
+    return { stato: "versione_obsoleta" };
+  }
+  conversazione.contesto = {
+    ...input.contesto,
+    versione: corrente.versione + 1,
+  };
+  conversazione.updatedAt = new Date();
+  return { stato: "aggiornato", contesto: conversazione.contesto };
 }
 
 export async function conversazioneDiUtente(

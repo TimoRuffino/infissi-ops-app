@@ -128,7 +128,7 @@ const cercaCommesse: StrumentoTars = {
 
 const leggiCommessa: StrumentoTars = {
   nome: "leggi_commessa",
-  versione: "1.0.0",
+  versione: "1.1.0",
   categoria: "commesse",
   livello: "L0",
   effetto: "nessuno",
@@ -172,6 +172,7 @@ const leggiCommessa: StrumentoTars = {
     return lettura({
       dati: {
         id: c.id,
+        clienteId: c.clienteId ?? null,
         codice: c.codice,
         cliente: c.cliente,
         stato: c.stato,
@@ -199,6 +200,13 @@ const leggiCommessa: StrumentoTars = {
           riferimento: `commessa:${c.id}`,
           descrizione: `${c.codice} — ${c.cliente} (${c.stato})`,
         },
+        ...(Number.isInteger(c.clienteId)
+          ? [{
+              tipo: "entita" as const,
+              riferimento: `cliente:${c.clienteId}`,
+              descrizione: String(c.cliente),
+            }]
+          : []),
         ...ordini.map(o => ({
           tipo: "entita" as const,
           riferimento: `ordine:${o.id}`,

@@ -38,6 +38,10 @@ import {
   type PassoCopione,
 } from "../tars/openai/fake";
 import { strumentiPerContesto } from "../tars/profili";
+import {
+  applicaContestoConversazioneAlRun,
+  caricaContestoConversazione,
+} from "../tars/conversazione/context";
 import type { TarsProvider } from "../tars/provider";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
@@ -222,34 +226,62 @@ function comeErrore(errore: any): never {
 
 export const tarsRouter = router({
   /** Stato per la pagina /tars: flag, provider, profilo, run aggregati. */
-  stato: procedura.query(async ({ ctx }) => {
-    try {
-      const contesto = await costruisciContesto(ctx);
-      const strumenti = strumentiPerContesto(contesto);
-      const provider = statoProvider(configurazioneRunDefault().modello);
-      return {
-        // Diagnosi onesta MA riservata: budget e motivi infrastrutturali
-        // sono dati di costo (spec §27.48), quindi solo per la direzione;
-        // agli altri resta il tipo di provider, che è già nella UI.
-        providerDettaglio: contesto.direzione
-          ? provider
-          : { tipo: provider.tipo, modello: provider.modello, budget: null,
-              motivoIndisponibilita: null },
-        interruttori: statoInterruttori(),
-        // Il provider EFFETTIVO del prossimo run (non quello richiesto).
-        provider: provider.tipo,
-        modello: configurazioneRunDefault().modello,
-        strumentiDisponibili: strumenti.map(s => ({
-          nome: s.nome,
-          categoria: s.categoria,
-          descrizione: s.descrizione,
-        })),
-        run: await statisticheRun(ctx.sedeId ?? DEFAULT_SEDE_ID),
-      };
-    } catch (errore) {
-      comeErrore(errore);
-    }
-  }),
+  stato: procedura
+    .input(
+      z.object({ conversazioneId: z.number().int().positive().optional() })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        let contesto = await costruisciContesto(ctx);
+        if (input?.conversazioneId != null) {
+          const persistito = await caricaContestoConversazione({
+            conversazioneId: input.conversazioneId,
+            sedeId: contesto.sedeId,
+            utenteId: contesto.utenteId,
+          });
+          if (!persistito) {
+            throw new Error("NOT_FOUND: conversazione non trovata.");
+          }
+          contesto = applicaContestoConversazioneAlRun(contesto, persistito);
+        }
+        const strumenti = strumentiPerContesto(contesto);
+        const provider = statoProvider(configurazioneRunDefault().modello);
+        return {
+          // Diagnosi onesta MA riservata: budget e motivi infrastrutturali
+          // sono dati di costo (spec §27.48), quindi solo per la direzione;
+          // agli altri resta il tipo di provider, che è già nella UI.
+          providerDettaglio: contesto.direzione
+            ? provider
+            : {
+                tipo: provider.tipo,
+                modello: provider.modello,
+                budget: null,
+                motivoIndisponibilita: null,
+              },
+          interruttori: statoInterruttori(),
+          // Il provider EFFETTIVO del prossimo run (non quello richiesto).
+          provider: provider.tipo,
+          modello: configurazioneRunDefault().modello,
+          strumentiDisponibili: strumenti.map(s => ({
+            nome: s.nome,
+            categoria: s.categoria,
+            descrizione: s.descrizione,
+          })),
+          contestoAttivo: contesto.entitaAttiva
+            ? {
+                superficie: contesto.superficie ?? null,
+                entita: contesto.entitaAttiva,
+                fingerprint:
+                  contesto.contestoConversazioneFingerprint ?? null,
+              }
+            : null,
+          run: await statisticheRun(ctx.sedeId ?? DEFAULT_SEDE_ID),
+        };
+      } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
 
   conversazioni: procedura.query(async ({ ctx }) => {
     try {

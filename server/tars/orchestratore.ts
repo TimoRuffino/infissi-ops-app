@@ -18,7 +18,7 @@ import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from 
 import { tarsAttivo } from "../platform/interruttori";
 import { ErroreBudget, messaggioPerLimite } from "./costi/governor";
 import { contestoMemorie, fingerprintMemorie } from "./memoria";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v4";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v5";
 import {
   ErroreProvider,
   type MessaggioTars,
@@ -34,6 +34,16 @@ import {
   prenotaEsecuzioneR1,
   segnaEsecuzioneR1Incerta,
 } from "./azioni/executions";
+import { getCommessaById } from "../routers/commesse";
+import {
+  VersioneContestoConversazioneObsoleta,
+  aggiornaContestoDaEsitoTool,
+  applicaContestoConversazioneAlRun,
+  caricaContestoConversazione,
+  riepilogoContestoProvider,
+  salvaContestoConversazione,
+} from "./conversazione/context";
+import { risolviCommessa } from "./conversazione/resolver";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -62,6 +72,66 @@ export type ConfigurazioneRun = {
   /** Tetto sui caratteri di contesto inviati al modello. */
   maxCaratteriContesto: number;
 };
+
+export type NomeStatoOperativo =
+  | "Fatto"
+  | "Preparato"
+  | "Da confermare"
+  | "Non eseguito"
+  | "Bloccato";
+
+export type StatoOperativo = {
+  stato: NomeStatoOperativo;
+  fonte: "esiti_tool" | "resolver" | "provider" | "runtime";
+  motivo: string | null;
+};
+
+export function derivaStatoOperativo(input: {
+  azioni: readonly AzioneRun[];
+  degradato?: boolean;
+  chiarificazione?: boolean;
+  erroriStrumenti?: number;
+}): StatoOperativo {
+  if (input.degradato) {
+    return { stato: "Bloccato", fonte: "runtime", motivo: "run degradato" };
+  }
+  if (input.chiarificazione) {
+    return {
+      stato: "Da confermare",
+      fonte: "resolver",
+      motivo: "entità ambigua",
+    };
+  }
+  const daConfermare = input.azioni.find(azione => azione.conferma != null);
+  if (daConfermare) {
+    return {
+      stato: "Da confermare",
+      fonte: "esiti_tool",
+      motivo: daConfermare.motivo,
+    };
+  }
+  const nonEseguita = input.azioni.find(azione =>
+    azione.stato === "non_eseguito" || azione.stato === "non_necessaria"
+  );
+  if (nonEseguita) {
+    return {
+      stato: "Non eseguito",
+      fonte: "esiti_tool",
+      motivo: nonEseguita.motivo,
+    };
+  }
+  if (input.azioni.length > 0) {
+    return { stato: "Fatto", fonte: "esiti_tool", motivo: null };
+  }
+  if ((input.erroriStrumenti ?? 0) > 0) {
+    return {
+      stato: "Bloccato",
+      fonte: "esiti_tool",
+      motivo: "uno o più strumenti non hanno prodotto un esito valido",
+    };
+  }
+  return { stato: "Preparato", fonte: "provider", motivo: null };
+}
 
 /**
  * Legge un limite numerico dall'ambiente FAIL-CLOSED: un valore
@@ -122,6 +192,8 @@ export type RispostaRun = {
   uso: UsoToken;
   cache: { c0Hit: boolean; c1Hit: number; c1Miss: number };
   versioni: { prompt: string; profilo: string; modello: string };
+  /** Additivo per client legacy: derivato dal backend, non dal testo LLM. */
+  statoOperativo?: StatoOperativo;
 };
 
 // ── C0 v2: stessa domanda, stesso perimetro, ENTITÀ NON CAMBIATE ───────
@@ -159,6 +231,7 @@ function chiaveC0(
         superficie: contesto.superficie ?? null,
         entita: contesto.entitaAttiva ?? null,
         intento: contesto.intento ?? null,
+        conversazione: contesto.contestoConversazioneFingerprint ?? "vuoto",
         // T7 (decisione 35): una memoria nuova/invalidata nega il riuso.
         mem: tarsAttivo("tarsMemory")
           ? fingerprintMemorie(contesto.sedeId, contesto.utenteId)
@@ -204,6 +277,7 @@ function chiaveCachePrompt(contesto: ContestoRun, modello: string): string {
         superficie: contesto.superficie ?? null,
         entita: contesto.entitaAttiva?.tipo ?? null,
         intento: contesto.intento ?? null,
+        conversazione: contesto.contestoConversazioneFingerprint ?? "vuoto",
       })
     )
     .digest("hex")
@@ -229,7 +303,7 @@ export async function eseguiRun(input: {
   configurazione?: Partial<ConfigurazioneRun>;
 }): Promise<RispostaRun> {
   const config = { ...configurazioneRunDefault(), ...input.configurazione };
-  const { contesto } = input;
+  let contesto = input.contesto;
   const runId = createHash("sha256")
     .update(`${Date.now()}:${contesto.utenteId}:${Math.random()}`)
     .digest("hex")
@@ -252,6 +326,161 @@ export async function eseguiRun(input: {
     });
     conversazioneId = creata.id;
   }
+
+  // T2: il contesto persistente viene caricato e verificato PRIMA del
+  // profilo dinamico. È un hint; capability e sede restano quelle di base.
+  let contestoConversazione = await caricaContestoConversazione({
+    conversazioneId,
+    sedeId: contesto.sedeId,
+    utenteId: contesto.utenteId,
+  });
+  if (!contestoConversazione) {
+    throw new Error("NOT_FOUND: conversazione non trovata.");
+  }
+
+  const risoluzione = risolviCommessa({
+    sedeId: contesto.sedeId,
+    riferimento: input.messaggio,
+  });
+  const candidatiRisoluzione = risoluzione.stato === "unico"
+    ? [risoluzione.candidato]
+    : risoluzione.stato === "ambiguo"
+      ? risoluzione.candidati
+      : [];
+  const riferimentoEsplicito =
+    contestoConversazione.chiarificazionePendente != null ||
+    /\bcommess[ae]\b/i.test(input.messaggio) ||
+    /\bCOM[-\s]\d{4}[-\s][A-Z0-9]+\b/i.test(input.messaggio);
+  // Senza una parola «commessa»/codice, un nome è deittico solo quando
+  // porta a un cliente CRM realmente collegato. Così termini operativi
+  // omonimi ("caso", "documenti", "proposta") non attivano il resolver.
+  const riferimentoClienteVerificato = candidatiRisoluzione.some(candidato => {
+    const commessa: any = getCommessaById(candidato.commessaId);
+    return commessa?.sedeId === contesto.sedeId &&
+      Number.isInteger(commessa?.clienteId) &&
+      commessa.clienteId > 0;
+  });
+  const usaRisoluzione = riferimentoEsplicito || riferimentoClienteVerificato;
+
+  if (usaRisoluzione && risoluzione.stato === "unico") {
+    const ammessoDaPendente =
+      !contestoConversazione.chiarificazionePendente ||
+      contestoConversazione.chiarificazionePendente.candidati.some(
+        candidato => candidato.commessaId === risoluzione.candidato.commessaId
+      );
+    if (ammessoDaPendente) {
+      const commessa: any = getCommessaById(risoluzione.candidato.commessaId);
+      if (commessa && commessa.sedeId === contesto.sedeId) {
+        contestoConversazione = await salvaContestoConversazione({
+          conversazioneId,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+          versioneAttesa: contestoConversazione.versione,
+          patch: {
+            commessaId: commessa.id,
+            clienteId: Number.isInteger(commessa.clienteId)
+              ? commessa.clienteId
+              : contestoConversazione.clienteId,
+            comunicazioneId:
+              contestoConversazione.commessaId === commessa.id
+                ? contestoConversazione.comunicazioneId
+                : null,
+            allegatoIndex:
+              contestoConversazione.commessaId === commessa.id
+                ? contestoConversazione.allegatoIndex
+                : null,
+            superficie: "commessa",
+            chiarificazionePendente: null,
+            versioniEntita: {
+              ...contestoConversazione.versioniEntita,
+              [`commessa:${commessa.id}`]: commessa.updatedAt instanceof Date
+                ? String(commessa.updatedAt.getTime())
+                : String(new Date(commessa.updatedAt).getTime()),
+            },
+          },
+        });
+      }
+    }
+  } else if (usaRisoluzione && risoluzione.stato === "ambiguo") {
+    const attivaFraCandidate = risoluzione.candidati.some(
+      candidato => candidato.commessaId === contestoConversazione!.commessaId
+    );
+    if (!attivaFraCandidate) {
+      contestoConversazione = await salvaContestoConversazione({
+        conversazioneId,
+        sedeId: contesto.sedeId,
+        utenteId: contesto.utenteId,
+        versioneAttesa: contestoConversazione.versione,
+        patch: {
+          commessaId: null,
+          clienteId: null,
+          comunicazioneId: null,
+          allegatoIndex: null,
+          superficie: "commessa",
+          chiarificazionePendente: {
+            tipo: "commessa",
+            riferimento: input.messaggio,
+            domanda: risoluzione.domanda,
+            candidati: risoluzione.candidati.map(c => ({
+              commessaId: c.commessaId,
+              codice: c.codice,
+              cliente: c.cliente,
+            })),
+          },
+        },
+      });
+      await aggiungiTurno({
+        conversazioneId,
+        sedeId: contesto.sedeId,
+        ruolo: "utente",
+        contenuto: input.messaggio,
+      });
+      const statoOperativo = derivaStatoOperativo({
+        azioni: [],
+        chiarificazione: true,
+      });
+      await aggiungiTurno({
+        conversazioneId,
+        sedeId: contesto.sedeId,
+        ruolo: "tars",
+        contenuto: risoluzione.domanda,
+        payload: { statoOperativo, chiarificazione: true, runId },
+      });
+      await registraRun({
+        sedeId: contesto.sedeId,
+        utenteId: contesto.utenteId,
+        conversazioneId,
+        stato: "ok",
+        provider: "resolver-deterministico",
+        modello: config.modello,
+        versioni: { prompt: PROMPT_VERSIONE, profilo: PROFILO_VERSIONE },
+        contatori: { modelCallEvitate: 1, chiarificazioni: 1 },
+        errore: null,
+      });
+      return {
+        runId,
+        conversazioneId,
+        stato: "ok",
+        testo: risoluzione.domanda,
+        evidenze: [],
+        strumentiUsati: [],
+        azioni: [],
+        omissioni: [],
+        uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
+        cache: { c0Hit: false, c1Hit: 0, c1Miss: 0 },
+        versioni: {
+          prompt: PROMPT_VERSIONE,
+          profilo: PROFILO_VERSIONE,
+          modello: config.modello,
+        },
+        statoOperativo,
+      };
+    }
+  }
+  contesto = applicaContestoConversazioneAlRun(
+    contesto,
+    contestoConversazione
+  );
 
   await aggiungiTurno({
     conversazioneId,
@@ -308,7 +537,12 @@ export async function eseguiRun(input: {
       sedeId: contesto.sedeId,
       ruolo: "tars",
       contenuto: riuso.testo,
-      payload: { evidenze: riuso.evidenze, cache: riuso.cache, runId },
+      payload: {
+        evidenze: riuso.evidenze,
+        cache: riuso.cache,
+        statoOperativo: riuso.statoOperativo,
+        runId,
+      },
     });
     await registraRun({
       sedeId: contesto.sedeId,
@@ -343,6 +577,17 @@ export async function eseguiRun(input: {
     }
   }
 
+  const riepilogoConversazione = riepilogoContestoProvider(
+    contestoConversazione,
+    contesto.sedeId
+  );
+  if (riepilogoConversazione) {
+    messaggi.splice(Math.max(messaggi.length - 1, 0), 0, {
+      ruolo: "user",
+      contenuto: riepilogoConversazione,
+    });
+  }
+
   const strumenti = strumentiPerContesto(contesto);
   const perProvider = strumenti.map(comeDefinizioneProvider);
   const strumentiPerNome = new Map(strumenti.map(s => [s.nome, s] as const));
@@ -357,6 +602,7 @@ export async function eseguiRun(input: {
   const strumentiUsati: string[] = [];
   const azioni: AzioneRun[] = [];
   const versioniOsservate: Record<string, string> = {};
+  let erroriStrumenti = 0;
   const uso: UsoToken = { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 };
 
   const esitoDegradato = async (
@@ -379,13 +625,19 @@ export async function eseguiRun(input: {
         profilo: PROFILO_VERSIONE,
         modello: config.modello,
       },
+      statoOperativo: derivaStatoOperativo({ azioni, degradato: true }),
     };
     await aggiungiTurno({
       conversazioneId: conversazioneId!,
       sedeId: contesto.sedeId,
       ruolo: "tars",
       contenuto: motivo,
-      payload: { degradato: true, azioni, runId },
+      payload: {
+        degradato: true,
+        azioni,
+        statoOperativo: risposta.statoOperativo,
+        runId,
+      },
     });
     await registraRun({
       sedeId: contesto.sedeId,
@@ -635,6 +887,28 @@ export async function eseguiRun(input: {
               evidenze.push(...(esito as any).evidenze);
               for (const o of (esito as any).omissioni ?? []) omissioni.add(o);
             }
+            try {
+              contestoConversazione = await aggiornaContestoDaEsitoTool({
+                conversazioneId: conversazioneId!,
+                sedeId: contesto.sedeId,
+                utenteId: contesto.utenteId,
+                versioneAttesa: contestoConversazione.versione,
+                strumento: strumento.nome,
+                esito,
+              });
+              contesto = applicaContestoConversazioneAlRun(
+                contesto,
+                contestoConversazione
+              );
+            } catch (errore) {
+              if (errore instanceof VersioneContestoConversazioneObsoleta) {
+                omissioni.add(
+                  "contesto conversazionale non aggiornato: versione cambiata da un altro run"
+                );
+              } else {
+                throw errore;
+              }
+            }
             Object.assign(
               versioniOsservate,
               (esito as any)?.versioniEntita ?? {}
@@ -658,6 +932,7 @@ export async function eseguiRun(input: {
           } catch (errore) {
             esitoTesto = `ERRORE: ${sanifica(errore)}`;
           }
+          if (esitoTesto.startsWith("ERRORE")) erroriStrumenti += 1;
           // Spec §10 C1: niente errori cachati — un retry identico del
           // modello deve poter rieseguire dopo un errore transitorio.
           if (!esitoTesto.startsWith("ERRORE")) {
@@ -697,6 +972,7 @@ export async function eseguiRun(input: {
       profilo: PROFILO_VERSIONE,
       modello: config.modello,
     },
+    statoOperativo: derivaStatoOperativo({ azioni, erroriStrumenti }),
   };
 
   // Un run con azioni non è una «domanda deterministica»: non entra in C0
@@ -731,6 +1007,7 @@ export async function eseguiRun(input: {
       azioni,
       omissioni: finale.omissioni,
       uso,
+      statoOperativo: finale.statoOperativo,
       runId,
     },
   });

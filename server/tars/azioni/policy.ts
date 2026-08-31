@@ -64,7 +64,12 @@ export function catalogoAzioniPerContesto(
     ? REGISTRO_AZIONI.filter(a => corrispondeAiSelettori(a, contesto))
     : [...REGISTRO_AZIONI];
   if (candidate.length > 0) {
-    return candidate.filter(a => autorizzata(a, contesto));
+    return candidate.filter(a =>
+      autorizzata(a, contesto) &&
+      // Con un fascicolo già attivo, rifare una ricerca generica non è una
+      // prossima azione contestuale. Il resolver resta server-side.
+      !(contesto.entitaAttiva?.tipo === "commessa" && a.nome === "cerca_commesse")
+    );
   }
   return REGISTRO_AZIONI.filter(
     a => a.fallbackSicuro && a.rischio === "R0" && autorizzata(a, contesto)

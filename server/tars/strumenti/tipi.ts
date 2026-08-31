@@ -52,6 +52,20 @@ export type ContestoRun = {
   superficie?: SuperficieTars;
   entitaAttiva?: { tipo: TipoEntitaTars; id: number };
   intento?: IntentoTars;
+  /** Hint persistito: verificato dal server, mai fonte di capability. */
+  contestoConversazione?: {
+    commessaId: number | null;
+    clienteId: number | null;
+    comunicazioneId: number | null;
+    allegatoIndex: number | null;
+    superficie: SuperficieTars | null;
+    versioniEntita: Record<string, string>;
+    chiarificazionePendente: unknown;
+    versione: number;
+    verificato: true;
+  };
+  /** Entra in C0/C2; non contiene PII in chiaro. */
+  contestoConversazioneFingerprint?: string;
 };
 
 export type EvidenzaTars = {

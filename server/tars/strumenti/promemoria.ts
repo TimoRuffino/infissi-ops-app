@@ -160,7 +160,7 @@ async function auditId(
 
 const creaPromemoria: StrumentoTars = {
   nome: "crea_promemoria",
-  versione: "1.0.0",
+  versione: "1.1.0",
   categoria: "promemoria",
   livello: "L1",
   effetto: "interno",
@@ -201,11 +201,38 @@ const creaPromemoria: StrumentoTars = {
       throw errore;
     }
 
+    const contestoPersistito = contesto.contestoConversazione;
+    const ereditaCommessa =
+      input.commessaId == null &&
+      contestoPersistito?.verificato === true &&
+      contestoPersistito.commessaId != null;
+    const commessaId = input.commessaId ??
+      (ereditaCommessa ? contestoPersistito!.commessaId! : null);
+    let clienteId = input.clienteId ??
+      (ereditaCommessa ? contestoPersistito!.clienteId : null);
+
     const evidenzeCollegamenti: EvidenzaTars[] = [];
-    if (input.commessaId != null) {
-      const commessa: any = getCommessaById(input.commessaId);
+    if (commessaId != null) {
+      // Rilettura obbligatoria: il contesto non autorizza e non garantisce
+      // freschezza. Per l'eredità implicita anche la versione deve coincidere.
+      const commessa: any = getCommessaById(commessaId);
       if (!commessa || commessa.sedeId !== contesto.sedeId) {
         return nonEseguito(nome, "Commessa non trovata: nessun promemoria creato.");
+      }
+      if (ereditaCommessa) {
+        const attesa = contestoPersistito!.versioniEntita[`commessa:${commessa.id}`];
+        const corrente = commessa.updatedAt instanceof Date
+          ? String(commessa.updatedAt.getTime())
+          : String(new Date(commessa.updatedAt).getTime());
+        if (!attesa || corrente === "NaN" || attesa !== corrente) {
+          return nonEseguito(
+            nome,
+            "La commessa è cambiata dall'ultima lettura: rileggila prima di collegare il promemoria."
+          );
+        }
+      }
+      if (clienteId == null && Number.isInteger(commessa.clienteId)) {
+        clienteId = commessa.clienteId;
       }
       evidenzeCollegamenti.push({
         tipo: "entita",
@@ -213,8 +240,8 @@ const creaPromemoria: StrumentoTars = {
         descrizione: `${commessa.codice} — ${commessa.cliente}`,
       });
     }
-    if (input.clienteId != null) {
-      const cliente: any = getClienteById(input.clienteId);
+    if (clienteId != null) {
+      const cliente: any = getClienteById(clienteId);
       if (!cliente || cliente.sedeId !== contesto.sedeId) {
         return nonEseguito(nome, "Cliente non trovato: nessun promemoria creato.");
       }
@@ -222,7 +249,9 @@ const creaPromemoria: StrumentoTars = {
 
     const testo = input.testo.trim();
     const chiaveBase = `tars:u${contesto.utenteId}:${createHash("sha256")
-      .update(`${testo.toLowerCase().replace(/\s+/g, " ")}|${istante.toISOString()}`)
+      .update(
+        `${testo.toLowerCase().replace(/\s+/g, " ")}|${istante.toISOString()}|c:${commessaId ?? "-"}|cl:${clienteId ?? "-"}`
+      )
       .digest("hex")
       .slice(0, 20)}`;
 
@@ -239,8 +268,8 @@ const creaPromemoria: StrumentoTars = {
         actionKey: chiave,
         text: testo,
         remindAtIso: istante.toISOString(),
-        clienteId: input.clienteId ?? null,
-        commessaId: input.commessaId ?? null,
+        clienteId: clienteId ?? null,
+        commessaId: commessaId ?? null,
       });
       record = esito.record;
       creato = esito.created;
@@ -275,7 +304,12 @@ const creaPromemoria: StrumentoTars = {
         : [
             "Esisteva già un promemoria identico (stesso testo e orario): non ne ho creato un secondo.",
           ],
-      assunzioni: risoluzione.assunzioni,
+      assunzioni: [
+        ...risoluzione.assunzioni,
+        ...(ereditaCommessa
+          ? ["Collegamento alla commessa ereditato dal contesto conversazionale verificato e riletto."]
+          : []),
+      ],
       dati: vista,
       evidenze: [evidenzaPromemoria(record), ...evidenzeCollegamenti],
       freschezza: new Date().toISOString(),
