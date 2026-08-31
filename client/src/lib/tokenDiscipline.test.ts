@@ -50,6 +50,13 @@ const DEROGHE_HEX = [
   join("client", "src", "components", "WhatsAppCard.tsx"),
   join("client", "src", "components", "WhatsAppButton.tsx"),
 ];
+// La pagina Fornitori è esplicitamente fuori dallo scope del redesign corrente.
+const FUORI_SCOPE_UI = [
+  join("client", "src", "pages", "FornitoriList.tsx"),
+  ...FILE_APPLICAZIONE.filter(percorso =>
+    percorso.includes(join("client", "src", "components", "fornitori"))
+  ),
+];
 
 function scansiona(
   regex: RegExp,
@@ -185,7 +192,7 @@ describe("contratto cromatico Modular Control", () => {
 
 describe("disciplina dei token applicativi", () => {
   it("non usa la palette numerica di Tailwind", () => {
-    const violazioni = scansiona(PALETTE);
+    const violazioni = scansiona(PALETTE, FILE_APPLICAZIONE, FUORI_SCOPE_UI);
     expect(
       violazioni,
       `Classi di palette hardcoded trovate (usa i token semantici):\n${violazioni.join("\n")}`
@@ -193,7 +200,11 @@ describe("disciplina dei token applicativi", () => {
   });
 
   it("non mette testo bianco fisso sopra un colore semantico pieno", () => {
-    const violazioni = scansiona(BIANCO_SU_SEMANTICO);
+    const violazioni = scansiona(
+      BIANCO_SU_SEMANTICO,
+      FILE_APPLICAZIONE,
+      FUORI_SCOPE_UI
+    );
     expect(
       violazioni,
       `text-white su pieno semantico (usa text-on-*):\n${violazioni.join("\n")}`
@@ -201,11 +212,10 @@ describe("disciplina dei token applicativi", () => {
   });
 
   it("non usa colori arbitrari fuori dalle deroghe di terze parti", () => {
-    const violazioni = scansiona(
-      HEX_ARBITRARIO,
-      FILE_APPLICAZIONE,
-      DEROGHE_HEX
-    );
+    const violazioni = scansiona(HEX_ARBITRARIO, FILE_APPLICAZIONE, [
+      ...DEROGHE_HEX,
+      ...FUORI_SCOPE_UI,
+    ]);
     expect(
       violazioni,
       `Hex arbitrari nelle classi (usa i token o registra una deroga):\n${violazioni.join("\n")}`
@@ -216,6 +226,7 @@ describe("disciplina dei token applicativi", () => {
     const dataSurface = join(RADICE_PATTERN, "DataSurface.tsx");
     const violazioni = scansiona(GRADIENTE_ARBITRARIO, FILE_APPLICAZIONE, [
       dataSurface,
+      ...FUORI_SCOPE_UI,
     ]);
     expect(
       violazioni,
