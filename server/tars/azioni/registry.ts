@@ -401,8 +401,40 @@ export function validaRegistroAzioni(
     if (azione.timeoutMs <= 0) throw new Error(`registro Tars: timeoutMs non valido per ${azione.nome}`);
     if (azione.costo.massimo < 0) throw new Error(`registro Tars: costo non valido per ${azione.nome}`);
     if (!azione.interruttori.includes("tars")) throw new Error(`registro Tars: flag master mancante per ${azione.nome}`);
+    if (AZIONI_DICHIARATE_INDISPONIBILI.some(voce => voce.nome === azione.nome)) {
+      throw new Error(
+        `registro Tars: «${azione.nome}» è dichiarata indisponibile; costruisci il servizio canonico e rimuovi la voce prima di registrarla.`
+      );
+    }
   }
 }
+
+/**
+ * Azioni chieste dallo spec ma SENZA servizio canonico nel CRM: dichiarate
+ * indisponibili con il blocco reale, mai simulate (ruling registrato).
+ * Registrare un tool con uno di questi nomi richiede prima di costruire il
+ * servizio canonico e rimuovere la voce da qui: il validatore lo impone.
+ */
+export const AZIONI_DICHIARATE_INDISPONIBILI: readonly {
+  nome: string;
+  motivo: string;
+}[] = [
+  {
+    nome: "invia_email_cliente",
+    motivo:
+      "Il CRM non ha un servizio canonico di invio email: le caselle IMAP sono in sola lettura e nessun canale SMTP è configurato. L'invio resta un'operazione umana.",
+  },
+  {
+    nome: "invia_whatsapp_cliente",
+    motivo:
+      "Il canale WhatsApp registra i messaggi ricevuti e gli echi in uscita dal webhook, ma il CRM non espone alcun comando canonico di invio. Nessun invio viene simulato.",
+  },
+  {
+    nome: "registra_pagamento",
+    motivo:
+      "Le scritture economiche (pagamenti, importi, FiC) restano fuori dal catalogo Tars per decisione di sicurezza: passano solo dal flusso pagamenti con le capability dedicate.",
+  },
+];
 
 const registro = costruisciRegistro().sort((a, b) => a.nome.localeCompare(b.nome));
 validaRegistroAzioni(registro);

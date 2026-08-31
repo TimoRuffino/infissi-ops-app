@@ -23,6 +23,7 @@ import {
   applicaProposta,
   approvaProposta,
   definizioneAzione,
+  hashAnteprimaProposta,
   propostaById,
   propostePerOrdine,
   rifiutaProposta,
@@ -53,7 +54,14 @@ function proiezione(proposta: PropostaAzione) {
     // Ordine non più leggibile: la proposta resta consultabile senza
     // descrizione dell'effetto (la freschezza la marcherà obsoleta).
   }
-  return { ...proposta, etichetta: def.etichetta, effetto };
+  return {
+    ...proposta,
+    etichetta: def.etichetta,
+    effetto,
+    // La UI rimanda questo hash con il click: la conferma vale solo per
+    // l'anteprima effettivamente mostrata (frontiera unica R2/R3).
+    hashAnteprima: hashAnteprimaProposta(proposta),
+  };
 }
 
 /**
@@ -324,11 +332,29 @@ export const proposteRouter = router({
    * (`fallita`) e l'errore arriva sanificato.
    */
   approvaEApplica: procedura
-    .input(z.object({ id: z.number() }))
+    .input(
+      z.object({
+        id: z.number(),
+        // Facoltativo per compatibilità: quando presente, la conferma vale
+        // solo se l'anteprima corrente coincide con quella mostrata.
+        hashAnteprima: z.string().length(64).optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       const sedeId = sedeCorrente(ctx);
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.approvaEApplica", proposta);
+      if (
+        input.hashAnteprima != null &&
+        proposta.stato !== "applicata" &&
+        input.hashAnteprima !== hashAnteprimaProposta(proposta)
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "L'anteprima è cambiata dopo la visualizzazione: ricarica la proposta e verifica di nuovo prima di approvare.",
+        });
+      }
       try {
         // Doppio click sicuro: se è già approvata (o applicata) non si
         // ri-approva; applicaProposta gestisce l'idempotenza finale.

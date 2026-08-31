@@ -17,6 +17,7 @@
 // sono cambiati rispetto allo snapshot (serve una nuova revisione). Tutti
 // gli esiti restano nel record, con cronologia append-only.
 
+import { createHash } from "node:crypto";
 import { persistedStore } from "../_core/persistence";
 import type { Capability } from "../authz/capabilities";
 import type { Evidenza } from "../documenti/estrazioneConferma";
@@ -139,6 +140,39 @@ export function propostePerOrdine(
 }
 
 const STATI_APERTI = new Set<StatoProposta>(["proposta", "approvata"]);
+
+/**
+ * Hash dell'ANTEPRIMA mostrata all'umano: lega il click di approvazione a
+ * esattamente ciò che era sullo schermo (valori, effetto descritto,
+ * versioni dello snapshot). Se la proposta viene rigenerata o l'effetto
+ * descritto cambia tra il render e il click, l'hash non corrisponde più e
+ * la conferma va rifiutata — è il lucchetto ottimistico della frontiera
+ * unica R2/R3, complementare alla freschezza sul valore corrente.
+ */
+export function hashAnteprimaProposta(proposta: PropostaAzione): string {
+  let effetto: string | null = null;
+  try {
+    effetto = definizioneAzione(proposta.tipo).descriviEffetto(proposta);
+  } catch {
+    effetto = null;
+  }
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        id: proposta.id,
+        sedeId: proposta.sedeId,
+        tipo: proposta.tipo,
+        ordineId: proposta.ordineId,
+        documentoId: proposta.documentoId,
+        byteChecksum: proposta.byteChecksum,
+        valoreCorrente: proposta.valoreCorrente,
+        valoreProposto: proposta.valoreProposto,
+        versioni: proposta.versioni,
+        effetto,
+      })
+    )
+    .digest("hex");
+}
 
 function transiziona(
   proposta: PropostaAzione,

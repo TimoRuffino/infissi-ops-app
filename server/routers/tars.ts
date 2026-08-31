@@ -41,6 +41,7 @@ import {
   type PassoCopione,
 } from "../tars/openai/fake";
 import { strumentiPerContesto } from "../tars/profili";
+import { AZIONI_DICHIARATE_INDISPONIBILI } from "../tars/azioni/registry";
 import {
   applicaContestoConversazioneAlRun,
   caricaContestoConversazione,
@@ -277,6 +278,9 @@ export const tarsRouter = router({
             categoria: s.categoria,
             descrizione: s.descrizione,
           })),
+          // Onestà del catalogo: ciò che manca è dichiarato col blocco reale,
+          // mai simulato (T5 — frontiera unica R2/R3).
+          azioniIndisponibili: AZIONI_DICHIARATE_INDISPONIBILI,
           contestoAttivo: contesto.entitaAttiva
             ? {
                 superficie: contesto.superficie ?? null,
