@@ -551,6 +551,40 @@
   filter: brightness(0) opacity(0.85);
 }
 
+/* Firma «Frame»: due angoli aperti che incorniciano l'identità di un
+   record (header di commessa/cliente, momenti di contesto). Non si
+   applica a ogni card: solo dove c'è identità. */
+.rf-frame {
+  position: relative;
+}
+
+.rf-frame::before,
+.rf-frame::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 0 solid var(--color-border-strong);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.rf-frame::before {
+  top: 0;
+  left: 0;
+  border-top-width: 2px;
+  border-left-width: 2px;
+  border-top-left-radius: 6px;
+}
+
+.rf-frame::after {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  border-bottom-right-radius: 6px;
+}
+
 /* Firma «Frame reveal»: ingresso di superfici importanti (record,
    dashboard). Mai su liste operative lunghe. Reduced motion la azzera
    con il kill switch globale in fondo al file. */

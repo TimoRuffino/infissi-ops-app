@@ -71,6 +71,7 @@ import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
+import StatusRail from "@/components/StatusRail";
 import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
 import { toast } from "sonner";
 import {
@@ -738,11 +739,11 @@ export default function CommessaDetail() {
           users don't mistake an archived job for an active one. No buttons
           inside: restore is in the header to match the archive entry point. */}
       {c.archivedAt && (
-        <div className="rounded-md border border-zinc-300 bg-zinc-50 px-4 py-3 flex items-start gap-3">
-          <Archive className="h-5 w-5 text-zinc-600 shrink-0 mt-0.5" />
+        <div className="rounded-md border border-border-strong bg-surface-2 px-4 py-3 flex items-start gap-3">
+          <Archive className="h-5 w-5 text-text-2 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="font-semibold text-zinc-900">Commessa archiviata</p>
-            <p className="text-sm text-zinc-700">
+            <p className="font-semibold text-text-1">Commessa archiviata</p>
+            <p className="text-sm text-text-2">
               Archiviata il{" "}
               {new Date(c.archivedAt).toLocaleDateString("it-IT", {
                 day: "2-digit",
@@ -768,6 +769,9 @@ export default function CommessaDetail() {
           <ArrowLeft className="h-4 w-4 mr-1" />
           Commesse
         </Button>
+        {/* Header identitario con la firma Frame: due angoli aperti
+            incorniciano l'identità del record. */}
+        <div className="rf-frame rounded-lg px-4 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -803,6 +807,7 @@ export default function CommessaDetail() {
               const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
               return nextStato ? (
                 <Button
+                  variant="brand"
                   onClick={() => {
                     if (gateBlocked && statoGate.data) {
                       const missing = statoGate.data.required
@@ -899,6 +904,27 @@ export default function CommessaDetail() {
           </div>
         </div>
 
+        {/* Rail di stato (firma Rail): posizione reale nella state machine,
+            col gate documentale dichiarato. Rappresenta, non calcola. */}
+        {!c.archivedAt && (
+          <StatusRail
+            stato={c.stato}
+            gateBloccato={Boolean(
+              statoGate.data &&
+                statoGate.data.required.length > 0 &&
+                !statoGate.data.canAdvance
+            )}
+            gateMotivo={(() => {
+              if (!statoGate.data || statoGate.data.canAdvance) return undefined;
+              const mancanti = statoGate.data.required
+                .filter((r) => !r.satisfied)
+                .map((r) => r.label);
+              return `${mancanti.length === 1 ? "Manca" : "Mancano"}: ${mancanti.join(", ")}`;
+            })()}
+            className="mt-4"
+          />
+        )}
+
         {/* Info pills */}
         <div className="flex gap-4 flex-wrap mt-3 text-sm text-muted-foreground">
           {c.indirizzo && (
@@ -977,13 +1003,14 @@ export default function CommessaDetail() {
             {c.note}
           </p>
         )}
+        </div>
 
         {/* Produzione trigger: ask for delivery date confirmation */}
         {c.stato === "produzione" && !c.dataConsegnaConfermata && (
-          <Card className="mt-4 border-amber-300 bg-amber-50/50">
+          <Card className="mt-4 border-warning/40 bg-warning-soft/60">
             <CardContent className="p-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                <Clock className="h-5 w-5 text-warning shrink-0" />
                 <div>
                   <p className="text-sm font-semibold">Commessa in produzione</p>
                   <p className="text-xs text-muted-foreground">
