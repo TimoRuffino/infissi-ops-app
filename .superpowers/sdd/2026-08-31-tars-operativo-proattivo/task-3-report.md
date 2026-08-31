@@ -156,3 +156,95 @@ percorso `kvSql` sono typechecked, mentre persistenza, isolamento, versioning e
 fallback sono coperti in memoria. I 5 test PostgreSQL condizionali restano
 saltati senza `DATABASE_URL`; nessuna migrazione/deploy Railway viene dichiarata
 eseguita.
+
+## Fix round 1/5 — hardening da review
+
+Commit implementazione: `4675216` (`fix(tars): harden conversation context`)
+
+### Correzioni
+
+- Un esito `ambiguo` produce sempre una sola domanda deterministica, anche se
+  la commessa attiva è fra i candidati. La risposta successiva è confinata agli
+  identificatori persistiti e la domanda viene rigenerata server-side.
+- Un codice commessa esplicito irrisolto viene canonicalizzato con il parser
+  applicativo, azzera il vecchio riferimento e ferma il run prima di provider
+  ed effetti. Le forme societarie non sono più evidenza discriminante.
+- `crea_promemoria` materializza e rilegge commessa/cliente prima della chiave
+  R1 e della reservation; chiave, riuso settled e tool ricevono lo stesso input.
+  Una seconda rilettura immediatamente prima dell'effetto intercetta modifiche
+  avvenute dopo la reservation. La canonical key legacy resta byte-identica
+  quando entrambi i collegamenti sono assenti.
+- L'apprendimento del contesto è best-effort e isolato: un suo errore viene
+  registrato come omissione senza nascondere l'esito settled né abilitare retry
+  dell'effetto.
+- Comunicazioni e allegati vengono riletti sede-scoped; indice e genitori sono
+  validati e commessa/cliente derivano dalla fonte autorevole. Ogni riferimento
+  ha una verifica indipendente; record stale, invisibili o malformati vengono
+  omessi.
+- `statoOperativo` usa una mappa esplicita degli stati mutativi e una precedenza
+  deterministica per degradazione, chiarificazione, errori, conferme e no-op.
+  Gli stati `gia_*` e le azioni non necessarie non risultano `Fatto`.
+- C0 viene scritto con il fingerprint finale; C1 distingue gli input ereditati
+  materializzati senza rompere la deduplicazione delle altre chiamate. Il testo
+  utente grezzo non viene persistito né reiniettato come dato verificato.
+- Lo schema persistito completo valida enum superficie, indici, versioni e
+  chiarificazione. Un backfill ristretto conserva solo i candidati validi
+  della forma legacy. `handoff.md` documenta schema, prompt v5 e contratti
+  backend additivi.
+
+### TDD — RED osservati
+
+Il RED complessivo iniziale:
+
+```bash
+pnpm exec vitest run server/tars/conversazione/context.test.ts
+```
+
+Exit code 1: 15 falliti e 18 passati su 33. I fallimenti coprivano ambiguità
+con candidato attivo, fuga dal candidate set, codice esplicito sconosciuto,
+collisione reminder fra contesti, errore post-settled, comunicazione/allegato
+cross-sede, riferimenti stale, schema malformato, mapping operativo, C0,
+injection e canonical key legacy.
+
+Sono stati poi osservati RED singoli prima delle relative correzioni per:
+backfill della chiarificazione legacy, cliente autorevole della commessa,
+pulizia delle versioni dopo codice sconosciuto e TOCTOU fra reservation ed
+effetto. Una suite completa intermedia ha esposto una regressione C0
+(1 fallito, 833 passati, 5 saltati); un mirato successivo ha esposto la chiave
+C1 troppo ampia (2 falliti, 131 passati). Entrambi sono stati ridotti alla
+causa e corretti senza allargare il contratto.
+
+### GREEN e verifiche
+
+```bash
+pnpm exec vitest run server/tars/orchestratore.test.ts \
+  server/tars/promemoria.test.ts \
+  server/tars/conversazione/context.test.ts
+```
+
+Exit code 0: 3 file e 83 test passati.
+
+```bash
+pnpm check
+pnpm test
+pnpm build
+```
+
+Tutti exit code 0. La suite completa conta 86 file passati, 1 file PostgreSQL
+condizionale saltato; 837 test passati e 5 saltati. `pnpm check` completa
+`tsc --noEmit`; Vite/esbuild completano il build.
+
+```bash
+git diff --check
+git diff --name-only b924e12..HEAD | rg '^client/'
+```
+
+Nessun errore di whitespace e nessun file `client/`. Non sono stati eseguiti
+push, deploy, flag, Railway, chiamate OpenAI, migrazioni o accessi a segreti.
+
+### Riserva
+
+Il percorso PostgreSQL reale non è stato eseguito senza `DATABASE_URL`; i 5
+test condizionali restano saltati. Schema additivo, fallback memoria e contratti
+backend sono verificati localmente, ma nessun deploy o migrazione esterna viene
+dichiarata completata.
