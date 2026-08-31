@@ -57,26 +57,29 @@ const categoriaLabels: Record<string, string> = {
   altro: "Altro",
 };
 
+// Categorie merceologiche sui token di famiglia: pochi gruppi coerenti col
+// resto del CRM (mai un arcobaleno di pastelli locali, illeggibili in dark).
 const categoriaColors: Record<string, string> = {
-  pvc: "bg-blue-100 text-blue-800",
-  alluminio: "bg-sky-100 text-sky-800",
-  vetro: "bg-cyan-100 text-cyan-800",
-  ferramenta: "bg-amber-100 text-amber-800",
-  persiane: "bg-lime-100 text-lime-800",
-  blindati: "bg-stone-100 text-stone-800",
-  accessori: "bg-purple-100 text-purple-800",
-  guarnizioni: "bg-green-100 text-green-800",
-  altro: "bg-gray-100 text-gray-600",
+  pvc: "bg-info-soft text-info",
+  alluminio: "bg-info-soft text-info",
+  vetro: "bg-st-produzione-soft text-st-produzione",
+  ferramenta: "bg-warning-soft text-warning",
+  persiane: "bg-success-soft text-success",
+  blindati: "bg-surface-2 text-text-2",
+  accessori: "bg-st-misure-soft text-st-misure",
+  guarnizioni: "bg-st-contratto-soft text-st-contratto",
+  altro: "bg-surface-2 text-text-2",
 };
 
+// Stati ordine: colore SEMANTICO (progresso/attenzione), mai decorativo.
 const statoOrdineColors: Record<string, string> = {
-  bozza: "bg-gray-100 text-gray-700",
-  inviato: "bg-blue-100 text-blue-800",
-  confermato: "bg-indigo-100 text-indigo-800",
-  in_transito: "bg-amber-100 text-amber-800",
-  ricevuto_parziale: "bg-orange-100 text-orange-800",
-  ricevuto: "bg-green-100 text-green-800",
-  contestato: "bg-red-100 text-red-800",
+  bozza: "bg-surface-2 text-text-2",
+  inviato: "bg-info-soft text-info",
+  confermato: "bg-st-misure-soft text-st-misure",
+  in_transito: "bg-warning-soft text-warning",
+  ricevuto_parziale: "bg-st-ordine-soft text-st-ordine",
+  ricevuto: "bg-success-soft text-success",
+  contestato: "bg-danger-soft text-danger",
 };
 
 export default function FornitoriList() {
@@ -470,7 +473,7 @@ export default function FornitoriList() {
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(f)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => setDeleteTarget({ type: "fornitore", id: f.id, label: f.ragioneSociale })}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:text-danger" onClick={() => setDeleteTarget({ type: "fornitore", id: f.id, label: f.ragioneSociale })}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -553,9 +556,9 @@ export default function FornitoriList() {
                                     <td className="text-right px-2 py-1 font-mono">{r.lotto ?? "—"}</td>
                                     <td className="text-center px-2 py-1">
                                       {r.conforme === true ? (
-                                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 inline" />
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-success inline" />
                                       ) : r.conforme === false ? (
-                                        <AlertTriangle className="h-3.5 w-3.5 text-red-600 inline" />
+                                        <AlertTriangle className="h-3.5 w-3.5 text-danger inline" />
                                       ) : (
                                         "—"
                                       )}
@@ -576,7 +579,7 @@ export default function FornitoriList() {
                             {formatEuroSimbolo(o.importoTotale)}
                           </p>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => setDeleteTarget({ type: "ordine", id: o.id, label: o.codiceOrdine })}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-danger hover:text-danger" onClick={() => setDeleteTarget({ type: "ordine", id: o.id, label: o.codiceOrdine })}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -619,7 +622,7 @@ export default function FornitoriList() {
                         </div>
                         {l.note && <p className="text-xs text-muted-foreground mt-1">{l.note}</p>}
                       </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setDeleteTarget({ type: "listino", id: l.id, label: l.nome })}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-danger" onClick={() => setDeleteTarget({ type: "listino", id: l.id, label: l.nome })}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -878,7 +881,7 @@ export default function FornitoriList() {
                         </td>
                         <td className="px-1 py-1">
                           {ordineForm.righe.length > 1 && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600" onClick={() => removeRiga(idx)}>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-danger" onClick={() => removeRiga(idx)}>
                               <Trash2 className="h-3 w-3" />
                             </Button>
                           )}
