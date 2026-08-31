@@ -168,3 +168,23 @@ quindi dentro il tetto giornaliero con ampio margine. Il tetto morde
 solo in due casi: un uso molto più intenso del previsto (ed è
 un'informazione utile, non un problema da nascondere) oppure un guasto
 che genera chiamate in serie (ed è esattamente ciò contro cui esiste).
+
+### Correzione del 31/08/2026 — le scritture in cache si pagano
+
+Verificando il mapping dell'adapter contro la documentazione viva è
+emerso che su **GPT-5.6 e successivi scrivere in cache costa 1,25× la
+tariffa di input non cachato** (la lettura costa 0,1×, come già
+registrato). Il catalogo non lo prevedeva: il ledger sotto-contabilizzava
+fino al 25% su ogni prompt nuovo, e la stima non era più il soffitto
+dichiarato.
+
+Corretto in `1834919`. Conseguenza pratica sui numeri di questa pagina:
+il costo atteso di un run tipico non cambia in modo sensibile (le
+scritture riguardano il primo passaggio di un prefisso nuovo, non i
+successivi), ma la PRENOTAZIONE per chiamata sale del 25%, perché ora
+assume la tariffa più cara. Al contesto massimo la stima peggiore passa
+da ≈0,72 a ≈0,90 USD, sempre sotto il tetto per-run di 2,00.
+
+Vale la pena notarlo per il futuro: il dato `cache_write_tokens` veniva
+già letto, sommato e registrato in telemetria da settimane. Mancava solo
+il moltiplicatore. Un numero raccolto non è un numero controllato.
