@@ -1602,6 +1602,9 @@ del riuso settled ricevono lo stesso input materializzato. Le richieste legacy
 senza collegamenti mantengono la canonical key byte-identica. Dopo un effetto
 settled, un guasto del solo apprendimento contesto viene registrato come
 omissione e non può nascondere l'azione riuscita né renderla ritentabile.
+Un esito `non_eseguito` successivo alla reservation chiude invece la generazione
+append-only come `no_effect`: non viene riusato da R1/C1 e un retry apre una
+nuova reservation, restando deduplicato rispetto ai retry concorrenti.
 
 Contratti API compatibili: `tars.stato` continua ad accettare nessun input e
 può ricevere opzionalmente `conversazioneId`; `contestoAttivo` e

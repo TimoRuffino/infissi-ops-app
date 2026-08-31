@@ -3,7 +3,11 @@ import { kvSql } from "../../_core/persistence";
 import type { ContestoRun, EsitoAzione } from "../strumenti/tipi";
 import type { DescrittoreAzioneTars } from "./types";
 
-export type StatoEsecuzioneR1 = "reserved" | "settled" | "uncertain";
+export type StatoEsecuzioneR1 =
+  | "reserved"
+  | "settled"
+  | "no_effect"
+  | "uncertain";
 
 export type RigaEsecuzioneR1 = {
   id: number;
@@ -44,6 +48,11 @@ export type LedgerEsecuzioniR1 = {
     esito: EsitoAzione;
     audit: RigaEsecuzioneR1["audit"];
     compensazione: RigaEsecuzioneR1["compensazione"];
+    createdAt: Date;
+  }): Promise<RigaEsecuzioneR1>;
+  concludiSenzaEffetto(input: {
+    idempotencyKey: string;
+    esito: EsitoAzione;
     createdAt: Date;
   }): Promise<RigaEsecuzioneR1>;
   segnaIncerta(input: {
@@ -102,7 +111,7 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
       await kvSql!`CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni_eventi (
         id BIGSERIAL PRIMARY KEY,
         esecuzione_id BIGINT NOT NULL REFERENCES tars_azioni_esecuzioni(id),
-        stato TEXT NOT NULL CHECK (stato IN ('reserved','settled','uncertain')),
+        stato TEXT NOT NULL CHECK (stato IN ('reserved','settled','no_effect','uncertain')),
         versione_oggetto TEXT,
         esito TEXT,
         risultato JSONB,
@@ -111,6 +120,23 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
         motivo TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`;
+      await kvSql!.unsafe(`DO $tars_r1_schema$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conrelid = 'tars_azioni_esecuzioni_eventi'::regclass
+              AND conname = 'tars_azioni_esecuzioni_eventi_stato_check'
+              AND pg_get_constraintdef(oid) LIKE '%no_effect%'
+          ) THEN
+            ALTER TABLE tars_azioni_esecuzioni_eventi
+              DROP CONSTRAINT IF EXISTS tars_azioni_esecuzioni_eventi_stato_check;
+            ALTER TABLE tars_azioni_esecuzioni_eventi
+              ADD CONSTRAINT tars_azioni_esecuzioni_eventi_stato_check
+              CHECK (stato IN ('reserved','settled','no_effect','uncertain'));
+          END IF;
+        END
+        $tars_r1_schema$;`);
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_azioni_esecuzioni_sede_idx
         ON tars_azioni_esecuzioni (sede_id, created_at DESC)`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_azioni_esecuzioni_run_idx
@@ -201,6 +227,11 @@ function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
         if (!base) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente al settle.");
         const corrente = await leggi(tx, input.idempotencyKey);
         if (corrente?.stato === "settled") return corrente;
+        if (corrente?.stato === "no_effect") {
+          throw new Error(
+            "LEDGER_ESECUZIONE_SENZA_EFFETTO: non si può fare settle dopo una chiusura no-effect."
+          );
+        }
         if (corrente?.stato === "uncertain") {
           throw new Error("LEDGER_ESECUZIONE_INCERTA: non si può chiudere un'esecuzione incerta.");
         }
@@ -219,6 +250,43 @@ function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
       });
     },
 
+    async concludiSenzaEffetto(input) {
+      const db = sql();
+      await ensureEsecuzioniR1Schema();
+      return db.begin(async tx => {
+        const [base] = await tx`SELECT id FROM tars_azioni_esecuzioni
+          WHERE idempotency_key = ${input.idempotencyKey} FOR UPDATE`;
+        if (!base) {
+          throw new Error(
+            "LEDGER_ESECUZIONI_INCOERENTE: reservation assente alla chiusura no-effect."
+          );
+        }
+        const corrente = await leggi(tx, input.idempotencyKey);
+        if (corrente?.stato === "no_effect") return corrente;
+        if (corrente?.stato === "settled" || corrente?.stato === "uncertain") {
+          throw new Error(
+            "LEDGER_ESECUZIONE_TERMINALE: non si può registrare no-effect dopo la chiusura."
+          );
+        }
+        await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
+            esecuzione_id, stato, esito, risultato, audit, compensazione,
+            motivo, created_at
+          ) VALUES (
+            ${base.id}, ${"no_effect"}, ${input.esito.stato},
+            ${tx.json(input.esito as any)}, ${tx.json(AUDIT_VUOTO)},
+            ${tx.json(COMPENSAZIONE_VUOTA)}, ${input.esito.motivo},
+            ${input.createdAt}
+          )`;
+        const riga = await leggi(tx, input.idempotencyKey);
+        if (!riga) {
+          throw new Error(
+            "LEDGER_ESECUZIONI_INCOERENTE: chiusura no-effect non rileggibile."
+          );
+        }
+        return riga;
+      });
+    },
+
     async segnaIncerta(input) {
       const db = sql();
       await ensureEsecuzioniR1Schema();
@@ -227,7 +295,11 @@ function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
           WHERE idempotency_key = ${input.idempotencyKey} FOR UPDATE`;
         if (!base) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per uncertain.");
         const corrente = await leggi(tx, input.idempotencyKey);
-        if (corrente?.stato === "settled" || corrente?.stato === "uncertain") {
+        if (
+          corrente?.stato === "settled" ||
+          corrente?.stato === "no_effect" ||
+          corrente?.stato === "uncertain"
+        ) {
           return corrente;
         }
         await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
@@ -324,6 +396,9 @@ export function creaLedgerEsecuzioniMemoriaPerTest(): LedgerEsecuzioniR1 {
       if (!prenotazione) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente al settle.");
       const corrente = proietta(prenotazione);
       if (corrente.stato === "settled") return corrente;
+      if (corrente.stato === "no_effect") {
+        throw new Error("LEDGER_ESECUZIONE_SENZA_EFFETTO");
+      }
       if (corrente.stato === "uncertain") throw new Error("LEDGER_ESECUZIONE_INCERTA");
       eventiPerChiave.get(input.idempotencyKey)!.push({
         stato: "settled",
@@ -336,13 +411,42 @@ export function creaLedgerEsecuzioniMemoriaPerTest(): LedgerEsecuzioniR1 {
       return proietta(prenotazione);
     },
 
+    async concludiSenzaEffetto(input) {
+      const prenotazione = prenotazioni.find(
+        r => r.idempotencyKey === input.idempotencyKey
+      );
+      if (!prenotazione) {
+        throw new Error(
+          "LEDGER_ESECUZIONI_INCOERENTE: reservation assente alla chiusura no-effect."
+        );
+      }
+      const corrente = proietta(prenotazione);
+      if (corrente.stato === "no_effect") return corrente;
+      if (corrente.stato === "settled" || corrente.stato === "uncertain") {
+        throw new Error("LEDGER_ESECUZIONE_TERMINALE");
+      }
+      eventiPerChiave.get(input.idempotencyKey)!.push({
+        stato: "no_effect",
+        versioneOggetto: null,
+        esito: input.esito,
+        audit: AUDIT_VUOTO,
+        compensazione: COMPENSAZIONE_VUOTA,
+        createdAt: input.createdAt,
+      });
+      return proietta(prenotazione);
+    },
+
     async segnaIncerta(input) {
       const prenotazione = prenotazioni.find(
         r => r.idempotencyKey === input.idempotencyKey
       );
       if (!prenotazione) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per uncertain.");
       const corrente = proietta(prenotazione);
-      if (corrente.stato === "settled" || corrente.stato === "uncertain") return corrente;
+      if (
+        corrente.stato === "settled" ||
+        corrente.stato === "no_effect" ||
+        corrente.stato === "uncertain"
+      ) return corrente;
       eventiPerChiave.get(input.idempotencyKey)!.push({
         stato: "uncertain",
         versioneOggetto: null,
@@ -472,7 +576,19 @@ export async function prenotaEsecuzioneR1(input: {
     if (prenotazione.tipo === "prenotata") {
       return { tipo: "esegui", idempotencyKey };
     }
+    if (prenotazione.riga.stato === "no_effect") {
+      idempotencyKey = `r1:${createHash("sha256")
+        .update(`${chiaveBase}:dopo:${prenotazione.riga.id}`)
+        .digest("hex")}`;
+      continue;
+    }
     if (prenotazione.riga.stato === "settled" && prenotazione.riga.risultato) {
+      if (prenotazione.riga.risultato.stato === "non_eseguito") {
+        idempotencyKey = `r1:${createHash("sha256")
+          .update(`${chiaveBase}:dopo:${prenotazione.riga.id}`)
+          .digest("hex")}`;
+        continue;
+      }
       const verifica = input.descrittore.idempotenza.esitoAncoraValido;
       const ancoraValido = verifica
         ? await verifica(
@@ -534,6 +650,16 @@ export async function concludiEsecuzioneR1(input: {
       disponibile: input.esito.undoDisponibile,
       via: viaCompensazione(input.esito),
     },
+    createdAt: new Date(),
+  });
+}
+
+export async function concludiEsecuzioneR1SenzaEffetto(input: {
+  idempotencyKey: string;
+  esito: EsitoAzione;
+}): Promise<RigaEsecuzioneR1> {
+  return ledgerEsecuzioniCorrente().concludiSenzaEffetto({
+    ...input,
     createdAt: new Date(),
   });
 }

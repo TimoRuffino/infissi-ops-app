@@ -295,6 +295,26 @@ describe("policy dinamica del catalogo", () => {
 });
 
 describe("ledger append-only delle esecuzioni R1", () => {
+  it("un risultato legacy non_eseguito senza id non è un effetto riusabile", async () => {
+    const verifica = descrittoreAzione("crea_promemoria")!
+      .idempotenza.esitoAncoraValido!;
+    const esito = {
+      ...azioneDiTest("crea_promemoria", "audit:no-effect", 12),
+      stato: "non_eseguito",
+      motivo: "la commessa è cambiata",
+      azioneId: null,
+      auditId: null,
+      entitaToccate: [],
+      dopo: null,
+      undoDisponibile: false,
+      undoEntro: null,
+      undoVia: null,
+      dati: null,
+    } as const;
+
+    await expect(verifica(contesto(), {}, esito)).resolves.toBe(false);
+  });
+
   it("prenota prima dell'esito e persiste transizioni append-only", async () => {
     const ledger = creaLedgerEsecuzioniMemoriaPerTest();
     const prenotazione = {

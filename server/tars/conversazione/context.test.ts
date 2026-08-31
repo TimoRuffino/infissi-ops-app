@@ -903,10 +903,14 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
   });
 
   it("mappa esplicitamente esiti mutativi, no-op e fallimenti parziali", () => {
-    const azione = (stato: string, conferma: AzioneRun["conferma"] = null): AzioneRun => ({
+    const azione = (
+      stato: string,
+      conferma: AzioneRun["conferma"] = null,
+      motivo: string | null = null
+    ): AzioneRun => ({
       strumento: "test",
       stato,
-      motivo: null,
+      motivo,
       entitaToccate: [],
       undoDisponibile: false,
       undoVia: null,
@@ -918,9 +922,30 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
     expect(derivaStatoOperativo({ azioni: [azione("gia_esistente")] }).stato).toBe("Non eseguito");
     expect(derivaStatoOperativo({ azioni: [azione("non_necessaria")] }).stato).toBe("Non eseguito");
     expect(derivaStatoOperativo({
+      azioni: [
+        azione("creato"),
+        azione("non_eseguito", null, "secondo passo fallito"),
+      ],
+    })).toMatchObject({
+      stato: "Non eseguito",
+      motivo: "secondo passo fallito",
+    });
+    expect(derivaStatoOperativo({
+      azioni: [
+        azione("non_eseguito", null, "primo passo fallito"),
+        azione("creato"),
+      ],
+    })).toMatchObject({
+      stato: "Non eseguito",
+      motivo: "primo passo fallito",
+    });
+    expect(derivaStatoOperativo({
       azioni: [azione("creato")],
       erroriStrumenti: 1,
-    }).stato).toBe("Bloccato");
+    })).toMatchObject({
+      stato: "Bloccato",
+      motivo: "uno o più strumenti non hanno prodotto un esito valido",
+    });
     expect(derivaStatoOperativo({
       azioni: [azione("proposta", {
         via: "proposte.approvaEApplica",
@@ -1138,7 +1163,7 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
     })).toHaveLength(0);
   });
 
-  it("rilegge la versione anche dopo la reservation e prima dell'effetto reminder", async () => {
+  it("un no-effect dopo reservation viene rivalutato dal retry con la nuova versione", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-08-31T08:00:00.000Z"));
     const repo = createMemoryReminderRepository();
@@ -1173,7 +1198,7 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
         return esito;
       },
     });
-    const risposta = await eseguiRun({
+    const prima = await eseguiRun({
       contesto: contestoRun(),
       provider: creaProviderFinto((_r, passo) => passo === 0
         ? chiamataTool("crea_promemoria", { testo: "TOCTOU", quando: "tra un'ora" })
@@ -1181,7 +1206,7 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
       messaggio: "Imposta promemoria TOCTOU",
       conversazioneId: conversazione.id,
     });
-    expect(risposta.statoOperativo?.stato).toBe("Non eseguito");
+    expect(prima.statoOperativo?.stato).toBe("Non eseguito");
     expect(await repo.listPersonal({
       sedeId: SEDE,
       recipientUserId: UTENTE,
@@ -1189,5 +1214,134 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
       ordina: "remindAt",
       limit: 10,
     })).toHaveLength(0);
+    const dopoPrimo = await caricaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+    });
+    await salvaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      versioneAttesa: dopoPrimo!.versione,
+      patch: {
+        versioniEntita: {
+          ...dopoPrimo!.versioniEntita,
+          [`commessa:${COMMESSA_A}`]: String(commessa.updatedAt.getTime()),
+        },
+      },
+    });
+
+    const seconda = await eseguiRun({
+      contesto: contestoRun(),
+      provider: creaProviderFinto((_r, passo) => passo === 0
+        ? chiamataTool("crea_promemoria", { testo: "TOCTOU", quando: "tra un'ora" })
+        : rispostaTesto("Creato.")),
+      messaggio: "Imposta promemoria TOCTOU",
+      conversazioneId: conversazione.id,
+    });
+    expect(seconda.statoOperativo?.stato).toBe("Fatto");
+    expect(await repo.listPersonal({
+      sedeId: SEDE,
+      recipientUserId: UTENTE,
+      stati: ["scheduled"],
+      ordina: "remindAt",
+      limit: 10,
+    })).toHaveLength(1);
+    const righe = await base.lista({ sedeId: SEDE });
+    expect(righe.map(riga => riga.stato)).toEqual([
+      "no_effect",
+      "settled",
+    ]);
+    expect(await base.eventi(righe[0].idempotencyKey)).toEqual([
+      "reserved",
+      "no_effect",
+    ]);
+    expect(await base.eventi(righe[1].idempotencyKey)).toEqual([
+      "reserved",
+      "settled",
+    ]);
+  });
+
+  it("due retry concorrenti dopo no-effect rivalutano una volta senza duplicare", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-31T08:00:00.000Z"));
+    const repo = createMemoryReminderRepository();
+    setReminderServiceForTesting(createReminderService({
+      reminders: repo,
+      notifications: createMemoryNotificationRepository(),
+    }));
+    const conversazione = await nuovaConversazione();
+    const commessa = (getCommesseStore() as any[]).find(c => c.id === COMMESSA_A)!;
+    await salvaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      versioneAttesa: 0,
+      patch: {
+        commessaId: COMMESSA_A,
+        clienteId: CLIENTE_A,
+        superficie: "commessa",
+        versioniEntita: { [`commessa:${COMMESSA_A}`]: String(commessa.updatedAt.getTime()) },
+      },
+    });
+    const base = creaLedgerEsecuzioniMemoriaPerTest();
+    let mutata = false;
+    impostaLedgerEsecuzioniPerTest({
+      ...base,
+      async prenota(input) {
+        const esito = await base.prenota(input);
+        if (!mutata && esito.tipo === "prenotata") {
+          mutata = true;
+          commessa.updatedAt = new Date(commessa.updatedAt.getTime() + 1_000);
+        }
+        return esito;
+      },
+    });
+    const esegui = () => eseguiRun({
+      contesto: contestoRun(),
+      provider: creaProviderFinto((_r, passo) => passo === 0
+        ? chiamataTool("crea_promemoria", { testo: "TOCTOU concorrente", quando: "tra un'ora" })
+        : rispostaTesto("Esito registrato.")),
+      messaggio: "Imposta promemoria TOCTOU concorrente",
+      conversazioneId: conversazione.id,
+    });
+
+    const prima = await esegui();
+    expect(prima.statoOperativo?.stato).toBe("Non eseguito");
+    const dopoPrimo = await caricaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+    });
+    await salvaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+      versioneAttesa: dopoPrimo!.versione,
+      patch: {
+        versioniEntita: {
+          ...dopoPrimo!.versioniEntita,
+          [`commessa:${COMMESSA_A}`]: String(commessa.updatedAt.getTime()),
+        },
+      },
+    });
+
+    const retry = await Promise.all([esegui(), esegui()]);
+    expect(retry.map(risposta => risposta.statoOperativo?.stato).sort()).toEqual([
+      "Bloccato",
+      "Fatto",
+    ]);
+    expect(await repo.listPersonal({
+      sedeId: SEDE,
+      recipientUserId: UTENTE,
+      stati: ["scheduled"],
+      ordina: "remindAt",
+      limit: 10,
+    })).toHaveLength(1);
+    expect((await base.lista({ sedeId: SEDE })).map(riga => riga.stato)).toEqual([
+      "no_effect",
+      "settled",
+    ]);
   });
 });

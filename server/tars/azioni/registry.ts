@@ -167,10 +167,11 @@ const METADATI: Record<string, Metadati> = {
     true,
     false,
     async (contesto, argomenti, esito) => {
+      if (esito.stato === "non_eseguito") return false;
       const id = esito.undoVia?.procedura === "promemoria.cancel"
         ? esito.undoVia.id
         : null;
-      if (id == null) return true;
+      if (id == null) return false;
       const promemoria = await getReminderService().get({
         sedeId: contesto.sedeId,
         recipientUserId: contesto.utenteId,

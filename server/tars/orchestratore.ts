@@ -31,6 +31,7 @@ import { descrittoreAzione } from "./azioni/registry";
 import {
   azzeraLedgerEsecuzioniPerTest,
   concludiEsecuzioneR1,
+  concludiEsecuzioneR1SenzaEffetto,
   prenotaEsecuzioneR1,
   segnaEsecuzioneR1Incerta,
 } from "./azioni/executions";
@@ -111,6 +112,16 @@ export function derivaStatoOperativo(input: {
       motivo: "uno o più strumenti non hanno prodotto un esito valido",
     };
   }
+  const nonEseguita = input.azioni.find(
+    azione => azione.stato === "non_eseguito"
+  );
+  if (nonEseguita) {
+    return {
+      stato: "Non eseguito",
+      fonte: "esiti_tool",
+      motivo: nonEseguita.motivo,
+    };
+  }
   const daConfermare = input.azioni.find(azione => azione.conferma != null);
   if (daConfermare) {
     return {
@@ -134,12 +145,12 @@ export function derivaStatoOperativo(input: {
   if (mutativa) {
     return { stato: "Fatto", fonte: "esiti_tool", motivo: null };
   }
-  const nonEseguita = input.azioni[0];
-  if (nonEseguita) {
+  const nonMutativa = input.azioni[0];
+  if (nonMutativa) {
     return {
       stato: "Non eseguito",
       fonte: "esiti_tool",
-      motivo: nonEseguita.motivo,
+      motivo: nonMutativa.motivo,
     };
   }
   return { stato: "Preparato", fonte: "provider", motivo: null };
@@ -875,6 +886,7 @@ export async function eseguiRun(input: {
         } else {
           c1Miss += 1;
           strumentiUsati.push(strumento.nome);
+          let riusabileC1 = true;
           try {
             const grezzi = JSON.parse(chiamata.argomenti || "{}");
             const validati = strumento.schemaInput.parse(grezzi);
@@ -931,11 +943,20 @@ export async function eseguiRun(input: {
                   prenotazione.tipo === "esegui" &&
                   (esito as EsitoAzione)?.tipo === "azione"
                 ) {
+                  const azione = esito as EsitoAzione;
                   try {
-                    await concludiEsecuzioneR1({
-                      idempotencyKey: prenotazione.idempotencyKey,
-                      esito: esito as EsitoAzione,
-                    });
+                    if (azione.stato === "non_eseguito") {
+                      riusabileC1 = false;
+                      await concludiEsecuzioneR1SenzaEffetto({
+                        idempotencyKey: prenotazione.idempotencyKey,
+                        esito: azione,
+                      });
+                    } else {
+                      await concludiEsecuzioneR1({
+                        idempotencyKey: prenotazione.idempotencyKey,
+                        esito: azione,
+                      });
+                    }
                   } catch (errore) {
                     try {
                       await segnaEsecuzioneR1Incerta({
@@ -949,7 +970,9 @@ export async function eseguiRun(input: {
                       );
                     }
                     throw new Error(
-                      "ESECUZIONE_INCERTA: l'effetto può essere avvenuto ma il ledger non ha confermato il settle; il retry è bloccato."
+                      azione.stato === "non_eseguito"
+                        ? "ESECUZIONE_INCERTA: nessun effetto è stato prodotto ma il ledger non ha confermato la chiusura; il retry è bloccato."
+                        : "ESECUZIONE_INCERTA: l'effetto può essere avvenuto ma il ledger non ha confermato il settle; il retry è bloccato."
                     );
                   }
                 }
@@ -962,6 +985,7 @@ export async function eseguiRun(input: {
             }
             if ((esito as EsitoAzione)?.tipo === "azione") {
               const azione = esito as EsitoAzione;
+              if (azione.stato === "non_eseguito") riusabileC1 = false;
               azioni.push({
                 strumento: azione.strumento,
                 stato: azione.stato,
@@ -1011,7 +1035,7 @@ export async function eseguiRun(input: {
           if (esitoTesto.startsWith("ERRORE")) erroriStrumenti += 1;
           // Spec §10 C1: niente errori cachati — un retry identico del
           // modello deve poter rieseguire dopo un errore transitorio.
-          if (!esitoTesto.startsWith("ERRORE")) {
+          if (!esitoTesto.startsWith("ERRORE") && riusabileC1) {
             cacheC1.set(chiaveC1, esitoTesto);
           }
         }
