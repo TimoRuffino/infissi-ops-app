@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import DataSurface from "@/components/patterns/DataSurface";
+import PageHeader from "@/components/patterns/PageHeader";
 import {
   Select,
   SelectContent,
@@ -38,10 +40,7 @@ const CATEGORIE: Array<{ value: string; label: string }> = [
   { value: "preferenze_comunicazione", label: "Comunicazione" },
 ];
 
-type Editing =
-  | { mode: "create" }
-  | { mode: "edit"; voce: any }
-  | null;
+type Editing = { mode: "create" } | { mode: "edit"; voce: any } | null;
 
 export default function Conoscenza() {
   const utils = trpc.useUtils();
@@ -59,14 +58,14 @@ export default function Conoscenza() {
       setEditing(null);
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const update = trpc.conoscenza.update.useMutation({
     onSuccess: () => {
       setEditing(null);
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
   const remove = trpc.conoscenza.delete.useMutation({
     onSuccess: () => {
@@ -74,7 +73,7 @@ export default function Conoscenza() {
       setDaEliminare(null);
       invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: e => toast.error(e.message),
   });
 
   const apriCreate = () => {
@@ -106,76 +105,100 @@ export default function Conoscenza() {
   const rows = voci.data ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-5 w-5" />
-          <h1 className="text-xl font-semibold">Conoscenza aziendale</h1>
-          <Badge variant="secondary">{rows.length} voci</Badge>
-        </div>
-        <Button size="sm" onClick={apriCreate}>
-          <Plus className="h-4 w-4 mr-1" />
-          Nuova voce
-        </Button>
-      </div>
+    <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5">
+      <PageHeader
+        eyebrow="Amministrazione"
+        title="Conoscenza aziendale"
+        description="Regole, convenzioni e preferenze scritte dalle persone: una fonte interna consultabile e governata."
+        metadata={
+          <span>
+            {rows.length} {rows.length === 1 ? "voce" : "voci"}
+          </span>
+        }
+        primaryAction={
+          <Button onClick={apriCreate}>
+            <Plus className="h-4 w-4" /> Nuova voce
+          </Button>
+        }
+      />
 
-      <p className="text-sm text-muted-foreground max-w-2xl">
-        Il registro delle regole e convenzioni aziendali, scritto dalle
-        persone: procedure, fornitori, accordi, terminologia. Oggi è
-        consultazione interna; quando il nuovo agente sarà attivo, leggerà da
-        qui le regole che prevalgono sulle sue assunzioni.
-      </p>
-
-      {rows.length === 0 && !voci.isLoading && (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            Ancora nessuna voce. Comincia con 10–15 regole: piano pagamenti
-            standard, convenzioni sui nomi dei file, particolarità dei
-            fornitori, clienti con preferenze note.
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="space-y-2">
-        {rows.map((v: any) => (
-          <Card key={v.id} className={v.attiva ? "" : "opacity-60"}>
-            <CardContent className="py-3 flex items-start justify-between gap-3">
-              <div className="min-w-0 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline">
-                    {CATEGORIE.find((c) => c.value === v.categoria)?.label ?? v.categoria}
-                  </Badge>
-                  <span className="font-medium text-sm">{v.titolo}</span>
+      <DataSurface
+        density="comfortable"
+        tone="default"
+        title="Registro delle regole"
+        description="Le voci inattive restano visibili alla direzione ma non devono alimentare i flussi operativi."
+        state={
+          voci.isLoading
+            ? {
+                kind: "loading",
+                title: "Caricamento conoscenza",
+                description: "Sto preparando le regole aziendali.",
+                rows: 3,
+              }
+            : rows.length === 0
+              ? {
+                  kind: "empty",
+                  title: "Ancora nessuna voce",
+                  description:
+                    "Comincia dalle convenzioni che devono restare condivise nel tempo.",
+                  action: (
+                    <Button onClick={apriCreate}>
+                      <Plus className="h-4 w-4" /> Nuova voce
+                    </Button>
+                  ),
+                }
+              : undefined
+        }
+      >
+        <div className="space-y-2">
+          {rows.map((v: any) => (
+            <Card key={v.id} className={v.attiva ? "" : "opacity-60"}>
+              <CardContent className="py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline">
+                      {CATEGORIE.find(c => c.value === v.categoria)?.label ??
+                        v.categoria}
+                    </Badge>
+                    <span className="font-medium text-sm">{v.titolo}</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {v.contenuto}
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {v.contenuto}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Switch
-                  checked={v.attiva}
-                  onCheckedChange={(attiva) =>
-                    update.mutate({ id: v.id, attiva })
-                  }
-                  title={v.attiva ? "Attiva" : "Disattivata"}
-                />
-                <Button size="icon" variant="ghost" onClick={() => apriEdit(v)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setDaEliminare(v)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Switch
+                    checked={v.attiva}
+                    onCheckedChange={attiva =>
+                      update.mutate({ id: v.id, attiva })
+                    }
+                    title={v.attiva ? "Attiva" : "Disattivata"}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => apriEdit(v)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setDaEliminare(v)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </DataSurface>
 
-      <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
+      <Dialog
+        open={editing !== null}
+        onOpenChange={o => !o && setEditing(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -190,7 +213,7 @@ export default function Conoscenza() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIE.map((c) => (
+                  {CATEGORIE.map(c => (
                     <SelectItem key={c.value} value={c.value}>
                       {c.label}
                     </SelectItem>
@@ -202,7 +225,7 @@ export default function Conoscenza() {
               <Label>Titolo</Label>
               <Input
                 value={titolo}
-                onChange={(e) => setTitolo(e.target.value)}
+                onChange={e => setTitolo(e.target.value)}
                 placeholder="Es. Piano pagamenti standard"
               />
             </div>
@@ -210,7 +233,7 @@ export default function Conoscenza() {
               <Label>Contenuto</Label>
               <Textarea
                 value={contenuto}
-                onChange={(e) => setContenuto(e.target.value)}
+                onChange={e => setContenuto(e.target.value)}
                 rows={4}
                 placeholder="Es. 50% alla firma, 40% a merce pronta, 10% a saldo posa. Deroghe solo con approvazione della direzione."
               />
@@ -222,8 +245,10 @@ export default function Conoscenza() {
               <Button
                 onClick={salva}
                 disabled={
-                  !titolo.trim() || !contenuto.trim() ||
-                  create.isPending || update.isPending
+                  !titolo.trim() ||
+                  !contenuto.trim() ||
+                  create.isPending ||
+                  update.isPending
                 }
               >
                 Salva

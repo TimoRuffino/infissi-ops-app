@@ -23,11 +23,22 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/<DataSurface/);
     expect(source).toMatch(/min-h-11 min-w-11/);
-    expect(source).toMatch(/<Button className="min-h-11" onClick=\{openCreate\}/);
+    expect(source).toMatch(
+      /<Button className="min-h-11" onClick=\{openCreate\}/
+    );
   });
 
   it("compone l'archivio con header e superfici del sistema", () => {
     const source = routeSource("../pages/Archivio.tsx");
+
+    expect(source).toMatch(/import PageHeader/);
+    expect(source).toMatch(/import DataSurface/);
+    expect(source).toMatch(/<PageHeader/);
+    expect(source).toMatch(/<DataSurface/);
+  });
+
+  it("compone la conoscenza aziendale con header e superfici del sistema", () => {
+    const source = routeSource("../pages/Conoscenza.tsx");
 
     expect(source).toMatch(/import PageHeader/);
     expect(source).toMatch(/import DataSurface/);
