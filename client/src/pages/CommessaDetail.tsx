@@ -93,7 +93,7 @@ const tipoDocColors: Record<string, string> = {
   ddt_posa: "bg-st-produzione-soft text-st-produzione",
   ddt_finale: "bg-st-produzione-soft text-st-produzione",
   saldo: "bg-st-pagamento-soft text-st-pagamento",
-  foto: "bg-pink-100 text-pink-800",
+  foto: "bg-st-contratto-soft text-st-contratto",
   documento_identita: "bg-surface-2 text-text-2",
   visura: "bg-surface-2 text-text-2",
   planimetria: "bg-st-misure-soft text-st-misure",
