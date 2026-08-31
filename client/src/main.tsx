@@ -3,9 +3,16 @@ import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
+import type { ReactNode } from "react";
 import superjson from "superjson";
 import App from "./App";
+import { ContextTransitionScreen } from "./components/DashboardLayoutSkeleton";
 import { getLoginUrl } from "./const";
+import {
+  OperationalContextProvider,
+  useOperationalContext,
+} from "./contexts/OperationalContext";
+import { UiGenerationProvider } from "./contexts/UiGenerationContext";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -96,10 +103,24 @@ function installAnalytics() {
 
 installAnalytics();
 
+function OperationalGate({ children }: { children: ReactNode }) {
+  const { status, error } = useOperationalContext();
+  if (status !== "ready") {
+    return <ContextTransitionScreen status={status} error={error} />;
+  }
+  return children;
+}
+
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <OperationalContextProvider>
+        <UiGenerationProvider>
+          <OperationalGate>
+            <App />
+          </OperationalGate>
+        </UiGenerationProvider>
+      </OperationalContextProvider>
     </QueryClientProvider>
   </trpc.Provider>
 );

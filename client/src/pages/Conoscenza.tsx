@@ -238,6 +238,7 @@ export default function Conoscenza() {
         onOpenChange={(o: boolean) => !o && setDaEliminare(null)}
         title="Eliminare la voce?"
         description={`«${daEliminare?.titolo}» — se vuoi solo sospenderla, disattivala con l'interruttore.`}
+        confirmLabel="Elimina voce"
         onConfirm={() => daEliminare && remove.mutate(daEliminare.id)}
       />
     </div>

@@ -1950,6 +1950,28 @@ Ogni pagina è importata con `React.lazy` e caricata dentro un `Suspense` stabil
 ### 52.4 Umami
 Lo script Umami viene installato soltanto in produzione, con endpoint HTTP(S) valido e website id presenti. Ha un id univoco per evitare duplicati, usa `async`/`defer` e si rimuove in caso di errore di caricamento. In sviluppo non deve generare richieste o warning console.
 
+### 52.5 UI v2 «Frame & Flow» (dietro `FLAG_UI_V2`)
+Redesign avviato il 31/08/2026 sul branch `feature/ui-v2-frame-flow`; dossier
+vincolante in `docs/design/ruffino-flow-ui-v2.md` (+ token, motion, responsive,
+matrice pagine, gate anti-slop). Contratto:
+
+- `FLAG_UI_V2` è un interruttore fail-closed del registro
+  `server/platform/interruttori.ts`: acceso di default solo in
+  development/test, spento in produzione finché la variabile non viene
+  impostata. Governa esclusivamente skin e shell del client: nessun percorso
+  server, nessuna query, nessuna mutation dipende dal suo valore.
+- Il client applica `data-ui-v2` alla radice leggendo
+  `platform.interruttori`; senza attributo la resa resta la v1. I token
+  vivono in quattro quadranti espliciti (`:root`, `.dark`, `[data-ui-v2]`,
+  `[data-ui-v2].dark`) e ogni coppia testo/sfondo è verificata WCAG
+  (tabella in `docs/design/ruffino-flow-tokens.md`).
+- Identità v2: canvas caldo, inchiostro, giallo Ruffino `#F2B705` come
+  accento (il «giallo saturo» di §52.1, finora mai implementato), petrolio
+  strutturale, warning ambra distinto dal brand, famiglie di stato a 7
+  gruppi con etichette invariate, gradienti decorativi assenti.
+- Rollback: rimuovere la variabile e ridistribuire; nessuna migrazione
+  dati, nessun cambio di comportamento.
+
 ---
 
 ## 53. Piattaforma operativa

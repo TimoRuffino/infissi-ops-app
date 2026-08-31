@@ -157,7 +157,7 @@ export default function CaselleEmailCard() {
         </p>
 
         {!chiaveOk && (
-          <div className="flex items-start gap-2 text-amber-600 dark:text-amber-500 text-xs">
+          <div className="flex items-start gap-2 text-warning text-xs">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               <code>MAIL_ENCRYPTION_KEY</code> non configurata sul server. Serve
@@ -179,7 +179,7 @@ export default function CaselleEmailCard() {
                   {c.ultimoErrore ? (
                     <Badge variant="destructive" className="text-xs">Errore</Badge>
                   ) : c.attiva ? (
-                    <Badge className="bg-green-600 hover:bg-green-600 text-xs">Attiva</Badge>
+                    <Badge className="bg-success hover:bg-success text-on-success text-xs">Attiva</Badge>
                   ) : (
                     <Badge variant="secondary" className="text-xs">Spenta</Badge>
                   )}

@@ -16,7 +16,9 @@ export default function ConfirmDialog({
   description,
   onConfirm,
   destructive = true,
-  confirmLabel = "Elimina",
+  confirmLabel,
+  cancelLabel = "Annulla",
+  busy = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -24,20 +26,30 @@ export default function ConfirmDialog({
   description: string;
   onConfirm: () => void;
   destructive?: boolean;
-  confirmLabel?: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  busy?: boolean;
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        aria-busy={busy || undefined}
+        className="rounded-[var(--radius-dialog)] border-border-soft bg-surface-raised shadow-[var(--shadow-modal)]"
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Annulla</AlertDialogCancel>
+        <AlertDialogFooter className="flex-col sm:flex-row">
+          <AlertDialogCancel className="h-11 sm:h-10" disabled={busy}>
+            {cancelLabel}
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            className={destructive ? "bg-red-600 hover:bg-red-700" : ""}
+            disabled={busy}
+            className={`h-11 sm:h-10 ${
+              destructive ? "bg-danger hover:bg-danger/90 text-on-danger" : ""
+            }`}
           >
             {confirmLabel}
           </AlertDialogAction>

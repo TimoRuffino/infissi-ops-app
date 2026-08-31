@@ -348,7 +348,7 @@ export default function Magazzino() {
             <button
               key={c.id}
               onClick={() => setDetailFor(c.id)}
-              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              className={`relative flex min-h-[230px] flex-col gap-2.5 rounded-xl border-2 bg-surface p-5 text-left transition-all hover:border-border-strong hover:shadow-sm ${
                 late > 0
                   ? "border-danger/50"
                   : complete
@@ -649,6 +649,7 @@ export default function Magazzino() {
         onOpenChange={(o: boolean) => !o && setDeleteTarget(null)}
         title="Elimina prodotto"
         description={`Rimuovere "${deleteTarget?.nome}" dal magazzino della commessa?`}
+        confirmLabel="Rimuovi prodotto"
         onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
       />
     </div>
@@ -824,7 +825,7 @@ function ProdottoRow({
 
       {/* Level 2: editable note */}
       <div className="flex items-start gap-1.5">
-        <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-500 mt-[7px]" />
+        <StickyNote className="h-3.5 w-3.5 shrink-0 text-warning mt-[7px]" />
         <Input
           placeholder="Aggiungi nota…"
           value={noteDraft ?? (p.note ?? "")}

@@ -64,12 +64,29 @@ describe("pagina Produzione rimossa — navigazione e collegamenti", () => {
       const testo = await fs.readFile(file, "utf8");
       if (testo.includes("/produzione")) occorrenze.push(file);
     }
-    // L'unico riferimento ammesso è la route di App.tsx che reindirizza.
-    expect(occorrenze).toEqual([path.join(RADICE_CLIENT, "App.tsx")]);
+    // I soli riferimenti ammessi sono il redirect montato da App e il suo
+    // contratto dichiarativo: nessuno dei due è una superficie navigabile.
+    expect(occorrenze.sort()).toEqual(
+      [
+        path.join(RADICE_CLIENT, "App.tsx"),
+        path.join(RADICE_CLIENT, "lib/routeContract.ts"),
+      ].sort()
+    );
     const app = await fs.readFile(path.join(RADICE_CLIENT, "App.tsx"), "utf8");
     const blocco = app.slice(app.indexOf('path="/produzione'), app.indexOf('path="/produzione') + 300);
     expect(blocco).toContain("LegacyRedirect");
     expect(blocco).toContain("produzioneRedirect");
+    const contract = await fs.readFile(
+      path.join(RADICE_CLIENT, "lib/routeContract.ts"),
+      "utf8"
+    );
+    const contractBlock = contract.slice(
+      contract.indexOf('path: "/produzione'),
+      contract.indexOf('path: "/produzione') + 420
+    );
+    expect(contractBlock).toContain('kind: "redirect"');
+    expect(contractBlock).toContain('target: "/kanban"');
+    expect(contractBlock).toContain('navigation: "redirect"');
     // La sidebar e l'hub Gestione non hanno più l'etichetta «Produzione».
     for (const nav of ["components/DashboardLayout.tsx", "pages/Integrazioni.tsx"]) {
       const testo = await fs.readFile(path.join(RADICE_CLIENT, nav), "utf8");

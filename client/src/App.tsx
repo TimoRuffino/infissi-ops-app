@@ -9,6 +9,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import RequireDirezione from "./components/RequireDirezione";
 import { legacyMessageRedirect } from "./lib/messaggi";
 import { produzioneRedirect } from "./lib/navigation";
+import { routeContractForLocation } from "./lib/routeContract";
 
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -56,7 +57,11 @@ function RouteLoading() {
   );
 }
 
-function LegacyRedirect({ redirect }: { redirect: (location: string) => string }) {
+function LegacyRedirect({
+  redirect,
+}: {
+  redirect: (location: string) => string;
+}) {
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
@@ -68,111 +73,128 @@ function LegacyRedirect({ redirect }: { redirect: (location: string) => string }
   return <RouteLoading />;
 }
 
+function RouteContractSurface({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  const route = routeContractForLocation(location);
+
+  return (
+    <div
+      className="contents"
+      data-route-id={route.path}
+      data-route-kind={route.kind}
+    >
+      {children}
+    </div>
+  );
+}
+
 function Router() {
   return (
     <DashboardLayout>
       <Suspense fallback={<RouteLoading />}>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/clienti" component={ClientiList} />
-          <Route path="/clienti/:id" component={ClienteDetail} />
-          <Route path="/kanban" component={KanbanBoard} />
-          <Route path="/magazzino" component={Magazzino} />
-          <Route path="/pagamenti" component={Pagamenti} />
-          <Route path="/economia" component={Economia} />
-          <Route path="/marginalita">
-            {() => (
-              <RequireDirezione>
-                <Marginalita />
-              </RequireDirezione>
-            )}
-          </Route>
-          <Route path="/commesse" component={CommesseList} />
-          <Route path="/commesse/:id" component={CommessaDetail} />
-          <Route
-            path="/commesse/:commessaId/aperture/:aperturaId/rilievo"
-            component={RilievoDetail}
-          />
-          <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
-          <Route path="/planning" component={Planning} />
-          <Route path="/ticket">{() => <TicketList />}</Route>
-          {/* Direzione-only surfaces. Hidden from the sidebar — reached via
+        <RouteContractSurface>
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/clienti" component={ClientiList} />
+            <Route path="/clienti/:id" component={ClienteDetail} />
+            <Route path="/kanban" component={KanbanBoard} />
+            <Route path="/magazzino" component={Magazzino} />
+            <Route path="/pagamenti" component={Pagamenti} />
+            <Route path="/economia" component={Economia} />
+            <Route path="/marginalita">
+              {() => (
+                <RequireDirezione>
+                  <Marginalita />
+                </RequireDirezione>
+              )}
+            </Route>
+            <Route path="/commesse" component={CommesseList} />
+            <Route path="/commesse/:id" component={CommessaDetail} />
+            <Route
+              path="/commesse/:commessaId/aperture/:aperturaId/rilievo"
+              component={RilievoDetail}
+            />
+            <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
+            <Route path="/planning" component={Planning} />
+            <Route path="/ticket">{() => <TicketList />}</Route>
+            {/* Direzione-only surfaces. Hidden from the sidebar — reached via
             the Impostazioni hub. A client-side guard shows a blocked state
             so non-direzione users get a clear message instead of a silent
             404; the routes themselves are still registered so deep links
             work for authorized users. */}
-          <Route path="/garanzie">
-            {() => (
-              <RequireDirezione>
-                <GaranzieList />
-              </RequireDirezione>
-            )}
-          </Route>
-          {/* Leggibile da tutti (serve a posatori e ufficio per sapere chi
+            <Route path="/garanzie">
+              {() => (
+                <RequireDirezione>
+                  <GaranzieList />
+                </RequireDirezione>
+              )}
+            </Route>
+            {/* Leggibile da tutti (serve a posatori e ufficio per sapere chi
             è in cantiere); creare/modificare resta direzione, sia lato
             server (adminProcedure) sia nei comandi della pagina. */}
-          <Route path="/squadre" component={SquadreList} />
-          <Route path="/fornitori">
-            {() => (
-              <RequireDirezione>
-                <FornitoriList />
-              </RequireDirezione>
-            )}
-          </Route>
-          <Route path="/preventivatori" component={Preventivatori} />
-          <Route
-            path="/preventivatori/fivizzanese/persiane"
-            component={PreventivatoreFivizzanese}
-          />
-          <Route
-            path="/preventivatori/punto-del-serramento/persiane"
-            component={PreventivatorePuntoDelSerramento}
-          />
-          {/* La pagina Produzione è stata rimossa (29/08/2026, PRD §20):
+            <Route path="/squadre" component={SquadreList} />
+            <Route path="/fornitori">
+              {() => (
+                <RequireDirezione>
+                  <FornitoriList />
+                </RequireDirezione>
+              )}
+            </Route>
+            <Route path="/preventivatori" component={Preventivatori} />
+            <Route
+              path="/preventivatori/fivizzanese/persiane"
+              component={PreventivatoreFivizzanese}
+            />
+            <Route
+              path="/preventivatori/punto-del-serramento/persiane"
+              component={PreventivatorePuntoDelSerramento}
+            />
+            {/* La pagina Produzione è stata rimossa (29/08/2026, PRD §20):
             i segnalibri atterrano sul Board, dove la colonna «Produzione»
             segue le commesse in quello stato. */}
-          <Route path="/produzione/*?">
-            {() => <LegacyRedirect redirect={produzioneRedirect} />}
-          </Route>
-          <Route path="/reclami" component={ReclamiRifacimenti} />
-          <Route path="/archivio" component={Archivio} />
-          {/* User management is direzione-only: the server gates utenti
+            <Route path="/produzione/*?">
+              {() => <LegacyRedirect redirect={produzioneRedirect} />}
+            </Route>
+            <Route path="/reclami" component={ReclamiRifacimenti} />
+            <Route path="/archivio" component={Archivio} />
+            {/* User management is direzione-only: the server gates utenti
             create/update/delete with adminProcedure, so a client-side guard
             here gives non-direzione users a clear blocked state instead of a
             FORBIDDEN error on save. */}
-          <Route path="/utenti">
-            {() => (
-              <RequireDirezione>
-                <UtentiList />
-              </RequireDirezione>
-            )}
-          </Route>
-          <Route path="/sedi">
-            {() => (
-              <RequireDirezione>
-                <SediList />
-              </RequireDirezione>
-            )}
-          </Route>
-          <Route path="/messaggi/email" component={EmailPage} />
-          <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
-          <Route path="/chat" component={ChatAziendale} />
-          <Route path="/notifiche" component={Notifiche} />
-          <Route path="/comunicazioni">
-            {() => <LegacyRedirect redirect={legacyMessageRedirect} />}
-          </Route>
-          <Route path="/conoscenza">
-            {() => (
-              <RequireDirezione>
-                <Conoscenza />
-              </RequireDirezione>
-            )}
-          </Route>
-          <Route path="/integrazioni" component={Integrazioni} />
-          <Route path="/tars" component={Tars} />
-          <Route path="/404" component={NotFound} />
-          <Route component={NotFound} />
-        </Switch>
+            <Route path="/utenti">
+              {() => (
+                <RequireDirezione>
+                  <UtentiList />
+                </RequireDirezione>
+              )}
+            </Route>
+            <Route path="/sedi">
+              {() => (
+                <RequireDirezione>
+                  <SediList />
+                </RequireDirezione>
+              )}
+            </Route>
+            <Route path="/messaggi/email" component={EmailPage} />
+            <Route path="/messaggi/whatsapp" component={WhatsAppPage} />
+            <Route path="/chat" component={ChatAziendale} />
+            <Route path="/notifiche" component={Notifiche} />
+            <Route path="/comunicazioni">
+              {() => <LegacyRedirect redirect={legacyMessageRedirect} />}
+            </Route>
+            <Route path="/conoscenza">
+              {() => (
+                <RequireDirezione>
+                  <Conoscenza />
+                </RequireDirezione>
+              )}
+            </Route>
+            <Route path="/integrazioni" component={Integrazioni} />
+            <Route path="/tars" component={Tars} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </RouteContractSurface>
       </Suspense>
     </DashboardLayout>
   );
@@ -181,7 +203,9 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light">
+      {/* Modular Control espone il tema dal menu profilo; il renderer legacy
+          resta un rollback separato. La preferenza vive in rf-theme. */}
+      <ThemeProvider defaultTheme="light" switchable storageKey="rf-theme">
         <TooltipProvider>
           <Toaster
             position="top-right"

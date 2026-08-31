@@ -63,6 +63,10 @@ import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import Commessa360Header, {
+  type Commessa360HeaderMeta,
+} from "@/components/commesse/Commessa360Header";
+import Commessa360Workspace from "@/components/commesse/Commessa360Workspace";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
@@ -71,6 +75,7 @@ import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
+import StatusRail from "@/components/StatusRail";
 import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
 import { toast } from "sonner";
 import {
@@ -80,24 +85,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 
 const tipoDocColors: Record<string, string> = {
-  preventivo: "bg-blue-100 text-blue-800",
-  contratto: "bg-green-100 text-green-800",
-  misure: "bg-sky-100 text-sky-800",
-  fattura: "bg-amber-100 text-amber-800",
-  ordine: "bg-yellow-100 text-yellow-800",
-  conferma_ordine: "bg-yellow-100 text-yellow-800",
-  ddt_consegna: "bg-orange-100 text-orange-800",
-  ddt_posa: "bg-orange-100 text-orange-800",
-  ddt_finale: "bg-teal-100 text-teal-800",
-  saldo: "bg-purple-100 text-purple-800",
-  foto: "bg-pink-100 text-pink-800",
-  documento_identita: "bg-indigo-100 text-indigo-800",
-  visura: "bg-cyan-100 text-cyan-800",
-  planimetria: "bg-violet-100 text-violet-800",
-  certificazione: "bg-lime-100 text-lime-800",
-  altro: "bg-slate-100 text-slate-700",
+  preventivo: "bg-info-soft text-info",
+  contratto: "bg-success-soft text-success",
+  misure: "bg-st-misure-soft text-st-misure",
+  fattura: "bg-st-pagamento-soft text-st-pagamento",
+  ordine: "bg-st-ordine-soft text-st-ordine",
+  conferma_ordine: "bg-st-ordine-soft text-st-ordine",
+  ddt_consegna: "bg-st-produzione-soft text-st-produzione",
+  ddt_posa: "bg-st-produzione-soft text-st-produzione",
+  ddt_finale: "bg-st-produzione-soft text-st-produzione",
+  saldo: "bg-st-pagamento-soft text-st-pagamento",
+  foto: "bg-st-contratto-soft text-st-contratto",
+  documento_identita: "bg-surface-2 text-text-2",
+  visura: "bg-surface-2 text-text-2",
+  planimetria: "bg-st-misure-soft text-st-misure",
+  certificazione: "bg-structure-soft text-structure",
+  altro: "bg-surface-2 text-text-2",
 };
 
 const DOC_TIPO_LABEL: Record<string, string> = {
@@ -137,6 +143,12 @@ export default function CommessaDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const commessaId = parseInt(params.id ?? "0");
+  const { capabilities } = useOperationalContext();
+  const puoVedereEconomia = capabilities?.has("economia.read") ?? false;
+  const puoCambiareStato = capabilities?.has("commessa.change_state") ?? false;
+  const puoModificare =
+    capabilities?.has("commessa.update_operational") ?? false;
+  const puoUsareTars = capabilities?.has("tars.use") ?? false;
 
   const commessa = trpc.commesse.byId.useQuery(commessaId);
   // Kill switch Document Intelligence: la UI nasconde, il server decide.
@@ -732,17 +744,124 @@ export default function CommessaDetail() {
     );
   }
 
+  const assignee = (utenti.data ?? []).find(
+    (utente: any) => utente.id === c.assegnatoA
+  ) as any;
+  const assegnatarioLabel = assignee
+    ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() ||
+      assignee.email
+    : "Non assegnata";
+  const headerMeta: Commessa360HeaderMeta[] = [
+    ...(c.indirizzo
+      ? [
+          {
+            icon: MapPin,
+            label: `${c.indirizzo}${c.citta ? `, ${c.citta}` : ""}`,
+          },
+        ]
+      : []),
+    ...(c.telefono ? [{ icon: Phone, label: c.telefono }] : []),
+    ...(c.email ? [{ icon: Mail, label: c.email }] : []),
+    ...(c.dataApertura || c.createdAt
+      ? [
+          {
+            icon: Calendar,
+            label: `Creata il ${new Date(
+              c.dataApertura ? `${c.dataApertura}T12:00:00` : c.createdAt
+            ).toLocaleDateString("it-IT")}`,
+          },
+        ]
+      : []),
+    { icon: Contact, label: `Assegnata a: ${assegnatarioLabel}` },
+    ...(c.dataConsegnaConfermata
+      ? [
+          {
+            icon: CheckCircle2,
+            label: `Consegna prevista · ${new Date(
+              c.dataConsegnaConfermata
+            ).toLocaleDateString("it-IT")}`,
+          },
+        ]
+      : c.dataConsegnaIndicativa
+        ? [
+            {
+              icon: Calendar,
+              label: `Consegna stimata · ${new Date(
+                c.dataConsegnaIndicativa
+              ).toLocaleDateString("it-IT")}`,
+            },
+          ]
+        : c.consegnaIndicativa
+          ? [
+              {
+                icon: Calendar,
+                label: `Consegna stimata · ~${c.consegnaIndicativa} giorni`,
+              },
+            ]
+          : []),
+  ];
+
+  const nextStatoByStato: Record<string, string> = {
+    preventivo: "misure_esecutive",
+    misure_esecutive: "aggiornamento_contratto",
+    aggiornamento_contratto: "fatture_pagamento",
+    fatture_pagamento: "da_ordinare",
+    da_ordinare: "produzione",
+    produzione: "ordini_ultimazione",
+    ordini_ultimazione: "attesa_posa",
+    attesa_posa: "finiture_saldo",
+    finiture_saldo: "interventi_regolazioni",
+    interventi_regolazioni: "archiviata",
+  };
+  const nextStato = nextStatoByStato[c.stato];
+  const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
+  const primaryAction =
+    puoCambiareStato &&
+    !c.archivedAt &&
+    c.stato !== "archiviata" &&
+    nextStato ? (
+      <Button
+        variant="brand"
+        onClick={() => {
+          if (gateBlocked && statoGate.data) {
+            const missing = statoGate.data.required
+              .filter(required => !required.satisfied)
+              .map(required => required.label)
+              .join(" o ");
+            setForceAdvanceTarget({
+              stato: nextStato,
+              message: `Non è stato caricato il file "${missing}" per lo stato "${statoLabel(c.stato)}". Procedere comunque?`,
+            });
+          } else {
+            updateCommessa.mutate({ id: commessaId, stato: nextStato as any });
+          }
+        }}
+        disabled={updateCommessa.isPending}
+        title={
+          gateBlocked
+            ? `Manca il file ${(statoGate.data?.required ?? [])
+                .filter(required => !required.satisfied)
+                .map(required => required.label)
+                .join(" o ")} — chiederà conferma`
+            : undefined
+        }
+      >
+        Avanza a: {statoLabel(nextStato)}
+        <ChevronRight className="h-3.5 w-3.5" />
+      </Button>
+    ) : null;
+
   return (
     <div className="space-y-6">
       {/* Archived banner — surfaces the archived state front-and-center so
           users don't mistake an archived job for an active one. No buttons
           inside: restore is in the header to match the archive entry point. */}
       {c.archivedAt && (
-        <div className="rounded-md border border-zinc-300 bg-zinc-50 px-4 py-3 flex items-start gap-3">
-          <Archive className="h-5 w-5 text-zinc-600 shrink-0 mt-0.5" />
+        <div className="rounded-md border border-border-strong bg-surface-2 px-4 py-3 flex items-start gap-3">
+          <Archive className="h-5 w-5 text-text-2 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="font-semibold text-zinc-900">Commessa archiviata</p>
-            <p className="text-sm text-zinc-700">
+            <p className="font-semibold text-text-1">Commessa archiviata</p>
+            <p className="text-sm text-text-2">
               Archiviata il{" "}
               {new Date(c.archivedAt).toLocaleDateString("it-IT", {
                 day: "2-digit",
@@ -758,232 +877,129 @@ export default function CommessaDetail() {
       )}
 
       {/* Back + Header */}
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setLocation("/commesse")}
-          className="mb-2 -ml-2"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Commesse
-        </Button>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="codice-mono text-text-2">{c.codice}</span>
-              <StatoChip stato={c.stato} />
-              {(c.priorita === "urgente" || c.priorita === "alta") && (
-                <Badge variant={PRIORITA_VARIANT[c.priorita] ?? "secondary"}>
-                  {PRIORITA_LABEL[c.priorita] ?? c.priorita}
-                </Badge>
-              )}
-              {c.archivedAt && (
-                <Badge variant="secondary" className="gap-1">
-                  <Archive className="h-3 w-3" />
-                  Archiviata
-                </Badge>
-              )}
-            </div>
-            <h1 className="font-display text-[28px] leading-[34px] font-bold tracking-[-0.02em]">
-              {c.cliente}
-            </h1>
-          </div>
-          <div className="flex gap-1.5 items-center flex-wrap">
-            {/* Single primary action: Avanza a: <stato successivo> (§4.3) */}
-            {!c.archivedAt && c.stato !== "archiviata" && (() => {
-              const next: Record<string, string> = {
-                preventivo: "misure_esecutive", misure_esecutive: "aggiornamento_contratto",
-                aggiornamento_contratto: "fatture_pagamento", fatture_pagamento: "da_ordinare",
-                da_ordinare: "produzione", produzione: "ordini_ultimazione",
-                ordini_ultimazione: "attesa_posa", attesa_posa: "finiture_saldo",
-                finiture_saldo: "interventi_regolazioni", interventi_regolazioni: "archiviata",
-              };
-              const nextStato = next[c.stato];
-              const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
-              return nextStato ? (
-                <Button
-                  onClick={() => {
-                    if (gateBlocked && statoGate.data) {
-                      const missing = statoGate.data.required
-                        .filter((r) => !r.satisfied)
-                        .map((r) => r.label)
-                        .join(" o ");
-                      setForceAdvanceTarget({
-                        stato: nextStato,
-                        message: `Non è stato caricato il file "${missing}" per lo stato "${statoLabel(c.stato)}". Procedere comunque?`,
-                      });
-                    } else {
-                      updateCommessa.mutate({ id: commessaId, stato: nextStato as any });
-                    }
-                  }}
-                  disabled={updateCommessa.isPending}
-                  title={
-                    gateBlocked
-                      ? `Manca il file ${(statoGate.data?.required ?? [])
-                          .filter((r) => !r.satisfied)
-                          .map((r) => r.label)
-                          .join(" o ")} — chiederà conferma`
-                      : undefined
-                  }
-                >
-                  Avanza a: {statoLabel(nextStato)}
-                  <ChevronRight className="h-3.5 w-3.5 ml-1" />
+      <div className="space-y-3 sm:space-y-4">
+        <Commessa360Header
+          codice={c.codice}
+          cliente={c.cliente}
+          stato={c.stato}
+          priorita={c.priorita}
+          meta={headerMeta}
+          primaryAction={primaryAction}
+          onBack={() => setLocation("/commesse")}
+          archived={Boolean(c.archivedAt)}
+          secondaryActions={
+            <>
+              {puoModificare ? (
+                <Button variant="outline" size="sm" onClick={openEdit}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Modifica
                 </Button>
-              ) : null;
-            })()}
-            <Button variant="outline" size="sm" onClick={openEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Modifica
-            </Button>
-            {c.clienteId ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setLocation(`/clienti/${c.clienteId}`)}
-              >
-                <Contact className="h-3.5 w-3.5 mr-1" />
-                Scheda cliente
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setNuovoClienteDialog(true)}
-              >
-                <UserPlus className="h-3.5 w-3.5 mr-1" />
-                Nuovo cliente
-              </Button>
-            )}
-            {c.archivedAt ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => restoreCommessa.mutate(commessaId)}
-                disabled={restoreCommessa.isPending}
-                title="Ripristina commessa — torna attiva con stato e dati invariati"
-              >
-                <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
-                Ripristina
-              </Button>
-            ) : (
-              /* Archivia + Elimina live in the ••• menu (§3.6) */
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-text-3">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() =>
-                      setDeleteTarget({
-                        type: "archive-commessa",
-                        id: commessaId,
-                        label: c.codice,
-                      })
-                    }
-                  >
-                    <Archive className="h-4 w-4" /> Archivia
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-danger focus:text-danger"
-                    onClick={() => setConfirmDeleteCommessa(true)}
-                  >
-                    <Trash2 className="h-4 w-4" /> Elimina
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        </div>
-
-        {/* Info pills */}
-        <div className="flex gap-4 flex-wrap mt-3 text-sm text-muted-foreground">
-          {c.indirizzo && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5" />
-              {c.indirizzo}{c.citta ? `, ${c.citta}` : ""}
-            </span>
-          )}
-          {c.telefono && (
-            <span className="flex items-center gap-1.5">
-              <Phone className="h-3.5 w-3.5" />
-              {c.telefono}
+              ) : null}
+              {c.clienteId ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLocation(`/clienti/${c.clienteId}`)}
+                >
+                  <Contact className="h-3.5 w-3.5" />
+                  Scheda cliente
+                </Button>
+              ) : capabilities?.has("cliente.create") ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNuovoClienteDialog(true)}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Nuovo cliente
+                </Button>
+              ) : null}
+              {c.archivedAt ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => restoreCommessa.mutate(commessaId)}
+                  disabled={restoreCommessa.isPending}
+                  title="Ripristina commessa — torna attiva con stato e dati invariati"
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                  Ripristina
+                </Button>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-text-3"
+                      aria-label="Altre azioni commessa"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setDeleteTarget({
+                          type: "archive-commessa",
+                          id: commessaId,
+                          label: c.codice,
+                        })
+                      }
+                    >
+                      <Archive className="h-4 w-4" />
+                      Archivia
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-danger focus:text-danger"
+                      onClick={() => setConfirmDeleteCommessa(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Elimina
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          }
+          statusRail={
+            !c.archivedAt ? (
+              <StatusRail
+                stato={c.stato}
+                gateBloccato={Boolean(
+                  statoGate.data &&
+                    statoGate.data.required.length > 0 &&
+                    !statoGate.data.canAdvance
+                )}
+                gateMotivo={(() => {
+                  if (!statoGate.data || statoGate.data.canAdvance) {
+                    return undefined;
+                  }
+                  const mancanti = statoGate.data.required
+                    .filter(required => !required.satisfied)
+                    .map(required => required.label);
+                  return `${mancanti.length === 1 ? "Manca" : "Mancano"}: ${mancanti.join(", ")}`;
+                })()}
+              />
+            ) : null
+          }
+          contactActions={
+            c.telefono ? (
               <WhatsAppButton
                 phone={c.telefono}
                 message={`Buongiorno ${c.cliente ?? ""}, la contattiamo da Ruffino Group in merito alla sua commessa ${c.codice ?? ""}.\n${FIRMA_WHATSAPP}`}
               />
-            </span>
-          )}
-          {c.email && (
-            <span className="flex items-center gap-1">
-              <Mail className="h-3.5 w-3.5" />
-              {c.email}
-            </span>
-          )}
-          {/* Data di apertura: quando la commessa è entrata in casa. Utile
-              a colpo d'occhio quanto è vecchia una pratica. */}
-          {(c.dataApertura || c.createdAt) && (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5" />
-              Creata il{" "}
-              <span className="font-medium text-foreground">
-                {new Date(
-                  c.dataApertura
-                    ? `${c.dataApertura}T12:00:00`
-                    : c.createdAt
-                ).toLocaleDateString("it-IT")}
-              </span>
-            </span>
-          )}
-          {(() => {
-            const assignee = (utenti.data ?? []).find(
-              (u: any) => u.id === c.assegnatoA
-            ) as any;
-            return (
-              <span className="flex items-center gap-1">
-                <Contact className="h-3.5 w-3.5" />
-                Assegnata a:{" "}
-                <span className="font-medium text-foreground">
-                  {assignee
-                    ? `${assignee.cognome ?? ""} ${assignee.nome ?? ""}`.trim() ||
-                      assignee.email
-                    : "Non assegnata"}
-                </span>
-              </span>
-            );
-          })()}
-          {c.dataConsegnaConfermata ? (
-            <span className="flex items-center gap-1 font-medium text-foreground">
-              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-              Consegna prevista · {new Date(c.dataConsegnaConfermata).toLocaleDateString("it-IT")}
-            </span>
-          ) : c.dataConsegnaIndicativa ? (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5" />
-              Consegna stimata · {new Date(c.dataConsegnaIndicativa).toLocaleDateString("it-IT")}
-            </span>
-          ) : c.consegnaIndicativa ? (
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5" />
-              Consegna stimata · ~{c.consegnaIndicativa} giorni
-            </span>
-          ) : null}
-        </div>
-        {c.note && (
-          <p className="text-sm text-muted-foreground mt-2 border-l-2 pl-3">
-            {c.note}
-          </p>
-        )}
-
+            ) : null
+          }
+          note={c.note}
+        />
         {/* Produzione trigger: ask for delivery date confirmation */}
         {c.stato === "produzione" && !c.dataConsegnaConfermata && (
-          <Card className="mt-4 border-amber-300 bg-amber-50/50">
+          <Card className="mt-4 border-warning/40 bg-warning-soft/60">
             <CardContent className="p-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                <Clock className="h-5 w-5 text-warning shrink-0" />
                 <div>
                   <p className="text-sm font-semibold">Commessa in produzione</p>
                   <p className="text-xs text-muted-foreground">
@@ -1059,8 +1075,8 @@ export default function CommessaDetail() {
                     variant="outline"
                     className={
                       r.satisfied
-                        ? "border-emerald-400 bg-emerald-100 text-emerald-800"
-                        : "border-amber-400 bg-amber-100 text-amber-800"
+                        ? "border-success/50 bg-success-soft text-success"
+                        : "border-warning/50 bg-warning-soft text-warning"
                     }
                   >
                     {r.satisfied ? (
@@ -1077,42 +1093,45 @@ export default function CommessaDetail() {
           );
         })()}
 
-        {/* Pannello contestuale Tars (T3): fascicolo C3, nessun run del
-            modello; con i flag spenti la query fallisce e non esiste. */}
-        <TarsFascicoloCard commessaId={commessaId} />
       </div>
 
-      {/* Pagamenti — totale, incassato, residuo. Inline editing: blur saves. */}
-      <PagamentiCard
-        commessa={commessa.data}
-        commessaId={commessaId}
-        onSave={(patch) =>
-          updateCommessa.mutate({ id: commessaId, ...patch })
+      <Commessa360Workspace
+        overview={
+          <PagamentiCard
+            commessa={commessa.data}
+            commessaId={commessaId}
+            onSave={patch =>
+              updateCommessa.mutate({ id: commessaId, ...patch })
+            }
+          />
         }
-      />
-
-      {/* Economia — margine lordo (P0.2). Direzione/amministrazione only:
-          the query itself is role-gated server-side, the client just hides
-          the card for everyone else. */}
-      <EconomiaCard commessaId={commessaId} />
-
-      {/* Squadra di posa — chi va in cantiere su questa commessa. */}
-      <SquadraPosaCard
-        commessa={c}
-        squadre={squadre.data ?? []}
-        onAssegna={(squadraId) =>
-          updateCommessa.mutate({ id: commessaId, squadraId })
+        timeline={<TimelineOrdine commessaId={commessaId} />}
+        operations={
+          <SquadraPosaCard
+            commessa={c}
+            squadre={squadre.data ?? []}
+            onAssegna={squadraId =>
+              updateCommessa.mutate({ id: commessaId, squadraId })
+            }
+            salvataggioInCorso={updateCommessa.isPending}
+          />
         }
-        salvataggioInCorso={updateCommessa.isPending}
-      />
-
-
-      {/* Hoisted timeline: prominent above the tabs (Feat 2). */}
-      <TimelineOrdine commessaId={commessaId} />
-
-      {/* Tabs */}
-      <Tabs defaultValue="preventivi">
-        <TabsList className="h-auto w-full justify-start overflow-x-auto">
+        economy={
+          puoVedereEconomia ? (
+            <EconomiaCard commessaId={commessaId} />
+          ) : undefined
+        }
+        tars={
+          puoUsareTars && interruttori.data?.tars ? (
+            <TarsFascicoloCard commessaId={commessaId} />
+          ) : undefined
+        }
+        documents={
+          <Tabs defaultValue="preventivi">
+        <TabsList
+          aria-label="Sezioni della commessa"
+          className="h-auto w-full justify-start overflow-x-auto"
+        >
           <TabsTrigger value="preventivi">
             File e documenti ({documenti.data?.length ?? 0})
           </TabsTrigger>
@@ -1176,7 +1195,7 @@ export default function CommessaDetail() {
                       </SelectContent>
                     </Select>
                     {SUGGESTED_TIPO_FOR_STATO[c.stato] && uploadForm.tipo === SUGGESTED_TIPO_FOR_STATO[c.stato] && (
-                      <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                      <p className="text-[11px] text-success bg-success-soft border border-success/40 rounded px-2 py-1">
                         Tipo suggerito per lo stato corrente — caricando questo file si sbloccher&agrave; l&apos;avanzamento
                       </p>
                     )}
@@ -1276,7 +1295,7 @@ export default function CommessaDetail() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          className="h-7 w-7 text-info hover:text-info hover:bg-info-soft"
                           title="Invia via email"
                           onClick={() => openEmailDialog(d)}
                         >
@@ -1321,7 +1340,7 @@ export default function CommessaDetail() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
                         onClick={() => setDeleteTarget({ type: "documento", id: d.id, label: d.nome })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1391,7 +1410,7 @@ export default function CommessaDetail() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
                         onClick={() => setDeleteTarget({ type: "prodotto", id: p.id, label: p.nome })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1554,7 +1573,7 @@ export default function CommessaDetail() {
                         )}
                         <Button
                           variant="ghost" size="sm"
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2"
+                          className="text-danger hover:text-danger hover:bg-danger-soft px-2"
                           onClick={() => setDeleteTarget({ type: "intervento", id: i.id, label: `${i.tipo} ${i.dataPianificata ?? ""}` })}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1616,7 +1635,7 @@ export default function CommessaDetail() {
                       </div>
                       <p className="text-sm">{a.descrizione}</p>
                       {a.risoluzione && (
-                        <p className="text-xs text-muted-foreground border-l-2 border-green-500 pl-2">
+                        <p className="text-xs text-muted-foreground border-l-2 border-success pl-2">
                           Risoluzione: {a.risoluzione}
                         </p>
                       )}
@@ -1627,7 +1646,9 @@ export default function CommessaDetail() {
             </div>
           )}
         </TabsContent>
-      </Tabs>
+          </Tabs>
+        }
+      />
 
       {/* Edit commessa dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
@@ -1676,7 +1697,7 @@ export default function CommessaDetail() {
                 </div>
               </div>
               {clienteIdOfCommessa == null && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                <p className="text-[11px] text-warning bg-warning-soft border border-warning/40 rounded px-2 py-1">
                   Questa commessa non è collegata a un cliente in anagrafica —
                   le modifiche all'anagrafica vengono salvate solo come nome
                   visualizzato sulla commessa.
@@ -2308,7 +2329,7 @@ export default function CommessaDetail() {
                 onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
               />
             </div>
-            <p className="text-xs text-muted-foreground border-l-2 border-emerald-400 pl-2">
+            <p className="text-xs text-muted-foreground border-l-2 border-success/60 pl-2">
               <b>Outlook desktop (.eml)</b>: scarica il file allegato già dentro, doppio click apre Outlook in bozza pronta. Le altre opzioni aprono il client scelto e scaricano l'allegato da attaccare a mano.
             </p>
             <div className="grid gap-2">

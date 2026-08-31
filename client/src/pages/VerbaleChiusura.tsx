@@ -1,219 +1,192 @@
-import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import {
-  ArrowLeft,
-  FileText,
-  PenTool,
-  CheckCircle2,
-  Download,
-  Trash2,
-} from "lucide-react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Download, FileText } from "lucide-react";
+import { toast } from "sonner";
 import { useLocation, useParams } from "wouter";
 
-// ── Signature Canvas ────────────────────────────────────────────────────────
-
-function SignatureCanvas({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (data: string) => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [drawing, setDrawing] = useState(false);
-  const [hasContent, setHasContent] = useState(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Set canvas size
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * 2;
-    canvas.height = rect.height * 2;
-    ctx.scale(2, 2);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#000";
-
-    // Restore existing signature
-    if (value) {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, rect.width, rect.height);
-        setHasContent(true);
-      };
-      img.src = value;
-    }
-  }, []);
-
-  const getPos = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return { x: 0, y: 0 };
-      const rect = canvas.getBoundingClientRect();
-      if ("touches" in e) {
-        return {
-          x: e.touches[0].clientX - rect.left,
-          y: e.touches[0].clientY - rect.top,
-        };
-      }
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    },
-    []
-  );
-
-  function startDraw(e: React.MouseEvent | React.TouchEvent) {
-    e.preventDefault();
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
-    setDrawing(true);
-    const pos = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-  }
-
-  function draw(e: React.MouseEvent | React.TouchEvent) {
-    if (!drawing) return;
-    e.preventDefault();
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
-    const pos = getPos(e);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-    setHasContent(true);
-  }
-
-  function endDraw() {
-    if (!drawing) return;
-    setDrawing(false);
-    const canvas = canvasRef.current;
-    if (canvas) {
-      onChange(canvas.toDataURL("image/png"));
-    }
-  }
-
-  function clear() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasContent(false);
-    onChange("");
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold flex items-center gap-2">
-          <PenTool className="h-4 w-4" />
-          {label}
-        </Label>
-        {hasContent && (
-          <Button variant="ghost" size="sm" onClick={clear} className="text-xs h-7">
-            <Trash2 className="h-3 w-3 mr-1" />
-            Cancella
-          </Button>
-        )}
-      </div>
-      <div className="border-2 border-dashed rounded-lg bg-white relative">
-        <canvas
-          ref={canvasRef}
-          className="w-full h-32 cursor-crosshair touch-none"
-          onMouseDown={startDraw}
-          onMouseMove={draw}
-          onMouseUp={endDraw}
-          onMouseLeave={endDraw}
-          onTouchStart={startDraw}
-          onTouchMove={draw}
-          onTouchEnd={endDraw}
-        />
-        {!hasContent && !value && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-muted-foreground text-sm">
-            Firma qui
-          </div>
-        )}
-      </div>
-      {hasContent && (
-        <p className="text-[10px] text-green-600 flex items-center gap-1">
-          <CheckCircle2 className="h-3 w-3" />
-          Firma acquisita
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ── Main Component ──────────────────────────────────────────────────────────
+import MobileFieldHeader from "@/components/operativita/MobileFieldHeader";
+import SignaturePad from "@/components/operativita/SignaturePad";
+import DataSurface from "@/components/patterns/DataSurface";
+import StatePanel from "@/components/patterns/StatePanel";
+import StickyActionBar from "@/components/patterns/StickyActionBar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useOperationalContext } from "@/contexts/OperationalContext";
+import { trpc } from "@/lib/trpc";
 
 export default function VerbaleChiusura() {
   const params = useParams<{ interventoId: string }>();
   const [, setLocation] = useLocation();
-  const interventoId = parseInt(params.interventoId ?? "0");
+  const interventoId = Number.parseInt(params.interventoId ?? "0", 10);
+  const { capabilities } = useOperationalContext();
+  const canPlan = capabilities?.has("intervento.plan") ?? false;
 
-  const intervento = trpc.interventi.byId.useQuery(interventoId);
-  const commessaId = intervento.data?.commessaId ?? 0;
-  const commessa = trpc.commesse.byId.useQuery(commessaId, { enabled: commessaId > 0 });
-  const aperture = trpc.aperture.byCommessa.useQuery(commessaId, { enabled: commessaId > 0 });
-  const anomalie = trpc.anomalie.list.useQuery({ commessaId }, { enabled: commessaId > 0 });
-  const existingVerbale = trpc.verbali.byIntervento.useQuery(interventoId);
-  const utils = trpc.useUtils();
-
-  const createVerbale = trpc.verbali.create.useMutation({
-    onSuccess: () => utils.verbali.byIntervento.invalidate(interventoId),
+  const intervento = trpc.interventi.byId.useQuery(interventoId, {
+    enabled: canPlan && interventoId > 0,
+    retry: false,
   });
+  const commessaId = intervento.data?.commessaId ?? 0;
+  const commessa = trpc.commesse.byId.useQuery(commessaId, {
+    enabled: canPlan && commessaId > 0,
+    retry: false,
+  });
+  const aperture = trpc.aperture.byCommessa.useQuery(commessaId, {
+    enabled: canPlan && commessaId > 0,
+    retry: false,
+  });
+  const anomalie = trpc.anomalie.list.useQuery(
+    { commessaId },
+    { enabled: canPlan && commessaId > 0, retry: false }
+  );
+  const existingVerbale = trpc.verbali.byIntervento.useQuery(interventoId, {
+    enabled: canPlan && interventoId > 0,
+    retry: false,
+  });
+  const utils = trpc.useUtils();
 
   const [noteCliente, setNoteCliente] = useState("");
   const [noteTecnico, setNoteTecnico] = useState("");
   const [firmaCliente, setFirmaCliente] = useState("");
   const [firmaTecnico, setFirmaTecnico] = useState("");
   const [saved, setSaved] = useState(false);
-
-  const i = intervento.data;
-  const c = commessa.data;
   const v = existingVerbale.data;
 
-  // Pre-fill from existing
   useEffect(() => {
-    if (v) {
-      setNoteCliente(v.noteCliente ?? "");
-      setNoteTecnico(v.noteTecnico ?? "");
-      if (v.firmaClienteData) setFirmaCliente(v.firmaClienteData);
-      if (v.firmaTecnicoData) setFirmaTecnico(v.firmaTecnicoData);
-    }
+    if (!v) return;
+    setNoteCliente(v.noteCliente ?? "");
+    setNoteTecnico(v.noteTecnico ?? "");
+    setFirmaCliente(v.firmaClienteData ?? "");
+    setFirmaTecnico(v.firmaTecnicoData ?? "");
+    setSaved(true);
   }, [v]);
 
-  if (!i) {
+  const createVerbale = trpc.verbali.create.useMutation({
+    onSuccess: () => {
+      setSaved(true);
+      utils.verbali.byIntervento.invalidate(interventoId);
+      toast.success("Verbale chiuso e salvato.");
+    },
+    onError: error => {
+      setSaved(false);
+      toast.error(error.message ?? "Chiusura del verbale non riuscita.");
+    },
+  });
+
+  if (capabilities == null) {
     return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
-        {intervento.isLoading ? "Caricamento..." : "Intervento non trovato"}
-      </div>
+      <StatePanel
+        kind="loading"
+        title="Preparo il verbale"
+        description="Verifico sede e autorizzazioni."
+        rows={4}
+      />
+    );
+  }
+  if (!canPlan) {
+    return (
+      <StatePanel
+        kind="permission"
+        title="Verbale non disponibile"
+        description="Il profilo non dispone della capability intervento.plan."
+      />
+    );
+  }
+  if (intervento.isPending || existingVerbale.isPending) {
+    return (
+      <StatePanel
+        kind="loading"
+        title="Carico il verbale"
+        description="Recupero intervento e documento."
+        rows={4}
+      />
+    );
+  }
+  if (intervento.error || existingVerbale.error) {
+    return (
+      <StatePanel
+        kind="error"
+        title="Verbale non caricato"
+        description="Nessun dato è stato modificato."
+        action={
+          <Button
+            variant="outline"
+            onClick={() => {
+              intervento.refetch();
+              existingVerbale.refetch();
+            }}
+          >
+            Riprova
+          </Button>
+        }
+      />
+    );
+  }
+  const i = intervento.data;
+  if (!i || commessaId <= 0) {
+    return (
+      <StatePanel
+        kind="unavailable"
+        title="Verbale non compilabile"
+        description="Intervento o commessa non disponibili nella sede attiva."
+      />
+    );
+  }
+  if (commessa.isPending || aperture.isPending || anomalie.isPending) {
+    return (
+      <StatePanel
+        kind="loading"
+        title="Completo il riepilogo"
+        description="Verifico aperture e anomalie prima delle firme."
+        rows={4}
+      />
+    );
+  }
+  if (commessa.error || aperture.error || anomalie.error) {
+    return (
+      <StatePanel
+        kind="error"
+        title="Dati di chiusura incompleti"
+        description="Il verbale non può usare conteggi parziali."
+        action={
+          <Button
+            variant="outline"
+            onClick={() => {
+              commessa.refetch();
+              aperture.refetch();
+              anomalie.refetch();
+            }}
+          >
+            Riprova
+          </Button>
+        }
+      />
+    );
+  }
+  const c = commessa.data;
+  if (!c) {
+    return (
+      <StatePanel
+        kind="unavailable"
+        title="Commessa non trovata"
+        description="La commessa non esiste nella sede attiva."
+      />
     );
   }
 
   const apertureList = aperture.data ?? [];
   const anomalieList = (anomalie.data ?? []).filter(
-    (a: any) => a.stato !== "risolta"
+    (item: any) => item.stato !== "risolta"
   );
   const totalAperture = apertureList.length;
   const apertureCompletate = apertureList.filter(
-    (a: any) => a.stato === "posata" || a.stato === "verificata"
+    (item: any) => item.stato === "posata" || item.stato === "verificata"
   ).length;
+  const isComplete = Boolean(firmaCliente && firmaTecnico);
+  const readOnly = Boolean(v || saved);
 
-  function handleSave() {
-    if (v) return; // Already saved
+  const handleSave = () => {
+    if (readOnly || !isComplete || createVerbale.isPending) return;
     createVerbale.mutate({
       interventoId,
       commessaId,
@@ -226,231 +199,185 @@ export default function VerbaleChiusura() {
       apertureTotali: totalAperture,
       anomalieRiscontrate: anomalieList.length,
     });
-    setSaved(true);
-  }
-
-  const isComplete = firmaCliente && firmaTecnico;
+  };
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Header */}
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            setLocation(commessaId ? `/commesse/${commessaId}` : "/planning")
-          }
-          className="mb-2 -ml-2"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Torna
-        </Button>
-
-        <div className="flex items-center gap-3 mb-1">
-          <FileText className="h-6 w-6" />
-          <h1 className="text-2xl font-bold tracking-tight">
-            Verbale chiusura lavori
-          </h1>
-          {v && (
-            <Badge
-              variant={v.stato === "firmato" ? "default" : "secondary"}
-              className="text-xs"
-            >
-              {v.stato === "firmato" ? "Firmato" : "Bozza"}
+    <div
+      data-page="verbale-field"
+      className="min-w-0 max-w-6xl space-y-4 pb-2 sm:space-y-5"
+    >
+      <MobileFieldHeader
+        eyebrow="Chiusura lavori"
+        title="Verbale di intervento"
+        description={
+          <span className="break-words">
+            {c.codice} — {c.cliente}
+            {i.indirizzo ? ` · ${i.indirizzo}` : ""}
+          </span>
+        }
+        backLabel={`Torna a ${c.codice}`}
+        onBack={() => setLocation(`/commesse/${commessaId}`)}
+        metadata={
+          <>
+            <Badge variant="outline" className="uppercase">
+              {i.tipo}
             </Badge>
-          )}
-        </div>
-        {c && (
-          <p className="text-sm text-muted-foreground">
-            {c.codice} — {c.cliente} — {i.indirizzo}
-          </p>
-        )}
-      </div>
-
-      {/* Riepilogo intervento */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            Riepilogo intervento
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">
-                Tipo
-              </span>
-              <Badge variant="outline" className="uppercase">
-                {i.tipo}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">
-                Stato
-              </span>
-              <Badge variant={i.stato === "completato" ? "default" : "secondary"}>
-                {i.stato.replace(/_/g, " ")}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">
-                Aperture
-              </span>
-              <span className="font-semibold">
-                {apertureCompletate}/{totalAperture}
-              </span>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground uppercase tracking-wide block mb-1">
-                Anomalie aperte
-              </span>
-              <span
-                className={`font-semibold ${anomalieList.length > 0 ? "text-destructive" : ""}`}
-              >
-                {anomalieList.length}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Aperture completate */}
-      {apertureList.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Aperture ({apertureCompletate}/{totalAperture} completate)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {apertureList.map((a: any) => {
-                const done =
-                  a.stato === "posata" || a.stato === "verificata";
-                return (
-                  <div
-                    key={a.id}
-                    className={`text-center text-xs p-2 rounded border ${done ? "bg-green-50 border-green-200 text-green-800" : "bg-muted/30"}`}
-                  >
-                    <span className="font-mono font-semibold">
-                      {a.codice}
-                    </span>
-                    <br />
-                    <span className="text-[10px]">
-                      {a.stato.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Note tecnico */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            Note del tecnico
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            rows={3}
-            placeholder="Osservazioni tecniche, condizioni particolari, lavori residui..."
-            value={noteTecnico}
-            onChange={(e) => setNoteTecnico(e.target.value)}
-            disabled={!!v}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Note cliente */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            Note del cliente
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            rows={3}
-            placeholder="Osservazioni del cliente, richieste aggiuntive..."
-            value={noteCliente}
-            onChange={(e) => setNoteCliente(e.target.value)}
-            disabled={!!v}
-          />
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      {/* Firme */}
-      <div className="grid sm:grid-cols-2 gap-6">
-        <SignatureCanvas
-          label="Firma tecnico"
-          value={firmaTecnico}
-          onChange={(data) => {
-            setFirmaTecnico(data);
-            setSaved(false);
-          }}
-        />
-        <SignatureCanvas
-          label="Firma cliente"
-          value={firmaCliente}
-          onChange={(data) => {
-            setFirmaCliente(data);
-            setSaved(false);
-          }}
-        />
-      </div>
-
-      {/* Anomalie aperte warning */}
-      {anomalieList.length > 0 && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-4">
-            <p className="text-sm font-medium text-destructive">
-              Attenzione: {anomalieList.length} anomalie non risolte verranno
-              registrate nel verbale.
-            </p>
-            <ul className="mt-2 space-y-1">
-              {anomalieList.slice(0, 5).map((a: any) => (
-                <li key={a.id} className="text-xs text-muted-foreground">
-                  — {a.descrizione} ({a.priorita})
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Save / Download */}
-      <div className="sticky bottom-4 flex justify-end gap-3">
-        {v?.stato === "firmato" && (
-          <Button variant="outline" size="lg" onClick={() => window.print()}>
-            <Download className="h-4 w-4 mr-2" />
-            Stampa PDF
-          </Button>
-        )}
-        {!v && (
-          <Button
-            size="lg"
-            onClick={handleSave}
-            disabled={!isComplete || createVerbale.isPending}
-            className="shadow-lg"
+            <span>Intervento #{interventoId}</span>
+          </>
+        }
+        status={
+          <Badge
+            className={
+              readOnly
+                ? "bg-success-soft text-success"
+                : "bg-surface-2 text-text-2"
+            }
           >
-            <FileText className="h-4 w-4 mr-2" />
-            {createVerbale.isPending
-              ? "Salvataggio..."
-              : saved
-                ? "Salvato"
-                : isComplete
-                  ? "Firma e chiudi verbale"
-                  : "Entrambe le firme richieste"}
-          </Button>
-        )}
-      </div>
+            {readOnly ? "Firmato" : "Bozza"}
+          </Badge>
+        }
+      />
+
+      <DataSurface
+        density="compact"
+        tone="default"
+        title="Esito operativo"
+        description="Riepilogo verificato prima del consenso."
+      >
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            ["Stato", i.stato.replace(/_/g, " ")],
+            ["Aperture", `${apertureCompletate}/${totalAperture}`],
+            ["Anomalie aperte", String(anomalieList.length)],
+            ["Documento", readOnly ? "Bloccato" : "Da firmare"],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-[var(--radius-control)] bg-surface-2 p-3"
+            >
+              <dt className="text-xs text-text-3">{label}</dt>
+              <dd className="mt-1 text-sm font-bold capitalize text-text-1">
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </DataSurface>
+
+      {anomalieList.length > 0 ? (
+        <DataSurface
+          density="compact"
+          tone="default"
+          title={
+            <span className="inline-flex items-center gap-2 text-danger">
+              <AlertTriangle className="h-4 w-4" />
+              {anomalieList.length} anomalie aperte
+            </span>
+          }
+          description="Saranno registrate nel verbale: leggile prima delle firme."
+        >
+          <ul className="space-y-2">
+            {anomalieList.slice(0, 5).map((item: any) => (
+              <li
+                key={item.id}
+                className="rounded-[var(--radius-control)] bg-danger-soft px-3 py-2 text-sm text-danger"
+              >
+                {item.descrizione} ({item.priorita})
+              </li>
+            ))}
+          </ul>
+        </DataSurface>
+      ) : null}
+
+      <DataSurface density="compact" tone="default" title="Note di chiusura">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="note-tecnico">Note del tecnico</Label>
+            <Textarea
+              id="note-tecnico"
+              rows={4}
+              value={noteTecnico}
+              onChange={event => setNoteTecnico(event.target.value)}
+              readOnly={readOnly}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="note-cliente">Note del cliente</Label>
+            <Textarea
+              id="note-cliente"
+              rows={4}
+              value={noteCliente}
+              onChange={event => setNoteCliente(event.target.value)}
+              readOnly={readOnly}
+            />
+          </div>
+        </div>
+      </DataSurface>
+
+      <section aria-labelledby="verbale-firme" className="space-y-3">
+        <div>
+          <h2 id="verbale-firme" className="text-base font-bold">
+            Firme
+          </h2>
+          <p className="text-sm text-text-2">
+            Entrambe obbligatorie; dopo il salvataggio il verbale è di sola
+            lettura.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SignaturePad
+            label="Firma tecnico"
+            value={firmaTecnico}
+            onChange={setFirmaTecnico}
+            disabled={readOnly}
+            required
+          />
+          <SignaturePad
+            label="Firma cliente"
+            value={firmaCliente}
+            onChange={setFirmaCliente}
+            disabled={readOnly}
+            required
+          />
+        </div>
+      </section>
+
+      <StickyActionBar
+        busy={createVerbale.isPending}
+        status={
+          readOnly
+            ? "Verbale salvato: note e firme bloccate."
+            : isComplete
+              ? "Entrambe le firme acquisite."
+              : "Servono entrambe le firme."
+        }
+        secondary={
+          v?.stato === "firmato" ? (
+            <Button variant="outline" onClick={() => window.print()}>
+              <Download className="h-4 w-4" />
+              Stampa verbale
+            </Button>
+          ) : null
+        }
+        primary={
+          !v ? (
+            <Button
+              size="lg"
+              variant="brand"
+              onClick={handleSave}
+              disabled={!isComplete || saved || createVerbale.isPending}
+              className="min-h-11 w-full sm:w-auto"
+            >
+              <FileText className="h-4 w-4" />
+              {createVerbale.isPending
+                ? "Chiusura…"
+                : saved
+                  ? "Verbale salvato"
+                  : "Firma e chiudi verbale"}
+            </Button>
+          ) : null
+        }
+      />
     </div>
   );
 }

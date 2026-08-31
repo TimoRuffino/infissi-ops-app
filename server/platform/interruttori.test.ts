@@ -42,6 +42,7 @@ afterEach(() => {
   delete process.env.FLAG_DOCUMENT_INTELLIGENCE;
   delete process.env.FLAG_PROPOSTE;
   delete process.env.FLAG_OCR;
+  delete process.env.FLAG_UI_V2;
 });
 
 describe("interruttori — default e override", () => {
@@ -49,7 +50,10 @@ describe("interruttori — default e override", () => {
     vi.stubEnv("NODE_ENV", "production");
     const spenti = statoInterruttori();
     for (const [nome, attivo] of Object.entries(spenti)) {
-      expect(attivo, `interruttore ${nome} deve nascere spento in produzione`).toBe(false);
+      expect(
+        attivo,
+        `interruttore ${nome} deve nascere spento in produzione`
+      ).toBe(false);
     }
     vi.stubEnv("FLAG_DOCUMENT_INTELLIGENCE", "on");
     vi.stubEnv("FLAG_PROPOSTE", "true");
@@ -80,6 +84,33 @@ describe("interruttori — default e override", () => {
     process.env.FLAG_DOCUMENT_INTELLIGENCE = "boh";
     expect(interruttoreAttivo("documentIntelligence")).toBe(true);
     expect(() => assicuraInterruttore("documentIntelligence")).not.toThrow();
+  });
+
+  it("la nuova UI resta governata da FLAG_UI_V2 e nasce spenta in produzione", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(interruttoreAttivo("uiV2")).toBe(false);
+    vi.stubEnv("FLAG_UI_V2", "on");
+    expect(interruttoreAttivo("uiV2")).toBe(true);
+  });
+
+  it("il flag UI non modifica gli interruttori business o Tars", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("FLAG_TARS", "on");
+    vi.stubEnv("FLAG_TARS_READ_TOOLS", "on");
+    const prima = statoInterruttori();
+    vi.stubEnv("FLAG_UI_V2", "on");
+    const dopo = statoInterruttori();
+
+    expect(dopo.uiV2).toBe(true);
+    expect({ ...dopo, uiV2: prima.uiV2 }).toEqual(prima);
+    expect(tarsAttivo("tarsReadTools")).toBe(true);
+  });
+
+  it("nomina il sistema approvato nei messaggi rivolti all'utente", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(() => assicuraInterruttore("uiV2")).toThrow(
+      /Modular Control \/ Borgogna Operativa/
+    );
   });
 });
 

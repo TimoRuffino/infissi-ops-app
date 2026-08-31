@@ -5,10 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
 /**
- * Route guard — renders children only when the current user has the
- * `direzione` role (or legacy `role: "admin"`). Otherwise shows a blocked
- * state with a link back to the dashboard so unauthorized users know why
- * they can't access the page instead of getting a silent redirect.
+ * Guard UX per le sole route il cui contratto resta esplicitamente basato sul
+ * ruolo direzione. Non sostituisce l'autorizzazione delle procedure server.
  */
 export default function RequireDirezione({
   children,
@@ -18,28 +16,54 @@ export default function RequireDirezione({
   const { user, loading } = useAuth();
   const [, setLocation] = useLocation();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div
+        className="grid min-h-[40dvh] place-items-center text-sm text-text-3"
+        role="status"
+        aria-live="polite"
+      >
+        Verifica autorizzazione…
+      </div>
+    );
+  }
 
   if (!isDirezione(user)) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh] p-4">
-        <div className="max-w-sm w-full text-center space-y-4 p-6 rounded-lg border bg-muted/30">
-          <ShieldAlert className="h-10 w-10 text-muted-foreground mx-auto" />
+      <div
+        className="flex min-h-[60dvh] items-center justify-center p-4"
+        data-authorization-guard="direzione"
+      >
+        <section
+          className="w-full max-w-sm space-y-4 rounded-[var(--radius-card)] border border-border-soft bg-surface p-6 text-center shadow-[var(--shadow-card)]"
+          role="alert"
+          aria-labelledby="direzione-required-title"
+        >
+          <ShieldAlert
+            className="mx-auto h-10 w-10 text-text-3"
+            aria-hidden="true"
+          />
           <div className="space-y-1">
-            <p className="font-semibold">Accesso riservato</p>
-            <p className="text-sm text-muted-foreground">
-              Questa sezione è accessibile solo agli utenti con ruolo{" "}
-              <span className="font-medium">direzione</span>.
+            <h2
+              id="direzione-required-title"
+              className="font-semibold text-text-1"
+            >
+              Accesso riservato alla direzione
+            </h2>
+            <p className="text-sm text-text-3">
+              Il tuo profilo non può aprire questa sezione. Le procedure del
+              server verificano comunque l’autorizzazione di ogni operazione.
             </p>
           </div>
           <Button
-            variant="outline"
+            type="button"
+            variant="quiet"
             size="sm"
             onClick={() => setLocation("/")}
           >
             Torna alla dashboard
           </Button>
-        </div>
+        </section>
       </div>
     );
   }

@@ -37,17 +37,12 @@ export default function LoginPage() {
     <div className="relative min-h-screen overflow-hidden bg-background">
       <div
         aria-hidden
-        className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--color-accent-brand),var(--chart-5))]"
+        className="absolute inset-x-0 top-0 h-1 bg-primary"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 hidden w-[34vw] border-r border-border bg-card lg:block"
-        style={{
-          backgroundImage:
-            "linear-gradient(145deg, var(--color-accent-soft), var(--card) 60%, var(--color-info-soft))",
-        }}
+        className="pointer-events-none absolute inset-y-0 left-0 hidden w-[34vw] border-r border-border bg-surface-2 lg:block"
       />
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_0%,transparent_62%,color-mix(in_srgb,var(--color-accent-brand)_10%,transparent)_62%,transparent_82%)]" />
 
       <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
         <motion.div
@@ -82,7 +77,7 @@ export default function LoginPage() {
             transition={{ delay: 0.1, duration: 0.3 }}
             className="relative overflow-hidden rounded-xl border border-border/80 bg-card p-6 shadow-lg"
           >
-            <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--color-accent-brand))]" />
+            <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-primary" />
             <h2 className="mb-4 text-lg font-semibold">Accedi</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <AnimatePresence>

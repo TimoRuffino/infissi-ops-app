@@ -853,6 +853,7 @@ export default function Planning() {
         onOpenChange={(open: boolean) => !open && setAnnullaTarget(null)}
         title="Elimina appuntamento"
         description={`Confermi l'eliminazione dell'appuntamento "${annullaTarget?.label}"? L'appuntamento verrà rimosso definitivamente dal calendario.`}
+        confirmLabel="Elimina appuntamento"
         onConfirm={() => annullaTarget && deleteIntervento.mutate(annullaTarget.id)}
       />
     </div>
@@ -1111,8 +1112,11 @@ function MonthView(props: {
                           props.onOpenExternal(e);
                         }}
                         title={`${e.sourceNome} — ${e.titolo}`}
-                        className="w-full flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight text-left text-white font-medium shadow-sm hover:brightness-110 active:brightness-95 transition"
-                        style={{ backgroundColor: e.color }}
+                        className="w-full flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight text-left font-medium shadow-sm hover:brightness-105 active:brightness-95 transition"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${e.color} 16%, var(--color-surface))`,
+                          color: `color-mix(in srgb, ${e.color} 75%, var(--color-text-1))`,
+                        }}
                       >
                         <Lock className="h-2.5 w-2.5 shrink-0 opacity-80" />
                         {!e.allDay && e.oraInizio && (
@@ -1127,7 +1131,8 @@ function MonthView(props: {
                   const i = m.data;
                   const j = props.getJoined(i);
                   const label = j.nomeCognome || tipoLabels[i.tipo] || i.tipo;
-                  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "#6b7280";
+                  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
+                  const soft = CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
                   return (
                     <div
                       key={i.id}
@@ -1140,10 +1145,10 @@ function MonthView(props: {
                       title={`${tipoLabels[i.tipo] ?? i.tipo}${
                         j.nomeCognome ? ` — ${j.nomeCognome}` : ""
                       }${j.indirizzo ? ` (${j.indirizzo})` : ""}`}
-                      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight cursor-pointer text-white font-medium shadow-sm hover:brightness-110 active:brightness-95 transition ${
+                      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight cursor-pointer font-medium shadow-sm hover:brightness-105 active:brightness-95 transition ${
                         props.draggingId === i.id ? "opacity-40" : ""
                       }`}
-                      style={{ backgroundColor: color }}
+                      style={{ backgroundColor: soft, color }}
                     >
                       {i.oraInizio && (
                         <span className="tabular-nums opacity-90 shrink-0">
@@ -1202,8 +1207,11 @@ function ExternalBlock(props: {
         } flex items-center gap-1.5 flex-wrap`}
       >
         <span
-          className="inline-flex items-center gap-1 text-white rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
-          style={{ backgroundColor: e.color }}
+          className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${e.color} 16%, var(--color-surface))`,
+            color: `color-mix(in srgb, ${e.color} 75%, var(--color-text-1))`,
+          }}
         >
           <Lock className="h-2 w-2" />
           Google
@@ -1260,7 +1268,8 @@ function InterventoBlock(props: {
 }) {
   const i = props.intervento;
   const isDragging = props.draggingId === i.id;
-  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "#6b7280";
+  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
+  const soft = CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
   const indirizzoFull = props.joined.indirizzo
     ? props.joined.citta
       ? `${props.joined.indirizzo}, ${props.joined.citta}`
@@ -1283,8 +1292,8 @@ function InterventoBlock(props: {
         <div className="min-w-0 flex-1" onClick={props.onEdit}>
           <div className={`${props.size === "large" ? "text-xs" : "text-[10px]"} flex items-center gap-1.5 flex-wrap`}>
             <span
-              className="text-white rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
-              style={{ backgroundColor: color }}
+              className="rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
+              style={{ backgroundColor: soft, color }}
             >
               {tipoLabels[i.tipo] ?? i.tipo}
             </span>
@@ -1325,7 +1334,7 @@ function InterventoBlock(props: {
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); props.onAnnulla(); }}
-          className="shrink-0 rounded p-0.5 hover:bg-red-100 hover:text-red-700 transition-colors"
+          className="shrink-0 rounded p-0.5 hover:bg-danger-soft hover:text-danger transition-colors"
           title="Elimina appuntamento"
         >
           <X className={props.size === "large" ? "h-4 w-4" : "h-3 w-3"} />

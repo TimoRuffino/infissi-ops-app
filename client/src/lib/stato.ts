@@ -37,24 +37,46 @@ export function statoLabel(stato: string): string {
   return STATO_LABEL[stato] ?? stato.replace(/_/g, " ");
 }
 
-// Chip classes (text + soft bg) from the §2.1 palette. The 11 states map onto
-// the 7 named buckets without introducing new colors.
+// Chip: testo + fondo tenue della FAMIGLIA dello stato
+// (docs/design/ruffino-flow-tokens.md §4). I nomi dei token sono storici:
+// st-contratto = famiglia amministrativa, st-pagamento = famiglia posa,
+// st-produzione = produzione/logistica, st-postvendita = post-vendita.
 export const STATO_CHIP: Record<string, string> = {
   preventivo: "text-st-preventivo bg-st-preventivo-soft",
   misure_esecutive: "text-st-misure bg-st-misure-soft",
   aggiornamento_contratto: "text-st-contratto bg-st-contratto-soft",
-  fatture_pagamento: "text-st-pagamento bg-st-pagamento-soft",
+  fatture_pagamento: "text-st-contratto bg-st-contratto-soft",
   da_ordinare: "text-st-ordine bg-st-ordine-soft",
   produzione: "text-st-produzione bg-st-produzione-soft",
   ordini_ultimazione: "text-st-produzione bg-st-produzione-soft",
-  attesa_posa: "text-st-produzione bg-st-produzione-soft",
+  attesa_posa: "text-st-pagamento bg-st-pagamento-soft",
   finiture_saldo: "text-st-pagamento bg-st-pagamento-soft",
-  interventi_regolazioni: "text-st-chiusura bg-st-chiusura-soft",
+  interventi_regolazioni: "text-st-postvendita bg-st-postvendita-soft",
   archiviata: "text-st-chiusura bg-st-chiusura-soft",
 };
 
 export function statoChipClass(stato: string): string {
   return STATO_CHIP[stato] ?? "text-st-chiusura bg-st-chiusura-soft";
+}
+
+// Variabile CSS del colore pieno della famiglia (per rail, segmenti e
+// grafici). Stessa mappa famiglie di STATO_CHIP: mai colori nuovi.
+export const STATO_COLOR_VAR: Record<string, string> = {
+  preventivo: "var(--color-st-preventivo)",
+  misure_esecutive: "var(--color-st-misure)",
+  aggiornamento_contratto: "var(--color-st-contratto)",
+  fatture_pagamento: "var(--color-st-contratto)",
+  da_ordinare: "var(--color-st-ordine)",
+  produzione: "var(--color-st-produzione)",
+  ordini_ultimazione: "var(--color-st-produzione)",
+  attesa_posa: "var(--color-st-pagamento)",
+  finiture_saldo: "var(--color-st-pagamento)",
+  interventi_regolazioni: "var(--color-st-postvendita)",
+  archiviata: "var(--color-st-chiusura)",
+};
+
+export function statoColorVar(stato: string): string {
+  return STATO_COLOR_VAR[stato] ?? "var(--color-st-chiusura)";
 }
 
 // Priorità → Badge variant (§2.2).

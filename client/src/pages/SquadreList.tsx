@@ -333,6 +333,7 @@ export default function SquadreList() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title="Elimina squadra"
         description={`Eliminare "${deleteTarget?.label}"? Questa azione non puo essere annullata.`}
+        confirmLabel="Elimina squadra"
         onConfirm={() => deleteTarget && deleteSquadra.mutate(deleteTarget.id)}
       />
     </div>

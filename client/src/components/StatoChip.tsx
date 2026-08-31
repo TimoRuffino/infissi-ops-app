@@ -5,18 +5,28 @@ import { statoChipClass, statoLabel } from "@/lib/stato";
 export default function StatoChip({
   stato,
   className = "",
+  size = "sm",
 }: {
   stato: string;
   className?: string;
+  size?: "sm" | "md";
 }) {
+  const label = statoLabel(stato);
+
   return (
     <span
-      title={statoLabel(stato)}
-      className={`inline-flex max-w-full items-center h-[22px] overflow-hidden text-ellipsis px-2 rounded-[8px] text-xs font-semibold whitespace-nowrap ${statoChipClass(
-        stato
-      )} ${className}`}
+      data-state={stato}
+      aria-label={`Stato: ${label}`}
+      title={label}
+      className={`inline-flex max-w-full items-center gap-1.5 overflow-hidden text-ellipsis rounded-[var(--radius-pill)] font-semibold whitespace-nowrap ${
+        size === "md" ? "h-7 px-2.5 text-sm" : "h-[22px] px-2 text-xs"
+      } ${statoChipClass(stato)} ${className}`}
     >
-      {statoLabel(stato)}
+      <span
+        aria-hidden="true"
+        className="size-1.5 shrink-0 rounded-full bg-current"
+      />
+      <span className="truncate">{label}</span>
     </span>
   );
 }

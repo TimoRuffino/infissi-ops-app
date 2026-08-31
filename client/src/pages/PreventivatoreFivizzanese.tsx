@@ -636,7 +636,7 @@ export default function PreventivatoreFivizzanese() {
             <Calculator className="h-6 w-6 text-primary" />
             Fivizzanese — Persiane
             {isPromo && (
-              <Badge className="ml-1 bg-amber-500 hover:bg-amber-500 gap-1">
+              <Badge className="ml-1 bg-warning text-on-warning hover:bg-warning gap-1">
                 <Sparkles className="h-3 w-3" />
                 PROMO
               </Badge>
@@ -674,19 +674,19 @@ export default function PreventivatoreFivizzanese() {
         <div className="lg:col-span-2 space-y-6">
           {/* Banner PROMO */}
           {isPromo && (
-            <Card className="border-amber-400 bg-amber-50/60">
+            <Card className="border-warning/50 bg-warning-soft/60">
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
+                  <div className="h-9 w-9 rounded-full bg-warning flex items-center justify-center shrink-0">
                     <Sparkles className="h-5 w-5 text-white" />
                   </div>
                   <div className="space-y-0.5 min-w-0">
-                    <p className="font-semibold text-amber-900">
+                    <p className="font-semibold text-text-1">
                       Promozione attiva — {promoColore?.nome ?? "—"}{" "}
                       {promoColore &&
                         `(${EUR.format(promoColore.prezzoMq)}/m²)`}
                     </p>
-                    <p className="text-xs text-amber-800 leading-relaxed">
+                    <p className="text-xs text-warning leading-relaxed">
                       {modello?.promo?.note ??
                         "Promozione temporanea sul modello selezionato."}
                     </p>

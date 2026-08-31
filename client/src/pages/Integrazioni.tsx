@@ -178,7 +178,7 @@ export default function Integrazioni() {
               </div>
               <div className="flex items-center justify-between gap-3 sm:justify-end">
                 {todoEnabled ? (
-                  <Badge className="text-xs bg-green-100 text-green-800 hover:bg-green-100">
+                  <Badge className="text-xs bg-success-soft text-success hover:bg-success-soft">
                     <CheckCircle2 className="h-3 w-3 mr-1" />
                     Attiva
                   </Badge>
@@ -771,8 +771,8 @@ function FattureInCloudCard() {
       <CardHeader>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-sky-100 flex items-center justify-center">
-              <RefreshCw className="h-5 w-5 text-sky-700" />
+            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
+              <RefreshCw className="h-5 w-5 text-structure" />
             </div>
             <div>
               <CardTitle className="text-base">
@@ -1066,8 +1066,8 @@ function BackupDrive() {
       <CardHeader>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-              <Database className="h-5 w-5 text-emerald-700" />
+            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
+              <Database className="h-5 w-5 text-structure" />
             </div>
             <div>
               <CardTitle className="text-base">
@@ -1311,8 +1311,8 @@ function GoogleCalendarImport() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <Download className="h-5 w-5 text-blue-700" />
+            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
+              <Download className="h-5 w-5 text-structure" />
             </div>
             <div>
               <CardTitle className="text-base">
@@ -1494,8 +1494,8 @@ function GoogleCalendarSync() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
-              <Calendar className="h-5 w-5 text-green-700" />
+            <div className="h-10 w-10 rounded-lg bg-structure-soft flex items-center justify-center">
+              <Calendar className="h-5 w-5 text-structure" />
             </div>
             <div>
               <CardTitle className="text-base">Google Calendar</CardTitle>

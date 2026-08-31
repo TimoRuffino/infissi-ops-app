@@ -2,9 +2,9 @@ import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-import { trpc } from "@/lib/trpc";
 import { isDirezione } from "@/lib/roles";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useOperationalContext } from "@/contexts/OperationalContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,36 +15,30 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 // Sede (location) switcher. Shows the active sede and lets the operator
-// switch among the sedi assigned to them. Switching writes the server-side
-// `active_sede` cookie (via sedi.switch) then invalidates ALL queries so every
-// page re-fetches scoped to the new sede.
+// switch among the sedi assigned to them. Cache isolation and the transition
+// screen live in OperationalContext; this component is presentation only.
 export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
-  const utils = trpc.useUtils();
-  const sediList = trpc.sedi.list.useQuery();
-  const active = trpc.sedi.active.useQuery();
-
-  const switchSede = trpc.sedi.switch.useMutation({
-    onMutate: async () => {
-      await utils.promemoria.due.cancel();
-      utils.promemoria.due.setData(undefined, { items: [] });
-    },
-    onSuccess: async (sede) => {
-      // Refresh everything — data is scoped to the active sede server-side.
-      await utils.invalidate();
-      toast.success(`Sede attiva: ${sede?.nome ?? ""}`);
-    },
-    onError: (err) => {
-      void utils.promemoria.due.invalidate();
-      toast.error(err.message ?? "Cambio sede non riuscito");
-    },
-  });
-
-  const sedi = sediList.data ?? [];
-  const activeSede = active.data;
+  const { activeSede, sedi, status, switchSede } = useOperationalContext();
   const canManage = isDirezione(user);
   const canSwitch = sedi.length > 1;
+  const pending = status === "switching";
+
+  const pickSede = async (id: number) => {
+    if (id === activeSede?.id || pending) return;
+    const selected = sedi.find(sede => sede.id === id);
+    try {
+      await switchSede(id);
+      toast.success(`Sede attiva: ${selected?.nome ?? ""}`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Cambio sede non riuscito"
+      );
+    }
+  };
 
   // Compact icon badge reused by both layouts.
   const Badge = (
@@ -74,8 +68,8 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
           sedi={sedi}
           activeId={activeSede?.id}
           canManage={canManage}
-          pending={switchSede.isPending}
-          onPick={(id) => id !== activeSede?.id && switchSede.mutate({ sedeId: id })}
+          pending={pending}
+          onPick={id => void pickSede(id)}
           onManage={() => setLocation("/sedi")}
         />
       </DropdownMenu>
@@ -86,13 +80,13 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
   if (!canSwitch) {
     if (!activeSede) return null;
     return (
-      <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs">
+      <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-[var(--sidebar-chip-bg)] px-2.5 py-2 text-sidebar-foreground shadow-xs">
         {Badge}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[10px] font-medium uppercase text-white/48">
+          <div className="text-[10px] font-medium uppercase text-[var(--sidebar-chip-label)]">
             Sede attiva
           </div>
-          <div className="truncate text-sm font-semibold text-white">
+          <div className="truncate text-sm font-semibold text-[var(--sidebar-chip-text)]">
             {activeSede.nome}
           </div>
         </div>
@@ -105,27 +99,27 @@ export default function SedeSwitcher({ collapsed }: { collapsed?: boolean }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="group flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-white/[0.055] px-2.5 py-2 text-sidebar-foreground shadow-xs transition-[background-color,border-color,box-shadow] hover:border-sidebar-primary/45 hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="group flex w-full items-center gap-2.5 rounded-lg border border-sidebar-border bg-[var(--sidebar-chip-bg)] px-2.5 py-2 text-sidebar-foreground shadow-xs transition-[background-color,border-color,box-shadow] hover:border-sidebar-primary/45 hover:bg-[var(--sidebar-chip-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           title="Cambia sede"
         >
           {Badge}
           <div className="min-w-0 flex-1 text-left leading-tight">
-            <div className="text-[10px] font-medium uppercase text-white/48">
+            <div className="text-[10px] font-medium uppercase text-[var(--sidebar-chip-label)]">
               Sede attiva
             </div>
-            <div className="truncate text-sm font-semibold text-white">
+            <div className="truncate text-sm font-semibold text-[var(--sidebar-chip-text)]">
               {activeSede?.nome ?? "Seleziona sede"}
             </div>
           </div>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-white/48 transition-colors group-hover:text-white" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-[var(--sidebar-chip-label)] transition-colors group-hover:text-[var(--sidebar-chip-text)]" />
         </button>
       </DropdownMenuTrigger>
       <SwitcherMenu
         sedi={sedi}
         activeId={activeSede?.id}
         canManage={canManage}
-        pending={switchSede.isPending}
-        onPick={(id) => id !== activeSede?.id && switchSede.mutate({ sedeId: id })}
+        pending={pending}
+        onPick={id => void pickSede(id)}
         onManage={() => setLocation("/sedi")}
       />
     </DropdownMenu>

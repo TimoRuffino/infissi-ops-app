@@ -16,6 +16,7 @@ import {
   Paperclip,
   Sparkles,
   StickyNote,
+  CalendarDays,
 } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
@@ -239,7 +240,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                   {(() => {
                     const fNotes = fSteps.filter((x: any) => x.note).length;
                     return fNotes > 0 ? (
-                      <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-700 bg-amber-100 rounded px-1.5 py-px shrink-0">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-warning bg-warning-soft rounded px-1.5 py-px shrink-0">
                         <StickyNote className="h-3 w-3" />
                         {fNotes}
                       </span>
@@ -273,7 +274,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                           <span
                             className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${
                               completed
-                                ? "bg-success border-success text-white"
+                                ? "bg-success border-success text-on-success"
                                 : isCurrent
                                 ? "border-primary text-primary ring-2 ring-primary/20"
                                 : "border-border-strong text-text-3"
@@ -310,8 +311,9 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                               )}
                             </div>
                             {!completed && step.dataCompletamento && (
-                              <div className="text-[11px] font-semibold text-primary mt-0.5">
-                                📅 {new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")}
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-primary mt-0.5">
+                                <CalendarDays className="h-3 w-3 shrink-0" />
+                                {new Date(step.dataCompletamento + "T12:00:00").toLocaleDateString("it-IT")}
                                 {step.utente ? ` · ${step.utente}` : ""}
                               </div>
                             )}
@@ -326,9 +328,9 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
                             {/* Note — post-it block, multiline preserved
                                 (migrated To Do notes carry line breaks). */}
                             {step.note && (
-                              <div className="mt-1 flex gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
-                                <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-px" />
-                                <span className="min-w-0 text-xs leading-snug text-amber-950 whitespace-pre-line break-words">
+                              <div className="mt-1 flex gap-1.5 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5">
+                                <StickyNote className="h-3.5 w-3.5 shrink-0 text-warning mt-px" />
+                                <span className="min-w-0 text-xs leading-snug text-text-1 whitespace-pre-line break-words">
                                   {step.note}
                                 </span>
                               </div>

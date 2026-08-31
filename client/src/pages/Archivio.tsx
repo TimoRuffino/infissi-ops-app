@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { statoChipClass } from "@/lib/stato";
 import { useLocation } from "wouter";
 import {
   Archive,
@@ -19,22 +20,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
-// Colore per badge stato — copiato dal sidebar di CommesseList per coerenza
-// visiva. Deliberatamente senza "archiviata" perché qui `stato` è quello
-// ORIGINALE preservato (il soft-archive è ortogonale allo stato).
-const statoColors: Record<string, string> = {
-  preventivo: "bg-slate-100 text-slate-700",
-  misure_esecutive: "bg-blue-100 text-blue-800",
-  aggiornamento_contratto: "bg-cyan-100 text-cyan-800",
-  fatture_pagamento: "bg-amber-100 text-amber-800",
-  da_ordinare: "bg-yellow-100 text-yellow-800",
-  produzione: "bg-indigo-100 text-indigo-800",
-  ordini_ultimazione: "bg-purple-100 text-purple-800",
-  attesa_posa: "bg-orange-100 text-orange-800",
-  finiture_saldo: "bg-green-100 text-green-800",
-  interventi_regolazioni: "bg-teal-100 text-teal-800",
-  archiviata: "bg-gray-100 text-gray-600",
-};
+// Badge stato: unica fonte lib/stato (statoChipClass). Qui `stato` è
+// quello ORIGINALE preservato: il soft-archive è ortogonale allo stato.
 
 export default function Archivio() {
   const [, setLocation] = useLocation();
@@ -187,7 +174,7 @@ export default function Archivio() {
                     <Badge
                       variant="secondary"
                       className={`text-[10px] uppercase ${
-                        statoColors[c.stato] ?? ""
+                        statoChipClass(c.stato)
                       }`}
                     >
                       {c.stato.replace(/_/g, " ")}

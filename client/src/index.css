@@ -40,6 +40,17 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chrome: var(--chrome);
+  --color-canvas: var(--canvas);
+  --color-workspace: var(--workspace);
+  --color-focal: var(--focal);
+  --color-on-focal: var(--on-focal);
+  --color-mora: var(--mora);
+  --color-on-mora: var(--on-mora);
+  /* La firma deve restare leggibile anche se acquisita in dark mode e poi
+     stampata su carta bianca. */
+  --color-signature-paper: #ffffff;
+  --color-signature-ink: #20171b;
 }
 
 @theme {
@@ -66,6 +77,13 @@
   --color-danger-soft: #ffe4e8;
   --color-info: #3f5fd1;
   --color-info-soft: #e9edff;
+  /* Foreground accoppiati: un testo scritto sul pieno semantico deve
+     seguire il tema. `text-white` fisso diventa illeggibile dove il
+     pieno, in dark, è una tinta chiara. */
+  --color-on-success: #ffffff;
+  --color-on-warning: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-on-info: #ffffff;
 
   --color-st-preventivo: #2f63b7;
   --color-st-preventivo-soft: #e5efff;
@@ -81,6 +99,8 @@
   --color-st-pagamento-soft: #e3f5ec;
   --color-st-chiusura: #5e6560;
   --color-st-chiusura-soft: #ecefec;
+  --color-st-postvendita: #b52d42;
+  --color-st-postvendita-soft: #ffe4e8;
 
   --color-cal-rilievo: #2f63b7;
   --color-cal-rilievo-soft: #e5efff;
@@ -91,7 +111,9 @@
   --color-cal-altro: #5e6560;
   --color-cal-altro-soft: #ecefec;
 
-  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans:
+    "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
@@ -111,6 +133,21 @@
   --duration-fast: 160ms;
   --duration-base: 220ms;
   --duration-slow: 320ms;
+
+  /* Alias semantici condivisi. I valori qui mantengono il fallback legacy;
+     il sistema Modular Control li ridefinisce nel proprio quadrante. */
+  --color-brand: #d92f55;
+  --color-on-brand: #ffffff;
+  --color-brand-soft: #ffe6eb;
+  --color-structure: #176b68;
+  --color-on-structure: #ffffff;
+  --color-structure-soft: #d8f5ed;
+  --color-surface-raised: #ffffff;
+
+  --duration-expressive: 450ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.5, 0, 0.75, 0.2);
 }
 
 :root {
@@ -150,8 +187,33 @@
   --gradient-primary: linear-gradient(135deg, #d92f55 0%, #c84b2f 100%);
   --gradient-primary-hover: linear-gradient(135deg, #b92344 0%, #aa3e28 100%);
   --gradient-soft: linear-gradient(135deg, #ffe9ee 0%, #e3f7f1 100%);
-  --gradient-page: linear-gradient(135deg, #fff9fb 0%, #f6fbf9 56%, #fff7f4 100%);
-  --gradient-sidebar: linear-gradient(165deg, #123c35 0%, #1d302b 58%, #3a202b 100%);
+  --gradient-page: linear-gradient(
+    135deg,
+    #fff9fb 0%,
+    #f6fbf9 56%,
+    #fff7f4 100%
+  );
+  --gradient-sidebar: linear-gradient(
+    165deg,
+    #123c35 0%,
+    #1d302b 58%,
+    #3a202b 100%
+  );
+
+  /* Token componente della sidebar: valori identici a quelli che prima
+     erano classi bianche hardcoded, così la v1 non cambia di un pixel e
+     la v2 può ribaltare la sidebar in chiaro senza toccare i componenti. */
+  --sidebar-hairline: rgba(255, 255, 255, 0.1);
+  --sidebar-chip-bg: rgba(255, 255, 255, 0.055);
+  --sidebar-chip-bg-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-chip-label: rgba(255, 255, 255, 0.48);
+  --sidebar-chip-text: #ffffff;
+  --sidebar-avatar-bg: color-mix(
+    in srgb,
+    var(--sidebar-primary) 15%,
+    transparent
+  );
+  --sidebar-avatar-fg: var(--sidebar-primary);
 }
 
 .dark {
@@ -190,8 +252,30 @@
   --gradient-primary: linear-gradient(135deg, #ff6b79 0%, #ee754c 100%);
   --gradient-primary-hover: linear-gradient(135deg, #ff7c88 0%, #f18761 100%);
   --gradient-soft: linear-gradient(135deg, #3d252d 0%, #173c35 100%);
-  --gradient-page: linear-gradient(135deg, #1b1719 0%, #141d1b 58%, #201719 100%);
-  --gradient-sidebar: linear-gradient(165deg, #0d2b26 0%, #162622 58%, #301b24 100%);
+  --gradient-page: linear-gradient(
+    135deg,
+    #1b1719 0%,
+    #141d1b 58%,
+    #201719 100%
+  );
+  --gradient-sidebar: linear-gradient(
+    165deg,
+    #0d2b26 0%,
+    #162622 58%,
+    #301b24 100%
+  );
+
+  --sidebar-hairline: rgba(255, 255, 255, 0.1);
+  --sidebar-chip-bg: rgba(255, 255, 255, 0.055);
+  --sidebar-chip-bg-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-chip-label: rgba(255, 255, 255, 0.48);
+  --sidebar-chip-text: #ffffff;
+  --sidebar-avatar-bg: color-mix(
+    in srgb,
+    var(--sidebar-primary) 15%,
+    transparent
+  );
+  --sidebar-avatar-fg: var(--sidebar-primary);
 
   --color-surface: #222421;
   --color-surface-2: #2c2f2b;
@@ -214,6 +298,10 @@
   --color-danger-soft: #40231e;
   --color-info: #9cb0ff;
   --color-info-soft: #202c52;
+  --color-on-success: #14271b;
+  --color-on-warning: #403416;
+  --color-on-danger: #301419;
+  --color-on-info: #202c52;
   --color-st-preventivo: #85bfd0;
   --color-st-preventivo-soft: #152a31;
   --color-st-misure: #b69bf6;
@@ -228,6 +316,8 @@
   --color-st-pagamento-soft: #14271b;
   --color-st-chiusura: #adb9b5;
   --color-st-chiusura-soft: #202826;
+  --color-st-postvendita: #ef8a78;
+  --color-st-postvendita-soft: #40231e;
   --color-cal-rilievo: #85bfd0;
   --color-cal-rilievo-soft: #152a31;
   --color-cal-posa: #72d6bf;
@@ -240,6 +330,558 @@
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.34);
   --shadow-md: 0 10px 26px rgba(0, 0, 0, 0.44);
   --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.56);
+
+  --color-brand: #ff6b79;
+  --color-on-brand: #2d1419;
+  --color-brand-soft: #3d252d;
+  --color-structure: #4fb3ab;
+  --color-on-structure: #092422;
+  --color-structure-soft: #15302e;
+  --color-surface-raised: #27292c;
+}
+
+/* ==========================================================================
+   Modular Control / Borgogna Operativa
+   FLAG_UI_V2 seleziona esclusivamente la generazione visuale. I quadranti
+   legacy :root e .dark restano intatti come fallback fail-closed.
+   Livelli: primitive -> semantic -> component.
+   ========================================================================== */
+
+[data-ui-system="modular-control"] {
+  /* Primitive — light */
+  --primitive-chrome: #d8d5dc;
+  --primitive-canvas: #f7f5f6;
+  --primitive-surface: #ffffff;
+  --primitive-sunken: #f2eef0;
+  --primitive-raised: #ffffff;
+  --primitive-ink: #20171b;
+  --primitive-muted: #71656a;
+  --primitive-border: #e6dde0;
+  --primitive-control: #8a7a82;
+  --primitive-brand: #8b1e3f;
+  --primitive-on-brand: #ffffff;
+  --primitive-brand-soft: #f7e5eb;
+  --primitive-brand-soft-ink: #6e1733;
+  --primitive-mora: #5b468e;
+  --primitive-on-mora: #ffffff;
+  --primitive-anchor: #241821;
+  --primitive-success: #237353;
+  --primitive-success-soft: #e5f3ed;
+  --primitive-warning: #a84b32;
+  --primitive-warning-soft: #fbe9e3;
+  --primitive-danger: #b4233d;
+  --primitive-danger-soft: #f9e4e8;
+  --primitive-info: #3b5fa6;
+  --primitive-info-soft: #e7ecf7;
+  --primitive-focal-gradient: linear-gradient(
+    135deg,
+    #3a1725 0%,
+    #6c2448 56%,
+    #884b79 100%
+  );
+
+  /* Primitive — spacing, radius, elevation and motion */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius: 12px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-control: 12px;
+  --radius-panel: 20px;
+  --radius-dialog: 24px;
+  --radius-shell: 32px;
+  --radius-pill: 9999px;
+  --shadow-flat: none;
+  --shadow-raised:
+    0 1px 2px rgba(36, 24, 33, 0.05), 0 5px 16px rgba(36, 24, 33, 0.04);
+  --shadow-floating: 0 12px 28px rgba(36, 24, 33, 0.1);
+  --shadow-modal: 0 28px 72px rgba(36, 24, 33, 0.18);
+  --shadow-xs: var(--shadow-raised);
+  --shadow-sm: 0 6px 18px rgba(36, 24, 33, 0.07);
+  --shadow-md: var(--shadow-floating);
+  --shadow-lg: var(--shadow-modal);
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --duration-expressive: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.5, 0, 0.75, 0.2);
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* Semantic — shadcn compatibility and application language */
+  --chrome: var(--primitive-chrome);
+  --canvas: var(--primitive-canvas);
+  --workspace: var(--primitive-surface);
+  --focal: var(--primitive-anchor);
+  --on-focal: #ffffff;
+  --mora: var(--primitive-mora);
+  --on-mora: var(--primitive-on-mora);
+  --background: var(--primitive-canvas);
+  --foreground: var(--primitive-ink);
+  --card: var(--primitive-surface);
+  --card-foreground: var(--primitive-ink);
+  --popover: var(--primitive-raised);
+  --popover-foreground: var(--primitive-ink);
+  --primary: var(--primitive-brand);
+  --primary-foreground: var(--primitive-on-brand);
+  --secondary: var(--primitive-sunken);
+  --secondary-foreground: var(--primitive-ink);
+  --muted: var(--primitive-sunken);
+  --muted-foreground: var(--primitive-muted);
+  --accent: var(--primitive-brand-soft);
+  --accent-foreground: var(--primitive-brand-soft-ink);
+  --destructive: var(--primitive-danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--primitive-border);
+  --input: var(--primitive-control);
+  --ring: var(--primitive-mora);
+  --chart-1: var(--primitive-brand);
+  --chart-2: var(--primitive-mora);
+  --chart-3: var(--primitive-info);
+  --chart-4: var(--primitive-success);
+  --chart-5: var(--primitive-warning);
+  --sidebar: var(--primitive-surface);
+  --sidebar-foreground: var(--primitive-ink);
+  --sidebar-primary: var(--primitive-brand);
+  --sidebar-primary-foreground: var(--primitive-on-brand);
+  --sidebar-accent: var(--primitive-brand-soft);
+  --sidebar-accent-foreground: var(--primitive-brand-soft-ink);
+  --sidebar-border: var(--primitive-border);
+  --sidebar-ring: var(--primitive-mora);
+  --sidebar-hairline: var(--primitive-border);
+  --sidebar-chip-bg: color-mix(in srgb, var(--primitive-ink) 4%, transparent);
+  --sidebar-chip-bg-hover: color-mix(
+    in srgb,
+    var(--primitive-brand) 9%,
+    transparent
+  );
+  --sidebar-chip-label: var(--primitive-muted);
+  --sidebar-chip-text: var(--primitive-ink);
+  --sidebar-avatar-bg: var(--primitive-brand-soft);
+  --sidebar-avatar-fg: var(--primitive-brand-soft-ink);
+
+  --color-chrome: var(--primitive-chrome);
+  --color-canvas: var(--primitive-canvas);
+  --color-workspace: var(--primitive-canvas);
+  --color-surface: var(--primitive-surface);
+  --color-surface-2: var(--primitive-sunken);
+  --color-surface-sunken: var(--primitive-sunken);
+  --color-surface-raised: var(--primitive-raised);
+  --color-border-soft: var(--primitive-border);
+  --color-border-strong: var(--primitive-control);
+  --color-text-1: var(--primitive-ink);
+  --color-text-2: var(--primitive-muted);
+  --color-text-3: var(--primitive-muted);
+  --color-primary-hover: #741832;
+  --color-primary-soft: var(--primitive-brand-soft);
+  --color-ink: var(--primitive-ink);
+  --color-accent-brand: var(--primitive-brand);
+  --color-accent-text: var(--primitive-brand-soft-ink);
+  --color-accent-soft: var(--primitive-brand-soft);
+  --color-brand: var(--primitive-brand);
+  --color-on-brand: var(--primitive-on-brand);
+  --color-brand-soft: var(--primitive-brand-soft);
+  --color-brand-soft-ink: var(--primitive-brand-soft-ink);
+  --color-mora: var(--primitive-mora);
+  --color-on-mora: var(--primitive-on-mora);
+  --color-focal: var(--primitive-anchor);
+  --color-on-focal: #ffffff;
+  --color-focal-muted: #e7dce1;
+  --color-structure: var(--primitive-mora);
+  --color-on-structure: var(--primitive-on-mora);
+  --color-structure-soft: #eeeaf7;
+  --color-success: var(--primitive-success);
+  --color-success-soft: var(--primitive-success-soft);
+  --color-warning: var(--primitive-warning);
+  --color-warning-soft: var(--primitive-warning-soft);
+  --color-danger: var(--primitive-danger);
+  --color-danger-soft: var(--primitive-danger-soft);
+  --color-info: var(--primitive-info);
+  --color-info-soft: var(--primitive-info-soft);
+  --color-on-success: #ffffff;
+  --color-on-warning: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-on-info: #ffffff;
+
+  --color-st-preventivo: var(--primitive-info);
+  --color-st-preventivo-soft: var(--primitive-info-soft);
+  --color-st-misure: var(--primitive-mora);
+  --color-st-misure-soft: #eeeaf7;
+  --color-st-contratto: var(--primitive-brand);
+  --color-st-contratto-soft: var(--primitive-brand-soft);
+  --color-st-ordine: var(--primitive-warning);
+  --color-st-ordine-soft: var(--primitive-warning-soft);
+  --color-st-produzione: #2e6f67;
+  --color-st-produzione-soft: #e3f1ef;
+  --color-st-pagamento: var(--primitive-success);
+  --color-st-pagamento-soft: var(--primitive-success-soft);
+  --color-st-chiusura: #62575c;
+  --color-st-chiusura-soft: var(--primitive-sunken);
+  --color-st-postvendita: var(--primitive-danger);
+  --color-st-postvendita-soft: var(--primitive-danger-soft);
+  --color-cal-rilievo: var(--primitive-info);
+  --color-cal-rilievo-soft: var(--primitive-info-soft);
+  --color-cal-posa: #2e6f67;
+  --color-cal-posa-soft: #e3f1ef;
+  --color-cal-assistenza: var(--primitive-brand);
+  --color-cal-assistenza-soft: var(--primitive-brand-soft);
+  --color-cal-altro: #62575c;
+  --color-cal-altro-soft: var(--primitive-sunken);
+
+  /* Component */
+  --shell-chrome: var(--color-chrome);
+  --shell-canvas: var(--color-canvas);
+  --shell-workspace: var(--color-surface);
+  --shell-border: var(--color-border-soft);
+  --context-surface: var(--color-surface);
+  --context-border: var(--color-border-soft);
+  --context-active: var(--color-brand-soft);
+  --table-surface: var(--color-surface);
+  --table-header-surface: var(--color-surface-sunken);
+  --table-row-hover: color-mix(
+    in srgb,
+    var(--primitive-brand) 5%,
+    var(--primitive-surface)
+  );
+  --table-row-selected: var(--color-brand-soft);
+  --inspector-surface: var(--color-surface-raised);
+  --inspector-border: var(--color-border-soft);
+  --button-default-surface: var(--color-brand);
+  --button-default-ink: var(--color-on-brand);
+  --button-quiet-surface: transparent;
+  --button-toolbar-surface: var(--color-surface-sunken);
+  --button-focal-background: var(--primitive-focal-gradient);
+  --button-focal-ink: #ffffff;
+  --input-surface: var(--color-surface);
+  --input-border: var(--color-border-strong);
+  --dialog-surface: var(--color-surface-raised);
+  --tooltip-surface: var(--color-focal);
+  --tooltip-ink: var(--color-on-focal);
+  --focus-color: var(--primitive-mora);
+  --overlay: rgba(36, 24, 33, 0.48);
+  --gradient-focal: var(--primitive-focal-gradient);
+  --gradient-primary: none;
+  --gradient-primary-hover: none;
+  --gradient-soft: none;
+  --gradient-page: none;
+  --gradient-sidebar: none;
+}
+
+[data-ui-system="modular-control"].dark {
+  /* Primitive — dark */
+  --primitive-chrome: #0f0d12;
+  --primitive-canvas: #151216;
+  --primitive-surface: #201b20;
+  --primitive-sunken: #171217;
+  --primitive-raised: #2a2228;
+  --primitive-ink: #fcf8f9;
+  --primitive-muted: #bdafb5;
+  --primitive-border: #473b42;
+  --primitive-control: #7b6b73;
+  --primitive-brand: #f09ab2;
+  --primitive-on-brand: #32101b;
+  --primitive-brand-soft: #451a2a;
+  --primitive-brand-soft-ink: #ffb8cb;
+  --primitive-mora: #b6a6e8;
+  --primitive-on-mora: #231a3a;
+  --primitive-anchor: #2a1721;
+  --primitive-success: #70c9a5;
+  --primitive-success-soft: #17342a;
+  --primitive-warning: #f49a7a;
+  --primitive-warning-soft: #3d231c;
+  --primitive-danger: #ff9bab;
+  --primitive-danger-soft: #3f1c25;
+  --primitive-info: #afc2ff;
+  --primitive-info-soft: #202a47;
+  --primitive-focal-gradient: linear-gradient(
+    135deg,
+    #2a1721 0%,
+    #522039 56%,
+    #6b4163 100%
+  );
+
+  /* Primitive — spacing, radius, elevation and motion */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius: 12px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-control: 12px;
+  --radius-panel: 20px;
+  --radius-dialog: 24px;
+  --radius-shell: 32px;
+  --radius-pill: 9999px;
+  --shadow-flat: none;
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.22);
+  --shadow-floating: 0 10px 24px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.44);
+  --shadow-xs: var(--shadow-raised);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.24);
+  --shadow-md: var(--shadow-floating);
+  --shadow-lg: var(--shadow-modal);
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --duration-expressive: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.5, 0, 0.75, 0.2);
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* Semantic */
+  --chrome: var(--primitive-chrome);
+  --canvas: var(--primitive-canvas);
+  --workspace: var(--primitive-surface);
+  --focal: var(--primitive-anchor);
+  --on-focal: #ffffff;
+  --mora: var(--primitive-mora);
+  --on-mora: var(--primitive-on-mora);
+  --background: var(--primitive-canvas);
+  --foreground: var(--primitive-ink);
+  --card: var(--primitive-surface);
+  --card-foreground: var(--primitive-ink);
+  --popover: var(--primitive-raised);
+  --popover-foreground: var(--primitive-ink);
+  --primary: var(--primitive-brand);
+  --primary-foreground: var(--primitive-on-brand);
+  --secondary: var(--primitive-sunken);
+  --secondary-foreground: var(--primitive-ink);
+  --muted: var(--primitive-sunken);
+  --muted-foreground: var(--primitive-muted);
+  --accent: var(--primitive-brand-soft);
+  --accent-foreground: var(--primitive-brand-soft-ink);
+  --destructive: var(--primitive-danger);
+  --destructive-foreground: #32101b;
+  --border: var(--primitive-border);
+  --input: var(--primitive-control);
+  --ring: var(--primitive-mora);
+  --chart-1: var(--primitive-brand);
+  --chart-2: var(--primitive-mora);
+  --chart-3: var(--primitive-info);
+  --chart-4: var(--primitive-success);
+  --chart-5: var(--primitive-warning);
+  --sidebar: var(--primitive-surface);
+  --sidebar-foreground: var(--primitive-ink);
+  --sidebar-primary: var(--primitive-brand);
+  --sidebar-primary-foreground: var(--primitive-on-brand);
+  --sidebar-accent: var(--primitive-brand-soft);
+  --sidebar-accent-foreground: var(--primitive-brand-soft-ink);
+  --sidebar-border: var(--primitive-border);
+  --sidebar-ring: var(--primitive-mora);
+  --sidebar-hairline: var(--primitive-border);
+  --sidebar-chip-bg: color-mix(in srgb, var(--primitive-ink) 5%, transparent);
+  --sidebar-chip-bg-hover: color-mix(
+    in srgb,
+    var(--primitive-brand) 10%,
+    transparent
+  );
+  --sidebar-chip-label: var(--primitive-muted);
+  --sidebar-chip-text: var(--primitive-ink);
+  --sidebar-avatar-bg: var(--primitive-brand-soft);
+  --sidebar-avatar-fg: var(--primitive-brand-soft-ink);
+
+  --color-chrome: var(--primitive-chrome);
+  --color-canvas: var(--primitive-canvas);
+  --color-workspace: var(--primitive-canvas);
+  --color-surface: var(--primitive-surface);
+  --color-surface-2: var(--primitive-sunken);
+  --color-surface-sunken: var(--primitive-sunken);
+  --color-surface-raised: var(--primitive-raised);
+  --color-border-soft: var(--primitive-border);
+  --color-border-strong: var(--primitive-control);
+  --color-text-1: var(--primitive-ink);
+  --color-text-2: var(--primitive-muted);
+  --color-text-3: var(--primitive-muted);
+  --color-primary-hover: #ffb1c5;
+  --color-primary-soft: var(--primitive-brand-soft);
+  --color-ink: var(--primitive-ink);
+  --color-accent-brand: var(--primitive-brand);
+  --color-accent-text: var(--primitive-brand-soft-ink);
+  --color-accent-soft: var(--primitive-brand-soft);
+  --color-brand: var(--primitive-brand);
+  --color-on-brand: var(--primitive-on-brand);
+  --color-brand-soft: var(--primitive-brand-soft);
+  --color-brand-soft-ink: var(--primitive-brand-soft-ink);
+  --color-mora: var(--primitive-mora);
+  --color-on-mora: var(--primitive-on-mora);
+  --color-focal: var(--primitive-anchor);
+  --color-on-focal: #ffffff;
+  --color-focal-muted: #dcc7d0;
+  --color-structure: var(--primitive-mora);
+  --color-on-structure: var(--primitive-on-mora);
+  --color-structure-soft: #30284b;
+  --color-success: var(--primitive-success);
+  --color-success-soft: var(--primitive-success-soft);
+  --color-warning: var(--primitive-warning);
+  --color-warning-soft: var(--primitive-warning-soft);
+  --color-danger: var(--primitive-danger);
+  --color-danger-soft: var(--primitive-danger-soft);
+  --color-info: var(--primitive-info);
+  --color-info-soft: var(--primitive-info-soft);
+  --color-on-success: #10251d;
+  --color-on-warning: #35170e;
+  --color-on-danger: #351019;
+  --color-on-info: #17213b;
+
+  --color-st-preventivo: var(--primitive-info);
+  --color-st-preventivo-soft: var(--primitive-info-soft);
+  --color-st-misure: var(--primitive-mora);
+  --color-st-misure-soft: #30284b;
+  --color-st-contratto: var(--primitive-brand);
+  --color-st-contratto-soft: var(--primitive-brand-soft);
+  --color-st-ordine: var(--primitive-warning);
+  --color-st-ordine-soft: var(--primitive-warning-soft);
+  --color-st-produzione: var(--primitive-success);
+  --color-st-produzione-soft: var(--primitive-success-soft);
+  --color-st-pagamento: var(--primitive-success);
+  --color-st-pagamento-soft: var(--primitive-success-soft);
+  --color-st-chiusura: var(--primitive-muted);
+  --color-st-chiusura-soft: var(--primitive-sunken);
+  --color-st-postvendita: var(--primitive-danger);
+  --color-st-postvendita-soft: var(--primitive-danger-soft);
+  --color-cal-rilievo: var(--primitive-info);
+  --color-cal-rilievo-soft: var(--primitive-info-soft);
+  --color-cal-posa: var(--primitive-success);
+  --color-cal-posa-soft: var(--primitive-success-soft);
+  --color-cal-assistenza: var(--primitive-brand);
+  --color-cal-assistenza-soft: var(--primitive-brand-soft);
+  --color-cal-altro: var(--primitive-muted);
+  --color-cal-altro-soft: var(--primitive-sunken);
+
+  /* Component */
+  --shell-chrome: var(--color-chrome);
+  --shell-canvas: var(--color-canvas);
+  --shell-workspace: var(--color-surface);
+  --shell-border: var(--color-border-soft);
+  --context-surface: var(--color-surface);
+  --context-border: var(--color-border-soft);
+  --context-active: var(--color-brand-soft);
+  --table-surface: var(--color-surface);
+  --table-header-surface: var(--color-surface-sunken);
+  --table-row-hover: color-mix(
+    in srgb,
+    var(--primitive-brand) 8%,
+    var(--primitive-surface)
+  );
+  --table-row-selected: var(--color-brand-soft);
+  --inspector-surface: var(--color-surface-raised);
+  --inspector-border: var(--color-border-soft);
+  --button-default-surface: var(--color-brand);
+  --button-default-ink: var(--color-on-brand);
+  --button-quiet-surface: transparent;
+  --button-toolbar-surface: var(--color-surface-sunken);
+  --button-focal-background: var(--primitive-focal-gradient);
+  --button-focal-ink: #ffffff;
+  --input-surface: var(--color-surface);
+  --input-border: var(--color-border-strong);
+  --dialog-surface: var(--color-surface-raised);
+  --tooltip-surface: var(--color-focal);
+  --tooltip-ink: var(--color-on-focal);
+  --focus-color: var(--primitive-mora);
+  --overlay: rgba(15, 13, 18, 0.68);
+  --gradient-focal: var(--primitive-focal-gradient);
+  --gradient-primary: none;
+  --gradient-primary-hover: none;
+  --gradient-soft: none;
+  --gradient-page: none;
+  --gradient-sidebar: none;
+}
+
+/* Outer chrome and inner canvas are distinct only in the desktop regime. */
+[data-ui-system="modular-control"] body {
+  font-size: 15px;
+  line-height: 1.4667;
+  background-color: var(--shell-chrome);
+  background-image: none;
+}
+
+[data-ui-system="modular-control"] #root {
+  background-color: var(--shell-canvas);
+}
+
+@media (min-width: 1200px) {
+  [data-ui-system="modular-control"] #root {
+    width: calc(100% - 32px);
+    max-width: 1728px;
+    min-height: calc(100dvh - 32px);
+    margin: 16px auto;
+    overflow: clip;
+    border: 1px solid var(--shell-border);
+    border-radius: var(--radius-shell);
+    box-shadow: var(--shadow-floating);
+  }
+}
+
+@media (max-width: 1199px) {
+  [data-ui-system="modular-control"] body {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  [data-ui-system="modular-control"] #root {
+    width: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  [data-ui-system="modular-control"] {
+    scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  [data-ui-system="modular-control"] input,
+  [data-ui-system="modular-control"] textarea,
+  [data-ui-system="modular-control"] select {
+    font-size: 16px;
+  }
+}
+
+[data-ui-system="modular-control"] [data-sidebar="sidebar"] {
+  background-color: var(--sidebar);
+  background-image: none;
+}
+
+[data-ui-system="modular-control"]
+  [data-sidebar="menu-button"][data-active="true"] {
+  color: var(--sidebar-accent-foreground);
+  background-color: var(--sidebar-accent);
+  background-image: none;
+  box-shadow: inset 3px 0 0 var(--sidebar-primary);
+}
+
+.sidebar-logo {
+  filter: brightness(0) invert(1);
+}
+
+[data-ui-system="modular-control"]:not(.dark) .sidebar-logo {
+  filter: brightness(0) opacity(0.86);
 }
 
 @layer base {
@@ -318,7 +960,8 @@
     color-mix(in srgb, var(--sidebar-primary) 24%, transparent),
     color-mix(in srgb, var(--sidebar-accent) 78%, transparent)
   );
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sidebar-primary) 18%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--sidebar-primary) 18%, transparent);
 }
 
 @layer components {
@@ -391,7 +1034,8 @@
 }
 
 .notification-row-enter {
-  animation: notification-row-enter var(--duration-base) var(--ease-out-quart) both;
+  animation: notification-row-enter var(--duration-base) var(--ease-out-quart)
+    both;
 }
 
 @media (prefers-reduced-motion: reduce) {
