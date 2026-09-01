@@ -13,6 +13,7 @@ import { STRUMENTI_L0 } from "../strumenti/letture";
 import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "../strumenti/proposte";
+import { STRUMENTI_PROATTIVITA } from "../strumenti/proattivita";
 import type {
   IntentoTars,
   StrumentoTars,
@@ -25,7 +26,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.6.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.7.0";
 
 const schemaLettura = z
   .object({
@@ -316,6 +317,20 @@ const METADATI: Record<string, Metadati> = {
   ricorda: r1("ricorda", "sede", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
   dimentica: r1("dimentica", "sede", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
   leggi_memorie: lettura("sede", ["generale"], ["memoria"], ["tars", "tarsMemory"]),
+  panorama_azienda: {
+    ...lettura(
+      "sede",
+      ["generale", "direzione"],
+      ["commessa"],
+      ["tars", "tarsProactive"]
+    ),
+    prerequisiti: {
+      direzione: true,
+      superfici: ["generale", "direzione"],
+      intenti: ["lettura", "analisi"],
+      entita: ["commessa"],
+    },
+  },
 };
 
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
@@ -328,6 +343,7 @@ const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_DOCUMENTI,
   ...STRUMENTI_PROPOSTE,
   ...STRUMENTI_MEMORIA,
+  ...STRUMENTI_PROATTIVITA,
 ];
 
 function costruisciRegistro(): DescrittoreAzioneTars[] {

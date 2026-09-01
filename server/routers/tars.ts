@@ -43,6 +43,7 @@ import {
 import { strumentiPerContesto } from "../tars/profili";
 import { repositoryOsservazioniCorrente } from "../tars/proattivita/repository";
 import { osservatoreEspone } from "../tars/proattivita/worker";
+import { calcolaPatternAzienda } from "../tars/proattivita/patterns";
 import { AZIONI_DICHIARATE_INDISPONIBILI } from "../tars/azioni/registry";
 import {
   applicaContestoConversazioneAlRun,
@@ -496,6 +497,39 @@ export const tarsRouter = router({
       comeErrore(errore);
     }
   }),
+
+  /**
+   * Panorama Azienda (T7): pattern aggregati deterministici, direzione-only.
+   * Nessun modello, nessun token; le correlazioni sono dichiarate tali.
+   */
+  panorama: procedura
+    .input(
+      z
+        .object({
+          finestraGiorni: z.number().int().min(7).max(90).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Il Panorama Azienda è riservato alla direzione.",
+          });
+        }
+        return await calcolaPatternAzienda({
+          sedeId: contesto.sedeId,
+          now: new Date(),
+          finestraGiorni: input?.finestraGiorni,
+        });
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
 
   /**
    * Osservazioni dell'osservatore proattivo (T6): visibili solo in

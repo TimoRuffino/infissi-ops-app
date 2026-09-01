@@ -54,8 +54,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i 25 tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(26);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(26);
+    expect(REGISTRO_AZIONI).toHaveLength(27);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(27);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -128,6 +128,7 @@ describe("registro centrale delle azioni Tars", () => {
       leggi_ordini_fornitore: "R0",
       leggi_promemoria: "R0",
       leggi_promemoria_in_scadenza: "R0",
+      panorama_azienda: "R0",
       prendi_in_carico_caso: "R1",
       proponi_data_consegna: "R3",
       ricorda: "R1",
@@ -208,6 +209,7 @@ describe("registro centrale delle azioni Tars", () => {
       leggi_ordini_fornitore: "entita",
       leggi_promemoria: "personale",
       leggi_promemoria_in_scadenza: "personale",
+      panorama_azienda: "sede",
       prendi_in_carico_caso: "entita",
       proponi_data_consegna: "entita",
       ricorda: "sede",
@@ -311,7 +313,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(26);
+    expect(completo).toHaveLength(27);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
