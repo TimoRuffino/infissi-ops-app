@@ -115,6 +115,24 @@ export function ensureTarsSchema(): Promise<void> {
       await kvSql!`
         CREATE INDEX IF NOT EXISTS tars_run_sede
           ON tars_run (sede_id, created_at DESC)`;
+      // Riparazione one-time della doppia codifica jsonb (postgres-js +
+      // `JSON.stringify(...)::jsonb` produce una STRINGA jsonb — stesso
+      // incidente della chat, v. server/chat/store.ts): le colonne scritte
+      // così prima del 01/09/2026 vengono spacchettate al primo boot.
+      await kvSql!`
+        UPDATE tars_conversazioni SET contesto = (contesto #>> '{}')::jsonb
+        WHERE jsonb_typeof(contesto) = 'string'`;
+      await kvSql!`
+        UPDATE tars_turni SET payload = (payload #>> '{}')::jsonb
+        WHERE jsonb_typeof(payload) = 'string'`;
+      await kvSql!`
+        UPDATE tars_run SET
+          versioni = CASE WHEN jsonb_typeof(versioni) = 'string'
+            THEN (versioni #>> '{}')::jsonb ELSE versioni END,
+          contatori = CASE WHEN jsonb_typeof(contatori) = 'string'
+            THEN (contatori #>> '{}')::jsonb ELSE contatori END
+        WHERE jsonb_typeof(versioni) = 'string'
+           OR jsonb_typeof(contatori) = 'string'`;
     })();
   }
   return schemaPromise;
@@ -147,12 +165,29 @@ function rigaConversazione(r: any): ConversazioneTars {
   };
 }
 
+/**
+ * Un valore jsonb comunque sia finito in colonna: le righe scritte con
+ * `JSON.stringify(...)::jsonb` (doppia codifica postgres-js, riparata al
+ * boot dal 01/09/2026) arrivano come stringa e vanno spacchettate anche in
+ * lettura, per il primo giro prima della migrazione e per ogni backup.
+ */
+function jsonbTollerante(valore: unknown): unknown {
+  if (typeof valore !== "string") return valore;
+  try {
+    return JSON.parse(valore);
+  } catch {
+    return null;
+  }
+}
+
 function normalizzaContestoConversazione(
   valore: unknown,
   versione: number
 ): ContestoConversazione {
   const base = contestoConversazioneVuoto();
-  const analizzato = analizzaContestoConversazionePersistito(valore);
+  const analizzato = analizzaContestoConversazionePersistito(
+    jsonbTollerante(valore)
+  );
   if (!analizzato.success) {
     return {
       ...base,
@@ -173,7 +208,7 @@ function rigaTurno(r: any): TurnoTars {
     sedeId: Number(r.sede_id),
     ruolo: r.ruolo,
     contenuto: String(r.contenuto),
-    payload: r.payload ?? null,
+    payload: (jsonbTollerante(r.payload) as Record<string, unknown> | null) ?? null,
     createdAt: new Date(r.created_at),
   };
 }
@@ -224,7 +259,7 @@ export async function salvaContestoConversazioneInArchivio(input: {
     await ensureTarsSchema();
     const righe = await kvSql`
       UPDATE tars_conversazioni
-      SET contesto = ${JSON.stringify(input.contesto)}::jsonb,
+      SET contesto = ${kvSql.json(input.contesto as any)},
           contesto_versione = contesto_versione + 1,
           updated_at = now()
       WHERE id = ${input.conversazioneId}
@@ -534,7 +569,7 @@ export async function aggiungiTurno(input: {
       )
       INSERT INTO tars_turni (conversazione_id, sede_id, ruolo, contenuto, payload)
       SELECT id, ${input.sedeId}, ${input.ruolo}, ${input.contenuto},
-             ${JSON.stringify(input.payload ?? null)}::jsonb
+             ${input.payload == null ? null : kvSql.json(input.payload as any)}
       FROM proprietaria
       RETURNING *`;
     const r = righe[0];
@@ -594,8 +629,8 @@ export async function registraRun(
                             provider, modello, versioni, contatori, errore)
       VALUES (${input.sedeId}, ${input.utenteId}, ${input.conversazioneId},
               ${input.stato}, ${input.provider}, ${input.modello},
-              ${JSON.stringify(input.versioni)}::jsonb,
-              ${JSON.stringify(input.contatori)}::jsonb, ${input.errore})`;
+              ${kvSql.json(input.versioni as any)},
+              ${kvSql.json(input.contatori as any)}, ${input.errore})`;
     return;
   }
   memRun.push({ ...input, id: memRunId++, createdAt: new Date() });

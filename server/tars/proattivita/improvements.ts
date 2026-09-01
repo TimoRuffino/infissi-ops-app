@@ -285,7 +285,10 @@ function creaRepositoryMiglioramentiPostgres(): RepositoryMiglioramenti {
     pronta = true;
   };
   const daRiga = (riga: any): PropostaMiglioramento => {
-    const payload = riga.payload;
+    // Tolleranza alla doppia codifica jsonb (v. server/chat/store.ts): una
+    // riga scritta come stringa arriva qui già spacchettata.
+    const payload =
+      typeof riga.payload === "string" ? JSON.parse(riga.payload) : riga.payload;
     return {
       ...payload,
       id: Number(riga.id),
@@ -307,10 +310,12 @@ function creaRepositoryMiglioramentiPostgres(): RepositoryMiglioramenti {
     },
     async salva(proposta, opzioni) {
       await assicura();
-      const payload = JSON.stringify({ ...proposta, id: undefined });
+      // `sql.json`, mai `JSON.stringify(...)::jsonb` (doppia codifica
+      // postgres-js, v. server/_core/persistence.ts).
+      const payload = sql.json({ ...proposta, id: undefined } as any);
       if (opzioni?.soloSeStato) {
         const [riga] = await sql`UPDATE tars_miglioramenti
-          SET payload = ${payload}::jsonb
+          SET payload = ${payload}
           WHERE sede_id = ${proposta.sedeId}
             AND chiave_pattern = ${proposta.chiavePattern}
             AND payload->>'stato' = ${opzioni.soloSeStato}
@@ -319,9 +324,9 @@ function creaRepositoryMiglioramentiPostgres(): RepositoryMiglioramenti {
       }
       const [riga] = await sql`INSERT INTO tars_miglioramenti
           (sede_id, chiave_pattern, payload)
-        VALUES (${proposta.sedeId}, ${proposta.chiavePattern}, ${payload}::jsonb)
+        VALUES (${proposta.sedeId}, ${proposta.chiavePattern}, ${payload})
         ON CONFLICT (sede_id, chiave_pattern)
-        DO UPDATE SET payload = ${payload}::jsonb
+        DO UPDATE SET payload = EXCLUDED.payload
         RETURNING *`;
       return daRiga(riga);
     },

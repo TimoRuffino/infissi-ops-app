@@ -182,6 +182,50 @@ export function creaRepositoryOsservazioniMemoriaPerTest(): RepositoryOsservazio
   };
 }
 
+/**
+ * Lo storico, comunque sia finito nella colonna. Le prime righe sono state
+ * scritte con `JSON.stringify(...)::jsonb`, che con postgres-js produce una
+ * STRINGA jsonb invece di un array (stesso incidente della chat, v. commento
+ * in `server/chat/store.ts`); l'append SQL su quelle righe ha poi creato
+ * array misti [stringa, evento]. La scrittura ora usa `sql.json` e lo schema
+ * ripara le righe al boot, ma la lettura resta tollerante: un evento
+ * illeggibile viene scartato, mai trasformato in una Invalid Date che
+ * esplode alla prima `toISOString()` (incidente produzione 01/09/2026).
+ */
+export function normalizzaStorico(valore: unknown): EventoOsservazione[] {
+  const grezzi: unknown[] = [];
+  const raccogli = (v: unknown) => {
+    if (Array.isArray(v)) {
+      for (const elemento of v) raccogli(elemento);
+      return;
+    }
+    if (typeof v === "string") {
+      try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed) || typeof parsed === "object") {
+          raccogli(parsed);
+        }
+      } catch {
+        // Stringa non-JSON: non è un evento, si scarta.
+      }
+      return;
+    }
+    if (v != null && typeof v === "object") grezzi.push(v);
+  };
+  raccogli(valore);
+  const eventi: EventoOsservazione[] = [];
+  for (const grezzo of grezzi as any[]) {
+    const at = new Date(grezzo.at);
+    if (typeof grezzo.tipo !== "string" || Number.isNaN(at.getTime())) continue;
+    eventi.push({
+      tipo: grezzo.tipo as EventoOsservazione["tipo"],
+      fingerprint: String(grezzo.fingerprint ?? ""),
+      at,
+    });
+  }
+  return eventi;
+}
+
 function rigaDaDb(row: any): OsservazioneTars {
   return {
     id: Number(row.id),
@@ -200,13 +244,7 @@ function rigaDaDb(row: any): OsservazioneTars {
     confidenza: row.confidenza,
     stato: row.stato,
     cooldownFinoA: row.cooldown_fino_a ? new Date(row.cooldown_fino_a) : null,
-    storico: (Array.isArray(row.storico) ? row.storico : []).map(
-      (evento: any) => ({
-        tipo: evento.tipo,
-        fingerprint: String(evento.fingerprint ?? ""),
-        at: new Date(evento.at),
-      })
-    ),
+    storico: normalizzaStorico(row.storico),
     apertaAt: new Date(row.aperta_at),
     aggiornataAt: new Date(row.aggiornata_at),
     risoltaAt: row.risolta_at ? new Date(row.risolta_at) : null,
@@ -243,6 +281,30 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
     )`;
     await sql`CREATE INDEX IF NOT EXISTS tars_osservazioni_sede_stato
       ON tars_osservazioni (sede_id, stato, aggiornata_at DESC)`;
+    // Riparazione one-time (stesso incidente della chat): le righe scritte
+    // con `JSON.stringify(...)::jsonb` hanno lo storico come STRINGA jsonb;
+    // l'append `storico || evento` su quelle righe ha prodotto array misti.
+    // Prima si spacchettano le stringhe pure, poi le righe miste vengono
+    // rilette tolleranti e riscritte come array di soli eventi validi.
+    await sql`UPDATE tars_osservazioni
+      SET storico = (storico #>> '{}')::jsonb
+      WHERE jsonb_typeof(storico) = 'string'`;
+    const miste = await sql`SELECT id, storico FROM tars_osservazioni
+      WHERE jsonb_typeof(storico) = 'array'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(storico) e
+          WHERE jsonb_typeof(e.value) <> 'object'
+        )`;
+    for (const riga of miste) {
+      const eventi = normalizzaStorico(riga.storico).map(evento => ({
+        tipo: evento.tipo,
+        fingerprint: evento.fingerprint,
+        at: evento.at.toISOString(),
+      }));
+      await sql`UPDATE tars_osservazioni
+        SET storico = ${sql.json(eventi as any)}
+        WHERE id = ${riga.id}`;
+    }
     pronta = true;
   };
 
@@ -257,22 +319,38 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
     return righe.length ? rigaDaDb(righe[0]) : null;
   };
 
-  return {
-    ensureSchema: assicura,
-    async upsert(nuova, now) {
-      await assicura();
-      const esistente = await leggi(nuova);
+  // Ritenti limitati: la guardia ottimistica che non matcha MAI (per un
+  // dato inatteso, non per una corsa) deve fallire rumorosamente, non
+  // ricorrere all'infinito (il seed a precisione di microsecondi nei test
+  // di contratto l'ha dimostrato possibile).
+  const MAX_TENTATIVI_UPSERT = 3;
+
+  const upsertConTentativi = async (
+    nuova: NuovaOsservazione,
+    now: Date,
+    tentativo: number
+  ): Promise<EsitoUpsertOsservazione> => {
+    if (tentativo > MAX_TENTATIVI_UPSERT) {
+      throw new Error(
+        "tars_osservazioni: guardia ottimistica mai soddisfatta dopo i ritenti."
+      );
+    }
+    await assicura();
+    const esistente = await leggi(nuova);
       const applicato = applicaUpsert(esistente, nuova, now);
       if (applicato.esito === "invariata" || applicato.esito === "in_cooldown") {
         return { record: applicato.record, esito: applicato.esito };
       }
       const record = applicato.record;
-      const storicoJson = JSON.stringify(
+      // `sql.json`, MAI `JSON.stringify(...)::jsonb`: con postgres-js la
+      // stringa pre-serializzata viene ri-serializzata e finisce in colonna
+      // come jsonb string (v. server/_core/persistence.ts).
+      const storicoJson = sql.json(
         record.storico.map(evento => ({
           tipo: evento.tipo,
           fingerprint: evento.fingerprint,
           at: evento.at.toISOString(),
-        }))
+        })) as any
       );
       if (record.id === 0) {
         const [riga] = await sql`INSERT INTO tars_osservazioni (
@@ -286,7 +364,7 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
             ${record.commessaId}, ${record.targetType}, ${record.targetId},
             ${record.titolo}, ${record.sintesi}, ${record.priorita},
             ${record.materialita}, ${record.confidenza}, ${record.stato},
-            ${record.cooldownFinoA}, ${storicoJson}::jsonb,
+            ${record.cooldownFinoA}, ${storicoJson},
             ${record.apertaAt}, ${record.aggiornataAt}, ${record.risoltaAt}
           )
           ON CONFLICT (sede_id, caso_key, detector, detector_versione)
@@ -304,11 +382,14 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
         ) {
           return { record: vinto, esito: riapplicato.esito };
         }
-        return this.upsert(nuova, now);
+        return upsertConTentativi(nuova, now, tentativo + 1);
       }
       // Guardia ottimistica (revisione I3): l'aggiornamento vale solo se
       // la riga è ancora quella letta; un risolviAssenti interlacciato non
-      // viene sovrascritto — si rilegge e si riapplica.
+      // viene sovrascritto — si rilegge e si riapplica. Il confronto è
+      // troncato ai millisecondi: un JS Date non conserva i microsecondi
+      // di un TIMESTAMPTZ, e l'uguaglianza piena non matcherebbe mai su
+      // una riga scritta da SQL (now() ha precisione µs).
       const [riga] = await sql`UPDATE tars_osservazioni SET
           fingerprint = ${record.fingerprint},
           commessa_id = ${record.commessaId},
@@ -321,12 +402,13 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
           confidenza = ${record.confidenza},
           stato = ${record.stato},
           cooldown_fino_a = ${record.cooldownFinoA},
-          storico = ${storicoJson}::jsonb,
+          storico = ${storicoJson},
           aggiornata_at = ${record.aggiornataAt},
           risolta_at = ${record.risoltaAt}
         WHERE id = ${record.id}
           AND stato = ${esistente!.stato}
-          AND aggiornata_at = ${esistente!.aggiornataAt}
+          AND date_trunc('milliseconds', aggiornata_at) =
+              date_trunc('milliseconds', ${esistente!.aggiornataAt}::timestamptz)
         RETURNING *`;
       if (!riga) {
         const riletta = await leggi(nuova);
@@ -338,9 +420,15 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
         ) {
           return { record: riletta, esito: riapplicato.esito };
         }
-        return this.upsert(nuova, now);
+        return upsertConTentativi(nuova, now, tentativo + 1);
       }
       return { record: rigaDaDb(riga), esito: applicato.esito };
+    };
+
+  return {
+    ensureSchema: assicura,
+    async upsert(nuova, now) {
+      return upsertConTentativi(nuova, now, 1);
     },
     async risolviAssenti({ sedeId, casiVivi, now }) {
       await assicura();
@@ -352,11 +440,16 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
         if (casiVivi.get(record.casoKey) === record.detector) continue;
         // Evento appeso lato SQL e stato guardato: un upsert concorrente
         // non può cancellare l'auto-risoluzione né perdere lo storico.
-        const evento = JSON.stringify([{
-          tipo: "auto_risolta",
-          fingerprint: record.fingerprint,
-          at: now.toISOString(),
-        }]);
+        // `sql.json` di un ARRAY con l'evento: l'append || array-su-array
+        // resta un array piatto (la migrazione in ensureSchema garantisce
+        // che la colonna sia un array, mai la vecchia stringa jsonb).
+        const evento = sql.json([
+          {
+            tipo: "auto_risolta",
+            fingerprint: record.fingerprint,
+            at: now.toISOString(),
+          },
+        ] as any);
         const aggiornate = await sql`UPDATE tars_osservazioni SET
             stato = 'auto_risolta',
             risolta_at = ${now},
