@@ -3,6 +3,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
 } from "lucide-react";
 
 export type TarsConversationListProps = {
@@ -42,6 +44,7 @@ export type TarsConversationListProps = {
   onFissa: (conversazione: ConversazioneTarsView, fissata: boolean) => void;
   onArchivia: (conversazione: ConversazioneTarsView) => void;
   onRipristina: (conversazione: ConversazioneTarsView) => void;
+  onElimina: (conversazione: ConversazioneTarsView) => void;
   onRetry?: () => void;
 };
 
@@ -54,6 +57,7 @@ function RigaConversazione({
   onFissa,
   onArchivia,
   onRipristina,
+  onElimina,
 }: {
   conversazione: ConversazioneTarsView;
   attiva: boolean;
@@ -63,6 +67,7 @@ function RigaConversazione({
   onFissa: (fissata: boolean) => void;
   onArchivia: () => void;
   onRipristina: () => void;
+  onElimina: () => void;
 }) {
   const archiviata = conversazione.archiviataAt != null;
   return (
@@ -133,6 +138,14 @@ function RigaConversazione({
               </DropdownMenuItem>
             </>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="min-h-11 text-danger focus:text-danger"
+            onSelect={onElimina}
+          >
+            <Trash2 aria-hidden="true" />
+            Elimina
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </li>
@@ -153,6 +166,7 @@ export default function TarsConversationList({
   onFissa,
   onArchivia,
   onRipristina,
+  onElimina,
   onRetry,
 }: TarsConversationListProps) {
   const filtrate = filtraConversazioni(conversazioni, ricerca);
@@ -277,6 +291,7 @@ export default function TarsConversationList({
                       onFissa={fissata => onFissa(conversazione, fissata)}
                       onArchivia={() => onArchivia(conversazione)}
                       onRipristina={() => onRipristina(conversazione)}
+                      onElimina={() => onElimina(conversazione)}
                     />
                   ))}
                 </ul>

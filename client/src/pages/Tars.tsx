@@ -14,6 +14,16 @@ import TarsThread, {
 } from "@/components/tars/TarsThread";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -368,6 +378,8 @@ export default function Tars() {
   );
   const [conversazioneDaRinominare, setConversazioneDaRinominare] =
     useState<ConversazioneTarsView | null>(null);
+  const [conversazioneDaEliminare, setConversazioneDaEliminare] =
+    useState<ConversazioneTarsView | null>(null);
   const [titoloRinomina, setTitoloRinomina] = useState("");
   const [erroreRinomina, setErroreRinomina] = useState<string | null>(null);
   const inVoloRef = useRef<InvioInVolo | null>(null);
@@ -498,6 +510,28 @@ export default function Tars() {
     },
     onError: errore => {
       setErroreGestione(errore.message || "Aggiornamento non riuscito.");
+    },
+  });
+
+  const elimina = trpc.tars.eliminaConversazione.useMutation({
+    onSuccess: (_risposta, variabili) => {
+      setErroreGestione(null);
+      setConversazioneDaEliminare(null);
+      if (conversazioneIdRef.current === variabili.conversazioneId) {
+        versioneSelezioneRef.current += 1;
+        conversazioneIdRef.current = null;
+        setConversazioneId(null);
+        setMetadatiSelezionati(null);
+        preparaNuovaSessione();
+        setErroreInvio(null);
+        setListaMobileAperta(false);
+      }
+      void utils.tars.conversazioni.invalidate();
+      toast.success("Conversazione eliminata definitivamente.");
+    },
+    onError: errore => {
+      setErroreGestione(errore.message || "Eliminazione non riuscita.");
+      toast.error(errore.message || "Eliminazione non riuscita.");
     },
   });
 
@@ -824,6 +858,10 @@ export default function Tars() {
         conversazioneId: conversazione.id,
         archiviata: false,
       });
+    },
+    onElimina: conversazione => {
+      setErroreGestione(null);
+      setConversazioneDaEliminare(conversazione);
     },
     onRetry: () => {
       void conversazioniAttive.refetch();
@@ -1189,6 +1227,48 @@ export default function Tars() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={conversazioneDaEliminare != null}
+        onOpenChange={aperta => {
+          if (!aperta && !elimina.isPending) {
+            setConversazioneDaEliminare(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Eliminare «{conversazioneDaEliminare?.titolo}»?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              La conversazione e tutti i suoi messaggi verranno eliminati
+              definitivamente: non è possibile annullare. Le azioni già
+              eseguite (promemoria, transizioni, archiviazioni) restano
+              registrate nel CRM e nell&#39;audit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="min-h-11" disabled={elimina.isPending}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="min-h-11 bg-danger text-on-danger hover:bg-danger/90"
+              disabled={elimina.isPending}
+              onClick={event => {
+                event.preventDefault();
+                if (conversazioneDaEliminare) {
+                  elimina.mutate({
+                    conversazioneId: conversazioneDaEliminare.id,
+                  });
+                }
+              }}
+            >
+              {elimina.isPending ? "Eliminazione…" : "Elimina definitivamente"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

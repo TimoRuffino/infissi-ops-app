@@ -19,6 +19,7 @@ import {
   turniDiConversazione,
   conversazioneDiUtente,
   impostaConversazioneArchiviata,
+  eliminaConversazione,
   impostaConversazioneFissata,
   rinominaConversazione,
 } from "../tars/archivio";
@@ -400,6 +401,27 @@ export const tarsRouter = router({
           throw new Error("CONVERSAZIONE_ARCHIVIATA");
         }
         return esito.conversazione;
+      } catch (errore) {
+        comeErrore(errore);
+      }
+    }),
+
+  eliminaConversazione: procedura
+    .input(z.object({ conversazioneId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const contesto = await costruisciContesto(ctx);
+        // Eliminazione definitiva del contenuto della chat; l'audit
+        // operativo (ledger R1, tars_run, costi) resta per costruzione.
+        const esito = await eliminaConversazione({
+          conversazioneId: input.conversazioneId,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+        });
+        if (esito.stato === "non_trovato") {
+          throw new Error("NOT_FOUND: conversazione non trovata.");
+        }
+        return { eliminata: true, conversazioneId: input.conversazioneId };
       } catch (errore) {
         comeErrore(errore);
       }

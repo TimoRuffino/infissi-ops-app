@@ -10,6 +10,7 @@ import {
   listaConversazioni,
   rinominaConversazione,
   turniDiConversazione,
+  eliminaConversazione,
 } from "./archivio";
 
 const SEDE = 77101;
@@ -334,3 +335,63 @@ describe("router conversazioni Tars", () => {
     ).resolves.toMatchObject({ archiviataAt: null });
   });
 });
+
+describe("eliminazione definitiva delle conversazioni", () => {
+  it("elimina conversazione e turni del proprietario; runs e audit non sono toccati per costruzione", async () => {
+    const conversazione = await caller().tars.invia({
+      messaggio: "Conversazione da eliminare",
+    });
+    const id = conversazione!.conversazioneId;
+    expect(
+      (await caller().tars.turni({ conversazioneId: id })).length
+    ).toBeGreaterThan(0);
+
+    const esito = await caller().tars.eliminaConversazione({
+      conversazioneId: id,
+    });
+    expect(esito).toMatchObject({ eliminata: true, conversazioneId: id });
+    const lista = await caller().tars.conversazioni();
+    expect(lista!.map(c => c.id)).not.toContain(id);
+    await expect(
+      caller().tars.turni({ conversazioneId: id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("un'altra sede o un altro utente ricevono NOT_FOUND, senza effetti", async () => {
+    const conversazione = await caller().tars.invia({
+      messaggio: "Conversazione protetta",
+    });
+    const id = conversazione!.conversazioneId;
+    await expect(
+      caller(UTENTE, ALTRA_SEDE).tars.eliminaConversazione({ conversazioneId: id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      caller(ALTRO_UTENTE, SEDE).tars.eliminaConversazione({ conversazioneId: id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(
+      (await caller().tars.conversazioni())!.map(c => c.id)
+    ).toContain(id);
+    const diretto = await eliminaConversazione({
+      conversazioneId: id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+    });
+    expect(diretto.stato).toBe("eliminata");
+  });
+
+  it("una conversazione archiviata si può eliminare senza prima ripristinarla", async () => {
+    const conversazione = await caller().tars.invia({
+      messaggio: "Archivia e poi elimina",
+    });
+    const id = conversazione!.conversazioneId;
+    await caller().tars.archiviaConversazione({
+      conversazioneId: id,
+      archiviata: true,
+    });
+    const esito = await caller().tars.eliminaConversazione({
+      conversazioneId: id,
+    });
+    expect(esito).toMatchObject({ eliminata: true });
+  });
+});
+

@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { kvSql } from "../_core/persistence";
 import {
   aggiungiTurno,
+  eliminaConversazione,
   conversazioneDiUtente,
   creaConversazione,
   ensureTarsSchema,
@@ -215,6 +216,53 @@ describe.skipIf(!conDatabase)(
         stato: "aggiornata",
         conversazione: { archiviataAt: null },
       });
+    });
+
+    it("elimina definitivamente conversazione e turni, solo per il proprietario", async () => {
+      const creata = await creaConversazione({
+        sedeId: SEDE,
+        utenteId: UTENTE,
+        titolo: "Da eliminare (PG)",
+      });
+      await aggiungiTurno({
+        conversazioneId: creata.id,
+        sedeId: SEDE,
+        utenteId: UTENTE,
+        ruolo: "utente",
+        contenuto: "contenuto da eliminare",
+      });
+      expect(
+        (await eliminaConversazione({
+          conversazioneId: creata.id,
+          sedeId: ALTRA_SEDE,
+          utenteId: UTENTE,
+        })).stato
+      ).toBe("non_trovato");
+      expect(
+        (await eliminaConversazione({
+          conversazioneId: creata.id,
+          sedeId: SEDE,
+          utenteId: ALTRO_UTENTE,
+        })).stato
+      ).toBe("non_trovato");
+      expect(
+        (await eliminaConversazione({
+          conversazioneId: creata.id,
+          sedeId: SEDE,
+          utenteId: UTENTE,
+        })).stato
+      ).toBe("eliminata");
+      expect(
+        await conversazioneDiUtente(creata.id, SEDE, UTENTE)
+      ).toBeNull();
+      expect(await turniDiConversazione(creata.id, SEDE, 10)).toEqual([]);
+      expect(
+        (await eliminaConversazione({
+          conversazioneId: creata.id,
+          sedeId: SEDE,
+          utenteId: UTENTE,
+        })).stato
+      ).toBe("non_trovato");
     });
   }
 );

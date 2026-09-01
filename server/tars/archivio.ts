@@ -458,6 +458,60 @@ export function impostaConversazioneArchiviata(input: {
   return aggiornaConversazioneGestione(input);
 }
 
+/**
+ * Eliminazione DEFINITIVA di una conversazione propria (richiesta della
+ * direzione, 01/09): spariscono conversazione e turni — il contenuto della
+ * chat. L'audit OPERATIVO resta intatto per costruzione: ledger esecuzioni
+ * R1, registro `tars_run` e telemetria costi vivono in tabelle proprie e
+ * non vengono toccati (il loro `conversazione_id` resta come riferimento
+ * storico). Solo il proprietario nella propria sede può eliminare; per gli
+ * altri la conversazione è NOT_FOUND, mai un dettaglio.
+ */
+export async function eliminaConversazione(input: {
+  conversazioneId: number;
+  sedeId: number;
+  utenteId: number;
+}): Promise<{ stato: "eliminata" | "non_trovato" }> {
+  if (kvSql) {
+    await ensureTarsSchema();
+    return kvSql.begin(async tx => {
+      const [trovata] = await tx`
+        SELECT id FROM tars_conversazioni
+        WHERE id = ${input.conversazioneId}
+          AND sede_id = ${input.sedeId}
+          AND utente_id = ${input.utenteId}
+        FOR UPDATE`;
+      if (!trovata) return { stato: "non_trovato" as const };
+      await tx`DELETE FROM tars_turni
+        WHERE conversazione_id = ${input.conversazioneId}
+          AND sede_id = ${input.sedeId}`;
+      await tx`DELETE FROM tars_conversazioni
+        WHERE id = ${input.conversazioneId}
+          AND sede_id = ${input.sedeId}
+          AND utente_id = ${input.utenteId}`;
+      return { stato: "eliminata" as const };
+    });
+  }
+
+  const indice = memConversazioni.findIndex(
+    c =>
+      c.id === input.conversazioneId &&
+      c.sedeId === input.sedeId &&
+      c.utenteId === input.utenteId
+  );
+  if (indice < 0) return { stato: "non_trovato" };
+  memConversazioni.splice(indice, 1);
+  for (let i = memTurni.length - 1; i >= 0; i -= 1) {
+    if (
+      memTurni[i].conversazioneId === input.conversazioneId &&
+      memTurni[i].sedeId === input.sedeId
+    ) {
+      memTurni.splice(i, 1);
+    }
+  }
+  return { stato: "eliminata" };
+}
+
 export async function aggiungiTurno(input: {
   conversazioneId: number;
   sedeId: number;
