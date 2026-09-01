@@ -9,6 +9,7 @@ import CommandPalette from "@/components/CommandPalette";
 import NotificheDropdown from "@/components/NotificheDropdown";
 import PageContainer from "@/components/PageContainer";
 import { PromemoriaPopupHost } from "@/components/PromemoriaPopupHost";
+import TarsMascotteHost from "@/components/tars/TarsMascotteHost";
 import { useOperationalContext } from "@/contexts/OperationalContext";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
@@ -248,6 +249,7 @@ export default function ModularControlLayout({
         scopeKey={scopeKey}
       />
       <PromemoriaPopupHost />
+      <TarsMascotteHost />
     </>
   );
 }
