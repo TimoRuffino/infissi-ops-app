@@ -20,7 +20,7 @@ const panoramaAzienda: StrumentoTars = {
   reversibile: true,
   capability: ["commessa.read"],
   soloDirezione: true,
-  interruttore: "tarsProactive",
+  interruttore: ["tarsProactive", "tarsPatterns"],
   descrizione:
     "Aggrega i pattern aziendali della sede su una finestra dichiarata: ritardi fornitore, colli di bottiglia, ricorrenze post-vendita, permanenza per fase e bypass del gate. Ogni pattern riporta periodo, campione, baseline e confidenza, ed è una correlazione, mai una causa dimostrata.",
   schemaInput: z
@@ -31,6 +31,7 @@ const panoramaAzienda: StrumentoTars = {
   async esegui(contesto, input): Promise<EsitoLettura<unknown>> {
     if (
       !tarsAttivo("tarsProactive") ||
+      !tarsAttivo("tarsPatterns") ||
       !contesto.direzione ||
       !contesto.capability.has("commessa.read")
     ) {
@@ -72,7 +73,7 @@ const leggiMiglioramenti: StrumentoTars = {
   reversibile: true,
   capability: ["commessa.read"],
   soloDirezione: true,
-  interruttore: "tarsProactive",
+  interruttore: ["tarsProactive", "tarsImprovements"],
   descrizione:
     "Legge le proposte di miglioramento del CRM e dei processi derivate dai pattern aziendali. Sono proposte INERTI: il feedback e l'accettazione passano solo dalla UI della direzione, mai dal modello.",
   schemaInput: z
@@ -83,6 +84,7 @@ const leggiMiglioramenti: StrumentoTars = {
   async esegui(contesto, input): Promise<EsitoLettura<unknown>> {
     if (
       !tarsAttivo("tarsProactive") ||
+      !tarsAttivo("tarsImprovements") ||
       !contesto.direzione ||
       !contesto.capability.has("commessa.read")
     ) {

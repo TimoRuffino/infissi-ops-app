@@ -322,7 +322,7 @@ const METADATI: Record<string, Metadati> = {
       "sede",
       ["generale", "direzione"],
       ["commessa"],
-      ["tars", "tarsProactive"]
+      ["tars", "tarsProactive", "tarsPatterns"]
     ),
     prerequisiti: {
       direzione: true,
@@ -336,7 +336,7 @@ const METADATI: Record<string, Metadati> = {
       "sede",
       ["generale", "direzione"],
       ["commessa"],
-      ["tars", "tarsProactive"]
+      ["tars", "tarsProactive", "tarsImprovements"]
     ),
     prerequisiti: {
       direzione: true,

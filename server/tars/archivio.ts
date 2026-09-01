@@ -549,6 +549,8 @@ export async function statisticheRun(sedeId: number): Promise<{
   totale: number;
   degradati: number;
   ultimo: Date | null;
+  /** Ultimo run degradato con il motivo sanificato: diagnosi, non colpa. */
+  ultimoDegradato: { errore: string | null; at: Date } | null;
 }> {
   if (kvSql) {
     await ensureTarsSchema();
@@ -557,17 +559,32 @@ export async function statisticheRun(sedeId: number): Promise<{
              COUNT(*) FILTER (WHERE stato <> 'ok')::int AS degradati,
              MAX(created_at) AS ultimo
       FROM tars_run WHERE sede_id = ${sedeId}`;
+    const [deg] = await kvSql`
+      SELECT errore, created_at FROM tars_run
+      WHERE sede_id = ${sedeId} AND stato <> 'ok'
+      ORDER BY created_at DESC LIMIT 1`;
     return {
       totale: Number(r?.totale ?? 0),
       degradati: Number(r?.degradati ?? 0),
       ultimo: r?.ultimo ? new Date(r.ultimo) : null,
+      ultimoDegradato: deg
+        ? {
+            errore: deg.errore == null ? null : String(deg.errore),
+            at: new Date(deg.created_at),
+          }
+        : null,
     };
   }
   const righe = memRun.filter(r => r.sedeId === sedeId);
+  const degradati = righe.filter(r => r.stato !== "ok");
+  const ultimoDeg = degradati.length ? degradati[degradati.length - 1] : null;
   return {
     totale: righe.length,
-    degradati: righe.filter(r => r.stato !== "ok").length,
+    degradati: degradati.length,
     ultimo: righe.length ? righe[righe.length - 1].createdAt : null,
+    ultimoDegradato: ultimoDeg
+      ? { errore: ultimoDeg.errore ?? null, at: ultimoDeg.createdAt }
+      : null,
   };
 }
 

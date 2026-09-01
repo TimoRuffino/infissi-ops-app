@@ -91,6 +91,11 @@ const USO_PESANTE = { input: 5_000, cachedInput: 0, output: 1_200 };
 const REALE_PESANTE_NANO = 24_400_000;
 
 const VARIABILI_BUDGET = [
+  "TARS_BUDGET_DOCUMENT_INTELLIGENCE_USD",
+  "TARS_BUDGET_PROACTIVE_COMMESSA_USD",
+  "TARS_BUDGET_PATTERN_AZIENDA_USD",
+  "TARS_BUDGET_MIGLIORAMENTO_CRM_USD",
+  "TARS_BUDGET_EVAL_USD",
   "TARS_MAX_COST_PER_RUN_USD",
   "TARS_DAILY_BUDGET_USD",
   "TARS_MONTHLY_BUDGET_USD",
@@ -765,5 +770,88 @@ describe("provider reale — condizioni cumulative", () => {
       { configurazione: config(), ledger }
     );
     expect(governato.nome).toContain("+governor");
+  });
+});
+
+
+describe("governor — classi di costo (T9)", () => {
+  const identita = (runId: string) => ({ runId, passo: 0, tentativo: 1 });
+
+  it("una classe di background senza budget dedicato è bloccata PRIMA del ledger; interactive non è toccata", async () => {
+    const governato = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config(), classe: "proactive_commessa", ledger }
+    );
+    await expect(
+      governato.rispondi(richiesta(identita("run-classe-0")))
+    ).rejects.toMatchObject({ name: "ErroreBudget", limite: "classe" });
+    expect(ledger.righe()).toHaveLength(0);
+
+    const interattivo = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config(), ledger }
+    );
+    const esito = await interattivo.rispondi(
+      richiesta(identita("run-interactive"))
+    );
+    expect(esito.tipo).toBe("messaggio");
+    expect(ledger.righe()).toHaveLength(1);
+    expect(ledger.righe()[0].classe).toBe("interactive");
+  });
+
+  it("con un budget di classe valido la spesa si ferma al tetto della classe, non del globale", async () => {
+    process.env.TARS_BUDGET_PATTERN_AZIENDA_USD = "0.02";
+    const governato = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config({ giorno: 10 }), classe: "pattern_azienda", ledger }
+    );
+    const primo = await governato.rispondi(richiesta(identita("run-pa-1")));
+    expect(primo.tipo).toBe("messaggio");
+    expect(ledger.righe()[0].classe).toBe("pattern_azienda");
+    // Il secondo run sfora il tetto di classe (0,02 USD) ben prima del
+    // giornaliero globale (10 USD).
+    await expect(
+      governato.rispondi(richiesta(identita("run-pa-2")))
+    ).rejects.toMatchObject({ name: "ErroreBudget", limite: "classe" });
+    // La classe interattiva continua a lavorare sullo stesso ledger.
+    const interattivo = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config({ giorno: 10 }), ledger }
+    );
+    await expect(
+      interattivo.rispondi(richiesta(identita("run-int-2")))
+    ).resolves.toMatchObject({ tipo: "messaggio" });
+  });
+
+  it("una variabile di classe invalida blocca SOLO quella classe e non aggira il totale", async () => {
+    process.env.TARS_BUDGET_EVAL_USD = "non-un-numero";
+    const evalGovernato = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config(), classe: "eval", ledger }
+    );
+    await expect(
+      evalGovernato.rispondi(richiesta(identita("run-eval")))
+    ).rejects.toMatchObject({ name: "ErroreBudget", limite: "classe" });
+    expect(ledger.righe()).toHaveLength(0);
+
+    // Il globale resta l'hard ceiling per la classe interattiva.
+    const interattivo = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config({ run: 0.001, giorno: 2, mese: 20 }), ledger }
+    );
+    await expect(
+      interattivo.rispondi(richiesta(identita("run-tetto")))
+    ).rejects.toMatchObject({ name: "ErroreBudget", limite: "run" });
+  });
+
+  it("il messaggio per il limite di classe è dedicato e onesto", () => {
+    expect(messaggioPerLimite("classe")).toContain("budget dedicato");
+    expect(messaggioPerLimite("classe")).not.toBe(MESSAGGIO_BUDGET);
   });
 });

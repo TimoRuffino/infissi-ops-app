@@ -20,6 +20,17 @@
 import { kvSql } from "../../_core/persistence";
 import { istanteComeLocale } from "../tempo";
 
+/** Classi logiche di costo (T9): partizioni del budget, non tetti nuovi. */
+export const CLASSI_COSTO = [
+  "interactive",
+  "document_intelligence",
+  "proactive_commessa",
+  "pattern_azienda",
+  "miglioramento_crm",
+  "eval",
+] as const;
+export type ClasseCosto = (typeof CLASSI_COSTO)[number];
+
 export type StatoPrenotazione =
   | "reserved"
   | "settled"
@@ -34,6 +45,7 @@ export type RigaCosto = {
   utenteId: number;
   conversazioneId: number | null;
   modello: string;
+  classe: ClasseCosto;
   stato: StatoPrenotazione;
   costoPrenotatoNano: number;
   costoRealeNano: number | null;
@@ -50,6 +62,8 @@ export type ConsumoCorrente = {
   runNano: number;
   giornoNano: number;
   meseNano: number;
+  /** Consumo del giorno della sola classe richiesta (0 se non calcolato). */
+  classeGiornoNano?: number;
 };
 
 export type LimitiNano = {
@@ -63,7 +77,7 @@ export type EsitoPrenotazione =
   | { esito: "gia_presente"; riga: RigaCosto }
   | {
       esito: "rifiutata";
-      limite: "run" | "giorno" | "mese";
+      limite: "run" | "giorno" | "mese" | "classe";
       consumo: ConsumoCorrente;
       richiestoNano: number;
     };
@@ -89,6 +103,9 @@ export type LedgerCosti = {
     utenteId: number;
     conversazioneId: number | null;
     modello: string;
+    classe?: ClasseCosto;
+    /** Tetto giornaliero della classe in nano-USD; null = solo il globale. */
+    limiteClasseNano?: number | null;
     costoPrenotatoNano: number;
     limiti: LimitiNano;
     adesso: Date;
@@ -215,11 +232,15 @@ export function ensureCostiSchema(): Promise<void> {
       token_output BIGINT,
       giorno_locale TEXT NOT NULL,
       mese_locale TEXT NOT NULL,
+      classe TEXT NOT NULL DEFAULT 'interactive',
       motivo TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`
     .then(async () => {
+      // Additiva per le installazioni esistenti (T9).
+      await kvSql!`ALTER TABLE tars_costi
+        ADD COLUMN IF NOT EXISTS classe TEXT NOT NULL DEFAULT 'interactive'`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_giorno_idx
         ON tars_costi (giorno_locale)`;
       // La scadenza delle prenotazioni appese gira a ogni chiamata
@@ -248,6 +269,7 @@ function rigaDa(row: any): RigaCosto {
     conversazioneId:
       row.conversazione_id == null ? null : Number(row.conversazione_id),
     modello: row.modello,
+    classe: (row.classe ?? "interactive") as ClasseCosto,
     stato: row.stato,
     costoPrenotatoNano: Number(row.costo_prenotato_nano),
     costoRealeNano:
@@ -303,13 +325,32 @@ export function creaLedgerPostgres(): LedgerCosti {
               WHEN 'released' THEN 0
               WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
               ELSE costo_prenotato_nano END)
-              FILTER (WHERE mese_locale = ${mese}), 0) AS mese
+              FILTER (WHERE mese_locale = ${mese}), 0) AS mese,
+            COALESCE(SUM(CASE stato
+              WHEN 'released' THEN 0
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
+              ELSE costo_prenotato_nano END)
+              FILTER (WHERE giorno_locale = ${giorno}
+                AND classe = ${input.classe ?? "interactive"}), 0) AS classe
           FROM tars_costi`;
         const consumo: ConsumoCorrente = {
           runNano: Number(somme?.run ?? 0),
           giornoNano: Number(somme?.giorno ?? 0),
           meseNano: Number(somme?.mese ?? 0),
+          classeGiornoNano: Number(somme?.classe ?? 0),
         };
+        if (
+          input.limiteClasseNano != null &&
+          (consumo.classeGiornoNano ?? 0) + input.costoPrenotatoNano >
+            input.limiteClasseNano
+        ) {
+          return {
+            esito: "rifiutata",
+            limite: "classe",
+            consumo,
+            richiestoNano: input.costoPrenotatoNano,
+          };
+        }
         const sforato = verificaTetti(
           consumo,
           input.costoPrenotatoNano,
@@ -326,11 +367,11 @@ export function creaLedgerPostgres(): LedgerCosti {
 
         const [inserita] = await tx`INSERT INTO tars_costi (
             chiamata_id, run_id, sede_id, utente_id, conversazione_id, modello,
-            stato, costo_prenotato_nano, giorno_locale, mese_locale
+            classe, stato, costo_prenotato_nano, giorno_locale, mese_locale
           ) VALUES (
             ${input.chiamataId}, ${input.runId}, ${input.sedeId}, ${input.utenteId},
-            ${input.conversazioneId}, ${input.modello}, 'reserved',
-            ${input.costoPrenotatoNano}, ${giorno}, ${mese}
+            ${input.conversazioneId}, ${input.modello}, ${input.classe ?? "interactive"},
+            'reserved', ${input.costoPrenotatoNano}, ${giorno}, ${mese}
           )
           ON CONFLICT (chiamata_id) DO NOTHING
           RETURNING *`;
@@ -466,7 +507,26 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
           meseNano: righe
             .filter(r => r.meseLocale === mese)
             .reduce((s, r) => s + costoContato(r), 0),
+          classeGiornoNano: righe
+            .filter(
+              r =>
+                r.giornoLocale === giorno &&
+                r.classe === (input.classe ?? "interactive")
+            )
+            .reduce((s, r) => s + costoContato(r), 0),
         };
+        if (
+          input.limiteClasseNano != null &&
+          (consumo.classeGiornoNano ?? 0) + input.costoPrenotatoNano >
+            input.limiteClasseNano
+        ) {
+          return {
+            esito: "rifiutata",
+            limite: "classe",
+            consumo,
+            richiestoNano: input.costoPrenotatoNano,
+          } as const;
+        }
         const sforato = verificaTetti(
           consumo,
           input.costoPrenotatoNano,
@@ -487,6 +547,7 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
           utenteId: input.utenteId,
           conversazioneId: input.conversazioneId,
           modello: input.modello,
+          classe: input.classe ?? "interactive",
           stato: "reserved",
           costoPrenotatoNano: input.costoPrenotatoNano,
           costoRealeNano: null,

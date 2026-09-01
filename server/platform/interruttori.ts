@@ -29,6 +29,8 @@ export type Interruttore =
   | "tarsL2Actions"
   | "tarsProposals"
   | "tarsProactive"
+  | "tarsPatterns"
+  | "tarsImprovements"
   | "tarsCommunications"
   | "tarsMemory"
   | "tarsSemanticSearch"
@@ -46,6 +48,8 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsL2Actions: "FLAG_TARS_L2_ACTIONS",
   tarsProposals: "FLAG_TARS_PROPOSALS",
   tarsProactive: "FLAG_TARS_PROACTIVE",
+  tarsPatterns: "FLAG_TARS_PATTERNS",
+  tarsImprovements: "FLAG_TARS_IMPROVEMENTS",
   tarsCommunications: "FLAG_TARS_COMMUNICATIONS",
   tarsMemory: "FLAG_TARS_MEMORY",
   tarsSemanticSearch: "FLAG_TARS_SEMANTIC_SEARCH",
@@ -63,6 +67,8 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsL2Actions: "Le azioni operative leggere (L2) di Tars",
   tarsProposals: "Le proposte via Tars",
   tarsProactive: "La proattività di Tars",
+  tarsPatterns: "I pattern aziendali (Panorama) di Tars",
+  tarsImprovements: "Le proposte di miglioramento di Tars",
   tarsCommunications: "Le bozze di comunicazione di Tars",
   tarsMemory: "La memoria di Tars",
   tarsSemanticSearch: "La ricerca semantica di Tars",

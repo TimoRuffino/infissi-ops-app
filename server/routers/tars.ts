@@ -297,7 +297,16 @@ export const tarsRouter = router({
                   contesto.contestoConversazioneFingerprint ?? null,
               }
             : null,
-          run: await statisticheRun(ctx.sedeId ?? DEFAULT_SEDE_ID),
+          run: await (async () => {
+            const statistiche = await statisticheRun(
+              ctx.sedeId ?? DEFAULT_SEDE_ID
+            );
+            // Il motivo dell'ultimo run degradato è diagnostica riservata
+            // alla direzione (stessa policy di motivoIndisponibilita).
+            return contesto.direzione
+              ? statistiche
+              : { ...statistiche, ultimoDegradato: null };
+          })(),
         };
       } catch (errore) {
         comeErrore(errore);
@@ -518,6 +527,7 @@ export const tarsRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         assicuraTars("tarsProactive");
+        assicuraTars("tarsPatterns");
         const contesto = await costruisciContesto(ctx);
         if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
           throw new TRPCError({
@@ -552,6 +562,7 @@ export const tarsRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         assicuraTars("tarsProactive");
+        assicuraTars("tarsImprovements");
         const contesto = await costruisciContesto(ctx);
         if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
           throw new TRPCError({
@@ -580,6 +591,7 @@ export const tarsRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         assicuraTars("tarsProactive");
+        assicuraTars("tarsImprovements");
         const contesto = await costruisciContesto(ctx);
         if (!contesto.direzione) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Operazione riservata alla direzione." });
@@ -607,6 +619,7 @@ export const tarsRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         assicuraTars("tarsProactive");
+        assicuraTars("tarsImprovements");
         const contesto = await costruisciContesto(ctx);
         if (!contesto.direzione) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Operazione riservata alla direzione." });

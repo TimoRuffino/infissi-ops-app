@@ -19,6 +19,7 @@ import { creaProviderRealeGrezzo } from "../openai/adapter";
 import { creaProviderFinto, type PassoCopione } from "../openai/fake";
 import type { TarsProvider } from "../provider";
 import { avvolgiConGovernor, configurazioneBudget } from "./governor";
+import type { ClasseCosto } from "./ledger";
 import { ledgerAutorevoleDisponibile } from "./ledger";
 import { tariffaDi } from "./tariffe";
 
@@ -80,6 +81,8 @@ export function creaProviderPerRun(input: {
   sedeId: number;
   utenteId: number;
   copioneFinto: PassoCopione;
+  /** Classe di costo del run (T9); default interactive. */
+  classe?: ClasseCosto;
 }): TarsProvider {
   const stato = statoProvider(input.modello);
   if (stato.tipo === "finto") return creaProviderFinto(input.copioneFinto);
@@ -92,6 +95,6 @@ export function creaProviderPerRun(input: {
   return avvolgiConGovernor(
     creaProviderRealeGrezzo(),
     { sedeId: input.sedeId, utenteId: input.utenteId },
-    { configurazione: config.configurazione }
+    { configurazione: config.configurazione, classe: input.classe }
   );
 }

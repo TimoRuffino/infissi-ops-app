@@ -17,6 +17,7 @@ import {
 } from "../provider";
 import {
   ledgerCorrente,
+  type ClasseCosto,
   type LedgerCosti,
   type LimitiNano,
 } from "./ledger";
@@ -33,19 +34,54 @@ export const MESSAGGIO_BUDGET =
 export const MESSAGGIO_BUDGET_RUN =
   "Questa richiesta è diventata troppo grande per essere completata entro il limite previsto. Nessuna operazione è stata eseguita: prova a chiedermi una cosa alla volta.";
 
-export function messaggioPerLimite(limite: "run" | "giorno" | "mese"): string {
-  return limite === "run" ? MESSAGGIO_BUDGET_RUN : MESSAGGIO_BUDGET;
+export const MESSAGGIO_BUDGET_CLASSE =
+  "Questa funzione di Tars ha esaurito il proprio budget dedicato (le altre funzioni non sono toccate). Nessuna operazione è stata eseguita.";
+
+export function messaggioPerLimite(
+  limite: "run" | "giorno" | "mese" | "classe"
+): string {
+  if (limite === "run") return MESSAGGIO_BUDGET_RUN;
+  if (limite === "classe") return MESSAGGIO_BUDGET_CLASSE;
+  return MESSAGGIO_BUDGET;
 }
 
 /** Errore del governor: l'orchestratore lo degrada come gli altri. */
 export class ErroreBudget extends ErroreProvider {
   constructor(
-    public readonly limite: "run" | "giorno" | "mese",
+    public readonly limite: "run" | "giorno" | "mese" | "classe",
     public readonly consumoNano: number
   ) {
     super(MESSAGGIO_BUDGET, "configurazione", false);
     this.name = "ErroreBudget";
   }
+}
+
+/**
+ * Budget giornaliero della CLASSE di costo (T9): partizione del budget
+ * globale, mai un ampliamento. `interactive` non ha un tetto separato
+ * (vale il globale); le classi di background valgono 0 di default perché
+ * oggi sono deterministiche — una futura sintesi va abilitata apposta.
+ * Una variabile invalida BLOCCA la sola classe interessata: il totale
+ * globale resta comunque l'hard ceiling.
+ */
+export function limiteClasseGiornalieroNano(
+  classe: ClasseCosto
+):
+  | { ok: true; limiteNano: number | null }
+  | { ok: false; motivo: string } {
+  if (classe === "interactive") return { ok: true, limiteNano: null };
+  const variabile = `TARS_BUDGET_${classe.toUpperCase()}_USD`;
+  const grezzo = process.env[variabile]?.trim();
+  if (grezzo == null || grezzo === "") return { ok: true, limiteNano: 0 };
+  const numero = Number(grezzo);
+  if (!Number.isFinite(numero) || numero < 0) {
+    return { ok: false, motivo: `${variabile} non è un importo valido in USD.` };
+  }
+  const nano = usdInNano(numero);
+  if (nano == null) {
+    return { ok: false, motivo: `${variabile} non è convertibile.` };
+  }
+  return { ok: true, limiteNano: nano };
 }
 
 export type ConfigurazioneBudget = {
@@ -262,12 +298,14 @@ export function avvolgiConGovernor(
   contesto: ContestoCosto,
   opzioni: {
     configurazione: ConfigurazioneBudget;
+    classe?: ClasseCosto;
     ledger?: LedgerCosti;
     adesso?: () => Date;
   }
 ): TarsProvider {
   const ledger = opzioni.ledger ?? ledgerCorrente();
   const orologio = opzioni.adesso ?? (() => new Date());
+  const classe: ClasseCosto = opzioni.classe ?? "interactive";
 
   return {
     nome: `${sottostante.nome}+governor`,
@@ -302,6 +340,16 @@ export function avvolgiConGovernor(
         )
         .catch(() => 0);
 
+      const limiteClasse = limiteClasseGiornalieroNano(classe);
+      if (!limiteClasse.ok) {
+        // Configurazione invalida: blocca SOLO questa classe.
+        throw new ErroreBudget("classe", 0);
+      }
+      if (limiteClasse.limiteNano === 0) {
+        // Classe senza budget: nessuna chiamata, nessuna scrittura.
+        throw new ErroreBudget("classe", 0);
+      }
+
       const stima = stimaCostoNano(
         richiesta,
         tariffa,
@@ -314,6 +362,8 @@ export function avvolgiConGovernor(
         utenteId: contesto.utenteId,
         conversazioneId: identita.conversazioneId ?? null,
         modello: richiesta.modello,
+        classe,
+        limiteClasseNano: limiteClasse.limiteNano,
         costoPrenotatoNano: stima,
         limiti: opzioni.configurazione.limiti,
         adesso,
@@ -326,7 +376,9 @@ export function avvolgiConGovernor(
             ? prenotazione.consumo.runNano
             : prenotazione.limite === "giorno"
               ? prenotazione.consumo.giornoNano
-              : prenotazione.consumo.meseNano
+              : prenotazione.limite === "classe"
+                ? prenotazione.consumo.classeGiornoNano ?? 0
+                : prenotazione.consumo.meseNano
         );
       }
       if (prenotazione.esito === "gia_presente") {
