@@ -35,10 +35,10 @@ idempotenza di dominio).
 
 Budget per CLASSE di costo (T9): `TARS_BUDGET_<CLASSE>_USD` con classi
 `DOCUMENT_INTELLIGENCE`, `PROACTIVE_COMMESSA`, `PATTERN_AZIENDA`,
-`MIGLIORAMENTO_CRM`, `EVAL`. Default 0: le classi di background sono
-deterministiche e NON chiamano il modello finché una sintesi non viene
-abilitata con un budget esplicito. `interactive` non ha un tetto
-separato: vale il globale, che resta l'unico hard ceiling. Una
+`MIGLIORAMENTO_CRM`, `EVAL`. Dal 01/09/2026 (gate §8): variabile
+ASSENTE = nessun tetto per la classe; **0 esplicito = kill switch
+della classe**; un valore positivo = tetto giornaliero. `interactive`
+non ha un tetto separato: valgono i tetti globali, se impostati. Una
 variabile invalida blocca SOLO la sua classe.
 
 Provider: `TARS_PROVIDER` NON impostato = provider finto (nessuna
@@ -52,13 +52,17 @@ Config modello (solo quando autorizzato): `TARS_MODEL_INTERACTIVE`
 `TARS_MAX_RUN_MS` (180000), `TARS_MAX_CONTEXT_CHARS` (120000),
 `TARS_C0_TTL_MS` (90000).
 
-**Budget (tetto software, spec §27)**: `TARS_MAX_COST_PER_RUN_USD`
-(0.10), `TARS_DAILY_BUDGET_USD` (2.00), `TARS_MONTHLY_BUDGET_USD`
-(20.00). Sono i default: NON serve impostarli per essere protetti, ma
-impostarli male (valore non numerico, negativo, o run > giorno > mese)
-DISABILITA il provider reale invece di allentare il tetto. Il provider
-reale richiede inoltre `DATABASE_URL` (ledger autorevole con
-prenotazioni atomiche): senza, resta disabilitato.
+**Budget (tetto software, spec §27 — aggiornato dal gate §8,
+01/09/2026)**: `TARS_MAX_COST_PER_RUN_USD`, `TARS_DAILY_BUDGET_USD`,
+`TARS_MONTHLY_BUDGET_USD`. NON hanno più default: variabile assente =
+NESSUN tetto (decisione della direzione, «un cervello operativo non ha
+bisogno di budget»). Un valore impostato resta applicato; impostarlo
+male (valore non numerico, negativo, o run > giorno > mese fra i tetti
+presenti) DISABILITA il provider reale invece di allentare il tetto.
+La contabilità su ledger è identica con o senza tetti (`tars.costi`
+mostra sempre la spesa reale). Il provider reale richiede comunque
+`DATABASE_URL` (ledger autorevole con prenotazioni atomiche): senza,
+resta disabilitato.
 
 Verifica rapida dello stato: `tars.costi` (direzione) mostra provider
 effettivo, motivo di eventuale indisponibilità, budget configurato,

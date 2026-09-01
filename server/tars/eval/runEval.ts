@@ -730,10 +730,10 @@ function costruisciCasi(): Array<{
       nome: "resilienza-budget-classe-background",
       categoria: "resilienza",
       descrizione:
-        "Una classe di background senza budget dedicato non chiama e non scrive nulla; il globale resta l'hard ceiling.",
+        "Uno 0 esplicito sul budget di classe resta il kill switch: la classe non chiama e non scrive nulla (gate §8: la variabile ASSENTE non ha più tetto).",
       async esegui() {
         const envPrima = process.env.TARS_BUDGET_PATTERN_AZIENDA_USD;
-        delete process.env.TARS_BUDGET_PATTERN_AZIENDA_USD;
+        process.env.TARS_BUDGET_PATTERN_AZIENDA_USD = "0";
         const ledger = creaLedgerMemoriaPerTest();
         const configurazione: ConfigurazioneBudget = {
           limiti: {
@@ -779,6 +779,8 @@ function costruisciCasi(): Array<{
         const chiamate = ledger.righe().length;
         if (envPrima != null) {
           process.env.TARS_BUDGET_PATTERN_AZIENDA_USD = envPrima;
+        } else {
+          delete process.env.TARS_BUDGET_PATTERN_AZIENDA_USD;
         }
         return {
           ok: bloccata && chiamate === 0,

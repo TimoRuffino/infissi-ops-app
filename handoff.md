@@ -1850,6 +1850,26 @@ omissione dichiarata) e il prompt v7 fissa la regola di ragionamento:
 lavoro concluso ⇒ nessuna proposta, ripristino solo su comando esplicito
 dell'utente.
 
+## 11-vicies quater. Tars proattivo pieno — tetti di spesa eliminati (01/09/2026)
+
+Decisione della direzione (registrata in `docs/tars/gate-openai.md` §8):
+«non preoccuparti dei budget, eliminali tutti: un cervello operativo non
+ha bisogno di budget». I tetti software (per run, giornaliero, mensile,
+per classe) NON hanno più default: variabile assente = nessun tetto; un
+valore impostato resta validato e applicato; sui budget di classe uno 0
+ESPLICITO resta il kill switch della classe. La CONTABILITÀ è intatta:
+ogni chiamata passa dal governor (prenota→riconcilia su ledger PG),
+`tars.costi` mostra sempre la spesa reale; il circuit breaker sugli
+errori e i limiti operativi del run (passi, chiamate, timeout, contesto)
+non sono budget e restano. La card Agente mostra «nessun tetto» al posto
+di barre e residui quando i limiti sono assenti.
+
+Contestualmente accesi in produzione (Railway) i flag della proattività
+completa: `FLAG_TARS_PATTERNS`, `FLAG_TARS_IMPROVEMENTS`,
+`FLAG_TARS_PROPOSALS`, `FLAG_DOCUMENT_INTELLIGENCE`, `FLAG_PROPOSTE`,
+`TARS_OBSERVER_MODE=active`. Unico tetto residuo: l'hard limit del
+progetto OpenAI nel pannello della direzione (fuori dal codice).
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

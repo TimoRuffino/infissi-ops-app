@@ -188,3 +188,39 @@ da ≈0,72 a ≈0,90 USD, sempre sotto il tetto per-run di 2,00.
 Vale la pena notarlo per il futuro: il dato `cache_write_tokens` veniva
 già letto, sommato e registrato in telemetria da settimane. Mancava solo
 il moltiplicatore. Un numero raccolto non è un numero controllato.
+
+## 8. Decisione presa — eliminazione dei tetti di spesa (01/09/2026)
+
+La direzione ha deciso l'attivazione proattiva completa: «non
+preoccuparti dei budget, eliminali tutti: un cervello operativo non ha
+bisogno di budget». Questa sezione registra cosa cambia rispetto al §7.
+
+**Cosa cambia.**
+- I tetti software (per run, giornaliero, mensile) **non hanno più un
+  default**: variabile d'ambiente assente = nessun tetto. Un valore
+  impostato resta validato e applicato come prima (fail-closed sui
+  valori invalidi: un errore di battitura blocca, non allenta).
+- I budget di CLASSE (`TARS_BUDGET_<CLASSE>_USD`): variabile assente =
+  nessun tetto (prima: 0 = classe bloccata). Uno **0 esplicito resta un
+  kill switch per classe**; un valore positivo resta un tetto.
+- Il tetto di sanità si applica solo se un budget mensile è impostato.
+
+**Cosa NON cambia, ed è la parte che conta.**
+- La **contabilità** è identica: ogni chiamata passa dal decoratore,
+  prenota prima, riconcilia dopo, sul ledger PostgreSQL. `tars.costi`
+  continua a mostrare spesa reale di giorno e mese. Un tetto si
+  reintroduce impostando le stesse variabili, senza deploy di codice.
+- Il **circuit breaker sugli errori** (3 consecutivi → pausa): non è un
+  budget, è la protezione contro il provider guasto.
+- I **limiti operativi del run** (passi strumento, chiamate al modello,
+  timeout, contesto): non sono budget, sono la protezione contro il
+  loop impazzito.
+- Il provider reale continua a richiedere il ledger autorevole
+  (PostgreSQL): senza contabilità non si spende.
+
+**Conseguenza dichiarata**: l'unico tetto di spesa residuo è l'hard
+limit del progetto OpenAI (pannello della direzione, §6). Se è ancora
+impostato basso (20-250 USD/mese), con l'uso proattivo pieno può
+manifestarsi come 429 a metà mese: la direzione decide se alzarlo o
+rimuoverlo dal pannello. Il ledger interno resta la fonte per accorgersi
+per primi di una spesa anomala.

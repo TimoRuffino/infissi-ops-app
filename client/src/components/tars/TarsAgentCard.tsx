@@ -109,9 +109,9 @@ type TarsAgentViewCosti = {
     budget: unknown;
   };
   budgetConfigurato?: {
-    perRunUsd: number;
-    giornalieroUsd: number;
-    mensileUsd: number;
+    perRunUsd: number | null;
+    giornalieroUsd: number | null;
+    mensileUsd: number | null;
   } | null;
   motivoBudgetNonValido?: string | null;
   riepilogo?: {
@@ -328,7 +328,9 @@ export function TarsAgentCardView({
               <div>
                 <dt className="text-muted-foreground">Limite per run</dt>
                 <dd className="mt-0.5 font-medium">
-                  {formattaCostoUsd(budget?.perRunUsd)}
+                  {budget && budget.perRunUsd == null
+                    ? "Nessun tetto"
+                    : formattaCostoUsd(budget?.perRunUsd)}
                 </dd>
               </div>
               <div>
@@ -342,7 +344,13 @@ export function TarsAgentCardView({
               <div>
                 <dt className="text-muted-foreground">Budget</dt>
                 <dd className="mt-0.5 font-medium">
-                  {budget ? "Configurato" : "Non configurato"}
+                  {budget == null
+                    ? "Non configurato"
+                    : budget.perRunUsd == null &&
+                        budget.giornalieroUsd == null &&
+                        budget.mensileUsd == null
+                      ? "Nessun tetto"
+                      : "Configurato"}
                 </dd>
               </div>
             </dl>
@@ -473,23 +481,32 @@ function BudgetRow({
   limit: number | null | undefined;
   percentage: number | null;
 }) {
+  // `limit` null con la sezione visibile = nessun tetto per la finestra
+  // (gate §8): si mostra la spesa reale, senza barra né residuo.
+  const senzaTetto = limit == null;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground">
-          {formattaCostoUsd(spent)} / {formattaCostoUsd(limit)}
+          {senzaTetto
+            ? `${formattaCostoUsd(spent)} · nessun tetto`
+            : `${formattaCostoUsd(spent)} / ${formattaCostoUsd(limit)}`}
         </span>
       </div>
-      <Progress value={percentage ?? 0} aria-label={`Budget ${label}`} />
-      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span>
-          {percentage == null
-            ? "Budget non disponibile"
-            : `${Math.round(percentage)}% utilizzato`}
-        </span>
-        <span>Residuo {formattaCostoUsd(remaining)}</span>
-      </div>
+      {!senzaTetto && (
+        <>
+          <Progress value={percentage ?? 0} aria-label={`Budget ${label}`} />
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span>
+              {percentage == null
+                ? "Budget non disponibile"
+                : `${Math.round(percentage)}% utilizzato`}
+            </span>
+            <span>Residuo {formattaCostoUsd(remaining)}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

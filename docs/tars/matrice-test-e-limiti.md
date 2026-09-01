@@ -1,17 +1,23 @@
 # Matrice dei test e dei limiti — budget governor
 
-> Stato al 31/08/2026, `main`. Tutti i test girano col
+> Stato al 01/09/2026, `main`. Tutti i test girano col
 > provider FINTO; cinque girano contro un PostgreSQL reale (in CI con un
 > servizio dedicato). Zero chiamate a provider a pagamento.
 
 ## 1. Limiti configurati
 
-| Limite | Variabile | Default | Cosa succede se manca/è invalido |
+Dal 01/09/2026 (gate OpenAI §8) i tetti di spesa NON hanno default:
+variabile assente = nessun tetto. Un valore impostato resta validato e
+applicato (invalido ⇒ provider reale INDISPONIBILE, mai un default
+silenzioso). La contabilità sul ledger è identica con o senza tetti.
+
+| Limite | Variabile | Default | Cosa succede se è invalido |
 |---|---|---|---|
-| Spesa per run | `TARS_MAX_COST_PER_RUN_USD` | 2,00 USD | Provider reale INDISPONIBILE |
-| Spesa giornaliera | `TARS_DAILY_BUDGET_USD` | 20,00 USD | Provider reale INDISPONIBILE |
-| Spesa mensile | `TARS_MONTHLY_BUDGET_USD` | 200,00 USD | Provider reale INDISPONIBILE |
-| Gerarchia | — | run ≤ giorno ≤ mese | Incoerente ⇒ INDISPONIBILE |
+| Spesa per run | `TARS_MAX_COST_PER_RUN_USD` | nessun tetto | Provider reale INDISPONIBILE |
+| Spesa giornaliera | `TARS_DAILY_BUDGET_USD` | nessun tetto | Provider reale INDISPONIBILE |
+| Spesa mensile | `TARS_MONTHLY_BUDGET_USD` | nessun tetto | Provider reale INDISPONIBILE |
+| Budget di classe | `TARS_BUDGET_<CLASSE>_USD` | nessun tetto (0 esplicito = kill switch) | Bloccata SOLO la classe |
+| Gerarchia | — | run ≤ giorno ≤ mese (fra i tetti impostati) | Incoerente ⇒ INDISPONIBILE |
 | Margine stima | `TARS_MARGINE_STIMA` | 1,25 | < 1 ⇒ INDISPONIBILE |
 | Scadenza prenotazione | `TARS_SCADENZA_PRENOTAZIONE_MS` | 600.000 | ≤ 2× timeout ⇒ INDISPONIBILE |
 | Chiamate al modello per run | `TARS_MAX_MODEL_CALLS` | 20 | Degrada con messaggio proprio |

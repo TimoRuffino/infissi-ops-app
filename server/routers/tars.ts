@@ -484,24 +484,28 @@ export const tarsRouter = router({
               mese: riepilogo.mese,
               spesaGiornoUsd: nanoInUsd(riepilogo.spesaGiornoNano),
               spesaMeseUsd: nanoInUsd(riepilogo.spesaMeseNano),
-              residuoGiornoUsd: config.ok
-                ? nanoInUsd(
-                    Math.max(
-                      0,
-                      config.configurazione.limiti.giornoNano -
-                        riepilogo.spesaGiornoNano
+              // `null` = nessun tetto per la finestra: il residuo non
+              // esiste, la spesa reale resta il dato da guardare.
+              residuoGiornoUsd:
+                config.ok && config.configurazione.limiti.giornoNano != null
+                  ? nanoInUsd(
+                      Math.max(
+                        0,
+                        config.configurazione.limiti.giornoNano -
+                          riepilogo.spesaGiornoNano
+                      )
                     )
-                  )
-                : null,
-              residuoMeseUsd: config.ok
-                ? nanoInUsd(
-                    Math.max(
-                      0,
-                      config.configurazione.limiti.meseNano -
-                        riepilogo.spesaMeseNano
+                  : null,
+              residuoMeseUsd:
+                config.ok && config.configurazione.limiti.meseNano != null
+                  ? nanoInUsd(
+                      Math.max(
+                        0,
+                        config.configurazione.limiti.meseNano -
+                          riepilogo.spesaMeseNano
+                      )
                     )
-                  )
-                : null,
+                  : null,
               chiamateGiorno: riepilogo.chiamateGiorno,
               runGiorno: riepilogo.runGiorno,
               costoMedioRunUsd: nanoInUsd(riepilogo.costoMedioRunNano),

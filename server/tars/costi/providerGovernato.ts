@@ -28,10 +28,11 @@ export type StatoProvider = {
   modello: string;
   /** Perché il reale non è disponibile (null quando lo è). */
   motivoIndisponibilita: string | null;
+  /** Un campo `null` = nessun tetto per quella finestra (gate §8). */
   budget: {
-    perRunUsd: number;
-    giornalieroUsd: number;
-    mensileUsd: number;
+    perRunUsd: number | null;
+    giornalieroUsd: number | null;
+    mensileUsd: number | null;
   } | null;
 };
 

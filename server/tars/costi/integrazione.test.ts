@@ -528,11 +528,14 @@ describe("cost hardening — end to end nel runtime", () => {
 
     const direzione = appRouter.createCaller(contestoTrpc());
     const costi = await direzione.tars.costi();
+    // Nessuna variabile impostata = nessun tetto (gate §8): la
+    // configurazione è valida e i limiti sono dichiarati assenti.
     expect(costi.budgetConfigurato).toMatchObject({
-      perRunUsd: 2,
-      giornalieroUsd: 20,
-      mensileUsd: 200,
+      perRunUsd: null,
+      giornalieroUsd: null,
+      mensileUsd: null,
     });
+    expect(costi.motivoBudgetNonValido).toBeNull();
     expect(costi.provider.tipo).toBe("finto");
     expect(costi.provider.motivoIndisponibilita).toBeTruthy();
     // Solo numeri e stati: nessun testo di conversazione o documento.

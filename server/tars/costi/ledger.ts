@@ -66,10 +66,11 @@ export type ConsumoCorrente = {
   classeGiornoNano?: number;
 };
 
+/** Un limite `null` = nessun tetto (decisione 01/09/2026, gate §8). */
 export type LimitiNano = {
-  runNano: number;
-  giornoNano: number;
-  meseNano: number;
+  runNano: number | null;
+  giornoNano: number | null;
+  meseNano: number | null;
 };
 
 export type EsitoPrenotazione =
@@ -162,9 +163,21 @@ function verificaTetti(
   richiesto: number,
   limiti: LimitiNano
 ): "run" | "giorno" | "mese" | null {
-  if (consumo.runNano + richiesto > limiti.runNano) return "run";
-  if (consumo.giornoNano + richiesto > limiti.giornoNano) return "giorno";
-  if (consumo.meseNano + richiesto > limiti.meseNano) return "mese";
+  if (limiti.runNano != null && consumo.runNano + richiesto > limiti.runNano) {
+    return "run";
+  }
+  if (
+    limiti.giornoNano != null &&
+    consumo.giornoNano + richiesto > limiti.giornoNano
+  ) {
+    return "giorno";
+  }
+  if (
+    limiti.meseNano != null &&
+    consumo.meseNano + richiesto > limiti.meseNano
+  ) {
+    return "mese";
+  }
   return null;
 }
 

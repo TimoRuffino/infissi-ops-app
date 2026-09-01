@@ -59,10 +59,10 @@ export class ErroreBudget extends ErroreProvider {
 /**
  * Budget giornaliero della CLASSE di costo (T9): partizione del budget
  * globale, mai un ampliamento. `interactive` non ha un tetto separato
- * (vale il globale); le classi di background valgono 0 di default perché
- * oggi sono deterministiche — una futura sintesi va abilitata apposta.
- * Una variabile invalida BLOCCA la sola classe interessata: il totale
- * globale resta comunque l'hard ceiling.
+ * (vale il globale). Dal 01/09/2026 (gate §8) una variabile ASSENTE
+ * significa nessun tetto per la classe; uno 0 ESPLICITO resta il kill
+ * switch della classe; una variabile invalida BLOCCA la sola classe
+ * interessata.
  */
 export function limiteClasseGiornalieroNano(
   classe: ClasseCosto
@@ -72,7 +72,7 @@ export function limiteClasseGiornalieroNano(
   if (classe === "interactive") return { ok: true, limiteNano: null };
   const variabile = `TARS_BUDGET_${classe.toUpperCase()}_USD`;
   const grezzo = process.env[variabile]?.trim();
-  if (grezzo == null || grezzo === "") return { ok: true, limiteNano: 0 };
+  if (grezzo == null || grezzo === "") return { ok: true, limiteNano: null };
   const numero = Number(grezzo);
   if (!Number.isFinite(numero) || numero < 0) {
     return { ok: false, motivo: `${variabile} non è un importo valido in USD.` };
@@ -86,43 +86,31 @@ export function limiteClasseGiornalieroNano(
 
 export type ConfigurazioneBudget = {
   limiti: LimitiNano;
-  perRunUsd: number;
-  giornalieroUsd: number;
-  mensileUsd: number;
+  perRunUsd: number | null;
+  giornalieroUsd: number | null;
+  mensileUsd: number | null;
   /** Margine prudenziale sulla stima dell'input. */
   margineStima: number;
   scadenzaPrenotazioneMs: number;
 };
 
 /**
- * Tetti approvati dalla direzione il 30/08/2026 («Tars va reso
- * potente, non preoccuparti dei costi»): larghi abbastanza da lasciar
- * lavorare il flagship su fascicoli complessi, ma pur sempre TETTI —
- * servono contro il loop impazzito, non contro l'uso legittimo.
- * Riferimento: col flagship un run tipico costa 0,05-0,15 USD, quindi
- * 20 USD al giorno sono oltre cento richieste complete.
- */
-export const BUDGET_DEFAULT_USD = {
-  perRun: 2,
-  giornaliero: 20,
-  mensile: 200,
-} as const;
-
-/**
- * Legge i limiti dall'ambiente. Un valore presente ma non valido
- * (non numerico, ≤ 0) o una gerarchia incoerente (run > giorno > mese)
- * rende il provider reale INDISPONIBILE: mai un default silenzioso al
- * posto di una configurazione sbagliata.
+ * Legge i limiti dall'ambiente. Dal 01/09/2026 (gate §8, «un cervello
+ * operativo non ha bisogno di budget») una variabile ASSENTE significa
+ * nessun tetto; un valore presente ma non valido (non numerico, ≤ 0) o
+ * una gerarchia incoerente FRA I TETTI IMPOSTATI rende il provider
+ * reale INDISPONIBILE: mai un default silenzioso al posto di una
+ * configurazione sbagliata. La contabilità sul ledger resta identica
+ * con o senza tetti.
  */
 export function configurazioneBudget():
   | { ok: true; configurazione: ConfigurazioneBudget }
   | { ok: false; motivo: string } {
   const leggi = (
-    variabile: string,
-    predefinito: number
-  ): { valore: number } | { errore: string } => {
+    variabile: string
+  ): { valore: number | null } | { errore: string } => {
     const grezzo = process.env[variabile]?.trim();
-    if (grezzo == null || grezzo === "") return { valore: predefinito };
+    if (grezzo == null || grezzo === "") return { valore: null };
     const numero = Number(grezzo);
     if (!Number.isFinite(numero) || numero <= 0) {
       return { errore: `${variabile} non è un importo valido in USD.` };
@@ -130,20 +118,28 @@ export function configurazioneBudget():
     return { valore: numero };
   };
 
-  const perRun = leggi("TARS_MAX_COST_PER_RUN_USD", BUDGET_DEFAULT_USD.perRun);
+  const perRun = leggi("TARS_MAX_COST_PER_RUN_USD");
   if ("errore" in perRun) return { ok: false, motivo: perRun.errore };
-  const giorno = leggi("TARS_DAILY_BUDGET_USD", BUDGET_DEFAULT_USD.giornaliero);
+  const giorno = leggi("TARS_DAILY_BUDGET_USD");
   if ("errore" in giorno) return { ok: false, motivo: giorno.errore };
-  const mese = leggi("TARS_MONTHLY_BUDGET_USD", BUDGET_DEFAULT_USD.mensile);
+  const mese = leggi("TARS_MONTHLY_BUDGET_USD");
   if ("errore" in mese) return { ok: false, motivo: mese.errore };
 
-  const runNano = usdInNano(perRun.valore);
-  const giornoNano = usdInNano(giorno.valore);
-  const meseNano = usdInNano(mese.valore);
-  if (runNano == null || giornoNano == null || meseNano == null) {
+  // Distinzione deliberata: `null` = nessun tetto (variabile assente),
+  // `undefined` = conversione fallita (fail-closed più sotto).
+  const inNano = (usd: number | null): number | null | undefined =>
+    usd == null ? null : usdInNano(usd) ?? undefined;
+  const runNano = inNano(perRun.valore);
+  const giornoNano = inNano(giorno.valore);
+  const meseNano = inNano(mese.valore);
+  if (runNano === undefined || giornoNano === undefined || meseNano === undefined) {
     return { ok: false, motivo: "Limiti di budget non convertibili." };
   }
-  if (runNano > giornoNano || giornoNano > meseNano) {
+  if (
+    (runNano != null && giornoNano != null && runNano > giornoNano) ||
+    (giornoNano != null && meseNano != null && giornoNano > meseNano) ||
+    (runNano != null && meseNano != null && runNano > meseNano)
+  ) {
     return {
       ok: false,
       motivo:
@@ -151,11 +147,16 @@ export function configurazioneBudget():
     };
   }
   // Tetto di sanità: uno zero di troppo (200 invece di 20) non deve
-  // passare in silenzio. Superarlo richiede una decisione esplicita.
+  // passare in silenzio. Vale solo per un mensile IMPOSTATO: l'assenza
+  // di tetti è la decisione registrata, non un errore da intercettare.
   const TETTO_SANITA_USD = Number(
     process.env.TARS_TETTO_SANITA_USD?.trim() || 1_000
   );
-  if (Number.isFinite(TETTO_SANITA_USD) && mese.valore > TETTO_SANITA_USD) {
+  if (
+    mese.valore != null &&
+    Number.isFinite(TETTO_SANITA_USD) &&
+    mese.valore > TETTO_SANITA_USD
+  ) {
     return {
       ok: false,
       motivo: `Budget mensile ${mese.valore} USD oltre il tetto di sanità (${TETTO_SANITA_USD} USD): confermalo con TARS_TETTO_SANITA_USD.`,

@@ -56,6 +56,17 @@ function config(
   };
 }
 
+function configSenzaTetti(): ConfigurazioneBudget {
+  return {
+    limiti: { runNano: null, giornoNano: null, meseNano: null },
+    perRunUsd: null,
+    giornalieroUsd: null,
+    mensileUsd: null,
+    margineStima: 1.25,
+    scadenzaPrenotazioneMs: 600_000,
+  };
+}
+
 function richiesta(
   identita: { runId: string; passo: number; tentativo: number },
   opzioni: { caratteri?: number; maxOutput?: number } = {}
@@ -228,13 +239,28 @@ describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
 });
 
 describe("configurazione — fail-closed", () => {
-  it("i default sono i limiti approvati", () => {
+  it("senza variabili non c'è ALCUN tetto (decisione 01/09/2026, gate §8)", () => {
     const esito = configurazioneBudget();
     expect(esito.ok).toBe(true);
     if (esito.ok) {
-      expect(esito.configurazione.perRunUsd).toBe(2);
-      expect(esito.configurazione.giornalieroUsd).toBe(20);
-      expect(esito.configurazione.mensileUsd).toBe(200);
+      expect(esito.configurazione.perRunUsd).toBeNull();
+      expect(esito.configurazione.giornalieroUsd).toBeNull();
+      expect(esito.configurazione.mensileUsd).toBeNull();
+      expect(esito.configurazione.limiti).toEqual({
+        runNano: null,
+        giornoNano: null,
+        meseNano: null,
+      });
+    }
+  });
+
+  it("un valore impostato resta un tetto applicato, non un consiglio", () => {
+    process.env.TARS_DAILY_BUDGET_USD = "5";
+    const esito = configurazioneBudget();
+    expect(esito.ok).toBe(true);
+    if (esito.ok) {
+      expect(esito.configurazione.giornalieroUsd).toBe(5);
+      expect(esito.configurazione.perRunUsd).toBeNull();
     }
   });
 
@@ -243,11 +269,26 @@ describe("configurazione — fail-closed", () => {
     expect(configurazioneBudget().ok).toBe(false);
     process.env.TARS_DAILY_BUDGET_USD = "-3";
     expect(configurazioneBudget().ok).toBe(false);
-    delete process.env.TARS_DAILY_BUDGET_USD;
+    process.env.TARS_DAILY_BUDGET_USD = "2";
     process.env.TARS_MAX_COST_PER_RUN_USD = "50"; // > giornaliero
     const incoerente = configurazioneBudget();
     expect(incoerente.ok).toBe(false);
     if (!incoerente.ok) expect(incoerente.motivo).toContain("incoerenti");
+  });
+
+  it("la gerarchia si valuta solo fra i tetti impostati", () => {
+    // Solo il per-run: nessun giornaliero con cui essere incoerente.
+    process.env.TARS_MAX_COST_PER_RUN_USD = "50";
+    expect(configurazioneBudget().ok).toBe(true);
+  });
+
+  it("il tetto di sanità vale solo per un mensile impostato", () => {
+    process.env.TARS_MONTHLY_BUDGET_USD = "5000";
+    const oltre = configurazioneBudget();
+    expect(oltre.ok).toBe(false);
+    if (!oltre.ok) expect(oltre.motivo).toContain("sanità");
+    delete process.env.TARS_MONTHLY_BUDGET_USD;
+    expect(configurazioneBudget().ok).toBe(true);
   });
 });
 
@@ -270,6 +311,27 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     expect(riga.costoRealeNano!).toBeLessThan(riga.costoPrenotatoNano);
     expect(costoContato(riga)).toBe(riga.costoRealeNano);
     expect(riga.tokenCached).toBe(400);
+  });
+
+  it("senza tetti la spesa passa MA resta contabilizzata riga per riga", async () => {
+    const governato = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: configSenzaTetti(), ledger }
+    );
+    for (let passo = 0; passo < 5; passo++) {
+      const esito = await governato.rispondi(
+        richiesta({ runId: "run-libero", passo, tentativo: 1 })
+      );
+      expect(esito.tipo).toBe("messaggio");
+    }
+    // Nessun rifiuto, ma il ledger ha TUTTE le righe riconciliate: la
+    // contabilità sopravvive all'eliminazione dei tetti (gate §8).
+    expect(ledger.righe()).toHaveLength(5);
+    for (const riga of ledger.righe()) {
+      expect(riga.stato).toBe("settled");
+      expect(riga.costoRealeNano).toBe(REALE_PESANTE_NANO);
+    }
   });
 
   it("blocca il tetto PER RUN aggregando tutte le chiamate dello stesso run", async () => {
@@ -777,7 +839,22 @@ describe("provider reale — condizioni cumulative", () => {
 describe("governor — classi di costo (T9)", () => {
   const identita = (runId: string) => ({ runId, passo: 0, tentativo: 1 });
 
-  it("una classe di background senza budget dedicato è bloccata PRIMA del ledger; interactive non è toccata", async () => {
+  it("una classe di background SENZA variabile non ha tetto (gate §8)", async () => {
+    const governato = avvolgiConGovernor(
+      providerConUso(USO_PESANTE),
+      { sedeId: 1, utenteId: 1 },
+      { configurazione: config(), classe: "proactive_commessa", ledger }
+    );
+    const esito = await governato.rispondi(
+      richiesta(identita("run-classe-libera"))
+    );
+    expect(esito.tipo).toBe("messaggio");
+    expect(ledger.righe()).toHaveLength(1);
+    expect(ledger.righe()[0].classe).toBe("proactive_commessa");
+  });
+
+  it("uno 0 ESPLICITO resta il kill switch della classe: bloccata PRIMA del ledger; interactive non è toccata", async () => {
+    process.env.TARS_BUDGET_PROACTIVE_COMMESSA_USD = "0";
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
       { sedeId: 1, utenteId: 1 },
