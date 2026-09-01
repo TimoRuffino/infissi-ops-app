@@ -17,6 +17,7 @@ import { scopedStorageKey } from "@/lib/operationalContext";
 import { routeContractForLocation } from "@/lib/routeContract";
 import {
   predictableMobileBackTarget,
+  routeOccupaAreaDiLavoro,
   routePresentation,
 } from "@/lib/shellPresentation";
 import { trpc } from "@/lib/trpc";
@@ -195,6 +196,7 @@ export default function ModularControlLayout({
   return (
     <>
       <ShellWorkspace
+        fillsWorkspace={routeOccupaAreaDiLavoro(location)}
         navigation={navigation}
         contextBar={
           isMobile ? (

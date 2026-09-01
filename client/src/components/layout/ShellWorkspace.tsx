@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 export type ShellWorkspaceProps = {
   navigation: ReactNode;
   contextBar: ReactNode;
   children: ReactNode;
+  /** La route occupa esattamente l'area di lavoro invece di allungarla. */
+  fillsWorkspace?: boolean;
 };
 
 /**
@@ -15,6 +19,7 @@ export default function ShellWorkspace({
   navigation,
   contextBar,
   children,
+  fillsWorkspace = false,
 }: ShellWorkspaceProps) {
   return (
     <div
@@ -38,9 +43,19 @@ export default function ShellWorkspace({
               scorrevole e nessuna riga resta visibile sopra di essa. */}
           <main
             id="contenuto-principale"
-            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6 min-[1200px]:pb-0 min-[1200px]:pt-0"
+            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 sm:px-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6"
           >
-            <div className="flex min-h-0 min-w-0 flex-col min-[1200px]:min-h-full min-[1200px]:py-6">
+            <div
+              className={cn(
+                "flex min-h-0 min-w-0 flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] pt-3 sm:pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:pt-5 md:pb-5 min-[1200px]:py-6",
+                // Altezza definita solo dove serve: cosi `flex-1` distribuisce
+                // lo spazio disponibile e i riquadri scorrono al proprio
+                // interno. Le altre route restano libere di allungarsi.
+                fillsWorkspace
+                  ? "min-[1200px]:h-full"
+                  : "min-[1200px]:min-h-full"
+              )}
+            >
               {children}
             </div>
           </main>

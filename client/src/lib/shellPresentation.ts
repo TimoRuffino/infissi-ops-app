@@ -61,6 +61,24 @@ export function routePresentation(
   );
 }
 
+/**
+ * Route che occupano esattamente l'area di lavoro invece di allungarla: la
+ * conversazione (o la lista) scorre dentro il proprio riquadro, mentre le
+ * colonne laterali restano ferme. Sopra 1200px la shell fissa l'altezza del
+ * contenuto per queste route; altrove il contenuto scorre con la pagina.
+ */
+const ROUTE_A_PIENA_ALTEZZA = new Set([
+  "/tars",
+  "/chat",
+  "/messaggi/email",
+  "/messaggi/whatsapp",
+]);
+
+export function routeOccupaAreaDiLavoro(location: string): boolean {
+  const pathname = location.split(/[?#]/, 1)[0].replace(/\/$/, "") || "/";
+  return ROUTE_A_PIENA_ALTEZZA.has(pathname);
+}
+
 export function predictableMobileBackTarget(location: string): string | null {
   const pathname = location.split(/[?#]/, 1)[0].replace(/\/$/, "") || "/";
   const rilievo = pathname.match(
