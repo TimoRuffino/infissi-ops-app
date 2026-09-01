@@ -901,7 +901,10 @@ export default function Tars() {
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 [&>section>header>button:first-child]:md:hidden">
+          {/* Flex container: senza, il `flex-1` della conversazione non si
+              vincola, la sezione cresce con i messaggi e la cronologia non
+              riceve mai l'altezza da cui scorrere. */}
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden [&>section>header>button:first-child]:md:hidden">
             <TarsThread
               titolo={conversazioneAttiva?.titolo ?? "Nuova conversazione"}
               turni={turniVisualizzati}
