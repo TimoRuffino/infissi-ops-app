@@ -1878,6 +1878,22 @@ salvo richiesta esplicita, economia aggregata solo con
 `pagamento.read`/`economia.read`, cross-sede NOT_FOUND. Matrice
 aggiornata in `docs/tars/matrice-azioni-tars.md`.
 
+Incidente emerso all'accensione dell'observer active e risolto in
+giornata (bf85d50): tutte le scritture jsonb di Tars fuori da
+executions/actionCenter usavano `JSON.stringify(...)::jsonb`, che con
+postgres-js doppio-codifica (stringa jsonb in colonna — stesso incidente
+della chat). Conseguenze reali: crash «Invalid time value» a ogni
+reconcile dell'osservatore (append SQL su storico-stringa → array misto
+→ Invalid Date), contesto conversazione MAI riletto su PG (continuità
+cross-messaggio persa), payload turni invisibile al client, telemetria
+run opaca. Fix: `sql.json` ovunque, migrazione one-time in ensureSchema
+(spacchetta stringhe, ricostruisce gli array misti), letture tolleranti;
+scoperto e corretto dal contratto anche l'upsert osservazioni con
+guardia ottimistica a precisione piena (µs vs ms ⇒ ricorsione infinita):
+ora confronto ai millisecondi e ritenti limitati. Contratto reale in
+`server/tars/jsonb.pg.test.ts` (gira con DATABASE_URL; localmente via
+Docker postgres:16).
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

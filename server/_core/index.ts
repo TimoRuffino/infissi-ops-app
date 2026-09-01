@@ -60,6 +60,11 @@ async function startServer() {
   if (osservazioni.repositoryOsservazioniAutorevoleDisponibile()) {
     await osservazioni.repositoryOsservazioniCorrente().ensureSchema();
   }
+  // Archivio Tars: DDL additivo E riparazione one-time delle righe jsonb
+  // doppio-codificate (01/09/2026). Al boot, non al primo click sull'app:
+  // una riparazione dati non deve dipendere dal traffico per applicarsi.
+  const { ensureTarsSchema } = await import("../tars/archivio");
+  await ensureTarsSchema();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();
