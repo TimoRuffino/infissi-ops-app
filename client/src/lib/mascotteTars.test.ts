@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   POSE_OCCASIONALI,
+  POSE_TUTTE,
   etichettaMascotte,
   posaARiposo,
   posterDi,
   puoPartireSiparietto,
   scegliSiparietto,
+  vaInLoop,
+  vaPrecaricata,
   vaSpecchiata,
 } from "./mascotteTars";
 
@@ -84,5 +87,52 @@ describe("mascotte Tars — etichetta accessibile", () => {
   it("dice cosa fa il click", () => {
     expect(etichettaMascotte(false)).toBe("Chiedi a Tars");
     expect(etichettaMascotte(true)).toBe("Chiudi la domanda rapida a Tars");
+  });
+});
+
+describe("mascotte Tars — continuità", () => {
+  it("monta tutte le pose, non solo quella in vista", () => {
+    expect(new Set(POSE_TUTTE)).toEqual(
+      new Set(["idle", "indica", ...POSE_OCCASIONALI]),
+    );
+  });
+
+  it("nessuna posa compare due volte fra quelle montate", () => {
+    expect(new Set(POSE_TUTTE).size).toBe(POSE_TUTTE.length);
+  });
+
+  it("gira in loop solo a riposo: i siparietti si giocano una volta", () => {
+    expect(vaInLoop("idle")).toBe(true);
+    expect(vaInLoop("indica")).toBe(true);
+    for (const p of POSE_OCCASIONALI) expect(vaInLoop(p)).toBe(false);
+  });
+
+  it("ogni posa raggiungibile è fra quelle montate", () => {
+    const raggiungibili = new Set<string>([
+      posaARiposo(false),
+      posaARiposo(true),
+      ...POSE_OCCASIONALI,
+    ]);
+    for (const p of raggiungibili) expect(POSE_TUTTE).toContain(p);
+  });
+});
+
+describe("mascotte Tars — cosa scaricare subito", () => {
+  it("precarica le pose a riposo: servono all'istante", () => {
+    expect(vaPrecaricata("idle", null)).toBe(true);
+    expect(vaPrecaricata("indica", null)).toBe(true);
+  });
+
+  it("dei siparietti scalda solo quello in arrivo", () => {
+    expect(vaPrecaricata("calcio", "calcio")).toBe(true);
+    for (const p of POSE_OCCASIONALI) {
+      if (p === "calcio") continue;
+      expect(vaPrecaricata(p, "calcio")).toBe(false);
+    }
+  });
+
+  it("senza un siparietto in arrivo scarica solo le due pose a riposo", () => {
+    const precaricate = POSE_TUTTE.filter(p => vaPrecaricata(p, null));
+    expect(precaricate).toEqual(["idle", "indica"]);
   });
 });

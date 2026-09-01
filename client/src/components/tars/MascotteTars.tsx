@@ -9,29 +9,41 @@
 // clip che gira in continuo Tars cadrebbe ogni pochi secondi, insopportabile
 // in un CRM che qualcuno tiene aperto tutto il giorno.
 //
+// CONTINUITÀ. Tre cose la rompevano, e vanno tenute tutte e tre:
+//
+//  1. Le clip in loop ripartivano da un fotogramma lontano dall'ultimo, e a
+//     ogni giro si vedeva uno scatto. Ora idle e indica sono montate ad
+//     andirivieni (avanti e a ritroso), quindi la cucitura vale zero per
+//     costruzione. Vedi scripts/mascotte/mascotte-video.sh.
+//  2. Un solo <video> con key={posa} veniva distrutto e ricreato a ogni
+//     cambio, e la clip nuova doveva caricarsi da capo: buco visibile. Ora
+//     stanno montate tutte, si scambia solo quale è in vista.
+//  3. La dissolvenza sfumava prima verso il nulla e poi rientrava, così la
+//     mascotte spariva per un istante. Ora le due clip si accavallano.
+//
 // I file nascono da scripts/mascotte/mascotte-video.sh. Sono WebM/VP9 con
 // alpha vero: l'MP4 "scontornato" del generatore è opaco (soggetto su nero),
 // e l'alpha viene ricostruito confrontando le due versioni degli stessi
 // fotogrammi.
-//
-// Un siparietto finisce su una posa diversa da quella di partenza (l'evento
-// col volto che ride, il cartello col braccio alzato): il salto al rientro si
-// copre con una dissolvenza breve.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  POSE_TUTTE,
   posaARiposo,
   posterDi,
   puoPartireSiparietto,
   scegliSiparietto,
+  vaInLoop,
+  vaPrecaricata,
   vaSpecchiata,
   type PosaMascotte,
+  type PosaOccasionale,
 } from "@/lib/mascotteTars";
 import { cn } from "@/lib/utils";
 
 export type { PosaMascotte };
 
-const DISSOLVENZA_MS = 180;
+const DISSOLVENZA_MS = 220;
 // I siparietti devono farsi vedere: a 90-180s uno stava davanti alla
 // mascotte un minuto intero senza coglierne nessuno, e il ritorno a idle
 // rimette il timer da capo a ogni cambio pagina. Restano comunque
@@ -72,43 +84,65 @@ export function MascotteTars({
 }: MascotteTarsProps) {
   const ridotto = useMovimentoRidotto();
   const [posa, setPosa] = useState<PosaMascotte>("idle");
-  const [visibile, setVisibile] = useState(true);
-  const dissolvenzaRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Il prossimo siparietto si sorteggia appena si torna a riposo, non quando
+  // scatta il timer: così c'è tutto il tempo di scaricarlo prima di doverlo
+  // mostrare, senza precaricare in blocco 3,3 MB di clip all'apertura.
+  const [prossimo, setProssimo] = useState<PosaOccasionale>(() =>
+    scegliSiparietto(Math.random()),
+  );
+  const video = useRef(new Map<PosaMascotte, HTMLVideoElement>());
 
   const cambiaPosa = useCallback((nuova: PosaMascotte) => {
-    setVisibile(false);
-    clearTimeout(dissolvenzaRef.current);
-    dissolvenzaRef.current = setTimeout(() => {
-      setPosa(nuova);
-      setVisibile(true);
-    }, DISSOLVENZA_MS);
+    setPosa(nuova);
   }, []);
 
-  useEffect(() => () => clearTimeout(dissolvenzaRef.current), []);
+  // Chi entra riparte dal principio, chi esce si ferma dov'è: resta pronto,
+  // e mentre sfuma continua a mostrare l'ultimo fotogramma invece di un buco.
+  useEffect(() => {
+    for (const p of POSE_TUTTE) {
+      const el = video.current.get(p);
+      if (!el) continue;
+      if (p !== posa) {
+        el.pause();
+        continue;
+      }
+      // Un siparietto riparte sempre dal principio; le pose in loop no,
+      // girano già senza cucitura e riavvolgerle si vedrebbe.
+      if (!vaInLoop(p)) el.currentTime = 0;
+      // Il browser può rifiutare (scheda nascosta): la rete di sicurezza sotto
+      // riporta comunque a riposo, non serve inseguire l'errore.
+      void el.play().catch(() => {});
+    }
+  }, [posa]);
 
   const riposo = posaARiposo(attiva);
 
   // Il pannello comanda: aperto → indica, chiuso → torna in piedi. Un
   // siparietto in corso viene interrotto, non aspettato.
   useEffect(() => {
-    setPosa(prima => {
-      if (prima === riposo) return prima;
-      cambiaPosa(riposo);
-      return prima;
-    });
-  }, [riposo, cambiaPosa]);
+    setPosa(prima => (prima === riposo ? prima : riposo));
+  }, [riposo]);
 
   useEffect(() => {
     if (!puoPartireSiparietto(posa, attiva, ridotto)) return;
     const t = setTimeout(
-      () => cambiaPosa(scegliSiparietto(Math.random())),
-      attesa(SIPARIETTO_PAUSA_MIN_MS, SIPARIETTO_PAUSA_MAX_MS)
+      () => cambiaPosa(prossimo),
+      attesa(SIPARIETTO_PAUSA_MIN_MS, SIPARIETTO_PAUSA_MAX_MS),
     );
     return () => clearTimeout(t);
-  }, [posa, attiva, ridotto, cambiaPosa]);
+  }, [posa, attiva, ridotto, prossimo, cambiaPosa]);
 
-  const inLoop = posa === "idle" || posa === "indica";
-  const poster = posterDi(posa);
+  // Finito un siparietto se ne sorteggia un altro e lo si scalda: preload
+  // "auto" da solo non basta su un elemento già montato, serve load().
+  useEffect(() => {
+    if (posa !== riposo) return;
+    setProssimo(scegliSiparietto(Math.random()));
+  }, [posa, riposo]);
+
+  useEffect(() => {
+    const el = video.current.get(prossimo);
+    if (el && prossimo !== posa) el.load();
+  }, [prossimo, posa]);
 
   // Rete di sicurezza. onEnded scatta solo se il video arriva davvero in
   // fondo: con la scheda in secondo piano il browser mette in pausa la
@@ -116,10 +150,10 @@ export function MascotteTars({
   // Tars resterebbe piantato nel siparietto — per terra o col cartello in
   // mano — finché non lo si clicca.
   useEffect(() => {
-    if (inLoop) return;
+    if (posa === riposo) return;
     const t = setTimeout(() => cambiaPosa(riposo), SIPARIETTO_DURATA_MAX_MS);
     return () => clearTimeout(t);
-  }, [inLoop, posa, riposo, cambiaPosa]);
+  }, [posa, riposo, cambiaPosa]);
 
   return (
     <button
@@ -128,41 +162,45 @@ export function MascotteTars({
       aria-label={etichetta}
       title={etichetta}
       className={cn(
-        "block shrink-0 rounded-xl outline-none",
+        "relative block shrink-0 rounded-xl outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        className
+        className,
       )}
     >
       {ridotto ? (
         <img
-          src={`/mascotte/${poster}-poster.png`}
+          src={`/mascotte/${posterDi(posa)}-poster.png`}
           alt=""
           draggable={false}
           className={cn(
             "block size-full select-none",
-            vaSpecchiata(posa) && "-scale-x-100"
+            vaSpecchiata(posa) && "-scale-x-100",
           )}
         />
       ) : (
-        <video
-          // Rimonta l'elemento a ogni cambio posa: aggiornare src su un video
-          // vivo e chiamare play() non riparte, il caricamento annulla la
-          // riproduzione. Verificato nel browser.
-          key={posa}
-          src={`/mascotte/${posa}.webm`}
-          poster={`/mascotte/${poster}-poster.png`}
-          autoPlay
-          muted
-          playsInline
-          loop={inLoop}
-          onEnded={inLoop ? undefined : () => cambiaPosa(riposo)}
-          className={cn(
-            "block size-full select-none transition-opacity",
-            visibile ? "opacity-100" : "opacity-0",
-            vaSpecchiata(posa) && "-scale-x-100"
-          )}
-          style={{ transitionDuration: `${DISSOLVENZA_MS}ms` }}
-        />
+        POSE_TUTTE.map(p => (
+          <video
+            key={p}
+            ref={el => {
+              if (el) video.current.set(p, el);
+              else video.current.delete(p);
+            }}
+            src={`/mascotte/${p}.webm`}
+            poster={`/mascotte/${posterDi(p)}-poster.png`}
+            preload={vaPrecaricata(p, prossimo) ? "auto" : "none"}
+            autoPlay={p === "idle"}
+            muted
+            playsInline
+            loop={vaInLoop(p)}
+            onEnded={vaInLoop(p) ? undefined : () => cambiaPosa(riposo)}
+            className={cn(
+              "absolute inset-0 block size-full select-none transition-opacity",
+              p === posa ? "opacity-100" : "opacity-0",
+              vaSpecchiata(p) && "-scale-x-100",
+            )}
+            style={{ transitionDuration: `${DISSOLVENZA_MS}ms` }}
+          />
+        ))
       )}
     </button>
   );

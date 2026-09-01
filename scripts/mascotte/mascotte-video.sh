@@ -21,12 +21,31 @@ FONDO="219,215,211"   # colore del fondo nei render, campionato dall'angolo
 LARGHEZZA=360         # ~2.5x della resa a schermo (~140px)
 FPS=24
 
-# nome_uscita  clip_sorgente  inizio  durata
+# Le clip in loop non possono partire da un taglio qualunque: il video
+# generato deriva lentamente, quindi l'ultimo fotogramma non ricongiunge mai
+# il primo e a ogni giro si vede uno scatto. Due rimedi, secondo il modo:
+#
+#   avanti       si gioca una volta e basta (i siparietti): il taglio è libero
+#   andirivieni  si gioca avanti e poi a ritroso, così l'ultimo fotogramma È
+#                il primo e la cucitura vale zero per costruzione. Gli estremi
+#                vanno scelti su fotogrammi quieti, o il giro di boa rimbalza.
+#
+# nome_uscita  clip_sorgente  inizio  durata  modo
 SEGMENTI=(
-  "idle:idle:0.30:2.90"
-  "evento:idle:3.20:6.60"
-  "indica:indica:0.40:4.40"
-  "cartello:cartello:0.40:4.40"
+  "idle:idle:1.875:1.292:andirivieni"
+  "evento:idle:3.20:6.60:avanti"
+  "indica:indica:1.567:2.833:andirivieni"
+  "cartello:cartello:0.40:4.40:avanti"
+  # I siparietti nati dopo partono tutti dallo STESSO render in piedi, quindi
+  # il loro primo fotogramma è già la posa neutra: si tagliano da 0 e tornano
+  # da soli alla neutra in coda. È questo che li fa incatenare senza salti.
+  "saluta:saluta:0:5.0:avanti"
+  "pensa:pensa:0:5.0:avanti"
+  "dorme:dorme:0:5.0:avanti"
+  "esulta:esulta:0:5.0:avanti"
+  "curioso:curioso:0:5.0:avanti"
+  "boxa:boxa:0:5.0:avanti"
+  "calcio:calcio:0:5.0:avanti"
 )
 
 # Con un terzo argomento si rigenera solo quel segmento, senza rifare gli altri.
@@ -43,8 +62,8 @@ fi
 mkdir -p "$OUT"
 
 for riga in "${SEGMENTI[@]}"; do
-  IFS=':' read -r nome clip inizio durata <<< "$riga"
-  echo "── $nome  (da $clip, ${inizio}s +${durata}s)"
+  IFS=':' read -r nome clip inizio durata modo <<< "$riga"
+  echo "── $nome  (da $clip, ${inizio}s +${durata}s, $modo)"
 
   for fondo in grigio nero; do
     rm -rf "$TMP/$fondo"; mkdir -p "$TMP/$fondo"
@@ -60,6 +79,27 @@ for riga in "${SEGMENTI[@]}"; do
 
   rm -rf "$TMP/rgba"; mkdir -p "$TMP/rgba"
   node "$(dirname "$0")/matte-da-coppia.mjs" "$TMP/grigio" "$TMP/nero" "$TMP/rgba" "$FONDO"
+
+  # Andirivieni: si accoda la stessa sequenza a ritroso, senza ripetere i due
+  # estremi (starebbero fermi un fotogramma in più a ogni giro di boa).
+  if [ "$modo" = "andirivieni" ]; then
+    rm -rf "$TMP/loop"; mkdir -p "$TMP/loop"
+    # niente mapfile: il bash di macOS è il 3.2 e non ce l'ha
+    avanti=()
+    while IFS= read -r f; do avanti+=("$f"); done < <(ls "$TMP/rgba"/*.png | sort)
+    tot=${#avanti[@]}
+    k=0
+    for f in "${avanti[@]}"; do
+      k=$((k + 1)); cp "$f" "$TMP/loop/$(printf '%04d' $k).png"
+    done
+    idx=$((tot - 2))
+    while [ "$idx" -gt 0 ]; do
+      k=$((k + 1)); cp "${avanti[$idx]}" "$TMP/loop/$(printf '%04d' $k).png"
+      idx=$((idx - 1))
+    done
+    rm -rf "$TMP/rgba"; mv "$TMP/loop" "$TMP/rgba"
+    echo "   andirivieni: $tot → $k fotogrammi"
+  fi
 
   # yuva420p + alpha_mode nel contenitore + auto-alt-ref spento: senza tutti
   # e tre, libvpx scrive un VP9 valido ma senza alpha.
