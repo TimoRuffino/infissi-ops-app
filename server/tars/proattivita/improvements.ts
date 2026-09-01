@@ -210,7 +210,14 @@ export type RepositoryMiglioramenti = {
     sedeId: number,
     chiavePattern: string
   ): Promise<PropostaMiglioramento | null>;
-  salva(proposta: PropostaMiglioramento): Promise<PropostaMiglioramento>;
+  /**
+   * Con `soloSeStato` l'aggiornamento vale solo se lo stato su disco è
+   * ancora quello atteso (null = perso il confronto, nessuna scrittura).
+   */
+  salva(
+    proposta: PropostaMiglioramento,
+    opzioni?: { soloSeStato?: StatoMiglioramento }
+  ): Promise<PropostaMiglioramento | null>;
   lista(sedeId: number): Promise<PropostaMiglioramento[]>;
   byId(sedeId: number, id: number): Promise<PropostaMiglioramento | null>;
 };
@@ -229,12 +236,18 @@ export function creaRepositoryMiglioramentiMemoriaPerTest(): RepositoryMiglioram
         ) ?? null
       );
     },
-    async salva(proposta) {
+    async salva(proposta, opzioni) {
       const esistente = record.find(
         r => r.sedeId === proposta.sedeId && r.chiavePattern === proposta.chiavePattern
       );
       if (esistente) {
-        Object.assign(esistente, structuredClone(proposta), { id: esistente.id });
+        if (opzioni?.soloSeStato && esistente.stato !== opzioni.soloSeStato) {
+          return null;
+        }
+        Object.assign(esistente, structuredClone(proposta), {
+          id: esistente.id,
+          createdAt: esistente.createdAt,
+        });
         return structuredClone(esistente);
       }
       const nuova = { ...structuredClone(proposta), id: nextId++ };
@@ -292,9 +305,18 @@ function creaRepositoryMiglioramentiPostgres(): RepositoryMiglioramenti {
         WHERE sede_id = ${sedeId} AND chiave_pattern = ${chiavePattern} LIMIT 1`;
       return righe.length ? daRiga(righe[0]) : null;
     },
-    async salva(proposta) {
+    async salva(proposta, opzioni) {
       await assicura();
       const payload = JSON.stringify({ ...proposta, id: undefined });
+      if (opzioni?.soloSeStato) {
+        const [riga] = await sql`UPDATE tars_miglioramenti
+          SET payload = ${payload}::jsonb
+          WHERE sede_id = ${proposta.sedeId}
+            AND chiave_pattern = ${proposta.chiavePattern}
+            AND payload->>'stato' = ${opzioni.soloSeStato}
+          RETURNING *`;
+        return riga ? daRiga(riga) : null;
+      }
       const [riga] = await sql`INSERT INTO tars_miglioramenti
           (sede_id, chiave_pattern, payload)
         VALUES (${proposta.sedeId}, ${proposta.chiavePattern}, ${payload}::jsonb)
@@ -374,31 +396,58 @@ export async function derivaMiglioramenti(input: {
       const inCooldown =
         esistente.cooldownFinoA != null &&
         esistente.cooldownFinoA.getTime() > input.now.getTime();
-      if (inCooldown || esistente.stato !== "proposta") {
+      // Una proposta SCARTATA torna in vita solo a cooldown scaduto E con
+      // un pattern davvero diverso (revisione R2#2: il cooldown non è una
+      // soppressione eterna). Una ACCETTATA resta permanente per scelta:
+      // la decisione registrata non va rigenerata alle sue spalle.
+      const resurrezione =
+        esistente.stato === "scartata" &&
+        !inCooldown &&
+        esistente.fingerprintPattern !== fingerprint;
+      if (!resurrezione && (inCooldown || esistente.stato !== "proposta")) {
         soppresse.push(
           `${pattern.chiave}: ${inCooldown ? "in cooldown dopo il feedback" : `già ${esistente.stato}`}`
         );
         continue;
       }
-      if (esistente.fingerprintPattern === fingerprint) {
+      if (
+        esistente.stato === "proposta" &&
+        esistente.fingerprintPattern === fingerprint
+      ) {
         proposte.push(esistente);
         continue;
       }
-      const aggiornata = await repository.salva({
-        ...esistente,
-        fingerprintPattern: fingerprint,
-        problema: template.problema(pattern),
-        evidenze: pattern.evidenze.map(evidenza => ({
-          riferimento: evidenza.riferimento,
-          descrizione: evidenza.descrizione,
-        })),
-        baseline: pattern.baseline,
-        confidenza: pattern.confidenza,
-        ranking:
-          rankingBase(pattern) + (esistente.feedback === "non_utile" ? -30 : 0),
-        aggiornataAt: input.now,
-      });
-      proposte.push(aggiornata);
+      // Il feedback pesa in modo SIMMETRICO anche dopo il refresh (R2#6).
+      const pesoFeedback =
+        esistente.feedback === "non_utile"
+          ? -30
+          : esistente.feedback === "utile"
+            ? 15
+            : 0;
+      const aggiornata = await repository.salva(
+        {
+          ...esistente,
+          stato: "proposta",
+          feedback: resurrezione ? null : esistente.feedback,
+          cooldownFinoA: null,
+          fingerprintPattern: fingerprint,
+          problema: template.problema(pattern),
+          evidenze: pattern.evidenze.map(evidenza => ({
+            riferimento: evidenza.riferimento,
+            descrizione: evidenza.descrizione,
+          })),
+          baseline: pattern.baseline,
+          confidenza: pattern.confidenza,
+          ranking: rankingBase(pattern) + (resurrezione ? 0 : pesoFeedback),
+          aggiornataAt: input.now,
+        },
+        // La ri-derivazione non può MAI sovrascrivere una decisione
+        // arrivata nel frattempo (revisione I4): vale solo se lo stato su
+        // disco è ancora quello letto.
+        { soloSeStato: esistente.stato }
+      );
+      if (aggiornata) proposte.push(aggiornata);
+      else soppresse.push(`${pattern.chiave}: decisione concorrente, ri-derivazione saltata`);
       continue;
     }
 
@@ -436,7 +485,7 @@ export async function derivaMiglioramenti(input: {
       createdAt: input.now,
       aggiornataAt: input.now,
     });
-    proposte.push(nuova);
+    if (nuova) proposte.push(nuova);
   }
 
   return {
@@ -457,9 +506,12 @@ export async function registraFeedbackMiglioramento(input: {
   const repository = input.repository ?? repositoryMiglioramentiCorrente();
   const proposta = await repository.byId(input.sedeId, input.id);
   if (!proposta) throw new Error("NOT_FOUND: proposta non trovata.");
+  // Una decisione registrata non si degrada col feedback (revisione R2#7):
+  // su una proposta accettata restano solo ranking e nota di feedback.
   const conCooldown =
-    input.feedback === "gia_risolto" || input.feedback === "troppo_rumore";
-  return repository.salva({
+    proposta.stato !== "accettata" &&
+    (input.feedback === "gia_risolto" || input.feedback === "troppo_rumore");
+  const salvata = await repository.salva({
     ...proposta,
     feedback: input.feedback,
     stato: conCooldown ? "scartata" : proposta.stato,
@@ -474,6 +526,8 @@ export async function registraFeedbackMiglioramento(input: {
           : proposta.ranking,
     aggiornataAt: input.now,
   });
+  if (!salvata) throw new Error("CONFLICT: proposta cambiata, riprova.");
+  return salvata;
 }
 
 /** «Accetta» registra una decisione. Non modifica il CRM, non avvia agenti. */
@@ -489,7 +543,7 @@ export async function accettaMiglioramento(input: {
   const proposta = await repository.byId(input.sedeId, input.id);
   if (!proposta) throw new Error("NOT_FOUND: proposta non trovata.");
   if (proposta.stato === "accettata") return proposta;
-  return repository.salva({
+  const salvata = await repository.salva({
     ...proposta,
     stato: "accettata",
     decisione: {
@@ -499,4 +553,6 @@ export async function accettaMiglioramento(input: {
     },
     aggiornataAt: input.now,
   });
+  if (!salvata) throw new Error("CONFLICT: proposta cambiata, riprova.");
+  return salvata;
 }

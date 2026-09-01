@@ -960,6 +960,10 @@ export async function eseguiRun(input: {
               );
             }
             let esito: unknown;
+            // Solo un'esecuzione FRESCA può armare la transizione
+            // condizionata: esiti riusati dal ledger o corto-circuiti di
+            // materializzazione (gia_archiviato) non producono autorità.
+            let esitoDaEsecuzioneFresca = false;
             const preparazione = strumento.materializzaInput
               ? await strumento.materializzaInput(contesto, validati)
               : { tipo: "input" as const, input: validati };
@@ -983,6 +987,7 @@ export async function eseguiRun(input: {
               if (prenotazione.tipo === "riusa") {
                 esito = prenotazione.esito;
               } else {
+                esitoDaEsecuzioneFresca = true;
                 try {
                   esito = await strumento.esegui(contesto, inputMaterializzato);
                   descrittore.schemaRisultato.parse(esito);
@@ -1083,6 +1088,7 @@ export async function eseguiRun(input: {
                 if (
                   richiestaCondizionata &&
                   archiviazione &&
+                  esitoDaEsecuzioneFresca &&
                   azione.entitaToccate.includes(
                     `commessa:${archiviazione.commessaId}`
                   ) &&

@@ -190,6 +190,39 @@ describe("worker — dedup, cooldown e auto-risoluzione", () => {
     expect(dopoCooldown).toMatchObject({ riaperte: 1 });
   });
 
+  it("un caso vivo sceso sotto materialità NON auto-risolve; un detector dismesso sì", async () => {
+    await osservaDaReconcile({ sedeId: SEDE, drafts: [draft()], now: T0 });
+    // Il caso esiste ancora ma scende sotto soglia: resta aperta.
+    const sottoSoglia = await osservaDaReconcile({
+      sedeId: SEDE,
+      drafts: [draft({ priority: "normale", priorityScore: 10 })],
+      now: new Date(T0.getTime() + 60_000),
+    });
+    expect(sottoSoglia).toMatchObject({ autoRisolte: 0 });
+    let [osservazione] = await repository.lista({ sedeId: SEDE });
+    expect(osservazione.stato).toBe("aperta");
+
+    // Il caso cambia detector: la riga del detector vecchio si chiude.
+    const cambioDetector = await osservaDaReconcile({
+      sedeId: SEDE,
+      drafts: [
+        draft({
+          nextAction: { sourceKind: "saldo", label: "Richiedi saldo" },
+          signalFingerprint: "fp-saldo",
+        }),
+      ],
+      now: new Date(T0.getTime() + 120_000),
+    });
+    expect(cambioDetector).toMatchObject({ autoRisolte: 1 });
+    const perDetector = await repository.lista({ sedeId: SEDE });
+    expect(
+      perDetector.find(o => o.detector === "consegna_fornitore")?.stato
+    ).toBe("auto_risolta");
+    expect(perDetector.find(o => o.detector === "saldo")?.stato).toBe(
+      "aperta"
+    );
+  });
+
   it("isola le sedi in scrittura e in lettura", async () => {
     await osservaDaReconcile({
       sedeId: SEDE,

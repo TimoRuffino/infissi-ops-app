@@ -188,6 +188,12 @@ function patternPermanenzaFase(input: {
 
   const perCommessa = new Map<number, typeof transizioni>();
   for (const riga of transizioni) {
+    // Le compensazioni (undo) non sono permanenze reali: una coppia
+    // avanzamento+annullo produrrebbe durate fantasma di pochi minuti e
+    // falsi ingressi di fase (revisione R2#3).
+    if (riga.compensaTransizioneId != null || riga.compensataDaId != null) {
+      continue;
+    }
     const lista = perCommessa.get(riga.commessaId) ?? [];
     lista.push(riga);
     perCommessa.set(riga.commessaId, lista);
@@ -360,12 +366,22 @@ export async function calcolaPatternAzienda(input: {
   const a = input.now;
   const da = new Date(a.getTime() - giorni * 86_400_000);
   const repository = input.repository ?? repositoryOsservazioniCorrente();
-  const osservazioni = (
-    await repository.lista({ sedeId: input.sedeId, limite: 1000 })
-  ).filter(osservazione => osservazione.aggiornataAt.getTime() >= da.getTime());
+  const lette = await repository.lista({ sedeId: input.sedeId, limite: 1000 });
+  const osservazioni = lette.filter(
+    osservazione => osservazione.aggiornataAt.getTime() >= da.getTime()
+  );
 
   const pattern: PatternAzienda[] = [];
   const soppressi: { chiave: string; motivo: string }[] = [];
+  if (lette.length >= 1000) {
+    // Troncamento DICHIARATO (revisione M5): oltre il cap il campione
+    // sottostima e il report deve dirlo, mai fingere completezza.
+    soppressi.push({
+      chiave: "campione",
+      motivo:
+        "letto il massimo di 1000 osservazioni: i conteggi possono sottostimare il periodo",
+    });
+  }
   const registra = (
     esito:
       | { pattern: PatternAzienda }

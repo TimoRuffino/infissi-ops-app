@@ -7,7 +7,11 @@ export type StatoEsecuzioneR1 =
   | "reserved"
   | "settled"
   | "no_effect"
-  | "uncertain";
+  | "uncertain"
+  // Reservation orfana (processo morto tra prenota ed esecuzione) scaduta
+  // oltre il TTL: apre una nuova generazione SOLO per azioni con
+  // idempotenza di dominio (revisione indipendente, rilievo I2).
+  | "expired";
 
 export type RigaEsecuzioneR1 = {
   id: number;
@@ -56,6 +60,12 @@ export type LedgerEsecuzioniR1 = {
     createdAt: Date;
   }): Promise<RigaEsecuzioneR1>;
   segnaIncerta(input: {
+    idempotencyKey: string;
+    motivo: string;
+    createdAt: Date;
+  }): Promise<RigaEsecuzioneR1>;
+  /** Marca `expired` una reservation ancora `reserved`; idempotente. */
+  scadi(input: {
     idempotencyKey: string;
     motivo: string;
     createdAt: Date;
@@ -111,7 +121,7 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
       await kvSql!`CREATE TABLE IF NOT EXISTS tars_azioni_esecuzioni_eventi (
         id BIGSERIAL PRIMARY KEY,
         esecuzione_id BIGINT NOT NULL REFERENCES tars_azioni_esecuzioni(id),
-        stato TEXT NOT NULL CHECK (stato IN ('reserved','settled','no_effect','uncertain')),
+        stato TEXT NOT NULL CHECK (stato IN ('reserved','settled','no_effect','uncertain','expired')),
         versione_oggetto TEXT,
         esito TEXT,
         risultato JSONB,
@@ -127,13 +137,13 @@ export function ensureEsecuzioniR1Schema(): Promise<void> {
             FROM pg_constraint
             WHERE conrelid = 'tars_azioni_esecuzioni_eventi'::regclass
               AND conname = 'tars_azioni_esecuzioni_eventi_stato_check'
-              AND pg_get_constraintdef(oid) LIKE '%no_effect%'
+              AND pg_get_constraintdef(oid) LIKE '%expired%'
           ) THEN
             ALTER TABLE tars_azioni_esecuzioni_eventi
               DROP CONSTRAINT IF EXISTS tars_azioni_esecuzioni_eventi_stato_check;
             ALTER TABLE tars_azioni_esecuzioni_eventi
               ADD CONSTRAINT tars_azioni_esecuzioni_eventi_stato_check
-              CHECK (stato IN ('reserved','settled','no_effect','uncertain'));
+              CHECK (stato IN ('reserved','settled','no_effect','uncertain','expired'));
           END IF;
         END
         $tars_r1_schema$;`);
@@ -314,6 +324,27 @@ function creaLedgerEsecuzioniPostgres(): LedgerEsecuzioniR1 {
       });
     },
 
+    async scadi(input) {
+      const db = sql();
+      await ensureEsecuzioniR1Schema();
+      return db.begin(async tx => {
+        const [base] = await tx`SELECT id FROM tars_azioni_esecuzioni
+          WHERE idempotency_key = ${input.idempotencyKey} FOR UPDATE`;
+        if (!base) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per expiry.");
+        const corrente = await leggi(tx, input.idempotencyKey);
+        if (corrente && corrente.stato !== "reserved") return corrente;
+        await tx`INSERT INTO tars_azioni_esecuzioni_eventi (
+            esecuzione_id, stato, audit, compensazione, motivo, created_at
+          ) VALUES (
+            ${base.id}, ${"expired"}, ${tx.json(AUDIT_VUOTO)},
+            ${tx.json(COMPENSAZIONE_VUOTA)}, ${input.motivo}, ${input.createdAt}
+          )`;
+        const riga = await leggi(tx, input.idempotencyKey);
+        if (!riga) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: expiry non rileggibile.");
+        return riga;
+      });
+    },
+
     async lista(input) {
       const db = sql();
       await ensureEsecuzioniR1Schema();
@@ -458,6 +489,24 @@ export function creaLedgerEsecuzioniMemoriaPerTest(): LedgerEsecuzioniR1 {
       return proietta(prenotazione);
     },
 
+    async scadi(input) {
+      const prenotazione = prenotazioni.find(
+        r => r.idempotencyKey === input.idempotencyKey
+      );
+      if (!prenotazione) throw new Error("LEDGER_ESECUZIONI_INCOERENTE: reservation assente per expiry.");
+      const corrente = proietta(prenotazione);
+      if (corrente.stato !== "reserved") return corrente;
+      eventiPerChiave.get(input.idempotencyKey)!.push({
+        stato: "expired",
+        versioneOggetto: null,
+        esito: null,
+        audit: AUDIT_VUOTO,
+        compensazione: COMPENSAZIONE_VUOTA,
+        createdAt: input.createdAt,
+      });
+      return proietta(prenotazione);
+    },
+
     async lista(input) {
       return prenotazioni
         .filter(r => r.sedeId === input.sedeId)
@@ -576,7 +625,10 @@ export async function prenotaEsecuzioneR1(input: {
     if (prenotazione.tipo === "prenotata") {
       return { tipo: "esegui", idempotencyKey };
     }
-    if (prenotazione.riga.stato === "no_effect") {
+    if (
+      prenotazione.riga.stato === "no_effect" ||
+      prenotazione.riga.stato === "expired"
+    ) {
       idempotencyKey = `r1:${createHash("sha256")
         .update(`${chiaveBase}:dopo:${prenotazione.riga.id}`)
         .digest("hex")}`;
@@ -608,6 +660,28 @@ export async function prenotaEsecuzioneR1(input: {
         .update(`${chiaveBase}:dopo:${prenotazione.riga.id}`)
         .digest("hex")}`;
       continue;
+    }
+    if (
+      prenotazione.riga.stato === "reserved" &&
+      input.descrittore.idempotenza.strategia === "dominio"
+    ) {
+      // Reservation orfana: il processo che l'ha aperta è morto senza esito.
+      // Oltre il TTL (default 2× TARS_MAX_RUN_MS) la marchiamo `expired` e
+      // ripassiamo dallo stesso giro: la nuova generazione riesegue e il
+      // DOMINIO deduplica (sourceRef, canonicalKey, versione) — è la
+      // garanzia dichiarata da `strategia: "dominio"`.
+      const ttlMs = Number(
+        process.env.TARS_R1_RESERVATION_TTL_MS?.trim() || 1_200_000
+      );
+      const eta = Date.now() - prenotazione.riga.updatedAt.getTime();
+      if (Number.isFinite(ttlMs) && ttlMs > 0 && eta > ttlMs) {
+        await ledgerEsecuzioniCorrente().scadi({
+          idempotencyKey,
+          motivo: `reservation senza esito oltre il TTL (${Math.round(eta / 1000)}s)`,
+          createdAt: new Date(),
+        });
+        continue;
+      }
     }
     return {
       tipo: "incerta",

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { tarsAttivo } from "../../platform/interruttori";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
-import { derivaMiglioramenti } from "../proattivita/improvements";
+import { repositoryMiglioramentiCorrente } from "../proattivita/improvements";
 import type { EsitoLettura, StrumentoTars } from "./tipi";
 
 const FONTE =
@@ -75,12 +75,8 @@ const leggiMiglioramenti: StrumentoTars = {
   soloDirezione: true,
   interruttore: ["tarsProactive", "tarsImprovements"],
   descrizione:
-    "Legge le proposte di miglioramento del CRM e dei processi derivate dai pattern aziendali. Sono proposte INERTI: il feedback e l'accettazione passano solo dalla UI della direzione, mai dal modello.",
-  schemaInput: z
-    .object({
-      finestraGiorni: z.number().int().min(7).max(90).optional(),
-    })
-    .strict(),
+    "Legge le proposte di miglioramento del CRM e dei processi già derivate dai pattern aziendali (materializzate dal pannello direzione). Sono proposte INERTI: il feedback e l'accettazione passano solo dalla UI della direzione, mai dal modello.",
+  schemaInput: z.object({}).strict(),
   async esegui(contesto, input): Promise<EsitoLettura<unknown>> {
     if (
       !tarsAttivo("tarsProactive") ||
@@ -90,11 +86,12 @@ const leggiMiglioramenti: StrumentoTars = {
     ) {
       throw new Error("NOT_FOUND: proposte di miglioramento non disponibili.");
     }
-    const esito = await derivaMiglioramenti({
-      sedeId: contesto.sedeId,
-      now: new Date(),
-      finestraGiorni: input.finestraGiorni,
-    });
+    // SOLA lettura (revisione R2#8): la derivazione/materializzazione vive
+    // nel router direzione-only; un tool L0 non scrive mai.
+    const proposte = (
+      await repositoryMiglioramentiCorrente().lista(contesto.sedeId)
+    ).filter(proposta => proposta.stato === "proposta");
+    const esito = { proposte, soppresse: [] as string[] };
     return {
       dati: {
         proposte: esito.proposte.map(proposta => ({

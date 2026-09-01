@@ -23,10 +23,15 @@ export type EsitoUpsertOsservazione = {
 export type RepositoryOsservazioni = {
   ensureSchema(): Promise<void>;
   upsert(nuova: NuovaOsservazione, now: Date): Promise<EsitoUpsertOsservazione>;
-  /** Auto-risolve le osservazioni aperte i cui casi non esistono più. */
+  /**
+   * Auto-risolve le osservazioni aperte i cui casi non esistono più, o il
+   * cui detector non è più quello corrente del caso. Un caso ancora vivo
+   * ma sceso sotto materialità NON risolve (resta nel Centro Azioni).
+   */
   risolviAssenti(input: {
     sedeId: number;
-    chiaviAttive: ReadonlySet<string>;
+    /** casoKey → detector corrente, per TUTTI i casi vivi della sede. */
+    casiVivi: ReadonlyMap<string, string>;
     now: Date;
   }): Promise<number>;
   lista(input: {
@@ -145,11 +150,11 @@ export function creaRepositoryOsservazioniMemoriaPerTest(): RepositoryOsservazio
       records.set(chiave, record);
       return { record: structuredClone(record), esito: applicato.esito };
     },
-    async risolviAssenti({ sedeId, chiaviAttive, now }) {
+    async risolviAssenti({ sedeId, casiVivi, now }) {
       let risolte = 0;
       for (const record of records.values()) {
         if (record.sedeId !== sedeId || record.stato !== "aperta") continue;
-        if (chiaviAttive.has(record.casoKey)) continue;
+        if (casiVivi.get(record.casoKey) === record.detector) continue;
         record.stato = "auto_risolta";
         record.risoltaAt = now;
         record.aggiornataAt = now;
@@ -301,6 +306,9 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
         }
         return this.upsert(nuova, now);
       }
+      // Guardia ottimistica (revisione I3): l'aggiornamento vale solo se
+      // la riga è ancora quella letta; un risolviAssenti interlacciato non
+      // viene sovrascritto — si rilegge e si riapplica.
       const [riga] = await sql`UPDATE tars_osservazioni SET
           fingerprint = ${record.fingerprint},
           commessa_id = ${record.commessaId},
@@ -317,36 +325,47 @@ function creaRepositoryOsservazioniPostgres(): RepositoryOsservazioni {
           aggiornata_at = ${record.aggiornataAt},
           risolta_at = ${record.risoltaAt}
         WHERE id = ${record.id}
+          AND stato = ${esistente!.stato}
+          AND aggiornata_at = ${esistente!.aggiornataAt}
         RETURNING *`;
+      if (!riga) {
+        const riletta = await leggi(nuova);
+        if (!riletta) throw new Error("tars_osservazioni: riga sparita durante l'aggiornamento");
+        const riapplicato = applicaUpsert(riletta, nuova, now);
+        if (
+          riapplicato.esito === "invariata" ||
+          riapplicato.esito === "in_cooldown"
+        ) {
+          return { record: riletta, esito: riapplicato.esito };
+        }
+        return this.upsert(nuova, now);
+      }
       return { record: rigaDaDb(riga), esito: applicato.esito };
     },
-    async risolviAssenti({ sedeId, chiaviAttive, now }) {
+    async risolviAssenti({ sedeId, casiVivi, now }) {
       await assicura();
       const aperte = await sql`SELECT * FROM tars_osservazioni
         WHERE sede_id = ${sedeId} AND stato = 'aperta'`;
       let risolte = 0;
       for (const riga of aperte) {
         const record = rigaDaDb(riga);
-        if (chiaviAttive.has(record.casoKey)) continue;
-        const storicoJson = JSON.stringify(
-          [...record.storico, {
-            tipo: "auto_risolta",
-            fingerprint: record.fingerprint,
-            at: now.toISOString(),
-          }].map(evento => ({
-            tipo: evento.tipo,
-            fingerprint: evento.fingerprint,
-            at: evento.at instanceof Date ? evento.at.toISOString() : evento.at,
-          }))
-        );
-        await sql`UPDATE tars_osservazioni SET
+        if (casiVivi.get(record.casoKey) === record.detector) continue;
+        // Evento appeso lato SQL e stato guardato: un upsert concorrente
+        // non può cancellare l'auto-risoluzione né perdere lo storico.
+        const evento = JSON.stringify([{
+          tipo: "auto_risolta",
+          fingerprint: record.fingerprint,
+          at: now.toISOString(),
+        }]);
+        const aggiornate = await sql`UPDATE tars_osservazioni SET
             stato = 'auto_risolta',
             risolta_at = ${now},
             aggiornata_at = ${now},
             cooldown_fino_a = ${new Date(now.getTime() + COOLDOWN_AUTO_RISOLUZIONE_MS)},
-            storico = ${storicoJson}::jsonb
-          WHERE id = ${record.id} AND stato = 'aperta'`;
-        risolte += 1;
+            storico = storico || ${evento}::jsonb
+          WHERE id = ${record.id} AND stato = 'aperta'
+          RETURNING id`;
+        risolte += aggiornate.length;
       }
       return risolte;
     },

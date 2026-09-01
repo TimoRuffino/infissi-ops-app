@@ -15,7 +15,7 @@ import {
 // economico dell'osservatore vale anche se una fonte scrive un importo nel
 // titolo. I numeri corti (id, giorni, quantità) restano leggibili.
 const PATTERN_IMPORTO =
-  /(?:€|\beur(?:o|i)?\b)\s*\d[\d.,]*|\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?\s*(?:€|\beur(?:o|i)?\b)?|\d+[.,]\d{2}\s*(?:€|\beur(?:o|i)?\b)/gi;
+  /(?:€|\beur(?:o|i)?\b)\s*\d[\d.,]*|\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?\s*(?:€|\beur(?:o|i)?\b)?|\d+[.,]\d{2}\s*(?:€|\beur(?:o|i)?\b)|\d+\s*(?:€|\beur(?:o|i)?\b)/gi;
 
 export function senzaImporti(testo: string): string {
   return testo.replace(PATTERN_IMPORTO, "[importo riservato]");

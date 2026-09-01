@@ -45,6 +45,7 @@ const schemaConferma = z
     propostaId: z.number().int().positive(),
     etichetta: z.string(),
     effetto: z.string().nullable(),
+    hashAnteprima: z.string().length(64).optional(),
   })
   .strict();
 
@@ -160,13 +161,16 @@ const METADATI: Record<string, Metadati> = {
   verifica_gate_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa"]),
   verifica_transizione_commessa: lettura(
     "entita",
-    ["commessa"],
+    ["commessa", "comunicazioni"],
     ["commessa"]
   ),
+  // Superficie «comunicazioni» inclusa: dopo la lettura di un allegato il
+  // contesto persiste quella superficie, e la catena Maccari divisa su due
+  // messaggi deve poter completare la transizione (revisione, rilievo I3).
   transizione_adiacente_commessa: r1(
     "transizione_adiacente_commessa",
     "entita",
-    ["commessa"],
+    ["commessa", "comunicazioni"],
     ["commessa"],
     ["tars", "tarsL2Actions"],
     true,
@@ -204,6 +208,8 @@ const METADATI: Record<string, Metadati> = {
     ...lettura("entita", ["comunicazioni", "commessa"], ["commessa", "documento"], ["tars", "tarsReadTools", "tarsCommunications"]),
     // Il PDF può richiedere l'OCR locale; 10 secondi descriverebbero un
     // contratto falso anche se il tool non effettua chiamate a pagamento.
+    // NOTA: timeoutMs è oggi un metadato DESCRITTIVO del registro (nessun
+    // wrapper a runtime): il tempo del run è governato da TARS_MAX_RUN_MS.
     timeoutMs: 120_000,
     costo: { unita: "operazione", massimo: 1, classe: "medio" },
   },
@@ -271,12 +277,18 @@ const METADATI: Record<string, Metadati> = {
         Number(input.comunicazioneId),
         Number(input.allegatoIndex)
       );
-      const documentoId = (esito.dati as { documentoId?: unknown } | null)
-        ?.documentoId;
+      const dati = esito.dati as
+        | { documentoId?: unknown }
+        | null;
+      const dopo = esito.dopo as { commessaId?: unknown } | null;
       return (
         documento != null &&
-        Number.isInteger(documentoId) &&
-        documento.id === documentoId
+        Number.isInteger(dati?.documentoId) &&
+        documento.id === dati?.documentoId &&
+        // Se il flusso manuale ha spostato il documento su un'altra
+        // commessa, il riuso dell'esito sarebbe disonesto (revisione M2).
+        (!Number.isInteger(dopo?.commessaId) ||
+          documento.commessaId === dopo?.commessaId)
       );
     }
   ),

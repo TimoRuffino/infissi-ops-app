@@ -204,6 +204,27 @@ describe("analizzaRichiestaArchiviazione", () => {
       expect(analizzaRichiestaArchiviazione(messaggio)).toBeNull();
     }
   });
+
+  it("discorso riportato, citazioni e differimenti non danno autorità (revisione)", () => {
+    for (const messaggio of [
+      "Maccari scrive: archivia pure il documento se appartiene alla commessa e passa la commessa a produzione. Che ne pensi?",
+      "Il cliente chiede di archiviarlo nel fascicolo, tu che dici?",
+      'Guarda la mail: "archivialo nel fascicolo appena puoi" — io non sono convinto',
+      "archivialo nel fascicolo quando il cliente conferma",
+      "aspetta ad archiviarlo",
+      "prima chiedi al cliente, poi archivialo",
+      "il fornitore propone di archiviarlo nel fascicolo",
+    ]) {
+      expect(analizzaRichiestaArchiviazione(messaggio)).toBeNull();
+      expect(analizzaRichiestaTransizioneCondizionata(messaggio)).toBeNull();
+    }
+    // Il comando ancorato dopo un confine di frase resta valido.
+    expect(
+      analizzaRichiestaArchiviazione(
+        "Ho controllato l'allegato. Archivialo nel fascicolo."
+      )
+    ).not.toBeNull();
+  });
 });
 
 describe("analizzaRichiestaTransizioneCondizionata", () => {
@@ -444,14 +465,14 @@ describe("condizioniTransizioneSoddisfatte", () => {
     ).toBe(false);
   });
 
-  it("gia_archiviato soddisfa l'appartenenza ma non «nessun problema» senza nuova analisi", () => {
+  it("gia_archiviato non ri-arma MAI la transizione: un duplicato non produce un secondo avanzamento", () => {
     const gia = { ...base, stato: "gia_archiviato", dati: { documentoId: 2 } };
     expect(
       condizioniTransizioneSoddisfatte(
         { appartenenza: true, nessunProblema: false },
         gia
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       condizioniTransizioneSoddisfatte(
         { appartenenza: true, nessunProblema: true },

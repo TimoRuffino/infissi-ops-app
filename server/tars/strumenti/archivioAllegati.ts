@@ -69,9 +69,44 @@ export type RichiestaArchiviazioneEsplicita = {
 const CONSULTIVA_INIZIALE =
   /^(?:dimmi\s+se|verifica\s+se|controlla\s+se|(?:sai|sapresti|mi\s+dici|mi\s+puoi\s+dire)\s+se|posso|potrei|cosa|che\b|quali|conviene|sarebbe|proponi|consiglia)/i;
 const NEGAZIONE_ARCHIVIO =
-  /\bnon\s+(?:archiviar|salvar|allegar|metter)|\bsenza\s+(?:archiviar|salvar)|\bmai\s+archiviar/i;
+  /\bnon\s+(?:devi|puoi|dovresti|dovete|voglio\s+che|serve|va)?\s*(?:ancora\s+)?(?:archiviar|salvar|allegar|metter)|\bsenza\s+(?:archiviar|salvar)|\bmai\s+archiviar|\bevita(?:re|te)?\s+di\s+(?:archiviar|salvar)/i;
+// Discorso riportato e differimenti NON sono comandi (revisione
+// indipendente, rilievo 1): un imperativo citato («il cliente chiede di
+// archiviarlo») o rimandato («archivialo quando il cliente conferma»)
+// lascia il messaggio senza autorità. Falso negativo sicuro.
+const RIPORTO_O_DIFFERIMENTO =
+  /\b(?:scrive|scrisse|ha\s+scritto|scrivono|chiede|chiedono|ha\s+chiesto|dice|dicono|ha\s+detto|suggerisce|suggeriscono|propone|propongono|vorrebbe(?:ro)?)\b|\b(?:quando|appena|aspetta|aspettiamo|più\s+tardi|domani|dopo\s+che|solo\s+dopo)\b|\bprima\s+(?:di\s+\p{L}+|chiedi|verifica|controlla|senti|parla)\b/iu;
+// La forma non pronominale richiede un oggetto documentale entro pochi
+// caratteri: «archivia la comunicazione» (oggetto diverso) resta senza
+// autorità — falso negativo sicuro (revisione, rilievo su oggetto).
 const COMANDO_ARCHIVIO =
-  /\barchivi(?:a|al[oa]|ala|are|arl[oa])\b|\bsalv(?:a|al[oa]|are|arl[oa])\b[\s\S]{0,50}?\bfascicolo\b|\bmett(?:i|il[oa]|ere)\b[\s\S]{0,50}?\bfascicolo\b|\balleg(?:a|al[oa]|are|arl[oa])\b[\s\S]{0,50}?\b(?:commessa|fascicolo)\b/i;
+  /\barchivi(?:al[oa]|arl[oa])\b|\barchivi(?:a|are)\b[\s\S]{0,60}?\b(?:allegat\w*|document\w*|file|pdf|fascicolo)\b|\bsalv(?:a|al[oa]|are|arl[oa])\b[\s\S]{0,50}?\bfascicolo\b|\bmett(?:i|il[oa]|ere)\b[\s\S]{0,50}?\bfascicolo\b|\balleg(?:a|al[oa]|are|arl[oa])\b[\s\S]{0,50}?\b(?:commessa|fascicolo)\b/i;
+const CORTESE_ARCHIVIO_INIZIALE =
+  /^(?:per\s+favore[,\s]+)?(?:puoi|potresti|vorrei\s+che|ti\s+chiedo\s+di)\s+(?:archiviar|salvar|allegar|metter)/i;
+
+/**
+ * Il comando vale solo ANCORATO: a inizio messaggio, dopo un confine di
+ * frase (. ! ?) o dopo un connettivo di catena esplicito («e», «poi»,
+ * «quindi»), mai preceduto da virgolette — come il classificatore delle
+ * transizioni, l'autorità non nasce da testo citato nel corpo.
+ */
+function comandoArchivioAncorato(testo: string): boolean {
+  if (CORTESE_ARCHIVIO_INIZIALE.test(testo) && COMANDO_ARCHIVIO.test(testo)) {
+    return true;
+  }
+  const globale = new RegExp(COMANDO_ARCHIVIO.source, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = globale.exec(testo)) != null) {
+    const prima = testo.slice(0, match.index).replace(/\s+$/, "");
+    const citato = /["'«“‘]$/.test(prima);
+    const ancorato =
+      prima === "" ||
+      /[.!?]$/.test(prima) ||
+      /\b(?:e|ed|poi|quindi)\s*,?$/i.test(prima);
+    if (ancorato && !citato) return true;
+  }
+  return false;
+}
 
 // Set CHIUSO delle condizioni verificabili in-run dal server. Ogni altro
 // «se/qualora/purché» lascia il messaggio senza autorità (falso negativo
@@ -109,9 +144,10 @@ export function analizzaRichiestaArchiviazione(
   if (!testo) return null;
   if (CONSULTIVA_INIZIALE.test(testo)) return null;
   if (NEGAZIONE_ARCHIVIO.test(testo)) return null;
+  if (RIPORTO_O_DIFFERIMENTO.test(testo)) return null;
   const { condizioni, spogliato } = condizioniRiconosciute(testo);
   if (CONDIZIONE_NON_VERIFICABILE.test(spogliato)) return null;
-  if (!COMANDO_ARCHIVIO.test(spogliato)) return null;
+  if (!comandoArchivioAncorato(spogliato)) return null;
   return { condizioni };
 }
 
@@ -144,20 +180,20 @@ export function analizzaRichiestaTransizioneCondizionata(
 
 /**
  * Valutazione DETERMINISTICA delle condizioni sull'esito dell'archiviazione.
- * «Nessun problema» richiede un'archiviazione appena riuscita con testo
- * estratto e classificazione non incerta; un `gia_archiviato` senza nuova
- * analisi soddisfa solo l'appartenenza.
+ * Solo un'archiviazione APPENA riuscita conta: un `gia_archiviato` (o un
+ * esito riusato dal ledger) non ri-arma mai la transizione condizionata —
+ * un messaggio duplicato non deve produrre un secondo avanzamento
+ * (revisione indipendente, rilievo I1). «Nessun problema» richiede testo
+ * estratto e classificazione non incerta.
  */
 export function condizioniTransizioneSoddisfatte(
   condizioni: CondizioniArchiviazione,
   esito: EsitoAzione<any>
 ): boolean {
   const archiviato =
-    esito.strumento === NOME_TOOL &&
-    (esito.stato === "archiviato" || esito.stato === "gia_archiviato");
-  if (condizioni.appartenenza && !archiviato) return false;
+    esito.strumento === NOME_TOOL && esito.stato === "archiviato";
+  if (!archiviato) return false;
   if (condizioni.nessunProblema) {
-    if (esito.stato !== "archiviato") return false;
     const dati = esito.dati as
       | {
           analisi?: { parserStato?: string };
@@ -170,7 +206,7 @@ export function condizioniTransizioneSoddisfatte(
       return false;
     }
   }
-  return archiviato;
+  return true;
 }
 
 // ————— Tool R1 ————————————————————————————————————————————————————————
@@ -490,6 +526,26 @@ export function creaStrumentoArchivioAllegato(
         testo:
           analisi.esito === "estratto" ? analisi.pagine.join("\n") : null,
       });
+
+      // La condizione esplicita «se non trovi problemi» vincola PRIMA di
+      // tutto l'archiviazione stessa: un documento senza testo estraibile o
+      // con classificazione incerta È un problema, quindi nessuna scrittura
+      // (revisione indipendente, rilievo 1).
+      const autorizzazione = contesto.autorizzazioneArchiviazione;
+      if (autorizzazione?.condizioni.nessunProblema) {
+        if (analisi.esito !== "estratto") {
+          return nonEseguito(
+            deps.now,
+            "Hai chiesto di archiviare solo senza problemi, ma il contenuto non è leggibile in questa fase (nessun testo estraibile): nessun documento salvato."
+          );
+        }
+        if (classificazione.confidenza === "bassa") {
+          return nonEseguito(
+            deps.now,
+            "Hai chiesto di archiviare solo senza problemi, ma la classificazione del documento è incerta: nessun documento salvato. Verifica il tipo e archivia dal modulo Messaggi."
+          );
+        }
+      }
 
       let documento: Documento;
       try {

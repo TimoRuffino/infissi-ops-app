@@ -149,6 +149,8 @@ export type EsitoAzione<T = unknown> = {
     propostaId: number;
     etichetta: string;
     effetto: string | null;
+    /** Hash dell'anteprima mostrata: la UI lo rimanda col click (T5). */
+    hashAnteprima?: string;
   } | null;
   avvertenze: string[];
   assunzioni: string[];

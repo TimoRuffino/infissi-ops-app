@@ -165,6 +165,96 @@ describe("feedback e accettazione", () => {
     expect(JSON.stringify(statoInterruttori())).toBe(flagPrima);
   });
 
+  it("a cooldown scaduto e pattern cambiato la proposta scartata risorge pulita", async () => {
+    await alimentaPatternFornitore();
+    const [proposta] = (
+      await derivaMiglioramenti({ sedeId: SEDE, now: NOW })
+    ).proposte;
+    await registraFeedbackMiglioramento({
+      sedeId: SEDE,
+      id: proposta.id,
+      feedback: "gia_risolto",
+      utenteId: 9,
+      now: NOW,
+    });
+    // DOPO il cooldown il pattern riesplode con evidenze fresche e misura
+    // diversa (una commessa in più).
+    const dopoCooldown = new Date(
+      NOW.getTime() + COOLDOWN_FEEDBACK_MS + 60_000
+    );
+    for (let i = 0; i < CAMPIONE_MINIMO_COMMESSE + 1; i += 1) {
+      await osservazioni.upsert(
+        osservazione({ commessaId: 300 + i, fingerprint: "fp-nuovo" }),
+        dopoCooldown
+      );
+    }
+    const rigenerata = await derivaMiglioramenti({
+      sedeId: SEDE,
+      now: dopoCooldown,
+    });
+    expect(rigenerata.proposte).toHaveLength(1);
+    expect(rigenerata.proposte[0].stato).toBe("proposta");
+    expect(rigenerata.proposte[0].feedback).toBeNull();
+    expect(rigenerata.proposte[0].id).toBe(proposta.id);
+  });
+
+  it("il feedback non degrada mai una proposta accettata", async () => {
+    await alimentaPatternFornitore();
+    const [proposta] = (
+      await derivaMiglioramenti({ sedeId: SEDE, now: NOW })
+    ).proposte;
+    await accettaMiglioramento({
+      sedeId: SEDE,
+      id: proposta.id,
+      utenteId: 9,
+      now: NOW,
+    });
+    const dopoFeedback = await registraFeedbackMiglioramento({
+      sedeId: SEDE,
+      id: proposta.id,
+      feedback: "troppo_rumore",
+      utenteId: 9,
+      now: NOW,
+    });
+    expect(dopoFeedback.stato).toBe("accettata");
+    expect(dopoFeedback.decisione).not.toBeNull();
+    // E la ri-derivazione non la sovrascrive (decisione concorrente).
+    const dopo = await derivaMiglioramenti({
+      sedeId: SEDE,
+      now: new Date(NOW.getTime() + 60_000),
+    });
+    expect(dopo.proposte).toEqual([]);
+    expect((await miglioramenti.byId(SEDE, proposta.id))!.stato).toBe(
+      "accettata"
+    );
+  });
+
+  it("un pattern con misura nuova aggiorna evidenze e problema conservando il peso del feedback", async () => {
+    await alimentaPatternFornitore();
+    const [proposta] = (
+      await derivaMiglioramenti({ sedeId: SEDE, now: NOW })
+    ).proposte;
+    await registraFeedbackMiglioramento({
+      sedeId: SEDE,
+      id: proposta.id,
+      feedback: "utile",
+      utenteId: 9,
+      now: NOW,
+    });
+    await osservazioni.upsert(osservazione({ commessaId: 398 }), NOW);
+    const aggiornata = (
+      await derivaMiglioramenti({
+        sedeId: SEDE,
+        now: new Date(NOW.getTime() + 60_000),
+      })
+    ).proposte[0];
+    expect(aggiornata.id).toBe(proposta.id);
+    expect(aggiornata.problema).not.toBe(proposta.problema);
+    expect(aggiornata.feedback).toBe("utile");
+    // rankingBase cresce col campione e il +15 di «utile» sopravvive.
+    expect(aggiornata.ranking).toBeGreaterThan(proposta.ranking);
+  });
+
   it("accetta registra la decisione e non esegue nulla", async () => {
     await alimentaPatternFornitore();
     const [proposta] = (

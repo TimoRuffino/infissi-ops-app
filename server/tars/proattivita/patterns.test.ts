@@ -120,6 +120,15 @@ describe("calcolaPatternAzienda", () => {
     expect(JSON.stringify(pattern)).not.toMatch(/€/);
   });
 
+  it("le osservazioni fuori finestra non contano nel campione", async () => {
+    const vecchia = new Date(NOW.getTime() - 60 * 86_400_000);
+    for (let i = 0; i < CAMPIONE_MINIMO_COMMESSE; i += 1) {
+      await repository.upsert(osservazione({ commessaId: 500 + i }), vecchia);
+    }
+    const esito = await calcolaPatternAzienda({ sedeId: SEDE, now: NOW });
+    expect(esito.pattern).toEqual([]);
+  });
+
   it("misura la permanenza per fase dal registro transizioni reale, con baseline complessiva", async () => {
     // Tre commesse: ingresso in misure_esecutive e uscita dopo N giorni.
     let id = 1;
@@ -156,6 +165,60 @@ describe("calcolaPatternAzienda", () => {
     expect(
       permanenza!.evidenze.every(e => e.tipo === "transizione")
     ).toBe(true);
+  });
+
+  it("le transizioni di compensazione non producono permanenze fantasma", async () => {
+    let id = 500;
+    // Tre commesse regolari con 20 giorni in misure_esecutive...
+    for (const commessa of [51, 52, 53]) {
+      transizione({
+        id: id++,
+        commessaId: commessa,
+        da: "preventivo",
+        a: "misure_esecutive",
+        at: "2026-08-01T08:00:00.000Z",
+      });
+      transizione({
+        id: id++,
+        commessaId: commessa,
+        da: "misure_esecutive",
+        a: "aggiornamento_contratto",
+        at: "2026-08-21T08:00:00.000Z",
+      });
+    }
+    // ...e una coppia avanzamento+undo di 10 minuti che NON deve deflazionare.
+    const avanzamentoId = id++;
+    storeTransizioniCommessa.items.push({
+      id: avanzamentoId,
+      sedeId: SEDE,
+      commessaId: 54,
+      origine: "ui",
+      attoreUtenteId: 1,
+      prima: { stato: "preventivo", versione: "v" },
+      dopo: { stato: "misure_esecutive", versione: "v" },
+      bypassGateDocumentale: false,
+      compensaTransizioneId: null,
+      compensataDaId: id,
+      createdAt: new Date("2026-08-25T08:00:00.000Z"),
+    } as any);
+    storeTransizioniCommessa.items.push({
+      id: id++,
+      sedeId: SEDE,
+      commessaId: 54,
+      origine: "undo",
+      attoreUtenteId: 1,
+      prima: { stato: "misure_esecutive", versione: "v" },
+      dopo: { stato: "preventivo", versione: "v" },
+      bypassGateDocumentale: false,
+      compensaTransizioneId: avanzamentoId,
+      compensataDaId: null,
+      createdAt: new Date("2026-08-25T08:10:00.000Z"),
+    } as any);
+    const esito = await calcolaPatternAzienda({ sedeId: SEDE, now: NOW });
+    const permanenza = esito.pattern.find(p => p.chiave === "permanenza_fase");
+    expect(permanenza).toBeDefined();
+    expect(permanenza!.campione.commesse).toBe(3);
+    expect(permanenza!.misura).toContain("20.0 giorni");
   });
 
   it("conta i bypass del gate solo nella sede e nel periodo", async () => {

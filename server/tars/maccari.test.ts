@@ -415,6 +415,81 @@ describe("regressione Maccari — catena documentale", () => {
     ).toEqual([]);
   });
 
+  it("la transizione tentata PRIMA dell'archiviazione non ha autorità", async () => {
+    const SEDE = 96107;
+    const { commessa, comunicazione } = await scenario({ sedeId: SEDE });
+    const provider = creaProviderFinto((_richiesta, passo) => {
+      switch (passo) {
+        case 0:
+          // Ordine invertito: il modello prova a transire subito.
+          return chiamataTool("transizione_adiacente_commessa", {
+            commessaId: commessa.id,
+            nuovoStato: "misure_esecutive",
+          });
+        case 1:
+          return chiamataTool("leggi_allegato_comunicazione", {
+            commessaId: commessa.id,
+            comunicazioneId: comunicazione.id,
+            allegatoIndex: 0,
+          });
+        case 2:
+          return chiamataTool("archivia_allegato_comunicazione", {
+            commessaId: commessa.id,
+            comunicazioneId: comunicazione.id,
+            allegatoIndex: 0,
+          });
+        default:
+          return rispostaTesto("Fatto quanto possibile.");
+      }
+    });
+    const esito = await eseguiRun({
+      contesto: await contestoRun(SEDE),
+      provider,
+      messaggio: MESSAGGIO_MACCARI,
+    });
+    const transizione = esito.azioni.find(
+      a => a.strumento === "transizione_adiacente_commessa"
+    );
+    expect(transizione?.stato).toBe("non_eseguito");
+    expect(transizione?.motivo).toMatch(/esplicita|autorizzat/i);
+    expect((await direzione(SEDE).commesse.byId(commessa.id)).stato).toBe(
+      "preventivo"
+    );
+    // L'archiviazione successiva resta valida.
+    expect(
+      esito.azioni.find(a => a.strumento === "archivia_allegato_comunicazione")
+        ?.stato
+    ).toBe("archiviato");
+  });
+
+  it("con la condizione «nessun problema» un documento non leggibile blocca archiviazione E transizione", async () => {
+    const SEDE = 96108;
+    // Un PDF senza testo estraibile (scansione finta): il parser nativo
+    // non estrae nulla.
+    const { commessa, comunicazione } = await scenario({
+      sedeId: SEDE,
+      bytes: Buffer.from("%PDF-1.4\n% scansione senza testo\n%%EOF", "ascii"),
+    });
+    const esito = await eseguiRun({
+      contesto: await contestoRun(SEDE),
+      provider: copioneCatena(commessa.id, comunicazione.id),
+      messaggio: MESSAGGIO_MACCARI,
+    });
+    const archivio = esito.azioni.find(
+      a => a.strumento === "archivia_allegato_comunicazione"
+    );
+    expect(archivio?.stato).toBe("non_eseguito");
+    expect(archivio?.motivo).toMatch(/problem|leggibile/i);
+    expect(findDocumentoComunicazione(SEDE, comunicazione.id, 0)).toBeNull();
+    const transizione = esito.azioni.find(
+      a => a.strumento === "transizione_adiacente_commessa"
+    );
+    expect(transizione?.stato).toBe("non_eseguito");
+    expect((await direzione(SEDE).commesse.byId(commessa.id)).stato).toBe(
+      "preventivo"
+    );
+  });
+
   it("il promemoria esplicito nasce una sola volta anche con la chiamata ripetuta", async () => {
     const SEDE = 96106;
     await scenario({ sedeId: SEDE });

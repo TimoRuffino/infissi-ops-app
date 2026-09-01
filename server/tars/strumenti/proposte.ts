@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { analisiPerOrdine } from "../../documenti/analisi";
 import { tarsAttivo } from "../../platform/interruttori";
-import { definizioneAzione } from "../../proposte/gateway";
+import { definizioneAzione, hashAnteprimaProposta } from "../../proposte/gateway";
 import { generaDaOrdineEDocumento } from "../../proposte/generazione";
 import { getOrdineFornitoreInSede } from "../../routers/fornitori";
 import type { EsitoAzione, EvidenzaTars, StrumentoTars } from "./tipi";
@@ -139,11 +139,13 @@ const proponiDataConsegna: StrumentoTars = {
         scadeIl: proposta.scadeIl.toISOString(),
       },
       // L'unica conferma umana: la UI mostra il bottone, il modello no.
+      // L'hash lega il click all'anteprima effettivamente mostrata (T5).
       conferma: {
         via: "proposte.approvaEApplica",
         propostaId: proposta.id,
         etichetta: def.etichetta,
         effetto,
+        hashAnteprima: hashAnteprimaProposta(proposta),
       },
       avvertenze: proposta.motivazione.includes("OCR a bassa confidenza")
         ? ["Dato da OCR a bassa confidenza: verifica il documento prima di approvare."]

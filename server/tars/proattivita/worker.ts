@@ -48,7 +48,14 @@ export async function osservaDaReconcile(input: {
     autoRisolte: 0,
     scartatePerMaterialita: 0,
   };
-  const chiaviAttive = new Set<string>();
+  // TUTTI i casi vivi della sede (anche sotto materialità): un caso ancora
+  // esistente non auto-risolve la sua osservazione; il detector corrente
+  // permette di chiudere le righe di detector dismessi (revisione R2#4).
+  const casiVivi = new Map<string, string>();
+  for (const draft of input.drafts) {
+    if (draft.sedeId !== input.sedeId) continue;
+    casiVivi.set(draft.canonicalKey, draft.nextAction.sourceKind);
+  }
   for (const draft of input.drafts) {
     if (draft.sedeId !== input.sedeId) continue;
     const nuova = derivaOsservazione(draft);
@@ -56,7 +63,6 @@ export async function osservaDaReconcile(input: {
       esito.scartatePerMaterialita += 1;
       continue;
     }
-    chiaviAttive.add(nuova.casoKey);
     const upsert = await repository.upsert(nuova, input.now);
     switch (upsert.esito) {
       case "aperta":
@@ -74,7 +80,7 @@ export async function osservaDaReconcile(input: {
   }
   esito.autoRisolte = await repository.risolviAssenti({
     sedeId: input.sedeId,
-    chiaviAttive,
+    casiVivi,
     now: input.now,
   });
   if (esito.aperte || esito.aggiornate || esito.riaperte || esito.autoRisolte) {

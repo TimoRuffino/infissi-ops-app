@@ -562,6 +562,7 @@ function costruisciCasi(): Array<{
       descrizione:
         "Reconcile senza draft: l'osservatore non inventa osservazioni né rumore.",
       async esegui() {
+        const flagPrima = process.env.FLAG_TARS_PROACTIVE;
         process.env.FLAG_TARS_PROACTIVE = "on";
         const repository = creaRepositoryOsservazioniMemoriaPerTest();
         impostaRepositoryOsservazioniPerTest(repository);
@@ -572,17 +573,23 @@ function costruisciCasi(): Array<{
             now: new Date(),
             repository,
           });
-          const rumore =
-            (esito?.aperte ?? 0) +
-            (esito?.aggiornate ?? 0) +
-            (esito?.riaperte ?? 0);
+          // Un osservatore spento/rotto NON è un successo (revisione M1).
+          if (!esito) {
+            return {
+              ok: false,
+              misure: { rumoreOsservatoreSenzaSegnali: 1 },
+              note: ["osservatore non attivo: il caso non prova nulla"],
+            };
+          }
+          const rumore = esito.aperte + esito.aggiornate + esito.riaperte;
           return {
             ok: rumore === 0,
             misure: { rumoreOsservatoreSenzaSegnali: rumore },
           };
         } finally {
           impostaRepositoryOsservazioniPerTest(null);
-          delete process.env.FLAG_TARS_PROACTIVE;
+          if (flagPrima == null) delete process.env.FLAG_TARS_PROACTIVE;
+          else process.env.FLAG_TARS_PROACTIVE = flagPrima;
         }
       },
     },
@@ -592,16 +599,17 @@ function costruisciCasi(): Array<{
       descrizione:
         "Sopra il campione minimo il pattern esiste; sotto è soppresso e dichiarato, mai inventato.",
       async esegui() {
+        const flagPrima = process.env.FLAG_TARS_PROACTIVE;
         process.env.FLAG_TARS_PROACTIVE = "on";
         const repository = creaRepositoryOsservazioniMemoriaPerTest();
         impostaRepositoryOsservazioniPerTest(repository);
-        try {
+        const semina = async (sedeId: number, commesse: number) => {
           const now = new Date();
-          for (let i = 0; i < CAMPIONE_MINIMO_COMMESSE; i += 1) {
+          for (let i = 0; i < commesse; i += 1) {
             await repository.upsert(
               {
-                sedeId: SEDE,
-                casoKey: `eval-caso-${i}`,
+                sedeId,
+                casoKey: `eval-caso-${sedeId}-${i}`,
                 detector: "consegna_fornitore",
                 detectorVersione: "1.0.0",
                 fingerprint: "fp",
@@ -617,6 +625,13 @@ function costruisciCasi(): Array<{
               now
             );
           }
+          return now;
+        };
+        try {
+          const now = await semina(SEDE, CAMPIONE_MINIMO_COMMESSE);
+          // La sede «sotto soglia» ha osservazioni REALI (minimo − 1): un
+          // falso verde da sede vuota non prova nulla (revisione I5).
+          await semina(ALTRA_SEDE, CAMPIONE_MINIMO_COMMESSE - 1);
           const sopra = await calcolaPatternAzienda({
             sedeId: SEDE,
             now,
@@ -630,14 +645,19 @@ function costruisciCasi(): Array<{
             now,
             repository,
           });
-          const falsoAssente = sotto.pattern.length === 0;
+          const falsoAssente =
+            sotto.pattern.length === 0 &&
+            sotto.soppressi.some(
+              voce => voce.chiave === "ritardi_fornitore"
+            );
           return {
             ok: vero && falsoAssente,
-            misure: { patternInventati: falsoAssente ? 0 : sotto.pattern.length },
+            misure: { patternInventati: falsoAssente ? 0 : Math.max(1, sotto.pattern.length) },
           };
         } finally {
           impostaRepositoryOsservazioniPerTest(null);
-          delete process.env.FLAG_TARS_PROACTIVE;
+          if (flagPrima == null) delete process.env.FLAG_TARS_PROACTIVE;
+          else process.env.FLAG_TARS_PROACTIVE = flagPrima;
         }
       },
     },
@@ -647,6 +667,7 @@ function costruisciCasi(): Array<{
       descrizione:
         "Le proposte di miglioramento esistono solo con un pattern sopra soglia alle spalle.",
       async esegui() {
+        const flagPrima = process.env.FLAG_TARS_PROACTIVE;
         process.env.FLAG_TARS_PROACTIVE = "on";
         const osservazioniRepo = creaRepositoryOsservazioniMemoriaPerTest();
         impostaRepositoryOsservazioniPerTest(osservazioniRepo);
@@ -686,18 +707,22 @@ function costruisciCasi(): Array<{
             repository: miglioramentiRepo,
           });
           const infondate = senzaPattern.proposte.length;
+          const senzaEvidenze = conPattern.proposte.filter(
+            proposta => proposta.evidenze.length === 0
+          ).length;
           const fondata = conPattern.proposte.some(
             proposta =>
               proposta.chiavePattern === "ritardi_fornitore" &&
               proposta.evidenze.length > 0
           );
           return {
-            ok: infondate === 0 && fondata,
-            misure: { proposteSenzaEvidenza: infondate },
+            ok: infondate === 0 && senzaEvidenze === 0 && fondata,
+            misure: { proposteSenzaEvidenza: infondate + senzaEvidenze },
           };
         } finally {
           impostaRepositoryOsservazioniPerTest(null);
-          delete process.env.FLAG_TARS_PROACTIVE;
+          if (flagPrima == null) delete process.env.FLAG_TARS_PROACTIVE;
+          else process.env.FLAG_TARS_PROACTIVE = flagPrima;
         }
       },
     },
@@ -707,6 +732,8 @@ function costruisciCasi(): Array<{
       descrizione:
         "Una classe di background senza budget dedicato non chiama e non scrive nulla; il globale resta l'hard ceiling.",
       async esegui() {
+        const envPrima = process.env.TARS_BUDGET_PATTERN_AZIENDA_USD;
+        delete process.env.TARS_BUDGET_PATTERN_AZIENDA_USD;
         const ledger = creaLedgerMemoriaPerTest();
         const configurazione: ConfigurazioneBudget = {
           limiti: {
@@ -750,6 +777,9 @@ function costruisciCasi(): Array<{
           bloccata = errore?.name === "ErroreBudget" && errore?.limite === "classe";
         }
         const chiamate = ledger.righe().length;
+        if (envPrima != null) {
+          process.env.TARS_BUDGET_PATTERN_AZIENDA_USD = envPrima;
+        }
         return {
           ok: bloccata && chiamate === 0,
           misure: { chiamateBackgroundSenzaBudget: chiamate },

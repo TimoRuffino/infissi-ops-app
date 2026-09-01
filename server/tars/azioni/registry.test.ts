@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe("registro centrale delle azioni Tars", () => {
-  it("registra una volta sola tutti i 25 tool correnti con un descrittore completo", () => {
+  it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
     expect(REGISTRO_AZIONI).toHaveLength(28);
     expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(28);
 
@@ -311,6 +311,20 @@ describe("policy dinamica del catalogo", () => {
     expect(
       catalogoAzioniPerContesto({ ...contesto(), ...selettori })
     ).toEqual([]);
+  });
+
+  it("i tool direzione-only non esistono nel catalogo di chi non è direzione", () => {
+    const nonDirezione = catalogoAzioniPerContesto({
+      ...contesto(),
+      ruoli: ["commerciale"],
+      direzione: false,
+    }).map(a => a.nome);
+    expect(nonDirezione).not.toContain("panorama_azienda");
+    expect(nonDirezione).not.toContain("leggi_miglioramenti");
+    expect(nonDirezione).not.toContain("leggi_analisi_ordine");
+    const direzione = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
+    expect(direzione).toContain("panorama_azienda");
+    expect(direzione).toContain("leggi_miglioramenti");
   });
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {

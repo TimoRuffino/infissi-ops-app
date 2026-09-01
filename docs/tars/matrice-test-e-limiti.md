@@ -127,7 +127,7 @@ Nuove superfici e dove mordono i loro test:
 | Area | Mutazione che morde | Test |
 |---|---|---|
 | Archiviazione allegati R1 (T4) | autorità senza comando esplicito; fonte cambiata tra lettura ed effetto; riassegnazione cross-commessa; >10 MB | `server/tars/strumenti/archivioAllegati.test.ts`, `server/tars/maccari.test.ts` |
-| Transizione condizionale Maccari | condizione fuori dal set chiuso; autorità senza verifica dell'esito | `maccari.test.ts`, eval `documentale-autorita-condizionale-maccari` |
+| Transizione condizionale Maccari | condizione fuori dal set chiuso; autorità senza verifica dell'esito (transizione tentata prima dell'archivio; condizione «nessun problema» insoddisfatta); ri-arming da `gia_archiviato` | `maccari.test.ts` (scenari d'ordine), `archivioAllegati.test.ts` (condizioni/gia_archiviato), eval `documentale-autorita-condizionale-maccari` (classificatori) |
 | Frontiera unica R2/R3 (T5) | hash anteprima diverso; doppio click; tool di approvazione nel registro; nome dichiarato indisponibile registrato | `server/tars/azioni/approvazioni.test.ts` |
 | Osservatore (T6) | dedup rotto; riapertura in cooldown; sede mischiata; importi nelle sintesi; flag spento che scrive | `server/tars/proattivita/worker.test.ts` |
 | Pattern (T7) | campione sotto soglia non soppresso; sede mischiata; periodo ignorato | `server/tars/proattivita/patterns.test.ts` |
@@ -140,3 +140,12 @@ Limite dichiarato: l'eval resta SINTETICO (provider finto). La
 resistenza del modello reale a injection e la tool selection accuracy si
 misurano solo coi casi OpenAI dopo il gate della direzione
 (`docs/tars/piano-eval-reali.md`).
+
+Nota di revisione (01/09): la serializzazione per `sourceRef` del servizio
+canonico d'archivio è per-processo; con più istanze la garanzia
+anti-doppio-documento del percorso Tars resta sul ledger R1 (PostgreSQL),
+mentre la concorrenza manuale-vs-Tars sullo stesso allegato è protetta solo
+entro l'istanza. Il progetto assume oggi 1 replica (checklist read-only).
+Le reservation R1 orfane scadono dopo `TARS_R1_RESERVATION_TTL_MS`
+(default 20 minuti) e riaprono una generazione SOLO per azioni con
+idempotenza di dominio (`executions.test.ts`).

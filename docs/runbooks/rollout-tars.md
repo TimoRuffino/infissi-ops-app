@@ -26,6 +26,13 @@ calcola e persiste, non espone) oppure `active` (espone
 `tars.osservazioni` filtrando sede e capability a ogni richiesta).
 Senza PostgreSQL l'osservatore non scrive: fail-closed.
 
+Assunzione di replica: la serializzazione in-process del servizio
+canonico d'archivio (sourceRef) e lo scheduler promemoria assumono UNA
+istanza del server; prima di scalare a più repliche serve la decisione
+registrata (lease condivisi). Le reservation R1 orfane si sbloccano da
+sole dopo `TARS_R1_RESERVATION_TTL_MS` (default 20 min, solo azioni con
+idempotenza di dominio).
+
 Budget per CLASSE di costo (T9): `TARS_BUDGET_<CLASSE>_USD` con classi
 `DOCUMENT_INTELLIGENCE`, `PROACTIVE_COMMESSA`, `PATTERN_AZIENDA`,
 `MIGLIORAMENTO_CRM`, `EVAL`. Default 0: le classi di background sono

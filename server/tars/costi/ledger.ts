@@ -332,7 +332,8 @@ export function creaLedgerPostgres(): LedgerCosti {
               ELSE costo_prenotato_nano END)
               FILTER (WHERE giorno_locale = ${giorno}
                 AND classe = ${input.classe ?? "interactive"}), 0) AS classe
-          FROM tars_costi`;
+          FROM tars_costi
+          WHERE mese_locale = ${mese} OR run_id = ${input.runId}`;
         const consumo: ConsumoCorrente = {
           runNano: Number(somme?.run ?? 0),
           giornoNano: Number(somme?.giorno ?? 0),
