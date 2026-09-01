@@ -381,8 +381,11 @@ async function aggiornaConversazioneGestione(input: {
       SET titolo = COALESCE(${input.titolo ?? null}, titolo),
           fissata = CASE
             WHEN ${input.archiviata === true} THEN false
-            WHEN ${input.fissata ?? null} IS NULL THEN fissata
-            ELSE ${input.fissata ?? null}
+            -- Cast esplicito: un parametro null in «$n IS NULL» non ha tipo
+            -- inferibile e Postgres rifiuta con 42P18 (visto in produzione:
+            -- rinomina/fissa/archivia conversazione fallivano sempre su PG).
+            WHEN ${input.fissata ?? null}::boolean IS NULL THEN fissata
+            ELSE ${input.fissata ?? null}::boolean
           END,
           archiviata_at = CASE
             WHEN ${input.archiviata === true} THEN now()
