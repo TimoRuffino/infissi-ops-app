@@ -27,6 +27,8 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | Tool e dominio | Servizio canonico / confine | Livello corrente L | R target/gap | Capability e altri vincoli | Flag richiesti | Test trovato / stato reale e gap |
 | --- | --- | --- | --- | --- | --- | --- |
 | `cerca_commesse` — commesse | `routers/commesse` (lettura sede-scoped) | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, senza importi non autorizzati. |
+| `cerca_clienti` — clienti | `routers/clienti` (lettura sede-scoped) | L0 | R0 | `cliente.read` | T + RT | `strumenti/clienti.test.ts`; archiviati esclusi salvo richiesta esplicita, senza importi. |
+| `leggi_cliente` — scheda cliente | `routers/clienti` + `routers/commesse` | L0 | R0 | `cliente.read`; economia aggregata sagomata da `pagamento.read`/`economia.read` | T + RT | `strumenti/clienti.test.ts`; commesse archiviate solo come conteggio, cross-sede NOT_FOUND. |
 | `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
 | `verifica_gate_commessa` — gate | `preventiviContratti.statoHasRequiredDoc` | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, nessuna transizione. |
 | `verifica_transizione_commessa` — preview stato | `commesse/transizioni.verificaTransizioneCommessa` | L0 | R0 | `commessa.read`; sede verificata | T + RT | `azioni/commesse.test.ts`; stato/versione, adiacenza e gate senza effetti. |

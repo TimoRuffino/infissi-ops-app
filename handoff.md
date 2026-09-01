@@ -1870,6 +1870,14 @@ completa: `FLAG_TARS_PATTERNS`, `FLAG_TARS_IMPROVEMENTS`,
 `TARS_OBSERVER_MODE=active`. Unico tetto residuo: l'hard limit del
 progetto OpenAI nel pannello della direzione (fuori dal codice).
 
+Accesso ampliato (stessa decisione): nuovi strumenti L0 `cerca_clienti`
+e `leggi_cliente` (`server/tars/strumenti/clienti.ts`, registro 1.9.0,
+30 azioni) — anagrafica, contatti, referenti, pratiche e commesse
+attive del cliente; archiviati/archiviate fuori dai quadri operativi
+salvo richiesta esplicita, economia aggregata solo con
+`pagamento.read`/`economia.read`, cross-sede NOT_FOUND. Matrice
+aggiornata in `docs/tars/matrice-azioni-tars.md`.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

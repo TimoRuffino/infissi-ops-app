@@ -16,6 +16,7 @@ const ENV_ORIGINALE = { ...process.env };
 
 function contesto(
   capability: readonly Capability[] = [
+    "cliente.read",
     "commessa.read",
     "commessa.update_operational",
     "commessa.change_state",
@@ -54,8 +55,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(28);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(28);
+    expect(REGISTRO_AZIONI).toHaveLength(30);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(30);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -113,7 +114,9 @@ describe("registro centrale delle azioni Tars", () => {
       analizza_conferma_ordine: "R0",
       annulla_promemoria: "R1",
       archivia_allegato_comunicazione: "R1",
+      cerca_clienti: "R0",
       cerca_commesse: "R0",
+      leggi_cliente: "R0",
       completa_promemoria: "R1",
       crea_promemoria: "R1",
       dimentica: "R1",
@@ -195,7 +198,9 @@ describe("registro centrale delle azioni Tars", () => {
       analizza_conferma_ordine: "entita",
       annulla_promemoria: "personale",
       archivia_allegato_comunicazione: "entita",
+      cerca_clienti: "sede",
       cerca_commesse: "sede",
+      leggi_cliente: "entita",
       completa_promemoria: "personale",
       crea_promemoria: "personale",
       dimentica: "sede",
@@ -329,7 +334,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(28);
+    expect(completo).toHaveLength(30);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
@@ -338,7 +343,10 @@ describe("policy dinamica del catalogo", () => {
       superficie: "post-vendita",
       intento: "azione_esplicita",
     });
-    expect(fallback.map(a => a.nome)).toEqual(["cerca_commesse"]);
+    expect(fallback.map(a => a.nome)).toEqual([
+      "cerca_clienti",
+      "cerca_commesse",
+    ]);
     expect(fallback.every(a => a.rischio === "R0")).toBe(true);
   });
 

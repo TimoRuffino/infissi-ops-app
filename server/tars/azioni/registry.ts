@@ -9,6 +9,7 @@ import { STRUMENTI_COMUNICAZIONI_R0 } from "../strumenti/allegati";
 import { STRUMENTI_ARCHIVIO_COMUNICAZIONI } from "../strumenti/archivioAllegati";
 import { findDocumentoComunicazione } from "../../routers/preventiviContratti";
 import { STRUMENTI_DOCUMENTI } from "../strumenti/documenti";
+import { STRUMENTI_CLIENTI } from "../strumenti/clienti";
 import { STRUMENTI_L0 } from "../strumenti/letture";
 import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
@@ -26,7 +27,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.8.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.9.0";
 
 const schemaLettura = z
   .object({
@@ -157,6 +158,20 @@ const r1 = (
 
 const METADATI: Record<string, Metadati> = {
   cerca_commesse: lettura("sede", ["generale", "commessa"], ["commessa"], undefined, true),
+  // Clienti (01/09/2026): entità «commessa» inclusa perché dal fascicolo
+  // di una commessa si chiede legittimamente del suo cliente.
+  cerca_clienti: lettura(
+    "sede",
+    ["generale", "commessa", "comunicazioni", "economia"],
+    ["cliente", "commessa"],
+    undefined,
+    true
+  ),
+  leggi_cliente: lettura(
+    "entita",
+    ["generale", "commessa", "comunicazioni", "economia"],
+    ["cliente", "commessa"]
+  ),
   leggi_commessa: lettura("entita", ["commessa"], ["commessa"]),
   verifica_gate_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa"]),
   verifica_transizione_commessa: lettura(
@@ -361,6 +376,7 @@ const METADATI: Record<string, Metadati> = {
 
 const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_L0,
+  ...STRUMENTI_CLIENTI,
   ...STRUMENTI_COMUNICAZIONI_R0,
   ...STRUMENTI_ARCHIVIO_COMUNICAZIONI,
   ...STRUMENTI_COMMESSE,
