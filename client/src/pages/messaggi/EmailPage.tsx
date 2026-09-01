@@ -19,14 +19,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EMAIL_COMPACT_QUERY, emailPaneVisibility } from "@/lib/emailLayout";
+import {
+  EMAIL_COMPACT_QUERY,
+  emailActiveFilterCount,
+  emailFilterLabel,
+  emailPaneVisibility,
+} from "@/lib/emailLayout";
 import {
   EMAIL_VIEWS,
   emailBulkExclusionCopy,
@@ -48,6 +57,7 @@ import {
   RefreshCw,
   Settings2,
   ShieldBan,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   UserRound,
@@ -159,6 +169,7 @@ export default function EmailPage() {
   const [focusMode, setFocusMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [mailboxesOpen, setMailboxesOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [bulkExclusion, setBulkExclusion] = useState<
     "spam" | "offerta_marketing" | null
   >(null);
@@ -307,6 +318,7 @@ export default function EmailPage() {
     selectedId,
     focus: focusMode,
   });
+  const headerVisible = showList || !compact;
   const selectionRemoved =
     selectedId != null &&
     !rows.isLoading &&
@@ -354,183 +366,278 @@ export default function EmailPage() {
       </p>
     );
 
-  // Gli stessi controlli servono nel rail (>=1280px) e nella barra compatta
-  // sotto la soglia: una sola definizione, due contenitori.
-  const filterControls = (
-    <>
-      <Select
-        value={mailboxId == null ? "tutte" : String(mailboxId)}
-        onValueChange={value => {
-          setMailboxId(value === "tutte" ? null : Number(value));
-          resetPage();
-        }}
+  // I filtri non occupano più una colonna: stanno dietro un unico controllo
+  // accanto alla ricerca, che dichiara sempre quanti ne sono attivi.
+  const activeFilters = emailActiveFilterCount({
+    mailboxId,
+    assigneeId,
+    category,
+    categoryLocked: view === "lead",
+  });
+  const clearFilters = () => {
+    setMailboxId(null);
+    setAssigneeId(null);
+    setCategory(null);
+    resetPage();
+  };
+  const filtersControl = (
+    <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-11 min-w-11 shrink-0"
+          aria-label={emailFilterLabel(activeFilters)}
+          title={emailFilterLabel(activeFilters)}
+        >
+          <SlidersHorizontal className="size-4" />
+          <span className="hidden min-[380px]:inline">Filtri</span>
+          {activeFilters > 0 && (
+            <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold tabular-nums text-primary-foreground">
+              {activeFilters}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[min(21rem,calc(100vw-1.5rem))] space-y-3 p-3"
       >
-        <SelectTrigger className="min-h-11 w-full" aria-label="Casella email">
-          <SelectValue placeholder="Casella" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="tutte">Tutte le caselle</SelectItem>
-          {(mailboxOptions.data ?? []).map(mailbox => (
-            <SelectItem key={mailbox.id} value={String(mailbox.id)}>
-              {mailbox.nome}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={assigneeId == null ? "tutti" : String(assigneeId)}
-        onValueChange={value => {
-          setAssigneeId(value === "tutti" ? null : Number(value));
-          resetPage();
-        }}
-      >
-        <SelectTrigger className="min-h-11 w-full" aria-label="Assegnatario">
-          <UserRound className="size-3.5" />
-          <SelectValue placeholder="Assegnatario" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
-          {assigneeOptions.map(person => (
-            <SelectItem key={person.id} value={String(person.id)}>
-              {personName(person, `Utente #${person.id}`)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={category ?? "tutte"}
-        onValueChange={value => {
-          setCategory(value === "tutte" ? null : (value as EmailCategory));
-          resetPage();
-        }}
-        disabled={view === "lead"}
-      >
-        <SelectTrigger className="min-h-11 w-full" aria-label="Categoria">
-          <SelectValue placeholder="Categoria" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="tutte">Tutte le categorie</SelectItem>
-          {EMAIL_CATEGORIES.map(item => (
-            <SelectItem key={item} value={item}>
-              {EMAIL_CATEGORY_UI[item].label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-[0.12em] text-text-3">
+            Filtri coda
+          </h2>
+          <span className="shrink-0 text-xs tabular-nums text-text-3">
+            {emailFilterLabel(activeFilters)}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="filtro-casella"
+            className="block text-xs font-semibold text-text-2"
+          >
+            Casella
+          </label>
+          <Select
+            value={mailboxId == null ? "tutte" : String(mailboxId)}
+            onValueChange={value => {
+              setMailboxId(value === "tutte" ? null : Number(value));
+              resetPage();
+            }}
+          >
+            <SelectTrigger
+              id="filtro-casella"
+              className="min-h-11 w-full"
+              aria-label="Casella email"
+            >
+              <SelectValue placeholder="Casella" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutte">Tutte le caselle</SelectItem>
+              {(mailboxOptions.data ?? []).map(mailbox => (
+                <SelectItem key={mailbox.id} value={String(mailbox.id)}>
+                  {mailbox.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="filtro-assegnatario"
+            className="block text-xs font-semibold text-text-2"
+          >
+            Assegnatario
+          </label>
+          <Select
+            value={assigneeId == null ? "tutti" : String(assigneeId)}
+            onValueChange={value => {
+              setAssigneeId(value === "tutti" ? null : Number(value));
+              resetPage();
+            }}
+          >
+            <SelectTrigger
+              id="filtro-assegnatario"
+              className="min-h-11 w-full"
+              aria-label="Assegnatario"
+            >
+              <UserRound className="size-3.5" />
+              <SelectValue placeholder="Assegnatario" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutti">Tutti gli assegnatari</SelectItem>
+              {assigneeOptions.map(person => (
+                <SelectItem key={person.id} value={String(person.id)}>
+                  {personName(person, `Utente #${person.id}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="filtro-categoria"
+            className="block text-xs font-semibold text-text-2"
+          >
+            Categoria
+          </label>
+          <Select
+            value={category ?? "tutte"}
+            onValueChange={value => {
+              setCategory(value === "tutte" ? null : (value as EmailCategory));
+              resetPage();
+            }}
+            disabled={view === "lead"}
+          >
+            <SelectTrigger
+              id="filtro-categoria"
+              className="min-h-11 w-full"
+              aria-label="Categoria"
+            >
+              <SelectValue placeholder="Categoria" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutte">Tutte le categorie</SelectItem>
+              {EMAIL_CATEGORIES.map(item => (
+                <SelectItem key={item} value={item}>
+                  {EMAIL_CATEGORY_UI[item].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {view === "lead" && (
+            <p className="text-xs leading-5 text-text-3">
+              La vista Nuovi lead impone già la categoria.
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          className="min-h-11 w-full"
+          disabled={activeFilters === 0}
+          onClick={clearFilters}
+        >
+          Azzera filtri
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
-      <PageHeader
-        variant="workbench"
-        eyebrow="Posta operativa"
-        title="Email"
-        description="Coda unica di richieste, documenti e lead in arrivo dalle caselle della sede."
-        busy={rows.isFetching}
-        metadata={
-          <>
+      {/* Sul telefono il messaggio aperto prende tutta la colonna: la testata
+          di pagina sparisce (il titolo resta nella barra della shell) e il
+          ritorno all'elenco è la freccia del lettore. Sono 130px di testo in
+          più, esattamente dove servono. */}
+      {headerVisible && (
+        <PageHeader
+          variant={compact ? "compact" : "workbench"}
+          eyebrow={compact ? undefined : "Posta operativa"}
+          title="Email"
+          description={
+            compact
+              ? undefined
+              : "Coda unica di richieste, documenti e lead in arrivo dalle caselle della sede."
+          }
+          busy={rows.isFetching}
+          metadata={
             <span className="inline-flex items-center gap-1.5">
               <Inbox className="size-3.5" aria-hidden="true" />
               {queueSummary}
             </span>
-            <span>Vista corrente: {VIEW_LABELS[view]}</span>
-          </>
-        }
-        warning={
-          warnings.length > 0 ? (
-            <div className="space-y-2">{warnings}</div>
-          ) : undefined
-        }
-        secondaryActions={
-          <>
-            {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
-              <Button
-                variant="outline"
-                className="min-h-11"
-                disabled={markAllRead.isPending}
-                onClick={() => markAllRead.mutate()}
-              >
-                <CheckCheck className="size-4" />
-                Tutte viste
-              </Button>
-            )}
-            {isDirezione(user) && (
-              <Button
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setMailboxesOpen(true)}
-              >
-                <Settings2 className="size-4" />
-                Caselle
-              </Button>
-            )}
-          </>
-        }
-        primaryAction={
-          <Button
-            className="min-h-11"
-            disabled={sync.isPending}
-            onClick={() => sync.mutate({})}
-          >
-            {sync.isPending ? (
-              <Loader2 className="size-4 motion-safe:animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            {sync.isPending ? "Aggiornamento" : "Aggiorna"}
-          </Button>
-        }
-      />
-
-      {showList && (
-        <div className="shrink-0 xl:hidden">
-          <DataSurface density="compact" tone="sunken">
-            <div className="space-y-2">
-              {compact ? (
-                <Select
-                  value={view}
-                  onValueChange={value => changeView(value as EmailView)}
+          }
+          warning={
+            warnings.length > 0 ? (
+              <div className="space-y-2">{warnings}</div>
+            ) : undefined
+          }
+          secondaryActions={
+            <>
+              {stats.data && stats.data.nuove > 0 && view !== "escluse" && (
+                <Button
+                  variant="outline"
+                  className="min-h-11 min-w-11"
+                  disabled={markAllRead.isPending}
+                  onClick={() => markAllRead.mutate()}
+                  aria-label="Segna tutte le email come viste"
+                  title="Segna tutte come viste"
                 >
-                  <SelectTrigger
-                    className="min-h-11 w-full"
-                    aria-label="Vista email"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EMAIL_VIEWS.map(item => (
-                      <SelectItem key={item} value={item}>
-                        {VIEW_LABELS[item]} · {countLabel(viewCounts[item])}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <CheckCheck className="size-4" />
+                  <span className="hidden sm:inline">Tutte viste</span>
+                </Button>
+              )}
+              {isDirezione(user) && (
+                <Button
+                  variant="outline"
+                  className="min-h-11 min-w-11"
+                  onClick={() => setMailboxesOpen(true)}
+                  aria-label="Gestisci caselle e mittenti esclusi"
+                  title="Caselle e filtri"
+                >
+                  <Settings2 className="size-4" />
+                  <span className="hidden sm:inline">Caselle</span>
+                </Button>
+              )}
+            </>
+          }
+          primaryAction={
+            <Button
+              className="min-h-12 min-w-12 sm:min-h-11 sm:min-w-11"
+              disabled={sync.isPending}
+              onClick={() => sync.mutate({})}
+              aria-label="Aggiorna le caselle"
+              title="Aggiorna le caselle"
+            >
+              {sync.isPending ? (
+                <Loader2 className="size-4 motion-safe:animate-spin" />
               ) : (
-                <Tabs
-                  value={view}
-                  onValueChange={value => changeView(value as EmailView)}
-                >
-                  <TabsList className="grid h-auto w-full grid-cols-6 gap-1 p-1">
-                    {EMAIL_VIEWS.map(item => (
-                      <TabsTrigger
-                        key={item}
-                        className="min-h-11 min-w-0 gap-1.5 px-2"
-                        value={item}
+                <RefreshCw className="size-4" />
+              )}
+              <span className="hidden sm:inline">
+                {sync.isPending ? "Aggiornamento" : "Aggiorna"}
+              </span>
+            </Button>
+          }
+        />
+      )}
+
+      {/* Le code erano una colonna permanente da 240px: ora sono una striscia
+          di chip alta una riga, così la lettura si prende lo spazio che le
+          serve. Sotto i 640px la striscia scorre in orizzontale dentro il
+          proprio riquadro, senza mai muovere la pagina. */}
+      {showList && (
+        <div className="shrink-0">
+          <DataSurface density="compact" tone="sunken">
+            <nav aria-label="Code email" className="min-w-0">
+              <ul className="-mx-1 flex min-w-0 items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+                {EMAIL_VIEWS.map(item => {
+                  const Icon = VIEW_ICONS[item];
+                  const active = item === view;
+                  return (
+                    <li key={item} className="shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => changeView(item)}
+                        aria-current={active ? "true" : undefined}
+                        className={cn(
+                          "flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] px-3 text-sm font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          active
+                            ? "bg-surface text-text-1 shadow-[var(--shadow-raised)] ring-1 ring-border-strong"
+                            : "text-text-2 hover:bg-surface"
+                        )}
                       >
-                        <span className="truncate">{VIEW_LABELS[item]}</span>
-                        <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                        <Icon className="size-4 shrink-0" aria-hidden="true" />
+                        <span className="whitespace-nowrap">
+                          {VIEW_LABELS[item]}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-text-3">
                           {countLabel(viewCounts[item])}
                         </span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              )}
-              <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-                {filterControls}
-              </div>
-            </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
           </DataSurface>
         </div>
       )}
@@ -539,63 +646,17 @@ export default function EmailPage() {
         aria-label="Workspace Email"
         className={cn(
           "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface",
-          showList
-            ? "lg:grid-cols-[minmax(19rem,0.9fr)_minmax(0,1.65fr)] xl:grid-cols-[15rem_minmax(19rem,0.9fr)_minmax(0,1.65fr)]"
-            : "xl:grid-cols-[15rem_minmax(0,1fr)]"
+          showList &&
+            "lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[22rem_minmax(0,1fr)]"
         )}
       >
-        <nav
-          aria-label="Code e filtri email"
-          className="hidden min-h-0 min-w-0 flex-col gap-4 overflow-y-auto border-r border-border-soft bg-surface-2 p-3 xl:flex"
-        >
-          <div className="min-w-0">
-            <h2 className="px-1 text-xs font-bold uppercase tracking-[0.12em] text-text-3">
-              Code
-            </h2>
-            <ul className="mt-2 space-y-1">
-              {EMAIL_VIEWS.map(item => {
-                const Icon = VIEW_ICONS[item];
-                const active = item === view;
-                return (
-                  <li key={item}>
-                    <button
-                      type="button"
-                      onClick={() => changeView(item)}
-                      aria-current={active ? "true" : undefined}
-                      className={cn(
-                        "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[var(--radius-control)] px-2.5 text-left text-sm font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        active
-                          ? "bg-surface text-text-1 shadow-[var(--shadow-raised)]"
-                          : "text-text-2 hover:bg-surface"
-                      )}
-                    >
-                      <Icon className="size-4 shrink-0" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {VIEW_LABELS[item]}
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-text-3">
-                        {countLabel(viewCounts[item])}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-          <div className="min-w-0 space-y-2 border-t border-border-soft pt-3">
-            <h2 className="px-1 text-xs font-bold uppercase tracking-[0.12em] text-text-3">
-              Filtri
-            </h2>
-            {filterControls}
-          </div>
-        </nav>
-
         {showList && (
           <EmailMessageList
             messages={messages}
             selectedId={selectedId}
             viewLabel={VIEW_LABELS[view]}
             search={search}
+            filtersControl={filtersControl}
             loading={rows.isLoading}
             fetching={rows.isFetching}
             error={rows.error?.message ?? null}

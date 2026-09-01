@@ -214,25 +214,40 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/formatEuroSimbolo\(/);
   });
 
-  it("compone l'inbox Email come workspace a tre zone", () => {
+  it("compone l'inbox Email come workspace a due zone leggibili", () => {
     const source = routeSource("../pages/messaggi/EmailPage.tsx");
+    const reader = routeSource("../components/messaggi/EmailMessageReader.tsx");
 
     expect(source).toMatch(/import PageHeader/);
     expect(source).toMatch(/import DataSurface/);
     expect(source).toMatch(/<PageHeader/);
-    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/variant=\{compact \? "compact" : "workbench"\}/);
     expect(source).toMatch(/<DataSurface/);
-    // Tre zone solo da 1280px, due da 1024px: sotto resta un pane alla volta.
+    // Due zone da 1024px: elenco a larghezza fissa, lettura tutto il resto.
     expect(source).toMatch(
-      /xl:grid-cols-\[15rem_minmax\(19rem,0\.9fr\)_minmax\(0,1\.65fr\)\]/
+      /lg:grid-cols-\[20rem_minmax\(0,1fr\)\] xl:grid-cols-\[22rem_minmax\(0,1fr\)\]/
     );
+    // Il rail permanente delle code non esiste più: sono chip nella toolbar.
+    expect(source).not.toMatch(/aria-label="Code e filtri email"/);
+    expect(source).toMatch(/aria-label="Code email"/);
     expect(source).toMatch(/aria-label="Workspace Email"/);
     // Niente griglia di metriche decorative: restano i conteggi delle code.
     expect(source).not.toMatch(/aria-label="Metriche email"/);
     // Un conteggio assente si scrive, non si finge zero.
     expect(source).toMatch(/countLabel\(/);
+    // Un solo controllo per i filtri, che dichiara quanti sono attivi.
+    expect(source).toMatch(/emailActiveFilterCount\(/);
+    expect(source).toMatch(/emailFilterLabel\(activeFilters\)/);
+    expect(source).toMatch(/filtersControl=\{filtersControl\}/);
     // Le caselle restano direzione-only, specchio UX del router.
     expect(source).toMatch(/isDirezione\(user\)/);
+    // Sul telefono il messaggio aperto si prende anche la testata di pagina.
+    expect(source).toMatch(/const headerVisible = showList \|\| !compact;/);
+    // Il corpo del messaggio si legge: 16px, interlinea larga, misura di riga.
+    expect(reader).toMatch(/text-base leading-\[1\.7\]/);
+    expect(reader).toMatch(/max-w-\[66ch\]/);
+    // Anche un URL senza spazi resta dentro la colonna.
+    expect(reader).toMatch(/\[overflow-wrap:anywhere\]/);
   });
 
   it("compone il workspace WhatsApp come archivio in sola lettura", () => {

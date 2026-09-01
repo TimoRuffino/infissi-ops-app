@@ -19,6 +19,7 @@ import {
   Search,
   ShieldBan,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 export const EMAIL_CATEGORIES = [
   "operativa",
@@ -77,7 +78,7 @@ export function EmailCategoryBadge({
   return (
     <Badge
       variant="outline"
-      className={cn("h-5 max-w-full px-1.5 text-[10px]", meta.className)}
+      className={cn("h-5 max-w-full px-1.5 text-[11px]", meta.className)}
     >
       <span className="truncate">{meta.label}</span>
     </Badge>
@@ -185,7 +186,7 @@ function MessageRow({
             />
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-sm",
+                "min-w-0 flex-1 truncate text-[15px] leading-6",
                 unread
                   ? "font-bold text-foreground"
                   : "font-semibold text-text-2"
@@ -195,7 +196,7 @@ function MessageRow({
             </span>
             <time
               className={cn(
-                "shrink-0 text-[11px] tabular-nums",
+                "shrink-0 text-xs tabular-nums",
                 unread ? "font-bold text-accent-text" : "text-text-3"
               )}
             >
@@ -204,16 +205,16 @@ function MessageRow({
           </div>
           <div
             className={cn(
-              "mt-0.5 truncate text-sm",
+              "mt-0.5 truncate text-[15px] leading-6",
               unread ? "font-semibold text-foreground" : "text-text-2"
             )}
           >
             {message.oggetto || "(senza oggetto)"}
           </div>
-          <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-text-3">
+          <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-text-3">
             {preview(message)}
           </p>
-          <div className="mt-1 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
+          <div className="mt-1.5 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
             <EmailCategoryBadge
               categoria={message.categoria ?? "da_classificare"}
             />
@@ -242,7 +243,16 @@ function MessageRow({
   );
 }
 
-function BulkToolbar({
+/**
+ * Una sola riga di stato invece di due: coda corrente, conteggio onesto,
+ * selezione multipla e azioni di massa condividono la stessa fascia. Ogni
+ * riga risparmiata qui è una riga di posta guadagnata sul telefono.
+ */
+function ListStatusBar({
+  viewLabel,
+  count,
+  fetching,
+  selectable,
   selectedCount,
   allSelected,
   disabled,
@@ -251,6 +261,10 @@ function BulkToolbar({
   onSpam,
   onNewsletter,
 }: {
+  viewLabel: string;
+  count: string | null;
+  fetching: boolean;
+  selectable: boolean;
   selectedCount: number;
   allSelected: boolean;
   disabled: boolean;
@@ -261,18 +275,36 @@ function BulkToolbar({
 }) {
   return (
     <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2 px-2">
-      <label className="grid size-11 shrink-0 cursor-pointer place-items-center">
-        <span className="sr-only">Seleziona tutte le email della pagina</span>
-        <Checkbox
-          checked={allSelected}
-          onCheckedChange={value => onToggleAll(value === true)}
-          className="size-5"
-          aria-label="Seleziona tutte le email della pagina"
-        />
-      </label>
-      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-2">
-        {selectedCount > 0 ? `${selectedCount} selezionate` : "Seleziona"}
+      {selectable ? (
+        <label className="grid size-11 shrink-0 cursor-pointer place-items-center">
+          <span className="sr-only">Seleziona tutte le email della pagina</span>
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={value => onToggleAll(value === true)}
+            className="size-5"
+            aria-label="Seleziona tutte le email della pagina"
+          />
+        </label>
+      ) : (
+        <span className="w-2 shrink-0" aria-hidden="true" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em] text-text-2">
+        {selectedCount > 0 ? `${selectedCount} selezionate` : viewLabel}
       </span>
+      {selectedCount === 0 &&
+        (fetching ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3"
+            role="status"
+          >
+            <Loader2 className="size-3.5 motion-safe:animate-spin" />
+            Aggiornamento
+          </span>
+        ) : count ? (
+          <span className="shrink-0 pr-1 text-xs tabular-nums text-text-3">
+            {count}
+          </span>
+        ) : null)}
       {selectedCount > 0 && (
         <>
           <Button
@@ -343,6 +375,7 @@ export default function EmailMessageList({
   selectedId,
   viewLabel,
   search,
+  filtersControl,
   loading,
   fetching,
   error,
@@ -368,6 +401,8 @@ export default function EmailMessageList({
   selectedId: number | null;
   viewLabel: string;
   search: string;
+  /** Controllo unico dei filtri, accanto alla ricerca. */
+  filtersControl?: ReactNode;
   loading: boolean;
   fetching: boolean;
   error: string | null;
@@ -392,6 +427,7 @@ export default function EmailMessageList({
   // Il conteggio è onesto: mentre la coda carica o è in errore non esiste
   // ancora un numero da mostrare, e "0" sarebbe una bugia.
   const countLabel = loading || error ? null : `${messages.length} in pagina`;
+  const selectable = !loading && !error && messages.length > 0;
 
   return (
     <section
@@ -402,50 +438,39 @@ export default function EmailMessageList({
         <label htmlFor="email-search" className="sr-only">
           Cerca nelle email
         </label>
-        <div className="relative min-w-0">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3"
-            aria-hidden="true"
-          />
-          <Input
-            id="email-search"
-            className="h-11 pl-9"
-            placeholder="Cerca testo, cliente o commessa"
-            value={search}
-            onChange={event => onSearchChange(event.target.value)}
-          />
-        </div>
-        <div className="mt-2 flex min-w-0 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em] text-text-3">
-            {viewLabel}
-          </span>
-          {fetching && !loading ? (
-            <span
-              className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3"
-              role="status"
-            >
-              <Loader2 className="size-3.5 motion-safe:animate-spin" />
-              Aggiornamento
-            </span>
-          ) : countLabel ? (
-            <span className="shrink-0 text-xs tabular-nums text-text-3">
-              {countLabel}
-            </span>
-          ) : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3"
+              aria-hidden="true"
+            />
+            <Input
+              id="email-search"
+              className="h-11 pl-9"
+              placeholder="Cerca testo, cliente o commessa"
+              value={search}
+              onChange={event => onSearchChange(event.target.value)}
+            />
+          </div>
+          {filtersControl}
         </div>
       </div>
 
-      {!loading && !error && messages.length > 0 && (
-        <BulkToolbar
-          selectedCount={selectedIds.size}
-          allSelected={messages.every(message => selectedIds.has(message.id))}
-          disabled={bulkPending}
-          onToggleAll={onToggleAll}
-          onClose={onBulkClose}
-          onSpam={onBulkSpam}
-          onNewsletter={onBulkNewsletter}
-        />
-      )}
+      <ListStatusBar
+        viewLabel={viewLabel}
+        count={countLabel}
+        fetching={fetching && !loading}
+        selectable={selectable}
+        selectedCount={selectedIds.size}
+        allSelected={
+          selectable && messages.every(message => selectedIds.has(message.id))
+        }
+        disabled={bulkPending}
+        onToggleAll={onToggleAll}
+        onClose={onBulkClose}
+        onSpam={onBulkSpam}
+        onNewsletter={onBulkNewsletter}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (

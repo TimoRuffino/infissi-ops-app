@@ -69,7 +69,7 @@ function ReaderSkeleton({
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
-      <div className="flex items-start gap-3 border-b border-border-soft px-4 py-4 sm:px-5">
+      <div className="flex items-start gap-3 border-b border-border-soft px-4 py-4 sm:px-6">
         {mobile && (
           <Button
             size="icon"
@@ -88,7 +88,7 @@ function ReaderSkeleton({
           <Skeleton className="mt-4 h-6 w-4/5" />
         </div>
       </div>
-      <div className="space-y-4 p-5">
+      <div className="space-y-4 p-5 sm:p-6 lg:p-8">
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-5/6" />
@@ -213,7 +213,7 @@ export default function EmailMessageReader({
       </Button>
     );
     return (
-      <div className="min-h-0 min-w-0 overflow-y-auto bg-surface p-4 sm:p-5">
+      <div className="min-h-0 min-w-0 overflow-y-auto bg-surface p-4 sm:p-6">
         {detail.isError ? (
           <StatePanel
             kind="error"
@@ -262,7 +262,7 @@ export default function EmailMessageReader({
     <article className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
       {/* Unica area borgogna scura del workspace: identità del messaggio.
           Corpo, allegati e form di collegamento restano su superficie chiara. */}
-      <header className="shrink-0 bg-focal px-4 py-3.5 text-on-focal sm:px-5">
+      <header className="shrink-0 bg-focal px-4 py-3.5 text-on-focal sm:px-6">
         <div className="flex min-w-0 items-start gap-3">
           {mobile && (
             <Button
@@ -285,19 +285,19 @@ export default function EmailMessageReader({
                 className="size-4 shrink-0 text-on-focal/70"
                 aria-hidden="true"
               />
-              <span className="min-w-0 break-words text-sm font-bold [overflow-wrap:anywhere]">
+              <span className="min-w-0 break-words text-[15px] font-bold leading-6 [overflow-wrap:anywhere]">
                 {message.mittenteNome ?? message.mittente}
               </span>
               {message.mittenteNome && (
-                <span className="min-w-0 break-words text-xs text-on-focal/70 [overflow-wrap:anywhere]">
+                <span className="min-w-0 break-words text-[13px] leading-5 text-on-focal/70 [overflow-wrap:anywhere]">
                   {message.mittente}
                 </span>
               )}
             </div>
-            <h2 className="mt-1 break-words text-base font-bold leading-snug sm:text-lg">
+            <h2 className="mt-1 break-words text-lg font-bold leading-snug [overflow-wrap:anywhere] sm:text-xl sm:leading-8">
               {message.oggetto || "(senza oggetto)"}
             </h2>
-            <p className="mt-1 text-xs leading-5 text-on-focal/70">
+            <p className="mt-1.5 text-[13px] leading-5 text-on-focal/70">
               {new Date(message.receivedAt).toLocaleString("it-IT")}
               {mailbox
                 ? ` · ricevuta su ${mailbox.nome} (${mailbox.indirizzo})`
@@ -326,14 +326,14 @@ export default function EmailMessageReader({
       {selectionRemoved && (
         <div
           role="status"
-          className="shrink-0 border-b border-info/25 bg-info-soft px-4 py-2 text-xs leading-5 text-text-2 sm:px-5"
+          className="shrink-0 border-b border-info/25 bg-info-soft px-4 py-2 text-[13px] leading-5 text-text-2 sm:px-6"
         >
           Questa email non compare più nella vista corrente. Puoi continuare a
           gestirla qui.
         </div>
       )}
 
-      <div className="shrink-0 border-b border-border-soft bg-surface-2 px-4 py-3 sm:px-5">
+      <div className="shrink-0 border-b border-border-soft bg-surface-2 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button
             variant={gestita ? "outline" : "default"}
@@ -369,7 +369,7 @@ export default function EmailMessageReader({
             disabled={updateCategory.isPending}
           >
             <SelectTrigger
-              className="min-h-11 w-full sm:w-[190px]"
+              className="min-h-11 w-full max-w-[15rem] sm:w-[190px]"
               aria-label="Classificazione"
             >
               <Tags className="size-3.5" />
@@ -540,9 +540,9 @@ export default function EmailMessageReader({
         )}
 
         {message.classificazioneMotivo && (
-          <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface px-3 py-2">
+          <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface px-3 py-2.5">
             <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" />
-            <div className="min-w-0 text-xs leading-5 text-text-2">
+            <div className="min-w-0 text-[13px] leading-5 text-text-2">
               <span className="font-semibold text-text-1">
                 Classificazione automatica
               </span>{" "}
@@ -553,9 +553,9 @@ export default function EmailMessageReader({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="px-4 py-5 sm:px-5">
+        <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7">
           <div className="w-full min-w-0 space-y-5">
-            <div className="max-w-[78ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-7 text-text-1">
+            <div className="max-w-[66ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-base leading-[1.7] text-text-1">
               {message.testo || "(messaggio vuoto)"}
             </div>
             {(message.allegati?.length ?? 0) > 0 && (
@@ -570,10 +570,10 @@ export default function EmailMessageReader({
                       className="flex min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
                     >
                       <Paperclip className="size-4 shrink-0 text-accent-text" />
-                      <span className="min-w-0 flex-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                      <span className="min-w-0 flex-1 break-words text-[15px] font-semibold leading-6 [overflow-wrap:anywhere]">
                         {attachment.nome}
                       </span>
-                      <span className="shrink-0 text-xs text-text-3">
+                      <span className="shrink-0 text-[13px] text-text-3">
                         {fileSize(attachment.size)}
                       </span>
                       {message.commessaId != null && (
