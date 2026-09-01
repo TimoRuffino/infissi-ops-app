@@ -409,10 +409,10 @@ export type TarsThreadProps = {
   onUndo?: (richiesta: RichiestaUndoTars) => void;
   onApprova?: (richiesta: RichiestaApprovazioneTars) => void;
   /**
-   * Risolutore dei riferimenti citati da Tars (codice commessa, ticket).
-   * Opzionale e sempre non bloccante: assente, i riferimenti restano testo.
-   * Il thread non interroga niente da solo — resta una superficie di sola
-   * presentazione e riceve il risolutore già pronto dalla pagina.
+   * Risolutore dei codici commessa citati da Tars. Opzionale e sempre non
+   * bloccante: assente, i riferimenti restano testo. Il thread non interroga
+   * niente da solo — resta una superficie di sola presentazione e riceve il
+   * risolutore già pronto dalla pagina.
    */
   risolviRiferimento?: RisolutoreRiferimenti;
 };

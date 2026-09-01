@@ -17,11 +17,13 @@ import { Link } from "wouter";
 // blocchi tipizzati di `markdownOperativo` diventano nodi JSX e ogni carattere
 // resta testo. Non usare mai `dangerouslySetInnerHTML` in questo percorso.
 //
-// I riferimenti citati (codice commessa, ticket) diventano link interni SOLO
-// se `risolviRiferimento` li ha risolti in un record che l'utente può già
-// vedere: senza risolutore, o con un codice che non risolve, il testo resta
-// esattamente com'era. Il riconoscimento vive in `@/lib/riferimentiTars`, e
-// nemmeno lì si costruisce mai un href da un codice non verificato.
+// I codici commessa citati diventano link interni SOLO se
+// `risolviRiferimento` li ha risolti in un record che l'utente può già vedere:
+// senza risolutore, o con un codice che non risolve, il testo resta esattamente
+// com'era. Il riconoscimento vive in `@/lib/riferimentiTars`, e nemmeno lì si
+// costruisce mai un href da un codice non verificato. I ticket restano testo:
+// senza una rotta `/ticket/:id` un link porterebbe alla coda e non al record
+// che nomina.
 //
 // Gerarchia dei titoli: la bolla vive sotto l'h1 del thread e accanto agli h2
 // dei pannelli, quindi i titoli del messaggio partono da h3 e scendono. Così
@@ -204,8 +206,8 @@ export default function RispostaFormattata({
   testo: string;
   className?: string;
   /**
-   * Risolutore opzionale dei riferimenti citati. Assente finché le query di
-   * supporto non hanno risposto: la conversazione non aspetta nessuno, il
+   * Risolutore opzionale dei codici commessa citati. Assente finché la query
+   * di supporto non ha risposto: la conversazione non aspetta nessuno, il
    * testo si mostra subito e i link compaiono dopo, se e quando i codici
    * risultano risolti.
    */

@@ -694,8 +694,8 @@ export default function Tars() {
     turniServer,
     ottimisticoVisibile
   );
-  // Riferimenti citati nelle risposte: risolti sui dati che l'utente può già
-  // vedere, mai su un id indovinato. Query di supporto non bloccanti — la
+  // Codici commessa citati nelle risposte: risolti sui dati che l'utente può
+  // già vedere, mai su un id indovinato. Query di supporto non bloccante — la
   // conversazione si legge subito e i link compaiono solo se risolvono.
   const risolviRiferimento = useRiferimentiTars(turniVisualizzati);
   const ultimoTurnoTars = [...turniServer]

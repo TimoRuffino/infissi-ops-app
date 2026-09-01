@@ -1,7 +1,6 @@
 import RispostaFormattata from "@/components/tars/RispostaFormattata";
 import { analizzaMarkdownOperativo } from "@/lib/markdownOperativo";
 import {
-  chiaveTicket,
   contieneRiferimenti,
   creaRisolutoreRiferimenti,
   indicizzaCommesse,
@@ -64,24 +63,10 @@ describe("riferimentiTars · riconoscimento", () => {
     expect(frammento.chiave).toBe("COM-2026-084");
   });
 
-  it("riconosce il ticket nelle tre forme d'uso", () => {
-    expect(chiavi("ticket #37")).toEqual(["TK-0037"]);
-    expect(chiavi("Chiudi #4 entro venerdì.")).toEqual(["TK-0004"]);
-    expect(chiavi("TK-0037 è assegnato.")).toEqual(["TK-0037"]);
-    expect(chiavi("TK-37")).toEqual(["TK-0037"]);
-  });
-
-  it("scarta i candidati che non sono riferimenti", () => {
+  it("scarta i candidati che non sono codici commessa", () => {
     // Dentro una parola: non è una citazione.
     expect(chiavi("xCOM-2026-184")).toEqual([]);
     expect(chiavi("COM-2026-184x")).toEqual([]);
-    expect(chiavi("abc#12")).toEqual([]);
-    // Numeri decimali e punteggiatura.
-    expect(chiavi("#12,5")).toEqual([]);
-    expect(chiavi("#12.5")).toEqual([]);
-    expect(chiavi("##37")).toEqual([]);
-    // Nessun ticket ha id 0.
-    expect(chiavi("#0")).toEqual([]);
     expect(chiavi("Non ho eseguito nulla: 2 * 3 azioni in attesa.")).toEqual([]);
   });
 
@@ -93,8 +78,39 @@ describe("riferimentiTars · riconoscimento", () => {
 
   it("segnala se un testo vale la pena di essere risolto", () => {
     expect(contieneRiferimenti("COM-2026-184")).toBe(true);
-    expect(contieneRiferimenti("ticket #37")).toBe(true);
     expect(contieneRiferimenti("Nessun riferimento operativo.")).toBe(false);
+  });
+});
+
+// I ticket sono citati eccome nelle risposte, ma non hanno una rotta di
+// dettaglio: un link porterebbe alla coda `/ticket`, cioè a una lista da
+// cercare a mano, e non al record che nomina. Finché non esiste
+// `/ticket/:id` la citazione deve restare testo semplice, che almeno non
+// promette niente.
+describe("riferimentiTars · i ticket restano testo", () => {
+  it("non riconosce nessuna delle forme con cui si cita un ticket", () => {
+    for (const sorgente of [
+      "ticket #37",
+      "Chiudi #4 entro venerdì.",
+      "#37",
+      "TK-0037 è assegnato.",
+      "TK-37",
+    ]) {
+      expect(riferimenti(sorgente)).toEqual([]);
+      expect(contieneRiferimenti(sorgente)).toBe(false);
+      expect(spezzaRiferimenti(sorgente)).toEqual([
+        { tipo: "testo", testo: sorgente },
+      ]);
+    }
+  });
+
+  it("non collega il ticket nemmeno accanto a una commessa risolta", () => {
+    const frammenti = spezzaRiferimenti("COM-2026-184, ticket #37 aperto");
+    expect(frammenti.map(frammento => frammento.tipo)).toEqual([
+      "riferimento",
+      "testo",
+    ]);
+    expect(riassembla(frammenti)).toBe("COM-2026-184, ticket #37 aperto");
   });
 });
 
@@ -107,7 +123,7 @@ describe("riferimentiTars · convivenza con il Markdown operativo", () => {
     "- **Bocciardi Claudia — COM-2026-184**, da valutare: sollecito",
     "- Marra Giuseppe — COM-2026-171, saldo `4.200,00 €` scaduto",
     "",
-    "1. Riaprire il ticket #37 del cantiere di *Via Manzoni*",
+    "1. Riaprire il ticket #37 di *Via Manzoni* per COM-2026-092",
     "2. Confermare la posa del 3 settembre",
     "",
     "---",
@@ -127,7 +143,7 @@ describe("riferimentiTars · convivenza con il Markdown operativo", () => {
     ]);
   });
 
-  it("trova i riferimenti dentro grassetto, elenchi e voci numerate", () => {
+  it("trova i codici dentro grassetto, elenchi e voci numerate", () => {
     const blocchi = analizzaMarkdownOperativo(sorgente);
     const trovati = blocchi.flatMap(blocco => {
       const segmenti =
@@ -142,8 +158,8 @@ describe("riferimentiTars · convivenza con il Markdown operativo", () => {
     });
 
     // Il primo è dentro un **grassetto**, il secondo in una voce puntata, il
-    // terzo in una voce numerata.
-    expect(trovati).toEqual(["COM-2026-184", "COM-2026-171", "TK-0037"]);
+    // terzo in una voce numerata accanto a un `#37` che resta testo.
+    expect(trovati).toEqual(["COM-2026-184", "COM-2026-171", "COM-2026-092"]);
   });
 });
 
@@ -153,8 +169,7 @@ describe("riferimentiTars · risoluzione", () => {
     { id: 13, codice: "COM-2026-171" },
     { id: 14, codice: null },
   ];
-  const ticket = [{ id: 37 }, { id: 4 }];
-  const risolvi = creaRisolutoreRiferimenti({ commesse, ticket });
+  const risolvi = creaRisolutoreRiferimenti({ commesse });
 
   function risolviTesto(testo: string) {
     const [frammento] = riferimenti(testo);
@@ -169,20 +184,12 @@ describe("riferimentiTars · risoluzione", () => {
     });
   });
 
-  it("collega il ticket alla coda Post-Vendita", () => {
-    expect(risolviTesto("ticket #37")).toEqual({
-      href: "/ticket",
-      nomeAccessibile: "Apri il ticket TK-0037 nella coda Post-Vendita",
-    });
-  });
-
   it("non risolve un codice che non è nei dati leggibili", () => {
     // Codice inventato dal modello.
     expect(risolviTesto("COM-2026-999")).toBeNull();
     // Codice reale ma di un'altra sede: il server non lo manda, quindi non è
     // nell'indice e non può diventare un link.
     expect(risolviTesto("COM-2025-001")).toBeNull();
-    expect(risolviTesto("#9999")).toBeNull();
   });
 
   it("non risolve nulla quando i dati non sono ancora arrivati", () => {
@@ -206,10 +213,6 @@ describe("riferimentiTars · risoluzione", () => {
     });
     const [frammento] = riferimenti("COM-2026-184");
     expect(ambiguo(frammento)).toBeNull();
-  });
-
-  it("usa per il ticket la stessa forma mostrata dalla coda", () => {
-    expect(chiaveTicket(37)).toBe("TK-0037");
   });
 });
 
@@ -241,7 +244,6 @@ describe("riferimentiTars · resa nella bolla di conversazione", () => {
 
   const risolvi = creaRisolutoreRiferimenti({
     commesse: [{ id: 12, codice: "COM-2026-184" }],
-    ticket: [{ id: 37 }],
   });
 
   it("senza risolutore lascia il testo esattamente com'era", () => {
@@ -252,7 +254,7 @@ describe("riferimentiTars · resa nella bolla di conversazione", () => {
     );
   });
 
-  it("collega i riferimenti risolti senza toccare la formattazione", () => {
+  it("collega i codici risolti senza toccare la formattazione", () => {
     const markup = rendi(risolvi);
 
     // Il link vive dentro il grassetto e mostra il codice così com'era.
@@ -261,15 +263,17 @@ describe("riferimentiTars · resa nella bolla di conversazione", () => {
     expect(markup).toMatch(
       /<strong class="font-semibold text-text-1">Bocciardi Claudia — <a[^>]*>COM-2026-184<\/a><\/strong>/
     );
-    expect(markup).toContain('href="/ticket"');
-    expect(markup).toContain(
-      'aria-label="Apri il ticket TK-0037 nella coda Post-Vendita"'
-    );
 
     // Titolo ed elenco restano quello che erano.
     expect(markup).toContain("<h5");
     expect(markup).toContain("<ul");
     expect(markup).not.toContain("### Critici");
+  });
+
+  it("non porta da nessuna parte verso la coda ticket", () => {
+    const markup = rendi(risolvi);
+    expect(markup).not.toContain('href="/ticket"');
+    expect(markup).toContain("ticket #37 aperto");
   });
 
   it("non collega un codice non risolto né il codice inline", () => {
