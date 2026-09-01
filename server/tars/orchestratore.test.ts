@@ -100,6 +100,7 @@ afterEach(() => {
   delete process.env.FLAG_TARS_L2_ACTIONS;
   delete process.env.FLAG_TARS_PROPOSALS;
   delete process.env.FLAG_TARS_MEMORY;
+  delete process.env.FLAG_TARS_PROACTIVE;
   delete process.env.TARS_RATE_LIMIT_INVII;
   azzeraRateLimitTarsPerTest();
   impostaLedgerEsecuzioniPerTest(null);
@@ -169,6 +170,7 @@ describe("tars — kill switch", () => {
     process.env.FLAG_TARS_L2_ACTIONS = "off";
     process.env.FLAG_TARS_PROPOSALS = "off";
     process.env.FLAG_TARS_MEMORY = "off";
+    process.env.FLAG_TARS_PROACTIVE = "off";
     const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
     expect(strumentiPerContesto(contesto)).toEqual([]);
   });
