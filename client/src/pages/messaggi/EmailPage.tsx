@@ -7,7 +7,6 @@ import EmailMessageList, {
   type EmailCategory,
 } from "@/components/messaggi/EmailMessageList";
 import EmailMessageReader from "@/components/messaggi/EmailMessageReader";
-import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
 import StatePanel from "@/components/patterns/StatePanel";
 import { Badge } from "@/components/ui/badge";
@@ -523,28 +522,31 @@ export default function EmailPage() {
   );
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
-      {/* Sul telefono il messaggio aperto prende tutta la colonna: la testata
-          di pagina sparisce (il titolo resta nella barra della shell) e il
-          ritorno all'elenco è la freccia del lettore. Sono 130px di testo in
-          più, esattamente dove servono. */}
+    // Sopra i 1200px l'altezza arriva solo dalla catena flex della shell:
+    // l'altezza da viewport resta confinata sotto quella soglia, dove il
+    // documento scorre e i due pane hanno comunque bisogno di un fondo su cui
+    // poggiare il proprio scroll. Cosi il riquadro lista+lettura chiude
+    // esattamente in fondo all'area di lavoro, senza spazio morto.
+    <div className="flex min-h-[560px] min-w-0 flex-col gap-2 overflow-hidden max-[1199px]:h-[calc(100dvh-8rem)] min-[1200px]:min-h-0 min-[1200px]:flex-1">
+      {/* Una fascia sola, alta quanto i suoi pulsanti: eyebrow, descrizione e
+          riga di metadati sono spariti perche costavano 87px prima di far
+          vedere una mail, e la pagina si spiega da sola. Il conteggio della
+          coda vive accanto al titolo, sulla stessa riga. Sul telefono il
+          messaggio aperto prende tutta la colonna: la testata sparisce (il
+          titolo resta nella barra della shell) e il ritorno all'elenco e la
+          freccia del lettore. */}
       {headerVisible && (
         <PageHeader
-          variant={compact ? "compact" : "workbench"}
-          eyebrow={compact ? undefined : "Posta operativa"}
-          title="Email"
-          description={
-            compact
-              ? undefined
-              : "Coda unica di richieste, documenti e lead in arrivo dalle caselle della sede."
-          }
-          busy={rows.isFetching}
-          metadata={
-            <span className="inline-flex items-center gap-1.5">
-              <Inbox className="size-3.5" aria-hidden="true" />
-              {queueSummary}
+          variant="compact"
+          title={
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span>Email</span>
+              <span className="text-sm font-semibold tracking-normal text-text-3">
+                {queueSummary}
+              </span>
             </span>
           }
+          busy={rows.isFetching}
           warning={
             warnings.length > 0 ? (
               <div className="space-y-2">{warnings}</div>
@@ -600,46 +602,43 @@ export default function EmailPage() {
         />
       )}
 
-      {/* Le code erano una colonna permanente da 240px: ora sono una striscia
-          di chip alta una riga, così la lettura si prende lo spazio che le
-          serve. Sotto i 640px la striscia scorre in orizzontale dentro il
-          proprio riquadro, senza mai muovere la pagina. */}
+      {/* Le sei code restano tutte a un click, ma senza il riquadro che le
+          conteneva: quel pannello costava 34px di cornice per zero
+          informazione. Ora sono una riga nuda alta quanto un chip, subito
+          sotto il titolo, e sotto i 640px scorre in orizzontale dentro se
+          stessa senza mai muovere la pagina. */}
       {showList && (
-        <div className="shrink-0">
-          <DataSurface density="compact" tone="sunken">
-            <nav aria-label="Code email" className="min-w-0">
-              <ul className="-mx-1 flex min-w-0 items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
-                {EMAIL_VIEWS.map(item => {
-                  const Icon = VIEW_ICONS[item];
-                  const active = item === view;
-                  return (
-                    <li key={item} className="shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => changeView(item)}
-                        aria-current={active ? "true" : undefined}
-                        className={cn(
-                          "flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] px-3 text-sm font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          active
-                            ? "bg-surface text-text-1 shadow-[var(--shadow-raised)] ring-1 ring-border-strong"
-                            : "text-text-2 hover:bg-surface"
-                        )}
-                      >
-                        <Icon className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="whitespace-nowrap">
-                          {VIEW_LABELS[item]}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-text-3">
-                          {countLabel(viewCounts[item])}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
-          </DataSurface>
-        </div>
+        <nav aria-label="Code email" className="min-w-0 shrink-0">
+          <ul className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1">
+            {EMAIL_VIEWS.map(item => {
+              const Icon = VIEW_ICONS[item];
+              const active = item === view;
+              return (
+                <li key={item} className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => changeView(item)}
+                    aria-current={active ? "true" : undefined}
+                    className={cn(
+                      "flex min-h-11 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-[13px] font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      active
+                        ? "bg-surface text-text-1 shadow-[var(--shadow-raised)] ring-1 ring-border-strong"
+                        : "text-text-2 hover:bg-surface-2"
+                    )}
+                  >
+                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                    <span className="whitespace-nowrap">
+                      {VIEW_LABELS[item]}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-text-3">
+                      {countLabel(viewCounts[item])}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
       )}
 
       <section

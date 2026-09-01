@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Link2,
   Loader2,
-  Mail,
   Megaphone,
   Paperclip,
   RefreshCw,
@@ -69,8 +68,10 @@ export const EMAIL_CATEGORY_UI: Record<
 
 export function EmailCategoryBadge({
   categoria,
+  className,
 }: {
   categoria: EmailCategory;
+  className?: string;
 }) {
   const meta =
     EMAIL_CATEGORY_UI[categoria] ?? EMAIL_CATEGORY_UI.da_classificare;
@@ -78,7 +79,11 @@ export function EmailCategoryBadge({
   return (
     <Badge
       variant="outline"
-      className={cn("h-5 max-w-full px-1.5 text-[11px]", meta.className)}
+      className={cn(
+        "h-5 max-w-full px-1.5 text-[11px]",
+        meta.className,
+        className
+      )}
     >
       <span className="truncate">{meta.label}</span>
     </Badge>
@@ -98,12 +103,6 @@ function shortDate(value: string | Date): string {
     : date.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
 }
 
-function initials(message: EmailMessage): string {
-  const name = (message.mittenteNome ?? message.mittente ?? "?").trim();
-  const parts = name.split(/[\s@.]+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
-}
-
 function preview(message: EmailMessage): string {
   return (
     String(message.testo ?? "")
@@ -112,6 +111,13 @@ function preview(message: EmailMessage): string {
   );
 }
 
+/**
+ * Riga da 71px: tre righe di testo (mittente + ora, oggetto, anteprima +
+ * classificazione) e nient'altro. L'avatar con le iniziali è sparito perché
+ * costava 52px di larghezza all'oggetto senza dire nulla che il mittente non
+ * dicesse già; il non letto resta scritto dalla barra a sinistra, dal pallino
+ * e dal peso del testo. Ogni pixel tolto qui è una email in più sullo schermo.
+ */
 function MessageRow({
   message,
   selected,
@@ -126,11 +132,12 @@ function MessageRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   const unread = message.stato === "nuova";
+  const attachments = message.allegati?.length ?? 0;
 
   return (
     <div
       className={cn(
-        "relative flex min-h-[112px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
+        "relative flex min-h-[70px] w-full min-w-0 items-start border-b border-border-soft transition-colors duration-fast",
         selected
           ? "bg-accent"
           : unread
@@ -149,7 +156,7 @@ function MessageRow({
       )}
       <label
         htmlFor={`email-select-${message.id}`}
-        className="ml-1 mt-1.5 grid size-11 shrink-0 cursor-pointer place-items-center"
+        className="ml-0.5 grid size-11 shrink-0 cursor-pointer place-items-center"
       >
         <span className="sr-only">
           Seleziona email {message.oggetto || "senza oggetto"}
@@ -166,115 +173,115 @@ function MessageRow({
         type="button"
         onClick={onOpen}
         aria-current={selected ? "true" : undefined}
-        className="flex min-w-0 flex-1 items-start gap-3 px-1 py-3 pr-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 flex-col py-1.5 pr-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <div
-          className={cn(
-            "mt-0.5 grid size-10 shrink-0 place-items-center rounded-md text-xs font-bold",
-            unread
-              ? "bg-primary text-primary-foreground shadow-xs"
-              : "bg-surface-2 text-text-2"
-          )}
-        >
-          {initials(message)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <Mail
-              className="size-3.5 shrink-0 text-text-3"
+        <span className="flex min-w-0 items-center gap-1.5">
+          {unread && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-accent-brand"
               aria-hidden="true"
             />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-[15px] leading-6",
-                unread
-                  ? "font-bold text-foreground"
-                  : "font-semibold text-text-2"
-              )}
-            >
-              {message.mittenteNome ?? message.mittente}
-            </span>
-            <time
-              className={cn(
-                "shrink-0 text-xs tabular-nums",
-                unread ? "font-bold text-accent-text" : "text-text-3"
-              )}
-            >
-              {shortDate(message.receivedAt)}
-            </time>
-          </div>
-          <div
+          )}
+          <span
             className={cn(
-              "mt-0.5 truncate text-[15px] leading-6",
-              unread ? "font-semibold text-foreground" : "text-text-2"
+              "min-w-0 flex-1 truncate text-[13px] leading-5",
+              unread ? "font-bold text-text-1" : "font-semibold text-text-2"
             )}
           >
-            {message.oggetto || "(senza oggetto)"}
-          </div>
-          <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-text-3">
-            {preview(message)}
-          </p>
-          <div className="mt-1.5 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-text-3">
-            <EmailCategoryBadge
-              categoria={message.categoria ?? "da_classificare"}
+            {message.mittenteNome ?? message.mittente}
+          </span>
+          {attachments > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 text-[11px] leading-5 tabular-nums text-text-3"
+              title={`${attachments} allegati`}
+            >
+              <Paperclip className="size-3" aria-hidden="true" />
+              {attachments}
+              <span className="sr-only">allegati</span>
+            </span>
+          )}
+          {message.commessaId != null && (
+            <Link2
+              className="size-3.5 shrink-0 text-success"
+              aria-label="Collegata"
             />
-            {(message.allegati?.length ?? 0) > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5">
-                <Paperclip className="size-3" />
-                Allegati {message.allegati.length}
-              </span>
+          )}
+          {message.stato === "gestita" && (
+            <CheckCheck
+              className="size-3.5 shrink-0 text-success"
+              aria-label="Gestita"
+            />
+          )}
+          <time
+            className={cn(
+              "shrink-0 text-[11px] leading-5 tabular-nums",
+              unread ? "font-bold text-accent-text" : "text-text-3"
             )}
-            {message.commessaId != null && (
-              <span className="inline-flex items-center gap-1 rounded-sm bg-success/10 px-1.5 py-0.5 text-success">
-                <Link2 className="size-3" />
-                Collegata
-              </span>
-            )}
-            {message.stato === "gestita" && (
-              <CheckCheck
-                className="ml-auto size-3.5 text-success"
-                aria-label="Gestita"
-              />
-            )}
-          </div>
-        </div>
+          >
+            {shortDate(message.receivedAt)}
+          </time>
+        </span>
+        <span
+          className={cn(
+            "block w-full truncate text-[15px] leading-5 text-text-1",
+            unread ? "font-bold" : "font-semibold"
+          )}
+        >
+          {message.oggetto || "(senza oggetto)"}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] leading-[18px] text-text-3">
+            {preview(message)}
+          </span>
+          <EmailCategoryBadge
+            categoria={message.categoria ?? "da_classificare"}
+            className="h-[18px] rounded-[6px]"
+          />
+        </span>
       </button>
     </div>
   );
 }
 
 /**
- * Una sola riga di stato invece di due: coda corrente, conteggio onesto,
- * selezione multipla e azioni di massa condividono la stessa fascia. Ogni
- * riga risparmiata qui è una riga di posta guadagnata sul telefono.
+ * Una sola fascia invece di due: ricerca, filtri, conteggio, selezione
+ * multipla e azioni di massa vivono nella stessa riga da 57px. Con la
+ * selezione attiva la fascia cambia mestiere e mostra le azioni: la ricerca
+ * azzererebbe comunque la selezione, quindi non si perde nulla.
  */
-function ListStatusBar({
+function ListToolbar({
   viewLabel,
+  search,
+  filtersControl,
   count,
   fetching,
   selectable,
   selectedCount,
   allSelected,
   disabled,
+  onSearchChange,
   onToggleAll,
   onClose,
   onSpam,
   onNewsletter,
 }: {
   viewLabel: string;
-  count: string | null;
+  search: string;
+  filtersControl?: ReactNode;
+  count: number | null;
   fetching: boolean;
   selectable: boolean;
   selectedCount: number;
   allSelected: boolean;
   disabled: boolean;
+  onSearchChange: (value: string) => void;
   onToggleAll: (checked: boolean) => void;
   onClose: () => void;
   onSpam: () => void;
   onNewsletter: () => void;
 }) {
   return (
-    <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border-soft bg-surface-2 px-2">
+    <div className="flex min-h-14 shrink-0 items-center gap-1.5 border-b border-border-soft bg-surface px-2 py-1.5">
       {selectable ? (
         <label className="grid size-11 shrink-0 cursor-pointer place-items-center">
           <span className="sr-only">Seleziona tutte le email della pagina</span>
@@ -286,27 +293,14 @@ function ListStatusBar({
           />
         </label>
       ) : (
-        <span className="w-2 shrink-0" aria-hidden="true" />
+        <span className="w-1.5 shrink-0" aria-hidden="true" />
       )}
-      <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em] text-text-2">
-        {selectedCount > 0 ? `${selectedCount} selezionate` : viewLabel}
-      </span>
-      {selectedCount === 0 &&
-        (fetching ? (
-          <span
-            className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3"
-            role="status"
-          >
-            <Loader2 className="size-3.5 motion-safe:animate-spin" />
-            Aggiornamento
-          </span>
-        ) : count ? (
-          <span className="shrink-0 pr-1 text-xs tabular-nums text-text-3">
-            {count}
-          </span>
-        ) : null)}
-      {selectedCount > 0 && (
+
+      {selectedCount > 0 ? (
         <>
+          <span className="min-w-0 flex-1 truncate text-sm font-bold text-text-1">
+            {selectedCount} selezionate
+          </span>
           <Button
             size="icon"
             variant="ghost"
@@ -341,6 +335,43 @@ function ListStatusBar({
             <ShieldBan className="size-4" />
           </Button>
         </>
+      ) : (
+        <>
+          <label htmlFor="email-search" className="sr-only">
+            Cerca nella coda {viewLabel}
+          </label>
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3"
+              aria-hidden="true"
+            />
+            <Input
+              id="email-search"
+              className="h-11 pl-9"
+              placeholder={`Cerca in ${viewLabel}`}
+              value={search}
+              onChange={event => onSearchChange(event.target.value)}
+            />
+          </div>
+          {fetching ? (
+            <span
+              className="grid size-6 shrink-0 place-items-center text-text-3"
+              role="status"
+            >
+              <Loader2 className="size-4 motion-safe:animate-spin" />
+              <span className="sr-only">Aggiornamento elenco in corso</span>
+            </span>
+          ) : count != null ? (
+            <span
+              className="shrink-0 px-0.5 text-xs tabular-nums text-text-3"
+              title={`${count} email in questa pagina`}
+            >
+              {count}
+              <span className="sr-only"> email in questa pagina</span>
+            </span>
+          ) : null}
+          {filtersControl}
+        </>
       )}
     </div>
   );
@@ -352,17 +383,16 @@ function ListSkeleton() {
       aria-label="Caricamento messaggi"
       className="divide-y divide-border-soft"
     >
-      {Array.from({ length: 5 }, (_, index) => (
-        <div key={index} className="flex min-h-[104px] gap-3 px-3 py-3">
-          <Skeleton className="size-10 shrink-0 rounded-md" />
-          <div className="min-w-0 flex-1 space-y-2">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="flex min-h-[70px] gap-3 px-3 py-2">
+          <Skeleton className="size-5 shrink-0 rounded-sm" />
+          <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex justify-between gap-3">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3 w-8" />
             </div>
             <Skeleton className="h-4 w-4/5" />
             <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-5 w-24" />
           </div>
         </div>
       ))}
@@ -426,7 +456,7 @@ export default function EmailMessageList({
 }) {
   // Il conteggio è onesto: mentre la coda carica o è in errore non esiste
   // ancora un numero da mostrare, e "0" sarebbe una bugia.
-  const countLabel = loading || error ? null : `${messages.length} in pagina`;
+  const count = loading || error ? null : messages.length;
   const selectable = !loading && !error && messages.length > 0;
 
   return (
@@ -434,31 +464,11 @@ export default function EmailMessageList({
       aria-label="Elenco email"
       className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
     >
-      <div className="shrink-0 border-b border-border-soft px-3 py-2.5">
-        <label htmlFor="email-search" className="sr-only">
-          Cerca nelle email
-        </label>
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-3"
-              aria-hidden="true"
-            />
-            <Input
-              id="email-search"
-              className="h-11 pl-9"
-              placeholder="Cerca testo, cliente o commessa"
-              value={search}
-              onChange={event => onSearchChange(event.target.value)}
-            />
-          </div>
-          {filtersControl}
-        </div>
-      </div>
-
-      <ListStatusBar
+      <ListToolbar
         viewLabel={viewLabel}
-        count={countLabel}
+        search={search}
+        filtersControl={filtersControl}
+        count={count}
         fetching={fetching && !loading}
         selectable={selectable}
         selectedCount={selectedIds.size}
@@ -466,6 +476,7 @@ export default function EmailMessageList({
           selectable && messages.every(message => selectedIds.has(message.id))
         }
         disabled={bulkPending}
+        onSearchChange={onSearchChange}
         onToggleAll={onToggleAll}
         onClose={onBulkClose}
         onSpam={onBulkSpam}
@@ -518,7 +529,7 @@ export default function EmailMessageList({
       </div>
 
       {!loading && !error && (hasPreviousPage || hasNextPage) && (
-        <div className="flex shrink-0 items-center justify-between border-t border-border-soft px-3 py-1.5">
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-t border-border-soft px-2">
           <Button
             size="icon"
             variant="ghost"

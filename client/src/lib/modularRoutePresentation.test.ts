@@ -214,23 +214,34 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/formatEuroSimbolo\(/);
   });
 
-  it("compone l'inbox Email come workspace a due zone leggibili", () => {
+  it("compone l'inbox Email come coda densa a due zone", () => {
     const source = routeSource("../pages/messaggi/EmailPage.tsx");
+    const list = routeSource("../components/messaggi/EmailMessageList.tsx");
     const reader = routeSource("../components/messaggi/EmailMessageReader.tsx");
 
     expect(source).toMatch(/import PageHeader/);
-    expect(source).toMatch(/import DataSurface/);
     expect(source).toMatch(/<PageHeader/);
-    expect(source).toMatch(/variant=\{compact \? "compact" : "workbench"\}/);
-    expect(source).toMatch(/<DataSurface/);
+    // Una fascia sola e alta quanto i suoi pulsanti: niente eyebrow, niente
+    // descrizione, niente riga di metadati. Il conteggio sta accanto al titolo.
+    expect(source).toMatch(/variant="compact"/);
+    expect(source).not.toMatch(/eyebrow=/);
+    expect(source).not.toMatch(/Posta operativa/);
+    expect(source).not.toMatch(/Coda unica di richieste/);
+    expect(source).not.toMatch(/metadata=/);
+    expect(source).toMatch(/\{queueSummary\}/);
+    // Le code restano una riga di chip: nessun pannello attorno, nessun rail.
+    expect(source).not.toMatch(/aria-label="Code e filtri email"/);
+    expect(source).not.toMatch(/<DataSurface/);
+    expect(source).toMatch(/aria-label="Code email"/);
     // Due zone da 1024px: elenco a larghezza fissa, lettura tutto il resto.
     expect(source).toMatch(
       /lg:grid-cols-\[20rem_minmax\(0,1fr\)\] xl:grid-cols-\[22rem_minmax\(0,1fr\)\]/
     );
-    // Il rail permanente delle code non esiste più: sono chip nella toolbar.
-    expect(source).not.toMatch(/aria-label="Code e filtri email"/);
-    expect(source).toMatch(/aria-label="Code email"/);
     expect(source).toMatch(/aria-label="Workspace Email"/);
+    // Sopra i 1200px l'altezza viene solo dalla shell: il riquadro
+    // lista+lettura chiude in fondo all'area di lavoro, senza spazio morto.
+    expect(source).toMatch(/max-\[1199px\]:h-\[calc\(100dvh-8rem\)\]/);
+    expect(source).not.toMatch(/min-\[1200px\]:h-auto/);
     // Niente griglia di metriche decorative: restano i conteggi delle code.
     expect(source).not.toMatch(/aria-label="Metriche email"/);
     // Un conteggio assente si scrive, non si finge zero.
@@ -243,6 +254,18 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/isDirezione\(user\)/);
     // Sul telefono il messaggio aperto si prende anche la testata di pagina.
     expect(source).toMatch(/const headerVisible = showList \|\| !compact;/);
+    // Riga da 70px: tre righe di testo, nessun avatar che rubi larghezza.
+    expect(list).toMatch(/min-h-\[70px\]/);
+    expect(list).not.toMatch(/function initials/);
+    // L'oggetto e l'elemento piu leggibile della riga.
+    expect(list).toMatch(/text-\[15px\] leading-5 text-text-1/);
+    // Ricerca, filtri, conteggio, selezione e azioni di massa: una fascia sola.
+    expect(list).toMatch(/function ListToolbar/);
+    expect(list).not.toMatch(/function ListStatusBar/);
+    // Nessuna funzione persa nella compressione.
+    expect(list).toMatch(/Seleziona tutte le email della pagina/);
+    expect(list).toMatch(/aria-label="Segna le email selezionate come spam"/);
+    expect(list).toMatch(/aria-label="Pagina successiva"/);
     // Il corpo del messaggio si legge: 16px, interlinea larga, misura di riga.
     expect(reader).toMatch(/text-base leading-\[1\.7\]/);
     expect(reader).toMatch(/max-w-\[66ch\]/);
