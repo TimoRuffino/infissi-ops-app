@@ -1,3 +1,4 @@
+import RispostaFormattata from "@/components/tars/RispostaFormattata";
 import TarsAvatar, { type StatoTarsAvatar } from "@/components/tars/TarsAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -587,9 +588,16 @@ export default function TarsThread({
                             </Badge>
                           )}
                         </div>
-                        <p className="mt-1 whitespace-pre-wrap break-words leading-6 text-text-1">
-                          {turno.contenuto}
-                        </p>
+                        {utente ? (
+                          <p className="mt-1 whitespace-pre-wrap break-words leading-6 text-text-1">
+                            {turno.contenuto}
+                          </p>
+                        ) : (
+                          <RispostaFormattata
+                            testo={turno.contenuto}
+                            className="mt-1"
+                          />
+                        )}
                         {!utente && (
                           <>
                             <AzioniTurno

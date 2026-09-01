@@ -77,6 +77,43 @@ describe("presentazione thread Tars", () => {
     expect(commessaAnnullata.match(/>Annulla</g)).toHaveLength(1);
   });
 
+  it("formatta il Markdown di Tars e lascia grezzo il turno utente", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsThread, {
+        turni: [
+          {
+            id: 1,
+            conversazioneId: 7,
+            ruolo: "tars",
+            contenuto:
+              "### 1. Critici\n\n- **Bocciardi Claudia — COM-2026-184**, da valutare",
+            payload: null,
+            createdAt: new Date("2026-08-31T10:00:00.000Z"),
+          },
+          {
+            id: 2,
+            conversazioneId: 7,
+            ruolo: "utente",
+            contenuto: "### resta testo **grezzo**",
+            payload: null,
+            createdAt: new Date("2026-08-31T10:01:00.000Z"),
+          },
+        ],
+        statoAvatar: "disponibile",
+      })
+    );
+
+    expect(markup).toContain("<h5");
+    expect(markup).toContain("<ul");
+    expect(markup).toContain(
+      "<strong class=\"font-semibold text-text-1\">Bocciardi Claudia — COM-2026-184</strong>"
+    );
+    expect(markup).not.toContain("### 1. Critici");
+    // Il turno utente conserva i caratteri Markdown senza interpretarli.
+    expect(markup).toContain("### resta testo **grezzo**");
+    expect(markup).not.toContain("dangerouslySetInnerHTML");
+  });
+
   it("mantiene il trigger contesto fino al breakpoint del pannello persistente", () => {
     const markup = renderToStaticMarkup(
       createElement(TarsThread, {
