@@ -157,6 +157,50 @@ describe("tars T4 — briefing deterministico", () => {
     expect(mie.map(s => s.tipo)).toContain("conflitto_consegna");
   });
 
+  it("i casi RISOLTI non entrano nella situazione di oggi (auto-risoluzioni da archivio comprese)", async () => {
+    const { commessa } = await scenario();
+    const repository = getActionCaseRepository();
+    const { record } = await repository.upsertDraft(
+      {
+        canonicalKey: `t4:caso-risolto:${commessa.id}`,
+        sedeId: SEDE,
+        targetType: "commessa",
+        targetId: commessa.id,
+        commessaId: commessa.id,
+        clienteId: null,
+        title: "COM archiviata - Caso auto-risolto",
+        priority: "critica",
+        priorityScore: 99,
+        assigneeUserId: UTENTE_ID,
+        dueAt: null,
+        link: `/commesse/${commessa.id}`,
+        signals: [],
+        signalFingerprint: "t4-risolto",
+        nextAction: { sourceKind: "consegna", label: "Niente da fare" },
+      },
+      new Date()
+    );
+    await repository.transition({
+      sedeId: SEDE,
+      id: record.id,
+      expectedFingerprint: record.signalFingerprint,
+      status: "risolta",
+      assigneeUserId: record.assigneeUserId,
+      reviewAt: null,
+      snoozedUntil: null,
+      actorUserId: null,
+      eventType: "auto_risolta",
+      now: new Date(),
+    });
+
+    const briefing = await costruisciBriefing(
+      await costruisciContesto(contestoTrpc())
+    );
+    expect(
+      briefing.casiMiei.map(c => c.titolo)
+    ).not.toContain("COM archiviata - Caso auto-risolto");
+  });
+
   it("una commessa archiviata non genera segnalazioni, anche con ordini in ritardo", async () => {
     const { commessa } = await scenario();
     // La commessa viene archiviata DOPO aver creato ordini in ritardo e in

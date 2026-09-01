@@ -65,6 +65,14 @@ async function allCases(
   return items;
 }
 
+/** Stati "vivi": ciò che è ancora da fare. I risolti sono storia. */
+export const OPEN_ACTION_STATUSES = [
+  "da_valutare",
+  "in_carico",
+  "rinviata",
+  "in_attesa",
+] as const satisfies readonly ActionStatus[];
+
 export async function listActionCases(input: {
   repository: ActionCaseRepository;
   sedeId: number;

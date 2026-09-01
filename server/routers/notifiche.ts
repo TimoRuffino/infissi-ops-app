@@ -11,6 +11,7 @@ import { getClienteById } from "./clienti";
 import { requireAssignableUser } from "../authz/assignments";
 import { getActionCaseRepository } from "../actionCenter/repository";
 import {
+  OPEN_ACTION_STATUSES,
   canAccessActionCase,
   getActionCenterSummary,
   listActionCases,
@@ -974,6 +975,9 @@ export const notificheRouter = router({
       ...context,
       scope: "mine",
       now: new Date(),
+      // Solo casi APERTI: i risolti (incluse le auto-risoluzioni delle
+      // commesse archiviate) non sono lavoro di oggi.
+      statuses: [...OPEN_ACTION_STATUSES],
       limit: 100,
     });
     const repeatedSnoozes = await Promise.all(

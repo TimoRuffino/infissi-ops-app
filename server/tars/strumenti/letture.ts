@@ -18,7 +18,7 @@ import {
 import { getOrdiniFornitoreDiSede, getOrdineFornitoreInSede } from "../../routers/fornitori";
 import { analisiPerOrdine } from "../../documenti/analisi";
 import { getActionCaseRepository } from "../../actionCenter/repository";
-import { listActionCases } from "../../actionCenter/service";
+import { OPEN_ACTION_STATUSES, listActionCases } from "../../actionCenter/service";
 import { getReminderService } from "../../reminders/service";
 import { getClienteById } from "../../routers/clienti";
 import { listComunicazioni } from "../../comunicazioni/comunicazioni";
@@ -442,6 +442,9 @@ const leggiCentroAzioni: StrumentoTars = {
       roles: contesto.ruoli,
       scope: input.scope,
       now: new Date(),
+      // Il modello ragiona SOLO sui casi aperti: un risolto (o auto-risolto
+      // perché la commessa è archiviata) non è una prossima azione.
+      statuses: [...OPEN_ACTION_STATUSES],
       limit: input.limite,
     });
     const casi = pagina.items.map(caso => ({

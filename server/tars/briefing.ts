@@ -9,7 +9,7 @@
 // del rumore come run `proattivita-shadow`.
 
 import { getActionCaseRepository } from "../actionCenter/repository";
-import { listActionCases } from "../actionCenter/service";
+import { OPEN_ACTION_STATUSES, listActionCases } from "../actionCenter/service";
 import { tarsAttivo } from "../platform/interruttori";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
@@ -65,12 +65,7 @@ function fineGiornata(adesso: Date): Date {
   );
 }
 
-const STATI_CASO_APERTO = [
-  "da_valutare",
-  "in_carico",
-  "rinviata",
-  "in_attesa",
-] as const;
+const STATI_CASO_APERTO = OPEN_ACTION_STATUSES;
 
 async function commesseConCasiAperti(sedeId: number): Promise<Set<number>> {
   const { items } = await getActionCaseRepository().list({
@@ -172,6 +167,11 @@ export async function costruisciBriefing(
     roles: contesto.ruoli,
     scope: "mine",
     now: adesso,
+    // SOLO casi aperti: senza questo filtro i casi risolti (compresi gli
+    // auto-risolti delle commesse archiviate) restavano per sempre nella
+    // «Situazione di oggi», ordinati per priorità (segnalazione della
+    // direzione, 01/09: COM archiviate ancora proposte come critiche).
+    statuses: [...STATI_CASO_APERTO],
     limit: 10,
   });
 
