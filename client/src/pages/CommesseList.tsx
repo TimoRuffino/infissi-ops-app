@@ -662,12 +662,15 @@ export default function CommesseList() {
                 {/* Le larghezze sommano sempre a 100%: con la colonna
                     economica in meno lo spazio torna a prodotti e date. */}
                 <colgroup>
-                  <col className={vedeCifre ? "w-[12%]" : "w-[13%]"} />
-                  <col className={vedeCifre ? "w-[20%]" : "w-[23%]"} />
-                  <col className={vedeCifre ? "w-[12%]" : "w-[13%]"} />
-                  <col className={vedeCifre ? "w-[15%]" : "w-[19%]"} />
+                  {/* Lo stato porta le etichette piu lunghe del dominio
+                      ("Richiesta secondo acconto"): la sua colonna e la piu
+                      larga dopo il cliente, cosi il chip non viene tagliato. */}
+                  <col className={vedeCifre ? "w-[11%]" : "w-[12%]"} />
+                  <col className={vedeCifre ? "w-[18%]" : "w-[21%]"} />
+                  <col className={vedeCifre ? "w-[19%]" : "w-[20%]"} />
+                  <col className={vedeCifre ? "w-[12%]" : "w-[15%]"} />
                   {vedeCifre ? <col className="w-[11%]" /> : null}
-                  <col className={vedeCifre ? "w-[13%]" : "w-[15%]"} />
+                  <col className={vedeCifre ? "w-[12%]" : "w-[15%]"} />
                   <col className="w-[12%]" />
                   <col className="w-[5%]" />
                 </colgroup>
@@ -716,7 +719,7 @@ export default function CommesseList() {
                               il click sul <tr> resta solo una comodità. */}
                           <button
                             type="button"
-                            className="min-w-0 rounded-[var(--radius-control)] text-left"
+                            className="block min-w-0 max-w-full rounded-[var(--radius-control)] text-left"
                             onClick={e => {
                               e.stopPropagation();
                               setLocation(`/commesse/${c.id}`);
@@ -733,7 +736,7 @@ export default function CommesseList() {
                             variant={
                               PRIORITA_VARIANT[c.priorita] ?? "secondary"
                             }
-                            className="mt-1 text-[10px]"
+                            className="mt-1 max-w-full truncate text-[10px]"
                           >
                             {PRIORITA_LABEL[c.priorita] ?? c.priorita}
                           </Badge>
