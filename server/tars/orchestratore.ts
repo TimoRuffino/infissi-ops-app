@@ -316,7 +316,13 @@ function chiaveCachePrompt(contesto: ContestoRun, modello: string): string {
     )
     .digest("hex")
     .slice(0, 10);
-  return `tars:${ambiente}:${modello}:${PROMPT_VERSIONE}:${PROFILO_VERSIONE}:${contesto.capabilityFingerprint}:${profilo}`;
+  // OpenAI limita prompt_cache_key a 64 caratteri: la forma leggibile
+  // (71+ caratteri) veniva rifiutata con 400 su OGNI chiamata reale —
+  // «Il modello non è al momento disponibile» sempre, provato in
+  // produzione il 01/09. La chiave resta deterministica e distinta per
+  // componente: cambia una parte qualsiasi ⇒ cambia la digest.
+  const logica = `tars:${ambiente}:${modello}:${PROMPT_VERSIONE}:${PROFILO_VERSIONE}:${contesto.capabilityFingerprint}:${profilo}`;
+  return `tars-${createHash("sha256").update(logica).digest("hex").slice(0, 48)}`;
 }
 
 function sanifica(errore: unknown): string {

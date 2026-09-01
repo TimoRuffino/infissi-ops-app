@@ -227,6 +227,38 @@ describe("tars — profili per contesto", () => {
 });
 
 describe("tars — run con strumenti, evidenze e cache", () => {
+  it("la chiave prompt-cache inviata al provider resta nel limite OpenAI di 64 caratteri", async () => {
+    // In produzione la forma leggibile (71 caratteri) veniva rifiutata con
+    // 400 «prompt_cache_key: string too long» su OGNI chiamata reale.
+    const chiavi: string[] = [];
+    const provider = creaProviderFinto(richiesta => {
+      chiavi.push(richiesta.chiaveCachePrompt);
+      return rispostaTesto("ok");
+    });
+    await eseguiRun({
+      contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+      provider,
+      messaggio: "Ciao, come funziona il fascicolo?",
+    });
+    expect(chiavi.length).toBeGreaterThan(0);
+    for (const chiave of chiavi) {
+      expect(chiave.length).toBeLessThanOrEqual(64);
+      expect(chiave).toMatch(/^tars-[a-f0-9]{48}$/);
+    }
+    // Stessa configurazione ⇒ stessa chiave (il prefisso cache regge).
+    const seconde: string[] = [];
+    await eseguiRun({
+      contesto: await contestoRun(DIREZIONE_ID, ["direzione"]),
+      provider: creaProviderFinto(richiesta => {
+        seconde.push(richiesta.chiaveCachePrompt);
+        return rispostaTesto("ok");
+      }),
+      messaggio: "Altra domanda generica sul fascicolo",
+    });
+    expect(seconde[0]).toBe(chiavi[0]);
+  });
+
+
   it("loop completo: tool call → evidenze → risposta, tutto persistito", async () => {
     const commessa = await direzione().commesse.create({
       cliente: "Tars Prova Uno",
