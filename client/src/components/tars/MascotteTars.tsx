@@ -43,7 +43,13 @@ import { cn } from "@/lib/utils";
 
 export type { PosaMascotte };
 
-const DISSOLVENZA_MS = 220;
+// Nove clip su undici si agganciano alla posa neutra e passano senza
+// stacco. Restano evento e cartello, che cominciano in una posa diversa
+// (una a metà inciampo, l'altra col cartello già in mano): lì serve una
+// dissolvenza vera, e 220ms erano corti abbastanza da leggersi come stacco.
+// Fonderle dentro la clip non è la via — due pose diverse sovrapposte danno
+// un fantasma, con antenne doppie.
+const DISSOLVENZA_MS = 320;
 // I siparietti devono farsi vedere: a 90-180s uno stava davanti alla
 // mascotte un minuto intero senza coglierne nessuno, e il ritorno a idle
 // rimette il timer da capo a ogni cambio pagina. Restano comunque
