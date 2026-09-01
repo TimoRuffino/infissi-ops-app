@@ -5,6 +5,11 @@ import { createMemoryPolicyRepository } from "./repository";
 describe("policy decision audit", () => {
   it("salva solo differenze e metadati privacy-safe", async () => {
     const repository = createMemoryPolicyRepository();
+    // Date RELATIVE all'orologio: una data fissa esce dalla finestra di
+    // `listAuditDiffs({days})` appena il calendario avanza (successo il
+    // 01/09/2026: il test è scaduto da solo).
+    const unOraFa = new Date(Date.now() - 3_600_000);
+    const unOraFaPiuUnMinuto = new Date(unOraFa.getTime() + 60_000);
 
     await comparePolicyDecision(
       {
@@ -20,7 +25,7 @@ describe("policy decision audit", () => {
         userId: 7,
         sedeId: 1,
         resourceType: "commessa",
-        createdAt: new Date("2026-08-25T10:00:00Z"),
+        createdAt: unOraFa,
       },
       repository
     );
@@ -38,7 +43,7 @@ describe("policy decision audit", () => {
         userId: 7,
         sedeId: 1,
         resourceType: "cliente",
-        createdAt: new Date("2026-08-25T10:01:00Z"),
+        createdAt: unOraFaPiuUnMinuto,
       },
       repository
     );
