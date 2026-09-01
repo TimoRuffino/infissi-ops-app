@@ -8,6 +8,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { RisolutoreRiferimenti } from "@/lib/riferimentiTars";
 import type { TurnoTarsVisualizzato } from "@/lib/tarsView";
 import { cn } from "@/lib/utils";
 import {
@@ -407,6 +408,13 @@ export type TarsThreadProps = {
   onRetry?: () => void;
   onUndo?: (richiesta: RichiestaUndoTars) => void;
   onApprova?: (richiesta: RichiestaApprovazioneTars) => void;
+  /**
+   * Risolutore dei riferimenti citati da Tars (codice commessa, ticket).
+   * Opzionale e sempre non bloccante: assente, i riferimenti restano testo.
+   * Il thread non interroga niente da solo — resta una superficie di sola
+   * presentazione e riceve il risolutore già pronto dalla pagina.
+   */
+  risolviRiferimento?: RisolutoreRiferimenti;
 };
 
 export default function TarsThread({
@@ -428,6 +436,7 @@ export default function TarsThread({
   onRetry,
   onUndo,
   onApprova,
+  risolviRiferimento,
 }: TarsThreadProps) {
   return (
     <section
@@ -596,6 +605,7 @@ export default function TarsThread({
                           <RispostaFormattata
                             testo={turno.contenuto}
                             className="mt-1"
+                            risolviRiferimento={risolviRiferimento}
                           />
                         )}
                         {!utente && (

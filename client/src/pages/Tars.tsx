@@ -44,6 +44,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useOperationalContext } from "@/contexts/OperationalContext";
+import { useRiferimentiTars } from "@/hooks/useRiferimentiTars";
 import {
   associaTurnoOttimisticoAConversazione,
   creaTurnoOttimistico,
@@ -693,6 +694,10 @@ export default function Tars() {
     turniServer,
     ottimisticoVisibile
   );
+  // Riferimenti citati nelle risposte: risolti sui dati che l'utente può già
+  // vedere, mai su un id indovinato. Query di supporto non bloccanti — la
+  // conversazione si legge subito e i link compaiono solo se risolvono.
+  const risolviRiferimento = useRiferimentiTars(turniVisualizzati);
   const ultimoTurnoTars = [...turniServer]
     .reverse()
     .find(turno => turno.ruolo === "tars");
@@ -946,6 +951,7 @@ export default function Tars() {
             <TarsThread
               titolo={conversazioneAttiva?.titolo ?? "Nuova conversazione"}
               turni={turniVisualizzati}
+              risolviRiferimento={risolviRiferimento}
               statoAvatar={statoAvatar}
               archiviata={conversazioneArchiviata}
               loading={conversazioneId != null && turni.isLoading}
