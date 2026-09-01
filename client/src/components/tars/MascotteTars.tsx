@@ -32,8 +32,13 @@ import { cn } from "@/lib/utils";
 export type { PosaMascotte };
 
 const DISSOLVENZA_MS = 180;
-const SIPARIETTO_PAUSA_MIN_MS = 90_000;
-const SIPARIETTO_PAUSA_MAX_MS = 180_000;
+// I siparietti devono farsi vedere: a 90-180s uno stava davanti alla
+// mascotte un minuto intero senza coglierne nessuno, e il ritorno a idle
+// rimette il timer da capo a ogni cambio pagina. Restano comunque
+// intervallati, non in loop: una clip che gira in continuo farebbe cadere
+// Tars ogni sei secondi.
+const SIPARIETTO_PAUSA_MIN_MS = 20_000;
+const SIPARIETTO_PAUSA_MAX_MS = 45_000;
 /** Oltre la durata della clip più lunga (evento, 6,6s): vedi la rete di sicurezza. */
 const SIPARIETTO_DURATA_MAX_MS = 12_000;
 
@@ -97,7 +102,7 @@ export function MascotteTars({
     if (!puoPartireSiparietto(posa, attiva, ridotto)) return;
     const t = setTimeout(
       () => cambiaPosa(scegliSiparietto(Math.random())),
-      attesa(SIPARIETTO_PAUSA_MIN_MS, SIPARIETTO_PAUSA_MAX_MS),
+      attesa(SIPARIETTO_PAUSA_MIN_MS, SIPARIETTO_PAUSA_MAX_MS)
     );
     return () => clearTimeout(t);
   }, [posa, attiva, ridotto, cambiaPosa]);
@@ -125,7 +130,7 @@ export function MascotteTars({
       className={cn(
         "block shrink-0 rounded-xl outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        className,
+        className
       )}
     >
       {ridotto ? (
@@ -135,7 +140,7 @@ export function MascotteTars({
           draggable={false}
           className={cn(
             "block size-full select-none",
-            vaSpecchiata(posa) && "-scale-x-100",
+            vaSpecchiata(posa) && "-scale-x-100"
           )}
         />
       ) : (
@@ -154,7 +159,7 @@ export function MascotteTars({
           className={cn(
             "block size-full select-none transition-opacity",
             visibile ? "opacity-100" : "opacity-0",
-            vaSpecchiata(posa) && "-scale-x-100",
+            vaSpecchiata(posa) && "-scale-x-100"
           )}
           style={{ transitionDuration: `${DISSOLVENZA_MS}ms` }}
         />
