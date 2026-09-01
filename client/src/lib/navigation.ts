@@ -1,7 +1,7 @@
 import {
   Archive,
   Banknote,
-  BrainCircuit,
+  Bot,
   Building2,
   Calculator,
   CalendarDays,
@@ -72,7 +72,7 @@ export const DOCUMENT_INTELLIGENCE_DECISION_CAPABILITIES = [
 export const menuItems: readonly MenuItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   {
-    icon: BrainCircuit,
+    icon: Bot,
     label: "Tars",
     path: "/tars",
     requiredCapabilities: ["tars.use"],

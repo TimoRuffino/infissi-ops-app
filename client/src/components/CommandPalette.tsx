@@ -27,7 +27,7 @@ import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle,
-  BrainCircuit,
+  Bot,
   Building2,
   Clock,
   Contact,
@@ -349,10 +349,7 @@ export default function CommandPalette({
                     });
                   }}
                 >
-                  <BrainCircuit
-                    className="text-accent-text"
-                    aria-hidden="true"
-                  />
+                  <Bot className="text-accent-text" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate">
                     Prepara: «{query}»
                   </span>
@@ -371,7 +368,7 @@ export default function CommandPalette({
                   })
                 }
               >
-                <BrainCircuit className="text-text-3" aria-hidden="true" />
+                <Bot className="text-text-3" aria-hidden="true" />
                 <span>Apri Tars senza domanda</span>
               </CommandItem>
             </CommandGroup>

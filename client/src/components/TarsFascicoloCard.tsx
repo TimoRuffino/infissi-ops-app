@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AlertTriangle, ArrowRight, BrainCircuit, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2 } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function TarsFascicoloCard({
@@ -39,7 +39,7 @@ export default function TarsFascicoloCard({
     <Card className="mt-4">
       <CardContent className="p-4">
         <div className="flex items-center gap-2 flex-wrap">
-          <BrainCircuit className="h-4 w-4 shrink-0" />
+          <Bot className="h-4 w-4 shrink-0" />
           <p className="text-sm font-semibold">Tars — fascicolo</p>
           {f.stale && (
             <Badge variant="outline" className="text-[10px] text-warning">
