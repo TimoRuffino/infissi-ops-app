@@ -52,7 +52,10 @@ export default function TarsAvatar({
         ? { "aria-hidden": true as const }
         : { role: "img", "aria-label": nomeAccessibile })}
     >
-      <Avatar className={cn("size-full bg-surface-2", classeAnelloTars(stato))}>
+      {/* Fondo scuro in entrambi i temi: la mascotte e' bianco caldo e su
+          `surface-2` chiaro (#f7eef1) quasi non si stacca. `focal` e' la
+          superficie scura del sistema e regge il soggetto a ogni misura. */}
+      <Avatar className={cn("size-full bg-focal", classeAnelloTars(stato))}>
         <AvatarImage
           src={AVATAR_TARS_SRC}
           srcSet={AVATAR_TARS_SRCSET}
