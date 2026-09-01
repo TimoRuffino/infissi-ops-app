@@ -13,12 +13,11 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
-import ConsegneAgenda, {
+import CommessaConsegneCard, {
   ConsegnaStatoChip,
-  etichettaCommessa,
-  etichettaConsegna,
   type ConsegnaItem,
-} from "@/components/magazzino/ConsegneAgenda";
+  type ConsegneSintesi,
+} from "@/components/magazzino/CommessaConsegneCard";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
 import type { StatePanelProps } from "@/components/patterns/StatePanel";
@@ -41,20 +40,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { toDateStr } from "@/lib/calendario";
-import {
-  deliveryState,
-  deliveryStateCopy,
-  type DeliveryState,
-} from "@/lib/operationalRoutes";
+import { deliveryState, type DeliveryState } from "@/lib/operationalRoutes";
 import { STATI_ORDER } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 
@@ -142,6 +129,19 @@ type RigaConsegna = {
   prodotto: any;
   commessa: any | null;
   stato: DeliveryState;
+};
+
+// Una scheda per commessa: le consegne filtrate che le appartengono, più la
+// sintesi calcolata su tutte le sue consegne.
+type GruppoCommessa = {
+  commessaId: number;
+  commessa: any | null;
+  consegne: ConsegnaItem[];
+  sintesi: ConsegneSintesi;
+  /** Stato della consegna più urgente mostrata (chiave di ordinamento). */
+  ordine: number;
+  /** Data di quella consegna; senza data la scheda va in fondo al suo stato. */
+  dataUtile: string;
 };
 
 export default function Magazzino() {
@@ -258,25 +258,65 @@ export default function Magazzino() {
       });
   }, [prodotti.data, commessaById, search, filtro, fornFiltro, today]);
 
-  const agendaItems = useMemo<ConsegnaItem[]>(
-    () =>
-      righe.map(r => ({
+  // Le consegne si leggono dentro la commessa che le ha ordinate: è il
+  // raggruppamento che l'operatore usa davvero in magazzino. La chiave resta
+  // `commessaId`, così due commesse non si fondono in una scheda sola mentre
+  // `commesse.list` non è ancora arrivata.
+  const gruppi = useMemo<GruppoCommessa[]>(() => {
+    const map = new Map<number, GruppoCommessa>();
+    for (const r of righe) {
+      const commessaId: number = r.prodotto.commessaId;
+      const consegna: ConsegnaItem = {
         id: r.prodotto.id,
         nome: r.prodotto.nome,
         quantita: r.prodotto.quantita,
         fornitore: r.prodotto.fornitore,
+        numeroOrdine: r.prodotto.numeroOrdine,
         dataConsegna: r.prodotto.dataConsegna,
         arrivato: r.prodotto.arrivato,
-        commessa: r.commessa
-          ? {
-              id: r.commessa.id,
-              codice: r.commessa.codice,
-              cliente: r.commessa.cliente,
-            }
-          : null,
-      })),
-    [righe]
-  );
+      };
+      const gruppo = map.get(commessaId);
+      if (!gruppo) {
+        // La sintesi descrive tutta la commessa, non il sottoinsieme filtrato:
+        // i prodotti sono già letti, quindi nessun numero è inventato.
+        const tutte = byCommessa.get(commessaId) ?? [];
+        map.set(commessaId, {
+          commessaId,
+          commessa: r.commessa,
+          consegne: [consegna],
+          sintesi: {
+            totale: tutte.length,
+            ricevute: tutte.filter((p: any) => p.arrivato).length,
+            inRitardo: tutte.filter(
+              (p: any) =>
+                deliveryState({
+                  arrivato: p.arrivato,
+                  dataConsegna: p.dataConsegna,
+                  today,
+                }) === "late"
+            ).length,
+          },
+          // `righe` è già ordinata: la prima consegna del gruppo è la più
+          // urgente, e le sue chiavi ordinano anche la scheda.
+          ordine: ORDINE_STATO[r.stato],
+          dataUtile: r.prodotto.dataConsegna ?? "9999-12-31",
+        });
+        continue;
+      }
+      gruppo.consegne.push(consegna);
+    }
+    // Stesso criterio della coda: prima le commesse con la consegna più
+    // urgente, poi la data, poi il codice. Nessun dato nuovo.
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        a.ordine - b.ordine ||
+        a.dataUtile.localeCompare(b.dataUtile) ||
+        String(a.commessa?.codice ?? "").localeCompare(
+          String(b.commessa?.codice ?? "")
+        ) ||
+        a.commessaId - b.commessaId
+    );
+  }, [righe, byCommessa, today]);
 
   // Commesse che possiamo proporre come destinazione: offerta, non permesso.
   const eligibili = useMemo(
@@ -447,7 +487,7 @@ export default function Magazzino() {
             Magazzino
           </span>
         }
-        description="Coda delle consegne per commessa, dallo stato Produzione in poi. Ogni riga dice quando arriva e cosa manca."
+        description="Le consegne raggruppate nella loro commessa, dallo stato Produzione in poi. Ogni scheda dice cosa manca e quando arriva."
         busy={prodotti.isFetching}
         metadata={
           <>
@@ -563,7 +603,7 @@ export default function Magazzino() {
           </div>
         </div>
 
-        <section className="min-w-0" aria-label="Coda consegne">
+        <section className="min-w-0" aria-label="Consegne per commessa">
           <DataSurface
             density="compact"
             tone="sunken"
@@ -574,8 +614,8 @@ export default function Magazzino() {
                   role="status"
                   className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-2"
                 >
-                  Commesse non caricate: codice e cliente delle consegne non
-                  sono mostrati.
+                  Commesse non caricate: le consegne restano raggruppate, senza
+                  codice, cliente e stato della commessa.
                   <Button
                     type="button"
                     variant="ghost"
@@ -589,105 +629,21 @@ export default function Magazzino() {
               ) : null
             }
           >
-            {/* Desktop: tabella densa. La riga apre il dettaglio commessa. */}
-            <div className="hidden min-w-0 lg:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Consegna</TableHead>
-                    <TableHead className="text-right">Q.tà</TableHead>
-                    <TableHead>Fornitore</TableHead>
-                    <TableHead>Commessa</TableHead>
-                    <TableHead>Consegna prevista</TableHead>
-                    <TableHead>Stato</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Azioni</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {righe.map(r => (
-                    <TableRow key={r.prodotto.id}>
-                      <TableCell className="max-w-[20rem] whitespace-normal">
-                        <span className="block font-medium text-text-1">
-                          {r.prodotto.nome}
-                        </span>
-                        {r.prodotto.numeroOrdine ? (
-                          <span className="codice-mono block text-xs text-text-3">
-                            Ordine {r.prodotto.numeroOrdine}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {r.prodotto.quantita}
-                      </TableCell>
-                      <TableCell className="text-text-2">
-                        {r.prodotto.fornitore || "—"}
-                      </TableCell>
-                      <TableCell className="max-w-[16rem]">
-                        {r.commessa ? (
-                          <>
-                            <Button
-                              type="button"
-                              variant="link"
-                              className="h-auto min-h-11 max-w-full justify-start px-0"
-                              onClick={() => apriDettaglio(r.commessa.id)}
-                            >
-                              <span className="min-w-0 truncate">
-                                {etichettaCommessa(r.commessa)}
-                              </span>
-                            </Button>
-                            {r.commessa.codice ? (
-                              <span className="codice-mono block text-xs text-text-3">
-                                {r.commessa.codice}
-                              </span>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span className="text-text-3">
-                            {etichettaCommessa(null)}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="tabular-nums text-text-2">
-                        {r.prodotto.dataConsegna
-                          ? etichettaConsegna(r.prodotto.dataConsegna)
-                          : deliveryStateCopy("unscheduled")}
-                      </TableCell>
-                      <TableCell>
-                        <ConsegnaStatoChip stato={r.stato} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-h-11"
-                          disabled={consegnaInCorso === r.prodotto.id}
-                          onClick={() =>
-                            segnaArrivato(r.prodotto.id, !r.prodotto.arrivato)
-                          }
-                        >
-                          {r.prodotto.arrivato
-                            ? "Riapri consegna"
-                            : "Segna ricevuto"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Sotto lg: agenda, una consegna per card. */}
-            <div className="lg:hidden">
-              <ConsegneAgenda
-                items={agendaItems}
-                today={today}
-                pendingId={consegnaInCorso}
-                onOpenCommessa={apriDettaglio}
-                onToggleArrivato={segnaArrivato}
-              />
+            {/* Una scheda per commessa: sotto lg una colonna, due sopra. */}
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+              {gruppi.map(g => (
+                <CommessaConsegneCard
+                  key={g.commessaId}
+                  commessaId={g.commessaId}
+                  commessa={g.commessa}
+                  consegne={g.consegne}
+                  sintesi={g.sintesi}
+                  today={today}
+                  pendingId={consegnaInCorso}
+                  onOpenCommessa={apriDettaglio}
+                  onToggleArrivato={segnaArrivato}
+                />
+              ))}
             </div>
           </DataSurface>
         </section>

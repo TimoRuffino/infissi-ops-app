@@ -75,17 +75,26 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/Gestione squadre riservata alla direzione\./);
   });
 
-  it("compone il magazzino come coda di consegne leggibile", () => {
+  it("compone il magazzino come schede di consegne per commessa", () => {
     const source = routeSource("../pages/Magazzino.tsx");
+    const card = routeSource(
+      "../components/magazzino/CommessaConsegneCard.tsx"
+    );
 
     expect(source).toMatch(/import PageHeader/);
     expect(source).toMatch(/import DataSurface/);
     expect(source).toMatch(/<PageHeader/);
     expect(source).toMatch(/variant="workbench"/);
     expect(source).toMatch(/<DataSurface/);
-    expect(source).toMatch(/<ConsegneAgenda/);
-    // Gli stati di consegna vengono dalla matrice pura, non da regole locali.
+    // Il raggruppamento per commessa è la struttura della pagina, non un
+    // dettaglio della scheda: una colonna sotto lg, due sopra.
+    expect(source).toMatch(/<CommessaConsegneCard/);
+    expect(source).toMatch(/grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2/);
+    // Gli stati di consegna vengono dalla matrice pura, non da regole locali,
+    // e restano leggibili come testo dentro la scheda.
     expect(source).toMatch(/deliveryState\(/);
+    expect(card).toMatch(/deliveryState\(/);
+    expect(card).toMatch(/deliveryStateCopy\(/);
     // Una coda filtrata a vuoto non è "tutto a posto".
     expect(source).toMatch(/Nessuna consegna corrisponde ai filtri correnti/);
     // "Segna ricevuto" scrive esattamente id + arrivato, nient'altro.
