@@ -44,6 +44,11 @@ import { strumentiPerContesto } from "../tars/profili";
 import { repositoryOsservazioniCorrente } from "../tars/proattivita/repository";
 import { osservatoreEspone } from "../tars/proattivita/worker";
 import { calcolaPatternAzienda } from "../tars/proattivita/patterns";
+import {
+  accettaMiglioramento,
+  derivaMiglioramenti,
+  registraFeedbackMiglioramento,
+} from "../tars/proattivita/improvements";
 import { AZIONI_DICHIARATE_INDISPONIBILI } from "../tars/azioni/registry";
 import {
   applicaContestoConversazioneAlRun,
@@ -524,6 +529,94 @@ export const tarsRouter = router({
           sedeId: contesto.sedeId,
           now: new Date(),
           finestraGiorni: input?.finestraGiorni,
+        });
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  /**
+   * Proposte di miglioramento (T8): derivate dai pattern, inerti,
+   * direzione-only. Feedback e accettazione muovono solo cooldown,
+   * ranking e la decisione registrata — mai policy o codice.
+   */
+  miglioramenti: procedura
+    .input(
+      z
+        .object({
+          finestraGiorni: z.number().int().min(7).max(90).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Le proposte di miglioramento sono riservate alla direzione.",
+          });
+        }
+        return await derivaMiglioramenti({
+          sedeId: contesto.sedeId,
+          now: new Date(),
+          finestraGiorni: input?.finestraGiorni,
+        });
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  miglioramentoFeedback: procedura
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        feedback: z.enum(["utile", "non_utile", "gia_risolto", "troppo_rumore"]),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Operazione riservata alla direzione." });
+        }
+        return await registraFeedbackMiglioramento({
+          sedeId: contesto.sedeId,
+          id: input.id,
+          feedback: input.feedback,
+          utenteId: contesto.utenteId,
+          now: new Date(),
+        });
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  miglioramentoAccetta: procedura
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        nota: z.string().max(500).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Operazione riservata alla direzione." });
+        }
+        return await accettaMiglioramento({
+          sedeId: contesto.sedeId,
+          id: input.id,
+          utenteId: contesto.utenteId,
+          nota: input.nota ?? null,
+          now: new Date(),
         });
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;

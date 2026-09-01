@@ -26,7 +26,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.7.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.8.0";
 
 const schemaLettura = z
   .object({
@@ -318,6 +318,20 @@ const METADATI: Record<string, Metadati> = {
   dimentica: r1("dimentica", "sede", ["generale"], ["memoria"], ["tars", "tarsMemory"], false),
   leggi_memorie: lettura("sede", ["generale"], ["memoria"], ["tars", "tarsMemory"]),
   panorama_azienda: {
+    ...lettura(
+      "sede",
+      ["generale", "direzione"],
+      ["commessa"],
+      ["tars", "tarsProactive"]
+    ),
+    prerequisiti: {
+      direzione: true,
+      superfici: ["generale", "direzione"],
+      intenti: ["lettura", "analisi"],
+      entita: ["commessa"],
+    },
+  },
+  leggi_miglioramenti: {
     ...lettura(
       "sede",
       ["generale", "direzione"],

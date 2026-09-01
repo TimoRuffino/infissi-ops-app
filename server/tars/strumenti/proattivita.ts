@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { tarsAttivo } from "../../platform/interruttori";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
+import { derivaMiglioramenti } from "../proattivita/improvements";
 import type { EsitoLettura, StrumentoTars } from "./tipi";
 
 const FONTE =
@@ -62,6 +63,67 @@ const panoramaAzienda: StrumentoTars = {
   },
 };
 
+const leggiMiglioramenti: StrumentoTars = {
+  nome: "leggi_miglioramenti",
+  versione: "1.0.0",
+  categoria: "proattivita",
+  livello: "L0",
+  effetto: "nessuno",
+  reversibile: true,
+  capability: ["commessa.read"],
+  soloDirezione: true,
+  interruttore: "tarsProactive",
+  descrizione:
+    "Legge le proposte di miglioramento del CRM e dei processi derivate dai pattern aziendali. Sono proposte INERTI: il feedback e l'accettazione passano solo dalla UI della direzione, mai dal modello.",
+  schemaInput: z
+    .object({
+      finestraGiorni: z.number().int().min(7).max(90).optional(),
+    })
+    .strict(),
+  async esegui(contesto, input): Promise<EsitoLettura<unknown>> {
+    if (
+      !tarsAttivo("tarsProactive") ||
+      !contesto.direzione ||
+      !contesto.capability.has("commessa.read")
+    ) {
+      throw new Error("NOT_FOUND: proposte di miglioramento non disponibili.");
+    }
+    const esito = await derivaMiglioramenti({
+      sedeId: contesto.sedeId,
+      now: new Date(),
+      finestraGiorni: input.finestraGiorni,
+    });
+    return {
+      dati: {
+        proposte: esito.proposte.map(proposta => ({
+          id: proposta.id,
+          titolo: proposta.titolo,
+          chiavePattern: proposta.chiavePattern,
+          problema: proposta.problema,
+          soluzione: proposta.soluzione,
+          metrica: proposta.metrica,
+          priorita: proposta.priorita,
+          confidenza: proposta.confidenza,
+          stato: proposta.stato,
+        })),
+        soppresse: esito.soppresse,
+      },
+      evidenze: esito.proposte.slice(0, 5).map(proposta => ({
+        tipo: "entita" as const,
+        riferimento: `miglioramento:${proposta.id}`,
+        descrizione: proposta.titolo,
+      })),
+      freschezza: new Date().toISOString(),
+      fonteAutorevole: FONTE,
+      omissioni: [
+        "Il modello legge le proposte ma non può accettarle né dar loro feedback.",
+      ],
+      versioniEntita: {},
+    };
+  },
+};
+
 export const STRUMENTI_PROATTIVITA: readonly StrumentoTars[] = [
   panoramaAzienda,
+  leggiMiglioramenti,
 ];
