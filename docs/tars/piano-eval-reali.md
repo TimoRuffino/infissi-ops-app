@@ -68,3 +68,14 @@ timeout per classe.
 Un solo caso fuori soglia = rollout fermo, correzione, batteria
 ripetuta da capo. Le altre metriche informano la scelta del modello e
 la taratura dei limiti (§27.47), non aprono la porta da sole.
+
+## Aggiunta 01/09/2026 — casi sintetici T4–T9
+
+L'eval sintetico (`pnpm eval:tars`) ora copre anche: autorità
+condizionale Maccari (comando esplicito obbligatorio), osservatore senza
+segnali (zero rumore), pattern vero/falso (soppressione sotto campione
+minimo), miglioramento fondato/non fondato (mai senza evidenze) e
+budget di classe per il background (zero chiamate senza budget
+dedicato). I corrispettivi REALI da raccogliere con la direzione:
+conferme d'ordine vere in `casi-reali/` restano il prerequisito per
+dichiarare l'accuratezza del modello.

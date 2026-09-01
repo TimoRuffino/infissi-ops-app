@@ -119,3 +119,24 @@ non è una prova.
 | `expired` | mai riconciliata (crash/riavvio) | prenotato |
 
 Principio: si sovrastima, mai si sottostima.
+
+## 5. Estensioni T4–T9 (01/09/2026)
+
+Nuove superfici e dove mordono i loro test:
+
+| Area | Mutazione che morde | Test |
+|---|---|---|
+| Archiviazione allegati R1 (T4) | autorità senza comando esplicito; fonte cambiata tra lettura ed effetto; riassegnazione cross-commessa; >10 MB | `server/tars/strumenti/archivioAllegati.test.ts`, `server/tars/maccari.test.ts` |
+| Transizione condizionale Maccari | condizione fuori dal set chiuso; autorità senza verifica dell'esito | `maccari.test.ts`, eval `documentale-autorita-condizionale-maccari` |
+| Frontiera unica R2/R3 (T5) | hash anteprima diverso; doppio click; tool di approvazione nel registro; nome dichiarato indisponibile registrato | `server/tars/azioni/approvazioni.test.ts` |
+| Osservatore (T6) | dedup rotto; riapertura in cooldown; sede mischiata; importi nelle sintesi; flag spento che scrive | `server/tars/proattivita/worker.test.ts` |
+| Pattern (T7) | campione sotto soglia non soppresso; sede mischiata; periodo ignorato | `server/tars/proattivita/patterns.test.ts` |
+| Miglioramenti (T8) | proposta senza pattern; feedback che tocca registro/flag; accetta che esegue | `server/tars/proattivita/improvements.test.ts` |
+| SafeProductCatalog (T8) | sorgenti/env/segreti/percorsi/R4 nel catalogo | `server/tars/prodotto/catalog.test.ts` |
+| Classi di costo (T9) | background senza budget che chiama; env invalida che aggira il globale | `server/tars/costi/costi.test.ts` («classi di costo») |
+| Cache authz (T9) | fascicolo con importi; voce cross-sede; vista osservazioni memorizzata | `server/tars/proattivita/authz-cache.test.ts` |
+
+Limite dichiarato: l'eval resta SINTETICO (provider finto). La
+resistenza del modello reale a injection e la tool selection accuracy si
+misurano solo coi casi OpenAI dopo il gate della direzione
+(`docs/tars/piano-eval-reali.md`).

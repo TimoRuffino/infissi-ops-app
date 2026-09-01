@@ -15,9 +15,24 @@
 | `FLAG_TARS_REMINDERS` | promemoria L1 (crea/sposta/annulla/completa) | FLAG_TARS |
 | `FLAG_TARS_L2_ACTIONS` | azioni L2 (casi Centro Azioni, analisi conferme) | FLAG_TARS (+ FLAG_DOCUMENT_INTELLIGENCE per l'analisi) |
 | `FLAG_TARS_PROPOSALS` | proposta L3 data consegna (gateway D7) | FLAG_TARS + FLAG_DOCUMENT_INTELLIGENCE + FLAG_PROPOSTE |
-| `FLAG_TARS_PROACTIVE` | segnalazioni shadow nel briefing | FLAG_TARS + FLAG_TARS_READ_TOOLS |
-| `FLAG_TARS_COMMUNICATIONS` | lettura comunicazioni (estratti) | FLAG_TARS + FLAG_TARS_READ_TOOLS |
+| `FLAG_TARS_PROACTIVE` | segnalazioni shadow nel briefing + OSSERVATORE T6 (persistenza osservazioni dal reconcile del Centro Azioni) | FLAG_TARS + FLAG_TARS_READ_TOOLS |
+| `FLAG_TARS_PATTERNS` | pattern aziendali / Panorama (T7): tool `panorama_azienda` ed endpoint `tars.panorama`, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
+| `FLAG_TARS_IMPROVEMENTS` | proposte di miglioramento (T8): `tars.miglioramenti` + feedback/accetta, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
+| `FLAG_TARS_COMMUNICATIONS` | lettura comunicazioni (estratti) + archiviazione R1 allegati (T4, con FLAG_TARS_L2_ACTIONS) | FLAG_TARS + FLAG_TARS_READ_TOOLS |
 | `FLAG_TARS_SEMANTIC_SEARCH` | NON ESISTE codice: resta spento | gate chiave (embeddings) |
+
+Modalità osservatore (T6): `TARS_OBSERVER_MODE` = `shadow` (default:
+calcola e persiste, non espone) oppure `active` (espone
+`tars.osservazioni` filtrando sede e capability a ogni richiesta).
+Senza PostgreSQL l'osservatore non scrive: fail-closed.
+
+Budget per CLASSE di costo (T9): `TARS_BUDGET_<CLASSE>_USD` con classi
+`DOCUMENT_INTELLIGENCE`, `PROACTIVE_COMMESSA`, `PATTERN_AZIENDA`,
+`MIGLIORAMENTO_CRM`, `EVAL`. Default 0: le classi di background sono
+deterministiche e NON chiamano il modello finché una sintesi non viene
+abilitata con un budget esplicito. `interactive` non ha un tetto
+separato: vale il globale, che resta l'unico hard ceiling. Una
+variabile invalida blocca SOLO la sua classe.
 
 Provider: `TARS_PROVIDER` NON impostato = provider finto (nessuna
 chiamata di rete possibile). Il provider reale richiede TUTTE e tre le

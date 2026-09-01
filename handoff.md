@@ -1809,6 +1809,25 @@ allegato, analisi/classificazione e archivio certo; non dichiarare ancora la
 catena completa. Nessun file client/UI, cost governor, provider o flag è stato
 toccato; nessuna operazione Railway/OpenAI.
 
+## 11-vicies bis. Tars operativo T4–T10 — mandato completato (01/09/2026)
+
+Su `main` locale, sette commit atomici (`276cf91`…`f6f0756` più il
+finale docs): catena documentale Maccari con archiviazione R1 a
+corrispondenza certa e transizione condizionale dal set chiuso di
+condizioni verificabili; frontiera unica R2/R3 con anteprima hashata e
+azioni dichiarate indisponibili; osservatore T6 che consuma il reconcile
+del Centro Azioni (tabella additiva `tars_osservazioni`, shadow/active
+via `TARS_OBSERVER_MODE`); pattern aziendali e Panorama direzione-only
+(`FLAG_TARS_PATTERNS`); SafeProductCatalog e proposte di miglioramento
+inerti con feedback che muove solo cooldown/ranking
+(`FLAG_TARS_IMPROVEMENTS`); classi di costo nel ledger (`classe`,
+`TARS_BUDGET_<CLASSE>_USD`, background a 0 di default) e diagnosi
+dell'ultimo run degradato in `tars.stato` (direzione-only — è il punto
+dove leggere il motivo del «modello non è al momento disponibile»).
+Eval sintetico a 17 casi con soglie CI. Dettaglio nel PRD v5.28;
+rollout: `docs/runbooks/rollout-tars.md`. Ledger di esecuzione:
+`.superpowers/sdd/2026-08-31-tars-operativo-proattivo/progress.md`.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree
@@ -1873,11 +1892,15 @@ per route: è una decisione registrata, non una dimenticanza, e le colonne
 2. Rotazione credenziali esterne e decisione sul purge Git history.
 3. Attivazione OAuth FiC per ogni sede.
 4. Miglioramento della copertura dati storici di commesse, costi e squadre.
-5. Potenziamento incrementale di Tars dalla matrice T0: transizione commessa
-   canonica T3 completata; proseguire con comunicazione/allegato/
-   classificazione/archivio per chiudere la regressione Maccari, poi i tre
-   livelli proattivi. Non usare la rimozione storica come roadmap del runtime
-   corrente.
+5. Tars operativo T3–T10 COMPLETATI (01/09/2026): catena Maccari chiusa
+   (lettura → classificazione → archivio R1 → transizione condizionale),
+   frontiera unica R2/R3 con anteprima hashata, osservatore per commessa,
+   pattern/Panorama, miglioramenti CRM inerti, classi di costo e flag
+   granulari (`FLAG_TARS_PATTERNS`, `FLAG_TARS_IMPROVEMENTS`,
+   `TARS_OBSERVER_MODE`). Restano: rollout per fasi dal runbook (flag
+   spenti di default), eval REALI con conferme anonimizzate, ed eventuale
+   sintesi a budget di classe. Non usare la rimozione storica come roadmap
+   del runtime corrente.
 6. Verifica del log della pulizia WhatsApp, poi nuovo onboarding coexistence
    per reimportare lo storico outbound con la controparte corretta.
 7. Osservazione del Centro Azioni in `shadow` su Railway e attivazione graduale
