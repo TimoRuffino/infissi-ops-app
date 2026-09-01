@@ -20,6 +20,7 @@ import { appRouter } from "../routers";
 import { azzeraArchivioPerTest, statisticheRun } from "./archivio";
 import { costruisciBriefing } from "./briefing";
 import { costruisciContesto } from "./contesto";
+import { getCommessaById } from "../routers/commesse";
 import { azzeraCacheTarsPerTest } from "./orchestratore";
 
 const SEDE = 99001;
@@ -154,6 +155,23 @@ describe("tars T4 — briefing deterministico", () => {
     );
     expect(mie.map(s => s.tipo)).toContain("ordine_in_ritardo");
     expect(mie.map(s => s.tipo)).toContain("conflitto_consegna");
+  });
+
+  it("una commessa archiviata non genera segnalazioni, anche con ordini in ritardo", async () => {
+    const { commessa } = await scenario();
+    // La commessa viene archiviata DOPO aver creato ordini in ritardo e in
+    // conflitto: il lavoro è concluso, il briefing deve tacere su di lei.
+    const record: any = getCommessaById(commessa.id);
+    record.stato = "archiviata";
+    record.archivedAt = new Date();
+
+    const briefing = await costruisciBriefing(
+      await costruisciContesto(contestoTrpc())
+    );
+    expect(briefing.segnalazioni).not.toBeNull();
+    expect(
+      briefing.segnalazioni!.filter(s => s.commessaId === commessa.id)
+    ).toEqual([]);
   });
 
   it("ANTI-LEAK: il briefing non contiene importi", async () => {

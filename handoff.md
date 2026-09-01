@@ -1828,6 +1828,28 @@ Eval sintetico a 16 casi con soglie CI. Dettaglio nel PRD v5.28;
 rollout: `docs/runbooks/rollout-tars.md`. Ledger di esecuzione:
 `.superpowers/sdd/2026-08-31-tars-operativo-proattivo/progress.md`.
 
+## 11-vicies ter. Tars in produzione — due cause del blocco e perimetro archiviate (01/09/2026)
+
+Tars col provider reale non aveva MAI risposto: la `prompt_cache_key` C2
+(71 caratteri) superava il limite OpenAI di 64 e ogni chiamata moriva con
+400 — provato dal container Railway e dai run degradati in `tars_run`
+(«Richiesta al provider rifiutata (400)»). Ora la chiave logica è
+digestata (`tars-<sha256·48>`, 53 caratteri) con test di regressione sul
+limite; il primo run reale riuscito è delle 08:05Z del 01/09
+(`ok | openai+governor | gpt-5.6-sol`). Secondo blocco: rinomina/fissa/
+archivia conversazione fallivano su PostgreSQL con 42P18 (parametro null
+senza tipo in `$n IS NULL`, workbench 31/08; la suite PG `archivio.pg`
+salta senza `DATABASE_URL`, CI inclusa — riprodotta su postgres:16 via
+Docker). Fix con cast `::boolean`.
+
+Perimetro commesse archiviate (segnalazione direzione): il briefing non
+genera più segnalazioni sugli ordini di commesse archiviate (stesso
+filtro dei detector del Centro Azioni), `cerca_commesse` le esclude di
+default (entrano solo chiedendo esplicitamente stato «archiviata», con
+omissione dichiarata) e il prompt v7 fissa la regola di ragionamento:
+lavoro concluso ⇒ nessuna proposta, ripristino solo su comando esplicito
+dell'utente.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

@@ -95,6 +95,18 @@ function rilevaSegnalazioni(
   const segnalazioni: SegnalazioneTars[] = [];
   for (const { ordine, fornitoreNome } of getOrdiniFornitoreDiSede(sedeId)) {
     const chiusa = ordine.stato === "ricevuto";
+    // Una commessa archiviata è lavoro concluso: nessuna segnalazione
+    // proattiva sui suoi ordini (stesso filtro dei detector del Centro
+    // Azioni; segnalazione della direzione, 01/09).
+    const commessaCollegata: any = ordine.commessaId
+      ? getCommessaById(ordine.commessaId)
+      : null;
+    if (
+      commessaCollegata &&
+      (commessaCollegata.stato === "archiviata" || commessaCollegata.archivedAt)
+    ) {
+      continue;
+    }
     if (
       !chiusa &&
       ordine.dataConsegnaPrevista &&
@@ -112,9 +124,7 @@ function rilevaSegnalazioni(
           ordine.commessaId != null && seguite.has(ordine.commessaId),
       });
     }
-    const commessa: any = ordine.commessaId
-      ? getCommessaById(ordine.commessaId)
-      : null;
+    const commessa: any = commessaCollegata;
     if (
       !chiusa &&
       commessa &&

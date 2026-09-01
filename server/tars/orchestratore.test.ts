@@ -38,6 +38,7 @@ import {
 import { descrittoreAzione } from "./azioni/registry";
 import { azzeraMemoriaPerTest, memorieValide } from "./memoria";
 import { getDocumentoRecordById } from "../routers/preventiviContratti";
+import { getCommessaById } from "../routers/commesse";
 
 const SEDE = 95001;
 const ALTRA_SEDE = 95002;
@@ -223,6 +224,40 @@ describe("tars — profili per contesto", () => {
       await contestoRun(DIREZIONE_ID, ["direzione"])
     ).map(s => s.nome);
     expect(nomi).toEqual([...nomi].sort());
+  });
+});
+
+describe("tars — cerca_commesse e archivio", () => {
+  it("le commesse archiviate restano fuori dai risultati operativi e dentro solo su richiesta esplicita", async () => {
+    process.env.FLAG_TARS = "on";
+    process.env.FLAG_TARS_READ_TOOLS = "on";
+    const attiva = await direzione().commesse.create({ cliente: "Archivio Attiva Srl" });
+    const conclusa = await direzione().commesse.create({ cliente: "Archivio Conclusa Srl" });
+    const record: any = getCommessaById(conclusa.id);
+    record.stato = "archiviata";
+    record.archivedAt = new Date();
+
+    const contesto = await contestoRun(DIREZIONE_ID, ["direzione"]);
+    const cerca = strumentiPerContesto(contesto).find(
+      s => s.nome === "cerca_commesse"
+    )!;
+    const operativo: any = await cerca.esegui(contesto, {
+      testo: "archivio",
+      limite: 20,
+    });
+    const id = operativo.dati.commesse.map((c: any) => c.id);
+    expect(id).toContain(attiva.id);
+    expect(id).not.toContain(conclusa.id);
+    expect(operativo.omissioni.join(" ")).toContain("archiviate");
+
+    const esplicito: any = await cerca.esegui(contesto, {
+      testo: "archivio",
+      stato: "archiviata",
+      limite: 20,
+    });
+    expect(esplicito.dati.commesse.map((c: any) => c.id)).toContain(
+      conclusa.id
+    );
   });
 });
 

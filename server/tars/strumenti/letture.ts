@@ -74,7 +74,7 @@ const cercaCommesse: StrumentoTars = {
   reversibile: true,
   capability: ["commessa.read"],
   descrizione:
-    "Cerca le commesse della sede per testo (codice o cliente) e/o stato. Restituisce righe operative senza importi.",
+    "Cerca le commesse OPERATIVE della sede per testo (codice o cliente) e/o stato; le archiviate sono escluse e compaiono solo chiedendo esplicitamente stato «archiviata». Restituisce righe operative senza importi.",
   schemaInput: z
     .object({
       testo: z.string().max(80).optional(),
@@ -84,8 +84,16 @@ const cercaCommesse: StrumentoTars = {
     .strict(),
   async esegui(contesto, input) {
     const filtro = (input.testo ?? "").trim().toLowerCase();
+    // Le archiviate sono lavoro concluso: entrano nei risultati SOLO su
+    // richiesta esplicita (stato = "archiviata"), mai nei quadri operativi.
+    const includiArchiviate = input.stato === "archiviata";
     const righe = (getCommesseStore() as any[])
       .filter(c => c.sedeId === contesto.sedeId)
+      .filter(
+        c =>
+          includiArchiviate ||
+          (c.stato !== "archiviata" && !c.archivedAt)
+      )
       .filter(c => !input.stato || c.stato === input.stato)
       .filter(
         c =>
@@ -113,9 +121,16 @@ const cercaCommesse: StrumentoTars = {
         riferimento: `commessa:${r.id}`,
         descrizione: `${r.codice} — ${r.cliente}`,
       })),
-      omissioni: conEconomia(contesto)
-        ? []
-        : ["importi (richiedono capability economiche)"],
+      omissioni: [
+        ...(includiArchiviate
+          ? []
+          : [
+              "Le commesse archiviate sono escluse: chiedi lo stato «archiviata» per consultare l'archivio.",
+            ]),
+        ...(conEconomia(contesto)
+          ? []
+          : ["importi (richiedono capability economiche)"]),
+      ],
       versioniEntita: {
         [`commesse-sede:${contesto.sedeId}`]:
           versioneCorrente(`commesse-sede:${contesto.sedeId}`, contesto.sedeId) ?? "-",
