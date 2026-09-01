@@ -114,6 +114,54 @@ describe("presentazione thread Tars", () => {
     expect(markup).not.toContain("dangerouslySetInnerHTML");
   });
 
+  it("dà l'avatar ai turni di Tars e non a quelli dell'utente", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsThread, {
+        turni: [
+          {
+            id: 1,
+            conversazioneId: 7,
+            ruolo: "tars",
+            contenuto: "Risposta",
+            payload: null,
+            createdAt: new Date("2026-08-31T10:00:00.000Z"),
+          },
+          {
+            id: 2,
+            conversazioneId: 7,
+            ruolo: "utente",
+            contenuto: "Domanda",
+            payload: null,
+            createdAt: new Date("2026-08-31T10:01:00.000Z"),
+          },
+        ],
+        statoAvatar: "in_lavoro",
+      })
+    );
+
+    // Testata + il solo turno di Tars: il turno utente lo distingue
+    // l'allineamento, non una seconda faccia.
+    expect(markup.match(/data-tars-avatar=/g)).toHaveLength(2);
+    expect(markup.match(/data-tars-avatar="in_lavoro"/g)).toHaveLength(1);
+    expect(markup.match(/data-tars-avatar="identita"/g)).toHaveLength(1);
+    // L'avatar non stringe il turno: resta fuori dalla bolla e non si comprime.
+    expect(markup).toContain("flex shrink-0");
+  });
+
+  it("nomina Tars nella testata, dove il titolo è la conversazione", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TarsThread, {
+        titolo: "Verifica gate COM-2026-184",
+        turni: [],
+        statoAvatar: "degradato",
+      })
+    );
+
+    expect(markup).toContain('role="img" aria-label="Tars"');
+    // Lo stato resta scritto: il colore dell'anello non è l'unico portatore.
+    expect(markup).toContain("Operatività ridotta");
+  });
+
   it("mantiene il trigger contesto fino al breakpoint del pannello persistente", () => {
     const markup = renderToStaticMarkup(
       createElement(TarsThread, {

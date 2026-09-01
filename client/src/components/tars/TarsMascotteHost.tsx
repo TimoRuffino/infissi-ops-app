@@ -14,6 +14,7 @@ import { ArrowUpRight, Loader2, Send, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { MascotteTars } from "@/components/tars/MascotteTars";
+import TarsAvatar from "@/components/tars/TarsAvatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useOperationalContext } from "@/contexts/OperationalContext";
@@ -71,8 +72,16 @@ export function TarsMascotteHost() {
     <div className="pointer-events-none fixed right-4 bottom-4 z-40 flex items-end gap-3">
       {aperto ? (
         <div className="pointer-events-auto mb-2 w-[22rem] rounded-xl border border-border bg-card shadow-lg">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-sm font-medium">Chiedi a Tars</span>
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            {/* La mascotte animata sta fuori dal pannello e sparisce dietro
+                di esso: l'intestazione tiene ferma l'identità di chi
+                risponde. Decorativa, il titolo dice già «Tars». */}
+            <span className="flex min-w-0 items-center gap-2">
+              <TarsAvatar size={28} />
+              <span className="truncate text-sm font-medium">
+                Chiedi a Tars
+              </span>
+            </span>
             <Button
               variant="ghost"
               size="icon"

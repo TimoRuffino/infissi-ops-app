@@ -295,7 +295,13 @@ function EmptyStateWorkbench({
   return (
     <div className="w-full space-y-5">
       <div>
-        <TarsAvatar stato="disponibile" size={48} className="mx-auto" />
+        {/* Qui accanto non c'è scritto «Tars»: l'avatar porta il nome. */}
+        <TarsAvatar
+          stato="disponibile"
+          size={48}
+          nomeAccessibile="Tars"
+          className="mx-auto"
+        />
         <h2 className="mt-3 text-sm font-bold text-text-1">
           Postazione operativa pronta
         </h2>

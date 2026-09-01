@@ -8,6 +8,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import { etichettaStatoTars } from "@/lib/avatarTars";
 import type { RisolutoreRiferimenti } from "@/lib/riferimentiTars";
 import type { TurnoTarsVisualizzato } from "@/lib/tarsView";
 import { cn } from "@/lib/utils";
@@ -208,13 +209,6 @@ function etichettaGiornoTurno(value: Date | string, ora = new Date()): string {
     year: "numeric",
   }).format(new Date(value));
 }
-
-const etichettaStatoAvatar: Record<StatoTarsAvatar, string> = {
-  disponibile: "Disponibile",
-  in_lavoro: "In lavorazione",
-  degradato: "Operatività ridotta",
-  spento: "Disattivato",
-};
 
 function EvidenzeTurno({
   evidenze,
@@ -457,13 +451,16 @@ export default function TarsThread({
             <ArrowLeft className="size-5" />
           </Button>
         )}
-        <TarsAvatar stato={statoAvatar} size={40} />
+        {/* Il titolo qui è quello della conversazione, non «Tars»: l'avatar
+            resta l'unica cosa che nomina l'agente, quindi ha un nome
+            accessibile. Lo stato lo dice la riga sotto. */}
+        <TarsAvatar stato={statoAvatar} size={40} nomeAccessibile="Tars" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold text-text-1">{titolo}</h1>
           <p className="truncate text-xs text-text-3">
             {archiviata
               ? "Archiviata · sola lettura"
-              : etichettaStatoAvatar[statoAvatar]}
+              : etichettaStatoTars(statoAvatar)}
           </p>
         </div>
         {onOpenContext && (
@@ -530,6 +527,7 @@ export default function TarsThread({
                   <TarsAvatar
                     stato={statoAvatar}
                     size={48}
+                    nomeAccessibile="Tars"
                     className="mx-auto"
                   />
                   <p className="mt-4 text-sm font-semibold">
@@ -572,10 +570,18 @@ export default function TarsThread({
                     )}
                     <article
                       className={cn(
-                        "flex min-w-0",
+                        "flex min-w-0 items-start gap-2",
                         utente ? "justify-end" : "justify-start"
                       )}
                     >
+                      {/* Solo Tars ha l'avatar: il turno dell'utente lo
+                          distingue già l'allineamento, e una seconda faccia
+                          per riga raddoppierebbe il rumore. Niente stato qui:
+                          descrive l'agente adesso, non una risposta scritta
+                          mezz'ora fa. */}
+                      {!utente && (
+                        <TarsAvatar size={32} className="mt-0.5 sm:mt-1" />
+                      )}
                       <div
                         className={cn(
                           "min-w-0 max-w-[88%] rounded-md border px-3 py-2.5 text-sm shadow-xs sm:max-w-[76%]",

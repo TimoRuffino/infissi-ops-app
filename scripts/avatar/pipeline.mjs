@@ -182,13 +182,14 @@ for (const file of readdirSync(srcDir).filter((f) => f.endsWith('.png')).sort())
   const img = decodePng(join(srcDir, file));
   const bb = alphaBBox(img);
 
-  // Il quadrato è centrato sul volto, non ancorato alla cima della testa:
-  // così il ritaglio tondo inquadra la faccia invece di tagliarla in fronte.
+  // Figura intera dentro il quadrato: la mascotte va vista tutta, non solo
+  // in volto. Il margine del 20% serve alla maschera tonda dell'avatar, che
+  // altrimenti taglierebbe i lati della testa (larga quanto tutto il corpo)
+  // e le antenne. L'euristica del volto resta sotto per i soggetti umani.
   const head = headBand(img, bb);
-  const side = Math.round(head.width * 1.72);
-  const faceCy = bb.y0 + Math.round(head.width * 0.92);
-  const left = head.cx - Math.round(side / 2);
-  const top = faceCy - Math.round(side / 2);
+  const side = Math.round(Math.max(bb.w, bb.h) * 1.2);
+  const left = Math.round((bb.x0 + bb.x1) / 2) - Math.round(side / 2);
+  const top = Math.round((bb.y0 + bb.y1) / 2) - Math.round(side / 2);
 
   const sq = crop(img, left, top, side);
   for (const size of [512, 256]) {
