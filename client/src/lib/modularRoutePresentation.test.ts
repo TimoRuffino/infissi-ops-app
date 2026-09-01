@@ -95,7 +95,13 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/deliveryState\(/);
     expect(card).toMatch(/deliveryState\(/);
     expect(card).toMatch(/deliveryStateCopy\(/);
-    // Una coda filtrata a vuoto non è "tutto a posto".
+    // A vista libera resta visibile anche la commessa eleggibile senza
+    // consegne: è il buco da notare e l'ingresso per registrare la prima.
+    // Con ricerca, fornitore o stato attivi resta fuori.
+    expect(source).toMatch(/if \(!filtriAttivi\)/);
+    expect(card).toMatch(/Nessuna consegna registrata/);
+    expect(card).toMatch(/onAddConsegna\(commessa\.id\)/);
+    // Una vista filtrata a vuoto non è "tutto a posto".
     expect(source).toMatch(/Nessuna consegna corrisponde ai filtri correnti/);
     // "Segna ricevuto" scrive esattamente id + arrivato, nient'altro.
     expect(source).toMatch(/\{ id, arrivato \}/);

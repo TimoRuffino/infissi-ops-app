@@ -1,4 +1,4 @@
-import { CalendarClock, Factory, MapPin, Package } from "lucide-react";
+import { CalendarClock, Factory, MapPin, Package, Plus } from "lucide-react";
 
 import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,8 @@ export type CommessaConsegneCardProps = {
   /** Consegna con una mutation in volo: evita il doppio invio. */
   pendingId?: number | null;
   onOpenCommessa?(id: number): void;
+  /** Ingresso al form di aggiunta già esistente: la scheda non crea nulla. */
+  onAddConsegna?(id: number): void;
   onToggleArrivato(id: number, arrivato: boolean): void;
 };
 
@@ -107,6 +109,7 @@ export default function CommessaConsegneCard({
   today,
   pendingId = null,
   onOpenCommessa,
+  onAddConsegna,
   onToggleArrivato,
 }: CommessaConsegneCardProps) {
   const titoloId = `consegne-commessa-${commessaId}`;
@@ -164,17 +167,21 @@ export default function CommessaConsegneCard({
         )}
       </header>
 
-      <p className="min-w-0 text-sm text-text-2">
-        <span className="tabular-nums">
-          {conteggio(sintesi.totale, "consegna", "consegne")}
-        </span>
-        <span className="text-text-3"> · </span>
-        <span className="tabular-nums">
-          {conteggio(sintesi.ricevute, "ricevuta", "ricevute")}
-        </span>
-        <span className="text-text-3"> · </span>
-        <span className="tabular-nums">{sintesi.inRitardo} in ritardo</span>
-      </p>
+      {/* Con zero consegne i tre contatori direbbero solo «0 · 0 · 0»: la
+          riga sotto lo dice meglio, e in parole. */}
+      {sintesi.totale > 0 ? (
+        <p className="min-w-0 text-sm text-text-2">
+          <span className="tabular-nums">
+            {conteggio(sintesi.totale, "consegna", "consegne")}
+          </span>
+          <span className="text-text-3"> · </span>
+          <span className="tabular-nums">
+            {conteggio(sintesi.ricevute, "ricevuta", "ricevute")}
+          </span>
+          <span className="text-text-3"> · </span>
+          <span className="tabular-nums">{sintesi.inRitardo} in ritardo</span>
+        </p>
+      ) : null}
 
       {nascoste > 0 ? (
         <p className="min-w-0 text-xs text-text-3">
@@ -183,84 +190,103 @@ export default function CommessaConsegneCard({
         </p>
       ) : null}
 
-      <ul
-        aria-label={
-          commessa
-            ? `Consegne di ${etichetta}`
-            : "Consegne della commessa non caricata"
-        }
-        className="-mx-3 -mb-3 min-w-0 divide-y divide-border-soft border-t border-border-soft sm:-mx-4 sm:-mb-4"
-      >
-        {consegne.map(item => {
-          const stato = deliveryState({
-            arrivato: item.arrivato,
-            dataConsegna: item.dataConsegna,
-            today,
-          });
-          const inCorso = pendingId === item.id;
-          return (
-            <li key={item.id} className="min-w-0 px-3 py-2.5 sm:px-4">
-              <div className="flex min-w-0 items-start justify-between gap-2">
-                <p className="flex min-w-0 flex-1 items-start gap-1.5 text-sm font-medium text-text-1">
-                  <Package
-                    className="mt-0.5 h-4 w-4 shrink-0 text-text-3"
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 break-words">
-                    {item.nome}
-                    <span className="text-text-3"> · Q.tà </span>
-                    <span className="tabular-nums">{item.quantita}</span>
-                  </span>
-                </p>
-                <ConsegnaStatoChip stato={stato} />
-              </div>
+      {consegne.length === 0 ? (
+        <div className="-mx-3 -mb-3 min-w-0 border-t border-border-soft px-3 py-2.5 sm:-mx-4 sm:-mb-4 sm:px-4">
+          <p className="text-sm text-text-3">Nessuna consegna registrata</p>
+          {commessa && onAddConsegna ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 min-h-11"
+              onClick={() => onAddConsegna(commessa.id)}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Aggiungi consegna
+            </Button>
+          ) : null}
+        </div>
+      ) : (
+        <ul
+          aria-label={
+            commessa
+              ? `Consegne di ${etichetta}`
+              : "Consegne della commessa non caricata"
+          }
+          className="-mx-3 -mb-3 min-w-0 divide-y divide-border-soft border-t border-border-soft sm:-mx-4 sm:-mb-4"
+        >
+          {consegne.map(item => {
+            const stato = deliveryState({
+              arrivato: item.arrivato,
+              dataConsegna: item.dataConsegna,
+              today,
+            });
+            const inCorso = pendingId === item.id;
+            return (
+              <li key={item.id} className="min-w-0 px-3 py-2.5 sm:px-4">
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <p className="flex min-w-0 flex-1 items-start gap-1.5 text-sm font-medium text-text-1">
+                    <Package
+                      className="mt-0.5 h-4 w-4 shrink-0 text-text-3"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 break-words">
+                      {item.nome}
+                      <span className="text-text-3"> · Q.tà </span>
+                      <span className="tabular-nums">{item.quantita}</span>
+                    </span>
+                  </p>
+                  <ConsegnaStatoChip stato={stato} />
+                </div>
 
-              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
-                  {/* Senza data non si ripete "Data da definire": lo dice
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                  <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
+                    {/* Senza data non si ripete "Data da definire": lo dice
                       già lo stato testuale accanto al nome. */}
-                  {item.dataConsegna ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <CalendarClock
-                        className="h-3.5 w-3.5 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span className="tabular-nums">
-                        {etichettaConsegna(item.dataConsegna)}
+                    {item.dataConsegna ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarClock
+                          className="h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="tabular-nums">
+                          {etichettaConsegna(item.dataConsegna)}
+                        </span>
                       </span>
-                    </span>
-                  ) : null}
-                  {item.fornitore ? (
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <Factory
-                        className="h-3.5 w-3.5 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 truncate">{item.fornitore}</span>
-                    </span>
-                  ) : null}
-                  {item.numeroOrdine ? (
-                    <span className="codice-mono min-w-0 truncate text-text-3">
-                      Ordine {item.numeroOrdine}
-                    </span>
-                  ) : null}
-                </p>
+                    ) : null}
+                    {item.fornitore ? (
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <Factory
+                          className="h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate">
+                          {item.fornitore}
+                        </span>
+                      </span>
+                    ) : null}
+                    {item.numeroOrdine ? (
+                      <span className="codice-mono min-w-0 truncate text-text-3">
+                        Ordine {item.numeroOrdine}
+                      </span>
+                    ) : null}
+                  </p>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto min-h-11 shrink-0"
-                  disabled={inCorso}
-                  onClick={() => onToggleArrivato(item.id, !item.arrivato)}
-                >
-                  {item.arrivato ? "Riapri consegna" : "Segna ricevuto"}
-                </Button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto min-h-11 shrink-0"
+                    disabled={inCorso}
+                    onClick={() => onToggleArrivato(item.id, !item.arrivato)}
+                  >
+                    {item.arrivato ? "Riapri consegna" : "Segna ricevuto"}
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </article>
   );
 }

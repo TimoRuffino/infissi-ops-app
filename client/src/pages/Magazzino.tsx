@@ -105,6 +105,10 @@ const ORDINE_STATO: Record<DeliveryState, number> = {
   received: 4,
 };
 
+// Le schede senza consegne registrate chiudono la griglia: non hanno una
+// consegna da cui ricavare urgenza, e non devono coprire quelle che ce l'hanno.
+const ORDINE_SENZA_CONSEGNE = 5;
+
 const emptyForm = {
   nome: "",
   quantita: "1",
@@ -211,6 +215,20 @@ export default function Magazzino() {
 
   const today = toDateStr(new Date());
 
+  // Commesse che possiamo proporre come destinazione: offerta, non permesso.
+  const eligibili = useMemo(
+    () =>
+      (commesse.data ?? [])
+        .filter(isEligible)
+        .sort((a: any, b: any) =>
+          String(a.codice ?? "").localeCompare(String(b.codice ?? ""))
+        ),
+    [commesse.data]
+  );
+
+  const filtriAttivi =
+    search.trim() !== "" || filtro !== "tutte" || fornFiltro !== "tutti";
+
   // La coda: una riga per consegna, filtrata e ordinata solo con dati già letti.
   const righe = useMemo<RigaConsegna[]>(() => {
     const q = search.trim().toLowerCase();
@@ -305,8 +323,29 @@ export default function Magazzino() {
       }
       gruppo.consegne.push(consegna);
     }
+
+    // A vista libera restano visibili anche le commesse eleggibili che non
+    // hanno ancora nessuna consegna registrata: una commessa in produzione con
+    // niente ordinato è il buco da notare, non un vuoto da nascondere, ed è da
+    // qui che si registra la prima consegna. Con ricerca, fornitore o stato
+    // attivi restano fuori: non corrispondono a nulla.
+    if (!filtriAttivi) {
+      for (const c of eligibili) {
+        if (map.has(c.id)) continue;
+        map.set(c.id, {
+          commessaId: c.id,
+          commessa: c,
+          consegne: [],
+          sintesi: { totale: 0, ricevute: 0, inRitardo: 0 },
+          ordine: ORDINE_SENZA_CONSEGNE,
+          dataUtile: "9999-12-31",
+        });
+      }
+    }
+
     // Stesso criterio della coda: prima le commesse con la consegna più
-    // urgente, poi la data, poi il codice. Nessun dato nuovo.
+    // urgente, poi la data, poi il codice; in fondo quelle senza consegne.
+    // Nessun dato nuovo e nessuna dipendenza dall'ordine di arrivo.
     return Array.from(map.values()).sort(
       (a, b) =>
         a.ordine - b.ordine ||
@@ -316,18 +355,7 @@ export default function Magazzino() {
         ) ||
         a.commessaId - b.commessaId
     );
-  }, [righe, byCommessa, today]);
-
-  // Commesse che possiamo proporre come destinazione: offerta, non permesso.
-  const eligibili = useMemo(
-    () =>
-      (commesse.data ?? [])
-        .filter(isEligible)
-        .sort((a: any, b: any) =>
-          String(a.codice ?? "").localeCompare(String(b.codice ?? ""))
-        ),
-    [commesse.data]
-  );
+  }, [righe, byCommessa, today, filtriAttivi, eligibili]);
 
   const totProdotti = prodotti.data?.length ?? 0;
   const totArrivati = (prodotti.data ?? []).filter(
@@ -380,6 +408,14 @@ export default function Magazzino() {
     create.reset();
   }
 
+  // Ingresso al form di aggiunta: la stessa sequenza del picker, dalla scheda
+  // della commessa. Il payload di `magazzino.create` non cambia, e la scelta
+  // resta un'offerta: l'eleggibilità la decide il server.
+  function apriForm(commessaId: number) {
+    apriDettaglio(commessaId);
+    setFormFor(commessaId);
+  }
+
   function chiudiDettaglio() {
     setDetailFor(null);
     setFormFor(null);
@@ -401,11 +437,12 @@ export default function Magazzino() {
     });
   }
 
-  const filtriAttivi =
-    search.trim() !== "" || filtro !== "tutte" || fornFiltro !== "tutti";
-
   // Quattro stati distinti: caricamento, errore con retry, sede senza prodotti
-  // e coda filtrata vuota. Una coda vuota non è mai "tutto a posto".
+  // e vista filtrata vuota. Una vista vuota non è mai "tutto a posto".
+  //
+  // «Nessun prodotto in questa sede» copre la superficie solo quando non c'è
+  // davvero nulla da mostrare: se restano le schede delle commesse eleggibili
+  // senza consegne, dicono la stessa cosa e in più dicono quali sono.
   const statoSuperficie: StatePanelProps | undefined = prodotti.isPending
     ? {
         kind: "loading",
@@ -430,7 +467,7 @@ export default function Magazzino() {
             </Button>
           ),
         }
-      : totProdotti === 0
+      : totProdotti === 0 && gruppi.length === 0
         ? {
             kind: "empty",
             title: "Nessun prodotto a magazzino in questa sede",
@@ -448,7 +485,7 @@ export default function Magazzino() {
                 </Button>
               ) : undefined,
           }
-        : righe.length === 0
+        : gruppi.length === 0
           ? {
               kind: "empty",
               title: "Nessuna consegna corrisponde ai filtri correnti",
@@ -641,6 +678,7 @@ export default function Magazzino() {
                   today={today}
                   pendingId={consegnaInCorso}
                   onOpenCommessa={apriDettaglio}
+                  onAddConsegna={apriForm}
                   onToggleArrivato={segnaArrivato}
                 />
               ))}
@@ -690,8 +728,7 @@ export default function Magazzino() {
                   const id = parseInt(value);
                   if (!id) return;
                   setPickerOpen(false);
-                  apriDettaglio(id);
-                  setFormFor(id);
+                  apriForm(id);
                 }}
                 placeholder="Seleziona commessa…"
                 searchPlaceholder="Cerca codice o cliente…"
