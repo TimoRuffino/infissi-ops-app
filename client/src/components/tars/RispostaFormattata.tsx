@@ -22,7 +22,11 @@ const CLASSI_TITOLO: Record<1 | 2 | 3, string> = {
   3: "text-[13px] font-bold uppercase tracking-[0.04em] text-text-1",
 };
 
-function Inline({ segmenti }: { segmenti: readonly SegmentoInline[] }): ReactNode {
+function Inline({
+  segmenti,
+}: {
+  segmenti: readonly SegmentoInline[];
+}): ReactNode {
   return segmenti.map((segmento, indice) => {
     const chiave = `${segmento.tipo}-${indice}`;
     switch (segmento.tipo) {
@@ -100,7 +104,9 @@ function Blocco({ blocco }: { blocco: BloccoOperativo }): ReactNode {
     }
 
     case "separatore":
-      return <hr className="mt-3 border-0 border-t border-border-soft first:mt-0" />;
+      return (
+        <hr className="mt-3 border-0 border-t border-border-soft first:mt-0" />
+      );
   }
 }
 
@@ -118,7 +124,7 @@ export default function RispostaFormattata({
     return (
       <p
         className={cn(
-          "whitespace-pre-wrap break-words leading-6 text-text-2",
+          "whitespace-pre-wrap break-words leading-6 text-text-1",
           className
         )}
       >
@@ -128,7 +134,7 @@ export default function RispostaFormattata({
   }
 
   return (
-    <div className={cn("min-w-0 leading-6 text-text-2", className)}>
+    <div className={cn("min-w-0 leading-6 text-text-1", className)}>
       {blocchi.map((blocco, indice) => (
         <Blocco key={indice} blocco={blocco} />
       ))}
