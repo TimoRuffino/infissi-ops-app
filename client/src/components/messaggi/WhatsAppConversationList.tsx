@@ -61,7 +61,8 @@ export default function WhatsAppConversationList({
   onPreviousPage: () => void;
   onNextPage: () => void;
 }) {
-  const countLabel = loading || error ? null : `${conversations.length} in pagina`;
+  const countLabel =
+    loading || error ? null : `${conversations.length} in pagina`;
 
   return (
     <section
@@ -87,12 +88,17 @@ export default function WhatsAppConversationList({
             Conversazioni
           </span>
           {fetching && !loading ? (
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3" role="status">
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 text-xs text-text-3"
+              role="status"
+            >
               <Loader2 className="size-3.5 motion-safe:animate-spin" />
               Aggiornamento
             </span>
           ) : countLabel ? (
-            <span className="shrink-0 text-xs tabular-nums text-text-3">{countLabel}</span>
+            <span className="shrink-0 text-xs tabular-nums text-text-3">
+              {countLabel}
+            </span>
           ) : null}
         </div>
       </div>
@@ -100,7 +106,10 @@ export default function WhatsAppConversationList({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           Array.from({ length: 6 }, (_, index) => (
-            <div key={index} className="flex min-h-[88px] gap-3 border-b border-border-soft px-3 py-3">
+            <div
+              key={index}
+              className="flex min-h-[88px] gap-3 border-b border-border-soft px-3 py-3"
+            >
               <Skeleton className="size-10 shrink-0 rounded-md" />
               <div className="min-w-0 flex-1 space-y-2">
                 <Skeleton className="h-4 w-3/5" />
@@ -117,7 +126,11 @@ export default function WhatsAppConversationList({
               title="Conversazioni non disponibili"
               description={error}
               action={
-                <Button variant="outline" className="min-h-11" onClick={onRetry}>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={onRetry}
+                >
                   <RefreshCw className="size-4" aria-hidden="true" />
                   Riprova
                 </Button>
@@ -147,7 +160,7 @@ export default function WhatsAppConversationList({
                 onClick={() => onOpen(conversation)}
                 aria-current={selected ? "true" : undefined}
                 className={cn(
-                  "relative flex min-h-[88px] w-full min-w-0 items-start gap-3 border-b border-border-soft px-3 py-3 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "relative flex min-h-[92px] w-full min-w-0 items-start gap-3 border-b border-border-soft px-3 py-3 text-left transition-colors duration-fast focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   selected ? "bg-accent" : "bg-surface hover:bg-surface-2"
                 )}
               >
@@ -162,22 +175,30 @@ export default function WhatsAppConversationList({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-text-1">
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-bold leading-6 text-text-1">
                       {conversation.nomeProfilo ?? conversation.controparte}
                     </span>
-                    <time className="shrink-0 text-[11px] tabular-nums text-text-3">
+                    <time className="shrink-0 text-xs tabular-nums text-text-3">
                       {shortDate(conversation.ultimoMessaggioAt)}
                     </time>
                   </div>
-                  <p className="mt-1 line-clamp-1 text-xs leading-5 text-text-2">
-                    {conversation.direzioneUltimoMessaggio === "out" ? "Tu: " : ""}
+                  <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-text-2">
+                    {conversation.direzioneUltimoMessaggio === "out"
+                      ? "Tu: "
+                      : ""}
                     {conversation.ultimoMessaggio || "Media o allegato"}
                   </p>
-                  <div className="mt-1 flex min-h-5 items-center gap-2 text-[11px] text-text-3">
-                    <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+                  <div className="mt-1.5 flex min-h-5 items-center gap-2 text-[11px] text-text-3">
+                    <MessageCircle
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="truncate">{conversation.controparte}</span>
                     {conversation.clienteId != null && (
-                      <Link2 className="ml-auto size-3.5 shrink-0 text-success" aria-label="Cliente collegato" />
+                      <Link2
+                        className="ml-auto size-3.5 shrink-0 text-success"
+                        aria-label="Cliente collegato"
+                      />
                     )}
                     {conversation.nonLetti > 0 && (
                       <span className="ml-auto grid min-w-5 place-items-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">
@@ -194,11 +215,29 @@ export default function WhatsAppConversationList({
 
       {!loading && !error && (hasPreviousPage || hasNextPage) && (
         <div className="flex shrink-0 items-center justify-between border-t border-border-soft px-3 py-1.5">
-          <Button size="icon" variant="ghost" className="size-11" disabled={!hasPreviousPage || fetching} onClick={onPreviousPage} aria-label="Pagina precedente" title="Pagina precedente">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-11"
+            disabled={!hasPreviousPage || fetching}
+            onClick={onPreviousPage}
+            aria-label="Pagina precedente"
+            title="Pagina precedente"
+          >
             <ChevronLeft className="size-4" />
           </Button>
-          <span className="text-xs tabular-nums text-text-3">Pagina {page + 1}</span>
-          <Button size="icon" variant="ghost" className="size-11" disabled={!hasNextPage || fetching} onClick={onNextPage} aria-label="Pagina successiva" title="Pagina successiva">
+          <span className="text-xs tabular-nums text-text-3">
+            Pagina {page + 1}
+          </span>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-11"
+            disabled={!hasNextPage || fetching}
+            onClick={onNextPage}
+            aria-label="Pagina successiva"
+            title="Pagina successiva"
+          >
             <ChevronRight className="size-4" />
           </Button>
         </div>

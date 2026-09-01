@@ -164,6 +164,10 @@ export default function WhatsAppPage() {
     window.setTimeout(() => setSelectedKey(selectedFromLocation()), 0);
   };
   const showList = !mobile || selectedKey == null;
+  // Sul telefono la conversazione aperta si prende anche la testata di
+  // pagina: il titolo resta nella barra della shell e il ritorno all'elenco
+  // e la freccia del thread. Sono ~130px di cronologia in piu.
+  const headerVisible = showList || !mobile;
   // La terza traccia esiste solo quando c'è davvero un inspector da metterci:
   // senza conversazione aperta il workspace resta a due colonne piene.
   const inspectorInline = selectedConversation != null && wide;
@@ -185,51 +189,62 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[620px] min-w-0 flex-col gap-3 overflow-hidden">
-      <PageHeader
-        variant="workbench"
-        eyebrow="Messaggistica"
-        title={
-          <span className="inline-flex flex-wrap items-center gap-2">
-            WhatsApp
-            {readOnlyBadge}
-          </span>
-        }
-        description="Cronologia delle conversazioni importate: si legge e si collega, non si risponde da qui."
-        busy={conversations.isFetching}
-        metadata={
-          <span>
-            {conversations.isLoading
-              ? "Conversazioni in caricamento"
-              : conversations.isError
-                ? "Elenco non disponibile"
-                : `${conversations.data?.length ?? 0} conversazioni in pagina`}
-          </span>
-        }
-        primaryAction={
-          <Button
-            variant="outline"
-            className="min-h-11"
-            disabled={conversations.isFetching}
-            onClick={() => conversations.refetch()}
-          >
-            {conversations.isFetching ? (
-              <Loader2 className="size-4 motion-safe:animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Aggiorna
-          </Button>
-        }
-      />
+      {headerVisible && (
+        <PageHeader
+          variant={mobile ? "compact" : "workbench"}
+          eyebrow={mobile ? undefined : "Messaggistica"}
+          title={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              WhatsApp
+              {readOnlyBadge}
+            </span>
+          }
+          description={
+            mobile
+              ? undefined
+              : "Cronologia delle conversazioni importate: si legge e si collega, non si risponde da qui."
+          }
+          busy={conversations.isFetching}
+          metadata={
+            <span>
+              {conversations.isLoading
+                ? "Conversazioni in caricamento"
+                : conversations.isError
+                  ? "Elenco non disponibile"
+                  : `${conversations.data?.length ?? 0} conversazioni in pagina`}
+            </span>
+          }
+          primaryAction={
+            <Button
+              variant="outline"
+              className="min-h-12 min-w-12 sm:min-h-11 sm:min-w-11"
+              disabled={conversations.isFetching}
+              onClick={() => conversations.refetch()}
+              aria-label="Aggiorna le conversazioni"
+              title="Aggiorna le conversazioni"
+            >
+              {conversations.isFetching ? (
+                <Loader2 className="size-4 motion-safe:animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              <span className="hidden sm:inline">Aggiorna</span>
+            </Button>
+          }
+        />
+      )}
 
       <section
         aria-label="Workspace WhatsApp"
         className={cn(
           "grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface",
-          showList && "lg:grid-cols-[minmax(17rem,0.9fr)_minmax(0,1.7fr)]",
+          // L'elenco ha una larghezza dichiarata, non una frazione: tutto
+          // lo spazio che avanza va alla conversazione, che e cio che si legge.
+          showList &&
+            "lg:grid-cols-[19rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]",
           showList &&
             inspectorInline &&
-            "xl:grid-cols-[minmax(17rem,0.85fr)_minmax(0,1.6fr)_minmax(17rem,0.85fr)]"
+            "xl:grid-cols-[20rem_minmax(0,1fr)_19rem]"
         )}
       >
         {showList && (

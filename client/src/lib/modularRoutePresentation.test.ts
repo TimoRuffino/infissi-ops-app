@@ -256,13 +256,26 @@ describe("route migrate alla grammatica Modular Control", () => {
 
     expect(source).toMatch(/import PageHeader/);
     expect(source).toMatch(/<PageHeader/);
-    expect(source).toMatch(/variant="workbench"/);
+    expect(source).toMatch(/variant=\{mobile \? "compact" : "workbench"\}/);
     expect(source).toMatch(/aria-label="Workspace WhatsApp"/);
     // Tre pane solo da 1280px, un pane solo sotto i 1024px.
     expect(source).toMatch(/TRI_PANE_QUERY = "\(min-width: 1280px\)"/);
     expect(source).toMatch(/SINGLE_PANE_QUERY = "\(max-width: 1023px\)"/);
+    // L'elenco ha una larghezza dichiarata: il resto va alla conversazione.
+    expect(source).toMatch(
+      /lg:grid-cols-\[19rem_minmax\(0,1fr\)\] xl:grid-cols-\[20rem_minmax\(0,1fr\)\]/
+    );
+    // Sul telefono la conversazione aperta si prende anche la testata.
+    expect(source).toMatch(/const headerVisible = showList \|\| !mobile;/);
     // Sotto la soglia il contesto è uno sheet, non una terza colonna schiacciata.
     expect(source).toMatch(/<Sheet /);
+    // Le bolle hanno una misura di riga: mai a tutta larghezza sul desktop.
+    expect(thread).toMatch(/sm:max-w-\[min\(78%,38rem\)\]/);
+    // Il testo della conversazione si legge come quello di un'email.
+    expect(thread).toMatch(/text-base leading-\[1\.6\]/);
+    expect(thread).toMatch(/\[overflow-wrap:anywhere\]/);
+    // Una cronologia lunga si legge per giornate.
+    expect(thread).toMatch(/dayLabel\(/);
     // Il canale resta di sola lettura: nessuna superficie di composizione.
     expect(source).toMatch(/Sola lettura/);
     expect(thread).toMatch(/Sola lettura/);
