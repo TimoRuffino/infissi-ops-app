@@ -18,7 +18,7 @@ import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from 
 import { tarsAttivo } from "../platform/interruttori";
 import { ErroreBudget, messaggioPerLimite } from "./costi/governor";
 import { contestoMemorie, fingerprintMemorie } from "./memoria";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v7";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v8";
 import {
   ErroreProvider,
   type MessaggioTars,
