@@ -1824,7 +1824,7 @@ inerti con feedback che muove solo cooldown/ranking
 `TARS_BUDGET_<CLASSE>_USD`, background a 0 di default) e diagnosi
 dell'ultimo run degradato in `tars.stato` (direzione-only — è il punto
 dove leggere il motivo del «modello non è al momento disponibile»).
-Eval sintetico a 17 casi con soglie CI. Dettaglio nel PRD v5.28;
+Eval sintetico a 16 casi con soglie CI. Dettaglio nel PRD v5.28;
 rollout: `docs/runbooks/rollout-tars.md`. Ledger di esecuzione:
 `.superpowers/sdd/2026-08-31-tars-operativo-proattivo/progress.md`.
 

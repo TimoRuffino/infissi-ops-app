@@ -886,7 +886,12 @@ if (eseguitoDirettamente && process.env.VITEST !== "true") {
     );
     process.exit(1);
   }
-  process.env.NODE_ENV ??= "development";
+  // L'eval gira PER DEFINIZIONE su store in memoria: la modalità test
+  // abilita gli stessi fallback e ledger volatili della suite (R1 compresi),
+  // mentre la guardia su DATABASE_URL qui sopra resta il confine coi dati
+  // veri. Senza, i tool R1 spariscono dal profilo (policy: R1 richiede il
+  // ledger PostgreSQL fuori dai test) e sei casi fallivano dal 31/08.
+  process.env.NODE_ENV = "test";
   eseguiEvalTars()
     .then(async r => {
       const { writeFile } = await import("node:fs/promises");
