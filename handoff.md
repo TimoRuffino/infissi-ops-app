@@ -1932,6 +1932,19 @@ Non fatto in questo taglio (piano §4, fase successiva): analisi azienda
 su dati reali e sintesi giornaliera; Centro Azioni come pagina; UI di
 osservazioni/panorama/miglioramenti.
 
+Stesso giorno, dalla chat della direzione («crea un ticket per bertoli»
+→ «Quale intendi…» → «096» ripetuto cinque volte): la risposta a una
+domanda di chiarimento passava dal resolver generico, che riconosce solo
+codici completi. Ora `conversazione/chiarimento.ts` legge la risposta
+CONTRO i candidati (progressivo «096», «la commessa 096», codice,
+ordinale «la seconda», nome «Bertoli») e dopo due risposte non
+riconosciute la domanda decade (il messaggio va al modello). Bug latente
+corretto: con più di quattro candidati il contesto persistito veniva
+scartato alla rilettura (schema max 4) e la domanda spariva — ora si
+salvano al massimo quattro. Aggiunto lo strumento R1 `crea_ticket`
+(31 azioni a registro): fino ad allora Tars rispondeva «non ho uno
+strumento per creare ticket».
+
 ## 11-vicies sexies. Cliente e prima commessa in un passo (02/09/2026)
 
 Richiesta direzione: il dialog «Nuovo cliente» chiude con «Crea cliente e
@@ -1950,7 +1963,6 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 «Crea solo il cliente»; al successo si apre la commessa nuova. Senza la
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
-
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

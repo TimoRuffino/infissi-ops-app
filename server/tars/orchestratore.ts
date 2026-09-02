@@ -48,6 +48,10 @@ import {
 import { risolviCommessa } from "./conversazione/resolver";
 import { domandaChiarificazioneCommessa } from "./conversazione/types";
 import {
+  domandaChiarificazioneRipetuta,
+  risolviRispostaChiarificazione,
+} from "./conversazione/chiarimento";
+import {
   analizzaRichiestaTransizione,
   concretizzaRichiestaTransizione,
 } from "./strumenti/commesse";
@@ -513,19 +517,61 @@ export async function eseguiRun(input: {
 
   const pendente = contestoConversazione.chiarificazionePendente;
   if (pendente) {
+    // La risposta a una domanda chiusa si legge CONTRO i candidati
+    // («096», «la seconda», «Bertoli»), non col resolver generico —
+    // che riconosce solo codici completi e ripeteva la domanda a vuoto.
+    const risposta = risolviRispostaChiarificazione(
+      input.messaggio,
+      pendente.candidati
+    );
     const ammessa = risoluzione.stato === "unico" &&
       pendente.candidati.some(
         candidato => candidato.commessaId === risoluzione.candidato.commessaId
       );
-    if (ammessa && risoluzione.stato === "unico") {
+    if (risposta.stato === "scelto") {
+      await selezionaCommessa(risposta.candidato.commessaId);
+    } else if (ammessa && risoluzione.stato === "unico") {
       await selezionaCommessa(risoluzione.candidato.commessaId);
     } else {
-      const domanda = domandaChiarificazioneCommessa(pendente.candidati);
-      return rispostaResolver(
-        domanda,
-        derivaStatoOperativo({ azioni: [], chiarificazione: true }),
-        { chiarificazioni: 1 }
-      );
+      // Mai una commessa FUORI dai candidati mentre la domanda è aperta
+      // (invariante provata in context.test): la risposta o è una delle
+      // opzioni, o la domanda si ripete e poi decade.
+      const tentativi = (pendente.tentativi ?? 0) + 1;
+      if (tentativi >= 2) {
+        // Valvola di sicurezza: due domande senza risposta riconosciuta
+        // bastano. La domanda decade e il messaggio arriva al modello,
+        // che può chiedere con parole sue o procedere senza commessa.
+        contestoConversazione = await salvaContestoConversazione({
+          conversazioneId,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+          versioneAttesa: contestoConversazione.versione,
+          patch: { chiarificazionePendente: null },
+        });
+      } else {
+        contestoConversazione = await salvaContestoConversazione({
+          conversazioneId,
+          sedeId: contesto.sedeId,
+          utenteId: contesto.utenteId,
+          versioneAttesa: contestoConversazione.versione,
+          patch: {
+            chiarificazionePendente: {
+              tipo: "commessa",
+              candidati: pendente.candidati,
+              tentativi,
+            },
+          },
+        });
+        const domanda =
+          risposta.stato === "ambiguo"
+            ? domandaChiarificazioneCommessa(risposta.candidati)
+            : domandaChiarificazioneRipetuta(pendente.candidati);
+        return rispostaResolver(
+          domanda,
+          derivaStatoOperativo({ azioni: [], chiarificazione: true }),
+          { chiarificazioni: 1, chiarificazioniRipetute: tentativi }
+        );
+      }
     }
   } else if (usaRisoluzione && risoluzione.stato === "ambiguo") {
     contestoConversazione = await salvaContestoConversazione({
@@ -542,7 +588,10 @@ export async function eseguiRun(input: {
           versioniEntita: {},
           chiarificazionePendente: {
             tipo: "commessa",
-            candidati: risoluzione.candidati.map(c => ({
+            // Massimo quattro, come le opzioni della domanda: oltre, il
+            // contesto persistito verrebbe scartato alla rilettura
+            // (schema max 4) e la domanda si perderebbe in silenzio.
+            candidati: risoluzione.candidati.slice(0, 4).map(c => ({
               commessaId: c.commessaId,
               codice: c.codice,
               cliente: c.cliente,

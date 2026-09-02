@@ -227,15 +227,23 @@ export async function applicaSmistamento(input: {
     };
   } else if (analisi.collegamento && commessaCollegata == null) {
     const proposto = analisi.collegamento;
-    // Un cliente già agganciato non si ripropone; una commessa sì.
-    const inutile = proposto.tipo === "cliente" && clienteCollegato === proposto.id;
+    // Un cliente già agganciato non si ripropone; una commessa sì. Una
+    // confidenza «bassa» non diventa una proposta: chi decide riceve solo
+    // ciò che il modello sostiene davvero (prime proposte reali: una
+    // proposta a confidenza bassa col motivo che la contraddiceva).
+    const inutile =
+      (proposto.tipo === "cliente" && clienteCollegato === proposto.id) ||
+      proposto.confidenza === "bassa";
     if (inutile) {
       collegamento = {
         esito: "nessuno",
         commessaId: null,
         clienteId: clienteCollegato,
         confidenza: "bassa",
-        motivo: "Cliente già collegato; nessuna commessa individuabile.",
+        motivo:
+          proposto.confidenza === "bassa"
+            ? `Indizio debole, nessuna proposta: ${proposto.motivo}`
+            : "Cliente già collegato; nessuna commessa individuabile.",
       };
     } else {
       collegamento = {

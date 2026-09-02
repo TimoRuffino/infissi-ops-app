@@ -53,6 +53,71 @@ export function getTicketStore() {
   return tickets;
 }
 
+export const TICKET_CATEGORIE = [
+  "difetto_prodotto",
+  "difetto_posa",
+  "regolazione",
+  "sostituzione",
+  "garanzia",
+  "altro",
+] as const;
+export const TICKET_PRIORITA = ["bassa", "media", "alta", "urgente"] as const;
+
+/**
+ * Servizio di dominio: crea il ticket e pubblica l'evento di assegnazione.
+ * Chi chiama ha già autorizzato (router: authorizeCoreOperation; Tars:
+ * registro delle azioni + ledger R1). Nessun controllo di sede qui oltre
+ * al `sedeId` esplicito: lo scope è deciso dal chiamante.
+ */
+export async function creaTicketRecord(input: {
+  sedeId: number;
+  apertoBy: number | null;
+  commessaId?: number | null;
+  clienteId?: number | null;
+  contatto?: string | null;
+  aperturaId?: number | null;
+  oggetto: string;
+  descrizione?: string;
+  categoria: (typeof TICKET_CATEGORIE)[number];
+  priorita?: (typeof TICKET_PRIORITA)[number];
+  assegnatoA?: number | null;
+}) {
+  const now = new Date();
+  const t = {
+    id: nextId++,
+    oggetto: input.oggetto,
+    descrizione: input.descrizione,
+    categoria: input.categoria,
+    sedeId: input.sedeId,
+    commessaId: input.commessaId ?? null,
+    clienteId: input.clienteId ?? null,
+    contatto: input.contatto?.trim() || null,
+    aperturaId: input.aperturaId ?? null,
+    priorita: input.priorita ?? "media",
+    stato: input.assegnatoA != null ? ("assegnato" as const) : ("aperto" as const),
+    assegnatoA: input.assegnatoA ?? null,
+    dataRisoluzione: null,
+    esitoIntervento: null,
+    solleciti: [],
+    apertoBy: input.apertoBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+  tickets.push(t);
+  _store.save();
+  await publishAssignmentEvent({
+    sedeId: t.sedeId,
+    entityType: "ticket",
+    entityId: t.id,
+    previousAssigneeId: null,
+    assigneeId: t.assegnatoA,
+    actorUserId: input.apertoBy,
+    updatedAt: now,
+    link: `/post-vendita?ticket=${t.id}`,
+  });
+  return t;
+}
+
 export const ticketRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -96,38 +161,11 @@ export const ticketRouter = router({
           requiredCapability: "ticket.manage",
         });
       }
-      const now = new Date();
-      const t = {
-        id: nextId++,
+      return creaTicketRecord({
         ...input,
         sedeId: ctx.sedeId ?? 1,
-        commessaId: input.commessaId ?? null,
-        clienteId: input.clienteId ?? null,
-        contatto: input.contatto?.trim() || null,
-        aperturaId: input.aperturaId ?? null,
-        priorita: input.priorita ?? "media",
-        stato: input.assegnatoA != null ? ("assegnato" as const) : ("aperto" as const),
-        assegnatoA: input.assegnatoA ?? null,
-        dataRisoluzione: null,
-        esitoIntervento: null,
-        solleciti: [],
         apertoBy: ctx.user?.id ?? null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      tickets.push(t);
-      _store.save();
-      await publishAssignmentEvent({
-        sedeId: t.sedeId,
-        entityType: "ticket",
-        entityId: t.id,
-        previousAssigneeId: null,
-        assigneeId: t.assegnatoA,
-        actorUserId: ctx.user?.id ?? null,
-        updatedAt: now,
-        link: `/post-vendita?ticket=${t.id}`,
       });
-      return t;
     }),
 
   update: protectedProcedure

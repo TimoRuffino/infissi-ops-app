@@ -15,6 +15,7 @@ import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "../strumenti/proposte";
 import { STRUMENTI_PROATTIVITA } from "../strumenti/proattivita";
+import { STRUMENTI_TICKET } from "../strumenti/ticket";
 import type {
   IntentoTars,
   StrumentoTars,
@@ -231,6 +232,16 @@ const METADATI: Record<string, Metadati> = {
   leggi_fascicolo_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "documento"]),
   leggi_promemoria_in_scadenza: lettura("personale", ["generale", "promemoria"], ["promemoria"]),
   leggi_promemoria: lettura("personale", ["promemoria"], ["promemoria"]),
+  // Ticket di post-vendita (02/09/2026): dalla chat, dal fascicolo o da
+  // una comunicazione; entità cliente inclusa per i ticket senza commessa.
+  crea_ticket: r1(
+    "crea_ticket",
+    "entita",
+    ["generale", "commessa", "post-vendita", "comunicazioni"],
+    ["commessa", "cliente"],
+    ["tars", "tarsL2Actions"],
+    false
+  ),
   crea_promemoria: r1(
     "crea_promemoria",
     "personale",
@@ -386,6 +397,7 @@ const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_PROPOSTE,
   ...STRUMENTI_MEMORIA,
   ...STRUMENTI_PROATTIVITA,
+  ...STRUMENTI_TICKET,
 ];
 
 function costruisciRegistro(): DescrittoreAzioneTars[] {

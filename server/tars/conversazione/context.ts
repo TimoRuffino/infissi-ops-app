@@ -185,7 +185,9 @@ export async function salvaContestoConversazione(input: {
   }
   if (patch.chiarificazionePendente) {
     const candidati = [];
-    for (const candidato of patch.chiarificazionePendente.candidati) {
+    // Massimo quattro (lo schema persistito rifiuta di più e la domanda
+    // ne mostra quattro): un quinto candidato perdeva l'intero contesto.
+    for (const candidato of patch.chiarificazionePendente.candidati.slice(0, 4)) {
       const commessa: any = getCommessaById(candidato.commessaId);
       if (!commessa || commessa.sedeId !== input.sedeId) {
         throw new Error("NOT_FOUND: candidato commessa non trovato.");
@@ -196,7 +198,13 @@ export async function salvaContestoConversazione(input: {
         cliente: String(commessa.cliente),
       });
     }
-    patch.chiarificazionePendente = { tipo: "commessa", candidati };
+    patch.chiarificazionePendente = {
+      tipo: "commessa",
+      candidati,
+      ...(patch.chiarificazionePendente.tentativi != null
+        ? { tentativi: patch.chiarificazionePendente.tentativi }
+        : {}),
+    };
   }
   const prossimo: ContestoConversazione = {
     ...corrente,

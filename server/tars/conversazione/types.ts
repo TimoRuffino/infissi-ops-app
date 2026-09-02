@@ -10,6 +10,12 @@ export type CandidatoChiarificazioneCommessa = {
 export type ChiarificazionePendente = {
   tipo: "commessa";
   candidati: CandidatoChiarificazioneCommessa[];
+  /**
+   * Quante volte la domanda è già stata ripetuta senza una risposta
+   * riconosciuta (02/09/2026: cinque «Quale intendi» di fila alla stessa
+   * risposta «096»). Oltre la soglia il resolver si fa da parte.
+   */
+  tentativi?: number;
 };
 
 const schemaCandidatoChiarificazione = z.object({
@@ -29,6 +35,7 @@ export const schemaContestoConversazionePersistito = z.object({
   chiarificazionePendente: z.object({
     tipo: z.literal("commessa"),
     candidati: z.array(schemaCandidatoChiarificazione).min(2).max(4),
+    tentativi: z.number().int().nonnegative().max(10).optional(),
   }).strict().nullable(),
 }).strict();
 

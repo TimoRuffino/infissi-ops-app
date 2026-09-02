@@ -18,6 +18,7 @@ function contesto(
   capability: readonly Capability[] = [
     "cliente.read",
     "commessa.read",
+    "ticket.create",
     "commessa.update_operational",
     "commessa.change_state",
     "commessa.manage_documents",
@@ -55,8 +56,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(30);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(30);
+    expect(REGISTRO_AZIONI).toHaveLength(31);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(31);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -119,6 +120,7 @@ describe("registro centrale delle azioni Tars", () => {
       leggi_cliente: "R0",
       completa_promemoria: "R1",
       crea_promemoria: "R1",
+      crea_ticket: "R1",
       dimentica: "R1",
       leggi_analisi_ordine: "R0",
       leggi_allegato_comunicazione: "R0",
@@ -203,6 +205,7 @@ describe("registro centrale delle azioni Tars", () => {
       leggi_cliente: "entita",
       completa_promemoria: "personale",
       crea_promemoria: "personale",
+      crea_ticket: "entita",
       dimentica: "sede",
       leggi_analisi_ordine: "entita",
       leggi_allegato_comunicazione: "entita",
@@ -241,6 +244,7 @@ describe("registro centrale delle azioni Tars", () => {
       archivia_allegato_comunicazione: false,
       completa_promemoria: false,
       crea_promemoria: true,
+      crea_ticket: false,
       dimentica: false,
       prendi_in_carico_caso: false,
       ricorda: false,
@@ -334,13 +338,13 @@ describe("policy dinamica del catalogo", () => {
 
   it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(30);
+    expect(completo).toHaveLength(31);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
     const fallback = catalogoAzioniPerContesto({
       ...contesto(),
-      superficie: "post-vendita",
+      superficie: "economia",
       intento: "azione_esplicita",
     });
     expect(fallback.map(a => a.nome)).toEqual([
