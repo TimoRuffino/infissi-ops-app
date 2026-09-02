@@ -167,3 +167,85 @@ describe("storage documenti FiC", () => {
     }
   });
 });
+
+// ── Gate documentale: il documento c'è ma il CRM lo dà per mancante ────────
+//
+// Segnalazione dal campo: «mi dice manca fattura ma la fattura c'è».
+// Il gate contava solo i documenti caricati MENTRE la commessa era nello
+// stato che li chiede, e una fattura arriva quasi sempre prima di quello
+// stato — a maggior ragione quella importata da Fatture in Cloud, che entra
+// quando gira la sincronizzazione.
+describe("gate documentale — documenti caricati prima dello stato che li chiede", () => {
+  const SEDE = 90501;
+  const caller = () => appRouter.createCaller(ctx(SEDE));
+
+  const pdf = Buffer.from("%PDF-1.4 finto").toString("base64");
+
+  async function commessaConDocumento(tipo: "fattura" | "contratto") {
+    const commessa = await caller().commesse.create({
+      cliente: `Gate ${tipo} ${Math.random()}`,
+    });
+    await caller().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: `${tipo}.pdf`,
+      tipo,
+      mimeType: "application/pdf",
+      size: 14,
+      dataBase64: pdf,
+    });
+    return commessa;
+  }
+
+  /** Avanza fino allo stato voluto scavalcando i gate intermedi. */
+  async function portaA(commessaId: number, stati: readonly string[]) {
+    for (const stato of stati) {
+      await caller().commesse.update({
+        id: commessaId,
+        stato: stato as any,
+        force: true,
+      });
+    }
+  }
+
+  it("una fattura caricata in preventivo vale per il gate di fatture_pagamento", async () => {
+    const commessa = await commessaConDocumento("fattura");
+    await portaA(commessa.id, [
+      "misure_esecutive",
+      "aggiornamento_contratto",
+      "fatture_pagamento",
+    ]);
+
+    const gate = await caller().preventiviContratti.statoGate(commessa.id);
+    expect(gate?.stato).toBe("fatture_pagamento");
+    expect(gate?.required.find(r => r.tipo === "fattura")?.satisfied).toBe(true);
+    expect(gate?.canAdvance).toBe(true);
+  });
+
+  it("la stessa fattura non copre il gate successivo, che ne chiede una nuova", async () => {
+    // `fattura` è richiesta due volte: a fatture_pagamento e di nuovo a
+    // ordini_ultimazione. La seconda volta serve un documento nuovo, o il
+    // saldo — altrimenti il gate non chiederebbe mai niente.
+    const commessa = await commessaConDocumento("fattura");
+    await portaA(commessa.id, [
+      "misure_esecutive",
+      "aggiornamento_contratto",
+      "fatture_pagamento",
+      "da_ordinare",
+      "produzione",
+      "ordini_ultimazione",
+    ]);
+
+    const gate = await caller().preventiviContratti.statoGate(commessa.id);
+    expect(gate?.stato).toBe("ordini_ultimazione");
+    expect(gate?.canAdvance).toBe(false);
+  });
+
+  it("un contratto firmato in preventivo non vale come aggiornamento del contratto", async () => {
+    const commessa = await commessaConDocumento("contratto");
+    await portaA(commessa.id, ["misure_esecutive", "aggiornamento_contratto"]);
+
+    const gate = await caller().preventiviContratti.statoGate(commessa.id);
+    expect(gate?.stato).toBe("aggiornamento_contratto");
+    expect(gate?.canAdvance).toBe(false);
+  });
+});

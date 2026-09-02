@@ -2,6 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
+import { STATI_COMMESSA } from "../commesse/transizioni";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
 import { Readable } from "stream";
@@ -597,6 +598,53 @@ export function hasPreventivoOrContratto(commessaId: number): boolean {
   );
 }
 
+/**
+ * Da quale punto della lavorazione in poi un documento di questo tipo vale
+ * per il gate di `stato`. L'indice è quello di STATI_COMMESSA.
+ *
+ * Di norma da sempre: una fattura è una fattura anche se è arrivata con
+ * settimane di anticipo, e quella importata da Fatture in Cloud entra quando
+ * gira la sincronizzazione, non quando la commessa raggiunge lo stato che la
+ * chiede. Pretendere che fosse caricata proprio in quella finestra faceva
+ * dire «Manca: Fattura» con la fattura lì nel fascicolo.
+ *
+ * Fanno eccezione i tipi che la lavorazione chiede due volte — `contratto`
+ * (preventivo, poi aggiornamento_contratto) e `fattura` (fatture_pagamento,
+ * poi ordini_ultimazione): la seconda richiesta vuole un documento nuovo,
+ * altrimenti sarebbe già soddisfatta in partenza e non chiederebbe mai
+ * niente. Lì contano solo i documenti arrivati dopo la richiesta precedente.
+ */
+function primoStatoUtilePerGate(tipo: DocTipo, stato: string): number {
+  const idxStato = (STATI_COMMESSA as readonly string[]).indexOf(stato);
+  if (idxStato < 0) return 0;
+  for (let i = idxStato - 1; i >= 0; i--) {
+    if ((REQUIRED_DOC_TIPI_PER_STATO[STATI_COMMESSA[i]] ?? []).includes(tipo)) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+/** Esiste sulla commessa un documento di `tipo` che copre il gate di `stato`? */
+export function tipoSoddisfaGate(
+  commessaId: number,
+  tipo: DocTipo,
+  stato: string
+): boolean {
+  const soglia = primoStatoUtilePerGate(tipo, stato);
+  return documenti.some(d => {
+    if (d.commessaId !== commessaId || d.tipo !== tipo) return false;
+    // Documenti senza finestra registrata: si accettano, com'è sempre stato.
+    if (d.statoAtUpload == null) return true;
+    const idxDoc = (STATI_COMMESSA as readonly string[]).indexOf(
+      d.statoAtUpload
+    );
+    // Uno stato uscito dall'elenco non è colpa del documento.
+    if (idxDoc < 0) return true;
+    return idxDoc >= soglia;
+  });
+}
+
 // Does the commessa have at least one doc satisfying the gate for `stato`?
 export function statoHasRequiredDoc(
   commessaId: number,
@@ -604,16 +652,7 @@ export function statoHasRequiredDoc(
 ): boolean {
   const required = REQUIRED_DOC_TIPI_PER_STATO[stato] ?? [];
   if (required.length === 0) return true;
-  return documenti.some(
-    d =>
-      d.commessaId === commessaId &&
-      required.includes(d.tipo) &&
-      // Only count docs uploaded WHILE the commessa was in this stato — so
-      // that an old preventivo cannot satisfy a later gate.
-      (d.statoAtUpload === stato ||
-        // Legacy fallback: if statoAtUpload unset and tipo matches, accept.
-        d.statoAtUpload == null)
-  );
+  return required.some(tipo => tipoSoddisfaGate(commessaId, tipo, stato));
 }
 
 // Cross-sede guard for documents: a document is only visible/mutable when its
@@ -912,36 +951,17 @@ export const preventiviContrattiRouter = router({
     const commessa = commessaInSede(input, ctx.sedeId);
     if (!commessa) return null;
     const required = REQUIRED_DOC_TIPI_PER_STATO[commessa.stato] ?? [];
-    const uploaded = documenti.filter(
-      d => d.commessaId === input && d.statoAtUpload === commessa.stato
-    );
+    // Stessa regola dell'enforcement, non una copia: la rail diceva «Manca»
+    // e il pulsante avanzava, o viceversa, ogni volta che le due
+    // divergevano.
     return {
       stato: commessa.stato,
       required: required.map(tipo => ({
         tipo,
         label: DOC_TIPO_LABEL[tipo],
-        satisfied:
-          uploaded.some(u => u.tipo === tipo) ||
-          // Legacy fallback across all docs on this commessa
-          documenti.some(
-            d =>
-              d.commessaId === input &&
-              d.tipo === tipo &&
-              d.statoAtUpload == null
-          ),
+        satisfied: tipoSoddisfaGate(input, tipo, commessa.stato),
       })),
-      canAdvance:
-        required.length === 0 ||
-        required.some(
-          tipo =>
-            uploaded.some(u => u.tipo === tipo) ||
-            documenti.some(
-              d =>
-                d.commessaId === input &&
-                d.tipo === tipo &&
-                d.statoAtUpload == null
-            )
-        ),
+      canAdvance: statoHasRequiredDoc(input, commessa.stato),
     };
   }),
 });
