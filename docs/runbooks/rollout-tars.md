@@ -19,6 +19,7 @@
 | `FLAG_TARS_PATTERNS` | pattern aziendali / Panorama (T7): tool `panorama_azienda` ed endpoint `tars.panorama`, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
 | `FLAG_TARS_IMPROVEMENTS` | proposte di miglioramento (T8): `tars.miglioramenti` + feedback/accetta, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
 | `FLAG_TARS_COMMUNICATIONS` | lettura comunicazioni (estratti) + archiviazione R1 allegati (T4, con FLAG_TARS_L2_ACTIONS) | FLAG_TARS + FLAG_TARS_READ_TOOLS |
+| `FLAG_TARS_SMISTAMENTO` | smistamento automatico delle comunicazioni in ingresso (02/09/2026): worker ogni 60 s per sede, triage col modello (`TARS_MODEL_SMISTAMENTO`, default `gpt-5.6-terra`, classe di costo `smistamento`), collegamenti CERTI deterministici, archiviazione allegati riconosciuti su comunicazioni collegate, proposte a un click (`tars.smistamento*`, Situazione, Centro Azioni) | FLAG_TARS + FLAG_TARS_COMMUNICATIONS + FLAG_TARS_PROACTIVE + PostgreSQL |
 | `FLAG_TARS_SEMANTIC_SEARCH` | NON ESISTE codice: resta spento | gate chiave (embeddings) |
 
 Modalità osservatore (T6): `TARS_OBSERVER_MODE` = `shadow` (default:

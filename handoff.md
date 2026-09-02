@@ -1894,6 +1894,44 @@ ora confronto ai millisecondi e ritenti limitati. Contratto reale in
 `server/tars/jsonb.pg.test.ts` (gira con DATABASE_URL; localmente via
 Docker postgres:16).
 
+## 11-vicies quinquies. Tars smistamento — le comunicazioni entrano nel cervello (02/09/2026)
+
+Mandato direzione: «non propone, non analizza l'azienda, non analizza le
+comunicazioni, non collega gli allegati alle commesse». Diagnosi in
+produzione: 10.261 comunicazioni, 8.195 senza commessa, 2.466 allegati
+orfani; proposte create 0; analisi documenti 0; ordini fornitore 0 (la
+pipeline proposte/DI era ancorata a un modulo non usato); all'arrivo
+scattava solo il match deterministico. Piano e decisioni D1–D6 in
+`docs/superpowers/plans/2026-09-02-tars-smistamento.md`.
+
+Costruito `server/tars/smistamento/`: registro `tars_smistamento`
+(additivo, jsonb con `sql.json`), candidati deterministici
+(`candidati.ts`: codice commessa, filo già collegato, mittente originale
+degli inoltri interni, telefoni, cognomi/ragioni sociali — mai i cognomi
+del personale, località di supporto), analisi col modello a output
+strutturato (`analisi.ts`, prompt `smistamento-v1`, schema strict, id
+verificati contro i candidati, importi scrubbati; fallback deterministico
+senza provider), effetti (`applica.ts`: collegamento SOLO se certo e
+senza toccare lo stato; archiviazione allegati solo su comunicazioni
+collegate e documenti riconosciuti — D2; triage su
+`categoria`/`tars_riepilogo`/`tars_istruzione`; proposta a un click per il
+resto), worker ogni 60 s per sede (recenti prima, modello entro 90 gg,
+storia oltre 365 gg esclusa), segnali `comunicazione_decisione` /
+`comunicazione_risposta` nel reconcile del Centro Azioni, sezione
+`smistamento` del briefing (da decidere / da rispondere / urgenti /
+contatori), endpoint `tars.smistamentoStato|PerComunicazione|Proposte|
+Decidi|Riesamina`. UI: banner Tars nel lettore email (riepilogo, urgenza,
+categoria, proposta con Collega/No, allegati archiviati), liste nella
+Situazione della Dashboard e nel pannello contesto di `/tars`.
+
+Provider: `RichiestaProvider.formatoJson` → `text.format json_schema
+strict` nell'adapter; classe di costo `smistamento`; flag
+`FLAG_TARS_SMISTAMENTO` (fail-closed; richiede communications, proactive
+e PostgreSQL). Deep link email: `/messaggi/email?messaggio=ID`.
+Non fatto in questo taglio (piano §4, fase successiva): analisi azienda
+su dati reali e sintesi giornaliera; Centro Azioni come pagina; UI di
+osservazioni/panorama/miglioramenti.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

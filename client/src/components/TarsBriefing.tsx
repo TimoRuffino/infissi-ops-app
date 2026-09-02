@@ -3,6 +3,10 @@
 // letture. Condiviso tra la pagina /tars e la colonna «Situazione» della
 // Dashboard; con `enabled: false` la query non parte nemmeno (flag spento
 // = zero richieste, zero errori console).
+import {
+  SmistamentoSituazione,
+  smistamentoVuoto,
+} from "@/components/tars/TarsSmistamento";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, Clock, Pin } from "lucide-react";
 import { useLocation } from "wouter";
@@ -25,7 +29,8 @@ export default function TarsBriefing({
   const vuoto =
     b.promemoriaOggi.length === 0 &&
     b.casiMiei.length === 0 &&
-    (b.segnalazioni?.length ?? 0) === 0;
+    (b.segnalazioni?.length ?? 0) === 0 &&
+    smistamentoVuoto(b.smistamento);
   if (vuoto) {
     return (
       <p className={`text-xs text-text-3 ${className}`}>
@@ -39,6 +44,13 @@ export default function TarsBriefing({
       className={`space-y-2 rounded-md border border-border bg-surface-2 p-3 text-text-1 ${className}`}
     >
       <h2 className="text-xs font-semibold">Situazione di oggi</h2>
+      {b.smistamento && !smistamentoVuoto(b.smistamento) && (
+        <SmistamentoSituazione
+          smistamento={b.smistamento}
+          onApriLink={navigate}
+          compatto
+        />
+      )}
       {b.promemoriaOggi.length > 0 && (
         <ul className="space-y-0.5">
           {b.promemoriaOggi.slice(0, 5).map(p => (

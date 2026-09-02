@@ -6,6 +6,7 @@ import {
   type EmailCategory,
 } from "@/components/messaggi/EmailMessageList";
 import StatePanel from "@/components/patterns/StatePanel";
+import { TarsSmistamentoBanner } from "@/components/tars/TarsSmistamento";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -122,6 +123,10 @@ export default function EmailMessageReader({
     retry: false,
   });
   const message = detail.data;
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+    retry: false,
+  });
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkKind, setLinkKind] = useState<"cliente" | "commessa">("commessa");
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
@@ -539,17 +544,24 @@ export default function EmailMessageReader({
           </div>
         )}
 
-        {message.classificazioneMotivo && (
-          <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface px-3 py-2.5">
-            <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" />
-            <div className="min-w-0 text-[13px] leading-5 text-text-2">
-              <span className="font-semibold text-text-1">
-                Classificazione automatica
-              </span>{" "}
-              {message.classificazioneMotivo}
+        <TarsSmistamentoBanner
+          comunicazioneId={message.id}
+          abilitato={Boolean(
+            interruttori.data?.tars && interruttori.data?.tarsSmistamento
+          )}
+        />
+        {message.classificazioneMotivo &&
+          message.classificazioneFonte !== "tars" && (
+            <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface px-3 py-2.5">
+              <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 text-[13px] leading-5 text-text-2">
+                <span className="font-semibold text-text-1">
+                  Classificazione automatica
+                </span>{" "}
+                {message.classificazioneMotivo}
+              </div>
             </div>
-          </div>
-        )}
+          )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

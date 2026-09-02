@@ -1,6 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  SmistamentoSituazione,
+  smistamentoVuoto,
+  type SmistamentoSezione,
+} from "@/components/tars/TarsSmistamento";
+import { Inbox } from "lucide-react";
+import {
   AlertCircle,
   AlertTriangle,
   BellRing,
@@ -42,6 +48,8 @@ export type BriefingOperativoTars = {
         agganciataACasoAperto: boolean;
       }[]
     | null;
+  /** Sezione smistamento (02/09/2026): assente o null = non inclusa. */
+  smistamento?: SmistamentoSezione | null;
 };
 
 export type TarsContextPanelProps = {
@@ -296,6 +304,25 @@ export default function TarsContextPanel({
               </div>
             )}
           </section>
+
+          {briefing?.smistamento && !smistamentoVuoto(briefing.smistamento) && (
+            <section aria-labelledby="tars-smistamento-oggi">
+              <h3
+                id="tars-smistamento-oggi"
+                className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-text-3"
+              >
+                <Inbox className="size-4" aria-hidden="true" />
+                Comunicazioni
+              </h3>
+              <div className="mt-2">
+                <SmistamentoSituazione
+                  smistamento={briefing.smistamento}
+                  onApriLink={onApriLink}
+                  compatto
+                />
+              </div>
+            </section>
+          )}
 
           {briefing?.segnalazioni === null && (
             <p className="flex items-start gap-2 rounded-md bg-surface-2 px-3 py-2.5 text-[11px] leading-5 text-text-3">
