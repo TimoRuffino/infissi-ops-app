@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COPIE_CARTELLO,
+  LUNGHEZZA_GIRO,
   MAZZO_NUOVO,
   POSE_OCCASIONALI,
   POSE_TUTTE,
@@ -40,7 +42,7 @@ function estrai(
 }
 
 describe("mascotte Tars — posa a riposo", () => {
-  it("sta in piedi col pannello chiuso", () => {
+  it("col pannello chiuso torna alla camminata sul posto", () => {
     expect(posaARiposo(false)).toBe("idle");
   });
 
@@ -50,24 +52,41 @@ describe("mascotte Tars — posa a riposo", () => {
 });
 
 describe("mascotte Tars — mazzo dei siparietti", () => {
-  it("un giro li mostra tutti, una volta ciascuno", () => {
-    const giro = estrai(POSE_OCCASIONALI.length, Math.random);
-    expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
-    expect(giro).toHaveLength(POSE_OCCASIONALI.length);
-  });
+  const conta = (usciti: readonly PosaOccasionale[], posa: PosaOccasionale) =>
+    usciti.filter(p => p === posa).length;
 
-  it("ogni giro successivo li rimescola tutti, senza saltarne", () => {
-    const lungo = estrai(POSE_OCCASIONALI.length * 4, Math.random);
-    for (let i = 0; i < lungo.length; i += POSE_OCCASIONALI.length) {
-      const giro = lungo.slice(i, i + POSE_OCCASIONALI.length);
-      expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
+  it("un giro mostra tutte le clip, il cartello più volte", () => {
+    const giro = estrai(LUNGHEZZA_GIRO, Math.random);
+    expect(giro).toHaveLength(LUNGHEZZA_GIRO);
+    // Nessuna resta fuori: chi non è il cartello esce una volta sola.
+    expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
+    for (const p of POSE_OCCASIONALI) {
+      expect(conta(giro, p)).toBe(p === "cartello" ? COPIE_CARTELLO : 1);
     }
   });
 
-  it("mai due volte di fila la stessa clip, nemmeno cambiando giro", () => {
-    // Il punto dove un doppione ravvicinato può ancora nascere è la
-    // cucitura: ultimo di un giro e primo del successivo.
-    const usciti = estrai(POSE_OCCASIONALI.length * 6, Math.random);
+  it("ogni giro successivo rimescola la stessa composizione", () => {
+    const lungo = estrai(LUNGHEZZA_GIRO * 4, Math.random);
+    for (let i = 0; i < lungo.length; i += LUNGHEZZA_GIRO) {
+      const giro = lungo.slice(i, i + LUNGHEZZA_GIRO);
+      expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
+      expect(conta(giro, "cartello")).toBe(COPIE_CARTELLO);
+    }
+  });
+
+  it("il cartello esce più spesso di chiunque altro", () => {
+    const lungo = estrai(LUNGHEZZA_GIRO * 5, Math.random);
+    const cartelli = conta(lungo, "cartello");
+    for (const p of POSE_OCCASIONALI) {
+      if (p === "cartello") continue;
+      expect(cartelli).toBeGreaterThan(conta(lungo, p));
+    }
+  });
+
+  it("mai due volte di fila la stessa clip, cartello compreso", () => {
+    // I due punti dove un doppione ravvicinato può nascere: la cucitura fra
+    // un giro e il successivo, e due copie del cartello finite vicine.
+    const usciti = estrai(LUNGHEZZA_GIRO * 8, Math.random);
     for (let i = 1; i < usciti.length; i++) {
       expect(usciti[i]).not.toBe(usciti[i - 1]);
     }
@@ -90,9 +109,19 @@ describe("mascotte Tars — mazzo dei siparietti", () => {
     ).toEqual(new Set(POSE_OCCASIONALI));
   });
 
+  it("una coda sul cartello non fa ricominciare dal cartello", () => {
+    for (let i = 0; i < 200; i++) {
+      const dopo = pescaSiparietto(
+        { daGiocare: [], ultimo: "cartello" },
+        Math.random,
+      );
+      expect(dopo.posa).not.toBe("cartello");
+    }
+  });
+
   it("il mazzo si esaurisce una carta alla volta", () => {
     let mazzo = MAZZO_NUOVO;
-    for (let i = POSE_OCCASIONALI.length - 1; i >= 0; i--) {
+    for (let i = LUNGHEZZA_GIRO - 1; i >= 0; i--) {
       mazzo = pescaSiparietto(mazzo, Math.random).mazzo;
       expect(mazzo.daGiocare).toHaveLength(i);
     }
@@ -104,8 +133,10 @@ describe("mascotte Tars — mazzo dei siparietti", () => {
     // Math.random non arriva a 1, ma un valore di confine non deve dare
     // undefined: il componente lo passerebbe come src del video.
     for (const s of [() => 0, () => 1, sorteggioFinto([1, 0, 1, 0])]) {
-      for (const posa of estrai(POSE_OCCASIONALI.length * 2, s)) {
-        expect(POSE_OCCASIONALI).toContain(posa);
+      const usciti = estrai(LUNGHEZZA_GIRO * 2, s);
+      for (const posa of usciti) expect(POSE_OCCASIONALI).toContain(posa);
+      for (let i = 1; i < usciti.length; i++) {
+        expect(usciti[i]).not.toBe(usciti[i - 1]);
       }
     }
   });
@@ -196,20 +227,27 @@ describe("mascotte Tars — continuità", () => {
 
 describe("mascotte Tars — cosa scaricare subito", () => {
   it("precarica le pose a riposo: servono all'istante", () => {
-    expect(vaPrecaricata("idle", null)).toBe(true);
-    expect(vaPrecaricata("indica", null)).toBe(true);
+    expect(vaPrecaricata("idle", [])).toBe(true);
+    expect(vaPrecaricata("indica", [])).toBe(true);
   });
 
-  it("dei siparietti scalda solo quello in arrivo", () => {
-    expect(vaPrecaricata("calcio", "calcio")).toBe(true);
+  it("dei siparietti scalda solo quelli già estratti", () => {
+    const inArrivo = ["calcio", "dorme"] as const;
+    expect(vaPrecaricata("calcio", inArrivo)).toBe(true);
+    expect(vaPrecaricata("dorme", inArrivo)).toBe(true);
     for (const p of POSE_OCCASIONALI) {
-      if (p === "calcio") continue;
-      expect(vaPrecaricata(p, "calcio")).toBe(false);
+      if (inArrivo.includes(p as (typeof inArrivo)[number])) continue;
+      expect(vaPrecaricata(p, inArrivo)).toBe(false);
     }
   });
 
-  it("senza un siparietto in arrivo scarica solo le due pose a riposo", () => {
-    const precaricate = POSE_TUTTE.filter(p => vaPrecaricata(p, null));
+  it("senza siparietti in arrivo scarica solo le due pose a riposo", () => {
+    const precaricate = POSE_TUTTE.filter(p => vaPrecaricata(p, []));
     expect(precaricate).toEqual(["idle", "indica"]);
+  });
+
+  it("a fine giro basta una carta sola: la seconda non è ancora decisa", () => {
+    const precaricate = POSE_TUTTE.filter(p => vaPrecaricata(p, ["boxa"]));
+    expect(precaricate).toEqual(["idle", "indica", "boxa"]);
   });
 });

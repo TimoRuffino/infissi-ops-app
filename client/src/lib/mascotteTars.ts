@@ -24,7 +24,8 @@ export type PosaMascotte =
  *
  *   evento    inciampa, cade, si rialza e ride
  *   cartello  alza un cartello «FATTURARE» — è una battuta per ricordare di
- *             vendere, non un segnale collegato allo stato del CRM
+ *             vendere, non un segnale collegato allo stato del CRM. Esce più
+ *             spesso delle altre: v. COPIE_CARTELLO
  *   saluta    alza il braccio e saluta
  *   pensa     inclina la testa e riflette, poi annuisce
  *   dorme     si appisola e si sveglia di soprassalto
@@ -60,16 +61,20 @@ export const POSE_TUTTE = [
 ] as const satisfies readonly PosaMascotte[];
 
 /**
- * Cosa scaricare subito. Le clip pesano 3,3 MB in tutto: precaricarle tutte
+ * Cosa scaricare subito. Le clip pesano 4,2 MB in tutto: precaricarle tutte
  * all'apertura sarebbe uno spreco in uno strumento che resta aperto tutto il
- * giorno. Servono solo le due pose a riposo — il siparietto in arrivo viene
- * scaldato a parte, con largo anticipo sul timer.
+ * giorno. Servono le due pose a riposo e i siparietti già estratti — quelli
+ * vengono scaldati a parte, prima che il timer li chiami.
+ *
+ * In arrivo se ne tengono due e non uno: con pause da pochi secondi una
+ * clip sola non fa in tempo a scaricarsi, e una clip non pronta lascia Tars
+ * fermo sul primo fotogramma finché non scatta la rete di sicurezza.
  */
 export function vaPrecaricata(
   posa: PosaMascotte,
-  prossimoSiparietto: PosaMascotte | null,
+  inArrivo: readonly PosaMascotte[],
 ): boolean {
-  return vaInLoop(posa) || posa === prossimoSiparietto;
+  return vaInLoop(posa) || inArrivo.includes(posa);
 }
 
 /**
@@ -88,8 +93,18 @@ export function eSiparietto(posa: PosaMascotte): posa is PosaOccasionale {
 }
 
 /**
- * Il mazzo dei siparietti: i nove escono a giro, in ordine mescolato, e
- * prima che uno si ripeta devono essersi visti tutti gli altri.
+ * Quante carte ha il cartello «FATTURARE» in un giro. Tre invece di una: è
+ * la battuta che si vuole rivedere, e con una carta sola usciva quanto le
+ * altre otto. Mai due di fila, però — v. `giroNuovo`.
+ */
+export const COPIE_CARTELLO = 3;
+
+/** Le clip di un giro completo: otto siparietti più le copie del cartello. */
+export const LUNGHEZZA_GIRO = POSE_OCCASIONALI.length - 1 + COPIE_CARTELLO;
+
+/**
+ * Il mazzo dei siparietti: escono a giro, in ordine mescolato, e prima che
+ * uno si ripeta devono essersi viste tutte le altre clip.
  *
  * Serve perché il sorteggio libero rimetteva in gioco subito la clip appena
  * vista. Con nove pose due estrazioni di fila coincidono una volta su nove,
@@ -133,21 +148,53 @@ function giroNuovo(
   ultimo: PosaOccasionale | null,
   sorteggio: () => number,
 ): PosaOccasionale[] {
-  const carte = mescola(POSE_OCCASIONALI, sorteggio);
+  const altre = mescola(
+    POSE_OCCASIONALI.filter(p => p !== "cartello"),
+    sorteggio,
+  );
+  // Il cartello entra in spazi distinti fra le altre pose. Spazi distinti
+  // vuol dire che fra due cartelli c'è sempre almeno un'altra clip, senza
+  // bisogno di ricucire l'ordine dopo averlo mescolato. Se il giro prima si
+  // è chiuso su un cartello, lo spazio in testa non è disponibile.
+  const spazi = scegliSpazi(
+    altre.length + 1,
+    COPIE_CARTELLO,
+    ultimo === "cartello",
+    sorteggio,
+  );
+  const carte: PosaOccasionale[] = [];
+  for (let i = 0; i <= altre.length; i++) {
+    if (spazi.has(i)) carte.push("cartello");
+    if (i < altre.length) carte.push(altre[i]);
+  }
   // La cucitura fra un giro e l'altro è l'unico punto dove un doppione
   // ravvicinato può ancora nascere: se il giro nuovo ricomincia da chi ha
-  // chiuso il precedente, lo si scambia con quello dopo.
+  // chiuso il precedente, lo si scambia con quello dopo. Lo scambio è
+  // sicuro anche coi cartelli: quello che sale in testa si lascia dietro
+  // una posa diversa prima della copia successiva.
   if (carte.length > 1 && carte[0] === ultimo) {
     [carte[0], carte[1]] = [carte[1], carte[0]];
   }
   return carte;
 }
 
-/** Fisher-Yates: ogni ordine ha la stessa probabilità di uscire. */
-function mescola(
-  carte: readonly PosaOccasionale[],
+/**
+ * Sceglie `quante` posizioni distinte fra gli spazi disponibili: è la
+ * distinzione a tenere separate le copie del cartello.
+ */
+function scegliSpazi(
+  quantiSpazi: number,
+  quante: number,
+  senzaIlPrimo: boolean,
   sorteggio: () => number,
-): PosaOccasionale[] {
+): Set<number> {
+  const spazi: number[] = [];
+  for (let i = senzaIlPrimo ? 1 : 0; i < quantiSpazi; i++) spazi.push(i);
+  return new Set(mescola(spazi, sorteggio).slice(0, quante));
+}
+
+/** Fisher-Yates: ogni ordine ha la stessa probabilità di uscire. */
+function mescola<T>(carte: readonly T[], sorteggio: () => number): T[] {
   const m = [...carte];
   for (let i = m.length - 1; i > 0; i--) {
     // Il limite regge un sorteggio che dia esattamente 1: Math.random non

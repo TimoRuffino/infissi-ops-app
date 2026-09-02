@@ -1,13 +1,14 @@
 // Mascotte di Tars: undici clip WebM con canale alpha.
 //
-//   idle      in piedi, respira e sbatte gli occhi (in loop)
+//   idle      cammina sul posto (in loop) — è la posa a riposo, quindi è
+//             quello che Tars fa in tutti i momenti in cui non fa altro
 //   indica    braccio teso verso il pannello, ferma, sbatte gli occhi (in loop)
 //   + i nove siparietti elencati in @/lib/mascotteTars
 //
 // I siparietti partono da soli ogni tanto e poi tornano a idle: dentro una
 // clip che gira in continuo Tars cadrebbe ogni pochi secondi, insopportabile
 // in un CRM che qualcuno tiene aperto tutto il giorno. E si estraggono da un
-// mazzo, non a caso: prima di rivedere la stessa clip si vedono le altre otto.
+// mazzo, non a caso: prima di rivedere la stessa clip si vedono le altre.
 //
 // CONTINUITÀ. Tre cose la rompevano, e vanno tenute tutte e tre:
 //
@@ -25,7 +26,7 @@
 // alpha vero: l'MP4 "scontornato" del generatore è opaco (soggetto su nero),
 // e l'alpha viene ricostruito confrontando le due versioni degli stessi
 // fotogrammi.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   MAZZO_NUOVO,
@@ -39,6 +40,7 @@ import {
   vaPrecaricata,
   vaSpecchiata,
   type PosaMascotte,
+  type PosaOccasionale,
 } from "@/lib/mascotteTars";
 import { cn } from "@/lib/utils";
 
@@ -51,13 +53,15 @@ export type { PosaMascotte };
 // Fonderle dentro la clip non è la via — due pose diverse sovrapposte danno
 // un fantasma, con antenne doppie.
 const DISSOLVENZA_MS = 320;
-// I siparietti devono farsi vedere: a 90-180s uno stava davanti alla
-// mascotte un minuto intero senza coglierne nessuno, e il ritorno a idle
-// rimette il timer da capo a ogni cambio pagina. Restano comunque
-// intervallati, non in loop: una clip che gira in continuo farebbe cadere
+// Quanto Tars sta a riposo fra un siparietto e l'altro. La posa a riposo è
+// una camminata sul posto: ogni secondo di pausa è un secondo in cui Tars
+// cammina e basta. A 20-45s la pausa si prendeva l'ottanta per cento del
+// tempo e sembrava che la mascotte non facesse altro; con 4-10s e clip da
+// cinque secondi resta una pausa, non lo spettacolo principale.
+// Intervallati, non in loop: una clip che gira in continuo farebbe cadere
 // Tars ogni sei secondi.
-const SIPARIETTO_PAUSA_MIN_MS = 20_000;
-const SIPARIETTO_PAUSA_MAX_MS = 45_000;
+const SIPARIETTO_PAUSA_MIN_MS = 4_000;
+const SIPARIETTO_PAUSA_MAX_MS = 10_000;
 /** Oltre la durata della clip più lunga (evento, 6,6s): vedi la rete di sicurezza. */
 const SIPARIETTO_DURATA_MAX_MS = 12_000;
 
@@ -99,6 +103,16 @@ export function MascotteTars({
     pescaSiparietto(MAZZO_NUOVO, Math.random),
   );
   const prossimo = estratto.posa;
+  // Il prossimo e quello dopo: sono i due che vanno scaldati. La seconda
+  // carta è già decisa (sta in cima al mazzo) tranne che a fine giro, dove
+  // il giro nuovo non è ancora mescolato: lì se ne scalda una sola.
+  const inArrivo = useMemo(
+    () =>
+      [estratto.posa, estratto.mazzo.daGiocare[0]].filter(
+        (p): p is PosaOccasionale => Boolean(p),
+      ),
+    [estratto],
+  );
   const video = useRef(new Map<PosaMascotte, HTMLVideoElement>());
 
   const cambiaPosa = useCallback((nuova: PosaMascotte) => {
@@ -159,9 +173,12 @@ export function MascotteTars({
   }, [posa]);
 
   useEffect(() => {
-    const el = video.current.get(prossimo);
-    if (el && prossimo !== posa) el.load();
-  }, [prossimo, posa]);
+    for (const p of inArrivo) {
+      const el = video.current.get(p);
+      // readyState 4 = già in memoria: un load() in più la riscaricherebbe.
+      if (el && p !== posa && el.readyState < 4) el.load();
+    }
+  }, [inArrivo, posa]);
 
   // Rete di sicurezza. onEnded scatta solo se il video arriva davvero in
   // fondo: con la scheda in secondo piano il browser mette in pausa la
@@ -206,7 +223,7 @@ export function MascotteTars({
             }}
             src={`/mascotte/${p}.webm`}
             poster={`/mascotte/${posterDi(p)}-poster.png`}
-            preload={vaPrecaricata(p, prossimo) ? "auto" : "none"}
+            preload={vaPrecaricata(p, inArrivo) ? "auto" : "none"}
             autoPlay={p === "idle"}
             muted
             playsInline
