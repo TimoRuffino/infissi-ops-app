@@ -93,6 +93,14 @@ async function startServer() {
   const { startEventWorkers } = await import("../events/worker");
   startEventWorkers();
 
+  // Il processo serve le richieste e fa girare i lavori di fondo — riconcilia
+  // il Centro Azioni, smista le comunicazioni col modello, legge la posta —
+  // nello stesso thread. La sonda dice quando quel lavoro tiene fermo il
+  // ciclo: è il tempo che ogni richiesta in arrivo passa in coda prima ancora
+  // di essere letta, e non comparirebbe in nessun cronometro per procedura.
+  const { avviaSondaLoop } = await import("./osservabilita");
+  avviaSondaLoop();
+
   // Nightly backup to Google Drive (00:00 Europe/Rome).
   const { startBackupScheduler } = await import("./driveBackup");
   startBackupScheduler();

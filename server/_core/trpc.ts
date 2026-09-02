@@ -6,13 +6,28 @@ import {
   type Interruttore,
 } from "../platform/interruttori";
 import type { TrpcContext } from "./context";
+import { rigaProceduraLenta, vaSegnalata } from "./osservabilita";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+
+// Quanto ha atteso chi ha chiamato. Sta sulla procedura base, quindi copre
+// anche quelle pubbliche: se il ritardo è nell'autenticazione o nel contesto,
+// deve comparire lo stesso. Scrive solo sopra la soglia — v. osservabilita.ts.
+const cronometro = t.middleware(async ({ path, next }) => {
+  const inizio = Date.now();
+  const esito = await next();
+  const durata = Date.now() - inizio;
+  if (vaSegnalata(durata)) {
+    console.warn(rigaProceduraLenta(path, durata, esito.ok ? "ok" : "errore"));
+  }
+  return esito;
+});
+
+export const publicProcedure = t.procedure.use(cronometro);
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -29,7 +44,7 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = publicProcedure.use(requireUser);
 
 // Release hardening: procedura protetta che verifica ANCHE un kill switch
 // prima di qualunque lavoro. I router della Document Intelligence si
@@ -43,7 +58,7 @@ export const procedureConInterruttore = (nome: Interruttore) =>
     })
   );
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = publicProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

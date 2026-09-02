@@ -357,6 +357,19 @@ export function TarsProposteBoard({
   const [filtro, setFiltro] = useState<Filtro>("tutte");
   const [smistamentoInCorso, setSmistamentoInCorso] = useState<number | null>(null);
   const [gatewayInCorso, setGatewayInCorso] = useState<number | null>(null);
+  // Le proposte già decise, tolte dalla coda senza aspettare il server.
+  //
+  // Prima la riga restava lì con la rotella finché non tornava la mutation E
+  // non finiva il ricaricamento della coda: due giri di rete più il carico
+  // della lista, cioè i secondi che si vedevano prima che sparisse. La
+  // decisione però è già presa nel momento del clic — il server la conferma,
+  // non la stabilisce — quindi la riga esce subito. Se l'applicazione
+  // fallisce la riga torna: `onError` svuota l'elenco locale e ricarica,
+  // così niente sparisce senza essere stato applicato davvero.
+  const [decise, setDecise] = useState<number[]>([]);
+  const nascondi = (id: number) =>
+    setDecise(correnti => (correnti.includes(id) ? correnti : [...correnti, id]));
+  const riesponi = () => setDecise([]);
   const decidiSmistamento = useDecisioneSmistamento(() => {
     setSmistamentoInCorso(null);
     dati.ricarica();
@@ -376,6 +389,7 @@ export function TarsProposteBoard({
     },
     onError: errore => {
       setGatewayInCorso(null);
+      riesponi();
       dati.ricarica();
       toast.error(errore.message || "Applicazione non riuscita.");
     },
@@ -389,15 +403,23 @@ export function TarsProposteBoard({
     },
     onError: errore => {
       setGatewayInCorso(null);
+      riesponi();
+      dati.ricarica();
       toast.error(errore.message || "Rifiuto non riuscito.");
     },
   });
 
+  const gatewayVisibili = dati.gateway.filter(p => !decise.includes(p.id));
+  // I contatori dei filtri contano quello che si vede, non quello che il
+  // server non sa ancora di aver perso.
+  const nascoste = dati.gateway.length - gatewayVisibili.length;
+  const totaleVisibile = dati.totale - nascoste;
+
   const tuttiIFiltri: Array<{ id: Filtro; etichetta: string; n: number }> = [
-    { id: "tutte", etichetta: "Tutte", n: dati.totale },
+    { id: "tutte", etichetta: "Tutte", n: dati.totale - nascoste },
     { id: "comunicazioni", etichetta: "Comunicazioni", n: dati.smistamento.length },
     { id: "analisi", etichetta: "Analisi di oggi", n: dati.analisi.length },
-    { id: "documenti", etichetta: "Documenti", n: dati.gateway.length },
+    { id: "documenti", etichetta: "Documenti", n: gatewayVisibili.length },
   ];
   const filtri = tuttiIFiltri.filter(f => f.id === "tutte" || f.n > 0);
   const mostra = (id: Exclude<Filtro, "tutte">) => filtro === "tutte" || filtro === id;
@@ -408,11 +430,11 @@ export function TarsProposteBoard({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-text-1">
-              {dati.totale === 0
+              {totaleVisibile === 0
                 ? "Nessuna proposta da decidere"
-                : dati.totale === 1
+                : totaleVisibile === 1
                   ? "1 proposta da decidere"
-                  : `${dati.totale} proposte da decidere`}
+                  : `${totaleVisibile} proposte da decidere`}
             </h2>
             <p className="text-xs leading-5 text-text-3">
               Tars fa da solo quando è sicuro e lo scrive nel Registro. Qui
@@ -460,7 +482,7 @@ export function TarsProposteBoard({
             <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Carico le proposte…
           </p>
-        ) : dati.totale === 0 ? (
+        ) : totaleVisibile === 0 ? (
           <div className="mx-auto max-w-md px-4 py-12 text-center">
             <Inbox className="mx-auto size-8 text-text-3" aria-hidden="true" />
             <p className="mt-3 text-sm font-semibold text-text-1">Coda vuota</p>
@@ -628,13 +650,13 @@ export function TarsProposteBoard({
               </Sezione>
             )}
 
-            {mostra("documenti") && dati.gateway.length > 0 && (
+            {mostra("documenti") && gatewayVisibili.length > 0 && (
               <Sezione
                 titolo="Dai documenti letti"
                 suggerimento="Cambiano dati dell'ordine: si applicano solo con la tua approvazione"
-                conteggio={dati.gateway.length}
+                conteggio={gatewayVisibili.length}
               >
-                {dati.gateway.map(p => {
+                {gatewayVisibili.map(p => {
                   const inCorso = gatewayInCorso === p.id;
                   return (
                     <RigaProposta
@@ -670,10 +692,12 @@ export function TarsProposteBoard({
                           etichettaSi="Approva e applica"
                           onSi={() => {
                             setGatewayInCorso(p.id);
+                            nascondi(p.id);
                             approva.mutate({ id: p.id, hashAnteprima: p.hashAnteprima });
                           }}
                           onNo={() => {
                             setGatewayInCorso(p.id);
+                            nascondi(p.id);
                             rifiuta.mutate({ id: p.id });
                           }}
                         />
