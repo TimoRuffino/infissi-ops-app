@@ -182,7 +182,9 @@ export async function costruisciFotografia(input: {
   const fattiComunicazioni: FattoAnalisi[] = [];
   if (smistamento) {
     const c = smistamento.contatori ?? {};
-    contatori.comunicazioniDaDecidere = smistamento.daDecidere?.length ?? 0;
+    // Il contatore del registro, non la lista (che il briefing tronca a poche voci):
+    // la prima analisi reale chiedeva perché 29 proposte aperte e 8 «da decidere».
+    contatori.comunicazioniDaDecidere = c.proposteAperte ?? smistamento.daDecidere?.length ?? 0;
     contatori.comunicazioniDaRispondere = smistamento.daRispondere?.length ?? 0;
     contatori.comunicazioniUrgenti = smistamento.urgenti?.length ?? 0;
     fattiComunicazioni.push({
