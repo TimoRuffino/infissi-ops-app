@@ -51,7 +51,9 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.
 - Per aziende/condomini/enti, mantenere la convenzione Ragione sociale.
-- Le azioni Tars sono proposte: nessuna mutation autonoma senza approvazione.
+- Tars agisce con i permessi dell'utente con cui parla: conferma umana
+  solo per soldi, cancellazioni definitive ed effetti esterni (vedi
+  «Agente AI»); ogni effetto di Tars è tracciato e segnalato.
 
 ## UI e UX
 
@@ -89,17 +91,28 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   28/08/2026 resta in `docs/tars-rimosso-2026-08-28.md`, ma non descrive lo
   stato corrente. Contratti, matrice verificata e gap sono in
   `docs/tars/architettura-tars-v2.md` e `docs/tars/matrice-azioni-tars.md`.
-- Ogni automatismo che determina verità business resta deterministico: match,
-  regole, state machine, permessi, importi, scadenze e gate. Il modello non
-  decide né reimplementa questi vincoli.
-- Ogni azione Tars passa da un servizio di dominio tipizzato e dalla policy
-  server-side: mai `force`, mai mutazioni tRPC invocate dal modello, mai SQL
-  generico, `executeSql`, `updateRecord` o scritture dirette. Il provider
-  reale nasce solo dietro il governor; nessun percorso parallelo può aggirarlo.
+- **Policy «Tars libero» (mandato direzione 02/09/2026, piano
+  `docs/superpowers/plans/2026-09-02-tars-libero.md`)**: Tars legge tutto,
+  capisce tutto e fa tutto ciò che l'utente potrebbe fare a mano, con gli
+  stessi permessi. Il modello decide e chiama gli strumenti; nessuna
+  autorità derivata dal testo, nessuna potatura del catalogo per superficie
+  o intento, nessuna risposta deterministica al posto del modello (le
+  ambiguità arrivano come hint nel contesto). Chiede solo quando
+  l'ambiguità cambia l'esito. Ogni effetto è tracciato nel ledger R1 ed
+  esposto come «fatto da Tars per <utente>» (Registro e Situazione).
+- Ogni automatismo che determina verità business resta deterministico e
+  vive negli strumenti e nei servizi di dominio: sede, capability, state
+  machine, gate, versione, idempotenza, importi, scadenze. Il modello non
+  reimplementa questi vincoli: li invoca e ne rispetta l'esito.
+- Ogni azione Tars passa da un servizio di dominio tipizzato: mai `force`,
+  mai mutazioni tRPC invocate dal modello, mai SQL generico, `executeSql`,
+  `updateRecord` o scritture dirette. Il provider reale nasce solo dietro il
+  governor; nessun percorso parallelo può aggirarlo.
 - Il catalogo è fail-closed per capability, sede e flag. Un record di un'altra
-  sede dà `NOT_FOUND`; L1 esplicito può agire senza una seconda conferma, gli
-  effetti condivisi/esterni usano l'unica anteprima e conferma prevista dalla
-  policy, L5/R4 è tecnicamente inesistente.
+  sede dà `NOT_FOUND`. Conferma umana (proposta con anteprima, un click)
+  SOLO per pagamenti e importi, cancellazioni definitive, effetti esterni o
+  su altre sedi; tutto il resto è azione diretta con Undo dove il dominio lo
+  offre. L5/R4 è tecnicamente inesistente.
 - Il mandato documentale T0 Tars è server/documentazione: non aggiunge né
   modifica file `client/`. Le estensioni operative successive devono prima
   aggiornare la matrice dominio→servizio→tool e i test di accettazione.

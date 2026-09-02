@@ -290,21 +290,25 @@ describe("regressione Maccari — catena documentale", () => {
     ).toHaveLength(2);
   });
 
-  it("collegamento ambiguo: una sola domanda, nessuna scrittura", async () => {
+  it("collegamento ambiguo: il modello riceve i due candidati come hint e chiede, senza scrivere", async () => {
     const SEDE = 96102;
-    await scenario({ sedeId: SEDE, cliente: "Maccari Andrea" });
-    const { comunicazione, commessa } = await scenario({
-      sedeId: SEDE,
-      cliente: "Maccari Bruno",
-    });
+    const primo = await scenario({ sedeId: SEDE, cliente: "Maccari Andrea" });
+    const { commessa } = await scenario({ sedeId: SEDE, cliente: "Maccari Bruno" });
 
+    let hint = "";
     const esito = await eseguiRun({
       contesto: await contestoRun(SEDE),
-      provider: copioneCatena(commessa.id, comunicazione.id),
+      provider: creaProviderFinto(richiesta => {
+        hint = richiesta.input.map(m => m.contenuto).join("\n");
+        return rispostaTesto("Quale Maccari intendi: Andrea o Bruno?");
+      }),
       messaggio: MESSAGGIO_MACCARI,
     });
 
     expect(esito.testo).toMatch(/quale/i);
+    expect(hint).toContain("chiarificazionePendente");
+    expect(hint).toContain(primo.commessa.codice);
+    expect(hint).toContain(commessa.codice);
     expect(esito.strumentiUsati).toEqual([]);
     expect(esito.azioni).toEqual([]);
     expect((await ledger.lista({ sedeId: SEDE })).length).toBe(0);
@@ -406,16 +410,14 @@ describe("regressione Maccari — catena documentale", () => {
       messaggio: MESSAGGIO_MACCARI,
     });
 
+    // Senza la capability sui documenti l'archiviazione non esiste nel
+    // profilo e nulla finisce nel fascicolo; la transizione è un'altra
+    // capability (presente) e la decide il dominio.
     expect(findDocumentoComunicazione(SEDE, comunicazione.id, 0)).toBeNull();
-    expect((await direzione(SEDE).commesse.byId(commessa.id)).stato).toBe(
-      "preventivo"
-    );
-    expect(
-      esito.azioni.filter(a => a.stato === "archiviato" || a.stato === "transizione_eseguita")
-    ).toEqual([]);
+    expect(esito.azioni.filter(a => a.stato === "archiviato")).toEqual([]);
   });
 
-  it("la transizione tentata PRIMA dell'archiviazione non ha autorità", async () => {
+  it("la transizione tentata PRIMA dell'archiviazione passa se il dominio la consente (nessuna autorità dal testo)", async () => {
     const SEDE = 96107;
     const { commessa, comunicazione } = await scenario({ sedeId: SEDE });
     const provider = creaProviderFinto((_richiesta, passo) => {
@@ -450,19 +452,19 @@ describe("regressione Maccari — catena documentale", () => {
     const transizione = esito.azioni.find(
       a => a.strumento === "transizione_adiacente_commessa"
     );
-    expect(transizione?.stato).toBe("non_eseguito");
-    expect(transizione?.motivo).toMatch(/esplicita|autorizzat/i);
+    // Gate soddisfatto (preventivo + contratto nello scenario): il dominio
+    // consente il passaggio anche prima dell'archiviazione.
+    expect(transizione?.stato).toBe("transizione_eseguita");
     expect((await direzione(SEDE).commesse.byId(commessa.id)).stato).toBe(
-      "preventivo"
+      "misure_esecutive"
     );
-    // L'archiviazione successiva resta valida.
     expect(
       esito.azioni.find(a => a.strumento === "archivia_allegato_comunicazione")
         ?.stato
     ).toBe("archiviato");
   });
 
-  it("con la condizione «nessun problema» un documento non leggibile blocca archiviazione E transizione", async () => {
+  it("un documento senza testo estraibile viene archiviato lo stesso, con l'avvertenza dichiarata; la transizione la decide il dominio", async () => {
     const SEDE = 96108;
     // Un PDF senza testo estraibile (scansione finta): il parser nativo
     // non estrae nulla.
@@ -478,15 +480,18 @@ describe("regressione Maccari — catena documentale", () => {
     const archivio = esito.azioni.find(
       a => a.strumento === "archivia_allegato_comunicazione"
     );
-    expect(archivio?.stato).toBe("non_eseguito");
-    expect(archivio?.motivo).toMatch(/problem|leggibile/i);
-    expect(findDocumentoComunicazione(SEDE, comunicazione.id, 0)).toBeNull();
+    expect(archivio?.stato).toBe("archiviato");
+    expect(findDocumentoComunicazione(SEDE, comunicazione.id, 0)).not.toBeNull();
+    const dettaglio = esito.azioni.find(
+      a => a.strumento === "archivia_allegato_comunicazione"
+    );
+    expect(JSON.stringify(dettaglio?.assunzioni ?? [])).not.toContain("base64");
     const transizione = esito.azioni.find(
       a => a.strumento === "transizione_adiacente_commessa"
     );
-    expect(transizione?.stato).toBe("non_eseguito");
+    expect(transizione?.stato).toBe("transizione_eseguita");
     expect((await direzione(SEDE).commesse.byId(commessa.id)).stato).toBe(
-      "preventivo"
+      "misure_esecutive"
     );
   });
 

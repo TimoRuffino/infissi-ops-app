@@ -6,7 +6,7 @@ import {
   descrittoreAzione,
   validaRegistroAzioni,
 } from "./registry";
-import { catalogoAzioniPerContesto } from "./policy";
+import { azioniPertinentiAlContesto, catalogoAzioniPerContesto } from "./policy";
 import {
   chiaveIdempotenzaR1,
   creaLedgerEsecuzioniMemoriaPerTest,
@@ -288,14 +288,19 @@ describe("registro centrale delle azioni Tars", () => {
 });
 
 describe("policy dinamica del catalogo", () => {
-  it("restringe per superficie, entità attiva e intento", () => {
-    const risultato = catalogoAzioniPerContesto({
-      ...contesto(),
-      superficie: "documenti-ordini",
-      entitaAttiva: { tipo: "ordine_fornitore", id: 41 },
-      intento: "proposta",
-    });
-    expect(risultato.map(a => a.nome)).toEqual(["proponi_data_consegna"]);
+  it("i selettori (superficie, entità, intento) NON potano il catalogo: pertinenza solo informativa (Tars libero)", () => {
+    const selettori = {
+      superficie: "documenti-ordini" as const,
+      entitaAttiva: { tipo: "ordine_fornitore" as const, id: 41 },
+      intento: "proposta" as const,
+    };
+    const catalogo = catalogoAzioniPerContesto({ ...contesto(), ...selettori });
+    expect(catalogo).toHaveLength(31);
+    expect(catalogo.map(a => a.nome)).toContain("proponi_data_consegna");
+    expect(catalogo.map(a => a.nome)).toContain("cerca_commesse");
+    expect(
+      azioniPertinentiAlContesto({ ...contesto(), ...selettori }).map(a => a.nome)
+    ).toEqual(["proponi_data_consegna"]);
   });
 
   it("applica capability, direzione, sede e flag in modo fail-closed", () => {
@@ -304,22 +309,23 @@ describe("policy dinamica del catalogo", () => {
       entitaAttiva: { tipo: "ordine_fornitore" as const, id: 41 },
       intento: "proposta" as const,
     };
-    expect(
-      catalogoAzioniPerContesto({
-        ...contesto([]),
-        ...selettori,
-        direzione: false,
-        ruoli: ["commerciale"],
-      })
-    ).toEqual([]);
+    const senzaCapability = catalogoAzioniPerContesto({
+      ...contesto([]),
+      ...selettori,
+      direzione: false,
+      ruoli: ["commerciale"],
+    }).map(a => a.nome);
+    expect(senzaCapability).not.toContain("proponi_data_consegna");
+    expect(senzaCapability).not.toContain("leggi_commessa");
+    expect(senzaCapability).not.toContain("crea_ticket");
     expect(
       catalogoAzioniPerContesto({ ...contesto(), ...selettori, sedeId: 0 })
     ).toEqual([]);
 
     process.env.FLAG_TARS_PROPOSALS = "off";
     expect(
-      catalogoAzioniPerContesto({ ...contesto(), ...selettori })
-    ).toEqual([]);
+      catalogoAzioniPerContesto({ ...contesto(), ...selettori }).map(a => a.nome)
+    ).not.toContain("proponi_data_consegna");
   });
 
   it("i tool direzione-only non esistono nel catalogo di chi non è direzione", () => {
@@ -336,22 +342,25 @@ describe("policy dinamica del catalogo", () => {
     expect(direzione).toContain("leggi_miglioramenti");
   });
 
-  it("senza selettori mantiene il catalogo compatibile; senza match usa solo il fallback R0", () => {
+  it("con o senza selettori il catalogo è lo stesso: tutto l'autorizzato", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
     expect(completo).toHaveLength(31);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
-    const fallback = catalogoAzioniPerContesto({
+    const conSelettori = catalogoAzioniPerContesto({
       ...contesto(),
       superficie: "economia",
       intento: "azione_esplicita",
-    });
-    expect(fallback.map(a => a.nome)).toEqual([
-      "cerca_clienti",
-      "cerca_commesse",
-    ]);
-    expect(fallback.every(a => a.rischio === "R0")).toBe(true);
+    }).map(a => a.nome);
+    expect(conSelettori).toEqual(completo);
+    expect(
+      azioniPertinentiAlContesto({
+        ...contesto(),
+        superficie: "economia",
+        intento: "azione_esplicita",
+      })
+    ).toEqual([]);
   });
 
   it("in produzione senza PostgreSQL non espone R1", () => {

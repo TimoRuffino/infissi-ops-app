@@ -524,9 +524,21 @@ describe("tars — protocollo write-ahead R1", () => {
       messaggio: `Passa la commessa ${commessa.codice} allo stato successivo`,
     });
 
-    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("misure_esecutive");
-    expect(esito.azioni.filter(a => a.stato === "transizione_eseguita")).toHaveLength(1);
-    expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(1);
+    // Tars libero: nessuna «autorità consumata» dopo il primo effetto. Ogni
+    // chiamata è un comando verificato dal dominio (adiacenza, gate,
+    // versione): la seconda passa o viene rifiutata dal dominio, mai da un
+    // classificatore del testo.
+    const eseguite = esito.azioni.filter(a => a.stato === "transizione_eseguita");
+    expect(eseguite.length).toBeGreaterThanOrEqual(1);
+    expect(["misure_esecutive", "aggiornamento_contratto"]).toContain(
+      (await direzione().commesse.byId(commessa.id)).stato
+    );
+    for (const azione of esito.azioni) {
+      expect(azione.motivo ?? "").not.toMatch(/esplicit|autorizzat/i);
+    }
+    expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(
+      eseguite.length
+    );
   });
 
   it("blocca il retry concorrente della transizione prima di duplicare stato e audit", async () => {
@@ -578,7 +590,7 @@ describe("tars — protocollo write-ahead R1", () => {
     "purché il documento sia coerente",
     "a condizione che il documento sia coerente",
   ]) {
-  it(`rifiuta il suffisso condizionale «${condizione}» prima di emettere autorità o reservation`, async () => {
+  it(`esegue anche con il suffisso «${condizione}»: il testo non è un'autorità, decide il modello e verifica il dominio`, async () => {
     process.env.FLAG_TARS = "on";
     process.env.FLAG_TARS_READ_TOOLS = "on";
     process.env.FLAG_TARS_L2_ACTIONS = "on";
@@ -608,9 +620,9 @@ describe("tars — protocollo write-ahead R1", () => {
       messaggio: `Passa la commessa ${commessa.codice} a misure esecutive ${condizione}`,
     });
 
-    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("preventivo");
-    expect(esito.azioni).toMatchObject([{ stato: "non_eseguito" }]);
-    expect(await ledger.lista({ sedeId: SEDE })).toHaveLength(0);
+    expect((await direzione().commesse.byId(commessa.id)).stato).toBe("misure_esecutive");
+    expect(esito.azioni).toMatchObject([{ stato: "transizione_eseguita" }]);
+    expect((await ledger.lista({ sedeId: SEDE })).filter(r => r.stato === "settled")).toHaveLength(1);
   });
   }
 

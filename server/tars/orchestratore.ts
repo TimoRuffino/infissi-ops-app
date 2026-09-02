@@ -18,7 +18,7 @@ import { comeDefinizioneProvider, PROFILO_VERSIONE, strumentiPerContesto } from 
 import { tarsAttivo } from "../platform/interruttori";
 import { ErroreBudget, messaggioPerLimite } from "./costi/governor";
 import { contestoMemorie, fingerprintMemorie } from "./memoria";
-import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v8";
+import { PROMPT_SISTEMA, PROMPT_VERSIONE } from "./prompt/v9";
 import {
   ErroreProvider,
   type MessaggioTars,
@@ -46,21 +46,7 @@ import {
   salvaContestoConversazione,
 } from "./conversazione/context";
 import { risolviCommessa } from "./conversazione/resolver";
-import { domandaChiarificazioneCommessa } from "./conversazione/types";
-import {
-  domandaChiarificazioneRipetuta,
-  risolviRispostaChiarificazione,
-} from "./conversazione/chiarimento";
-import {
-  analizzaRichiestaTransizione,
-  concretizzaRichiestaTransizione,
-} from "./strumenti/commesse";
-import {
-  analizzaRichiestaArchiviazione,
-  analizzaRichiestaTransizioneCondizionata,
-  condizioniTransizioneSoddisfatte,
-} from "./strumenti/archivioAllegati";
-import { versioneCommessa } from "../commesse/transizioni";
+import { risolviRispostaChiarificazione } from "./conversazione/chiarimento";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -347,19 +333,10 @@ export async function eseguiRun(input: {
   configurazione?: Partial<ConfigurazioneRun>;
 }): Promise<RispostaRun> {
   const config = { ...configurazioneRunDefault(), ...input.configurazione };
-  const richiestaTransizione = analizzaRichiestaTransizione(input.messaggio);
-  const richiestaArchiviazione = analizzaRichiestaArchiviazione(
-    input.messaggio
-  );
-  // Transizione subordinata alle sole condizioni verificabili in-run: resta
-  // inerte finché il codice deterministico non le verifica sull'esito reale.
-  let richiestaCondizionata = analizzaRichiestaTransizioneCondizionata(
-    input.messaggio
-  );
   let contesto: ContestoRun = {
     ...input.contesto,
-    // Un chiamante non può precompilare autorità R1: verrà legata soltanto
-    // dopo che il resolver avrà verificato una commessa della sede corrente.
+    // Nessuna autorità effimera (Tars libero): gli strumenti verificano da
+    // soli sede, capability, versione e state machine.
     autorizzazioneTransizione: undefined,
     autorizzazioneArchiviazione: undefined,
   };
@@ -425,61 +402,6 @@ export async function eseguiRun(input: {
   });
   const usaRisoluzione = riferimentoEsplicito || riferimentoClienteVerificato;
 
-  const rispostaResolver = async (
-    testo: string,
-    statoOperativo: StatoOperativo,
-    contatori: Record<string, number>
-  ): Promise<RispostaRun> => {
-    await aggiungiTurno({
-      conversazioneId: conversazioneId!,
-      sedeId: contesto.sedeId,
-      utenteId: contesto.utenteId,
-      ruolo: "utente",
-      contenuto: input.messaggio,
-    });
-    await aggiungiTurno({
-      conversazioneId: conversazioneId!,
-      sedeId: contesto.sedeId,
-      utenteId: contesto.utenteId,
-      ruolo: "tars",
-      contenuto: testo,
-      payload: {
-        statoOperativo,
-        chiarificazione: statoOperativo.stato === "Da confermare",
-        runId,
-      },
-    });
-    await registraRun({
-      sedeId: contesto.sedeId,
-      utenteId: contesto.utenteId,
-      conversazioneId: conversazioneId!,
-      stato: "ok",
-      provider: "resolver-deterministico",
-      modello: config.modello,
-      versioni: { prompt: PROMPT_VERSIONE, profilo: PROFILO_VERSIONE },
-      contatori: { modelCallEvitate: 1, ...contatori },
-      errore: null,
-    });
-    return {
-      runId,
-      conversazioneId: conversazioneId!,
-      stato: "ok",
-      testo,
-      evidenze: [],
-      strumentiUsati: [],
-      azioni: [],
-      omissioni: [],
-      uso: { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 },
-      cache: { c0Hit: false, c1Hit: 0, c1Miss: 0 },
-      versioni: {
-        prompt: PROMPT_VERSIONE,
-        profilo: PROFILO_VERSIONE,
-        modello: config.modello,
-      },
-      statoOperativo,
-    };
-  };
-
   const selezionaCommessa = async (commessaId: number) => {
     const commessa: any = getCommessaById(commessaId);
     if (!commessa || commessa.sedeId !== contesto.sedeId) return;
@@ -517,9 +439,11 @@ export async function eseguiRun(input: {
 
   const pendente = contestoConversazione.chiarificazionePendente;
   if (pendente) {
-    // La risposta a una domanda chiusa si legge CONTRO i candidati
-    // («096», «la seconda», «Bertoli»), non col resolver generico —
-    // che riconosce solo codici completi e ripeteva la domanda a vuoto.
+    // La risposta a una domanda aperta si legge CONTRO i candidati
+    // («096», «la seconda», «Bertoli»). Se identifica un'opzione, la
+    // commessa diventa attiva e il run prosegue col modello; altrimenti
+    // il modello riceve i candidati come hint e chiede con parole sue.
+    // Mai una commessa FUORI dai candidati mentre la domanda è aperta.
     const risposta = risolviRispostaChiarificazione(
       input.messaggio,
       pendente.candidati
@@ -532,46 +456,6 @@ export async function eseguiRun(input: {
       await selezionaCommessa(risposta.candidato.commessaId);
     } else if (ammessa && risoluzione.stato === "unico") {
       await selezionaCommessa(risoluzione.candidato.commessaId);
-    } else {
-      // Mai una commessa FUORI dai candidati mentre la domanda è aperta
-      // (invariante provata in context.test): la risposta o è una delle
-      // opzioni, o la domanda si ripete e poi decade.
-      const tentativi = (pendente.tentativi ?? 0) + 1;
-      if (tentativi >= 2) {
-        // Valvola di sicurezza: due domande senza risposta riconosciuta
-        // bastano. La domanda decade e il messaggio arriva al modello,
-        // che può chiedere con parole sue o procedere senza commessa.
-        contestoConversazione = await salvaContestoConversazione({
-          conversazioneId,
-          sedeId: contesto.sedeId,
-          utenteId: contesto.utenteId,
-          versioneAttesa: contestoConversazione.versione,
-          patch: { chiarificazionePendente: null },
-        });
-      } else {
-        contestoConversazione = await salvaContestoConversazione({
-          conversazioneId,
-          sedeId: contesto.sedeId,
-          utenteId: contesto.utenteId,
-          versioneAttesa: contestoConversazione.versione,
-          patch: {
-            chiarificazionePendente: {
-              tipo: "commessa",
-              candidati: pendente.candidati,
-              tentativi,
-            },
-          },
-        });
-        const domanda =
-          risposta.stato === "ambiguo"
-            ? domandaChiarificazioneCommessa(risposta.candidati)
-            : domandaChiarificazioneRipetuta(pendente.candidati);
-        return rispostaResolver(
-          domanda,
-          derivaStatoOperativo({ azioni: [], chiarificazione: true }),
-          { chiarificazioni: 1, chiarificazioniRipetute: tentativi }
-        );
-      }
     }
   } else if (usaRisoluzione && risoluzione.stato === "ambiguo") {
     contestoConversazione = await salvaContestoConversazione({
@@ -599,12 +483,14 @@ export async function eseguiRun(input: {
           },
         },
       });
-    return rispostaResolver(
-      risoluzione.domanda,
-      derivaStatoOperativo({ azioni: [], chiarificazione: true }),
-      { chiarificazioni: 1 }
-    );
+    // Niente risposta senza modello: i candidati arrivano al modello come
+    // hint nel contesto verificato e la domanda la fa lui, con parole sue,
+    // o risolve da solo cercando.
   } else if (codiceEsplicito && risoluzione.stato === "non_trovato") {
+    // Un codice esplicito che non esiste in sede non blocca più il run: il
+    // modello lo verifica con gli strumenti e lo dice. Ma la vecchia
+    // commessa attiva decade, altrimenti un'azione «sulla com_2026_999»
+    // finirebbe agganciata alla commessa precedente.
     contestoConversazione = await salvaContestoConversazione({
       conversazioneId,
       sedeId: contesto.sedeId,
@@ -620,11 +506,6 @@ export async function eseguiRun(input: {
         chiarificazionePendente: null,
       },
     });
-    return rispostaResolver(
-      `Non trovo la commessa ${codiceEsplicito} in questa sede. Nessuna azione eseguita.`,
-      { stato: "Non eseguito", fonte: "resolver", motivo: "commessa non trovata" },
-      { riferimentiNonTrovati: 1 }
-    );
   } else if (usaRisoluzione && risoluzione.stato === "unico") {
     await selezionaCommessa(risoluzione.candidato.commessaId);
   }
@@ -632,35 +513,9 @@ export async function eseguiRun(input: {
     contesto,
     contestoConversazione
   );
-  const commessaAutorizzata =
-    (richiestaTransizione || richiestaArchiviazione) &&
-    contesto.entitaAttiva?.tipo === "commessa" &&
-    contesto.contestoConversazione?.commessaId === contesto.entitaAttiva.id &&
-    contesto.contestoConversazione.verifiche.commessa === "verificato"
-      ? getCommessaById(contesto.entitaAttiva.id)
-      : null;
-  const targetAutorizzato =
-    commessaAutorizzata && richiestaTransizione
-      ? concretizzaRichiestaTransizione(richiestaTransizione, commessaAutorizzata)
-      : null;
-  contesto = {
-    ...contesto,
-    autorizzazioneTransizione:
-      commessaAutorizzata == null || targetAutorizzato == null
-        ? undefined
-        : {
-            commessaId: commessaAutorizzata.id,
-            nuovoStato: targetAutorizzato,
-            versione: versioneCommessa(commessaAutorizzata),
-          },
-    autorizzazioneArchiviazione:
-      commessaAutorizzata == null || richiestaArchiviazione == null
-        ? undefined
-        : {
-            commessaId: commessaAutorizzata.id,
-            condizioni: richiestaArchiviazione.condizioni,
-          },
-  };
+  // Nessuna autorità derivata dal testo (Tars libero, 02/09/2026): la
+  // chiamata dello strumento È il comando; sede, capability, versione,
+  // state machine e gate li verifica lo strumento stesso.
 
   await aggiungiTurno({
     conversazioneId,
@@ -1133,53 +988,10 @@ export async function eseguiRun(input: {
                 descrizione:
                   azione.evidenze[0]?.descrizione ?? azione.strumento,
               });
-              if (
-                azione.strumento === "archivia_allegato_comunicazione" &&
-                (azione.stato === "archiviato" ||
-                  azione.stato === "gia_archiviato")
-              ) {
-                // Autorità monouso consumata; la transizione condizionata
-                // nasce SOLO qui, quando il codice deterministico verifica
-                // le condizioni sull'esito reale dell'archiviazione.
-                const archiviazione = contesto.autorizzazioneArchiviazione;
-                contesto = {
-                  ...contesto,
-                  autorizzazioneArchiviazione: undefined,
-                };
-                if (
-                  richiestaCondizionata &&
-                  archiviazione &&
-                  esitoDaEsecuzioneFresca &&
-                  azione.entitaToccate.includes(
-                    `commessa:${archiviazione.commessaId}`
-                  ) &&
-                  condizioniTransizioneSoddisfatte(
-                    richiestaCondizionata.condizioni,
-                    azione
-                  )
-                ) {
-                  const commessa: any = getCommessaById(
-                    archiviazione.commessaId
-                  );
-                  if (commessa && commessa.sedeId === contesto.sedeId) {
-                    const target = concretizzaRichiestaTransizione(
-                      richiestaCondizionata.richiesta,
-                      commessa
-                    );
-                    if (target) {
-                      contesto = {
-                        ...contesto,
-                        autorizzazioneTransizione: {
-                          commessaId: commessa.id,
-                          nuovoStato: target,
-                          versione: versioneCommessa(commessa),
-                        },
-                      };
-                    }
-                  }
-                }
-                richiestaCondizionata = null;
-              }
+              // La «transizione condizionata» dopo un'archiviazione non
+              // ha più un'autorità pre-armata: se l'utente ha chiesto
+              // «archivia e, se va bene, passa a X», il modello chiama la
+              // transizione nel giro successivo e il dominio verifica.
             }
             try {
               contestoConversazione = await aggiornaContestoDaEsitoTool({

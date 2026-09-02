@@ -340,16 +340,10 @@ async function materializzaTransizione(
   | { tipo: "esito"; esito: EsitoAzione }
 > {
   const nome = "transizione_adiacente_commessa";
-  const autorizzazione = contesto.autorizzazioneTransizione;
-  if (!autorizzazione) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(
-        nome,
-        "La transizione non è stata richiesta esplicitamente: nessuna modifica applicata."
-      ),
-    };
-  }
+  // Tars libero (02/09/2026): nessuna autorità derivata dal testo. La
+  // commessa è quella indicata dal modello o quella attiva e verificata
+  // nella conversazione; sede, capability, versione, state machine e gate
+  // li verifica il dominio qui sotto.
   if (
     !tarsAttivo("tarsL2Actions") ||
     !haCapability(contesto, [
@@ -365,20 +359,21 @@ async function materializzaTransizione(
       ),
     };
   }
-  if (
-    input.commessaId != null &&
-    input.commessaId !== autorizzazione.commessaId
-  ) {
+  const id =
+    input.commessaId ??
+    (contesto.contestoConversazione?.verifiche.commessa === "verificato"
+      ? contesto.contestoConversazione.commessaId
+      : null);
+  if (id == null) {
     return {
       tipo: "esito",
       esito: nonEseguito(
         nome,
-        "Commessa non trovata o operazione non autorizzata."
+        "Non so quale commessa cambiare: indica il codice o il cliente."
       ),
     };
   }
-  const id = autorizzazione.commessaId;
-  const commessa = id == null ? null : commessaInSede(contesto, id);
+  const commessa = commessaInSede(contesto, id);
   if (!commessa) {
     return {
       tipo: "esito",
@@ -404,24 +399,6 @@ async function materializzaTransizione(
     haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
     documentiRichiesti: dipendenze.documentiRichiesti,
   });
-  if (input.nuovoStato !== autorizzazione.nuovoStato) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(
-        nome,
-        "Il passaggio richiesto non coincide con il comando esplicito dell'utente: nessuna modifica applicata."
-      ),
-    };
-  }
-  if (versioneCommessa(commessa) !== autorizzazione.versione) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(
-        nome,
-        "La commessa è cambiata dall'ultima lettura: rileggila prima di modificare lo stato."
-      ),
-    };
-  }
   if (!anteprima.consentita) {
     return {
       tipo: "esito",
@@ -466,14 +443,12 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
   capability: ["commessa.update_operational", "commessa.change_state"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Cambia lo stato di UNA commessa di un solo passaggio adiacente quando l'utente lo ordina esplicitamente. Usa la state machine e i gate del CRM, non accetta force, rilegge la versione prima dell'effetto e restituisce Undo sicuro.",
+    "Cambia lo stato di UNA commessa di un passaggio adiacente quando l'utente lo chiede (commessa indicata o quella attiva nella conversazione). Usa la state machine e i gate del CRM, non accetta force, rilegge la versione prima dell'effetto e restituisce Undo sicuro. Per più passaggi, chiamalo più volte.",
   schemaInput: schemaTransizione,
   materializzaInput: materializzaTransizione,
   async esegui(contesto, input): Promise<EsitoAzione> {
     const nome = "transizione_adiacente_commessa";
-    const autorizzazione = contesto.autorizzazioneTransizione;
     if (
-      !autorizzazione ||
       !tarsAttivo("tarsL2Actions") ||
       !haCapability(contesto, [
         "commessa.update_operational",
@@ -487,7 +462,6 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
     }
     if (
       !Number.isInteger(input.commessaId) ||
-      input.commessaId !== autorizzazione.commessaId ||
       !input.__versioneAttesa ||
       !input.__firmaAttesa
     ) {
@@ -511,16 +485,10 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
       documentiRichiesti:
         dipendenzeTransizioniCommesse().documentiRichiesti,
     });
-    if (input.nuovoStato !== autorizzazione.nuovoStato) {
+    if (!anteprima.consentita) {
       return nonEseguito(
         nome,
-        "Il passaggio richiesto non coincide con il comando esplicito dell'utente: nessuna modifica applicata."
-      );
-    }
-    if (versioneCommessa(commessa) !== autorizzazione.versione) {
-      return nonEseguito(
-        nome,
-        "La commessa è cambiata dall'ultima lettura: rileggila prima di modificare lo stato."
+        anteprima.motivo ?? "La transizione non è consentita nello stato corrente."
       );
     }
     try {

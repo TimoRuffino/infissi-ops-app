@@ -604,15 +604,21 @@ describe("resolver deterministico commessa", () => {
     expect(esito.domanda).toContain("COM-2026-183");
     expect(esito.candidati).toHaveLength(2);
 
+    // Tars libero: l'ambiguità arriva al modello come hint (candidati e
+    // domanda pronta nel contesto verificato); la domanda la fa lui.
+    let hint = "";
     const risposta = await eseguiRun({
       contesto: contestoRun(),
-      provider: creaProviderFinto(() => {
-        throw new Error("il provider non deve partire per una ambiguità deterministica");
+      provider: creaProviderFinto(richiesta => {
+        hint = richiesta.input.map(m => m.contenuto).join("\n");
+        return rispostaTesto("Quale delle due Maccari?");
       }),
       messaggio: "Controlla la commessa Maccari",
     });
-    expect(risposta.statoOperativo).toMatchObject({ stato: "Da confermare" });
-    expect(risposta.testo).toBe(esito.domanda);
+    expect(risposta.testo).toBe("Quale delle due Maccari?");
+    expect(hint).toContain("chiarificazionePendente");
+    expect(hint).toContain("COM-2026-182");
+    expect(hint).toContain("COM-2026-183");
     const persistito = await caricaContestoConversazione({
       conversazioneId: risposta.conversazioneId,
       sedeId: SEDE,
@@ -632,29 +638,39 @@ describe("resolver deterministico commessa", () => {
       patch: { commessaId: COMMESSA_A, clienteId: CLIENTE_A, superficie: "commessa" },
     });
     let chiamate = 0;
-    const risposta = await eseguiRun({
+    let hint = "";
+    await eseguiRun({
       contesto: contestoRun(),
-      provider: creaProviderFinto(() => {
+      provider: creaProviderFinto(richiesta => {
         chiamate += 1;
-        return rispostaTesto("Non devo scegliere silenziosamente.");
+        hint = richiesta.input.map(m => m.contenuto).join("\n");
+        return rispostaTesto("Non scelgo silenziosamente: quale?");
       }),
       messaggio: "Controlla la commessa Maccari",
       conversazioneId: conversazione.id,
     });
-    expect(chiamate).toBe(0);
-    expect(risposta.testo).toContain("COM-2026-182");
-    expect(risposta.testo).toContain("COM-2026-183");
-    expect(risposta.testo.match(/\?/g)).toHaveLength(1);
+    // Il modello viene chiamato con ENTRAMBI i candidati: nessuna scelta
+    // silenziosa della commessa già attiva.
+    expect(chiamate).toBe(1);
+    expect(hint).toContain("COM-2026-182");
+    expect(hint).toContain("COM-2026-183");
+    const persistito = await caricaContestoConversazione({
+      conversazioneId: conversazione.id,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+    });
+    expect(persistito?.commessaId).toBeNull();
+    expect(persistito?.chiarificazionePendente?.candidati).toHaveLength(2);
   });
 
   it("una chiarificazione pendente non può selezionare una commessa fuori candidati", async () => {
     const prima = await eseguiRun({
       contesto: contestoRun(),
-      provider: creaProviderFinto(() => { throw new Error("provider inatteso"); }),
+      provider: creaProviderFinto(() => rispostaTesto("Quale?")),
       messaggio: "Controlla la commessa Maccari",
     });
     let chiamate = 0;
-    const seconda = await eseguiRun({
+    await eseguiRun({
       contesto: contestoRun(),
       provider: creaProviderFinto(() => {
         chiamate += 1;
@@ -663,10 +679,19 @@ describe("resolver deterministico commessa", () => {
       messaggio: "COM-2026-184",
       conversazioneId: prima.conversazioneId,
     });
-    expect(chiamate).toBe(0);
-    expect(seconda.statoOperativo?.stato).toBe("Da confermare");
-    expect(seconda.testo).not.toContain("COM-2026-184");
-    expect(seconda.testo.match(/\?/g)).toHaveLength(1);
+    // Il modello risponde, ma la commessa fuori dai candidati NON diventa
+    // attiva: la domanda resta aperta con gli stessi due candidati.
+    expect(chiamate).toBe(1);
+    const persistito = await caricaContestoConversazione({
+      conversazioneId: prima.conversazioneId,
+      sedeId: SEDE,
+      utenteId: UTENTE,
+    });
+    expect(persistito?.commessaId).toBeNull();
+    expect(persistito?.chiarificazionePendente?.candidati.map(c => c.codice)).toEqual(
+      expect.arrayContaining(["COM-2026-182", "COM-2026-183"])
+    );
+    expect(persistito?.chiarificazionePendente?.candidati).toHaveLength(2);
   });
 
   it("un codice esplicito sconosciuto azzera il vecchio contesto e ferma il provider", async () => {
@@ -691,17 +716,20 @@ describe("resolver deterministico commessa", () => {
       },
     });
     let chiamate = 0;
-    const risposta = await eseguiRun({
+    await eseguiRun({
       contesto: contestoRun(),
-      provider: creaProviderFinto(() => {
+      provider: creaProviderFinto((_richiesta, passo) => {
         chiamate += 1;
-        return chiamataTool("crea_promemoria", { testo: "Non creare", quando: "tra un'ora" });
+        return passo === 0
+          ? chiamataTool("crea_promemoria", { testo: "Sulla 999", quando: "tra un'ora" })
+          : rispostaTesto("Promemoria creato; la commessa com_2026_999 non risulta.");
       }),
       messaggio: "Sulla commessa com_2026_999 ricordami tra un'ora",
       conversazioneId: conversazione.id,
     });
-    expect(chiamate).toBe(0);
-    expect(risposta.statoOperativo?.stato).toBe("Non eseguito");
+    // Tars libero: il modello lavora lo stesso, ma la vecchia commessa
+    // attiva decade — il promemoria NON viene agganciato a COMMESSA_A.
+    expect(chiamate).toBeGreaterThan(0);
     const ripulito = await caricaContestoConversazione({
       conversazioneId: conversazione.id,
       sedeId: SEDE,
@@ -709,13 +737,14 @@ describe("resolver deterministico commessa", () => {
     });
     expect(ripulito).toMatchObject({ commessaId: null, clienteId: null });
     expect(ripulito?.versioniEntita).toEqual({});
-    expect(await repo.listPersonal({
+    const promemoria = await repo.listPersonal({
       sedeId: SEDE,
       recipientUserId: UTENTE,
       stati: ["scheduled"],
       ordina: "remindAt",
       limit: 10,
-    })).toHaveLength(0);
+    });
+    expect(promemoria.every(p => p.commessaId !== COMMESSA_A)).toBe(true);
   });
 
   it("restituisce non_trovato e non include mai candidati di un'altra sede", () => {
@@ -791,8 +820,9 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
     const nomi = richiesta.strumenti.map((s: any) => s.nome);
     expect(nomi).toContain("leggi_commessa");
     expect(nomi).toContain("verifica_gate_commessa");
-    expect(nomi).not.toContain("leggi_memorie");
-    expect(nomi).not.toContain("cerca_commesse");
+    // Tars libero: il catalogo NON viene potato dalla superficie attiva.
+    expect(nomi).toContain("leggi_memorie");
+    expect(nomi).toContain("cerca_commesse");
     const ultimoContesto = richiesta.input.at(-2)?.contenuto ?? "";
     expect(ultimoContesto).toContain("CONTESTO_CONVERSAZIONE_VERIFICATO");
     expect(ultimoContesto).toContain("COM-2026-182");

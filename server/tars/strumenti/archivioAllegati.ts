@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   getLiveComunicazione,
   type Comunicazione,
+  setMatchComunicazione,
 } from "../../comunicazioni/comunicazioni";
 import {
   leggiAllegatoRaw,
@@ -228,6 +229,8 @@ export type DipendenzeArchivioAllegatiTars = {
     comunicazioneId: number,
     allegatoIndex: number
   ) => Documento | null;
+  /** Collega una comunicazione ancora libera alla commessa (atto dell'utente via Tars). */
+  collega: typeof setMatchComunicazione;
   now: () => Date;
 };
 
@@ -238,6 +241,7 @@ const DIPENDENZE_DEFAULT: DipendenzeArchivioAllegatiTars = {
   estraiDocumento: estraiTestoDocumento,
   archivia: archiviaAllegatoComunicazione,
   trovaDocumentoEsistente: findDocumentoComunicazione,
+  collega: setMatchComunicazione,
   now: () => new Date(),
 };
 
@@ -303,38 +307,16 @@ async function verificaCorrispondenzaCerta(
   contesto: ContestoRun,
   input: InputArchivio
 ): Promise<VerificaCorrispondenza> {
-  const autorizzazione = contesto.autorizzazioneArchiviazione;
-  if (!autorizzazione) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(
-        deps.now,
-        "L'archiviazione non è stata richiesta esplicitamente: nessun documento salvato."
-      ),
-    };
-  }
+  // Tars libero (02/09/2026): nessuna autorità derivata dal testo e nessuna
+  // pre-lettura obbligatoria. Restano i controlli di dominio: flag,
+  // capability, sede, comunicazione viva, nessuna riassegnazione fra
+  // commesse, byte riletti e confrontati prima dell'effetto.
   if (
     !tarsAttivo("tarsL2Actions") ||
     !tarsAttivo("tarsCommunications") ||
     !contesto.capability.has("commessa.read") ||
     !contesto.capability.has("commessa.manage_documents")
   ) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(deps.now, MOTIVO_NON_AUTORIZZATO),
-    };
-  }
-  if (
-    input.commessaId != null &&
-    input.commessaId !== autorizzazione.commessaId
-  ) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(deps.now, MOTIVO_NON_AUTORIZZATO),
-    };
-  }
-  const commessa = deps.getCommessa(autorizzazione.commessaId);
-  if (!commessa || commessa.sedeId !== contesto.sedeId) {
     return {
       tipo: "esito",
       esito: nonEseguito(deps.now, MOTIVO_NON_AUTORIZZATO),
@@ -350,17 +332,64 @@ async function verificaCorrispondenzaCerta(
       esito: nonEseguito(deps.now, MOTIVO_NON_AUTORIZZATO),
     };
   }
-  if (comunicazione.commessaId !== commessa.id) {
+  // La commessa: indicata dal modello, oppure quella attiva e verificata in
+  // conversazione, oppure quella a cui la comunicazione è già collegata.
+  const persistito = contesto.contestoConversazione;
+  const commessaId =
+    input.commessaId ??
+    (persistito?.verifiche.commessa === "verificato" ? persistito.commessaId : null) ??
+    comunicazione.commessaId ??
+    null;
+  if (commessaId == null) {
     return {
       tipo: "esito",
       esito: nonEseguito(
         deps.now,
-        "La comunicazione non è collegata alla commessa autorizzata: nessun documento salvato. Collega prima la comunicazione dal modulo Messaggi."
+        "Non so in quale fascicolo archiviare: indica la commessa (codice o cliente)."
       ),
     };
   }
-  const persistito = contesto.contestoConversazione;
-  const fingerprintAtteso =
+  const commessa = deps.getCommessa(commessaId);
+  if (!commessa || commessa.sedeId !== contesto.sedeId) {
+    return {
+      tipo: "esito",
+      esito: nonEseguito(deps.now, MOTIVO_NON_AUTORIZZATO),
+    };
+  }
+  if (commessa.stato === "archiviata" || commessa.archivedAt) {
+    return {
+      tipo: "esito",
+      esito: nonEseguito(
+        deps.now,
+        `La commessa ${commessa.codice} è archiviata: ripristinala prima di aggiungere documenti al fascicolo.`
+      ),
+    };
+  }
+  if (comunicazione.commessaId != null && comunicazione.commessaId !== commessa.id) {
+    return {
+      tipo: "esito",
+      esito: nonEseguito(
+        deps.now,
+        "La comunicazione è collegata a un'altra commessa: nessuna riassegnazione automatica. Se è sbagliata, cambia il collegamento dal modulo Messaggi."
+      ),
+    };
+  }
+  if (comunicazione.commessaId == null) {
+    // L'utente sta archiviando un allegato di questa mail su questa
+    // commessa: la mail appartiene a quella commessa. Collegare è parte
+    // del comando, e resta tracciato col nome di chi l'ha chiesto.
+    await deps.collega(comunicazione.id, contesto.sedeId, {
+      clienteId: Number.isInteger(commessa.clienteId)
+        ? commessa.clienteId
+        : comunicazione.clienteId,
+      commessaId: commessa.id,
+      confidenza: "alta",
+      motivo: `Collegata da Tars per l'utente ${contesto.utenteId} archiviando un allegato.`,
+    });
+  }
+  // Fingerprint: quello verificato in conversazione se c'è, altrimenti una
+  // lettura fresca adesso; l'esecuzione rilegge comunque e confronta.
+  let fingerprintAtteso =
     persistito &&
     persistito.comunicazioneId === comunicazione.id &&
     persistito.allegatoIndex === input.allegatoIndex &&
@@ -370,13 +399,25 @@ async function verificaCorrispondenzaCerta(
         ]
       : undefined;
   if (!fingerprintAtteso) {
-    return {
-      tipo: "esito",
-      esito: nonEseguito(
-        deps.now,
-        "L'allegato non risulta letto e verificato in questa conversazione: usa prima la lettura dell'allegato, poi archivia."
-      ),
-    };
+    try {
+      const raw = await deps.leggiRaw(comunicazione, input.allegatoIndex);
+      fingerprintAtteso = fingerprintAllegatoComunicazione({
+        comunicazione,
+        allegatoIndex: input.allegatoIndex,
+        nome: raw.nome,
+        mimeType: raw.mimeType,
+        sizeEffettiva: raw.buffer.length,
+        checksumSha256: createHash("sha256").update(raw.buffer).digest("hex"),
+      });
+    } catch {
+      return {
+        tipo: "esito",
+        esito: nonEseguito(
+          deps.now,
+          "L'allegato non è disponibile dalla fonte: nessun documento salvato."
+        ),
+      };
+    }
   }
   return { tipo: "ok", commessa, comunicazione, fingerprintAtteso };
 }
@@ -394,7 +435,7 @@ export function creaStrumentoArchivioAllegato(
     capability: ["commessa.read", "commessa.manage_documents"],
     interruttore: ["tarsL2Actions", "tarsCommunications"],
     descrizione:
-      "Archivia nel fascicolo della commessa UN allegato di una comunicazione già collegata, quando l'utente lo ordina esplicitamente e l'allegato è stato letto in questa conversazione. Rilegge la fonte prima dell'effetto, classifica in modo deterministico e rifiuta ogni riassegnazione tra commesse.",
+      "Archivia nel fascicolo di una commessa UN allegato di una comunicazione (email/WhatsApp) quando l'utente lo chiede. La commessa è quella indicata, quella attiva in conversazione o quella già collegata alla comunicazione; se la comunicazione è ancora libera viene collegata. Rilegge la fonte prima dell'effetto, classifica il tipo di documento e rifiuta ogni riassegnazione tra commesse.",
     schemaInput,
     async materializzaInput(contesto, input) {
       const verifica = await verificaCorrispondenzaCerta(deps, contesto, input);
@@ -527,26 +568,6 @@ export function creaStrumentoArchivioAllegato(
           analisi.esito === "estratto" ? analisi.pagine.join("\n") : null,
       });
 
-      // La condizione esplicita «se non trovi problemi» vincola PRIMA di
-      // tutto l'archiviazione stessa: un documento senza testo estraibile o
-      // con classificazione incerta È un problema, quindi nessuna scrittura
-      // (revisione indipendente, rilievo 1).
-      const autorizzazione = contesto.autorizzazioneArchiviazione;
-      if (autorizzazione?.condizioni.nessunProblema) {
-        if (analisi.esito !== "estratto") {
-          return nonEseguito(
-            deps.now,
-            "Hai chiesto di archiviare solo senza problemi, ma il contenuto non è leggibile in questa fase (nessun testo estraibile): nessun documento salvato."
-          );
-        }
-        if (classificazione.confidenza === "bassa") {
-          return nonEseguito(
-            deps.now,
-            "Hai chiesto di archiviare solo senza problemi, ma la classificazione del documento è incerta: nessun documento salvato. Verifica il tipo e archivia dal modulo Messaggi."
-          );
-        }
-      }
-
       let documento: Documento;
       try {
         documento = await deps.archivia({
@@ -556,7 +577,7 @@ export function creaStrumentoArchivioAllegato(
           commessaId: commessa.id,
           nome: raw.nome,
           tipo: classificazione.tipo,
-          note: `Archiviato da Tars su comando esplicito dell'utente ${contesto.utenteId}.`,
+          note: `Archiviato da Tars per l'utente ${contesto.utenteId}.`,
           mimeType: raw.mimeType,
           vietaRiassegnazione: true,
           buffer: async () => {

@@ -281,27 +281,28 @@ describe("archivia_allegato_comunicazione R1", () => {
     expect(JSON.stringify(esito)).not.toContain("base64");
   });
 
-  it("senza autorità esplicita non esegue nulla", async () => {
+  it("senza autorità derivata dal testo archivia lo stesso: la chiamata dello strumento è il comando (Tars libero)", async () => {
     const record = comunicazione();
     const deps = dipendenze(record);
     const esito = await eseguiArchivio(
       deps,
       contesto(record, { autorizzazioneArchiviazione: undefined })
     );
-    expect(esito.stato).toBe("non_eseguito");
-    expect(esito.motivo).toContain("esplicita");
-    expect(deps.archivia).not.toHaveBeenCalled();
+    expect(esito.stato).toBe("archiviato");
+    expect(deps.archivia).toHaveBeenCalledTimes(1);
   });
 
-  it("senza lettura verificata dell'allegato in conversazione non c'è corrispondenza certa", async () => {
+  it("senza lettura verificata in conversazione legge la fonte adesso e archivia", async () => {
     const record = comunicazione();
     const deps = dipendenze(record);
     const ctx = contesto(record);
     delete ctx.contestoConversazione!.versioniEntita[`allegato:${record.id}:0`];
     const esito = await eseguiArchivio(deps, ctx);
-    expect(esito.stato).toBe("non_eseguito");
-    expect(esito.motivo).toMatch(/lett|verificat/i);
-    expect(deps.archivia).not.toHaveBeenCalled();
+    expect(esito.stato).toBe("archiviato");
+    // Lettura fresca per il fingerprint (in materializzazione e in
+    // esecuzione) + pre-verifica + rilettura nell'effetto serializzato.
+    expect((deps.leggiRaw as any).mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(deps.archivia).toHaveBeenCalledTimes(1);
   });
 
   it("una comunicazione collegata a un'altra commessa produce un blocco senza leak", async () => {
