@@ -541,6 +541,160 @@ export function syncClienteOnCommesse(
   return touched;
 }
 
+// ── Creazione commessa ──────────────────────────────────────────────────────
+
+export const creaCommessaInput = z.object({
+  clienteId: z.number().optional(),
+  cliente: z.string().optional(),
+  indirizzo: z.string().optional(),
+  citta: z.string().optional(),
+  telefono: z.string().optional(),
+  email: z.string().optional(),
+  priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
+  importoTotale: z.number().nonnegative().nullable().optional(),
+  note: z.string().optional(),
+  // Indicative delivery — either a preset offset (30/60/90 days) OR a
+  // free-form date picked from the calendar. The two are mutually
+  // exclusive at display time but the schema accepts both for
+  // backwards compatibility with already-persisted records.
+  consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
+  dataConsegnaIndicativa: z.string().optional(),
+  assegnatoA: z.number().nullable().optional(),
+  // Di cosa si tratta: tipologia + quantità, indicate già in creazione.
+  prodotti: z
+    .array(
+      z.object({
+        nome: z.string().min(1),
+        quantita: z.number().int().min(1).default(1),
+      })
+    )
+    .optional(),
+});
+export type CreaCommessaInput = z.infer<typeof creaCommessaInput>;
+
+/**
+ * L'unico percorso che fa nascere una commessa da una richiesta utente:
+ * `commesse.create` e `clienti.createConCommessa` passano entrambi di qui,
+ * così policy, scope sede, proprietario ereditato e collegamento al cliente
+ * restano una regola sola.
+ */
+export async function creaCommessa(
+  ctx: Pick<TrpcContext, "user" | "sedeId" | "sediIds">,
+  input: CreaCommessaInput
+) {
+  await authorizeCoreOperation({
+    ctx,
+    endpoint: "commesse.create",
+    capability: "commessa.create",
+    resourceType: "commessa",
+  });
+  if (input.importoTotale !== undefined) {
+    await authorizeCoreOperation({
+      ctx,
+      endpoint: "commesse.create.economia",
+      capability: "economia.read",
+      resourceType: "commessa",
+      resource: { sedeId: ctx.sedeId, sensitivity: "economic" },
+    });
+  }
+  if (input.assegnatoA !== undefined && input.assegnatoA !== ctx.user?.id) {
+    requireAssignableUser({
+      assigneeUserId: input.assegnatoA,
+      sedeId: ctx.sedeId ?? 1,
+      requiredCapability: "commessa.update_operational",
+    });
+  }
+  const now = new Date();
+  const id = nextId++;
+  const {
+    clienteId: inputClienteId,
+    cliente: clienteName,
+    prodotti: inputProdotti,
+    ...rest
+  } = input;
+
+  // Derive cliente display name + inherit owner from cliente if linked.
+  let clienteDisplay = clienteName ?? "";
+  let inheritedAssegnatoA: number | null = null;
+  if (inputClienteId) {
+    const c = getClienteById(inputClienteId);
+    if (c) {
+      assertSedeScope(c, ctx.sedeId);
+      clienteDisplay = `${c.cognome} ${c.nome}`.trim();
+      inheritedAssegnatoA = c.assegnatoA ?? null;
+    }
+  }
+  // Owner resolution priority: explicit input > cliente's owner > current user.
+  const assegnatoA =
+    input.assegnatoA !== undefined
+      ? input.assegnatoA
+      : inheritedAssegnatoA ?? ctx.user?.id ?? null;
+
+  const commessa = {
+    id,
+    // Stamp the active sede so the commessa belongs to the current showroom.
+    sedeId: ctx.sedeId ?? 1,
+    codice: generaCodiceCommessa(),
+    clienteId: inputClienteId ?? null,
+    cliente: clienteDisplay,
+    indirizzo: rest.indirizzo ?? null,
+    citta: rest.citta ?? null,
+    telefono: rest.telefono ?? null,
+    email: rest.email ?? null,
+    stato: "preventivo" as const,
+    importoTotale: input.importoTotale ?? null,
+    // Una commessa nasce sempre senza fattura: il pattuito è manuale
+    // finché il primo collegamento FiC non lo promuove.
+    pattuitoFonte: input.importoTotale == null ? null : ("manuale" as const),
+    pattuitoFicDocumentoIds: [] as number[],
+    pattuitoAggiornatoAt: input.importoTotale == null ? null : now,
+    pianoRate: [] as RataCommessa[],
+    importoIncassato: 0,
+    costoPosaStimato: null,
+    costi: [],
+    pagamenti: [],
+    priorita: input.priorita ?? "media",
+    squadraId: null,
+    dataApertura: now.toISOString().split("T")[0],
+    consegnaIndicativa: input.consegnaIndicativa ?? null, // "30" | "60" | "90"
+    dataConsegnaIndicativa: input.dataConsegnaIndicativa ?? null, // ISO date when operator picks a calendar date instead of an offset
+    dataConsegnaConfermata: null, // set when stato=produzione
+    dataChiusura: null,
+    note: rest.note ?? null,
+    prodotti: (inputProdotti ?? []).map((p, i) => ({
+      id: i + 1,
+      nome: p.nome,
+      tipologia: null,
+      quantita: p.quantita ?? 1,
+      dimensioni: null,
+      note: null,
+      createdAt: now,
+    })) as any[],
+    assegnatoA,
+    createdBy: ctx.user?.id ?? null,
+    createdAt: now,
+    updatedAt: now,
+    ficSourceRef: null,
+  };
+  commesse.push(commessa);
+  // Link commessa back to cliente
+  if (inputClienteId) {
+    addCommessaToCliente(inputClienteId, id);
+  }
+  _store.save();
+  await publishAssignmentEvent({
+    sedeId: commessa.sedeId,
+    entityType: "commessa",
+    entityId: commessa.id,
+    previousAssigneeId: null,
+    assigneeId: commessa.assegnatoA,
+    actorUserId: ctx.user?.id ?? null,
+    updatedAt: now,
+    link: `/commesse/${commessa.id}`,
+  });
+  return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
+}
+
 export const commesseRouter = router({
   list: protectedProcedure
     .input(
@@ -633,148 +787,8 @@ export const commesseRouter = router({
   }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        clienteId: z.number().optional(),
-        cliente: z.string().optional(),
-        indirizzo: z.string().optional(),
-        citta: z.string().optional(),
-        telefono: z.string().optional(),
-        email: z.string().optional(),
-        priorita: z.enum(["bassa", "media", "alta", "urgente"]).optional(),
-        importoTotale: z.number().nonnegative().nullable().optional(),
-        note: z.string().optional(),
-        // Indicative delivery — either a preset offset (30/60/90 days) OR a
-        // free-form date picked from the calendar. The two are mutually
-        // exclusive at display time but the schema accepts both for
-        // backwards compatibility with already-persisted records.
-        consegnaIndicativa: z.enum(["30", "60", "90"]).optional(),
-        dataConsegnaIndicativa: z.string().optional(),
-        assegnatoA: z.number().nullable().optional(),
-        // Di cosa si tratta: tipologia + quantità, indicate già in creazione.
-        prodotti: z
-          .array(
-            z.object({
-              nome: z.string().min(1),
-              quantita: z.number().int().min(1).default(1),
-            })
-          )
-          .optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      await authorizeCoreOperation({
-        ctx,
-        endpoint: "commesse.create",
-        capability: "commessa.create",
-        resourceType: "commessa",
-      });
-      if (input.importoTotale !== undefined) {
-        await authorizeCoreOperation({
-          ctx,
-          endpoint: "commesse.create.economia",
-          capability: "economia.read",
-          resourceType: "commessa",
-          resource: { sedeId: ctx.sedeId, sensitivity: "economic" },
-        });
-      }
-      if (input.assegnatoA !== undefined && input.assegnatoA !== ctx.user?.id) {
-        requireAssignableUser({
-          assigneeUserId: input.assegnatoA,
-          sedeId: ctx.sedeId ?? 1,
-          requiredCapability: "commessa.update_operational",
-        });
-      }
-      const now = new Date();
-      const id = nextId++;
-      const {
-        clienteId: inputClienteId,
-        cliente: clienteName,
-        prodotti: inputProdotti,
-        ...rest
-      } = input;
-
-      // Derive cliente display name + inherit owner from cliente if linked.
-      let clienteDisplay = clienteName ?? "";
-      let inheritedAssegnatoA: number | null = null;
-      if (inputClienteId) {
-        const c = getClienteById(inputClienteId);
-        if (c) {
-          assertSedeScope(c, ctx.sedeId);
-          clienteDisplay = `${c.cognome} ${c.nome}`.trim();
-          inheritedAssegnatoA = c.assegnatoA ?? null;
-        }
-      }
-      // Owner resolution priority: explicit input > cliente's owner > current user.
-      const assegnatoA =
-        input.assegnatoA !== undefined
-          ? input.assegnatoA
-          : inheritedAssegnatoA ?? ctx.user?.id ?? null;
-
-      const commessa = {
-        id,
-        // Stamp the active sede so the commessa belongs to the current showroom.
-        sedeId: ctx.sedeId ?? 1,
-        codice: generaCodiceCommessa(),
-        clienteId: inputClienteId ?? null,
-        cliente: clienteDisplay,
-        indirizzo: rest.indirizzo ?? null,
-        citta: rest.citta ?? null,
-        telefono: rest.telefono ?? null,
-        email: rest.email ?? null,
-        stato: "preventivo" as const,
-        importoTotale: input.importoTotale ?? null,
-        // Una commessa nasce sempre senza fattura: il pattuito è manuale
-        // finché il primo collegamento FiC non lo promuove.
-        pattuitoFonte: input.importoTotale == null ? null : ("manuale" as const),
-        pattuitoFicDocumentoIds: [] as number[],
-        pattuitoAggiornatoAt: input.importoTotale == null ? null : now,
-        pianoRate: [] as RataCommessa[],
-        importoIncassato: 0,
-        costoPosaStimato: null,
-        costi: [],
-        pagamenti: [],
-        priorita: input.priorita ?? "media",
-        squadraId: null,
-        dataApertura: now.toISOString().split("T")[0],
-        consegnaIndicativa: input.consegnaIndicativa ?? null, // "30" | "60" | "90"
-        dataConsegnaIndicativa: input.dataConsegnaIndicativa ?? null, // ISO date when operator picks a calendar date instead of an offset
-        dataConsegnaConfermata: null, // set when stato=produzione
-        dataChiusura: null,
-        note: rest.note ?? null,
-        prodotti: (inputProdotti ?? []).map((p, i) => ({
-          id: i + 1,
-          nome: p.nome,
-          tipologia: null,
-          quantita: p.quantita ?? 1,
-          dimensioni: null,
-          note: null,
-          createdAt: now,
-        })) as any[],
-        assegnatoA,
-        createdBy: ctx.user?.id ?? null,
-        createdAt: now,
-        updatedAt: now,
-        ficSourceRef: null,
-      };
-      commesse.push(commessa);
-      // Link commessa back to cliente
-      if (inputClienteId) {
-        addCommessaToCliente(inputClienteId, id);
-      }
-      _store.save();
-      await publishAssignmentEvent({
-        sedeId: commessa.sedeId,
-        entityType: "commessa",
-        entityId: commessa.id,
-        previousAssigneeId: null,
-        assigneeId: commessa.assegnatoA,
-        actorUserId: ctx.user?.id ?? null,
-        updatedAt: now,
-        link: `/commesse/${commessa.id}`,
-      });
-      return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
-    }),
+    .input(creaCommessaInput)
+    .mutation(({ input, ctx }) => creaCommessa(ctx, input)),
 
   update: protectedProcedure
     .input(

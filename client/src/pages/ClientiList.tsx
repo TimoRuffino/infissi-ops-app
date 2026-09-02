@@ -168,6 +168,21 @@ export default function ClientiList() {
     onError: e => toast.error(e.message ?? "Creazione non riuscita"),
   });
 
+  // Il pulsante principale del dialog: cliente e prima commessa in una sola
+  // mutation sede-scoped. Il server verifica entrambe le capability prima di
+  // scrivere; qui si apre subito la commessa, che è dove si continua a lavorare.
+  const createClienteConCommessa = trpc.clienti.createConCommessa.useMutation({
+    onSuccess: ({ commessa }) => {
+      utils.clienti.invalidate();
+      utils.commesse.invalidate();
+      setDialogOpen(false);
+      setForm(emptyForm);
+      toast.success(`Cliente e commessa ${commessa.codice} creati`);
+      setLocation(`/commesse/${commessa.id}`);
+    },
+    onError: e => toast.error(e.message ?? "Creazione non riuscita"),
+  });
+
   const deleteCliente = trpc.clienti.delete.useMutation({
     onSuccess: () => {
       utils.clienti.invalidate();
@@ -187,6 +202,51 @@ export default function ClientiList() {
   });
 
   const [form, setForm] = useState(emptyForm);
+
+  // Un solo payload per «Crea solo il cliente» e «Crea cliente e commessa»:
+  // le due mutation differiscono solo per la commessa che il server aggiunge.
+  function payloadCliente() {
+    // If "stesso della residenza" toggled, copy residenza → lavoro so
+    // commessa fallback always has a value to use.
+    const lavoroSame = form.lavoroStessoResidenza;
+    return {
+      nome: form.tipo === "privato" ? form.nome : " ",
+      cognome: form.cognome,
+      tipo: form.tipo as any,
+      codiceFiscale: form.codiceFiscale || undefined,
+      partitaIva: form.partitaIva || undefined,
+      indirizzo: form.indirizzo || undefined,
+      citta: form.citta || undefined,
+      cap: form.cap || undefined,
+      indirizzoLavoro:
+        (lavoroSame ? form.indirizzo : form.indirizzoLavoro) || undefined,
+      cittaLavoro: (lavoroSame ? form.citta : form.cittaLavoro) || undefined,
+      capLavoro: (lavoroSame ? form.cap : form.capLavoro) || undefined,
+      telefono: form.telefono || undefined,
+      email: form.email || undefined,
+      detrazione: form.detrazione,
+      tipoDetrazione:
+        form.detrazione && form.tipoDetrazione
+          ? (form.tipoDetrazione as "ecobonus" | "ristrutturazione")
+          : null,
+      interesseFinanziamento: form.interesseFinanziamento,
+      praticaEdilizia: form.praticaEdilizia,
+      note: form.note || undefined,
+      // `clienti.create` non ha un gate `cliente.assign`: se il campo
+      // mancasse, il router assegnerebbe il cliente a chi lo crea. Senza
+      // capability inviamo lo stesso `null` di prima, così il cliente nasce
+      // non assegnato come sempre.
+      assegnatoA: permissions.canAssignCustomer ? form.assegnatoA : null,
+    };
+  }
+
+  const formIncompleto =
+    (form.tipo === "privato" && !form.nome) ||
+    !form.cognome ||
+    (form.detrazione && !form.tipoDetrazione);
+  const creazioneInCorso =
+    createCliente.isPending || createClienteConCommessa.isPending;
+  const creazioneErrore = createClienteConCommessa.error ?? createCliente.error;
 
   const utenteById = useMemo(() => {
     const map = new Map<number, any>();
@@ -1140,67 +1200,50 @@ export default function ClientiList() {
                   />
                 </div>
               ) : null}
-              {createCliente.error ? (
+              {creazioneErrore ? (
                 <p
                   role="alert"
                   className="rounded-[var(--radius-control)] border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
                 >
-                  {createCliente.error.message}
+                  {creazioneErrore.message}
                 </p>
               ) : null}
-              <Button
-                type="button"
-                className="min-h-11"
-                onClick={() => {
-                  // If "stesso della residenza" toggled, copy residenza →
-                  // lavoro so commessa fallback always has a value to use.
-                  const lavoroSame = form.lavoroStessoResidenza;
-                  createCliente.mutate({
-                    nome: form.tipo === "privato" ? form.nome : " ",
-                    cognome: form.cognome,
-                    tipo: form.tipo as any,
-                    codiceFiscale: form.codiceFiscale || undefined,
-                    partitaIva: form.partitaIva || undefined,
-                    indirizzo: form.indirizzo || undefined,
-                    citta: form.citta || undefined,
-                    cap: form.cap || undefined,
-                    indirizzoLavoro:
-                      (lavoroSame ? form.indirizzo : form.indirizzoLavoro) ||
-                      undefined,
-                    cittaLavoro:
-                      (lavoroSame ? form.citta : form.cittaLavoro) || undefined,
-                    capLavoro:
-                      (lavoroSame ? form.cap : form.capLavoro) || undefined,
-                    telefono: form.telefono || undefined,
-                    email: form.email || undefined,
-                    detrazione: form.detrazione,
-                    tipoDetrazione:
-                      form.detrazione && form.tipoDetrazione
-                        ? (form.tipoDetrazione as
-                            | "ecobonus"
-                            | "ristrutturazione")
-                        : null,
-                    interesseFinanziamento: form.interesseFinanziamento,
-                    praticaEdilizia: form.praticaEdilizia,
-                    note: form.note || undefined,
-                    // `clienti.create` non ha un gate `cliente.assign`: se il
-                    // campo mancasse, il router assegnerebbe il cliente a chi
-                    // lo crea. Senza capability inviamo lo stesso `null` di
-                    // prima, così il cliente nasce non assegnato come sempre.
-                    assegnatoA: permissions.canAssignCustomer
-                      ? form.assegnatoA
-                      : null,
-                  });
-                }}
-                disabled={
-                  (form.tipo === "privato" && !form.nome) ||
-                  !form.cognome ||
-                  (form.detrazione && !form.tipoDetrazione) ||
-                  createCliente.isPending
-                }
-              >
-                Crea cliente
-              </Button>
+              {/* Con `commessa.create` il percorso principale crea anche la
+                  prima commessa; senza, resta il solo cliente di sempre. */}
+              {permissions.canCreateCommessa ? (
+                <div className="grid gap-2">
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    onClick={() =>
+                      createClienteConCommessa.mutate(payloadCliente())
+                    }
+                    disabled={formIncompleto || creazioneInCorso}
+                  >
+                    {createClienteConCommessa.isPending
+                      ? "Creazione…"
+                      : "Crea cliente e commessa"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-11"
+                    onClick={() => createCliente.mutate(payloadCliente())}
+                    disabled={formIncompleto || creazioneInCorso}
+                  >
+                    Crea solo il cliente
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  className="min-h-11"
+                  onClick={() => createCliente.mutate(payloadCliente())}
+                  disabled={formIncompleto || creazioneInCorso}
+                >
+                  Crea cliente
+                </Button>
+              )}
             </div>
           </DialogContent>
         </Dialog>

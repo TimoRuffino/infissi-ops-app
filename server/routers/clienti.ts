@@ -6,6 +6,7 @@ import { publishAssignmentEvent } from "../events/publish";
 import { assertSedeScope, requireDirezione } from "../_core/permissions";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
+import type { TrpcContext } from "../_core/context";
 import {
   chiaveRicerca,
   numeroCorrisponde,
@@ -126,6 +127,101 @@ export function getClienteById(id: number) {
 const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
 const TIPO_DETRAZIONE = ["ecobonus", "ristrutturazione"] as const;
 
+// ── Creazione cliente ───────────────────────────────────────────────────────
+
+const creaClienteInput = z.object({
+  nome: z.string().min(1),
+  cognome: z.string().min(1),
+  tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
+  codiceFiscale: z.string().optional(),
+  partitaIva: z.string().optional(),
+  // Legacy "indirizzo/citta/cap" → kept as RESIDENZA (used by admin
+  // for fatture). New explicit fields below for work-site address.
+  indirizzo: z.string().optional(),
+  citta: z.string().optional(),
+  cap: z.string().optional(),
+  // Work-site address — what the commessa cares about. Falls back to
+  // residenza when not provided.
+  indirizzoLavoro: z.string().optional(),
+  cittaLavoro: z.string().optional(),
+  capLavoro: z.string().optional(),
+  telefono: z.string().optional(),
+  email: z.string().optional(),
+  detrazione: z.boolean().optional(),
+  // Which detrazione the client wants — only meaningful when
+  // detrazione === true. Null when no detrazione requested.
+  tipoDetrazione: z.enum(TIPO_DETRAZIONE).nullable().optional(),
+  interesseFinanziamento: z.boolean().optional(),
+  praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
+  referenti: z.array(z.object({
+    nome: z.string(),
+    ruolo: z.string(),
+    telefono: z.string().optional(),
+    email: z.string().optional(),
+  })).optional(),
+  note: z.string().optional(),
+  assegnatoA: z.number().nullable().optional(),
+});
+type CreaClienteInput = z.infer<typeof creaClienteInput>;
+
+/**
+ * Percorso unico di `clienti.create` e `clienti.createConCommessa`: la
+ * policy, la sede, l'assegnatario di default e l'evento di assegnazione
+ * non si duplicano.
+ */
+async function creaCliente(
+  ctx: Pick<TrpcContext, "user" | "sedeId" | "sediIds">,
+  input: CreaClienteInput
+) {
+  await authorizeCoreOperation({
+    ctx,
+    endpoint: "clienti.create",
+    capability: "cliente.create",
+    resourceType: "cliente",
+  });
+  const now = new Date();
+  const { assegnatoA: inputAssegnato, ...rest } = input;
+  if (inputAssegnato !== undefined && inputAssegnato !== ctx.user?.id) {
+    requireAssignableUser({
+      assigneeUserId: inputAssegnato,
+      sedeId: ctx.sedeId ?? 1,
+      requiredCapability: "cliente.update_operational",
+    });
+  }
+  const cliente = {
+    id: nextId++,
+    ...rest,
+    // Stamp the active sede so the cliente belongs to the current showroom.
+    sedeId: ctx.sedeId ?? 1,
+    tipo: input.tipo ?? "privato",
+    detrazione: input.detrazione ?? false,
+    tipoDetrazione: input.tipoDetrazione ?? null,
+    interesseFinanziamento: input.interesseFinanziamento ?? false,
+    praticaEdilizia: input.praticaEdilizia ?? "nessuna",
+    referenti: input.referenti ?? [],
+    commesseIds: [] as number[],
+    // Default owner: explicit input, else current user. Ownership binds
+    // every future commessa back to the user who onboarded the cliente.
+    assegnatoA: inputAssegnato !== undefined ? inputAssegnato : ctx.user?.id ?? null,
+    createdBy: ctx.user?.id ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  clienti.push(cliente);
+  _store.save();
+  await publishAssignmentEvent({
+    sedeId: cliente.sedeId,
+    entityType: "cliente",
+    entityId: cliente.id,
+    previousAssigneeId: null,
+    assigneeId: cliente.assegnatoA,
+    actorUserId: ctx.user?.id ?? null,
+    updatedAt: now,
+    link: `/clienti/${cliente.id}`,
+  });
+  return cliente;
+}
+
 export const clientiRouter = router({
   list: protectedProcedure
     .input(
@@ -196,89 +292,38 @@ export const clientiRouter = router({
   }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        nome: z.string().min(1),
-        cognome: z.string().min(1),
-        tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
-        codiceFiscale: z.string().optional(),
-        partitaIva: z.string().optional(),
-        // Legacy "indirizzo/citta/cap" → kept as RESIDENZA (used by admin
-        // for fatture). New explicit fields below for work-site address.
-        indirizzo: z.string().optional(),
-        citta: z.string().optional(),
-        cap: z.string().optional(),
-        // Work-site address — what the commessa cares about. Falls back to
-        // residenza when not provided.
-        indirizzoLavoro: z.string().optional(),
-        cittaLavoro: z.string().optional(),
-        capLavoro: z.string().optional(),
-        telefono: z.string().optional(),
-        email: z.string().optional(),
-        detrazione: z.boolean().optional(),
-        // Which detrazione the client wants — only meaningful when
-        // detrazione === true. Null when no detrazione requested.
-        tipoDetrazione: z.enum(TIPO_DETRAZIONE).nullable().optional(),
-        interesseFinanziamento: z.boolean().optional(),
-        praticaEdilizia: z.enum(PRATICA_EDILIZIA).optional(),
-        referenti: z.array(z.object({
-          nome: z.string(),
-          ruolo: z.string(),
-          telefono: z.string().optional(),
-          email: z.string().optional(),
-        })).optional(),
-        note: z.string().optional(),
-        assegnatoA: z.number().nullable().optional(),
-      })
-    )
+    .input(creaClienteInput)
+    .mutation(({ input, ctx }) => creaCliente(ctx, input)),
+
+  /**
+   * Cliente e prima commessa in una richiesta sola: è il pulsante «Crea
+   * cliente e commessa» del dialog. La commessa nasce in `preventivo` con
+   * l'indirizzo di lavoro (fallback residenza), telefono, email e
+   * assegnatario del cliente, esattamente come farebbe `commesse.create`.
+   */
+  createConCommessa: protectedProcedure
+    .input(creaClienteInput)
     .mutation(async ({ input, ctx }) => {
+      // `commessa.create` si verifica PRIMA di scrivere: chi può creare
+      // clienti ma non commesse non deve ritrovarsi un cliente orfano.
+      // `creaCommessa` la ricontrolla per conto suo, com'è giusto che sia.
       await authorizeCoreOperation({
         ctx,
-        endpoint: "clienti.create",
-        capability: "cliente.create",
-        resourceType: "cliente",
+        endpoint: "clienti.createConCommessa",
+        capability: "commessa.create",
+        resourceType: "commessa",
       });
-      const now = new Date();
-      const { assegnatoA: inputAssegnato, ...rest } = input;
-      if (inputAssegnato !== undefined && inputAssegnato !== ctx.user?.id) {
-        requireAssignableUser({
-          assigneeUserId: inputAssegnato,
-          sedeId: ctx.sedeId ?? 1,
-          requiredCapability: "cliente.update_operational",
-        });
-      }
-      const cliente = {
-        id: nextId++,
-        ...rest,
-        // Stamp the active sede so the cliente belongs to the current showroom.
-        sedeId: ctx.sedeId ?? 1,
-        tipo: input.tipo ?? "privato",
-        detrazione: input.detrazione ?? false,
-        tipoDetrazione: input.tipoDetrazione ?? null,
-        interesseFinanziamento: input.interesseFinanziamento ?? false,
-        praticaEdilizia: input.praticaEdilizia ?? "nessuna",
-        referenti: input.referenti ?? [],
-        commesseIds: [] as number[],
-        // Default owner: explicit input, else current user. Ownership binds
-        // every future commessa back to the user who onboarded the cliente.
-        assegnatoA: inputAssegnato !== undefined ? inputAssegnato : ctx.user?.id ?? null,
-        createdBy: ctx.user?.id ?? null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      clienti.push(cliente);
-      _store.save();
-      await publishAssignmentEvent({
-        sedeId: cliente.sedeId,
-        entityType: "cliente",
-        entityId: cliente.id,
-        previousAssigneeId: null,
-        assigneeId: cliente.assegnatoA,
-        actorUserId: ctx.user?.id ?? null,
-        updatedAt: now,
-        link: `/clienti/${cliente.id}`,
+      const cliente = await creaCliente(ctx, input);
+      // Import lazy: commesse.ts importa già da questo file (v. nota in testa).
+      const { creaCommessa } = await import("./commesse");
+      const commessa = await creaCommessa(ctx, {
+        clienteId: cliente.id,
+        indirizzo: cliente.indirizzoLavoro || cliente.indirizzo || undefined,
+        citta: cliente.cittaLavoro || cliente.citta || undefined,
+        telefono: cliente.telefono || undefined,
+        email: cliente.email || undefined,
       });
-      return cliente;
+      return { cliente, commessa };
     }),
 
   /**

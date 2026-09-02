@@ -117,6 +117,12 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/useOperationalContext/);
     expect(source).toMatch(/customerPermissions/);
     expect(source).toMatch(/personName\(c/);
+    // Il pulsante finale crea cliente e prima commessa in una sola mutation
+    // sede-scoped; senza `commessa.create` torna a creare solo il cliente.
+    expect(source).toMatch(/clienti\.createConCommessa\.useMutation/);
+    expect(source).toMatch(/Crea cliente e commessa/);
+    expect(source).toMatch(/canCreateCommessa/);
+    expect(source).toMatch(/Crea solo il cliente/);
   });
 
   it("compone le commesse senza esporre cifre a chi non le riceve", () => {

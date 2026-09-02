@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 31/08/2026<br>
+**Aggiornato:** 02/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -1931,6 +1931,25 @@ e PostgreSQL). Deep link email: `/messaggi/email?messaggio=ID`.
 Non fatto in questo taglio (piano §4, fase successiva): analisi azienda
 su dati reali e sintesi giornaliera; Centro Azioni come pagina; UI di
 osservazioni/panorama/miglioramenti.
+
+## 11-vicies sexies. Cliente e prima commessa in un passo (02/09/2026)
+
+Richiesta direzione: il dialog «Nuovo cliente» chiude con «Crea cliente e
+commessa» e la prima commessa nasce da sola. Contratto nuovo
+`clienti.createConCommessa` (stesso input di `clienti.create`, risposta
+`{ cliente, commessa }`): verifica `commessa.create` PRIMA di scrivere, poi
+crea il cliente e una commessa in `preventivo` con indirizzo di lavoro
+(fallback residenza), telefono, email e assegnatario ereditati dal cliente.
+Nessuna regola duplicata: `commesse.create` e `clienti.create` ora chiamano
+le stesse funzioni `creaCommessa` (esportata da `commesse.ts`) e
+`creaCliente`, con import lazy da `clienti.ts` come per
+`syncClienteOnCommesse`. Non è una transazione atomica sui due store: un
+cliente senza commessa resta uno stato valido e la commessa può fallire solo
+sulla policy, che viene controllata prima. UI `ClientiList`: pulsante
+primario «Crea cliente e commessa» solo con `commessa.create`, secondario
+«Crea solo il cliente»; al successo si apre la commessa nuova. Senza la
+capability il pulsante torna «Crea cliente». Test:
+`server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
