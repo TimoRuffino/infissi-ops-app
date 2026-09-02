@@ -1964,6 +1964,19 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
+## 11-vicies octies. I ticket si vedono anche dalla commessa (02/09/2026)
+
+Un ticket aperto su una commessa si leggeva solo dalla coda Post-vendita e
+dalla scheda cliente. Ora la scheda commessa ha una linguetta «Ticket (n)»
+accanto ad Anomalie, con categoria, priorità, stato, oggetto e descrizione,
+e un pulsante che porta alla coda Post-vendita dove il ticket si lavora.
+
+Il server non è cambiato: `ticket.list` accettava già `commessaId` e applica
+lo scope di sede. Mancava solo la lettura lato scheda. La copertura sì:
+`server/routers/ticket.test.ts` è nuovo e verifica che il filtro per commessa
+escluda i ticket di altre commesse e quelli senza commessa, e che un'altra
+sede non veda nulla nemmeno indovinando l'id della commessa.
+
 ## 11-vicies septies. Timeline ordine: via «Invio Fattura al Cliente» (02/09/2026)
 
 Richiesta direzione: lo step era inutile, perché la fattura si manda nel

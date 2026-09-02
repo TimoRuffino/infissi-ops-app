@@ -45,6 +45,7 @@ import {
   Send,
   Package,
   AlertTriangle,
+  LifeBuoy,
   Archive,
   ArchiveRestore,
   MoreHorizontal,
@@ -173,6 +174,9 @@ export default function CommessaDetail() {
   const statoGate = trpc.preventiviContratti.statoGate.useQuery(commessaId);
   const interventi = trpc.interventi.list.useQuery({ commessaId });
   const anomalie = trpc.anomalie.list.useQuery({ commessaId });
+  // I ticket aperti su questa commessa: il filtro per sede e commessa resta
+  // del router, qui si legge e basta.
+  const ticket = trpc.ticket.list.useQuery({ commessaId });
   const squadre = trpc.squadre.list.useQuery();
   const utenti = trpc.utenti.list.useQuery(undefined);
 
@@ -1169,6 +1173,9 @@ export default function CommessaDetail() {
           <TabsTrigger value="anomalie">
             Anomalie ({anomalie.data?.length ?? 0})
           </TabsTrigger>
+          <TabsTrigger value="ticket">
+            Ticket ({ticket.data?.length ?? 0})
+          </TabsTrigger>
         </TabsList>
 
         {/* File e documenti Tab */}
@@ -1719,6 +1726,66 @@ export default function CommessaDetail() {
                           Risoluzione: {a.risoluzione}
                         </p>
                       )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Ticket Tab */}
+        <TabsContent value="ticket" className="space-y-4 mt-4">
+          {ticket.data?.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Nessun ticket collegato a questa commessa.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {ticket.data?.map((t: any) => (
+                <Card key={t.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-xs uppercase">
+                            {(t.categoria ?? "").replace(/_/g, " ")}
+                          </Badge>
+                          <Badge
+                            variant={
+                              PRIORITA_VARIANT[
+                                t.priorita as keyof typeof PRIORITA_VARIANT
+                              ] ?? "secondary"
+                            }
+                            className="text-xs"
+                          >
+                            {PRIORITA_LABEL[t.priorita] ?? t.priorita}
+                          </Badge>
+                          <Badge
+                            variant={t.stato === "chiuso" ? "secondary" : "outline"}
+                            className="text-xs"
+                          >
+                            {(t.stato ?? "").replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        <p className="text-sm font-medium">{t.oggetto}</p>
+                        {t.descrizione && (
+                          <p className="text-xs text-muted-foreground">
+                            {t.descrizione}
+                          </p>
+                        )}
+                      </div>
+                      {/* La lavorazione del ticket resta in Post-vendita:
+                          qui la scheda commessa mostra solo che esiste. */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 text-xs"
+                        onClick={() => setLocation("/ticket")}
+                      >
+                        <LifeBuoy className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                        Apri
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

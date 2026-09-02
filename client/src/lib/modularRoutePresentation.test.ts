@@ -165,6 +165,16 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/canAssignCustomer/);
   });
 
+  it("mostra dentro la commessa i ticket che le sono collegati", () => {
+    const source = routeSource("../pages/CommessaDetail.tsx");
+
+    // La scheda commessa interroga i ticket della sola commessa aperta: il
+    // filtro resta del router, che applica anche lo scope di sede.
+    expect(source).toMatch(/trpc\.ticket\.list\.useQuery\(\{ commessaId \}\)/);
+    expect(source).toMatch(/value="ticket"/);
+    expect(source).toMatch(/Nessun ticket collegato a questa commessa/);
+  });
+
   it("apre la cassa solo dietro pagamento.read e separa la registrazione", () => {
     const source = routeSource("../pages/Pagamenti.tsx");
 
