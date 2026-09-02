@@ -820,6 +820,14 @@
   background-image: none;
 }
 
+/* Larghezza massima della cornice. Sta qui, e non dentro il solo #root,
+   perché su un monitor largo il bordo della cornice e quello del viewport
+   smettono di coincidere: chi galleggia sopra la cornice — la mascotte di
+   Tars — deve misurarsi su questa, o finisce fuori dalla scheda. */
+[data-ui-system="modular-control"] {
+  --shell-larghezza-max: 1728px;
+}
+
 [data-ui-system="modular-control"] #root {
   background-color: var(--shell-canvas);
 }
@@ -835,7 +843,7 @@
 
   [data-ui-system="modular-control"] #root {
     width: calc(100% - 32px);
-    max-width: 1728px;
+    max-width: var(--shell-larghezza-max);
     /* min-height: 100dvh della base farebbe sforare la cornice di 32px. */
     min-height: 0;
     height: calc(100dvh - 32px);
@@ -844,6 +852,18 @@
     border: 1px solid var(--shell-border);
     border-radius: var(--radius-shell);
     box-shadow: var(--shadow-floating);
+  }
+
+  /* I messaggi si agganciano al bordo della cornice, non a quello del
+     viewport: appena lo schermo supera --shell-larghezza-max i due si
+     separano e il messaggio compariva fuori dalla scheda. La distanza
+     scelta da sonner resta la sua, si sposta solo il punto da cui parte. */
+  [data-ui-system="modular-control"]
+    [data-sonner-toaster][data-x-position="right"] {
+    right: calc(
+      max(16px, (100vw - var(--shell-larghezza-max)) / 2) +
+        var(--offset-right, 24px)
+    );
   }
 }
 

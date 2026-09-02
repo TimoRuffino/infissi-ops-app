@@ -69,7 +69,13 @@ export function TarsMascotteHost() {
   };
 
   return (
-    <div className="pointer-events-none fixed right-4 bottom-4 z-40 flex items-end gap-3">
+    // La striscia ricalca la scatola della cornice — stessa larghezza,
+    // stesso centraggio — invece di agganciarsi al bordo del viewport. Su un
+    // monitor largo i due bordi non coincidono più: la cornice si ferma a
+    // --shell-larghezza-max e la mascotte, ancorata al viewport, restava
+    // fuori dalla scheda. Sotto quella soglia il risultato è identico a
+    // prima, sedici pixel dal bordo.
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[calc(100%-2rem)] max-w-[var(--shell-larghezza-max)] items-end justify-end gap-3">
       {aperto ? (
         <div className="pointer-events-auto mb-2 w-[22rem] rounded-xl border border-border bg-card shadow-lg">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
