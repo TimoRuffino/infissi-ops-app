@@ -64,6 +64,16 @@ export type RichiestaProvider = {
   timeoutMs: number;
   /** Obbligatoria per i provider a pagamento (governati). */
   identita?: IdentitaChiamata;
+  /**
+   * Output strutturato (smistamento, 02/09/2026): il provider vincola la
+   * risposta a questo JSON Schema strict. Il testo del messaggio è il
+   * JSON; la validazione zod resta comunque del chiamante (il provider
+   * non è un'autorità).
+   */
+  formatoJson?: {
+    nome: string;
+    schema: Record<string, unknown>;
+  };
 };
 
 export type ChiamataToolRichiesta = {

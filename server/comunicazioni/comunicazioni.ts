@@ -494,6 +494,15 @@ export async function pulisciWhatsappOutboundSenzaControparte(): Promise<number>
 
 // ── Mapping riga ⇄ oggetto ──────────────────────────────────────────────────
 
+/**
+ * Mapping riga → oggetto, esportato per chi interroga `comunicazioni` in
+ * join con tabelle proprie (smistamento Tars): un solo punto di verità
+ * sulla forma della riga.
+ */
+export function comunicazioneDaRiga(r: any): Comunicazione {
+  return fromRow(r);
+}
+
 function fromRow(r: any): Comunicazione {
   return {
     id: Number(r.id),
@@ -765,6 +774,202 @@ export async function setMatchComunicazione(
         ELSE stato
       END
     WHERE id = ${id} AND sede_id = ${sedeId}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
+// ── Smistamento Tars (02/09/2026): letture e collegamento certo ─────────────
+
+/** Oggetto senza i prefissi di risposta/inoltro: identifica il filo. */
+export function normalizzaOggettoFilo(oggetto: string): string {
+  return oggetto
+    .replace(/^(?:\s*(?:re|r|fw|fwd|i|tr|aw|wg|rif)\s*:\s*)+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Comunicazioni IN INGRESSO ricevute da una certa data, più recenti prima.
+ * `escludi` serve al fallback in memoria dello smistamento; su PostgreSQL
+ * lo smistamento fa la join con il proprio registro.
+ */
+export async function listInIngresso(input: {
+  sedeId: number;
+  daRicevutaAl: Date;
+  limite: number;
+  escludi?: ReadonlySet<number>;
+}): Promise<Comunicazione[]> {
+  if (!kvSql) {
+    return memRows
+      .filter(
+        r =>
+          r.sedeId === input.sedeId &&
+          r.direzione === "in" &&
+          !r.deletedAt &&
+          r.receivedAt.getTime() >= input.daRicevutaAl.getTime() &&
+          !input.escludi?.has(r.id)
+      )
+      .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+      .slice(0, input.limite);
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT * FROM comunicazioni
+    WHERE sede_id = ${input.sedeId}
+      AND direzione = 'in'
+      AND deleted_at IS NULL
+      AND received_at >= ${input.daRicevutaAl}
+    ORDER BY received_at DESC
+    LIMIT ${input.limite}`;
+  return rows.map(fromRow);
+}
+
+/**
+ * Le comunicazioni GIÀ COLLEGATE a una commessa nello stesso filo di una
+ * nuova: stessa casella/canale, stessa controparte (mittente in ingresso
+ * o destinatario in uscita), stesso oggetto normalizzato, finestra
+ * temporale dichiarata. È la prova di ereditarietà: «stesso filo di #id,
+ * collegato a COM-…». Mai commesse archiviate (lo verifica chi eredita).
+ */
+export async function cercaFiloCollegato(input: {
+  sedeId: number;
+  canale: Comunicazione["canale"];
+  casellaId: number;
+  controparte: string;
+  oggetto: string;
+  primaDi: Date;
+  finestraGiorni: number;
+  escludiId?: number;
+}): Promise<Comunicazione[]> {
+  const controparte = input.controparte.trim().toLowerCase();
+  const oggetto = normalizzaOggettoFilo(input.oggetto);
+  if (!controparte) return [];
+  const da = new Date(
+    input.primaDi.getTime() - input.finestraGiorni * 86_400_000
+  );
+  const stessaControparte = (r: Comunicazione) =>
+    r.direzione === "in"
+      ? r.mittente.trim().toLowerCase() === controparte
+      : r.destinatari.some(d => d.trim().toLowerCase() === controparte);
+  const stessoFilo = (r: Comunicazione) =>
+    // WhatsApp non ha oggetto: il filo è la controparte stessa.
+    input.canale === "whatsapp" || normalizzaOggettoFilo(r.oggetto) === oggetto;
+  if (!kvSql) {
+    return memRows
+      .filter(
+        r =>
+          r.sedeId === input.sedeId &&
+          r.canale === input.canale &&
+          r.casellaId === input.casellaId &&
+          r.id !== input.escludiId &&
+          !r.deletedAt &&
+          r.commessaId != null &&
+          r.receivedAt.getTime() >= da.getTime() &&
+          r.receivedAt.getTime() <= input.primaDi.getTime() &&
+          stessaControparte(r) &&
+          stessoFilo(r)
+      )
+      .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+      .slice(0, 5);
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT * FROM comunicazioni
+    WHERE sede_id = ${input.sedeId}
+      AND canale = ${input.canale}
+      AND casella_id = ${input.casellaId}
+      AND id <> ${input.escludiId ?? 0}
+      AND deleted_at IS NULL
+      AND commessa_id IS NOT NULL
+      AND received_at >= ${da}
+      AND received_at <= ${input.primaDi}
+      AND (
+        (direzione = 'in' AND lower(mittente) = ${controparte})
+        OR (direzione = 'out' AND destinatari ? ${controparte})
+      )
+    ORDER BY received_at DESC
+    LIMIT 40`;
+  return rows.map(fromRow).filter(stessoFilo).slice(0, 5);
+}
+
+/**
+ * C'è stata una comunicazione IN USCITA verso la controparte dopo un
+ * certo istante (stessa casella/canale)? Serve a capire se una richiesta
+ * è rimasta senza risposta. Il canale d'origine resta la fonte: qui si
+ * vede solo ciò che il CRM ha ingerito.
+ */
+export async function esisteUscitaVerso(input: {
+  sedeId: number;
+  canale: Comunicazione["canale"];
+  casellaId: number;
+  controparte: string;
+  dopo: Date;
+}): Promise<boolean> {
+  const controparte = input.controparte.trim().toLowerCase();
+  if (!controparte) return false;
+  if (!kvSql) {
+    return memRows.some(
+      r =>
+        r.sedeId === input.sedeId &&
+        r.canale === input.canale &&
+        r.casellaId === input.casellaId &&
+        r.direzione === "out" &&
+        !r.deletedAt &&
+        r.receivedAt.getTime() > input.dopo.getTime() &&
+        r.destinatari.some(d => d.trim().toLowerCase() === controparte)
+    );
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT 1 FROM comunicazioni
+    WHERE sede_id = ${input.sedeId}
+      AND canale = ${input.canale}
+      AND casella_id = ${input.casellaId}
+      AND direzione = 'out'
+      AND deleted_at IS NULL
+      AND received_at > ${input.dopo}
+      AND destinatari ? ${controparte}
+    LIMIT 1`;
+  return rows.length > 0;
+}
+
+/**
+ * Collegamento CERTO deciso dallo smistamento (deterministico, mai dal
+ * modello): aggancia cliente/commessa e registra il motivo, ma NON tocca
+ * lo stato — nessun umano ha ancora gestito la comunicazione. Non
+ * sovrascrive mai una commessa già collegata (a mano o da un match
+ * precedente): ritorna false e chi chiama lo dichiara.
+ */
+export async function collegaAutomaticoComunicazione(
+  id: number,
+  sedeId: number,
+  match: {
+    clienteId: number | null;
+    commessaId: number;
+    motivo: string;
+  }
+): Promise<boolean> {
+  if (!kvSql) {
+    const r = memRows.find(
+      x => x.id === id && x.sedeId === sedeId && !x.deletedAt
+    );
+    if (!r || r.commessaId != null) return false;
+    r.clienteId = match.clienteId ?? r.clienteId;
+    r.commessaId = match.commessaId;
+    r.matchConfidenza = "alta";
+    r.matchMotivo = match.motivo;
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    UPDATE comunicazioni SET
+      cliente_id = COALESCE(${match.clienteId}, cliente_id),
+      commessa_id = ${match.commessaId},
+      match_confidenza = 'alta',
+      match_motivo = ${match.motivo}
+    WHERE id = ${id} AND sede_id = ${sedeId}
+      AND deleted_at IS NULL AND commessa_id IS NULL
     RETURNING id`;
   return rows.length > 0;
 }

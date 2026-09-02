@@ -27,6 +27,8 @@ export const CLASSI_COSTO = [
   "proactive_commessa",
   "pattern_azienda",
   "miglioramento_crm",
+  // Smistamento comunicazioni in background (02/09/2026).
+  "smistamento",
   "eval",
 ] as const;
 export type ClasseCosto = (typeof CLASSI_COSTO)[number];

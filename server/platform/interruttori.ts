@@ -34,6 +34,9 @@ export type Interruttore =
   | "tarsCommunications"
   | "tarsMemory"
   | "tarsSemanticSearch"
+  // Smistamento comunicazioni in background (02/09/2026): triage,
+  // collegamenti certi, archiviazione allegati, proposte a un click.
+  | "tarsSmistamento"
   // Modular Control / Borgogna Operativa (31/08/2026): governa solo la
   // generazione visuale del client. Nessun percorso server dipende dal flag.
   | "uiV2";
@@ -53,6 +56,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsCommunications: "FLAG_TARS_COMMUNICATIONS",
   tarsMemory: "FLAG_TARS_MEMORY",
   tarsSemanticSearch: "FLAG_TARS_SEMANTIC_SEARCH",
+  tarsSmistamento: "FLAG_TARS_SMISTAMENTO",
   uiV2: "FLAG_UI_V2",
 };
 
@@ -72,6 +76,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsCommunications: "Le bozze di comunicazione di Tars",
   tarsMemory: "La memoria di Tars",
   tarsSemanticSearch: "La ricerca semantica di Tars",
+  tarsSmistamento: "Lo smistamento automatico delle comunicazioni di Tars",
   uiV2: "L'interfaccia Modular Control / Borgogna Operativa",
 };
 

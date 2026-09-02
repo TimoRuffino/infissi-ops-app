@@ -1,8 +1,10 @@
 import { getSediStore } from "../routers/sedi";
 import { osservaDaReconcile } from "../tars/proattivita/worker";
+import { segnaliSmistamento } from "../tars/smistamento/segnali";
 import { getActionCaseRepository } from "./repository";
 import { parseActionCenterMode, reconcileActionCases } from "./reconcile";
-import { collectCurrentDrafts } from "./sources";
+import { groupSignals } from "./signals";
+import { collectCurrentSignals } from "./sources";
 
 const RECOVERY_INTERVAL_MS = 60_000;
 const BOOT_DELAY_MS = 5_000;
@@ -24,7 +26,19 @@ export async function runActionReconcile(sedeId: number): Promise<void> {
   running.add(sedeId);
   try {
     const now = new Date();
-    const { signals, drafts } = collectCurrentDrafts(sedeId, now);
+    // Segnali sincroni dagli store + segnali dello smistamento Tars (asincroni,
+    // dal registro): un solo reconcile, un solo insieme di casi. Un errore
+    // dello smistamento non toglie i casi ordinari.
+    const daStore = collectCurrentSignals(sedeId, now);
+    const daSmistamento = await segnaliSmistamento(sedeId, now).catch(error => {
+      console.error("[tars-smistamento] segnali non disponibili", {
+        sedeId,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+      return [];
+    });
+    const signals = [...daStore, ...daSmistamento];
+    const drafts = groupSignals(signals, now);
     const result = await reconcileActionCases({
       repository: getActionCaseRepository(),
       sedeId,

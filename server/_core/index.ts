@@ -65,6 +65,14 @@ async function startServer() {
   // una riparazione dati non deve dipendere dal traffico per applicarsi.
   const { ensureTarsSchema } = await import("../tars/archivio");
   await ensureTarsSchema();
+  // Smistamento comunicazioni (02/09/2026): schema additivo e worker,
+  // fail-closed su flag e storage autorevole.
+  const smistamento = await import("../tars/smistamento/repository");
+  if (smistamento.repositorySmistamentoAutorevoleDisponibile()) {
+    await smistamento.repositorySmistamentoCorrente().ensureSchema();
+  }
+  const { startSmistamentoWorker } = await import("../tars/smistamento/worker");
+  startSmistamentoWorker();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();

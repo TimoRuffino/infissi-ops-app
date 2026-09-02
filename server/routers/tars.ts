@@ -56,6 +56,16 @@ import {
   caricaContestoConversazione,
 } from "../tars/conversazione/context";
 import type { TarsProvider } from "../tars/provider";
+import { getLiveComunicazione } from "../comunicazioni/comunicazioni";
+import { modelloSmistamento } from "../tars/smistamento/analisi";
+import { applicaPropostaApprovata } from "../tars/smistamento/applica";
+import { repositorySmistamentoCorrente } from "../tars/smistamento/repository";
+import { linkComunicazione } from "../tars/smistamento/segnali";
+import {
+  dipendenzeSmistamentoReali,
+  smistaComunicazione,
+  smistamentoAttivo,
+} from "../tars/smistamento/worker";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
 const procedura = procedureConInterruttore("tars");
@@ -657,6 +667,212 @@ export const tarsRouter = router({
           nota: input.nota ?? null,
           now: new Date(),
         });
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  // ── Smistamento comunicazioni (02/09/2026) ────────────────────────────
+
+  /** Stato del motore: direzione-only, niente contenuti. */
+  smistamentoStato: procedura.query(async ({ ctx }) => {
+    try {
+      assicuraTars("tarsSmistamento");
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.direzione) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Riservato alla direzione." });
+      }
+      const statistiche = await repositorySmistamentoCorrente().statistiche(contesto.sedeId);
+      return {
+        attivo: smistamentoAttivo(),
+        modello: modelloSmistamento(),
+        ...statistiche,
+      };
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
+
+  /** L'esito dello smistamento di UNA comunicazione (per il lettore messaggi). */
+  smistamentoPerComunicazione: procedura
+    .input(z.object({ comunicazioneId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsSmistamento");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.capability.has("commessa.read")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Capability mancante." });
+        }
+        const comunicazione = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
+        if (!comunicazione) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Comunicazione non trovata." });
+        }
+        const record = await repositorySmistamentoCorrente().perComunicazione(
+          contesto.sedeId,
+          input.comunicazioneId
+        );
+        return record
+          ? {
+              stato: record.stato,
+              propostaStato: record.propostaStato,
+              aggiornataAt: record.aggiornataAt,
+              ultimoErrore: record.ultimoErrore,
+              esito: record.esito,
+            }
+          : null;
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  /** Proposte aperte della sede, con il minimo della comunicazione per decidere. */
+  smistamentoProposte: procedura.query(async ({ ctx }) => {
+    try {
+      assicuraTars("tarsSmistamento");
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.capability.has("commessa.read")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Capability mancante." });
+      }
+      const records = await repositorySmistamentoCorrente().proposteAperte(contesto.sedeId, 50);
+      const voci = [];
+      for (const record of records) {
+        const esito = record.esito;
+        if (!esito || esito.collegamento.esito !== "proposto") continue;
+        const c = await getLiveComunicazione(record.comunicazioneId, contesto.sedeId);
+        if (!c) continue;
+        voci.push({
+          comunicazioneId: c.id,
+          canale: c.canale,
+          mittente: c.mittenteNome?.trim() || c.mittente,
+          oggetto: c.oggetto,
+          ricevutaIl: c.receivedAt,
+          riepilogo: esito.riepilogo,
+          urgenza: esito.urgenza,
+          categoria: esito.categoria,
+          collegamento: esito.collegamento,
+          candidati: esito.candidati,
+          allegatiDaArchiviare: esito.allegati.filter(a => a.archiviare).map(a => a.nome),
+          link: linkComunicazione(c),
+        });
+      }
+      return voci;
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
+
+  /** Decisione umana sulla proposta: approva (collega + archivia) o rifiuta. */
+  smistamentoDecidi: procedura
+    .input(
+      z.object({
+        comunicazioneId: z.number().int().positive(),
+        decisione: z.enum(["approva", "rifiuta"]),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsSmistamento");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.capability.has("commessa.update_operational")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Capability mancante per collegare le comunicazioni." });
+        }
+        const repository = repositorySmistamentoCorrente();
+        const comunicazione = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
+        if (!comunicazione) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Comunicazione non trovata." });
+        }
+        const record = await repository.perComunicazione(contesto.sedeId, input.comunicazioneId);
+        if (!record?.esito || record.propostaStato !== "aperta") {
+          throw new TRPCError({ code: "CONFLICT", message: "Nessuna proposta aperta su questa comunicazione." });
+        }
+        const now = new Date();
+        if (input.decisione === "rifiuta") {
+          const deciso = await repository.decidiProposta({
+            sedeId: contesto.sedeId,
+            comunicazioneId: input.comunicazioneId,
+            stato: "rifiutata",
+            utenteId: contesto.utenteId,
+            now,
+          });
+          if (!deciso) throw new TRPCError({ code: "CONFLICT", message: "Proposta già decisa." });
+          return { decisione: "rifiutata" as const, avvertenze: [] as string[] };
+        }
+        // Prima si chiude la proposta (chi arriva secondo trova CONFLICT),
+        // poi si applica: l'effetto è idempotente per costruzione.
+        const deciso = await repository.decidiProposta({
+          sedeId: contesto.sedeId,
+          comunicazioneId: input.comunicazioneId,
+          stato: "approvata",
+          utenteId: contesto.utenteId,
+          now,
+        });
+        if (!deciso) throw new TRPCError({ code: "CONFLICT", message: "Proposta già decisa." });
+        const puoArchiviare = contesto.capability.has("commessa.manage_documents");
+        const esitoDaApplicare = puoArchiviare
+          ? record.esito
+          : { ...record.esito, allegati: record.esito.allegati.map(a => ({ ...a, archiviare: false })) };
+        const applicata = await applicaPropostaApprovata({
+          comunicazione,
+          esito: esitoDaApplicare,
+          utente: { id: contesto.utenteId, nome: ctx.user?.name ?? "un operatore" },
+        });
+        await repository.registra({
+          comunicazioneId: input.comunicazioneId,
+          sedeId: contesto.sedeId,
+          versione: record.versione,
+          stato: "analizzata",
+          esito: applicata.esito,
+          propostaStato: "approvata",
+          ultimoErrore: null,
+          now,
+        });
+        return {
+          decisione: "approvata" as const,
+          commessaId: applicata.esito.collegamento.commessaId,
+          clienteId: applicata.esito.collegamento.clienteId,
+          archiviati: applicata.esito.archiviati.length,
+          avvertenze: [
+            ...applicata.avvertenze,
+            ...(puoArchiviare ? [] : ["Allegati non archiviati: manca la capability sui documenti."]),
+          ],
+        };
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  /** Rismista una comunicazione (direzione): utile dopo una correzione dei dati. */
+  smistamentoRiesamina: procedura
+    .input(z.object({ comunicazioneId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsSmistamento");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Riservato alla direzione." });
+        }
+        const comunicazione = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
+        if (!comunicazione) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Comunicazione non trovata." });
+        }
+        const deps = dipendenzeSmistamentoReali();
+        const precedente = await deps.repository.perComunicazione(contesto.sedeId, comunicazione.id);
+        const fatto = await smistaComunicazione({
+          comunicazione,
+          deps,
+          tentativo: (precedente?.tentativi ?? 0) + 1,
+        });
+        return {
+          conModello: fatto.conModello,
+          propostaStato: fatto.propostaStato,
+          collegamentoCerto: fatto.candidati.certo != null,
+          archiviati: fatto.archiviati,
+        };
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);

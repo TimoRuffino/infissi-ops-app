@@ -144,6 +144,18 @@ export function creaProviderRealeGrezzo(): TarsProvider {
         prompt_cache_key: richiesta.chiaveCachePrompt,
         reasoning: { effort: reasoningEffort() },
         ...(serviceTier() ? { service_tier: serviceTier() } : {}),
+        ...(richiesta.formatoJson
+          ? {
+              text: {
+                format: {
+                  type: "json_schema",
+                  name: richiesta.formatoJson.nome,
+                  schema: richiesta.formatoJson.schema,
+                  strict: true,
+                },
+              },
+            }
+          : {}),
       };
 
       let res: Response;

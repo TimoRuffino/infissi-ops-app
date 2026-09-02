@@ -25,7 +25,11 @@ export type ActionSignalKind =
   | "garanzia"
   | "ticket"
   | "intervento"
-  | "process_experiment";
+  | "process_experiment"
+  // Smistamento Tars (02/09/2026): una proposta di collegamento da
+  // decidere, una richiesta rimasta senza risposta.
+  | "comunicazione_decisione"
+  | "comunicazione_risposta";
 
 export type ActionSignal = {
   sourceKey: string;
