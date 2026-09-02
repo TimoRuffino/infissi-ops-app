@@ -6,6 +6,7 @@ import {
   type SmistamentoSezione,
 } from "@/components/tars/TarsSmistamento";
 import { Inbox } from "lucide-react";
+import type { ReactNode } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -59,6 +60,8 @@ export type TarsContextPanelProps = {
   error?: string | null;
   onApriLink?: (link: string) => void;
   onRetry?: () => void;
+  /** Sezione «Analisi di oggi» (direzione): la pagina la passa già collegata a tRPC. */
+  analisi?: ReactNode;
 };
 
 function AzioneLink({
@@ -113,6 +116,7 @@ export default function TarsContextPanel({
   error = null,
   onApriLink,
   onRetry,
+  analisi = null,
 }: TarsContextPanelProps) {
   return (
     <aside
@@ -323,6 +327,8 @@ export default function TarsContextPanel({
               </div>
             </section>
           )}
+
+          {analisi}
 
           {briefing?.segnalazioni === null && (
             <p className="flex items-start gap-2 rounded-md bg-surface-2 px-3 py-2.5 text-[11px] leading-5 text-text-3">

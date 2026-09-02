@@ -1,4 +1,8 @@
 import TarsAvatar, { type StatoTarsAvatar } from "@/components/tars/TarsAvatar";
+import {
+  SezioneAnalisiAzienda,
+  SintesiAnalisiAzienda,
+} from "@/components/tars/TarsAnalisiAzienda";
 import { TarsProposte, useProposteTars } from "@/components/tars/TarsProposte";
 import { TarsRegistro } from "@/components/tars/TarsRegistro";
 import TarsContextPanel, {
@@ -321,6 +325,7 @@ function EmptyStateWorkbench({
         </h3>
         <RiepilogoBriefing briefing={briefing} loading={briefingLoading} />
       </section>
+      <SintesiAnalisiAzienda />
       <div className="grid gap-2 sm:grid-cols-2">
         {suggerimenti.map(({ icona: Icona, etichetta }) => (
           <button
@@ -352,8 +357,12 @@ const SCHEDE_WORKBENCH: Array<{ id: SchedaWorkbench; etichetta: string }> = [
 // perdere scroll e ricerca.
 function ListaWorkbench({
   erroreAzione,
+  onSuggerimento,
   ...props
-}: TarsConversationListProps & { erroreAzione: string | null }) {
+}: TarsConversationListProps & {
+  erroreAzione: string | null;
+  onSuggerimento: (testo: string) => void;
+}) {
   const [, navigate] = useLocation();
   const [scheda, setScheda] = useState<SchedaWorkbench>("chat");
   const proposte = useProposteTars(true);
@@ -404,7 +413,11 @@ function ListaWorkbench({
       </div>
       {scheda === "proposte" && (
         <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
-          <TarsProposte dati={proposte} onApriLink={navigate} />
+          <TarsProposte
+            dati={proposte}
+            onApriLink={navigate}
+            onSuggerimento={onSuggerimento}
+          />
         </div>
       )}
       {scheda === "registro" && (
@@ -900,6 +913,14 @@ export default function Tars() {
     approva.mutate({ id: richiesta.propostaId });
   }
 
+  // Una proposta dell'analisi o un suggerimento diventa la bozza della
+  // chat: su mobile si chiude anche il foglio della lista.
+  function suggerisci(testo: string) {
+    aggiornaBozza(testo);
+    setListaMobileAperta(false);
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
   const listaProps: TarsConversationListProps = {
     conversazioni,
     conversazioneAttivaId: conversazioneId,
@@ -1006,7 +1027,11 @@ export default function Tars() {
     <>
       <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card">
         <aside className="hidden h-full w-72 shrink-0 border-r border-border-soft md:block xl:w-80">
-          <ListaWorkbench erroreAzione={erroreGestione} {...listaProps} />
+          <ListaWorkbench
+              erroreAzione={erroreGestione}
+              onSuggerimento={suggerisci}
+              {...listaProps}
+            />
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -1142,6 +1167,7 @@ export default function Tars() {
 
         <aside className="hidden h-full w-80 shrink-0 border-l border-border-soft xl:block 2xl:w-[21rem]">
           <TarsContextPanel
+            analisi={<SezioneAnalisiAzienda onApriLink={navigate} />}
             contesto={contesto}
             briefing={briefing.data ?? null}
             loading={stato.isFetching || briefing.isLoading}
@@ -1179,7 +1205,11 @@ export default function Tars() {
             </SheetClose>
           </SheetHeader>
           <div className="min-h-0 flex-1">
-            <ListaWorkbench erroreAzione={erroreGestione} {...listaProps} />
+            <ListaWorkbench
+              erroreAzione={erroreGestione}
+              onSuggerimento={suggerisci}
+              {...listaProps}
+            />
           </div>
         </SheetContent>
       </Sheet>
@@ -1210,6 +1240,7 @@ export default function Tars() {
             </SheetClose>
           </div>
           <TarsContextPanel
+            analisi={<SezioneAnalisiAzienda onApriLink={navigate} />}
             contesto={contesto}
             briefing={briefing.data ?? null}
             loading={stato.isFetching || briefing.isLoading}

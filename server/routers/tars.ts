@@ -72,6 +72,9 @@ import {
   ledgerEsecuzioniCorrente,
 } from "../tars/azioni/executions";
 import { getProposteStore } from "../proposte/gateway";
+import { repositoryAnalisiCorrente } from "../tars/analisi/repository";
+import { generaAnalisiAzienda } from "../tars/analisi/worker";
+import { giornoLocale as giornoLocaleAnalisi } from "../tars/analisi/fotografia";
 import { proiezioneProposta } from "./proposte";
 import { getUtentiStore } from "./utenti";
 
@@ -1128,4 +1131,50 @@ export const tarsRouter = router({
         comeErrore(errore);
       }
     }),
+
+  /**
+   * Analisi azienda giornaliera (02/09/2026): l'ultima analisi della sede.
+   * Riservata alla direzione come il Panorama; nessun importo dentro.
+   */
+  analisiAzienda: procedura.query(async ({ ctx }) => {
+    try {
+      assicuraTars("tarsProactive");
+      assicuraTars("tarsAnalisiAzienda");
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "L'analisi dell'azienda è riservata alla direzione.",
+        });
+      }
+      const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+      return { record, oggi: giornoLocaleAnalisi(new Date()) };
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
+
+  /** Rigenera l'analisi di oggi (direzione): passa dal governor come ogni chiamata. */
+  analisiAziendaRigenera: procedura.mutation(async ({ ctx }) => {
+    try {
+      assicuraTars("tarsProactive");
+      assicuraTars("tarsAnalisiAzienda");
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "L'analisi dell'azienda è riservata alla direzione.",
+        });
+      }
+      const record = await generaAnalisiAzienda({
+        sedeId: contesto.sedeId,
+        richiestaDa: contesto.utenteId,
+      });
+      return { record, oggi: giornoLocaleAnalisi(new Date()) };
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
 });

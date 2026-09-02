@@ -2057,6 +2057,47 @@ Non fatto: conferme pendenti nei turni dentro la sezione Proposte (restano
 nel thread); Undo dal Registro (solo segnalato «annullabile»); analisi
 azienda e sintesi giornaliera (fase successiva del piano smistamento).
 
+## 11-vicies decies. Analisi azienda e sintesi giornaliera (02/09/2026, sera)
+
+Fase successiva del piano smistamento, mandato direzione «non sta
+analizzando l'azienda … deve proporre». Piano
+`docs/superpowers/plans/2026-09-02-tars-analisi-azienda.md`, modulo
+`server/tars/analisi/`.
+
+- **Fotografia deterministica** (`fotografia.ts`): commesse attive per
+  stato e ferme da più tempo, casi aperti del Centro Azioni, osservazioni
+  aperte, pattern del periodo, smistamento (urgenti / da rispondere / da
+  decidere, contatori di oggi), ticket aperti, interventi dei prossimi
+  sette giorni, proposte documentali. Sede-scoped, senza importi, ogni
+  fatto con i riferimenti delle entità e un link; una fonte che fallisce
+  non azzera la fotografia.
+- **Sintesi del modello** (`analisi.ts`, prompt `analisi-v1`, JSON strict,
+  `TARS_MODEL_ANALISI` default `gpt-5.6-sol`, classe `analisi_azienda`):
+  sintesi ≤ 700 caratteri, fino a 8 punti (rischio / anomalia / andamento
+  / opportunità, con priorità), fino a 6 proposte con `richiestaPerTars`
+  (la frase da dire a Tars per eseguirla), fino a 3 domande. Verifica
+  deterministica: entità solo dalla fotografia, importi scrubbati,
+  limiti. Senza provider: sintesi deterministica dai contatori.
+- **Una al giorno per sede** (`worker.ts`, giro ogni 5 minuti, dalle
+  06:00 ora di Roma), registro `tars_analisi_azienda` (unique sede+giorno,
+  jsonb con `sql.json`, memoria senza PostgreSQL); un errore resta
+  registrato e non si ritenta da solo (la direzione rigenera a mano).
+- **Endpoint** `tars.analisiAzienda` / `tars.analisiAziendaRigenera`
+  (direzione + `commessa.read`), flag `FLAG_TARS_ANALISI_AZIENDA`
+  (fail-closed, richiede `FLAG_TARS_PROACTIVE`).
+- **UI /tars**: sezione «Analisi di oggi» nel pannello contesto (sintesi,
+  punti cliccabili, domande, Rigenera; passata come slot così i render
+  statici del pannello non toccano tRPC), sintesi nello stato vuoto della
+  conversazione, gruppo «Dall'analisi dell'azienda» nella scheda Proposte
+  con «Chiedi a Tars» che precompila la chat (su mobile chiude il foglio).
+  Nessuna mutazione nasce dall'analisi: Tars esegue in chat con i suoi
+  strumenti e l'effetto finisce nel Registro.
+
+Test `server/tars/analisi/analisi.test.ts` (fotografia sede-scoped e
+tollerante, verifica, provider finto, worker una-al-giorno / ora minima /
+errore registrato). Fuori taglio: dati economici, invio della sintesi via
+mail, storico fra giorni.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

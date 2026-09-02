@@ -29,6 +29,8 @@ export const CLASSI_COSTO = [
   "miglioramento_crm",
   // Smistamento comunicazioni in background (02/09/2026).
   "smistamento",
+  // Analisi azienda giornaliera (02/09/2026).
+  "analisi_azienda",
   "eval",
 ] as const;
 export type ClasseCosto = (typeof CLASSI_COSTO)[number];

@@ -20,6 +20,7 @@
 | `FLAG_TARS_IMPROVEMENTS` | proposte di miglioramento (T8): `tars.miglioramenti` + feedback/accetta, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
 | `FLAG_TARS_COMMUNICATIONS` | lettura comunicazioni (estratti) + archiviazione R1 allegati (T4, con FLAG_TARS_L2_ACTIONS) | FLAG_TARS + FLAG_TARS_READ_TOOLS |
 | `FLAG_TARS_SMISTAMENTO` | smistamento automatico delle comunicazioni in ingresso (02/09/2026): worker ogni 60 s per sede, triage col modello (`TARS_MODEL_SMISTAMENTO`, default `gpt-5.6-terra`, classe di costo `smistamento`), collegamenti CERTI deterministici, archiviazione allegati riconosciuti su comunicazioni collegate, proposte a un click (`tars.smistamento*`, Situazione, Centro Azioni) | FLAG_TARS + FLAG_TARS_COMMUNICATIONS + FLAG_TARS_PROACTIVE + PostgreSQL |
+| `FLAG_TARS_ANALISI_AZIENDA` | analisi azienda giornaliera (02/09/2026): fotografia deterministica della sede (commesse ferme, casi, osservazioni, pattern, smistamento, ticket, interventi) + sintesi del modello (`TARS_MODEL_ANALISI`, default `gpt-5.6-sol`, classe di costo `analisi_azienda`, una chiamata al giorno per sede dalle 06:00 Roma), proposte eseguibili solo chiedendolo a Tars; `tars.analisiAzienda` / `tars.analisiAziendaRigenera`, direzione-only | FLAG_TARS + FLAG_TARS_PROACTIVE |
 | `FLAG_TARS_SEMANTIC_SEARCH` | NON ESISTE codice: resta spento | gate chiave (embeddings) |
 
 Modalità osservatore (T6): `TARS_OBSERVER_MODE` = `shadow` (default:

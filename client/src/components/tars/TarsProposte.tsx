@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
+  Brain,
   Check,
   ClipboardCheck,
   FileText,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ProposteDallAnalisi, useAnalisiAzienda } from "./TarsAnalisiAzienda";
 import { useDecisioneSmistamento } from "./TarsSmistamento";
 
 export function useProposteTars(abilitato: boolean) {
@@ -31,10 +33,15 @@ export function useProposteTars(abilitato: boolean) {
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+  const analisi = useAnalisiAzienda(abilitato);
   return {
     smistamento: smistamento.data ?? [],
     gateway: gateway.data ?? [],
-    totale: (smistamento.data?.length ?? 0) + (gateway.data?.length ?? 0),
+    analisi: analisi.proposte,
+    totale:
+      (smistamento.data?.length ?? 0) +
+      (gateway.data?.length ?? 0) +
+      analisi.proposte.length,
     loading: smistamento.isLoading || gateway.isLoading,
     // Lo smistamento può essere spento (flag) senza che il resto sparisca.
     erroreSmistamento: smistamento.error?.message ?? null,
@@ -129,9 +136,12 @@ function BottoniDecisione({
 export function TarsProposte({
   dati,
   onApriLink,
+  onSuggerimento,
 }: {
   dati: ProposteTars;
   onApriLink: (link: string) => void;
+  /** Precompila la chat con la richiesta di una proposta dell'analisi. */
+  onSuggerimento: (testo: string) => void;
 }) {
   const utils = trpc.useUtils();
   const [smistamentoInCorso, setSmistamentoInCorso] = useState<number | null>(
@@ -206,6 +216,20 @@ export function TarsProposte({
 
   return (
     <div className="min-w-0">
+      {dati.analisi.length > 0 && (
+        <Gruppo
+          icona={<Brain className="size-4 text-text-3" aria-hidden="true" />}
+          titolo="Dall'analisi dell'azienda"
+          conteggio={dati.analisi.length}
+        >
+          <ProposteDallAnalisi
+            proposte={dati.analisi}
+            onApriLink={onApriLink}
+            onSuggerimento={onSuggerimento}
+          />
+        </Gruppo>
+      )}
+
       {dati.smistamento.length > 0 && (
         <Gruppo
           icona={<Link2 className="size-4 text-text-3" aria-hidden="true" />}

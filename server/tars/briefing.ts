@@ -132,7 +132,7 @@ function inizioGiornata(adesso: Date): Date {
  * senza modello, sede-scoped; nessun importo (i riepiloghi nascono già
  * senza).
  */
-async function sezioneSmistamento(
+export async function sezioneSmistamento(
   sedeId: number,
   adesso: Date
 ): Promise<SmistamentoBriefing> {
