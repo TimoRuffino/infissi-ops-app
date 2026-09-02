@@ -15,6 +15,11 @@ import {
   isDirezione,
 } from "../_core/permissions";
 import { calcolaMargine } from "../_core/margine";
+import {
+  chiaveRicerca,
+  numeroCorrisponde,
+  testoCorrisponde,
+} from "../_core/ricerca";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { getOrdiniPerMargine } from "./fornitori";
 import {
@@ -568,13 +573,18 @@ export const commesseRouter = router({
       if (input?.assegnatoA !== undefined) {
         result = result.filter((c) => c.assegnatoA === input.assegnatoA);
       }
-      if (input?.search) {
-        const q = input.search.toLowerCase();
+      // Indirizzo, telefono e mail del cantiere viaggiano già sulla commessa
+      // (li copia la create dal cliente): cercarli costa niente e sono
+      // proprio i dati che uno ha sottomano quando cerca la commessa —
+      // il numero da cui l'hanno chiamato, la via del cantiere.
+      const chiave = input?.search ? chiaveRicerca(input.search) : null;
+      if (chiave) {
         result = result.filter(
           (c) =>
-            c.codice.toLowerCase().includes(q) ||
-            c.cliente.toLowerCase().includes(q) ||
-            c.citta?.toLowerCase().includes(q)
+            testoCorrisponde(
+              [c.codice, c.cliente, c.email, c.indirizzo, c.citta],
+              chiave
+            ) || numeroCorrisponde([c.telefono], chiave)
         );
       }
       // Strip the heavy `prodotti` array from list responses — list pages

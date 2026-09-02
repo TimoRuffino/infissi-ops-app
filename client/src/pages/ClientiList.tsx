@@ -398,7 +398,7 @@ export default function ClientiList() {
                 />
                 <Input
                   aria-label="Cerca clienti"
-                  placeholder="Cerca per nome, città, email…"
+                  placeholder="Cerca per nome, telefono, email, indirizzo…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   className="min-h-11 pl-9"

@@ -6,6 +6,11 @@ import { publishAssignmentEvent } from "../events/publish";
 import { assertSedeScope, requireDirezione } from "../_core/permissions";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
+import {
+  chiaveRicerca,
+  numeroCorrisponde,
+  testoCorrisponde,
+} from "../_core/ricerca";
 // NOTE: imported lazily inside the update handler to avoid a circular-
 // import cycle (commesse.ts already imports from this file).
 
@@ -141,14 +146,43 @@ export const clientiRouter = router({
       if (input?.assegnatoA !== undefined) {
         result = result.filter((c) => c.assegnatoA === input.assegnatoA);
       }
-      if (input?.search) {
-        const q = input.search.toLowerCase();
-        result = result.filter(
-          (c) =>
-            `${c.nome} ${c.cognome}`.toLowerCase().includes(q) ||
-            c.citta?.toLowerCase().includes(q) ||
-            c.email?.toLowerCase().includes(q)
-        );
+      // Chi cerca un cliente parte da quello che ha sottomano: il numero da
+      // cui l'hanno chiamato, la mail di un preventivo, la via del cantiere.
+      // Nome, città e mail da soli lasciavano fuori proprio quei casi.
+      // Referenti compresi: la telefonata arriva spesso dall'architetto o
+      // dall'amministratore, non dall'intestatario.
+      const chiave = input?.search ? chiaveRicerca(input.search) : null;
+      if (chiave) {
+        result = result.filter((c) => {
+          const referenti: Referente[] = Array.isArray(c.referenti)
+            ? c.referenti
+            : [];
+          return (
+            testoCorrisponde(
+              [
+                // Entrambi gli ordini: in anagrafica si scrive «Rossi Mario»
+                // tanto quanto «Mario Rossi».
+                `${c.nome ?? ""} ${c.cognome ?? ""}`,
+                `${c.cognome ?? ""} ${c.nome ?? ""}`,
+                c.email,
+                c.indirizzo,
+                c.citta,
+                c.cap,
+                c.indirizzoLavoro,
+                c.cittaLavoro,
+                c.capLavoro,
+                c.codiceFiscale,
+                c.partitaIva,
+                ...referenti.flatMap((r) => [r.nome, r.email]),
+              ],
+              chiave
+            ) ||
+            numeroCorrisponde(
+              [c.telefono, ...referenti.map((r) => r.telefono)],
+              chiave
+            )
+          );
+        });
       }
       return result.sort((a, b) =>
         `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`)

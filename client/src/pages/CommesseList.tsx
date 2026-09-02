@@ -527,7 +527,7 @@ export default function CommesseList() {
               />
               <Input
                 aria-label="Cerca commesse"
-                placeholder="Cerca per codice, cliente, città…"
+                placeholder="Cerca per codice, cliente, telefono, indirizzo…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="min-h-11 pl-9"
