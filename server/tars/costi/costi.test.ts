@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   avvolgiConGovernor,
+  profiloEsecuzione,
   configurazioneBudget,
   ErroreBudget,
   MESSAGGIO_BUDGET,
@@ -244,6 +245,29 @@ describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
     process.env.TARS_SERVICE_TIER = "turbo-inventato";
     expect(tariffaDi(MODELLO)!.input).toBe(base.input);
     delete process.env.TARS_SERVICE_TIER;
+  });
+
+  it("tier esplicito: il background paga la tariffa base anche con TARS_SERVICE_TIER=priority", () => {
+    const base = tariffaDi(MODELLO, "default")!;
+    process.env.TARS_SERVICE_TIER = "priority";
+    expect(tariffaDi(MODELLO, "default")!.input).toBe(base.input);
+    expect(tariffaDi(MODELLO, "priority")!.input).toBe(base.input * 2);
+    expect(tariffaDi(MODELLO)!.input).toBe(base.input * 2); // default = env
+    delete process.env.TARS_SERVICE_TIER;
+  });
+
+  it("profiloEsecuzione: solo la chat paga il tier e ragiona a medium; il background va a default/low", () => {
+    process.env.TARS_SERVICE_TIER = "priority";
+    process.env.TARS_REASONING_INTERACTIVE = "high";
+    expect(profiloEsecuzione("interactive")).toEqual({ serviceTier: "priority", reasoningEffort: "high" });
+    expect(profiloEsecuzione("smistamento")).toEqual({ serviceTier: "default", reasoningEffort: "low" });
+    expect(profiloEsecuzione("analisi_azienda")).toEqual({ serviceTier: "default", reasoningEffort: "low" });
+    process.env.TARS_REASONING_BACKGROUND = "minimal";
+    expect(profiloEsecuzione("pattern_azienda").reasoningEffort).toBe("minimal");
+    delete process.env.TARS_SERVICE_TIER;
+    delete process.env.TARS_REASONING_INTERACTIVE;
+    delete process.env.TARS_REASONING_BACKGROUND;
+    expect(profiloEsecuzione("interactive")).toEqual({ serviceTier: "default", reasoningEffort: "medium" });
   });
 
   it("nessun floating point: importi USD → nanodollari interi", () => {

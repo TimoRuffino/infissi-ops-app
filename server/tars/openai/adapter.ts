@@ -53,6 +53,22 @@ function reasoningEffort(): string {
 
 const TIER_AMMESSI = new Set(["auto", "default", "flex", "priority"]);
 
+/** Sforzo di ragionamento: il profilo del governor, altrimenti l'env interattivo. */
+function effortPer(richiesta: RichiestaProvider): string {
+  const dalProfilo = richiesta.esecuzione?.reasoningEffort?.trim().toLowerCase();
+  if (dalProfilo && EFFORT_AMMESSI.has(dalProfilo)) return dalProfilo;
+  return reasoningEffort();
+}
+
+/** Tier: il profilo del governor (default = campo assente), altrimenti l'env. */
+function tierPer(richiesta: RichiestaProvider): string | null {
+  if (richiesta.esecuzione) {
+    const t = richiesta.esecuzione.serviceTier;
+    return t === "default" ? null : t;
+  }
+  return serviceTier();
+}
+
 /**
  * Service tier OpenAI opzionale (TARS_SERVICE_TIER): `priority` compra
  * latenza più bassa a tariffa doppia — coerente con la decisione «niente
@@ -142,8 +158,8 @@ export function creaProviderRealeGrezzo(): TarsProvider {
         max_output_tokens: richiesta.maxOutputToken,
         store: false,
         prompt_cache_key: richiesta.chiaveCachePrompt,
-        reasoning: { effort: reasoningEffort() },
-        ...(serviceTier() ? { service_tier: serviceTier() } : {}),
+        reasoning: { effort: effortPer(richiesta) },
+        ...(tierPer(richiesta) ? { service_tier: tierPer(richiesta) } : {}),
         ...(richiesta.formatoJson
           ? {
               text: {

@@ -15,6 +15,7 @@ import {
   type Comunicazione,
 } from "../../comunicazioni/comunicazioni";
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
+import { classificaComunicazione } from "../../comunicazioni/filtroComunicazioni";
 import { estraiTestoDocumento } from "../../documenti/parserRegistry";
 import { tarsAttivo } from "../../platform/interruttori";
 import { creaProviderPerRun, statoProvider } from "../costi/providerGovernato";
@@ -41,8 +42,15 @@ const RITARDO_BOOT_MS = 20_000;
 // pochi minuti; l'arretrato di 90 giorni (~3.000) in una notte. Un giro
 // che sfora il minuto non si sovrappone al successivo (guardia inCorso).
 const LOTTO_PER_GIRO = 10;
-/** Oltre questa età si smista senza modello (D5). */
-const GIORNI_CON_MODELLO = 90;
+/**
+ * Oltre questa età si smista senza modello (D5). Era 90: il primo giorno
+ * l'arretrato ha bruciato ~2.900 chiamate (27 USD) per email vecchie di
+ * mesi. Ora 14 giorni, regolabile con TARS_SMISTAMENTO_GIORNI_MODELLO.
+ */
+export function giorniConModello(): number {
+  const n = Number.parseInt(process.env.TARS_SMISTAMENTO_GIORNI_MODELLO ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 14;
+}
 /** Oltre questa età non si smista affatto: storia, non lavoro. */
 const GIORNI_MASSIMI = 365;
 const FILO_GIORNI = 45;
@@ -58,8 +66,8 @@ export function smistamentoAttivo(): boolean {
 }
 
 const MIME_CON_TESTO = /pdf|msword|officedocument|text\/plain/i;
-const ALLEGATI_CON_TESTO = 2;
-const TESTO_ALLEGATO = 2_500;
+const ALLEGATI_CON_TESTO = 1;
+const TESTO_ALLEGATO = 1_500;
 
 export type DipendenzeWorker = {
   repository: RepositorySmistamento;
@@ -221,7 +229,24 @@ export async function smistaComunicazione(input: {
       })
   );
   const etaGiorni = (now.getTime() - comunicazione.receivedAt.getTime()) / 86_400_000;
-  const provider = etaGiorni <= GIORNI_CON_MODELLO ? deps.provider(comunicazione.sedeId) : null;
+  // Spam e marketing evidenti senza alcun candidato: il filtro basta, il
+  // modello non aggiungerebbe nulla (e costava quanto una mail vera).
+  const filtro = classificaComunicazione({
+    sedeId: comunicazione.sedeId,
+    mittente: comunicazione.mittente,
+    oggetto: comunicazione.oggetto,
+    testo: comunicazione.testo,
+    allegati: comunicazione.allegati,
+    clienteId: comunicazione.clienteId,
+    commessaId: comunicazione.commessaId,
+  });
+  const rumore =
+    (filtro.categoria === "spam" || filtro.categoria === "offerta_marketing") &&
+    filtro.score >= 80 &&
+    !candidati.certo &&
+    candidati.candidati.length === 0;
+  const provider =
+    !rumore && etaGiorni <= giorniConModello() ? deps.provider(comunicazione.sedeId) : null;
   const inputAnalisi = { comunicazione, candidati: candidati.candidati, segnali: candidati.segnali, allegati, contestoCandidati };
   let analisi: EsitoAnalisi;
   if (provider) {

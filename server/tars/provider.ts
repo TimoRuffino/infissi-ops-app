@@ -70,6 +70,16 @@ export type RichiestaProvider = {
    * JSON; la validazione zod resta comunque del chiamante (il provider
    * non è un'autorità).
    */
+  /**
+   * Profilo di esecuzione deciso dal governor per classe di costo (02/09
+   * sera, «Tars consuma troppo»): tier e sforzo di ragionamento. Solo la
+   * chat interattiva paga il tier priority e ragiona a medium; il lavoro in
+   * background viaggia sul tier normale con ragionamento basso.
+   */
+  esecuzione?: {
+    serviceTier: "default" | "priority" | "flex";
+    reasoningEffort: string;
+  };
   formatoJson?: {
     nome: string;
     schema: Record<string, unknown>;

@@ -5,6 +5,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { caselle } from "../../comunicazioni/caselle";
+import { salvaRegolaMittente } from "../../comunicazioni/filtroComunicazioni";
 import {
   collegaAutomaticoComunicazione,
   getComunicazione,
@@ -216,5 +217,45 @@ describe("eseguiGiroSmistamento", () => {
     expect((await d.repository.perComunicazione(SEDE, rotta.id))?.stato).toBe("errore");
     expect((await d.repository.perComunicazione(SEDE, buona.id))?.stato).toBe("analizzata");
     expect((await getComunicazione(buona.id, SEDE))!.classificazioneFonte).toBe("tars");
+  });
+});
+
+describe("risparmio (02/09 sera): il modello non si chiama quando non serve", () => {
+  it("mittente escluso da una regola (spam) senza candidati: smistata senza modello", async () => {
+    salvaRegolaMittente({ sedeId: SEDE, mittente: "promo@newsletter-test.it", categoria: "spam" });
+    const spam = await inserisci({
+      mittente: "promo@newsletter-test.it",
+      oggetto: "Offerta imperdibile solo oggi",
+      testo: "Sconti su tutto il catalogo, clicca qui.",
+    });
+    const d = deps(() => jsonModello({ tipo: "nessuno", id: 0, confidenza: "bassa", motivo: "" }));
+    const giro = await eseguiGiroSmistamento({ sedeId: SEDE, deps: d, limite: 50 });
+    expect(giro.esaminate).toBeGreaterThan(0);
+    const record = await d.repository.perComunicazione(SEDE, spam.id);
+    expect(record?.stato).toBe("analizzata");
+    expect(record?.esito?.categoria).toBe("spam");
+    // Nessuna chiamata per lo spam: le altre comunicazioni di questo giro,
+    // se ce ne sono, contano da sole.
+    expect(d.chiamate).toBe(giro.esaminate - 1);
+  });
+
+  it("oltre la finestra TARS_SMISTAMENTO_GIORNI_MODELLO si smista senza modello", async () => {
+    process.env.TARS_SMISTAMENTO_GIORNI_MODELLO = "3";
+    try {
+      const vecchia = await inserisci({
+        mittente: "cliente.vecchio@example.test",
+        oggetto: "Domanda",
+        testo: "Buongiorno, quando passate?",
+        receivedAt: new Date(Date.now() - 10 * 86_400_000),
+      });
+      const d = deps(() => jsonModello({ tipo: "nessuno", id: 0, confidenza: "bassa", motivo: "" }));
+      const giro = await eseguiGiroSmistamento({ sedeId: SEDE, deps: d, limite: 50 });
+      const record = await d.repository.perComunicazione(SEDE, vecchia.id);
+      expect(record?.stato).toBe("analizzata");
+      expect(record?.esito?.fonte ?? "deterministica").not.toBe("modello");
+      expect(d.chiamate).toBe(giro.esaminate - 1);
+    } finally {
+      delete process.env.TARS_SMISTAMENTO_GIORNI_MODELLO;
+    }
   });
 });

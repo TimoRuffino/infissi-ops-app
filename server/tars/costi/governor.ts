@@ -21,7 +21,14 @@ import {
   type LedgerCosti,
   type LimitiNano,
 } from "./ledger";
-import { costoNano, tariffaDi, usdInNano, type TariffaModello } from "./tariffe";
+import {
+  costoNano,
+  tariffaDi,
+  tierDaEnv,
+  usdInNano,
+  type ServiceTier,
+  type TariffaModello,
+} from "./tariffe";
 
 export const MESSAGGIO_BUDGET =
   "Tars ha raggiunto temporaneamente il limite di utilizzo configurato. Nessuna operazione è stata eseguita.";
@@ -294,6 +301,29 @@ export function usoPlausibile(uso: {
  * Avvolge un provider a pagamento col governor. Il provider
  * sottostante viene invocato SOLO dopo una prenotazione riuscita.
  */
+/**
+ * Profilo di esecuzione per classe di costo (02/09 sera, «Tars consuma
+ * troppo»): solo la chat interattiva paga il tier dell'ambiente (priority
+ * = tariffa doppia) e ragiona a `TARS_REASONING_INTERACTIVE`; tutto il
+ * lavoro in background viaggia sul tier normale con ragionamento
+ * `TARS_REASONING_BACKGROUND` (default low).
+ */
+export function profiloEsecuzione(classe: ClasseCosto): {
+  serviceTier: ServiceTier;
+  reasoningEffort: string;
+} {
+  if (classe === "interactive") {
+    return {
+      serviceTier: tierDaEnv(),
+      reasoningEffort: process.env.TARS_REASONING_INTERACTIVE?.trim().toLowerCase() || "medium",
+    };
+  }
+  return {
+    serviceTier: "default",
+    reasoningEffort: process.env.TARS_REASONING_BACKGROUND?.trim().toLowerCase() || "low",
+  };
+}
+
 export function avvolgiConGovernor(
   sottostante: TarsProvider,
   contesto: ContestoCosto,
@@ -310,8 +340,10 @@ export function avvolgiConGovernor(
 
   return {
     nome: `${sottostante.nome}+governor`,
-    async rispondi(richiesta: RichiestaProvider): Promise<RispostaProvider> {
-      const tariffa = tariffaDi(richiesta.modello);
+    async rispondi(richiestaOriginale: RichiestaProvider): Promise<RispostaProvider> {
+      const profilo = profiloEsecuzione(classe);
+      const richiesta: RichiestaProvider = { ...richiestaOriginale, esecuzione: profilo };
+      const tariffa = tariffaDi(richiesta.modello, profilo.serviceTier);
       if (!tariffa) {
         // Modello senza tariffa nota: nessuna chiamata, mai.
         throw new ErroreProvider(

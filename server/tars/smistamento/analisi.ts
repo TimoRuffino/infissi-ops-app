@@ -24,7 +24,8 @@ export function modelloSmistamento(): string {
   return process.env.TARS_MODEL_SMISTAMENTO?.trim() || MODELLO_SMISTAMENTO_DEFAULT;
 }
 
-const TESTO_MASSIMO = 6_000;
+// 6.000 → 3.500 (02/09 sera): i token d'ingresso erano il grosso del costo.
+const TESTO_MASSIMO = 3_500;
 const TESTO_ALLEGATO_MASSIMO = 2_500;
 const ALLEGATI_CON_TESTO = 2;
 

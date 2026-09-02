@@ -48,12 +48,19 @@ chiamata di rete possibile). Il provider reale richiede TUTTE e tre le
 condizioni: `TARS_PROVIDER=openai` + `FLAG_TARS=on` + `OPENAI_API_KEY`.
 
 Config modello (solo quando autorizzato): `TARS_MODEL_INTERACTIVE`
-(unico approvato: `gpt-5.6-terra`), `TARS_REASONING_INTERACTIVE`
+(catalogo CHIUSO: `gpt-5.6-terra` o `gpt-5.6-sol`; un nome fuori
+catalogo, es. `gpt-5.5`, NON ha tariffa → il governor rifiuta e la chat
+scivola sul provider finto: incidente del 02/09 sera), `TARS_REASONING_INTERACTIVE`
 (`medium`; la famiglia 5.6 accetta `none|low|medium|high|xhigh|max`,
-NON `minimal` — verificato sul vivo: 400), `TARS_SERVICE_TIER`
+NON `minimal` — verificato sul vivo: 400), `TARS_REASONING_BACKGROUND`
+(`low`: smistamento, analisi, pattern, proposte), `TARS_SERVICE_TIER`
 (`auto|default|flex|priority`; assente = default del progetto;
-`priority` compra latenza a tariffa 2× e il ledger scala le tariffe di
-conseguenza), `TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS`
+`priority` compra latenza a tariffa 2× SOLO per la chat interattiva —
+dal 02/09 sera le classi in background viaggiano sempre sul tier
+normale e il ledger scala le tariffe per classe),
+`TARS_SMISTAMENTO_GIORNI_MODELLO` (14: oltre, smistamento deterministico
+senza modello; era 90 e il primo giorno l'arretrato è costato 27 USD),
+`TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS`
 (1200), `TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_MAX_MODEL_CALLS` (8),
 `TARS_MAX_RUN_MS` (180000), `TARS_MAX_CONTEXT_CHARS` (120000),
 `TARS_C0_TTL_MS` (90000). Latenza: i run registrano `durataMs` e

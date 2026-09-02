@@ -2111,6 +2111,37 @@ tollerante, verifica, provider finto, worker una-al-giorno / ora minima /
 errore registrato). Fuori taglio: dati economici, invio della sintesi via
 mail, storico fra giorni.
 
+## 11-vicies undecies. «Tars consuma troppo crediti» — misura e tagli (02/09/2026, notte)
+
+Ledger `tars_costi` del 02/09: 2.912 chiamate, 28,33 USD, di cui 27,23
+dello smistamento (2.894 chiamate a `gpt-5.6-terra` per smaltire 90
+giorni di arretrato, 5,5 M token d'ingresso, a tariffa doppia perché
+`TARS_SERVICE_TIER=priority` — acceso per la latenza della chat — valeva
+per tutte le classi). Chat: 0,48 USD; analisi azienda: 0,62 USD. Il
+giorno prima: 0,48 USD in tutto.
+
+Tagli (commit di questa sezione):
+- **Profilo per classe** (`governor.profiloEsecuzione`, campo
+  `esecuzione` della `RichiestaProvider`): solo `interactive` usa il tier
+  dell'ambiente e `TARS_REASONING_INTERACTIVE`; ogni classe in background
+  viaggia su tier normale con `TARS_REASONING_BACKGROUND` (default
+  `low`). `tariffaDi(modello, tier)` scala per classe, così il ledger
+  combacia con ciò che parte davvero.
+- **Smistamento**: modello solo entro `TARS_SMISTAMENTO_GIORNI_MODELLO`
+  (14, era 90); spam/marketing evidenti senza candidati smistati dal solo
+  filtro; corpo a 3.500 caratteri (era 6.000), un allegato con testo da
+  1.500 caratteri (erano due da 2.500).
+- **Incidente collaterale**: la direzione aveva impostato
+  `TARS_MODEL_INTERACTIVE=gpt-5.5`, fuori dal catalogo chiuso delle
+  tariffe → il governor rifiuta e la chat scivola sul provider finto.
+  Riportato a `gpt-5.6-terra` (approvato, 2,5× meno di sol). Un nuovo
+  modello entra solo aggiungendo la tariffa di listino a
+  `costi/tariffe.ts` (gate §4).
+
+Atteso: smistamento a regime ≈ 50–80 chiamate/giorno × ~0,004 USD
+(tier normale, prompt corto) ≈ 0,3 USD/giorno; analisi ≈ 0,3 USD/giorno;
+chat secondo l'uso.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree
