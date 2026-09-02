@@ -17,12 +17,13 @@ function commessaInSede(commessaId: number, sedeId: number | null) {
   return c;
 }
 
-// ── 18-step order timeline ────────────────────────────────────────────────────
+// ── 17-step order timeline ────────────────────────────────────────────────────
 const STEP_LABELS: string[] = [
   "Rilievo Misure",
   "Firma Contratto (allegato)",
   "Fatturazione",
-  "Invio Fattura al Cliente",
+  // "Invio Fattura al Cliente" rimosso su richiesta: emettere la fattura
+  // significa già mandarla, e lo step restava aperto per sempre.
   "Pagamento 1\u00B0 Acconto Cliente",
   "Ordine Merce al Fornitore",
   "Conferma Ordine Fornitore (allegato)",
@@ -47,13 +48,13 @@ const STATO_PER_MILESTONE: Partial<Record<number, (typeof STATI_COMMESSA)[number
   1: "misure_esecutive",
   2: "aggiornamento_contratto",
   3: "fatture_pagamento",
-  5: "da_ordinare",
-  6: "produzione",
-  10: "ordini_ultimazione",
-  11: "attesa_posa",
-  15: "finiture_saldo",
-  17: "interventi_regolazioni",
-  18: "archiviata",
+  4: "da_ordinare",
+  5: "produzione",
+  9: "ordini_ultimazione",
+  10: "attesa_posa",
+  14: "finiture_saldo",
+  16: "interventi_regolazioni",
+  17: "archiviata",
 };
 
 type Stato = "da_fare" | "in_corso" | "completato";
@@ -70,32 +71,51 @@ interface TimelineStep {
   allegato: string | null;
 }
 
+// Step ritirati dopo essere già finiti nelle timeline salvate. Il nome è
+// l'unico appiglio rimasto per riconoscerli, quindi resta qui: le righe
+// vanno tolte dallo store al bootstrap, non solo dalla lista dei nuovi.
+const STEP_RITIRATI: RegExp[] = [
+  // Duplicava il DDT di posa.
+  /DDT\s*Finale/i,
+  // Emettere la fattura significa già mandarla (richiesta del 02/09/2026).
+  /^\s*Invio Fattura al Cliente\s*$/i,
+];
+
+/**
+ * Toglie dalle timeline già salvate gli step ritirati e rinumera 1..n gli
+ * step di ogni commessa, così non restano buchi fra un passo e l'altro.
+ *
+ * Idempotente: su uno store già ripulito non tocca niente e risponde
+ * `false`, altrimenti ogni avvio riscriverebbe l'intero blob.
+ */
+export function migraStepRitirati(caricati: TimelineStep[]): boolean {
+  let rimosso = false;
+  for (let i = caricati.length - 1; i >= 0; i--) {
+    const label = caricati[i].label ?? "";
+    if (STEP_RITIRATI.some((ritirato) => ritirato.test(label))) {
+      caricati.splice(i, 1);
+      rimosso = true;
+    }
+  }
+  if (!rimosso) return false;
+
+  const perCommessa = new Map<number, TimelineStep[]>();
+  for (const step of caricati) {
+    const arr = perCommessa.get(step.commessaId);
+    if (arr) arr.push(step);
+    else perCommessa.set(step.commessaId, [step]);
+  }
+  perCommessa.forEach((arr) => {
+    arr.sort((a, b) => a.stepNumber - b.stepNumber);
+    arr.forEach((step, idx) => (step.stepNumber = idx + 1));
+  });
+  return true;
+}
+
 // In-memory store (replace with Drizzle queries when DB is available)
 let nextId = 1;
 const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
-  // Migration: drop the retired "Fine Lavori — DDT Finale" step from
-  // already-persisted commesse, then renumber each commessa's steps 1..n so
-  // there's no gap.
-  let changed = false;
-  for (let i = loaded.length - 1; i >= 0; i--) {
-    if (/DDT\s*Finale/i.test(loaded[i].label ?? "")) {
-      loaded.splice(i, 1);
-      changed = true;
-    }
-  }
-  if (changed) {
-    const byCommessa = new Map<number, TimelineStep[]>();
-    for (const s of loaded) {
-      const arr = byCommessa.get(s.commessaId);
-      if (arr) arr.push(s);
-      else byCommessa.set(s.commessaId, [s]);
-    }
-    byCommessa.forEach((arr) => {
-      arr.sort((a, b) => a.stepNumber - b.stepNumber);
-      arr.forEach((s, idx) => (s.stepNumber = idx + 1));
-    });
-    setTimeout(() => _stepsStore.save(), 0);
-  }
+  if (migraStepRitirati(loaded)) setTimeout(() => _stepsStore.save(), 0);
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;

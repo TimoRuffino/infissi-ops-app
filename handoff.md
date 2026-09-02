@@ -1963,6 +1963,26 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 «Crea solo il cliente»; al successo si apre la commessa nuova. Senza la
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
+
+## 11-vicies septies. Timeline ordine: via «Invio Fattura al Cliente» (02/09/2026)
+
+Richiesta direzione: lo step era inutile, perché la fattura si manda nel
+momento in cui la si emette, e restava aperto per sempre falsando la
+percentuale di avanzamento. La timeline passa da 18 a 17 step; le milestone
+dopo «Fatturazione» scalano di uno (`4` primo acconto → `da_ordinare`, `5`
+ordine merce → `produzione`, `9`, `10`, `14`, `16`, `17`), e le fasce di fase
+in `TimelineOrdine.tsx` seguono (Vendita 1-4, Ordine 5-9, Consegna 10-14,
+Chiusura 15-17).
+
+Le timeline già salvate vengono ripulite al bootstrap: la migrazione di
+`onLoad` è stata estratta in `migraStepRitirati`, funzione pura esportata e
+testata, che toglie gli step ritirati (il DDT finale di prima e ora l'invio
+fattura) e rinumera 1..n gli step di ogni commessa. È idempotente, così uno
+store già migrato non viene riscritto a ogni avvio. Conseguenza accettata: le
+righe dello step rimosso spariscono, comprese eventuali date, note e
+assegnatari registrati lì. Nessuna milestone era collegata a quello step,
+quindi nessuno stato di board cambia. Test in `server/routers/timeline.test.ts`.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

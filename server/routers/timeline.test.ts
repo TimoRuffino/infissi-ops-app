@@ -4,6 +4,7 @@ import { appRouter } from "../routers";
 import { getCommesseStore } from "./commesse";
 import {
   allineaTimelineAlBoard,
+  migraStepRitirati,
   reconcileTimelineBoardStates,
 } from "./timeline";
 
@@ -62,16 +63,30 @@ describe("timeline ordine e stato commessa", () => {
     const caller = appRouter.createCaller(context(97102));
     const commessa = await caller.commesse.create({ cliente: "Timeline Neutra" });
     const steps = await caller.timeline.byCommessa(commessa.id);
-    const invioFattura = steps.find((step) => step.stepNumber === 4)!;
+    const dataSpedizione = steps.find((step) => step.stepNumber === 8)!;
 
     await caller.timeline.updateStep({
-      id: invioFattura.id,
+      id: dataSpedizione.id,
       stato: "completato",
     });
 
     expect(await caller.commesse.byId(commessa.id)).toMatchObject({
       stato: "preventivo",
     });
+  });
+
+  it("nasce con 17 step e senza l'invio fattura, che seguiva l'emissione", async () => {
+    const caller = appRouter.createCaller(context(97107));
+    const commessa = await caller.commesse.create({ cliente: "Timeline Nuova" });
+    const steps = await caller.timeline.byCommessa(commessa.id);
+
+    expect(steps).toHaveLength(17);
+    expect(steps.map((step) => step.label)).not.toContain(
+      "Invio Fattura al Cliente"
+    );
+    // Dopo «Fatturazione» si passa direttamente all'acconto del cliente.
+    expect(steps[2].label).toBe("Fatturazione");
+    expect(steps[3].label).toBe("Pagamento 1\u00B0 Acconto Cliente");
   });
 
   it("riaprire uno step non riporta indietro la commessa", async () => {
@@ -102,13 +117,13 @@ describe("timeline ordine e stato commessa", () => {
       [1, "misure_esecutive"],
       [2, "aggiornamento_contratto"],
       [3, "fatture_pagamento"],
-      [5, "da_ordinare"],
-      [6, "produzione"],
-      [10, "ordini_ultimazione"],
-      [11, "attesa_posa"],
-      [15, "finiture_saldo"],
-      [17, "interventi_regolazioni"],
-      [18, "archiviata"],
+      [4, "da_ordinare"],
+      [5, "produzione"],
+      [9, "ordini_ultimazione"],
+      [10, "attesa_posa"],
+      [14, "finiture_saldo"],
+      [16, "interventi_regolazioni"],
+      [17, "archiviata"],
     ] as const;
 
     for (const [stepNumber, stato] of milestones) {
@@ -127,7 +142,7 @@ describe("timeline ordine e stato commessa", () => {
     const commessa = await caller.commesse.create({ cliente: "Timeline Storica" });
     const steps = await caller.timeline.byCommessa(commessa.id);
 
-    for (const stepNumber of [1, 2, 3, 5, 6]) {
+    for (const stepNumber of [1, 2, 3, 4, 5]) {
       const step = steps.find((item) => item.stepNumber === stepNumber)!;
       await caller.timeline.updateStep({
         id: step.id,
@@ -210,5 +225,75 @@ describe("allineaTimelineAlBoard", () => {
   it("ignora uno stato sconosciuto e una commessa senza timeline", () => {
     expect(allineaTimelineAlBoard(999_999, "produzione")).toBe(0);
     expect(allineaTimelineAlBoard(1, "stato_inventato")).toBe(0);
+  });
+});
+
+// Le timeline già salvate vanno ripulite al bootstrap: qui si verifica la
+// funzione pura che `onLoad` applica allo store persistito.
+describe("migrazione degli step ritirati", () => {
+  function passo(commessaId: number, stepNumber: number, label: string) {
+    return {
+      id: commessaId * 100 + stepNumber,
+      commessaId,
+      stepNumber,
+      label,
+      stato: "da_fare",
+      dataCompletamento: null,
+      utente: null,
+      note: null,
+      allegato: null,
+    } as any;
+  }
+
+  it("toglie l'invio fattura e rinumera gli step senza lasciare buchi", () => {
+    const caricati = [
+      passo(7, 1, "Rilievo Misure"),
+      passo(7, 2, "Firma Contratto (allegato)"),
+      passo(7, 3, "Fatturazione"),
+      passo(7, 4, "Invio Fattura al Cliente"),
+      passo(7, 5, "Pagamento 1\u00B0 Acconto Cliente"),
+    ];
+
+    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(caricati.map((step) => [step.stepNumber, step.label])).toEqual([
+      [1, "Rilievo Misure"],
+      [2, "Firma Contratto (allegato)"],
+      [3, "Fatturazione"],
+      [4, "Pagamento 1\u00B0 Acconto Cliente"],
+    ]);
+  });
+
+  it("rinumera ogni commessa per conto suo e non ripassa due volte", () => {
+    const caricati = [
+      passo(1, 1, "Fatturazione"),
+      passo(1, 2, "Invio Fattura al Cliente"),
+      passo(1, 3, "Pagamento 1\u00B0 Acconto Cliente"),
+      passo(2, 1, "Rilievo Misure"),
+      passo(2, 2, "Invio Fattura al Cliente"),
+    ];
+
+    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(
+      caricati.filter((s) => s.commessaId === 1).map((s) => s.stepNumber)
+    ).toEqual([1, 2]);
+    expect(
+      caricati.filter((s) => s.commessaId === 2).map((s) => s.stepNumber)
+    ).toEqual([1]);
+    // Uno store già migrato non viene riscritto a ogni avvio.
+    expect(migraStepRitirati(caricati)).toBe(false);
+  });
+
+  it("continua a togliere il DDT finale ritirato in precedenza", () => {
+    const caricati = [
+      passo(3, 1, "Pagamento Ultimo Cliente (Saldo)"),
+      passo(3, 2, "Fine Lavori \u2014 DDT Finale"),
+      passo(3, 3, "Recensione del Cliente"),
+    ];
+
+    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(caricati.map((step) => step.label)).toEqual([
+      "Pagamento Ultimo Cliente (Saldo)",
+      "Recensione del Cliente",
+    ]);
   });
 });

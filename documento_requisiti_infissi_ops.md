@@ -1182,13 +1182,15 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ## 35. Timeline ordine (scheda commessa)
 
 ### 35.1 Struttura
-18 step fissi per commessa (store `timeline_steps`, creati lazy alla prima lettura), raggruppati nelle 4 fasi del board: Rilievo Misure, Firma Contratto, Fatturazione, Invio Fattura, 1° Acconto, Ordine Merce, Conferma Ordine, Acconto Fornitore, Data Spedizione Prevista, Pagamento Merce Pronta, 2° Acconto, Data Consegna Merce, Appuntamento Posa, Lista Merce Posata, DDT Posa, Finiture, Saldo, Recensione.
+17 step fissi per commessa (store `timeline_steps`, creati lazy alla prima lettura), raggruppati nelle 4 fasi del board: Rilievo Misure, Firma Contratto, Fatturazione, 1° Acconto, Ordine Merce, Conferma Ordine, Acconto Fornitore, Data Spedizione Prevista, Pagamento Merce Pronta, 2° Acconto, Data Consegna Merce, Appuntamento Posa, Lista Merce Posata, DDT Posa, Finiture, Saldo, Recensione.
+
+«Invio Fattura al Cliente» è stato ritirato il 02/09/2026: emettere la fattura significa già mandarla, e lo step restava aperto per sempre. Le timeline già salvate lo perdono al bootstrap e vengono rinumerate senza buchi.
 
 ### 35.2 Interazione
-- Barra avanzamento (N/18 + %). Fasi collassabili; **la fase con lo step corrente e quelle contenenti note si aprono da sole**.
+- Barra avanzamento (N/17 + %). Fasi collassabili; **la fase con lo step corrente e quelle contenenti note si aprono da sole**.
 - Step corrente evidenziato (sfondo primary tenue) con bottone **Completa** one‑click. Dialog di modifica per data, utente esecutore (SearchSelect) e note; step completato riapribile.
 - Campi step: `stato (da_fare|in_corso|completato), dataCompletamento, utente, note, allegato?`.
-- Il primo completamento delle milestone sincronizza lo stato della commessa: **1 Rilievo Misure** → `misure_esecutive`; **2 Firma Contratto** → `aggiornamento_contratto`; **3 Fatturazione** → `fatture_pagamento`; **5 Primo Acconto** → `da_ordinare`; **6 Ordine Merce** → `produzione`; **10 Merce pronta** → `ordini_ultimazione`; **11 Secondo Acconto** → `attesa_posa`; **15 DDT Posa** → `finiture_saldo`; **17 Saldo** → `interventi_regolazioni`; **18 Recensione** → `archiviata`.
+- Il primo completamento delle milestone sincronizza lo stato della commessa: **1 Rilievo Misure** → `misure_esecutive`; **2 Firma Contratto** → `aggiornamento_contratto`; **3 Fatturazione** → `fatture_pagamento`; **4 Primo Acconto** → `da_ordinare`; **5 Ordine Merce** → `produzione`; **9 Merce pronta** → `ordini_ultimazione`; **10 Secondo Acconto** → `attesa_posa`; **14 DDT Posa** → `finiture_saldo`; **16 Saldo** → `interventi_regolazioni`; **17 Recensione** → `archiviata`.
 - La sincronizzazione usa la mutation canonica `commesse.update`: permessi, transizioni singole e doc gate sono identici al Board. Se manca un file, lo step resta incompleto e la UI offre **Procedi comunque**; confermando ripete entrambe le operazioni con `force: true`.
 - Uno step intermedio non sposta il Board. Completare di nuovo una milestone già registrata o riaprirla non arretra la commessa; una timeline rimasta indietro rispetto al Board può quindi essere riallineata senza regressioni.
 - Dopo il bootstrap, una riconciliazione idempotente esamina anche lo storico: per ogni commessa ricava la milestone completata più avanzata e porta il Board almeno allo stato corrispondente. Il recupero è soltanto in avanti, non riapre stati, non arretra commesse più avanzate e salva unicamente quando trova disallineamenti.
