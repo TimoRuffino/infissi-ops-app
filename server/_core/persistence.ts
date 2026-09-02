@@ -15,9 +15,38 @@ import postgres from "postgres";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
+/**
+ * Quante connessioni il processo tiene aperte verso Postgres.
+ *
+ * Erano cinque, e questo stesso client lo usano diciotto moduli: chat,
+ * comunicazioni, notifiche, promemoria, Centro Azioni, tutti gli archivi di
+ * Tars e la persistenza JSONB di ogni store. Nello stesso processo girano
+ * anche i lavori di fondo — il worker eventi interroga il database ogni
+ * secondo, la riconciliazione passa 188 casi al minuto, lo smistamento
+ * chiama il modello dieci volte al minuto — quindi le richieste delle
+ * persone si mettevano in coda dietro di loro.
+ *
+ * Nei log di produzione si vedeva il segno: quasi ogni procedura con lo
+ * stesso pavimento di mezzo secondo, dalla più pesante alla più banale.
+ * `permessi.mie` 871 ms, `notifiche.unreadCount` 831 ms, `chat.nonLetti`
+ * fino a 2,3 s per una sola query aggregata. Un pavimento uguale per tutti
+ * non è lavoro: è attesa.
+ *
+ * Venti lasciano respiro senza avvicinarsi a nessun limite ragionevole di
+ * Postgres, e `idle_timeout` le richiude appena non servono. Regolabile con
+ * DB_POOL_MAX senza toccare il codice.
+ */
+export function dimensionePool(grezzo: string | undefined): number {
+  const n = Number(grezzo);
+  if (!Number.isFinite(n) || n < 1) return 20;
+  // Un tetto: oltre non si guadagna niente e si rischia di esaurire i posti
+  // del database, che sono condivisi con le migrazioni e con psql.
+  return Math.min(Math.floor(n), 50);
+}
+
 const sql = DATABASE_URL
   ? postgres(DATABASE_URL, {
-      max: 5,
+      max: dimensionePool(process.env.DB_POOL_MAX),
       idle_timeout: 20,
       // Railway's internal DNS (postgres.railway.internal) can take a few
       // seconds to resolve on cold container boot. Give it room.
