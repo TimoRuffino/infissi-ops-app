@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   SOGLIA_LOOP_MS,
+  SOGLIA_PASSO_MS,
   SOGLIA_PROCEDURA_MS,
   avviaSondaLoop,
   fermaSondaLoop,
+  misura,
   rigaLoopBloccato,
   rigaProceduraLenta,
   ritardoLoop,
@@ -72,5 +74,44 @@ describe("osservabilità — ciclo di eventi fermo", () => {
     avviaSondaLoop(r => righe.push(r));
     await new Promise(r => setTimeout(r, 1200));
     expect(righe).toEqual([]);
+  });
+});
+
+describe("osservabilità — passi dentro una procedura", () => {
+  it("scrive solo i passi che superano la soglia", async () => {
+    const righe: string[] = [];
+    const esito = await misura(
+      "briefing.casi",
+      async () => {
+        await new Promise(r => setTimeout(r, SOGLIA_PASSO_MS + 120));
+        return "fatto";
+      },
+      r => righe.push(r)
+    );
+    expect(esito).toBe("fatto");
+    expect(righe).toHaveLength(1);
+    expect(righe[0]).toMatch(/^\[passo\] briefing\.casi ms=\d+$/);
+  });
+
+  it("un passo rapido non lascia traccia", async () => {
+    const righe: string[] = [];
+    await misura("briefing.promemoria", async () => "svelto", r => righe.push(r));
+    expect(righe).toEqual([]);
+  });
+
+  it("cronometra anche quando il passo fallisce, e non ne inghiotte l'errore", async () => {
+    const righe: string[] = [];
+    await expect(
+      misura(
+        "briefing.smistamento",
+        async () => {
+          await new Promise(r => setTimeout(r, SOGLIA_PASSO_MS + 120));
+          throw new Error("caduto");
+        },
+        r => righe.push(r)
+      )
+    ).rejects.toThrow("caduto");
+    expect(righe).toHaveLength(1);
+    expect(righe[0]).toContain("briefing.smistamento");
   });
 });

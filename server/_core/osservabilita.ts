@@ -44,6 +44,33 @@ export function rigaProceduraLenta(
   return `[lento] procedura=${percorso} ms=${Math.round(durataMs)} esito=${esito}`;
 }
 
+/** Sopra questa durata un passo dentro una procedura merita una riga. */
+export const SOGLIA_PASSO_MS = 300;
+
+export function rigaPassoLento(nome: string, durataMs: number): string {
+  return `[passo] ${nome} ms=${Math.round(durataMs)}`;
+}
+
+/**
+ * Cronometra un tratto dentro una procedura. Serve quando la procedura
+ * risulta lenta ma è fatta di più pezzi indipendenti: senza, si sa che
+ * `tars.briefing` costa dieci secondi e non quale dei suoi quattro passi se
+ * li prende. Scrive solo sopra la soglia, come tutto il resto qui dentro.
+ */
+export async function misura<T>(
+  nome: string,
+  azione: () => Promise<T>,
+  log: (riga: string) => void = console.warn
+): Promise<T> {
+  const inizio = Date.now();
+  try {
+    return await azione();
+  } finally {
+    const durata = Date.now() - inizio;
+    if (durata >= SOGLIA_PASSO_MS) log(rigaPassoLento(nome, durata));
+  }
+}
+
 /**
  * Il ritardo del ciclo di eventi: di quanto un timer da `atteso` ms è
  * arrivato in ritardo. È il tempo in cui il processo non poteva rispondere a

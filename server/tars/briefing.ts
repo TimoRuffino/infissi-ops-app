@@ -14,6 +14,7 @@ import { tarsAttivo } from "../platform/interruttori";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
 import { getReminderService } from "../reminders/service";
+import { misura } from "../_core/osservabilita";
 import {
   esisteUscitaVerso,
   getComunicazione,
@@ -326,46 +327,54 @@ export async function costruisciBriefing(
 ): Promise<BriefingTars> {
   const adesso = new Date();
 
-  const promemoria = await getReminderService().listPersonal(
-    { sedeId: contesto.sedeId, recipientUserId: contesto.utenteId },
-    {
-      stati: ["scheduled", "due"],
-      daRemindAt: new Date(0), // anche gli scaduti non gestiti: sono di oggi
-      aRemindAt: fineGiornata(adesso),
-      ordina: "remindAt",
-      limit: 15,
-    }
-  );
-
-  const casi = await listActionCases({
-    repository: getActionCaseRepository(),
-    sedeId: contesto.sedeId,
-    userId: contesto.utenteId,
-    roles: contesto.ruoli,
-    scope: "mine",
-    now: adesso,
-    // SOLO casi aperti: senza questo filtro i casi risolti (compresi gli
-    // auto-risolti delle commesse archiviate) restavano per sempre nella
-    // «Situazione di oggi», ordinati per priorità (segnalazione della
-    // direzione, 01/09: COM archiviate ancora proposte come critiche).
-    statuses: [...STATI_CASO_APERTO],
-    limit: 10,
-  });
-
-  let segnalazioni: SegnalazioneTars[] | null = null;
-  // Stesso pavimento degli strumenti L0 gemelli: senza commessa.read
-  // (deny override incluso) la sezione di sede non esiste (revisione).
-  if (tarsAttivo("tarsProactive") && contesto.capability.has("commessa.read")) {
-    const seguite = await commesseConCasiAperti(contesto.sedeId);
-    segnalazioni = rilevaSegnalazioni(contesto.sedeId, seguite, adesso);
-  }
-
-  let smistamento: SmistamentoBriefing | null = null;
-  if (smistamentoAttivo() && contesto.capability.has("commessa.read")) {
-    smistamento = await sezioneSmistamento(contesto.sedeId, adesso).catch(
-      () => null
-    );
-  }
+  // I quattro pezzi non dipendono l'uno dall'altro: promemoria, casi
+  // assegnati, segnalazioni di sede e smistamento leggono cose diverse. Uno
+  // dietro l'altro il costo era la SOMMA delle quattro attese; insieme è la
+  // più lunga. Il briefing sta sulla Dashboard: è la prima cosa che aspetta
+  // chi apre il CRM la mattina, e in produzione si misuravano dieci secondi.
+  const [promemoria, casi, segnalazioni, smistamento] = await Promise.all([
+    misura("briefing.promemoria", () =>
+      getReminderService().listPersonal(
+        { sedeId: contesto.sedeId, recipientUserId: contesto.utenteId },
+        {
+          stati: ["scheduled", "due"],
+          daRemindAt: new Date(0), // anche gli scaduti non gestiti: sono di oggi
+          aRemindAt: fineGiornata(adesso),
+          ordina: "remindAt",
+          limit: 15,
+        }
+      )
+    ),
+    misura("briefing.casi", () =>
+      listActionCases({
+        repository: getActionCaseRepository(),
+        sedeId: contesto.sedeId,
+        userId: contesto.utenteId,
+        roles: contesto.ruoli,
+        scope: "mine",
+        now: adesso,
+        // SOLO casi aperti: senza questo filtro i casi risolti (compresi gli
+        // auto-risolti delle commesse archiviate) restavano per sempre nella
+        // «Situazione di oggi», ordinati per priorità (segnalazione della
+        // direzione, 01/09: COM archiviate ancora proposte come critiche).
+        statuses: [...STATI_CASO_APERTO],
+        limit: 10,
+      })
+    ),
+    // Stesso pavimento degli strumenti L0 gemelli: senza commessa.read
+    // (deny override incluso) la sezione di sede non esiste (revisione).
+    tarsAttivo("tarsProactive") && contesto.capability.has("commessa.read")
+      ? misura("briefing.segnalazioni", async () => {
+          const seguite = await commesseConCasiAperti(contesto.sedeId);
+          return rilevaSegnalazioni(contesto.sedeId, seguite, adesso);
+        })
+      : Promise.resolve<SegnalazioneTars[] | null>(null),
+    smistamentoAttivo() && contesto.capability.has("commessa.read")
+      ? misura("briefing.smistamento", () =>
+          sezioneSmistamento(contesto.sedeId, adesso).catch(() => null)
+        )
+      : Promise.resolve<SmistamentoBriefing | null>(null),
+  ]);
 
   const briefing: BriefingTars = {
     generatoIl: adesso.toISOString(),
@@ -388,23 +397,26 @@ export async function costruisciBriefing(
 
   // Telemetria del rumore (shadow): quante segnalazioni PRODURREBBE la
   // proattività, quante sono già seguite da un caso aperto.
-  await registraRun({
-    sedeId: contesto.sedeId,
-    utenteId: contesto.utenteId,
-    conversazioneId: null,
-    stato: "ok",
-    provider: "proattivita-shadow",
-    modello: "-",
-    versioni: {},
-    contatori: {
-      promemoria: briefing.promemoriaOggi.length,
-      casi: briefing.casiMiei.length,
-      segnalazioni: segnalazioni?.length ?? 0,
-      agganciate: segnalazioni?.filter(s => s.agganciataACasoAperto).length ?? 0,
-      modelCallEvitate: 1,
-    },
-    errore: null,
-  });
+  await misura("briefing.telemetria", () =>
+    registraRun({
+      sedeId: contesto.sedeId,
+      utenteId: contesto.utenteId,
+      conversazioneId: null,
+      stato: "ok",
+      provider: "proattivita-shadow",
+      modello: "-",
+      versioni: {},
+      contatori: {
+        promemoria: briefing.promemoriaOggi.length,
+        casi: briefing.casiMiei.length,
+        segnalazioni: segnalazioni?.length ?? 0,
+        agganciate:
+          segnalazioni?.filter(s => s.agganciataACasoAperto).length ?? 0,
+        modelCallEvitate: 1,
+      },
+      errore: null,
+    })
+  );
 
   return briefing;
 }
