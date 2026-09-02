@@ -18,10 +18,23 @@ import "./index.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Always consider data stale so a refetch happens as soon as conditions trigger
-      staleTime: 0,
-      // Revalidate when component mounts, even if data is cached
-      refetchOnMount: "always",
+      // Quindici secondi di respiro prima di considerare vecchio un dato.
+      //
+      // Prima era zero con `refetchOnMount: "always"`: ogni volta che si
+      // apriva una pagina — anche solo tornando indietro dopo due secondi —
+      // ogni sua query ripartiva da capo. Sulla Dashboard sono venti
+      // richieste e un paio di megabyte da leggere e ricostruire, e la
+      // pagina restava sullo scheletro fino alla risposta invece di
+      // mostrare quello che era già in memoria.
+      //
+      // Quindici secondi non allontanano il dato dalla realtà: le mutation
+      // invalidano già le proprie query (una modifica si vede subito, non
+      // fra quindici secondi), le pagine vive hanno il loro
+      // `refetchInterval`, e il ritorno sulla finestra continua a
+      // rinfrescare quello che nel frattempo è invecchiato.
+      staleTime: 15_000,
+      // Al montaggio si rinfresca quello che è vecchio, non tutto.
+      refetchOnMount: true,
       // Re-fetch when the tab regains focus (returning from another tab/window)
       refetchOnWindowFocus: true,
       // Re-fetch when network reconnects

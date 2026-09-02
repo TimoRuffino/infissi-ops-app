@@ -1818,37 +1818,42 @@ export const commesseRouter = router({
   byPriorita: protectedProcedure.query(async ({ ctx }) => {
     const caps = await capacitaEconomiche(ctx);
     const vedeCifre = caps.has("pagamento.read");
-    const buckets: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
+    const grezzi: Record<string, any[]> = { urgente: [], alta: [], media: [], bassa: [] };
     for (const c of commesse) {
       if (c.sedeId !== ctx.sedeId) continue;
       if (c.archivedAt) continue;
       if (c.stato === "archiviata") continue;
-      if (!buckets[c.priorita]) continue;
-      // La Dashboard non legge mai registro, costi o prodotti: fuori dal
-      // payload per tutti. Le cifre viaggiano solo con `pagamento.read`;
-      // per gli altri resta il bit `daSaldare` (slice 2).
-      const {
-        pagamenti,
-        costi,
-        costoPosaStimato,
-        prodotti,
-        importoTotale,
-        importoIncassato,
-        ...resto
-      } = c;
-      void pagamenti;
-      void costi;
-      void costoPosaStimato;
-      void prodotti;
-      buckets[c.priorita].push({
-        ...resto,
-        daSaldare: residuoPositivo(c),
-        ...(vedeCifre ? { importoTotale, importoIncassato } : {}),
-      });
+      if (!grezzi[c.priorita]) continue;
+      grezzi[c.priorita].push(c);
     }
-    // Sort each bucket newest first
-    for (const k of Object.keys(buckets)) {
-      buckets[k].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Elenco esplicito, non "tutto meno qualcosa". Il pannello della
+    // Dashboard disegna quattro campi per riga: spedire la commessa intera
+    // costava un megabyte a ogni giro di aggiornamento (uno ogni trenta
+    // secondi), da leggere e ricostruire sul client per mostrarne quattro.
+    // Un elenco esplicito tiene anche fuori i campi che verranno aggiunti
+    // domani alla commessa, che qui non servirebbero comunque.
+    //
+    // Le cifre viaggiano solo con `pagamento.read`; per gli altri resta il
+    // bit `daSaldare`, che non è un importo (slice 2). Registro, costi e
+    // prodotti non escono da qui per nessuno.
+    const buckets: Record<string, any[]> = {};
+    for (const [priorita, righe] of Object.entries(grezzi)) {
+      buckets[priorita] = righe
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map(c => ({
+          id: c.id,
+          codice: c.codice,
+          cliente: c.cliente,
+          stato: c.stato,
+          priorita: c.priorita,
+          daSaldare: residuoPositivo(c),
+          ...(vedeCifre
+            ? {
+                importoTotale: c.importoTotale,
+                importoIncassato: c.importoIncassato,
+              }
+            : {}),
+        }));
     }
     return buckets;
   }),
