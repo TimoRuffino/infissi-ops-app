@@ -58,6 +58,11 @@ const CLIENTI: ClienteCandidabile[] = [
   // L'azienda stessa censita come cliente (accade: fatture, test, sync FiC).
   { id: 6, cognome: "", nome: "Ruffino Group", email: "fatture@altrodominio.test", tipo: "azienda" },
   { id: 7, cognome: "", nome: "Vetri Group Srl", email: "info@vetrigroup.test", tipo: "azienda" },
+  // Ancora l'azienda stessa, con la forma giuridica per esteso (sync FiC).
+  { id: 8, cognome: "", nome: "RUFFINO GROUP SOCIETA' A RESPONSABILITA' LIMITATA SEMPLIFICATA", email: "fic@altrodominio.test", tipo: "azienda" },
+  // Enti con nomi fatti solo di parole comuni e località.
+  { id: 9, cognome: "", nome: "Comune La Spezia", email: "protocollo@comune.test", tipo: "ente" },
+  { id: 10, cognome: "", nome: "POLIZIA DI STATO Centro Nautico e Sommozzatori La Spezia", email: "nautico@polizia.test", tipo: "ente" },
 ];
 
 const COMMESSE: CommessaCandidabile[] = [
@@ -221,6 +226,27 @@ describe("generaCandidati — candidati con motivo", () => {
     // «Group» da solo non aggancia nemmeno un'altra società con quella parola.
     expect(esito.candidati.some(c => c.tipo === "cliente" && c.id === 7)).toBe(false);
     expect(esito.candidati).toEqual([]);
+  });
+
+  it("forma giuridica per esteso e località non candidano nessuno (riesame 02/09 sera)", () => {
+    const fattura = genera(
+      comunicazione({
+        mittente: "jacopo@example.test",
+        oggetto: "Re: Fattura Ruffino Group Srls",
+        testo: "Buongiorno, ricevuta la fattura di Ruffino Group società a responsabilità limitata semplificata, procedo al pagamento.",
+      })
+    );
+    expect(fattura.candidati.some(c => c.tipo === "cliente" && c.id === 8)).toBe(false);
+    expect(fattura.candidati).toEqual([]);
+    const consegna = genera(
+      comunicazione({
+        mittente: "corriere@example.test",
+        oggetto: "Consegna a La Spezia, centro città",
+        testo: "Il materiale arriva domani a La Spezia; dichiarazione per lo stato dei lavori del comune.",
+      })
+    );
+    expect(consegna.candidati.some(c => c.tipo === "cliente" && (c.id === 9 || c.id === 10))).toBe(false);
+    expect(consegna.candidati).toEqual([]);
   });
 
   it("una ragione sociale a più parole citata per intero resta un candidato", () => {

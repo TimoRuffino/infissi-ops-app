@@ -11,7 +11,7 @@ import type { DocTipo } from "../../routers/preventiviContratti";
 // 1.1.0 (02/09): clienti interni esclusi dai candidati, prompt v2. Le
 // proposte APERTE di una versione precedente vengono ri-esaminate dal
 // worker: un errore sistematico non resta in coda a chi decide.
-export const VERSIONE_SMISTAMENTO = "1.2.0";
+export const VERSIONE_SMISTAMENTO = "1.3.0";
 
 export const URGENZE = ["bassa", "normale", "alta", "critica"] as const;
 export type UrgenzaSmistamento = (typeof URGENZE)[number];

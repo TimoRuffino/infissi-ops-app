@@ -62,7 +62,11 @@ con confidenza alta, quella commessa è fra i candidati con punteggio ≥ 30,
 nessun'altra commessa candidata è entro 20 punti, e la commessa esiste in
 sede e non è archiviata → collegamento automatico (motivo con «candidato
 unico verificato»), archiviazione D2 a seguire. Altrimenti proposta come
-prima. `VERSIONE_SMISTAMENTO` 1.2.0 per riesaminare le proposte aperte.
+prima. `VERSIONE_SMISTAMENTO` 1.2.0 per riesaminare le proposte aperte; 1.3.0 la
+sera stessa dopo il riesame in produzione: forme giuridiche per esteso,
+enti e località nella stoplist dei candidati (l'azienda censita come
+cliente «SOCIETA' A RESPONSABILITA' LIMITATA SEMPLIFICATA» veniva
+proposta), candidato SOLO cliente proposto soltanto a confidenza alta.
 
 ### D8 — Nessun duplicato nel fascicolo
 

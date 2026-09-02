@@ -177,6 +177,28 @@ describe("applicaSmistamento", () => {
     }
   });
 
+  it("un candidato SOLO cliente si propone soltanto a confidenza alta; a media non è una proposta", async () => {
+    const lista = [{ tipo: "cliente" as const, id: 420, etichetta: "Baldacci Marco", punteggio: 65, motivi: ["Nel messaggio compare «baldacci»."] }];
+    const media = await applicaSmistamento({
+      comunicazione: await inserisci(),
+      candidati: candidati({ candidati: lista }),
+      analisi: analisi({ collegamento: { tipo: "cliente", id: 420, confidenza: "media", motivo: "Il riferimento contiene il cognome Baldacci." } }),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(media.propostaStato).toBe("nessuna");
+    expect(media.esito.collegamento.esito).toBe("nessuno");
+    const alta = await applicaSmistamento({
+      comunicazione: await inserisci(),
+      candidati: candidati({ candidati: lista }),
+      analisi: analisi({ collegamento: { tipo: "cliente", id: 420, confidenza: "alta", motivo: "Il preventivo allegato è intestato a Baldacci Marco." } }),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(alta.propostaStato).toBe("aperta");
+    expect(alta.esito.collegamento).toMatchObject({ esito: "proposto", clienteId: 420, commessaId: null });
+  });
+
   it("collegamento PROPOSTO: nessun effetto sulla comunicazione, proposta aperta, niente archiviazione", async () => {
     const c = await inserisci();
     const deps = depsFinte();

@@ -80,6 +80,14 @@ const PAROLE_COMUNI = new Set([
   "snc", "sas", "ditta", "impresa", "società", "societa", "azienda",
   "studio", "ingegneria", "costruzioni", "edilizia", "infissi",
   "serramenti", "condominio", "amministrazione", "amministratore",
+  // Forme giuridiche per esteso e parole di enti/località (riesame 02/09
+  // sera: «RUFFINO GROUP SOCIETA' A RESPONSABILITA' LIMITATA SEMPLIFICATA»
+  // proposto come cliente perché «responsabilita limitata semplificata»
+  // compariva nel testo; «La Spezia» candidava Comune e Polizia di Stato).
+  "responsabilita", "responsabilità", "limitata", "semplificata",
+  "unipersonale", "cooperativa", "consorzio", "onlus", "immobiliare",
+  "comune", "provincia", "regione", "stato", "polizia", "centro",
+  "spezia", "sarzana", "genova", "italia", "liguria", "toscana",
 ]);
 
 function normalizzaEmail(valore: string | null | undefined): string {

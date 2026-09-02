@@ -303,9 +303,13 @@ export async function applicaSmistamento(input: {
     // confidenza «bassa» non diventa una proposta: chi decide riceve solo
     // ciò che il modello sostiene davvero (prime proposte reali: una
     // proposta a confidenza bassa col motivo che la contraddiceva).
+    // Un candidato SOLO cliente (senza commessa) a confidenza media è
+    // rumore (riesame 02/09 sera: «il riferimento contiene il cognome
+    // Baldacci, coerente con il cliente candidato»): si propone solo se alta.
     const inutile =
       (proposto.tipo === "cliente" && clienteCollegato === proposto.id) ||
-      proposto.confidenza === "bassa";
+      proposto.confidenza === "bassa" ||
+      (proposto.tipo === "cliente" && proposto.confidenza !== "alta");
     if (inutile) {
       collegamento = {
         esito: "nessuno",

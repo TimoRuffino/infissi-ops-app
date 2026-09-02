@@ -2044,6 +2044,14 @@ policy scritta in `CLAUDE.md` «Agente AI».
   fascicolo (checksum SHA-256; per i legacy senza checksum nome+dimensione,
   `trovaDuplicatoNelFascicolo`), vale per smistamento, strumento R1 e
   archiviazione manuale dal lettore mail; l'esito dice «già presente».
+  Riesame in produzione dopo il deploy delle 20:52: prima proposta
+  trasformata in collegamento automatico (Delle Cave), zero duplicati; ma
+  due proposte nuove nascevano da «responsabilità limitata semplificata»
+  (l'azienda stessa censita come cliente con la forma giuridica per
+  esteso) e «La Spezia» candidava Comune e Polizia di Stato → forme
+  giuridiche, enti e località nella stoplist dei candidati; un candidato
+  SOLO cliente si propone soltanto a confidenza alta (Baldacci «media» era
+  rumore). `VERSIONE_SMISTAMENTO` 1.3.0.
 
 Non fatto: conferme pendenti nei turni dentro la sezione Proposte (restano
 nel thread); Undo dal Registro (solo segnalato «annullabile»); analisi
