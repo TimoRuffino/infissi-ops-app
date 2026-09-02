@@ -394,7 +394,7 @@ function SelettoreVista({
             )}
             onClick={() => onCambia(v.id)}
           >
-            <Icona className="size-4 shrink-0 text-text-3" aria-hidden="true" />
+            <Icona className="hidden size-4 shrink-0 text-text-3 sm:block" aria-hidden="true" />
             <span className="truncate">{v.etichetta}</span>
             {conteggio > 0 && (
               <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent-foreground">
@@ -1035,12 +1035,14 @@ export default function Tars() {
           onCambia={setVista}
         />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {vista === "chat" && (
         <aside className="hidden h-full w-72 shrink-0 border-r border-border-soft md:block xl:w-80">
           <ListaWorkbench
               erroreAzione={erroreGestione}
               {...listaProps}
             />
         </aside>
+        )}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {vista === "proposte" ? (
@@ -1186,6 +1188,7 @@ export default function Tars() {
           )}
         </div>
 
+        {vista === "chat" && (
         <aside className="hidden h-full w-80 shrink-0 border-l border-border-soft xl:block 2xl:w-[21rem]">
           <TarsContextPanel
             analisi={<SezioneAnalisiAzienda onApriLink={navigate} />}
@@ -1200,6 +1203,7 @@ export default function Tars() {
             }}
           />
         </aside>
+        )}
         </div>
       </div>
 

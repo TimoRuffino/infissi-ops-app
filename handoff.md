@@ -2028,9 +2028,14 @@ policy scritta in `CLAUDE.md` «Agente AI».
 - **C. Visibilità**: pagina `/tars` con il selettore **Chat / Proposte /
   Registro** in testa (`TarsProposteBoard.tsx`, `TarsRegistro.tsx`; la sera
   stessa, su richiesta della direzione «migliora la UI/UX, soprattutto le
-  proposte», Proposte e Registro hanno preso la vista centrale larga:
-  schede con cosa propone Tars / perché / effetti e bottoni con etichetta,
-  registro a colonne; prima erano una scheda nella colonna stretta).
+  proposte», Proposte e Registro hanno preso la vista centrale larga —
+  seconda stesura dopo un nuovo «non va bene»: una CODA DI DECISIONI a
+  righe a tutta larghezza (colonne laterali nascoste), per riga titolo,
+  «Collega a <commessa>» in evidenza con chip sicuro/probabile/urgente e
+  allegati, bottone grande Approva + Rifiuta, «Perché e cosa succede» a
+  richiesta; filtri Tutte/Comunicazioni/Analisi/Documenti; registro a
+  colonne. In sviluppo `/tars?demoProposte` mostra dati finti per
+  guardarla piena).
   Proposte = smistamento (`tars.smistamentoProposte`) + gateway documentale
   (`tars.proposte`, nuovo) con Approva/Rifiuta a un click; Registro =
   `tars.registroAzioni` (nuovo) dal ledger R1: strumento, esito, «Tars per
