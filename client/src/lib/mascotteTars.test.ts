@@ -1,17 +1,43 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAZZO_NUOVO,
   POSE_OCCASIONALI,
   POSE_TUTTE,
+  eSiparietto,
   etichettaMascotte,
+  pescaSiparietto,
   posaARiposo,
   posterDi,
   puoPartireSiparietto,
-  scegliSiparietto,
   vaInLoop,
   vaPrecaricata,
   vaSpecchiata,
+  type MazzoSiparietti,
+  type PosaOccasionale,
 } from "./mascotteTars";
+
+/** Sorteggio finto: consuma i valori dati, poi torna a 0. */
+const sorteggioFinto = (valori: readonly number[]) => {
+  let i = 0;
+  return () => valori[i++] ?? 0;
+};
+
+/** Le prime `quante` estrazioni, nell'ordine in cui uscirebbero. */
+function estrai(
+  quante: number,
+  sorteggio: () => number,
+  mazzo: MazzoSiparietti = MAZZO_NUOVO,
+): PosaOccasionale[] {
+  const usciti: PosaOccasionale[] = [];
+  let corrente = mazzo;
+  for (let i = 0; i < quante; i++) {
+    const e = pescaSiparietto(corrente, sorteggio);
+    usciti.push(e.posa);
+    corrente = e.mazzo;
+  }
+  return usciti;
+}
 
 describe("mascotte Tars — posa a riposo", () => {
   it("sta in piedi col pannello chiuso", () => {
@@ -23,20 +49,71 @@ describe("mascotte Tars — posa a riposo", () => {
   });
 });
 
-describe("mascotte Tars — scelta del siparietto", () => {
-  it("copre tutti i siparietti sull'intervallo del sorteggio", () => {
-    const usciti = new Set(
-      Array.from({ length: 100 }, (_, i) => scegliSiparietto(i / 100)),
-    );
-    expect(usciti).toEqual(new Set(POSE_OCCASIONALI));
+describe("mascotte Tars — mazzo dei siparietti", () => {
+  it("un giro li mostra tutti, una volta ciascuno", () => {
+    const giro = estrai(POSE_OCCASIONALI.length, Math.random);
+    expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
+    expect(giro).toHaveLength(POSE_OCCASIONALI.length);
   });
 
-  it("regge gli estremi senza uscire dall'elenco", () => {
-    expect(POSE_OCCASIONALI).toContain(scegliSiparietto(0));
+  it("ogni giro successivo li rimescola tutti, senza saltarne", () => {
+    const lungo = estrai(POSE_OCCASIONALI.length * 4, Math.random);
+    for (let i = 0; i < lungo.length; i += POSE_OCCASIONALI.length) {
+      const giro = lungo.slice(i, i + POSE_OCCASIONALI.length);
+      expect(new Set(giro)).toEqual(new Set(POSE_OCCASIONALI));
+    }
+  });
+
+  it("mai due volte di fila la stessa clip, nemmeno cambiando giro", () => {
+    // Il punto dove un doppione ravvicinato può ancora nascere è la
+    // cucitura: ultimo di un giro e primo del successivo.
+    const usciti = estrai(POSE_OCCASIONALI.length * 6, Math.random);
+    for (let i = 1; i < usciti.length; i++) {
+      expect(usciti[i]).not.toBe(usciti[i - 1]);
+    }
+  });
+
+  it("il giro nuovo non ricomincia da chi ha chiuso il precedente", () => {
+    // Sorteggio deterministico: con `() => 0` il mescolamento dà sempre lo
+    // stesso ordine, e il primo della fila è noto. Se il giro prima si è
+    // chiuso proprio su quello, deve uscire il secondo.
+    const primo = estrai(1, () => 0)[0];
+    const dopoQuelPrimo = pescaSiparietto(
+      { daGiocare: [], ultimo: primo },
+      () => 0,
+    );
+    expect(dopoQuelPrimo.posa).not.toBe(primo);
+    expect(POSE_OCCASIONALI).toContain(dopoQuelPrimo.posa);
+    // Lo scambio sposta, non elimina: il giro resta completo.
+    expect(
+      new Set([dopoQuelPrimo.posa, ...dopoQuelPrimo.mazzo.daGiocare]),
+    ).toEqual(new Set(POSE_OCCASIONALI));
+  });
+
+  it("il mazzo si esaurisce una carta alla volta", () => {
+    let mazzo = MAZZO_NUOVO;
+    for (let i = POSE_OCCASIONALI.length - 1; i >= 0; i--) {
+      mazzo = pescaSiparietto(mazzo, Math.random).mazzo;
+      expect(mazzo.daGiocare).toHaveLength(i);
+    }
+    // Vuoto: la prossima pescata rimescola invece di dare undefined.
+    expect(POSE_OCCASIONALI).toContain(pescaSiparietto(mazzo, Math.random).posa);
+  });
+
+  it("regge un sorteggio agli estremi senza uscire dall'elenco", () => {
     // Math.random non arriva a 1, ma un valore di confine non deve dare
     // undefined: il componente lo passerebbe come src del video.
-    expect(POSE_OCCASIONALI).toContain(scegliSiparietto(0.999999));
-    expect(POSE_OCCASIONALI).toContain(scegliSiparietto(1));
+    for (const s of [() => 0, () => 1, sorteggioFinto([1, 0, 1, 0])]) {
+      for (const posa of estrai(POSE_OCCASIONALI.length * 2, s)) {
+        expect(POSE_OCCASIONALI).toContain(posa);
+      }
+    }
+  });
+
+  it("distingue i siparietti dalle pose a riposo", () => {
+    expect(eSiparietto("idle")).toBe(false);
+    expect(eSiparietto("indica")).toBe(false);
+    for (const p of POSE_OCCASIONALI) expect(eSiparietto(p)).toBe(true);
   });
 });
 

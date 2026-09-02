@@ -1,13 +1,13 @@
-// Mascotte di Tars: quattro clip WebM con canale alpha.
+// Mascotte di Tars: undici clip WebM con canale alpha.
 //
 //   idle      in piedi, respira e sbatte gli occhi (in loop)
-//   evento    inciampa, cade, si rialza e ride (siparietto, una volta)
-//   cartello  alza un cartello «FATTURARE» (siparietto, una volta)
 //   indica    braccio teso verso il pannello, ferma, sbatte gli occhi (in loop)
+//   + i nove siparietti elencati in @/lib/mascotteTars
 //
 // I siparietti partono da soli ogni tanto e poi tornano a idle: dentro una
 // clip che gira in continuo Tars cadrebbe ogni pochi secondi, insopportabile
-// in un CRM che qualcuno tiene aperto tutto il giorno.
+// in un CRM che qualcuno tiene aperto tutto il giorno. E si estraggono da un
+// mazzo, non a caso: prima di rivedere la stessa clip si vedono le altre otto.
 //
 // CONTINUITÀ. Tre cose la rompevano, e vanno tenute tutte e tre:
 //
@@ -28,16 +28,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  MAZZO_NUOVO,
   POSE_TUTTE,
+  eSiparietto,
+  pescaSiparietto,
   posaARiposo,
   posterDi,
   puoPartireSiparietto,
-  scegliSiparietto,
   vaInLoop,
   vaPrecaricata,
   vaSpecchiata,
   type PosaMascotte,
-  type PosaOccasionale,
 } from "@/lib/mascotteTars";
 import { cn } from "@/lib/utils";
 
@@ -90,12 +91,14 @@ export function MascotteTars({
 }: MascotteTarsProps) {
   const ridotto = useMovimentoRidotto();
   const [posa, setPosa] = useState<PosaMascotte>("idle");
-  // Il prossimo siparietto si sorteggia appena si torna a riposo, non quando
+  // Il prossimo siparietto si estrae appena finisce quello prima, non quando
   // scatta il timer: così c'è tutto il tempo di scaricarlo prima di doverlo
-  // mostrare, senza precaricare in blocco 3,3 MB di clip all'apertura.
-  const [prossimo, setProssimo] = useState<PosaOccasionale>(() =>
-    scegliSiparietto(Math.random()),
+  // mostrare, senza precaricare in blocco 4,2 MB di clip all'apertura.
+  // Si estrae da un mazzo, non a caso: v. pescaSiparietto.
+  const [estratto, setEstratto] = useState(() =>
+    pescaSiparietto(MAZZO_NUOVO, Math.random),
   );
+  const prossimo = estratto.posa;
   const video = useRef(new Map<PosaMascotte, HTMLVideoElement>());
 
   const cambiaPosa = useCallback((nuova: PosaMascotte) => {
@@ -138,12 +141,22 @@ export function MascotteTars({
     return () => clearTimeout(t);
   }, [posa, attiva, ridotto, prossimo, cambiaPosa]);
 
-  // Finito un siparietto se ne sorteggia un altro e lo si scalda: preload
+  // Finito un siparietto se ne estrae un altro e lo si scalda: preload
   // "auto" da solo non basta su un elemento già montato, serve load().
+  //
+  // Si pesca solo dopo che una clip è andata davvero in onda. Pescare a
+  // ogni ritorno alla posa a riposo brucerebbe una carta anche solo aprendo
+  // e chiudendo il pannello, e il giro salterebbe pose che nessuno ha visto.
+  const inOnda = useRef(false);
   useEffect(() => {
-    if (posa !== riposo) return;
-    setProssimo(scegliSiparietto(Math.random()));
-  }, [posa, riposo]);
+    if (eSiparietto(posa)) {
+      inOnda.current = true;
+      return;
+    }
+    if (!inOnda.current) return;
+    inOnda.current = false;
+    setEstratto(prec => pescaSiparietto(prec.mazzo, Math.random));
+  }, [posa]);
 
   useEffect(() => {
     const el = video.current.get(prossimo);
