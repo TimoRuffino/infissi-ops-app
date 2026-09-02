@@ -70,13 +70,45 @@ export const CATALOGO_TARIFFE: readonly TariffaModello[] = [
   },
 ];
 
-/** La tariffa ATTIVA del modello, o null (→ provider indisponibile). */
+/**
+ * Moltiplicatore del service tier (TARS_SERVICE_TIER, stesso env letto
+ * dall'adapter): `priority` costa 2× su tutti i token, `flex` 0,5×
+ * (fonte: pagina pricing «Service tiers», consultata 01/09/2026). Un
+ * valore sconosciuto vale 1× — l'adapter in quel caso non manda il campo
+ * e la chiamata viaggia sul tier di default, quindi i numeri combaciano.
+ */
+function moltiplicatoreTierPerMille(): bigint {
+  const tier = process.env.TARS_SERVICE_TIER?.trim().toLowerCase();
+  if (tier === "priority") return 2000n;
+  if (tier === "flex") return 500n;
+  return 1000n;
+}
+
+function scalaPerTier(nanoPerMilione: number): number {
+  return Number((BigInt(nanoPerMilione) * moltiplicatoreTierPerMille()) / 1000n);
+}
+
+/**
+ * La tariffa ATTIVA del modello, o null (→ provider indisponibile), già
+ * scalata sul service tier configurato: stima, prenotazione e
+ * riconciliazione restano un soffitto anche quando `priority` raddoppia
+ * il listino (gate §4: un numero raccolto non è un numero controllato).
+ */
 export function tariffaDi(modello: string): TariffaModello | null {
   const nome = modello.trim();
-  return (
+  const base =
     CATALOGO_TARIFFE.find(t => t.modello === nome && t.stato === "attiva") ??
-    null
-  );
+    null;
+  if (!base) return null;
+  const moltiplicatore = moltiplicatoreTierPerMille();
+  if (moltiplicatore === 1000n) return base;
+  return {
+    ...base,
+    input: scalaPerTier(base.input),
+    cachedInput: scalaPerTier(base.cachedInput),
+    cacheWrite: scalaPerTier(base.cacheWrite),
+    output: scalaPerTier(base.output),
+  };
 }
 
 const MILIONE = 1_000_000n;

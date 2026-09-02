@@ -112,6 +112,7 @@ const VARIABILI_BUDGET = [
   "TARS_MONTHLY_BUDGET_USD",
   "TARS_MARGINE_STIMA",
   "TARS_SCADENZA_PRENOTAZIONE_MS",
+  "TARS_SERVICE_TIER",
   "TARS_PROVIDER",
   "OPENAI_API_KEY",
   "FLAG_TARS",
@@ -225,6 +226,23 @@ describe("tariffe — catalogo chiuso e aritmetica esatta", () => {
     expect(
       usoPlausibile({ input: 1_000, cachedInput: 300, cacheWrite: 400, output: 10 })
     ).toBe(true);
+  });
+
+  it("il service tier scala la tariffa: priority 2×, flex 0,5×, ignoto 1×", () => {
+    const base = tariffaDi(MODELLO)!;
+    process.env.TARS_SERVICE_TIER = "priority";
+    const priority = tariffaDi(MODELLO)!;
+    expect(priority.input).toBe(base.input * 2);
+    expect(priority.cachedInput).toBe(base.cachedInput * 2);
+    expect(priority.cacheWrite).toBe(base.cacheWrite * 2);
+    expect(priority.output).toBe(base.output * 2);
+    process.env.TARS_SERVICE_TIER = "flex";
+    expect(tariffaDi(MODELLO)!.input).toBe(base.input / 2);
+    // Valore ignoto: l'adapter non manda il campo, quindi la tariffa
+    // resta quella base — i numeri combaciano per costruzione.
+    process.env.TARS_SERVICE_TIER = "turbo-inventato";
+    expect(tariffaDi(MODELLO)!.input).toBe(base.input);
+    delete process.env.TARS_SERVICE_TIER;
   });
 
   it("nessun floating point: importi USD → nanodollari interi", () => {

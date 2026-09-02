@@ -737,6 +737,8 @@ export async function eseguiRun(input: {
   const versioniOsservate: Record<string, string> = {};
   let erroriStrumenti = 0;
   const uso: UsoToken = { input: 0, output: 0, cachedInput: 0, cacheWrite: 0 };
+  const iniziatoIl = Date.now();
+  let chiamateModello = 0;
 
   const esitoDegradato = async (
     motivo: string,
@@ -781,7 +783,13 @@ export async function eseguiRun(input: {
       provider: input.provider.nome,
       modello: config.modello,
       versioni: { prompt: PROMPT_VERSIONE, profilo: PROFILO_VERSIONE },
-      contatori: { c1Hit, c1Miss, passi: strumentiUsati.length },
+      contatori: {
+        c1Hit,
+        c1Miss,
+        passi: strumentiUsati.length,
+        chiamateModello,
+        durataMs: Date.now() - iniziatoIl,
+      },
       errore,
     });
     return risposta;
@@ -797,8 +805,6 @@ export async function eseguiRun(input: {
   // Limiti duri del run (spec §27.47): chiamate al modello, tempo
   // totale, dimensione del contesto. Sono tetti di sicurezza, non
   // euristiche: superarli degrada onestamente invece di spendere.
-  const iniziatoIl = Date.now();
-  let chiamateModello = 0;
   const chiamaProvider = async (passo: number, tentativo: number) => {
     if (chiamateModello >= config.maxChiamateModello) {
       throw new ErroreLimiteRun(

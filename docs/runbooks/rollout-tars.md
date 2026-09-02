@@ -47,10 +47,15 @@ condizioni: `TARS_PROVIDER=openai` + `FLAG_TARS=on` + `OPENAI_API_KEY`.
 
 Config modello (solo quando autorizzato): `TARS_MODEL_INTERACTIVE`
 (unico approvato: `gpt-5.6-terra`), `TARS_REASONING_INTERACTIVE`
-(`medium`), `TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS` (1200),
-`TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_MAX_MODEL_CALLS` (8),
+(`medium`; la famiglia 5.6 accetta `none|low|medium|high|xhigh|max`,
+NON `minimal` — verificato sul vivo: 400), `TARS_SERVICE_TIER`
+(`auto|default|flex|priority`; assente = default del progetto;
+`priority` compra latenza a tariffa 2× e il ledger scala le tariffe di
+conseguenza), `TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS`
+(1200), `TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_MAX_MODEL_CALLS` (8),
 `TARS_MAX_RUN_MS` (180000), `TARS_MAX_CONTEXT_CHARS` (120000),
-`TARS_C0_TTL_MS` (90000).
+`TARS_C0_TTL_MS` (90000). Latenza: i run registrano `durataMs` e
+`chiamateModello` nei `contatori` di `tars_run` (anche i degradati).
 
 **Budget (tetto software, spec §27 — aggiornato dal gate §8,
 01/09/2026)**: `TARS_MAX_COST_PER_RUN_USD`, `TARS_DAILY_BUDGET_USD`,

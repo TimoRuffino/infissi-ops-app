@@ -31,12 +31,37 @@ import {
 
 const ENDPOINT = "https://api.openai.com/v1/responses";
 
-const EFFORT_AMMESSI = new Set(["minimal", "low", "medium", "high"]);
+// Unione dei valori delle famiglie in uso: GPT-5.x storiche accettano
+// `minimal`, la 5.6 accetta `none…max` (verificato sul vivo 01/09/2026:
+// `minimal` su gpt-5.6-sol è un 400). Un valore fuori set qui degrada a
+// `medium`, mai a una chiamata rifiutata.
+const EFFORT_AMMESSI = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 /** Reasoning effort approvato: `medium` salvo configurazione esplicita. */
 function reasoningEffort(): string {
   const richiesto = process.env.TARS_REASONING_INTERACTIVE?.trim().toLowerCase();
   return richiesto && EFFORT_AMMESSI.has(richiesto) ? richiesto : "medium";
+}
+
+const TIER_AMMESSI = new Set(["auto", "default", "flex", "priority"]);
+
+/**
+ * Service tier OpenAI opzionale (TARS_SERVICE_TIER): `priority` compra
+ * latenza più bassa a tariffa doppia — coerente con la decisione «niente
+ * budget» del gate §8. Assente o invalido = il campo non parte e vale il
+ * default del progetto.
+ */
+function serviceTier(): string | null {
+  const richiesto = process.env.TARS_SERVICE_TIER?.trim().toLowerCase();
+  return richiesto && TIER_AMMESSI.has(richiesto) ? richiesto : null;
 }
 
 function usoDaRisposta(usage: any): UsoToken {
@@ -118,6 +143,7 @@ export function creaProviderRealeGrezzo(): TarsProvider {
         store: false,
         prompt_cache_key: richiesta.chiaveCachePrompt,
         reasoning: { effort: reasoningEffort() },
+        ...(serviceTier() ? { service_tier: serviceTier() } : {}),
       };
 
       let res: Response;
