@@ -1,9 +1,10 @@
-// Sezione «Registro» della pagina Tars (Tars libero, 02/09/2026): ogni
+// Vista «Registro» della pagina Tars (Tars libero, 02/09/2026): ogni
 // effetto di Tars in sede, con chi lo ha chiesto e su cosa. La fonte è il
 // ledger R1 del server: qui si legge soltanto.
+import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { History, Loader2, Undo2 } from "lucide-react";
+import { History, Loader2, RefreshCw, Undo2 } from "lucide-react";
 
 const ETICHETTA_ENTITA: Record<string, string> = {
   commessa: "Commessa",
@@ -22,7 +23,7 @@ function linkEntita(riferimento: string): string | null {
   if (!id) return null;
   if (tipo === "commessa") return `/commesse/${id}`;
   if (tipo === "cliente") return `/clienti/${id}`;
-  if (tipo === "comunicazione") return `/comunicazioni?comunicazione=${id}`;
+  if (tipo === "comunicazione") return `/messaggi/email?messaggio=${id}`;
   return null;
 }
 
@@ -66,98 +67,126 @@ export function TarsRegistro({
   onApriLink: (link: string) => void;
 }) {
   const registro = trpc.tars.registroAzioni.useQuery(
-    { limite: 80 },
+    { limite: 100 },
     { retry: false, staleTime: 15_000, refetchInterval: 60_000 }
   );
-
-  if (registro.isLoading) {
-    return (
-      <p className="flex items-center gap-2 px-3 py-4 text-xs text-text-3">
-        <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        Carico il registro…
-      </p>
-    );
-  }
-  if (registro.error) {
-    return (
-      <p className="px-3 py-4 text-xs text-danger">{registro.error.message}</p>
-    );
-  }
   const righe = registro.data ?? [];
-  if (righe.length === 0) {
-    return (
-      <div className="px-3 py-4 text-xs leading-5 text-text-2">
-        <p className="font-semibold text-text-1">
-          Nessuna azione registrata in questa sede.
-        </p>
-        <p>
-          Qui compare tutto ciò che Tars fa, con chi gliel'ha chiesto: se l'ha
-          fatto Tars, si vede.
-        </p>
-      </div>
-    );
-  }
 
   return (
-    <ul className="min-w-0" aria-label="Registro delle azioni di Tars">
-      {righe.map(riga => (
-        <li
-          key={riga.id}
-          className="border-b border-border-soft px-3 py-2 text-xs last:border-b-0"
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <History className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate font-semibold text-text-1">
-              {etichettaStrumento(riga.strumento)}
-            </span>
-            <span
-              className={cn(
-                "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                classeStato(riga.stato, riga.esito)
-              )}
-            >
-              {testoStato(riga.stato, riga.esito)}
-            </span>
-          </div>
-          <p className="mt-0.5 text-text-3">
-            Tars per {riga.utente} · {dataBreve(riga.quando)}
-            {riga.undoDisponibile && (
-              <span className="ml-1 inline-flex items-center gap-0.5">
-                <Undo2 className="size-3" aria-hidden="true" />
-                annullabile
-              </span>
-            )}
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <header className="flex shrink-0 items-center gap-3 border-b border-border-soft px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-bold text-text-1">Registro</h2>
+          <p className="text-xs leading-5 text-text-3">
+            Tutto ciò che Tars ha fatto in questa sede, con chi gliel'ha
+            chiesto: se l'ha fatto Tars, si vede.
           </p>
-          {riga.motivo && (
-            <p className="mt-0.5 text-text-2 break-words [overflow-wrap:anywhere]">
-              {riga.motivo}
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-9 shrink-0"
+          aria-label="Aggiorna il registro"
+          title="Aggiorna"
+          onClick={() => void registro.refetch()}
+        >
+          <RefreshCw aria-hidden="true" />
+        </Button>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {registro.isLoading ? (
+          <p className="flex items-center gap-2 px-4 py-4 text-xs text-text-3">
+            <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
+            Carico il registro…
+          </p>
+        ) : registro.error ? (
+          <p className="px-4 py-4 text-xs text-danger">{registro.error.message}</p>
+        ) : righe.length === 0 ? (
+          <div className="mx-auto max-w-md py-10 text-center">
+            <History className="mx-auto size-8 text-text-3" aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold text-text-1">
+              Nessuna azione registrata in questa sede
             </p>
-          )}
-          {riga.entitaToccate.length > 0 && (
-            <p className="mt-1 flex flex-wrap gap-1">
-              {riga.entitaToccate.map(rif => {
-                const link = linkEntita(rif);
-                const classe =
-                  "rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2";
-                return link ? (
-                  <button
-                    key={rif}
-                    type="button"
-                    className={cn(classe, "hover:underline")}
-                    onClick={() => onApriLink(link)}
-                  >
-                    {etichettaEntita(rif)}
-                  </button>
-                ) : (
-                  <span key={rif} className={classe}>
-                    {etichettaEntita(rif)}
-                  </span>
-                );
-              })}
+            <p className="mt-1 text-xs leading-5 text-text-3">
+              Appena Tars crea, collega, archivia o aggiorna qualcosa, compare
+              qui con data, esito e la persona per cui l'ha fatto.
             </p>
-          )}
-        </li>
-      ))}
-    </ul>
+          </div>
+        ) : (
+          <ul aria-label="Registro delle azioni di Tars">
+            <li
+              aria-hidden="true"
+              className="hidden gap-x-3 border-b border-border-soft px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-text-3 md:grid md:grid-cols-[6.5rem_minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)]"
+            >
+              <span>Quando</span>
+              <span>Azione</span>
+              <span>Per chi</span>
+              <span>Su cosa</span>
+            </li>
+            {righe.map(riga => (
+              <li
+                key={riga.id}
+                className="grid gap-x-3 gap-y-1 border-b border-border-soft px-4 py-2.5 text-xs last:border-b-0 md:grid-cols-[6.5rem_minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)] md:items-start"
+              >
+                <span className="text-text-3">{dataBreve(riga.quando)}</span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-semibold text-text-1">
+                      {etichettaStrumento(riga.strumento)}
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                        classeStato(riga.stato, riga.esito)
+                      )}
+                    >
+                      {testoStato(riga.stato, riga.esito)}
+                    </span>
+                    {riga.undoDisponibile && (
+                      <span className="inline-flex items-center gap-0.5 text-[11px] text-text-3">
+                        <Undo2 className="size-3" aria-hidden="true" />
+                        annullabile
+                      </span>
+                    )}
+                  </div>
+                  {riga.motivo && (
+                    <p className="mt-0.5 text-text-2 break-words [overflow-wrap:anywhere]">
+                      {riga.motivo}
+                    </p>
+                  )}
+                </div>
+                <span className="text-text-2">Tars per {riga.utente}</span>
+                <div className="flex flex-wrap gap-1">
+                  {riga.entitaToccate.length === 0 && (
+                    <span className="text-text-3">—</span>
+                  )}
+                  {riga.entitaToccate.map(rif => {
+                    const link = linkEntita(rif);
+                    const classe =
+                      "rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2";
+                    return link ? (
+                      <button
+                        key={rif}
+                        type="button"
+                        className={cn(classe, "hover:underline")}
+                        onClick={() => onApriLink(link)}
+                      >
+                        {etichettaEntita(rif)}
+                      </button>
+                    ) : (
+                      <span key={rif} className={classe}>
+                        {etichettaEntita(rif)}
+                      </span>
+                    );
+                  })}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }

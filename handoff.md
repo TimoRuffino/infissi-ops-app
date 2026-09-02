@@ -2025,8 +2025,12 @@ policy scritta in `CLAUDE.md` «Agente AI».
   stessa sede, stessa `authorizeCoreOperation`; esito con prima/dopo;
   nota «creato/archiviato da Tars». Test `scrittura.test.ts` (incluso il
   rifiuto in `policyMode: enforce` senza leak).
-- **C. Visibilità**: pagina `/tars`, colonna sinistra a schede
-  **Chat / Proposte / Registro** (`TarsProposte.tsx`, `TarsRegistro.tsx`).
+- **C. Visibilità**: pagina `/tars` con il selettore **Chat / Proposte /
+  Registro** in testa (`TarsProposteBoard.tsx`, `TarsRegistro.tsx`; la sera
+  stessa, su richiesta della direzione «migliora la UI/UX, soprattutto le
+  proposte», Proposte e Registro hanno preso la vista centrale larga:
+  schede con cosa propone Tars / perché / effetti e bottoni con etichetta,
+  registro a colonne; prima erano una scheda nella colonna stretta).
   Proposte = smistamento (`tars.smistamentoProposte`) + gateway documentale
   (`tars.proposte`, nuovo) con Approva/Rifiuta a un click; Registro =
   `tars.registroAzioni` (nuovo) dal ledger R1: strumento, esito, «Tars per

@@ -3,7 +3,10 @@ import {
   SezioneAnalisiAzienda,
   SintesiAnalisiAzienda,
 } from "@/components/tars/TarsAnalisiAzienda";
-import { TarsProposte, useProposteTars } from "@/components/tars/TarsProposte";
+import {
+  TarsProposteBoard,
+  useProposteTars,
+} from "@/components/tars/TarsProposteBoard";
 import { TarsRegistro } from "@/components/tars/TarsRegistro";
 import TarsContextPanel, {
   type BriefingOperativoTars,
@@ -75,6 +78,10 @@ import {
   Search,
   Send,
   X,
+  ClipboardCheck,
+  History,
+  type LucideIcon,
+  MessageSquare,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -343,63 +350,70 @@ function EmptyStateWorkbench({
   );
 }
 
-type SchedaWorkbench = "chat" | "proposte" | "registro";
+type VistaTars = "chat" | "proposte" | "registro";
 
-const SCHEDE_WORKBENCH: Array<{ id: SchedaWorkbench; etichetta: string }> = [
-  { id: "chat", etichetta: "Chat" },
-  { id: "proposte", etichetta: "Proposte" },
-  { id: "registro", etichetta: "Registro" },
+const VISTE_TARS: Array<{ id: VistaTars; etichetta: string; icona: LucideIcon }> = [
+  { id: "chat", etichetta: "Chat", icona: MessageSquare },
+  { id: "proposte", etichetta: "Proposte", icona: ClipboardCheck },
+  { id: "registro", etichetta: "Registro", icona: History },
 ];
 
-// Colonna sinistra della pagina: conversazioni, proposte in attesa di una
-// decisione e registro di ciò che Tars ha fatto (Tars libero, 02/09/2026).
-// La lista conversazioni resta montata quando si cambia scheda per non
-// perdere scroll e ricerca.
+// Selettore delle tre viste del Centro decisionale (02/09/2026, sera):
+// la chat, le proposte da decidere e il registro di ciò che Tars ha fatto.
+// Le proposte hanno la vista larga al centro, non una colonna stretta.
+function SelettoreVista({
+  vista,
+  conteggioProposte,
+  onCambia,
+}: {
+  vista: VistaTars;
+  conteggioProposte: number;
+  onCambia: (vista: VistaTars) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Viste del Centro decisionale"
+      className="flex shrink-0 gap-1 border-b border-border-soft bg-surface-2 px-2 py-1.5"
+    >
+      {VISTE_TARS.map(v => {
+        const attiva = vista === v.id;
+        const Icona = v.icona;
+        const conteggio = v.id === "proposte" ? conteggioProposte : 0;
+        return (
+          <button
+            key={v.id}
+            type="button"
+            role="tab"
+            aria-selected={attiva}
+            className={cn(
+              "flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none",
+              attiva
+                ? "bg-card text-text-1 shadow-sm"
+                : "text-text-2 hover:bg-card/60 hover:text-text-1"
+            )}
+            onClick={() => onCambia(v.id)}
+          >
+            <Icona className="size-4 shrink-0 text-text-3" aria-hidden="true" />
+            <span className="truncate">{v.etichetta}</span>
+            {conteggio > 0 && (
+              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent-foreground">
+                {conteggio}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ListaWorkbench({
   erroreAzione,
-  onSuggerimento,
   ...props
-}: TarsConversationListProps & {
-  erroreAzione: string | null;
-  onSuggerimento: (testo: string) => void;
-}) {
-  const [, navigate] = useLocation();
-  const [scheda, setScheda] = useState<SchedaWorkbench>("chat");
-  const proposte = useProposteTars(true);
+}: TarsConversationListProps & { erroreAzione: string | null }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
-      <div
-        role="tablist"
-        aria-label="Sezioni di Tars"
-        className="flex shrink-0 border-b border-border-soft"
-      >
-        {SCHEDE_WORKBENCH.map(s => {
-          const attiva = scheda === s.id;
-          const conteggio = s.id === "proposte" ? proposte.totale : 0;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={attiva}
-              className={cn(
-                "flex min-h-10 flex-1 items-center justify-center gap-1.5 px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                attiva
-                  ? "border-b-2 border-accent text-text-1"
-                  : "border-b-2 border-transparent text-text-2 hover:text-text-1"
-              )}
-              onClick={() => setScheda(s.id)}
-            >
-              {s.etichetta}
-              {conteggio > 0 && (
-                <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent-foreground">
-                  {conteggio}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
       {erroreAzione && (
         <div
           role="alert"
@@ -408,23 +422,9 @@ function ListaWorkbench({
           {erroreAzione}
         </div>
       )}
-      <div className="min-h-0 flex-1 [&>nav]:h-full" hidden={scheda !== "chat"}>
+      <div className="min-h-0 flex-1 [&>nav]:h-full">
         <TarsConversationList {...props} />
       </div>
-      {scheda === "proposte" && (
-        <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
-          <TarsProposte
-            dati={proposte}
-            onApriLink={navigate}
-            onSuggerimento={onSuggerimento}
-          />
-        </div>
-      )}
-      {scheda === "registro" && (
-        <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
-          <TarsRegistro onApriLink={navigate} />
-        </div>
-      )}
     </div>
   );
 }
@@ -444,6 +444,8 @@ export default function Tars() {
   const [ricerca, setRicerca] = useState("");
   const [ricercaServer, setRicercaServer] = useState("");
   const [listaMobileAperta, setListaMobileAperta] = useState(false);
+  const [vista, setVista] = useState<VistaTars>("chat");
+  const proposte = useProposteTars(puoUsareTars);
   const [contestoMobileAperto, setContestoMobileAperto] = useState(false);
   const [bozze, setBozze] = useState<Record<string, string>>({});
   const [erroreInvio, setErroreInvio] = useState<ErroreInvio | null>(null);
@@ -917,6 +919,7 @@ export default function Tars() {
   // chat: su mobile si chiude anche il foglio della lista.
   function suggerisci(testo: string) {
     aggiornaBozza(testo);
+    setVista("chat");
     setListaMobileAperta(false);
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }
@@ -1025,16 +1028,32 @@ export default function Tars() {
 
   return (
     <>
-      <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[34rem] min-w-0 overflow-hidden rounded-md border border-border-soft bg-card">
+      <div className="flex h-[calc(100dvh-8rem)] min-[1200px]:h-auto min-[1200px]:min-h-0 min-[1200px]:flex-1 min-h-[34rem] min-w-0 flex-col overflow-hidden rounded-md border border-border-soft bg-card">
+        <SelettoreVista
+          vista={vista}
+          conteggioProposte={proposte.totale}
+          onCambia={setVista}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside className="hidden h-full w-72 shrink-0 border-r border-border-soft md:block xl:w-80">
           <ListaWorkbench
               erroreAzione={erroreGestione}
-              onSuggerimento={suggerisci}
               {...listaProps}
             />
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {vista === "proposte" ? (
+            <TarsProposteBoard
+              dati={proposte}
+              onApriLink={navigate}
+              onSuggerimento={suggerisci}
+              onVaiAlRegistro={() => setVista("registro")}
+            />
+          ) : vista === "registro" ? (
+            <TarsRegistro onApriLink={navigate} />
+          ) : (
+          <>
           {/* Flex container: senza, il `flex-1` della conversazione non si
               vincola, la sezione cresce con i messaggi e la cronologia non
               riceve mai l'altezza da cui scorrere. */}
@@ -1163,6 +1182,8 @@ export default function Tars() {
               </p>
             </form>
           )}
+          </>
+          )}
         </div>
 
         <aside className="hidden h-full w-80 shrink-0 border-l border-border-soft xl:block 2xl:w-[21rem]">
@@ -1179,6 +1200,7 @@ export default function Tars() {
             }}
           />
         </aside>
+        </div>
       </div>
 
       <Sheet open={listaMobileAperta} onOpenChange={setListaMobileAperta}>
@@ -1207,7 +1229,6 @@ export default function Tars() {
           <div className="min-h-0 flex-1">
             <ListaWorkbench
               erroreAzione={erroreGestione}
-              onSuggerimento={suggerisci}
               {...listaProps}
             />
           </div>
