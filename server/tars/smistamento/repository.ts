@@ -42,6 +42,12 @@ export type RepositorySmistamento = {
   ): Promise<RecordSmistamento | null>;
   /** Record con proposta aperta, i più recenti prima. */
   proposteAperte(sedeId: number, limite: number): Promise<RecordSmistamento[]>;
+  /** Proposte aperte prodotte da una versione precedente: da ri-esaminare. */
+  proposteAperteDaRiesaminare(input: {
+    sedeId: number;
+    versioneCorrente: string;
+    limite: number;
+  }): Promise<RecordSmistamento[]>;
   /** Record analizzati di recente (per briefing e liste), i più recenti prima. */
   recenti(input: {
     sedeId: number;
@@ -132,6 +138,18 @@ export function creaRepositorySmistamentoMemoriaPerTest(): RepositorySmistamento
     async proposteAperte(sedeId, limite) {
       return [...records.values()]
         .filter(r => r.sedeId === sedeId && r.propostaStato === "aperta")
+        .sort((a, b) => b.aggiornataAt.getTime() - a.aggiornataAt.getTime())
+        .slice(0, limite)
+        .map(r => structuredClone(r));
+    },
+    async proposteAperteDaRiesaminare({ sedeId, versioneCorrente, limite }) {
+      return [...records.values()]
+        .filter(
+          r =>
+            r.sedeId === sedeId &&
+            r.propostaStato === "aperta" &&
+            r.versione !== versioneCorrente
+        )
         .sort((a, b) => b.aggiornataAt.getTime() - a.aggiornataAt.getTime())
         .slice(0, limite)
         .map(r => structuredClone(r));
@@ -245,6 +263,14 @@ function creaRepositorySmistamentoPostgres(): RepositorySmistamento {
       await assicura();
       const righe = await sql`SELECT * FROM tars_smistamento
         WHERE sede_id = ${sedeId} AND proposta_stato = 'aperta'
+        ORDER BY aggiornata_at DESC LIMIT ${limite}`;
+      return righe.map(rigaDaDb);
+    },
+    async proposteAperteDaRiesaminare({ sedeId, versioneCorrente, limite }) {
+      await assicura();
+      const righe = await sql`SELECT * FROM tars_smistamento
+        WHERE sede_id = ${sedeId} AND proposta_stato = 'aperta'
+          AND versione <> ${versioneCorrente}
         ORDER BY aggiornata_at DESC LIMIT ${limite}`;
       return righe.map(rigaDaDb);
     },

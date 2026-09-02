@@ -170,6 +170,42 @@ describe("eseguiGiroSmistamento", () => {
     expect(secondo.esaminate).toBe(0);
   });
 
+  it("una proposta aperta di una versione precedente viene ri-esaminata prima delle nuove", async () => {
+    const vecchia = await inserisci({ oggetto: "Report traffico - RUFFINO GROUP", testo: "report" });
+    await repository.registra({
+      comunicazioneId: vecchia.id,
+      sedeId: SEDE,
+      versione: "0.9.0",
+      stato: "analizzata",
+      esito: {
+        versione: "0.9.0",
+        fonte: "modello",
+        modello: "gpt-5.6-terra",
+        categoria: "amministrativa",
+        urgenza: "normale",
+        riepilogo: "Report.",
+        richiedeRisposta: false,
+        azioneSuggerita: "collega",
+        istruzione: "",
+        collegamento: { esito: "proposto", commessaId: null, clienteId: 99, confidenza: "media", motivo: "sbagliata" },
+        allegati: [],
+        archiviati: [],
+        candidati: [{ tipo: "cliente", id: 99, etichetta: "Ruffino Group", punteggio: 40, motivi: [] }],
+        segnali: { interno: false, inoltro: false, mittenteOriginale: null },
+      },
+      propostaStato: "aperta",
+      ultimoErrore: null,
+      now: new Date(),
+    });
+    const d = deps(() => jsonModello({ tipo: "nessuno", id: 0, confidenza: "bassa", motivo: "" }));
+    const giro = await eseguiGiroSmistamento({ sedeId: SEDE, deps: d, limite: 10 });
+    expect(giro.esaminate).toBeGreaterThanOrEqual(1);
+    const record = await repository.perComunicazione(SEDE, vecchia.id);
+    expect(record?.versione).not.toBe("0.9.0");
+    expect(record?.propostaStato).toBe("nessuna");
+    expect(record?.esito?.collegamento.esito).toBe("nessuno");
+  });
+
   it("un errore del modello su una comunicazione viene registrato e non ferma le altre", async () => {
     const rotta = await inserisci({ oggetto: "ROTTA", testo: "x" });
     const buona = await inserisci({ oggetto: "BUONA", testo: "y" });

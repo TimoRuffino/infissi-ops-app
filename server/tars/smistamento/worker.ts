@@ -11,6 +11,7 @@ import { getUtentiStore } from "../../routers/utenti";
 import { caselle } from "../../comunicazioni/caselle";
 import {
   cercaFiloCollegato,
+  getLiveComunicazione,
   type Comunicazione,
 } from "../../comunicazioni/comunicazioni";
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
@@ -36,7 +37,10 @@ import { VERSIONE_SMISTAMENTO } from "./types";
 
 const INTERVALLO_MS = 60_000;
 const RITARDO_BOOT_MS = 20_000;
-const LOTTO_PER_GIRO = 6;
+// 10 al minuto: il flusso quotidiano (~60 in ingresso) si smaltisce in
+// pochi minuti; l'arretrato di 90 giorni (~3.000) in una notte. Un giro
+// che sfora il minuto non si sovrappone al successivo (guardia inCorso).
+const LOTTO_PER_GIRO = 10;
 /** Oltre questa età si smista senza modello (D5). */
 const GIORNI_CON_MODELLO = 90;
 /** Oltre questa età non si smista affatto: storia, non lavoro. */
@@ -112,8 +116,13 @@ function contestoSede(sedeId: number) {
   for (const u of utenti) {
     if (u.email) indirizziInterni.add(String(u.email).toLowerCase());
   }
+  // Cognomi E nomi del personale: l'azienda censita come cliente («Ruffino
+  // Timothy», «Ruffino Group») non deve mai diventare un candidato.
   const cognomiInterni = new Set<string>(
-    utenti.map(u => String(u.cognome ?? "").trim().toLowerCase()).filter(Boolean)
+    utenti
+      .flatMap(u => [u.cognome, u.nome])
+      .map(v => String(v ?? "").trim().toLowerCase())
+      .filter(v => v.length >= 3)
   );
   return {
     clienti: (getClientiStore() as any[]).filter(c => c.sedeId === sedeId),
@@ -274,11 +283,28 @@ export async function eseguiGiroSmistamento(input: {
     errori: 0,
   };
   const daRicevutaAl = new Date(now.getTime() - GIORNI_MASSIMI * 86_400_000);
-  const prossime = await deps.repository.prossime({
+  const limite = input.limite ?? LOTTO_PER_GIRO;
+  // Prima le proposte aperte di una versione precedente: un errore
+  // sistematico corretto nel codice non deve restare in coda a chi
+  // decide. Poi le comunicazioni mai smistate, recenti prima.
+  const daRiesaminare = await deps.repository.proposteAperteDaRiesaminare({
     sedeId: input.sedeId,
-    daRicevutaAl,
-    limite: input.limite ?? LOTTO_PER_GIRO,
+    versioneCorrente: VERSIONE_SMISTAMENTO,
+    limite,
   });
+  const riesami: Comunicazione[] = [];
+  for (const record of daRiesaminare) {
+    const c = await getLiveComunicazione(record.comunicazioneId, input.sedeId);
+    if (c) riesami.push(c);
+  }
+  const prossime = [
+    ...riesami,
+    ...(await deps.repository.prossime({
+      sedeId: input.sedeId,
+      daRicevutaAl,
+      limite: Math.max(0, limite - riesami.length),
+    })),
+  ];
   for (const comunicazione of prossime) {
     esito.esaminate += 1;
     const precedente = await deps.repository.perComunicazione(input.sedeId, comunicazione.id);

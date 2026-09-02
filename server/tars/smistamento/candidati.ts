@@ -68,12 +68,18 @@ const MASSIMO_CANDIDATI = 8;
 const TESTO_UTILE = 6_000;
 
 // Cognomi troppo corti o troppo comuni come parole italiane non valgono
-// da soli: servirebbe anche il nome.
+// da soli: servirebbe anche il nome. Le forme giuridiche e le parole da
+// ragione sociale generica non identificano nessuno (incidente 02/09:
+// «RUFFINO GROUP» nei report telefonici proponeva il cliente-azienda).
 const PAROLE_COMUNI = new Set([
   "costa", "rosa", "bianco", "bianchi", "nero", "neri", "verde", "monte",
   "ponte", "porta", "porte", "vetro", "casa", "villa", "santo", "santa",
   "corso", "piazza", "sole", "luna", "mare", "riva", "campo", "fiore",
   "ferro", "legno", "conte", "marino", "franco", "romano", "grande",
+  "group", "groups", "gruppo", "srl", "srls", "s.r.l", "spa", "s.p.a",
+  "snc", "sas", "ditta", "impresa", "società", "societa", "azienda",
+  "studio", "ingegneria", "costruzioni", "edilizia", "infissi",
+  "serramenti", "condominio", "amministrazione", "amministratore",
 ]);
 
 function normalizzaEmail(valore: string | null | undefined): string {
@@ -181,12 +187,43 @@ class Punteggi {
   }
 }
 
+/**
+ * L'azienda stessa censita come cliente (o una persona del personale):
+ * non è mai la controparte di una comunicazione. Riconosciuta da email
+ * interna, dominio interno o denominazione fatta solo di nomi interni.
+ */
+function clienteInterno(
+  cliente: ClienteCandidabile,
+  indirizziInterni: ReadonlySet<string>,
+  cognomiInterni: ReadonlySet<string>
+): boolean {
+  const email = normalizzaEmail(cliente.email);
+  if (email && indirizziInterni.has(email)) return true;
+  const dominiInterni = new Set([...indirizziInterni].map(dominio).filter(Boolean));
+  if (email && dominiInterni.has(dominio(email))) return true;
+  const tokens = denominazione(cliente)
+    .toLowerCase()
+    .split(/[\s,.'’-]+/)
+    .filter(t => t.length >= 3 && !PAROLE_COMUNI.has(t));
+  if (tokens.length === 0) return false;
+  const nomiDominio = new Set(
+    [...dominiInterni].map(d => d.split(".")[0]).filter(Boolean)
+  );
+  return tokens.every(
+    t => cognomiInterni.has(t) || [...nomiDominio].some(n => n.includes(t))
+  );
+}
+
 export function generaCandidati(contesto: ContestoCandidati): EsitoCandidati {
   const { comunicazione } = contesto;
   const attive = contesto.commesse.filter(
     c => c.stato !== "archiviata" && !c.archivedAt
   );
-  const clienti = contesto.clienti.filter(c => !c.archivedAt);
+  const clienti = contesto.clienti.filter(
+    c =>
+      !c.archivedAt &&
+      !clienteInterno(c, contesto.indirizziInterni, contesto.cognomiInterni)
+  );
   const perId = new Map(attive.map(c => [c.id, c] as const));
   const commesseDiCliente = (clienteId: number) =>
     attive.filter(c => c.clienteId === clienteId);
@@ -405,6 +442,9 @@ export function generaCandidati(contesto: ContestoCandidati): EsitoCandidati {
     const soloCognome =
       presenti.length === 1 && presenti[0] === cognome && cognome.length < 5;
     if (soloCognome) continue;
+    // Un solo token di una ragione sociale a più parole non basta (il
+    // «Group» di turno): serve il nome intero o almeno due parole.
+    if (!cognome && presenti.length === 1 && tokens.length >= 2 && presenti[0].length < 6) continue;
     const punti = completo ? 65 : presenti.length >= 2 ? 55 : 40;
     promuoviCliente(
       cliente,

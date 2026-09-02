@@ -55,6 +55,9 @@ const CLIENTI: ClienteCandidabile[] = [
   { id: 3, cognome: "Ruffino", nome: "Timothy", email: "t.ruffino@azienda.test" },
   { id: 4, cognome: "", nome: "BODYTECH S.R.L.", email: "amministrazione@bodytech.test", tipo: "azienda" },
   { id: 5, cognome: "Stretti", nome: "Silvia", telefono: "+39 340 7654321" },
+  // L'azienda stessa censita come cliente (accade: fatture, test, sync FiC).
+  { id: 6, cognome: "", nome: "Ruffino Group", email: "fatture@altrodominio.test", tipo: "azienda" },
+  { id: 7, cognome: "", nome: "Vetri Group Srl", email: "info@vetrigroup.test", tipo: "azienda" },
 ];
 
 const COMMESSE: CommessaCandidabile[] = [
@@ -204,6 +207,25 @@ describe("generaCandidati — candidati con motivo", () => {
     const esito = genera(comunicazione({ testo: "Mi chiami al 340 765 4321 grazie" }));
     expect(esito.candidati.some(c => c.tipo === "commessa" && c.id === 14)).toBe(true);
     expect(esito.candidati.some(c => c.tipo === "cliente" && c.id === 5)).toBe(true);
+  });
+
+  it("l'azienda stessa e le forme giuridiche non sono mai candidati (report telefonici «RUFFINO GROUP»)", () => {
+    const esito = genera(
+      comunicazione({
+        mittente: "report@telefonia.test",
+        oggetto: "Dettaglio chiamate del mese precedente - RUFFINO GROUP",
+        testo: "In allegato il report del traffico telefonico del gruppo.",
+      })
+    );
+    expect(esito.candidati.some(c => c.tipo === "cliente" && (c.id === 6 || c.id === 3))).toBe(false);
+    // «Group» da solo non aggancia nemmeno un'altra società con quella parola.
+    expect(esito.candidati.some(c => c.tipo === "cliente" && c.id === 7)).toBe(false);
+    expect(esito.candidati).toEqual([]);
+  });
+
+  it("una ragione sociale a più parole citata per intero resta un candidato", () => {
+    const esito = genera(comunicazione({ oggetto: "Offerta per Vetri Group Srl", testo: "come da accordi" }));
+    expect(esito.candidati.some(c => c.tipo === "cliente" && c.id === 7)).toBe(true);
   });
 
   it("senza nessun indizio: nessun certo e nessun candidato", () => {
