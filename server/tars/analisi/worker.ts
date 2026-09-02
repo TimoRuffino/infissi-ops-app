@@ -16,6 +16,9 @@ import { VERSIONE_ANALISI_AZIENDA, type RecordAnalisiAzienda } from "./types";
 const UTENTE_SISTEMA = 0;
 const ORA_MINIMA_LOCALE = 6;
 const INTERVALLO_MS = 5 * 60 * 1000;
+/** Un'analisi in errore si ritenta da sola dopo mezz'ora, al massimo tre volte al giorno. */
+export const RITENTO_ERRORE_MS = 30 * 60 * 1000;
+export const TENTATIVI_MASSIMI = 3;
 
 export type DipendenzeAnalisi = {
   repository: RepositoryAnalisiAzienda;
@@ -119,10 +122,17 @@ export async function giroAnalisi(deps: DipendenzeAnalisi): Promise<{ generate: 
   const giorno = giornoLocale(adesso);
   for (const sedeId of deps.sedi()) {
     const esistente = await deps.repository.perGiorno(sedeId, giorno);
-    // Un errore di oggi non si ritenta a ogni giro: la direzione rigenera a mano.
+    // Pronta: fatta. In errore: si ritenta dopo mezz'ora, al massimo tre
+    // volte; oltre, resta alla direzione rigenerare a mano.
     if (esistente) {
-      saltate.push(sedeId);
-      continue;
+      const ritentabile =
+        esistente.stato === "errore" &&
+        esistente.tentativi < TENTATIVI_MASSIMI &&
+        adesso.getTime() - esistente.generataAt.getTime() >= RITENTO_ERRORE_MS;
+      if (!ritentabile) {
+        saltate.push(sedeId);
+        continue;
+      }
     }
     await generaAnalisiAzienda({ sedeId, richiestaDa: null, deps });
     generate.push(sedeId);

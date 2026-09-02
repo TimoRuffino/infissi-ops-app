@@ -73,5 +73,7 @@ export type RecordAnalisiAzienda = {
   errore: string | null;
   /** null = generata dal worker; altrimenti l'utente che ha chiesto la rigenerazione. */
   richiestaDa: number | null;
+  /** Quante volte è stata generata oggi (worker e rigenerazioni). */
+  tentativi: number;
   generataAt: Date;
 };

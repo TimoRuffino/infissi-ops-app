@@ -129,7 +129,10 @@ export async function analizzaConModello(input: {
     istruzioni: PROMPT_ANALISI,
     input: [{ ruolo: "user", contenuto: testoFotografia(input.fotografia) }],
     strumenti: [],
-    maxOutputToken: 2_500,
+    // Prima analisi reale (sede 1, 02/09 sera): 2.500 token non bastavano e
+    // il JSON arrivava troncato («non decodificabile»). Una chiamata al
+    // giorno: il margine costa poco, il buco costa l'analisi.
+    maxOutputToken: 8_000,
     chiaveCachePrompt: chiaveCacheAnalisi(input.modello),
     timeoutMs: input.timeoutMs ?? 120_000,
     identita: input.identita,

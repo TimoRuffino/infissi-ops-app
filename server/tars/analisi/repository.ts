@@ -45,6 +45,7 @@ function rigaDaDb(row: any): RecordAnalisiAzienda {
     esito: jsonbTollerante<EsitoAnalisiAzienda>(row.esito),
     errore: row.errore ?? null,
     richiestaDa: row.richiesta_da == null ? null : Number(row.richiesta_da),
+    tentativi: Number(row.tentativi ?? 1),
     generataAt: new Date(row.generata_at),
   };
 }
@@ -65,6 +66,7 @@ export function creaRepositoryAnalisiMemoria(): RepositoryAnalisiAzienda {
         esito: input.esito,
         errore: input.errore,
         richiestaDa: input.richiestaDa,
+        tentativi: (esistente?.tentativi ?? 0) + 1,
         generataAt: input.now,
       };
       if (esistente) Object.assign(esistente, record);
@@ -99,6 +101,8 @@ function creaRepositoryAnalisiPostgres(): RepositoryAnalisiAzienda {
       generata_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (sede_id, giorno)
     )`;
+    // Additiva (02/09 sera): conteggio dei tentativi del giorno per il ritento automatico.
+    await sql`ALTER TABLE tars_analisi_azienda ADD COLUMN IF NOT EXISTS tentativi INTEGER NOT NULL DEFAULT 1`;
     pronta = true;
   };
   return {
@@ -106,11 +110,11 @@ function creaRepositoryAnalisiPostgres(): RepositoryAnalisiAzienda {
     async salva(input) {
       await assicura();
       const [riga] = await sql`INSERT INTO tars_analisi_azienda (
-          sede_id, giorno, versione, stato, esito, errore, richiesta_da, generata_at
+          sede_id, giorno, versione, stato, esito, errore, richiesta_da, tentativi, generata_at
         ) VALUES (
           ${input.sedeId}, ${input.giorno}, ${input.versione}, ${input.stato},
           ${input.esito == null ? null : sql.json(input.esito as any)},
-          ${input.errore}, ${input.richiestaDa}, ${input.now}
+          ${input.errore}, ${input.richiestaDa}, 1, ${input.now}
         )
         ON CONFLICT (sede_id, giorno) DO UPDATE SET
           versione = EXCLUDED.versione,
@@ -118,6 +122,7 @@ function creaRepositoryAnalisiPostgres(): RepositoryAnalisiAzienda {
           esito = EXCLUDED.esito,
           errore = EXCLUDED.errore,
           richiesta_da = EXCLUDED.richiesta_da,
+          tentativi = tars_analisi_azienda.tentativi + 1,
           generata_at = EXCLUDED.generata_at
         RETURNING *`;
       return rigaDaDb(riga);

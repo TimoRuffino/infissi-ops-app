@@ -2085,7 +2085,11 @@ analizzando l'azienda … deve proporre». Piano
 - **Una al giorno per sede** (`worker.ts`, giro ogni 5 minuti, dalle
   06:00 ora di Roma), registro `tars_analisi_azienda` (unique sede+giorno,
   jsonb con `sql.json`, memoria senza PostgreSQL); un errore resta
-  registrato e non si ritenta da solo (la direzione rigenera a mano).
+  registrato e si ritenta da solo dopo mezz'ora, al massimo tre volte al
+  giorno (colonna additiva `tentativi`); oltre, la direzione rigenera a
+  mano. Prima analisi reale: sede 2 ok (34 fatti, 6 punti, 6 proposte,
+  ~0,18 USD), sede 1 troncata a 2.500 token di output → tetto portato a
+  8.000.
 - **Endpoint** `tars.analisiAzienda` / `tars.analisiAziendaRigenera`
   (direzione + `commessa.read`), flag `FLAG_TARS_ANALISI_AZIENDA`
   (fail-closed, richiede `FLAG_TARS_PROACTIVE`).

@@ -8,7 +8,7 @@ import { creaProviderFinto } from "../openai/fake";
 import { analisiDeterministica, analizzaConModello, verificaEsito } from "./analisi";
 import { costruisciFotografia, entitaDellaFotografia, testoFotografia, type DipendenzeFotografia } from "./fotografia";
 import { creaRepositoryAnalisiMemoria } from "./repository";
-import { generaAnalisiAzienda, giroAnalisi, type DipendenzeAnalisi } from "./worker";
+import { RITENTO_ERRORE_MS, generaAnalisiAzienda, giroAnalisi, type DipendenzeAnalisi } from "./worker";
 
 const SEDE = 97_001;
 const ADESSO = new Date("2026-09-03T07:30:00+02:00");
@@ -168,5 +168,30 @@ describe("worker", () => {
     expect(record.stato).toBe("errore");
     expect(record.errore).toContain("OpenAI 500");
     expect(record.esito).toBeNull();
+    expect(record.tentativi).toBe(1);
+  });
+
+  it("un errore si ritenta da solo dopo mezz'ora, al massimo tre volte al giorno", async () => {
+    let orologio = ADESSO.getTime();
+    let chiamate = 0;
+    const deps = depsWorker({
+      sedi: () => [SEDE],
+      now: () => new Date(orologio),
+      provider: () =>
+        creaProviderFinto(() => {
+          chiamate += 1;
+          throw new Error("JSON troncato");
+        }),
+    });
+    await giroAnalisi(deps); // tentativo 1
+    expect((await giroAnalisi(deps)).generate).toEqual([]); // subito dopo: no
+    orologio += RITENTO_ERRORE_MS;
+    expect((await giroAnalisi(deps)).generate).toEqual([SEDE]); // tentativo 2
+    orologio += RITENTO_ERRORE_MS;
+    expect((await giroAnalisi(deps)).generate).toEqual([SEDE]); // tentativo 3
+    orologio += RITENTO_ERRORE_MS;
+    expect((await giroAnalisi(deps)).generate).toEqual([]); // basta
+    expect(chiamate).toBe(3);
+    expect((await deps.repository.ultima(SEDE))?.tentativi).toBe(3);
   });
 });
