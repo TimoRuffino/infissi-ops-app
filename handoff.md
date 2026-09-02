@@ -1995,6 +1995,59 @@ store già migrato non viene riscritto a ogni avvio. Conseguenza accettata: le
 righe dello step rimosso spariscono, comprese eventuali date, note e
 assegnatari registrati lì. Nessuna milestone era collegata a quello step,
 quindi nessuno stato di board cambia. Test in `server/routers/timeline.test.ts`.
+## 11-vicies novies. Tars libero — il modello decide, il dominio verifica (02/09/2026)
+
+Mandato direzione, dopo la chat «crea un ticket per bertoli» finita in
+loop: «Tars deve leggere tutto, capire tutto e poter fare tutto; quando
+serve chiede autorizzazione, quando è sicuro fa da solo; se l'ha fatto
+Tars viene segnalato; serve una sezione proposte sulla pagina Tars».
+Piano e lacci trovati in `docs/superpowers/plans/2026-09-02-tars-libero.md`;
+policy scritta in `CLAUDE.md` «Agente AI».
+
+- **A. Nucleo libero** (commit `6a78cce`, in produzione dalle 16:48): il
+  catalogo è tutto l'autorizzato per capability/sede/flag, senza potatura
+  per superficie o intento (`azioni/policy.ts`); i classificatori
+  deterministici che rispondevano al posto del modello sono spariti
+  dall'orchestratore, le ambiguità arrivano come hint nel contesto e la
+  risposta a un chiarimento è letta CONTRO i candidati (`chiarimento.ts`);
+  nessuna autorità derivata dal testo: `transizione_commessa` e
+  `archivia_allegato_comunicazione` verificano da soli (sede, archiviata,
+  state machine, gate, versione, fingerprint); prompt v9 standalone
+  (`prompt/v9.ts`: «collega esperto con pieni poteri entro i permessi
+  dell'utente», agisce subito, chiede una cosa sola solo se cambia
+  l'esito, mai «non ho lo strumento» se esiste).
+- **B. Strumenti di scrittura** (`strumenti/scrittura.ts`, 13 tool R1,
+  registro 1.10.0 = 44 azioni): crea/aggiorna cliente, crea/aggiorna/
+  archivia/ripristina commessa, aggiorna/chiudi ticket, pianifica
+  intervento, collega/classifica/segna gestita comunicazione, risolvi
+  caso. Ogni tool esegue la STESSA procedura del router con il contesto
+  server dell'utente (`strumenti/comune.callerPer`): stesse capability,
+  stessa sede, stessa `authorizeCoreOperation`; esito con prima/dopo;
+  nota «creato/archiviato da Tars». Test `scrittura.test.ts` (incluso il
+  rifiuto in `policyMode: enforce` senza leak).
+- **C. Visibilità**: pagina `/tars`, colonna sinistra a schede
+  **Chat / Proposte / Registro** (`TarsProposte.tsx`, `TarsRegistro.tsx`).
+  Proposte = smistamento (`tars.smistamentoProposte`) + gateway documentale
+  (`tars.proposte`, nuovo) con Approva/Rifiuta a un click; Registro =
+  `tars.registroAzioni` (nuovo) dal ledger R1: strumento, esito, «Tars per
+  <utente>», quando, entità toccate cliccabili, annullabile.
+- **Smistamento, stesso giorno sera** (mandato: «anche queste proposte
+  sono inutili» su casi come «unica commessa attiva della cliente»):
+  collegamento AUTOMATICO anche senza verdetto deterministico quando il
+  modello indica una commessa con confidenza alta e quella commessa è
+  l'unico candidato commessa (o stacca il secondo di ≥ 20 punti, punteggio
+  ≥ 30, non archiviata) — `applica.collegamentoSicuroDalModello`; le
+  ambiguità (due commesse dello stesso cliente) restano proposte.
+  `VERSIONE_SMISTAMENTO` 1.2.0: il worker riesamina le proposte aperte
+  vecchie. «Deve stare attento a non collegarli se sono già presenti»:
+  `archiviaAllegatoComunicazione` non duplica più un file già nel
+  fascicolo (checksum SHA-256; per i legacy senza checksum nome+dimensione,
+  `trovaDuplicatoNelFascicolo`), vale per smistamento, strumento R1 e
+  archiviazione manuale dal lettore mail; l'esito dice «già presente».
+
+Non fatto: conferme pendenti nei turni dentro la sezione Proposte (restano
+nel thread); Undo dal Registro (solo segnalato «annullabile»); analisi
+azienda e sintesi giornaliera (fase successiva del piano smistamento).
 
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 

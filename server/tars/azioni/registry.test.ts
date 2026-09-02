@@ -17,8 +17,13 @@ const ENV_ORIGINALE = { ...process.env };
 function contesto(
   capability: readonly Capability[] = [
     "cliente.read",
+    "cliente.create",
+    "cliente.update_operational",
     "commessa.read",
+    "commessa.create",
     "ticket.create",
+    "ticket.manage",
+    "intervento.plan",
     "commessa.update_operational",
     "commessa.change_state",
     "commessa.manage_documents",
@@ -56,8 +61,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(31);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(31);
+    expect(REGISTRO_AZIONI).toHaveLength(44);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(44);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -121,6 +126,19 @@ describe("registro centrale delle azioni Tars", () => {
       completa_promemoria: "R1",
       crea_promemoria: "R1",
       crea_ticket: "R1",
+      crea_cliente: "R1",
+      aggiorna_cliente: "R1",
+      crea_commessa: "R1",
+      aggiorna_commessa: "R1",
+      archivia_commessa: "R1",
+      ripristina_commessa: "R1",
+      aggiorna_ticket: "R1",
+      chiudi_ticket: "R1",
+      pianifica_intervento: "R1",
+      collega_comunicazione: "R1",
+      classifica_comunicazione: "R1",
+      segna_gestita_comunicazione: "R1",
+      risolvi_caso: "R1",
       dimentica: "R1",
       leggi_analisi_ordine: "R0",
       leggi_allegato_comunicazione: "R0",
@@ -206,6 +224,19 @@ describe("registro centrale delle azioni Tars", () => {
       completa_promemoria: "personale",
       crea_promemoria: "personale",
       crea_ticket: "entita",
+      crea_cliente: "sede",
+      aggiorna_cliente: "entita",
+      crea_commessa: "sede",
+      aggiorna_commessa: "entita",
+      archivia_commessa: "entita",
+      ripristina_commessa: "entita",
+      aggiorna_ticket: "entita",
+      chiudi_ticket: "entita",
+      pianifica_intervento: "entita",
+      collega_comunicazione: "entita",
+      classifica_comunicazione: "entita",
+      segna_gestita_comunicazione: "entita",
+      risolvi_caso: "entita",
       dimentica: "sede",
       leggi_analisi_ordine: "entita",
       leggi_allegato_comunicazione: "entita",
@@ -245,6 +276,19 @@ describe("registro centrale delle azioni Tars", () => {
       completa_promemoria: false,
       crea_promemoria: true,
       crea_ticket: false,
+      crea_cliente: false,
+      aggiorna_cliente: false,
+      crea_commessa: false,
+      aggiorna_commessa: false,
+      archivia_commessa: false,
+      ripristina_commessa: false,
+      aggiorna_ticket: false,
+      chiudi_ticket: false,
+      pianifica_intervento: false,
+      collega_comunicazione: false,
+      classifica_comunicazione: false,
+      segna_gestita_comunicazione: false,
+      risolvi_caso: false,
       dimentica: false,
       prendi_in_carico_caso: false,
       ricorda: false,
@@ -295,7 +339,7 @@ describe("policy dinamica del catalogo", () => {
       intento: "proposta" as const,
     };
     const catalogo = catalogoAzioniPerContesto({ ...contesto(), ...selettori });
-    expect(catalogo).toHaveLength(31);
+    expect(catalogo).toHaveLength(44);
     expect(catalogo.map(a => a.nome)).toContain("proponi_data_consegna");
     expect(catalogo.map(a => a.nome)).toContain("cerca_commesse");
     expect(
@@ -344,7 +388,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("con o senza selettori il catalogo è lo stesso: tutto l'autorizzato", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(31);
+    expect(completo).toHaveLength(44);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 

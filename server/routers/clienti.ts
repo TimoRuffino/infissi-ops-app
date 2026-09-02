@@ -169,7 +169,7 @@ type CreaClienteInput = z.infer<typeof creaClienteInput>;
  * policy, la sede, l'assegnatario di default e l'evento di assegnazione
  * non si duplicano.
  */
-async function creaCliente(
+export async function creaCliente(
   ctx: Pick<TrpcContext, "user" | "sedeId" | "sediIds">,
   input: CreaClienteInput
 ) {

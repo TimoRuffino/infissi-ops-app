@@ -67,6 +67,8 @@ function depsFinte(): DipendenzeApplica & { archiviazioni: any[] } {
       return { id: prossimoId++, commessaId: args.commessaId, tipo: args.tipo, nome: args.nome } as any;
     },
     documentoEsistente: () => null,
+    leggiCommessa: id =>
+      id === 9999 ? null : { id, clienteId: 77, archivedAt: id === 5555 ? new Date() : null },
     collegaAutomatico: collegaAutomaticoComunicazione,
     collegaManuale: setMatchComunicazione,
     classifica: setClassificazioneComunicazione,
@@ -127,6 +129,52 @@ describe("applicaSmistamento", () => {
     expect(dopo.classificazioneFonte).toBe("tars");
     expect(dopo.tarsRiepilogo).toContain("preventivo firmato");
     expect(dopo.tarsIstruzione).toContain("Archiviati nel fascicolo: 1");
+  });
+
+  it("collegamento SICURO dal modello: confidenza alta + unico candidato commessa → aggancia da solo e archivia", async () => {
+    const c = await inserisci();
+    const deps = depsFinte();
+    const esito = await applicaSmistamento({
+      comunicazione: c,
+      candidati: candidati({
+        candidati: [
+          { tipo: "commessa", id: 4343, etichetta: "COM-2026-333 — Galastri Giada", punteggio: 45, motivi: ["Unica commessa attiva della cliente."] },
+          { tipo: "cliente", id: 77, etichetta: "Galastri Giada", punteggio: 60, motivi: ["Mittente noto."] },
+        ],
+      }),
+      analisi: analisi({
+        collegamento: { tipo: "commessa", id: 4343, confidenza: "alta", motivo: "Il riferimento all'articolo Giada è coerente con l'unica commessa della cliente." },
+      }),
+      allegati: [ALLEGATO_PDF],
+      deps,
+    });
+    expect(esito.propostaStato).toBe("nessuna");
+    expect(esito.esito.collegamento).toMatchObject({ esito: "certo", commessaId: 4343, clienteId: 77 });
+    expect(esito.esito.collegamento.motivo).toContain("candidato unico verificato");
+    expect(esito.esito.archiviati).toHaveLength(1);
+    expect((await getComunicazione(c.id, SEDE))!.commessaId).toBe(4343);
+  });
+
+  it("modello sicuro ma due commesse vicine, punteggio basso, commessa archiviata o inesistente → resta PROPOSTA", async () => {
+    const casi = [
+      { nome: "rivale vicina", id: 4444, lista: [{ tipo: "commessa" as const, id: 4444, etichetta: "A", punteggio: 50, motivi: [] }, { tipo: "commessa" as const, id: 4445, etichetta: "B", punteggio: 40, motivi: [] }] },
+      { nome: "punteggio basso", id: 4446, lista: [{ tipo: "commessa" as const, id: 4446, etichetta: "C", punteggio: 20, motivi: [] }] },
+      { nome: "archiviata", id: 5555, lista: [{ tipo: "commessa" as const, id: 5555, etichetta: "D", punteggio: 70, motivi: [] }] },
+      { nome: "inesistente", id: 9999, lista: [{ tipo: "commessa" as const, id: 9999, etichetta: "E", punteggio: 70, motivi: [] }] },
+    ];
+    for (const caso of casi) {
+      const c = await inserisci();
+      const esito = await applicaSmistamento({
+        comunicazione: c,
+        candidati: candidati({ candidati: caso.lista }),
+        analisi: analisi({ collegamento: { tipo: "commessa", id: caso.id, confidenza: "alta", motivo: `Caso ${caso.nome}.` } }),
+        allegati: [ALLEGATO_PDF],
+        deps: depsFinte(),
+      });
+      expect(esito.propostaStato, caso.nome).toBe("aperta");
+      expect(esito.esito.collegamento.esito, caso.nome).toBe("proposto");
+      expect((await getComunicazione(c.id, SEDE))!.commessaId, caso.nome).toBeNull();
+    }
   });
 
   it("collegamento PROPOSTO: nessun effetto sulla comunicazione, proposta aperta, niente archiviazione", async () => {

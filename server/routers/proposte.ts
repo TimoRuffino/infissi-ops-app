@@ -45,7 +45,7 @@ function sedeCorrente(ctx: { sedeId: number | null }): number {
 }
 
 /** La proposta come la vede la UI: con effetto esatto e etichetta. */
-function proiezione(proposta: PropostaAzione) {
+export function proiezioneProposta(proposta: PropostaAzione) {
   const def = definizioneAzione(proposta.tipo);
   let effetto: string | null = null;
   try {
@@ -152,7 +152,7 @@ export const proposteRouter = router({
         });
       }
       const proposte = propostePerOrdine(sedeId, input.ordineId).map(item =>
-        proiezione(verificaFreschezza(item))
+        proiezioneProposta(verificaFreschezza(item))
       );
       const puoDecidere =
         caps.has("documento.approve_proposals") &&
@@ -217,7 +217,7 @@ export const proposteRouter = router({
         motivo: esito.motivo,
         proposte: esito.proposte.map(item => ({
           riusata: item.riusata,
-          proposta: proiezione(item.proposta),
+          proposta: proiezioneProposta(item.proposta),
         })),
       };
     }),
@@ -230,7 +230,7 @@ export const proposteRouter = router({
       const proposta = propostaInSede(input.id, sedeId);
       await autorizzaDecisione(ctx, "proposte.approva", proposta);
       try {
-        return proiezione(
+        return proiezioneProposta(
           approvaProposta({
             sedeId,
             id: input.id,
@@ -256,7 +256,7 @@ export const proposteRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return proiezione(
+        return proiezioneProposta(
           rifiutaProposta({
             sedeId,
             id: input.id,
@@ -283,7 +283,7 @@ export const proposteRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return proiezione(
+        return proiezioneProposta(
           annullaProposta({
             sedeId,
             id: input.id,
@@ -315,7 +315,7 @@ export const proposteRouter = router({
           utenteId: ctx.user?.id ?? null,
         });
         return {
-          proposta: proiezione(applicata),
+          proposta: proiezioneProposta(applicata),
           riusata,
           avvisoPosa: avvisoPosa(applicata),
         };
@@ -371,7 +371,7 @@ export const proposteRouter = router({
           utenteId: ctx.user?.id ?? null,
         });
         return {
-          proposta: proiezione(applicata),
+          proposta: proiezioneProposta(applicata),
           riusata,
           avvisoPosa: avvisoPosa(applicata),
         };

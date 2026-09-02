@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
@@ -354,6 +355,32 @@ async function serializzaArchivioComunicazione<T>(
   }
 }
 
+/** Nome senza il suffisso « (n)» che dedupeName aggiunge ai file omonimi. */
+function nomeSenzaProgressivo(nome: string): string {
+  return nome.replace(/ \(\d+\)(\.[^.]+)?$/, "$1").toLowerCase();
+}
+
+/**
+ * Lo stesso file è già nel fascicolo della commessa: byte identici
+ * (checksum SHA-256) oppure, per i documenti legacy senza checksum, stesso
+ * nome e stessa dimensione.
+ */
+export function trovaDuplicatoNelFascicolo(
+  commessaId: number,
+  file: { checksum: string; nome: string; size: number }
+): Documento | null {
+  const nome = nomeSenzaProgressivo(file.nome);
+  return (
+    documenti.find(
+      d =>
+        d.commessaId === commessaId &&
+        (d.checksum
+          ? d.checksum === file.checksum
+          : d.size === file.size && nomeSenzaProgressivo(d.nome) === nome)
+    ) ?? null
+  );
+}
+
 /** Documento del fascicolo già creato da questo allegato di comunicazione. */
 export function findDocumentoComunicazione(
   sedeId: number,
@@ -425,6 +452,18 @@ export async function archiviaAllegatoComunicazione(args: {
       ? args.buffer
       : await args.buffer();
     validaAllegatoFascicolo(bytes, args.mimeType);
+
+    // Stesso file già nel fascicolo (altra mail, inoltro, upload a mano):
+    // non si duplica. Mandato direzione 02/09/2026: «deve stare attento a
+    // non collegarli se sono già presenti».
+    if (!existing) {
+      const duplicato = trovaDuplicatoNelFascicolo(args.commessaId, {
+        checksum: createHash("sha256").update(bytes).digest("hex"),
+        nome: args.nome,
+        size: bytes.length,
+      });
+      if (duplicato) return duplicato;
+    }
 
     const id = existing?.id ?? nextId++;
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);

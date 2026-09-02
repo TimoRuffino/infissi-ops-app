@@ -67,6 +67,13 @@ import {
   smistamentoAttivo,
 } from "../tars/smistamento/worker";
 import { DEFAULT_SEDE_ID } from "./sedi";
+import {
+  ledgerEsecuzioniAutorevoleDisponibile,
+  ledgerEsecuzioniCorrente,
+} from "../tars/azioni/executions";
+import { getProposteStore } from "../proposte/gateway";
+import { proiezioneProposta } from "./proposte";
+import { getUtentiStore } from "./utenti";
 
 const procedura = procedureConInterruttore("tars");
 
@@ -1015,6 +1022,107 @@ export const tarsRouter = router({
             }
           });
         return await promessa;
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
+
+  /**
+   * Sezione «Proposte» della pagina Tars (Tars libero, 02/09/2026): le
+   * proposte del gateway documentale aperte in sede. Le proposte di
+   * smistamento restano su `smistamentoProposte`; la UI le unisce.
+   */
+  proposte: procedura.query(async ({ ctx }) => {
+    try {
+      assicuraTars();
+      const contesto = await costruisciContesto(ctx);
+      if (!contesto.capability.has("commessa.read")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Capability mancante." });
+      }
+      return getProposteStore()
+        .filter(
+          p =>
+            p.sedeId === contesto.sedeId &&
+            (p.stato === "proposta" || p.stato === "approvata")
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, 50)
+        .map(p => {
+          const v = proiezioneProposta(p);
+          return {
+            id: v.id,
+            tipo: v.tipo,
+            etichetta: v.etichetta,
+            effetto: v.effetto,
+            motivazione: v.motivazione,
+            valoreCorrente: v.valoreCorrente,
+            valoreProposto: v.valoreProposto,
+            documentoNome: v.documentoNome,
+            ordineId: v.ordineId,
+            commessaId: v.commessaId,
+            stato: v.stato,
+            hashAnteprima: v.hashAnteprima,
+            creataIl: v.createdAt,
+            scadeIl: v.scadeIl,
+            link: v.commessaId ? `/commesse/${v.commessaId}` : "/fornitori",
+          };
+        });
+    } catch (errore) {
+      if (errore instanceof TRPCError) throw errore;
+      comeErrore(errore);
+    }
+  }),
+
+  /**
+   * Registro delle azioni di Tars in sede: ogni effetto passato dal ledger
+   * R1, con chi lo ha chiesto. «Se l'ha fatto Tars, si vede».
+   */
+  registroAzioni: procedura
+    .input(
+      z
+        .object({ limite: z.number().int().min(1).max(200).default(80) })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      try {
+        assicuraTars();
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.capability.has("commessa.read")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Capability mancante." });
+        }
+        const limite = input?.limite ?? 80;
+        const utenti = new Map<number, string>(
+          (getUtentiStore() as any[]).map(u => [
+            u.id as number,
+            `${u.nome ?? ""} ${u.cognome ?? ""}`.trim() || `utente ${u.id}`,
+          ])
+        );
+        // Senza PostgreSQL (sviluppo) le azioni R1 sono fail-closed: il
+        // registro è vuoto, non un errore.
+        if (!ledgerEsecuzioniAutorevoleDisponibile() && process.env.NODE_ENV !== "test") {
+          return [];
+        }
+        const righe = await ledgerEsecuzioniCorrente().lista({ sedeId: contesto.sedeId });
+        return righe
+          .filter(r => r.stato !== "reserved" && r.stato !== "expired")
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, limite)
+          .map(r => ({
+            id: r.id,
+            runId: r.runId,
+            strumento: r.strumento,
+            stato: r.stato,
+            esito: r.esito ?? r.risultato?.stato ?? null,
+            motivo: r.risultato?.motivo ?? null,
+            entitaToccate: r.risultato?.entitaToccate ?? [],
+            utenteId: r.utenteId,
+            utente: utenti.get(r.utenteId) ?? `utente ${r.utenteId}`,
+            azioneId: r.audit.azioneId,
+            undoDisponibile: r.compensazione.disponibile,
+            undoVia: r.compensazione.via,
+            quando: r.createdAt,
+          }));
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);

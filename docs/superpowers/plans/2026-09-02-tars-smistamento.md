@@ -51,6 +51,30 @@
   fail-closed; richiede `tars` + `tarsCommunications` + `tarsProactive`
   e storage autorevole (PostgreSQL).
 
+### D7 — Collegamento sicuro dal modello (sera del 02/09)
+
+Le prime nove proposte reali erano tutte del tipo «unica commessa
+candidata», «unica commessa attiva della cliente», «mittente e nominativo
+coincidono»: chiedere un click era inutile (direzione: «anche queste
+proposte sono inutili»). Regola deterministica aggiunta in
+`applica.collegamentoSicuroDalModello`: se il modello indica una COMMESSA
+con confidenza alta, quella commessa è fra i candidati con punteggio ≥ 30,
+nessun'altra commessa candidata è entro 20 punti, e la commessa esiste in
+sede e non è archiviata → collegamento automatico (motivo con «candidato
+unico verificato»), archiviazione D2 a seguire. Altrimenti proposta come
+prima. `VERSIONE_SMISTAMENTO` 1.2.0 per riesaminare le proposte aperte.
+
+### D8 — Nessun duplicato nel fascicolo
+
+«Deve stare attento a non collegarli se sono già presenti»:
+`archiviaAllegatoComunicazione` (usata da smistamento, strumento R1 e
+lettore mail) calcola lo SHA-256 dei byte e, se il fascicolo della
+commessa ha già lo stesso file (checksum; per i documenti legacy senza
+checksum nome+dimensione), restituisce quel documento senza crearne uno
+nuovo. Lo smistamento lo segnala nell'istruzione («già presente nel
+fascicolo (documento #id): non duplicato»). Test
+`routers/preventiviContratti.dedup.test.ts`.
+
 ## 3. Architettura (`server/tars/smistamento/`)
 
 | Modulo | Ruolo |

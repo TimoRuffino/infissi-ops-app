@@ -16,6 +16,7 @@ import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "../strumenti/proposte";
 import { STRUMENTI_PROATTIVITA } from "../strumenti/proattivita";
 import { STRUMENTI_TICKET } from "../strumenti/ticket";
+import { STRUMENTI_SCRITTURA } from "../strumenti/scrittura";
 import type {
   IntentoTars,
   StrumentoTars,
@@ -28,7 +29,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.9.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.10.0";
 
 const schemaLettura = z
   .object({
@@ -232,6 +233,21 @@ const METADATI: Record<string, Metadati> = {
   leggi_fascicolo_commessa: lettura("entita", ["commessa", "documenti-ordini"], ["commessa", "documento"]),
   leggi_promemoria_in_scadenza: lettura("personale", ["generale", "promemoria"], ["promemoria"]),
   leggi_promemoria: lettura("personale", ["promemoria"], ["promemoria"]),
+  // Scrittura «Tars libero» (02/09/2026): stesse procedure dei router,
+  // contesto server dell'utente, esito nel ledger R1.
+  crea_cliente: r1("crea_cliente", "sede", ["generale", "commessa", "comunicazioni"], ["cliente", "commessa"], ["tars", "tarsL2Actions"], false),
+  aggiorna_cliente: r1("aggiorna_cliente", "entita", ["generale", "commessa", "comunicazioni"], ["cliente", "commessa"], ["tars", "tarsL2Actions"], false),
+  crea_commessa: r1("crea_commessa", "sede", ["generale", "commessa", "comunicazioni"], ["cliente", "commessa"], ["tars", "tarsL2Actions"], false),
+  aggiorna_commessa: r1("aggiorna_commessa", "entita", ["generale", "commessa", "comunicazioni", "documenti-ordini"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
+  archivia_commessa: r1("archivia_commessa", "entita", ["generale", "commessa"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  ripristina_commessa: r1("ripristina_commessa", "entita", ["generale", "commessa"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  aggiorna_ticket: r1("aggiorna_ticket", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
+  chiudi_ticket: r1("chiudi_ticket", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
+  pianifica_intervento: r1("pianifica_intervento", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  collega_comunicazione: r1("collega_comunicazione", "entita", ["generale", "commessa", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
+  classifica_comunicazione: r1("classifica_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
+  segna_gestita_comunicazione: r1("segna_gestita_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
+  risolvi_caso: r1("risolvi_caso", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "caso"], ["tars", "tarsL2Actions"], false),
   // Ticket di post-vendita (02/09/2026): dalla chat, dal fascicolo o da
   // una comunicazione; entità cliente inclusa per i ticket senza commessa.
   crea_ticket: r1(
@@ -398,6 +414,7 @@ const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_MEMORIA,
   ...STRUMENTI_PROATTIVITA,
   ...STRUMENTI_TICKET,
+  ...STRUMENTI_SCRITTURA,
 ];
 
 function costruisciRegistro(): DescrittoreAzioneTars[] {

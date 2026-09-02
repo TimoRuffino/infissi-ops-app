@@ -16,9 +16,11 @@ import {
   findDocumentoComunicazione,
   type DocTipo,
 } from "../../routers/preventiviContratti";
+import { getCommessaById } from "../../routers/commesse";
 import { classificaAllegatoComunicazione } from "../documenti/classificazione";
 import type { EsitoAnalisi, AllegatoPerAnalisi } from "./analisi";
 import type { EsitoCandidati } from "./candidati";
+import type { CandidatoCollegamento } from "./types";
 import type {
   EsitoSmistamento,
   PianoAllegato,
@@ -50,6 +52,11 @@ const IMMAGINE_MINIMA_BYTE = 30 * 1024;
 
 export type DipendenzeApplica = {
   leggiRaw: typeof leggiAllegatoRaw;
+  /** Commessa in sede (id, cliente, archiviazione) per il collegamento sicuro dal modello. */
+  leggiCommessa: (
+    commessaId: number,
+    sedeId: number
+  ) => { id: number; clienteId: number | null; archivedAt: Date | string | null } | null;
   archivia: typeof archiviaAllegatoComunicazione;
   documentoEsistente: typeof findDocumentoComunicazione;
   collegaAutomatico: typeof collegaAutomaticoComunicazione;
@@ -60,6 +67,11 @@ export type DipendenzeApplica = {
 
 export const DIPENDENZE_APPLICA_REALI: DipendenzeApplica = {
   leggiRaw: leggiAllegatoRaw,
+  leggiCommessa: (commessaId, sedeId) => {
+    const c: any = getCommessaById(commessaId);
+    if (!c || c.sedeId !== sedeId) return null;
+    return { id: c.id, clienteId: c.clienteId ?? null, archivedAt: c.archivedAt ?? null };
+  },
   archivia: archiviaAllegatoComunicazione,
   documentoEsistente: findDocumentoComunicazione,
   collegaAutomatico: collegaAutomaticoComunicazione,
@@ -130,6 +142,46 @@ export function pianificaAllegati(input: {
   });
 }
 
+/** Sotto questo punteggio un candidato non regge da solo un collegamento automatico. */
+export const PUNTEGGIO_MINIMO_SICURO = 30;
+/** Un secondo candidato commessa entro questo margine rende il caso ambiguo. */
+export const MARGINE_SICURO = 20;
+
+/**
+ * Collegamento sicuro senza verdetto deterministico (Tars libero, 02/09
+ * sera): il modello indica una COMMESSA con confidenza alta e quella
+ * commessa è l'unico candidato commessa, oppure stacca nettamente il
+ * secondo. Le ambiguità (due commesse dello stesso cliente) e le commesse
+ * archiviate restano proposte. Le prime proposte reali erano «unica
+ * commessa candidata», «unica commessa attiva della cliente»: chiedere un
+ * click era inutile, e la direzione lo ha detto.
+ */
+export function collegamentoSicuroDalModello(
+  collegamento: EsitoAnalisi["collegamento"],
+  lista: readonly CandidatoCollegamento[],
+  leggiCommessa: (
+    commessaId: number
+  ) => { id: number; clienteId: number | null; archivedAt: Date | string | null } | null
+): { commessaId: number; clienteId: number | null; motivo: string } | null {
+  if (!collegamento || collegamento.tipo !== "commessa" || collegamento.confidenza !== "alta") {
+    return null;
+  }
+  const commesse = [...lista]
+    .filter(c => c.tipo === "commessa")
+    .sort((a, b) => b.punteggio - a.punteggio);
+  const scelto = commesse.find(c => c.id === collegamento.id);
+  if (!scelto || scelto.punteggio < PUNTEGGIO_MINIMO_SICURO) return null;
+  const rivale = commesse.find(c => c.id !== scelto.id);
+  if (rivale && rivale.punteggio >= scelto.punteggio - MARGINE_SICURO) return null;
+  const commessa = leggiCommessa(scelto.id);
+  if (!commessa || commessa.archivedAt) return null;
+  return {
+    commessaId: commessa.id,
+    clienteId: commessa.clienteId,
+    motivo: `${collegamento.motivo} (candidato unico verificato)`,
+  };
+}
+
 async function archiviaPianificati(input: {
   comunicazione: Comunicazione;
   commessaId: number;
@@ -169,6 +221,17 @@ async function archiviaPianificati(input: {
         createdBy: input.createdBy,
         vietaRiassegnazione: true,
       });
+      // Byte identici già nel fascicolo (altra mail, upload a mano): il
+      // dominio restituisce il documento esistente senza duplicarlo.
+      const attesoSuffisso = `:${input.comunicazione.id}:${voce.indice}`;
+      if (
+        documento.source !== "comunicazione" ||
+        !String(documento.sourceRef ?? "").endsWith(attesoSuffisso)
+      ) {
+        avvertenze.push(
+          `Allegato «${voce.nome}» già presente nel fascicolo (documento #${documento.id}): non duplicato.`
+        );
+      }
       archiviati.push({ indice: voce.indice, documentoId: documento.id, tipo: documento.tipo });
     } catch (errore) {
       avvertenze.push(
@@ -204,16 +267,25 @@ export async function applicaSmistamento(input: {
   let clienteCollegato: number | null = comunicazione.clienteId ?? null;
   let collegamento: EsitoSmistamento["collegamento"];
   let propostaStato: StatoProposta = "nessuna";
-  if (candidati.certo) {
+  // Verdetto deterministico (codice nel testo, filo già collegato…) oppure
+  // collegamento sicuro dal modello (confidenza alta + candidato senza rivali).
+  const verdetto =
+    candidati.certo ??
+    (commessaCollegata == null
+      ? collegamentoSicuroDalModello(analisi.collegamento, candidati.candidati, id =>
+          deps.leggiCommessa(id, comunicazione.sedeId)
+        )
+      : null);
+  if (verdetto) {
     if (commessaCollegata == null) {
       const fatto = await deps.collegaAutomatico(comunicazione.id, comunicazione.sedeId, {
-        clienteId: candidati.certo.clienteId,
-        commessaId: candidati.certo.commessaId,
-        motivo: `Smistamento Tars: ${candidati.certo.motivo}`,
+        clienteId: verdetto.clienteId,
+        commessaId: verdetto.commessaId,
+        motivo: `Smistamento Tars: ${verdetto.motivo}`,
       });
       if (fatto) {
-        commessaCollegata = candidati.certo.commessaId;
-        clienteCollegato = candidati.certo.clienteId ?? clienteCollegato;
+        commessaCollegata = verdetto.commessaId;
+        clienteCollegato = verdetto.clienteId ?? clienteCollegato;
       } else {
         avvertenze.push("Collegamento certo non applicato: la comunicazione risultava già collegata.");
       }
@@ -223,7 +295,7 @@ export async function applicaSmistamento(input: {
       commessaId: commessaCollegata,
       clienteId: clienteCollegato,
       confidenza: "alta",
-      motivo: candidati.certo.motivo,
+      motivo: verdetto.motivo,
     };
   } else if (analisi.collegamento && commessaCollegata == null) {
     const proposto = analisi.collegamento;

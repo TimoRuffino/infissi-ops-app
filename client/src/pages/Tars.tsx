@@ -1,4 +1,6 @@
 import TarsAvatar, { type StatoTarsAvatar } from "@/components/tars/TarsAvatar";
+import { TarsProposte, useProposteTars } from "@/components/tars/TarsProposte";
+import { TarsRegistro } from "@/components/tars/TarsRegistro";
 import TarsContextPanel, {
   type BriefingOperativoTars,
   type ContestoOperativoTars,
@@ -80,6 +82,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
 
 type ErroreInvio = { chiaveBozza: string; messaggio: string };
 
@@ -335,12 +338,59 @@ function EmptyStateWorkbench({
   );
 }
 
+type SchedaWorkbench = "chat" | "proposte" | "registro";
+
+const SCHEDE_WORKBENCH: Array<{ id: SchedaWorkbench; etichetta: string }> = [
+  { id: "chat", etichetta: "Chat" },
+  { id: "proposte", etichetta: "Proposte" },
+  { id: "registro", etichetta: "Registro" },
+];
+
+// Colonna sinistra della pagina: conversazioni, proposte in attesa di una
+// decisione e registro di ciò che Tars ha fatto (Tars libero, 02/09/2026).
+// La lista conversazioni resta montata quando si cambia scheda per non
+// perdere scroll e ricerca.
 function ListaWorkbench({
   erroreAzione,
   ...props
 }: TarsConversationListProps & { erroreAzione: string | null }) {
+  const [, navigate] = useLocation();
+  const [scheda, setScheda] = useState<SchedaWorkbench>("chat");
+  const proposte = useProposteTars(true);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-card">
+      <div
+        role="tablist"
+        aria-label="Sezioni di Tars"
+        className="flex shrink-0 border-b border-border-soft"
+      >
+        {SCHEDE_WORKBENCH.map(s => {
+          const attiva = scheda === s.id;
+          const conteggio = s.id === "proposte" ? proposte.totale : 0;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={attiva}
+              className={cn(
+                "flex min-h-10 flex-1 items-center justify-center gap-1.5 px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                attiva
+                  ? "border-b-2 border-accent text-text-1"
+                  : "border-b-2 border-transparent text-text-2 hover:text-text-1"
+              )}
+              onClick={() => setScheda(s.id)}
+            >
+              {s.etichetta}
+              {conteggio > 0 && (
+                <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent-foreground">
+                  {conteggio}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
       {erroreAzione && (
         <div
           role="alert"
@@ -349,9 +399,19 @@ function ListaWorkbench({
           {erroreAzione}
         </div>
       )}
-      <div className="min-h-0 flex-1 [&>nav]:h-full">
+      <div className="min-h-0 flex-1 [&>nav]:h-full" hidden={scheda !== "chat"}>
         <TarsConversationList {...props} />
       </div>
+      {scheda === "proposte" && (
+        <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
+          <TarsProposte dati={proposte} onApriLink={navigate} />
+        </div>
+      )}
+      {scheda === "registro" && (
+        <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
+          <TarsRegistro onApriLink={navigate} />
+        </div>
+      )}
     </div>
   );
 }

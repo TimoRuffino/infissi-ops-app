@@ -61,3 +61,20 @@
   chi, con Undo dove c'è).
 - **D. Policy scritta**: CLAUDE.md «Agente AI» riscritto con questo
   mandato; spec, PRD, handoff; eval aggiornati alla nuova policy.
+
+## 4. Stato (sera del 02/09/2026)
+
+- A fatto e in produzione (commit `6a78cce`, deploy 16:48).
+- B fatto: `strumenti/scrittura.ts` + `strumenti/comune.ts`, 13 tool R1,
+  registro 1.10.0 (44 azioni), test `scrittura.test.ts`, matrice
+  aggiornata. Non fatto: «cambia stato» resta `transizione_commessa`
+  (già libero da A); «archivia allegato senza pre-lettura» già coperto
+  dalla rilettura interna di A.
+- C fatto: schede Chat / Proposte / Registro nella colonna sinistra di
+  `/tars`; endpoint `tars.proposte` e `tars.registroAzioni`. Non fatto:
+  conferme pendenti nei turni dentro Proposte; Undo dal Registro.
+- D: CLAUDE.md, handoff §11-vicies novies, matrice; PRD in coda.
+- Aggiunta dello stesso giorno (mandato «anche queste proposte sono
+  inutili» + «non collegare allegati già presenti»): collegamento
+  automatico sicuro dal modello e dedup per checksum nel fascicolo — vedi
+  piano smistamento D7/D8.
