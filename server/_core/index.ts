@@ -232,6 +232,8 @@ async function startServer() {
   // un solo upload grande per processo protegge inoltre la memoria del server.
   const { registerCommessaFileRoutes } = await import("./commessaFileRoutes");
   registerCommessaFileRoutes(app);
+  const { registerAllegatoMailRoutes } = await import("./allegatoMailRoutes");
+  registerAllegatoMailRoutes(app);
 
   // Gli endpoint JSON (tRPC compreso) mantengono il limite storico.
   app.use(express.json({ limit: "50mb" }));

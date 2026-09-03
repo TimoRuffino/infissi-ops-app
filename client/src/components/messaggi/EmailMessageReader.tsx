@@ -30,6 +30,8 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
   Archive,
+  Download,
+  ExternalLink,
   ArrowLeft,
   Bot,
   CheckCheck,
@@ -265,9 +267,21 @@ export default function EmailMessageReader({
 
   return (
     <article className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
+      {/* Un contenitore di scroll solo. Prima intestazione, azioni,
+          collegamento e riquadro Tars erano tutti `shrink-0`: circa
+          cinquecento pixel fissi in cima, e al testo della mail ne restavano
+          centosettanta in fondo, tagliati a metà frase. Ora scorrono via
+          insieme al testo e resta agganciata la sola barra delle azioni, che
+          porta con sé l'oggetto per non perdere il filo. */}
+      {/* Blocco, non flex: i figli di un contenitore flex si restringono per
+          impostazione predefinita, quindi il contenuto collassava all'altezza
+          disponibile invece di traboccare — `scrollHeight` uguale a
+          `clientHeight`, niente scroll, e la barra agganciata che non si
+          agganciava mai. Misurato, non dedotto. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
       {/* Unica area borgogna scura del workspace: identità del messaggio.
           Corpo, allegati e form di collegamento restano su superficie chiara. */}
-      <header className="shrink-0 bg-focal px-4 py-3.5 text-on-focal sm:px-6">
+      <header className="bg-focal px-4 py-3 sm:py-3.5 text-on-focal sm:px-6">
         <div className="flex min-w-0 items-start gap-3">
           {mobile && (
             <Button
@@ -338,7 +352,7 @@ export default function EmailMessageReader({
         </div>
       )}
 
-      <div className="shrink-0 border-b border-border-soft bg-surface-2 px-4 py-3 sm:px-6">
+      <div className="sticky top-0 z-10 border-b border-border-soft bg-surface-2 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button
             variant={gestita ? "outline" : "default"}
@@ -398,9 +412,19 @@ export default function EmailMessageReader({
           >
             <Trash2 className="size-4" />
           </Button>
+          {/* L'oggetto viaggia con la barra: quando l'intestazione è
+              scorsa via serve ancora sapere che mail si sta leggendo. Si
+              vede solo da `sm` in su, dove c'è la riga per contenerlo. */}
+          <p className="hidden min-w-0 flex-1 basis-full truncate text-[13px] font-semibold text-text-2 sm:block sm:basis-auto">
+            {message.oggetto || "(senza oggetto)"}
+          </p>
         </div>
+      </div>
 
-        <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+      {/* Collegamento e analisi: utili, ma non tanto da stare fissi sopra il
+          testo. Scorrono con il resto. */}
+      <div className="border-b border-border-soft bg-surface-2 px-4 pb-3 sm:px-6">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             {message.commessaId != null ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -564,12 +588,12 @@ export default function EmailMessageReader({
           )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="flex min-w-0 flex-col">
         <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7">
           <div className="w-full min-w-0 space-y-5">
-            <div className="max-w-[66ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-base leading-[1.7] text-text-1">
-              {message.testo || "(messaggio vuoto)"}
-            </div>
+            {/* Gli allegati stanno sopra il testo: spesso sono il motivo per
+                cui la mail è arrivata (un preventivo, una fattura), e in
+                fondo a un messaggio lungo non si trovano. */}
             {(message.allegati?.length ?? 0) > 0 && (
               <section aria-label="Allegati" className="space-y-2">
                 <div className="text-xs font-bold uppercase text-text-3">
@@ -588,6 +612,39 @@ export default function EmailMessageReader({
                       <span className="shrink-0 text-[13px] text-text-3">
                         {fileSize(attachment.size)}
                       </span>
+                      {/* Aprire e scaricare: prima l'allegato si vedeva
+                          elencato e basta, e un nome di file non è un
+                          allegato. La rotta controlla sessione e sede. */}
+                      <Button
+                        asChild
+                        size="icon"
+                        variant="ghost"
+                        className="size-11 shrink-0"
+                        title="Apri in una scheda nuova"
+                      >
+                        <a
+                          href={`/api/comunicazioni/${message.id}/allegati/${index}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Apri ${attachment.nome}`}
+                        >
+                          <ExternalLink className="size-4" />
+                        </a>
+                      </Button>
+                      <Button
+                        asChild
+                        size="icon"
+                        variant="ghost"
+                        className="size-11 shrink-0"
+                        title="Scarica"
+                      >
+                        <a
+                          href={`/api/comunicazioni/${message.id}/allegati/${index}?download=1`}
+                          aria-label={`Scarica ${attachment.nome}`}
+                        >
+                          <Download className="size-4" />
+                        </a>
+                      </Button>
                       {message.commessaId != null && (
                         <Button
                           size="icon"
@@ -618,6 +675,9 @@ export default function EmailMessageReader({
                 </div>
               </section>
             )}
+            <div className="max-w-[66ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-base leading-[1.7] text-text-1">
+              {message.testo || "(messaggio vuoto)"}
+            </div>
           </div>
         </div>
       </div>
@@ -677,6 +737,7 @@ export default function EmailMessageReader({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </article>
   );
 }
