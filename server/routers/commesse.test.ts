@@ -32,6 +32,7 @@ import { appRouter } from "../routers";
 import {
   STATI_COMMESSA,
   applicaPattuitoDaFic,
+  dipendenzeTransizioniCommesse,
   getCommessaById,
 } from "./commesse";
 import { getClienteById } from "./clienti";
@@ -238,6 +239,27 @@ describe("doc gate", () => {
         stato: "aggiornamento_contratto",
       })
     ).rejects.toThrow(/DOC_GATE_BLOCKED/);
+  });
+});
+
+describe("gate computo limiti", () => {
+  it("la dipendenza reale segue il flag: spenta non chiede nulla, accesa senza contratto non lascia passare", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Computo" });
+    const computoValido = dipendenzeTransizioniCommesse().computoValido!;
+    const flagPrima = process.env.FLAG_LIMITI;
+    try {
+      process.env.FLAG_LIMITI = "off";
+      await expect(computoValido(commessa.id)).resolves.toBe(true);
+      // Acceso: senza contratto strutturato non esiste alcun computo valido.
+      process.env.FLAG_LIMITI = "on";
+      await expect(computoValido(commessa.id)).resolves.toBe(false);
+      // Una commessa inesistente non è mai «valida» per il gate.
+      await expect(computoValido(commessa.id + 900_000)).resolves.toBe(false);
+    } finally {
+      if (flagPrima === undefined) delete process.env.FLAG_LIMITI;
+      else process.env.FLAG_LIMITI = flagPrima;
+    }
   });
 });
 

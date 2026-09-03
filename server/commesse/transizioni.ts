@@ -208,6 +208,20 @@ function indice(stato: StatoCommessa): number {
   return STATI_COMMESSA.indexOf(stato);
 }
 
+/**
+ * Il gate computo governa un solo passo della sequenza: l'ingresso in
+ * «Fatture pagamento» dall'aggiornamento del contratto. Predicato puro,
+ * condiviso da verifica ed esecuzione perché non possano divergere.
+ */
+export function richiedeComputo(
+  stato: string,
+  nuovoStato: StatoCommessa | null | undefined
+): boolean {
+  return (
+    stato === "aggiornamento_contratto" && nuovoStato === "fatture_pagamento"
+  );
+}
+
 export function verificaTransizioneCommessa(input: {
   commessa: CommessaTransizionabile;
   nuovoStato?: StatoCommessa | null;
@@ -230,9 +244,7 @@ export function verificaTransizioneCommessa(input: {
   // Gate computo: vale SOLO per il passo in avanti da «Aggiornamento
   // contratto» a «Fatture pagamento». null = non verificato (flag spento,
   // lettura senza dipendenza): non blocca, ma la UI lo mostra come ignoto.
-  const computoRichiesto =
-    commessa.stato === "aggiornamento_contratto" &&
-    input.nuovoStato === "fatture_pagamento";
+  const computoRichiesto = richiedeComputo(commessa.stato, nuovoStato);
   const computoValido = computoRichiesto ? (input.computoValido ?? null) : null;
   const computoBloccante = computoRichiesto && computoValido === false;
   const gateComputo = { richiesto: computoRichiesto, valido: computoValido };
@@ -323,7 +335,7 @@ export function verificaTransizioneCommessa(input: {
       ? [
           gateDocumentaleBloccante ? `Manca ${richiesti.join(" o ")}.` : null,
           computoBloccante
-            ? "Il computo dei limiti non è aggiornato: ricalcolalo dalla tab Limiti."
+            ? "Il computo dei limiti manca o non è aggiornato: compila il contratto e calcola i limiti dalla tab Limiti."
             : null,
         ]
           .filter(Boolean)
@@ -479,9 +491,7 @@ async function applicaTransizioneCommessa(
   // La domanda al servizio computo costa una lettura: la si fa solo sul
   // passo che il gate governa. Dipendenza assente = gate non valutato.
   const computoOk =
-    dipendenze.computoValido &&
-    commessa.stato === "aggiornamento_contratto" &&
-    input.nuovoStato === "fatture_pagamento"
+    dipendenze.computoValido && richiedeComputo(commessa.stato, input.nuovoStato)
       ? await dipendenze.computoValido(commessa.id)
       : null;
   const verifica = verificaTransizioneCommessa({
@@ -491,6 +501,11 @@ async function applicaTransizioneCommessa(
     documentiRichiesti: dipendenze.documentiRichiesti,
     computoValido: computoOk,
   });
+  // Precedenza unica per messaggio e registro (R24): se manca anche il
+  // documento comanda il gate documentale; il computo si dichiara solo
+  // quando è l'unico a fermare il passaggio.
+  const soloComputoBlocca =
+    verifica.gate.computo.valido === false && verifica.gate.soddisfatto;
   if (!verifica.consentita) {
     if (verifica.gate.bloccante && input.bypassGateDocumentale) {
       // «Procedi comunque»: dal board (router) o da Tars su richiesta
@@ -498,14 +513,12 @@ async function applicaTransizioneCommessa(
     } else if (verifica.gate.bloccante) {
       // Il prefisso resta `DOC_GATE_BLOCKED:` anche per il computo: board e
       // timeline riusano lo stesso dialog «Procedi comunque».
-      const soloComputo =
-        verifica.gate.computo.valido === false && verifica.gate.soddisfatto;
       const labels = verifica.gate.richiesti
         .map(tipo => dipendenze.etichettaDocumento(tipo))
         .join(" o ");
       throw new Error(
-        soloComputo
-          ? `DOC_GATE_BLOCKED: Il computo dei limiti non è aggiornato per lo stato "${commessa.stato.replace(/_/g, " ")}". Procedere comunque?`
+        soloComputoBlocca
+          ? `DOC_GATE_BLOCKED: Il computo dei limiti manca o non è aggiornato per lo stato "${commessa.stato.replace(/_/g, " ")}": compila il contratto e calcola i limiti dalla tab Limiti. Procedere comunque?`
           : `DOC_GATE_BLOCKED: Non è stato caricato il file "${labels}" per lo stato "${commessa.stato.replace(/_/g, " ")}". Procedere comunque?`
       );
     } else {
@@ -548,7 +561,7 @@ async function applicaTransizioneCommessa(
     bypassGateDocumentale: Boolean(input.bypassGateDocumentale),
     gateScavalcato:
       verifica.gate.bloccante && input.bypassGateDocumentale
-        ? verifica.gate.computo.valido === false
+        ? soloComputoBlocca
           ? "computo"
           : "documentale"
         : null,

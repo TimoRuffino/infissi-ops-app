@@ -32,6 +32,15 @@ function dipendenze(c: any, computoValido: boolean) {
   };
 }
 
+/** Gate documentale chiuso E computo non valido: serve a fissare la precedenza. */
+function dipendenzeGateDoppio(c: any) {
+  return {
+    ...dipendenze(c, false),
+    haDocumentoRichiesto: () => false,
+    documentiRichiesti: () => ["contratto"],
+  };
+}
+
 describe("gate computo sulla transizione aggiornamento_contratto → fatture_pagamento", () => {
   it("la verifica blocca solo quel passaggio in avanti e solo con computo non valido", () => {
     const base = { commessa: commessa(), haDocumentoRichiesto: () => true, documentiRichiesti: () => [] as string[] };
@@ -40,6 +49,10 @@ describe("gate computo sulla transizione aggiornamento_contratto → fatture_pag
     expect(bloccata.gate.bloccante).toBe(true);
     expect(bloccata.gate.computo).toEqual({ richiesto: true, valido: false });
     expect(bloccata.motivo).toMatch(/computo/i);
+    // R23: chi non ha ancora un contratto non può «ricalcolare» niente.
+    expect(bloccata.motivo).toBe(
+      "Il computo dei limiti manca o non è aggiornato: compila il contratto e calcola i limiti dalla tab Limiti."
+    );
     const ok = verificaTransizioneCommessa({ ...base, nuovoStato: "fatture_pagamento", computoValido: true });
     expect(ok.consentita).toBe(true);
     const indietro = verificaTransizioneCommessa({ ...base, nuovoStato: "misure_esecutive", computoValido: false });
@@ -64,6 +77,33 @@ describe("gate computo sulla transizione aggiornamento_contratto → fatture_pag
     const registro = storeTransizioniCommessa.items.find(r => r.id === esito.transizioneId);
     expect(registro?.bypassGateDocumentale).toBe(true);
     expect((registro as any)?.gateScavalcato).toBe("computo");
+  });
+
+  it("con entrambi i gate chiusi comanda quello documentale, nel motivo, nel messaggio e nel registro (R24)", async () => {
+    const doppio = verificaTransizioneCommessa({
+      commessa: commessa(),
+      haDocumentoRichiesto: () => false,
+      documentiRichiesti: () => ["contratto"],
+      nuovoStato: "fatture_pagamento",
+      computoValido: false,
+    });
+    expect(doppio.motivo).toBe(
+      "Manca contratto. Il computo dei limiti manca o non è aggiornato: compila il contratto e calcola i limiti dalla tab Limiti."
+    );
+
+    const c = commessa();
+    await expect(
+      eseguiTransizioneCommessa(
+        { ctx: ctx(), commessaId: c.id, nuovoStato: "fatture_pagamento", origine: "router" },
+        dipendenzeGateDoppio(c)
+      )
+    ).rejects.toThrow(/^DOC_GATE_BLOCKED: Non è stato caricato il file "contratto"/);
+    const esito = await eseguiTransizioneCommessa(
+      { ctx: ctx(), commessaId: c.id, nuovoStato: "fatture_pagamento", origine: "router", bypassGateDocumentale: true },
+      dipendenzeGateDoppio(c)
+    );
+    const registro = storeTransizioniCommessa.items.find(r => r.id === esito.transizioneId);
+    expect((registro as any)?.gateScavalcato).toBe("documentale");
   });
 
   it("con computo valido passa senza scavalco", async () => {

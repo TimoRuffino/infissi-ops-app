@@ -451,7 +451,11 @@ function motivoSicuro(errore: unknown): string {
     return "La commessa è cambiata durante il passaggio: fermato qui. Rileggila e riprova.";
   }
   if (testo.includes("DOC_GATE_BLOCKED")) {
-    return "Il gate documentale ha bloccato il passaggio: fermato qui.";
+    // Lo stesso prefisso copre due gate diversi: dire «documentale» quando a
+    // mancare è il computo manderebbe l'utente a cercare un file inesistente.
+    return testo.includes("computo dei limiti")
+      ? "Il computo dei limiti manca o non è aggiornato: fermato qui."
+      : "Il gate documentale ha bloccato il passaggio: fermato qui.";
   }
   if (testo.includes("Transizione non consentita")) {
     return "Lo stato è cambiato e il passaggio richiesto non è più valido: fermato qui.";
