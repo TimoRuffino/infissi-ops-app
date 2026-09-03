@@ -284,12 +284,17 @@ export default function Planning() {
             ? `${j.indirizzo}, ${j.citta}`
             : j.indirizzo
           : null;
+        // Senza cliente collegato il titolo cadeva sul tipo, e il blocco
+        // diceva «ALTRO Altro»: il tipo due volte e il contenuto mai. Nei
+        // dati veri metà appuntamenti sono così — inseriti al volo con la
+        // sola nota — quindi la nota È il titolo, quando c'è.
+        const nota = String(i.note ?? "").trim().split("\n")[0];
         (mappa[data] ||= []).push({
           id: i.id,
           fonte: "crm",
           tipo: i.tipo,
           tipoLabel: tipoLabels[i.tipo] ?? i.tipo,
-          titolo: j.nomeCognome || tipoLabels[i.tipo] || i.tipo,
+          titolo: j.nomeCognome || nota || tipoLabels[i.tipo] || i.tipo,
           oraInizio: i.oraInizio ?? null,
           oraFine: i.oraFine ?? null,
           indirizzo,
@@ -375,7 +380,11 @@ export default function Planning() {
             data,
             tipo: i.tipo,
             tipoLabel: tipoLabels[i.tipo] ?? i.tipo,
-            titolo: joined.nomeCognome || tipoLabels[i.tipo] || i.tipo,
+            titolo:
+              joined.nomeCognome ||
+              String(i.note ?? "").trim().split("\n")[0] ||
+              tipoLabels[i.tipo] ||
+              i.tipo,
             orario: i.oraInizio
               ? i.oraFine
                 ? `${i.oraInizio} – ${i.oraFine}`

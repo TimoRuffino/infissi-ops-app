@@ -202,16 +202,25 @@ export function posizioneBlocco<T>(
   const topPct = ((inizio - finestra.daMin) / totale) * 100;
   // Un blocco non deve sporgere sotto la griglia per colpa del minimo visivo.
   const altezzaPct = Math.min((durataVisiva / totale) * 100, 100 - topPct);
-  // Le colonne si sovrappongono di poco: il blocco dietro resta intuibile
-  // sotto quello davanti, come su un calendario di carta.
-  const larghezzaPct = (1 / blocco.colonne) * 100;
+  // Dividere in parti uguali funziona fino a due colonne. Da tre in su, in
+  // una colonna della settimana da ~160px, un terzo sono 53px: il blocco
+  // esiste ma non dice più niente — un righello colorato muto. Sotto il
+  // mezzo, i blocchi si accavallano a cascata come su un calendario di
+  // carta: ognuno resta largo abbastanza da leggersi, quello dopo copre in
+  // parte quello prima, e chi sta sotto si riconosce comunque dal bordo.
+  const larghezzaPct = Math.max((1 / blocco.colonne) * 100, LARGHEZZA_MINIMA_PCT);
+  const passoPct =
+    blocco.colonne > 1 ? (100 - larghezzaPct) / (blocco.colonne - 1) : 0;
   return {
     topPct,
     altezzaPct,
-    sinistraPct: blocco.colonna * larghezzaPct,
+    sinistraPct: blocco.colonna * passoPct,
     larghezzaPct,
   };
 }
+
+/** Sotto questa larghezza un blocco è un righello muto: meglio accavallare. */
+export const LARGHEZZA_MINIMA_PCT = 55;
 
 /**
  * Quanto è carica una giornata, da 0 a 1, sulle ore lavorative.

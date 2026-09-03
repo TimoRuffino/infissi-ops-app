@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DURATA_MINIMA_VISIVA_MIN,
+  LARGHEZZA_MINIMA_PCT,
   DURATA_PREDEFINITA_MIN,
   ORA_APERTURA_MIN,
   ORA_CHIUSURA_MIN,
@@ -256,14 +257,33 @@ describe("posizioneBlocco", () => {
     expect(p.altezzaPct).toBeCloseTo((60 / 720) * 100, 5);
   });
 
-  it("le colonne si dividono la larghezza in parti uguali", () => {
+  it("due sovrapposti si accavallano a cascata, larghi almeno il minimo", () => {
     const d = disponiSovrapposti([
       ev(1, "09:00", "11:00"),
       ev(2, "09:30", "11:30"),
     ]);
     const p = d.map(b => posizioneBlocco(b, finestra));
-    expect(p[0]).toMatchObject({ sinistraPct: 0, larghezzaPct: 50 });
-    expect(p[1]).toMatchObject({ sinistraPct: 50, larghezzaPct: 50 });
+    expect(p[0]).toMatchObject({ sinistraPct: 0, larghezzaPct: LARGHEZZA_MINIMA_PCT });
+    expect(p[1]).toMatchObject({
+      sinistraPct: 100 - LARGHEZZA_MINIMA_PCT,
+      larghezzaPct: LARGHEZZA_MINIMA_PCT,
+    });
+  });
+
+  it("con quattro in parallelo nessuno scende sotto la larghezza minima", () => {
+    // A parti uguali sarebbero il 25% l'uno: righelli muti. La cascata li
+    // tiene leggibili e distribuisce gli inizi lungo la colonna.
+    const d = disponiSovrapposti([
+      ev(1, "09:00", "12:00"),
+      ev(2, "09:00", "12:00"),
+      ev(3, "09:00", "12:00"),
+      ev(4, "09:00", "12:00"),
+    ]);
+    const p = d.map(b => posizioneBlocco(b, finestra));
+    for (const x of p) expect(x.larghezzaPct).toBe(LARGHEZZA_MINIMA_PCT);
+    const inizi = p.map(x => Math.round(x.sinistraPct));
+    expect(new Set(inizi).size).toBe(4);
+    expect(Math.max(...inizi)).toBe(100 - LARGHEZZA_MINIMA_PCT);
   });
 
   it("nessun blocco esce dai bordi orizzontali", () => {

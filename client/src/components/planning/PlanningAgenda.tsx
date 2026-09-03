@@ -157,9 +157,13 @@ export default function PlanningAgenda({
                     ) : null}
                   </span>
 
-                  <span className="min-w-0 truncate text-sm font-semibold text-text-1">
-                    {item.titolo}
-                  </span>
+                  {/* Il chip dice già il tipo: se il titolo è solo il tipo
+                      ripetuto (evento senza cliente né nota), tacerlo. */}
+                  {item.titolo !== item.tipoLabel && (
+                    <span className="min-w-0 truncate text-sm font-semibold text-text-1">
+                      {item.titolo}
+                    </span>
+                  )}
 
                   {/* Squadra e indirizzo su una riga: sono due dettagli brevi
                       e su uno schermo stretto due righe da venti caratteri

@@ -285,6 +285,9 @@ export default function PlanningGrigliaOraria({
                         height: `${pos.altezzaPct}%`,
                         left: `${pos.sinistraPct}%`,
                         width: `${pos.larghezzaPct}%`,
+                        // Nella cascata l'ultimo arrivato sta davanti: è il
+                        // più corto, e quello dietro resta riconoscibile.
+                        zIndex: blocco.colonna + 1,
                       }}
                     >
                       <BloccoVoce
@@ -364,6 +367,15 @@ function BloccoVoce(props: {
       ? `${voce.oraInizio}–${voce.oraFine}`
       : voce.oraInizio
     : null;
+  // «Interventi/Regolazioni» come chip mangia mezza colonna: nel chip basta
+  // la prima parola, l'etichetta intera resta nel tooltip e nell'aria-label.
+  const chipTesto = voce.tipoLabel.split("/")[0];
+  // Un evento senza cliente né nota ha per titolo il tipo stesso: scriverlo
+  // due volte — chip ALTRO e titolo «Altro» — è il modo più veloce per non
+  // dire niente. Quando il chip c'è, il doppione sparisce.
+  const duplicato = voce.titolo === voce.tipoLabel;
+  const chipVisibile = !esterno && (orizzontale || (righe >= 2 && !stretto));
+  const titoloVisibile = !duplicato || !chipVisibile;
   const descrizione = [
     voce.tipoLabel,
     voce.titolo,
@@ -405,9 +417,13 @@ function BloccoVoce(props: {
       // Un blocco alto una riga (mezz'ora) impilato mostra l'ora e taglia il
       // nome: si vede che c'è qualcosa e non chi. Su una riga sola ci stanno
       // tutti e due, ed è l'unica cosa che serve sapere a colpo d'occhio.
+      // `items-start`, non center: in un blocco alto sette ore il testo
+      // centrato fluttua a metà pomeriggio e la mattina resta un colore
+      // muto. L'etichetta sta dove il lavoro comincia. Solo il blocco basso
+      // da una riga centra, perché lì non c'è nessun «sopra».
       className={`flex h-full w-full min-w-0 overflow-hidden rounded-[6px] border border-black/[0.04] pl-2 pr-1.5 py-1 text-left outline-none transition hover:brightness-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/55 ${
         orizzontale || righe === 1
-          ? "flex-row items-center gap-1.5"
+          ? `flex-row gap-1.5 ${righe === 1 && !orizzontale ? "items-center" : "items-start"}`
           : "flex-col gap-0.5"
       } ${props.draggingId === voce.id ? "opacity-40" : ""} ${
         esterno ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
@@ -432,22 +448,24 @@ function BloccoVoce(props: {
             {righe === 1 && !orizzontale ? (voce.oraInizio ?? "") : orario}
           </span>
         )}
-        {!esterno && (orizzontale || (righe >= 2 && !stretto)) && (
+        {chipVisibile && (
           <span
             className="shrink-0 rounded-[3px] px-1 py-px text-[9px] font-semibold uppercase tracking-wide leading-none text-white"
             style={{ backgroundColor: colore }}
           >
-            {voce.tipoLabel}
+            {chipTesto}
           </span>
         )}
       </span>
-      <span
-        className={`min-w-0 truncate text-[12px] font-semibold leading-tight text-text-1 ${
-          orizzontale ? "shrink-0" : ""
-        }`}
-      >
-        {voce.titolo}
-      </span>
+      {titoloVisibile && (
+        <span
+          className={`min-w-0 truncate text-[12px] font-semibold leading-tight text-text-1 ${
+            orizzontale ? "shrink-0" : ""
+          }`}
+        >
+          {voce.titolo}
+        </span>
+      )}
       {orizzontale ? (
         <span className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           {dettagli}
