@@ -320,6 +320,10 @@ describe("configurazione parziale", () => {
     configWhatsApp.length = 0;
   });
 
+  // 20 s invece dei 5 di default: qui la PRIMA riga importa a freddo tutto
+  // l'albero dei router, e a suite piena quel caricamento da solo può
+  // sfiorare i cinque secondi (03/09/2026: falliva per timeout, mai per
+  // un'asserzione).
   it("si crea col solo verify token e non è accendibile finché è incompleta", async () => {
     const { appRouter } = await import("../routers");
     const caller = appRouter.createCaller(makeCtx());
@@ -358,7 +362,7 @@ describe("configurazione parziale", () => {
     // I segreti non escono mai dal server.
     expect(JSON.stringify(accesa)).not.toContain("app-secret-lungo");
     expect(JSON.stringify(accesa)).not.toContain("token-lungo-abbastanza");
-  });
+  }, 20_000);
 });
 
 describe("diagnostica coexistence", () => {
