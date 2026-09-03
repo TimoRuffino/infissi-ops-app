@@ -101,12 +101,20 @@ export default function PlanningToolbar({
               variant={attiva ? "default" : "ghost"}
               size="sm"
               aria-pressed={attiva}
+              aria-label={vista.label}
               className="min-h-11 min-w-0 flex-1 px-3 lg:flex-none"
               onClick={() => onChangeView(vista.id)}
             >
               <Icona className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{vista.label}</span>
-              <span className="sm:hidden">{vista.short}</span>
+              {/* Le due etichette esistono entrambe nel DOM e una sola è
+                  visibile: senza aria-hidden uno screen reader legge
+                  «Settimana Sett.». Il nome accessibile lo dà aria-label. */}
+              <span aria-hidden className="hidden sm:inline">
+                {vista.label}
+              </span>
+              <span aria-hidden className="sm:hidden">
+                {vista.short}
+              </span>
             </Button>
           );
         })}

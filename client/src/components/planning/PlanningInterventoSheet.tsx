@@ -44,6 +44,8 @@ export type PlanningInterventoDraft = {
   linkKind: PlanningLinkKind;
   linkId: string;
   squadraId: string;
+  /** Chi fa il rilievo. Vale solo per `tipo === "rilievo"`. */
+  tecnicoId: string;
   tipo: import("@/lib/calendario").TipoCalendario;
   dataPianificata: string;
   oraInizio: string;
@@ -56,6 +58,13 @@ export type PlanningSquadraOption = {
   id: number;
   nome: string;
   caposquadra?: string | null;
+};
+
+/** Un tecnico dei rilievi: una persona, non una squadra. */
+export type PlanningTecnicoOption = {
+  id: number;
+  nome: string;
+  cognome: string;
 };
 
 /** Evento Google normalizzato dal contenitore. */
@@ -91,6 +100,7 @@ export type PlanningInterventoSheetProps = SheetBase &
         onLinkIdChange: (linkId: string) => void;
         linkOptions: SearchSelectOption[];
         squadre: ReadonlyArray<PlanningSquadraOption>;
+        tecnici: ReadonlyArray<PlanningTecnicoOption>;
         /** Riepilogo commessa/cliente già composto dal contenitore. */
         contesto?: ReactNode;
         canPlan: boolean;
@@ -199,6 +209,7 @@ export default function PlanningInterventoSheet(
     onLinkIdChange,
     linkOptions,
     squadre,
+    tecnici,
     contesto,
     canPlan,
     canAssign,
@@ -358,42 +369,91 @@ export default function PlanningInterventoSheet(
             </div>
           </fieldset>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="planning-squadra">Squadra</Label>
-            <Select
-              value={draft.squadraId || "nessuna"}
-              onValueChange={squadraId =>
-                onDraftChange({
-                  ...draft,
-                  squadraId: squadraId === "nessuna" ? "" : squadraId,
-                })
-              }
-              disabled={squadraReadOnly || campiBloccati}
-            >
-              <SelectTrigger
-                id="planning-squadra"
-                aria-label="Squadra assegnata"
-                className="min-h-11"
+          {/* Un rilievo non lo fa una squadra di posa: lo fa un tecnico dei
+              rilievi. Sono due elenchi di persone diversi, quindi il campo
+              cambia con il tipo invece di chiedere sempre la squadra. La
+              regola vera è nel dominio (esecutorePerTipo); qui si evita solo
+              di far scegliere una cosa che verrebbe scartata. */}
+          {draft.tipo === "rilievo" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="planning-tecnico">Tecnico rilievi</Label>
+              <Select
+                value={draft.tecnicoId || "nessuno"}
+                onValueChange={tecnicoId =>
+                  onDraftChange({
+                    ...draft,
+                    tecnicoId: tecnicoId === "nessuno" ? "" : tecnicoId,
+                  })
+                }
+                disabled={squadraReadOnly || campiBloccati}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="nessuna">Nessuna squadra</SelectItem>
-                {squadre.map(squadra => (
-                  <SelectItem key={squadra.id} value={String(squadra.id)}>
-                    {squadra.nome}
-                    {squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {squadraReadOnly ? (
-              <p className="text-xs text-text-3">
-                {draft.squadraId ? "Non puoi cambiare squadra. " : ""}
-                L'assegnazione squadra richiede il permesso di assegnazione.
-              </p>
-            ) : null}
-          </div>
+                <SelectTrigger
+                  id="planning-tecnico"
+                  aria-label="Tecnico assegnato al rilievo"
+                  className="min-h-11"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nessuno">Nessun tecnico</SelectItem>
+                  {tecnici.map(tecnico => (
+                    <SelectItem key={tecnico.id} value={String(tecnico.id)}>
+                      {tecnico.cognome} {tecnico.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {tecnici.length === 0 ? (
+                <p className="text-xs text-text-3">
+                  Nessun utente ha il ruolo «tecnico rilievi»: si assegna dalla
+                  scheda utente.
+                </p>
+              ) : null}
+              {squadraReadOnly ? (
+                <p className="text-xs text-text-3">
+                  {draft.tecnicoId ? "Non puoi cambiare tecnico. " : ""}
+                  L'assegnazione richiede il permesso di assegnazione.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="planning-squadra">Squadra</Label>
+              <Select
+                value={draft.squadraId || "nessuna"}
+                onValueChange={squadraId =>
+                  onDraftChange({
+                    ...draft,
+                    squadraId: squadraId === "nessuna" ? "" : squadraId,
+                  })
+                }
+                disabled={squadraReadOnly || campiBloccati}
+              >
+                <SelectTrigger
+                  id="planning-squadra"
+                  aria-label="Squadra assegnata"
+                  className="min-h-11"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nessuna">Nessuna squadra</SelectItem>
+                  {squadre.map(squadra => (
+                    <SelectItem key={squadra.id} value={String(squadra.id)}>
+                      {squadra.nome}
+                      {squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {squadraReadOnly ? (
+                <p className="text-xs text-text-3">
+                  {draft.squadraId ? "Non puoi cambiare squadra. " : ""}
+                  L'assegnazione squadra richiede il permesso di assegnazione.
+                </p>
+              ) : null}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="planning-indirizzo">Indirizzo</Label>

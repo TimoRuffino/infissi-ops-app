@@ -24,6 +24,11 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
   // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
   for (const i of loaded) {
     if ((i as any).sedeId === undefined) (i as any).sedeId = 1;
+    // Chi esegue un rilievo è una persona, non una squadra di posa: il campo
+    // nasce vuoto sui record già esistenti e si riempie quando qualcuno li
+    // riapre. Nessuna riscrittura all'avvio: un rilievo storico senza tecnico
+    // resta senza tecnico, che è la verità.
+    if ((i as any).tecnicoId === undefined) (i as any).tecnicoId = null;
   }
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
@@ -48,6 +53,28 @@ export const TIPI_INTERVENTO = [
   "altro",
 ] as const;
 export type TipoIntervento = (typeof TIPI_INTERVENTO)[number];
+
+/**
+ * Chi esegue l'intervento, secondo il tipo.
+ *
+ * Un rilievo lo fa un tecnico dei rilievi; una posa, un'assistenza o altro li
+ * fa una squadra di posa. Sono due insiemi di persone diversi, quindi due
+ * campi diversi: tenerli entrambi pieni vorrebbe dire che un rilievo è
+ * assegnato a una squadra che non lo farà mai, e prima o poi qualcuno ci va.
+ *
+ * La regola sta qui e non solo nel form: il form è un aiuto, il dominio è la
+ * verità, e questo endpoint lo chiamano anche Tars e la sincronizzazione.
+ */
+export function esecutorePerTipo(input: {
+  tipo?: string;
+  squadraId?: number | null;
+  tecnicoId?: number | null;
+}): { squadraId: number | null; tecnicoId: number | null } {
+  if (input.tipo === "rilievo") {
+    return { squadraId: null, tecnicoId: input.tecnicoId ?? null };
+  }
+  return { squadraId: input.squadraId ?? null, tecnicoId: null };
+}
 
 export const interventiRouter = router({
   list: protectedProcedure
@@ -82,6 +109,8 @@ export const interventiRouter = router({
       // l'evento è libero (ferie, riunioni).
       clienteId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
+      /** Chi fa il rilievo: un utente con ruolo `tecnico_rilievi`. */
+      tecnicoId: z.number().nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(), // "HH:MM"
@@ -103,7 +132,7 @@ export const interventiRouter = router({
         capability: "intervento.plan",
         resourceType: "intervento",
       });
-      if (input.squadraId !== undefined) {
+      if (input.squadraId !== undefined || input.tecnicoId !== undefined) {
         await authorizeCoreOperation({
           ctx,
           endpoint: "interventi.assign",
@@ -118,13 +147,15 @@ export const interventiRouter = router({
         assertSedeScope(getClienteById(input.clienteId) as any, ctx.sedeId);
       }
       const now = new Date();
+      const esecutore = esecutorePerTipo(input);
       const intervento = {
         id: nextId++,
         ...input,
         sedeId: ctx.sedeId ?? 1,
         commessaId: input.commessaId ?? null,
         clienteId: input.clienteId ?? null,
-        squadraId: input.squadraId ?? null,
+        squadraId: esecutore.squadraId,
+        tecnicoId: esecutore.tecnicoId,
         ticketId: input.ticketId ?? null,
         reclamoId: input.reclamoId ?? null,
         rifacimentoId: input.rifacimentoId ?? null,
@@ -149,6 +180,8 @@ export const interventiRouter = router({
       commessaId: z.number().nullable().optional(),
       clienteId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
+      /** Chi fa il rilievo: un utente con ruolo `tecnico_rilievi`. */
+      tecnicoId: z.number().nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO).optional(),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(),
@@ -178,7 +211,7 @@ export const interventiRouter = router({
         resourceType: "intervento",
         resource: policyResource,
       });
-      if (input.squadraId !== undefined) {
+      if (input.squadraId !== undefined || input.tecnicoId !== undefined) {
         await authorizeCoreOperation({
           ctx,
           endpoint: "interventi.assign",
@@ -194,7 +227,15 @@ export const interventiRouter = router({
         assertSedeScope(getClienteById(input.clienteId) as any, ctx.sedeId);
       }
       const { id, ...updates } = input;
-      interventi[idx] = { ...interventi[idx], ...updates, updatedAt: new Date() };
+      const unito = { ...interventi[idx], ...updates };
+      // Il tipo può cambiare in questa stessa chiamata: l'esecutore si decide
+      // sul tipo risultante, non su quello di prima. Una posa che diventa
+      // rilievo lascia andare la squadra, che quel lavoro non lo farà.
+      interventi[idx] = {
+        ...unito,
+        ...esecutorePerTipo(unito),
+        updatedAt: new Date(),
+      };
       _interventiStore.save();
       return interventi[idx];
     }),

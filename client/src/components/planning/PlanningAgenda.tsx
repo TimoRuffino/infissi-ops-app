@@ -18,7 +18,8 @@ export type PlanningAgendaItem = {
   orario: string | null;
   squadra: string | null;
   indirizzo: string | null;
-  stato: string;
+  /** Solo se diverso da `pianificato`: altrimenti è rumore su ogni riga. */
+  stato: string | null;
 };
 
 /** Evento Google in sola lettura: nessuna azione di scrittura. */
@@ -87,6 +88,12 @@ export default function PlanningAgenda({
 }: PlanningAgendaProps) {
   const giorni = raggruppaPerGiorno(items, externalItems);
   const oggi = toDateStr(new Date());
+  // Su 375px «Squadra A — Rossi Franco» e «Via Garibaldi 14, La Spezia» sulla
+  // stessa riga si tagliano tutt'e due a metà. Si tolgono le parti che si
+  // ripetono su ogni appuntamento — il caposquadra e la città della sede — e
+  // resta quella che distingue un lavoro dall'altro.
+  const soloNome = (s: string | null) => (s ? s.split(" — ")[0] : s);
+  const soloVia = (s: string | null) => (s ? s.split(", ")[0] : s);
 
   return (
     <ol className="min-w-0 space-y-4">
@@ -109,7 +116,14 @@ export default function PlanningAgenda({
                 <button
                   type="button"
                   onClick={() => onOpenIntervento(item.id)}
-                  className="flex min-h-12 w-full min-w-0 flex-col gap-1 rounded-[var(--radius-control)] border border-border-soft bg-surface p-3 text-left shadow-[var(--shadow-raised)] outline-none transition-colors hover:bg-surface-2 focus-visible:ring-[3px] focus-visible:ring-ring/55"
+                  className="flex min-h-12 w-full min-w-0 flex-col gap-0.5 rounded-[var(--radius-control)] border border-border-soft bg-surface py-2 pl-3 pr-2.5 text-left shadow-[var(--shadow-raised)] outline-none transition-colors hover:bg-surface-2 focus-visible:ring-[3px] focus-visible:ring-ring/55"
+                  style={{
+                    // La stessa barra del calendario desktop: il tipo si
+                    // riconosce di sfuggita, uguale su tutte le viste.
+                    boxShadow: `inset 3px 0 0 0 ${
+                      CALENDAR_COLOR_MAP[item.tipo] ?? "var(--color-cal-altro)"
+                    }`,
+                  }}
                 >
                   <span className="flex min-w-0 flex-wrap items-center gap-2">
                     <span
@@ -131,33 +145,43 @@ export default function PlanningAgenda({
                         {item.orario}
                       </span>
                     ) : null}
-                    <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-text-3">
-                      {item.stato}
-                    </span>
+                    {item.stato ? (
+                      <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-text-3">
+                        {item.stato}
+                      </span>
+                    ) : canReschedule ? (
+                      <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-accent-text">
+                        <CalendarClock className="h-3 w-3 shrink-0" />
+                        Data e ora
+                      </span>
+                    ) : null}
                   </span>
 
                   <span className="min-w-0 truncate text-sm font-semibold text-text-1">
                     {item.titolo}
                   </span>
 
-                  {item.squadra ? (
-                    <span className="flex min-w-0 items-center gap-1 text-xs text-text-2">
-                      <UsersIcon className="h-3 w-3 shrink-0" />
-                      <span className="min-w-0 truncate">{item.squadra}</span>
-                    </span>
-                  ) : null}
-
-                  {item.indirizzo ? (
-                    <span className="flex min-w-0 items-center gap-1 text-xs text-text-2">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="min-w-0 truncate">{item.indirizzo}</span>
-                    </span>
-                  ) : null}
-
-                  {canReschedule ? (
-                    <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-accent-text">
-                      <CalendarClock className="h-3 w-3 shrink-0" />
-                      Modifica data e ora
+                  {/* Squadra e indirizzo su una riga: sono due dettagli brevi
+                      e su uno schermo stretto due righe da venti caratteri
+                      costano quanto un secondo appuntamento visibile. */}
+                  {item.squadra || item.indirizzo ? (
+                    <span className="flex min-w-0 items-center gap-2 text-xs text-text-2">
+                      {item.squadra ? (
+                        <span className="flex min-w-0 shrink items-center gap-1">
+                          <UsersIcon className="h-3 w-3 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {soloNome(item.squadra)}
+                          </span>
+                        </span>
+                      ) : null}
+                      {item.indirizzo ? (
+                        <span className="flex min-w-0 shrink items-center gap-1">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {soloVia(item.indirizzo)}
+                          </span>
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                 </button>

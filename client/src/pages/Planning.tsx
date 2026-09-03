@@ -10,7 +10,6 @@ import {
 } from "@/lib/calendario";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
 import type { StatePanelProps } from "@/components/patterns/StatePanel";
@@ -22,14 +21,16 @@ import PlanningInterventoSheet, {
   type PlanningInterventoDraft,
   type PlanningLinkKind,
 } from "@/components/planning/PlanningInterventoSheet";
+import PlanningGrigliaOraria, {
+  type VoceGriglia,
+} from "@/components/planning/PlanningGrigliaOraria";
 import PlanningToolbar from "@/components/planning/PlanningToolbar";
+import { caricoGiornata } from "@/lib/grigliaOraria";
 import { useOperationalContext } from "@/contexts/OperationalContext";
 import { planningPermissions } from "@/lib/operationalRoutes";
 import {
   Plus,
   MapPin,
-  Clock,
-  X,
   Calendar as CalIcon,
   CloudOff,
   User as UserIcon,
@@ -51,13 +52,9 @@ import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 
 const dayNames = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
-// Tinted card background per tipo — paired with a solid 4px left border and a
-// solid type chip (CALENDAR_COLOR_MAP) so the type reads at a glance.
-// Fondo tenue per tipo, abbinato al bordo sinistro e al chip pieno.
-const tipoCardStyle = (tipo: string): React.CSSProperties => ({
-  backgroundColor: CALENDAR_SOFT_MAP[tipo] ?? "var(--color-cal-altro-soft)",
-});
-
+// Le etichette vengono dal catalogo dei tipi: sono otto da quando la
+// migrazione Google porta anche consegne, riunioni e ferie, e riscriverle qui
+// vorrebbe dire dimenticarne una al prossimo giro.
 const tipoLabels: Record<string, string> = Object.fromEntries(
   CALENDARI.map(c => [c.key, c.label])
 );
@@ -70,6 +67,7 @@ const emptyForm: Form = {
   linkKind: "commessa",
   linkId: "",
   squadraId: "",
+  tecnicoId: "",
   tipo: "posa",
   dataPianificata: "",
   oraInizio: "",
@@ -125,6 +123,8 @@ export default function Planning() {
   const commesse = trpc.commesse.list.useQuery({});
   const clienti = trpc.clienti.list.useQuery({});
   const squadre = trpc.squadre.list.useQuery();
+  // Chi può eseguire un rilievo: sono persone con un ruolo, non squadre.
+  const tecnici = trpc.utenti.list.useQuery({ ruolo: "tecnico_rilievi" });
   const ticketList = trpc.ticket.list.useQuery({});
   const reclami = trpc.reclamiRifacimenti.reclami.list.useQuery({});
   const rifacimenti = trpc.reclamiRifacimenti.rifacimenti.list.useQuery({});
@@ -150,12 +150,26 @@ export default function Planning() {
     return m;
   }, [squadre.data]);
 
+  const tecnicoById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const u of tecnici.data ?? []) m.set(u.id, u);
+    return m;
+  }, [tecnici.data]);
+
   function getJoinedInfo(i: any) {
     const commessa = i.commessaId ? commessaById.get(i.commessaId) : null;
     const cliente = commessa?.clienteId
       ? clienteById.get(commessa.clienteId)
       : null;
     const squadra = i.squadraId ? squadraById.get(i.squadraId) : null;
+    // Chi esegue: per un rilievo è un tecnico, per il resto una squadra. Il
+    // calendario mostra una riga sola, quindi qui si sceglie quale.
+    const tecnico = i.tecnicoId ? tecnicoById.get(i.tecnicoId) : null;
+    const esecutore = tecnico
+      ? `${tecnico.cognome ?? ""} ${tecnico.nome ?? ""}`.trim()
+      : squadra
+        ? `${squadra.nome}${squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}`
+        : null;
     const nomeCognome = cliente
       ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
       : (commessa?.cliente ?? "");
@@ -167,7 +181,16 @@ export default function Planning() {
       "";
     const citta =
       commessa?.citta || cliente?.cittaLavoro || cliente?.citta || "";
-    return { commessa, cliente, squadra, nomeCognome, indirizzo, citta };
+    return {
+      commessa,
+      cliente,
+      squadra,
+      tecnico,
+      esecutore,
+      nomeCognome,
+      indirizzo,
+      citta,
+    };
   }
 
   const utils = trpc.useUtils();
@@ -238,6 +261,76 @@ export default function Planning() {
     [externalSources.data]
   );
 
+  // ── Voci del calendario desktop ─────────────────────────────────────────
+  // Una forma sola per mese, settimana e giorno. Prima ogni vista rileggeva
+  // l'intervento grezzo a modo suo e mostrava campi diversi: lo stesso
+  // appuntamento diceva il tipo nella settimana e lo taceva nel mese. Qui il
+  // contenuto si decide una volta, e le tre viste scelgono solo quanto
+  // spazio hanno per mostrarlo.
+  const vociPerGiorno = useMemo<Record<string, VoceGriglia[]>>(() => {
+    const mappa: Record<string, VoceGriglia[]> = {};
+    for (const [data, lista] of Object.entries(byDay)) {
+      for (const i of lista) {
+        const j = getJoinedInfo(i);
+        const indirizzo = j.indirizzo
+          ? j.citta
+            ? `${j.indirizzo}, ${j.citta}`
+            : j.indirizzo
+          : null;
+        (mappa[data] ||= []).push({
+          id: i.id,
+          fonte: "crm",
+          tipo: i.tipo,
+          tipoLabel: tipoLabels[i.tipo] ?? i.tipo,
+          titolo: j.nomeCognome || tipoLabels[i.tipo] || i.tipo,
+          oraInizio: i.oraInizio ?? null,
+          oraFine: i.oraFine ?? null,
+          indirizzo,
+          squadra: j.esecutore,
+          // «pianificato» è lo stato di quasi tutto: ripeterlo su ogni riga è
+          // rumore. Si dice solo quando è una notizia.
+          statoNotevole:
+            i.stato && i.stato !== "pianificato"
+              ? String(i.stato).replace(/_/g, " ")
+              : null,
+          originale: i,
+        });
+      }
+    }
+    for (const [data, lista] of Object.entries(externalByDay)) {
+      for (const e of lista) {
+        (mappa[data] ||= []).push({
+          id: e.id,
+          fonte: "ext",
+          tipo: "altro",
+          tipoLabel: e.sourceNome ?? "Google",
+          titolo: e.titolo,
+          oraInizio: e.allDay ? null : (e.oraInizio ?? null),
+          oraFine: e.allDay ? null : (e.oraFine ?? null),
+          indirizzo: e.location ?? null,
+          squadra: null,
+          colore: e.color,
+          statoNotevole: e.allDay ? "tutto il giorno" : null,
+          originale: e,
+        });
+      }
+    }
+    // Nella cella del mese si vedono le prime quattro: devono essere le prime
+    // della giornata, non le prime arrivate dal server.
+    for (const lista of Object.values(mappa)) {
+      lista.sort((a, b) =>
+        (a.oraInizio ?? "99:99").localeCompare(b.oraInizio ?? "99:99")
+      );
+    }
+    return mappa;
+    // getJoinedInfo legge solo le mappe di lookup, che sono nelle deps.
+  }, [byDay, externalByDay, commessaById, clienteById, squadraById, tecnicoById]);
+
+  function apriVoce(voce: VoceGriglia) {
+    if (voce.fonte === "ext") setExtDetail(voce.originale);
+    else openEdit(voce.originale);
+  }
+
   // ── Agenda (< lg): stessa lista di interventi, una card per riga ─────────
   const agendaItems = useMemo<PlanningAgendaItem[]>(() => {
     return Object.keys(byDay)
@@ -261,20 +354,20 @@ export default function Planning() {
                 ? `${i.oraInizio} – ${i.oraFine}`
                 : i.oraInizio
               : null,
-            squadra: joined.squadra
-              ? `${joined.squadra.nome}${
-                  joined.squadra.caposquadra
-                    ? ` — ${joined.squadra.caposquadra}`
-                    : ""
-                }`
-              : null,
+            squadra: joined.esecutore,
             indirizzo,
-            stato: (i.stato ?? "pianificato").replace(/_/g, " "),
+            // Come sul desktop: «pianificato» è lo stato di quasi tutto e
+            // ripeterlo su ogni card è una riga sprecata su uno schermo che
+            // di righe ne ha poche.
+            stato:
+              i.stato && i.stato !== "pianificato"
+                ? String(i.stato).replace(/_/g, " ")
+                : null,
           };
         })
       );
     // getJoinedInfo legge solo le tre mappe di lookup, che sono nelle deps.
-  }, [byDay, commessaById, clienteById, squadraById]);
+  }, [byDay, commessaById, clienteById, squadraById, tecnicoById]);
 
   const agendaExternalItems = useMemo<PlanningAgendaExternalItem[]>(
     () =>
@@ -380,6 +473,7 @@ export default function Planning() {
       linkKind,
       linkId,
       squadraId: i.squadraId ? String(i.squadraId) : "",
+      tecnicoId: i.tecnicoId ? String(i.tecnicoId) : "",
       tipo: i.tipo === "sopralluogo" ? "rilievo" : i.tipo,
       dataPianificata: i.dataPianificata ?? "",
       oraInizio: i.oraInizio ?? "",
@@ -415,11 +509,18 @@ export default function Planning() {
     };
     return {
       ...linkIds,
-      // Il server autorizza `intervento.assign` solo quando `squadraId` è
-      // presente nell'input: senza quella capability il campo non parte,
+      // Il server autorizza `intervento.assign` solo quando il campo di
+      // assegnazione è presente nell'input: senza quella capability non parte,
       // così la pianificazione resta possibile e l'assegnazione no.
+      //
+      // Si mandano entrambi: il dominio (`esecutorePerTipo`) tiene quello che
+      // compete al tipo e azzera l'altro. Mandarne uno solo lascerebbe in
+      // piedi il vecchio quando un intervento cambia tipo.
       ...(permissions.canAssign
-        ? { squadraId: f.squadraId ? parseInt(f.squadraId) : null }
+        ? {
+            squadraId: f.squadraId ? parseInt(f.squadraId) : null,
+            tecnicoId: f.tecnicoId ? parseInt(f.tecnicoId) : null,
+          }
         : {}),
       tipo: f.tipo,
       dataPianificata: f.dataPianificata,
@@ -535,9 +636,26 @@ export default function Planning() {
     const nomeCognome = cliente
       ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
       : (commessa.cliente ?? "");
-    const squadra = form.squadraId
-      ? squadraById.get(parseInt(form.squadraId))
-      : null;
+    // Il riepilogo segue il tipo scelto nel form, come il campo qui sopra:
+    // per un rilievo si nomina il tecnico, per il resto la squadra.
+    const esecutore =
+      form.tipo === "rilievo"
+        ? (() => {
+            const tecnico = form.tecnicoId
+              ? tecnicoById.get(parseInt(form.tecnicoId))
+              : null;
+            return tecnico
+              ? `${tecnico.cognome ?? ""} ${tecnico.nome ?? ""}`.trim()
+              : null;
+          })()
+        : (() => {
+            const squadra = form.squadraId
+              ? squadraById.get(parseInt(form.squadraId))
+              : null;
+            return squadra
+              ? `${squadra.nome}${squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}`
+              : null;
+          })();
     return (
       <div className="min-w-0 space-y-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3 text-sm">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -602,13 +720,10 @@ export default function Planning() {
             </a>
           </div>
         )}
-        {squadra && (
+        {esecutore && (
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-text-2">
             <UsersIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 truncate">
-              {squadra.nome}
-              {squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}
-            </span>
+            <span className="min-w-0 truncate">{esecutore}</span>
           </div>
         )}
         <div className="flex justify-end pt-1">
@@ -627,63 +742,34 @@ export default function Planning() {
   })();
 
   const desktopView: ReactNode =
-    view === "day" ? (
-      <DayView
-        date={cursor}
-        interventi={byDay[toDateStr(cursor)] ?? []}
-        externalItems={externalByDay[toDateStr(cursor)] ?? []}
-        onOpenExternal={setExtDetail}
-        getJoined={getJoinedInfo}
-        onNew={() => openCreateFor(toDateStr(cursor))}
-        onEdit={openEdit}
-        onAnnulla={i =>
-          setAnnullaTarget({
-            id: i.id,
-            label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim(),
-          })
-        }
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        draggingId={draggingId}
-        canCreate={permissions.canPlan}
-        canDelete={permissions.canDelete}
-      />
-    ) : view === "week" ? (
-      <WeekView
-        cursor={cursor}
-        byDay={byDay}
-        externalByDay={externalByDay}
-        onOpenExternal={setExtDetail}
-        getJoined={getJoinedInfo}
-        onNew={openCreateFor}
-        onEdit={openEdit}
-        onAnnulla={i =>
-          setAnnullaTarget({
-            id: i.id,
-            label: `${tipoLabels[i.tipo]} ${i.oraInizio ?? ""}`.trim(),
-          })
-        }
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        draggingId={draggingId}
-        canCreate={permissions.canPlan}
-        canDelete={permissions.canDelete}
-      />
-    ) : (
+    view === "month" ? (
       <MonthView
         cursor={cursor}
         byDay={byDay}
         externalByDay={externalByDay}
-        onOpenExternal={setExtDetail}
-        getJoined={getJoinedInfo}
+        vociPerGiorno={vociPerGiorno}
+        onApri={apriVoce}
         onNew={openCreateFor}
-        onEdit={openEdit}
         onOpenDay={dateStr => {
           setCursor(new Date(dateStr + "T12:00:00"));
           setView("day");
         }}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        draggingId={draggingId}
+        canCreate={permissions.canPlan}
+      />
+    ) : (
+      <PlanningGrigliaOraria
+        giorni={
+          view === "day"
+            ? [cursor]
+            : Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i))
+        }
+        perGiorno={vociPerGiorno}
+        onApri={apriVoce}
+        onNuovo={openCreateFor}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -799,7 +885,7 @@ export default function Planning() {
             Calendario
           </span>
         }
-        description="Appuntamenti della sede. Il drag sposta la data sul calendario desktop; agenda e scheda restano l'alternativa da tastiera."
+        description="Appuntamenti della sede: l'altezza di un blocco è la sua durata, e i buchi sono le ore libere. Sul desktop il drag sposta la data; la scheda resta l'alternativa da tastiera."
         busy={interventi.isFetching}
         metadata={
           <>
@@ -883,6 +969,7 @@ export default function Planning() {
         onLinkIdChange={linkId => handleLinkChange(form.linkKind, linkId)}
         linkOptions={linkOptions}
         squadre={squadre.data ?? []}
+        tecnici={tecnici.data ?? []}
         contesto={contestoCommessa}
         canPlan={permissions.canPlan}
         canAssign={permissions.canAssign}
@@ -930,193 +1017,26 @@ export default function Planning() {
   );
 }
 
-// ── DAY VIEW ─────────────────────────────────────────────────────────────────
-function DayView(props: {
-  date: Date;
-  interventi: any[];
-  externalItems: any[];
-  onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => {
-    nomeCognome: string;
-    indirizzo: string;
-    citta?: string;
-  };
-  onNew: () => void;
-  onEdit: (i: any) => void;
-  onAnnulla: (i: any) => void;
-  onDragStart: (e: React.DragEvent, i: any) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent, dateStr: string) => void;
-  draggingId: number | null;
-  canCreate: boolean;
-  canDelete: boolean;
-}) {
-  const dateStr = toDateStr(props.date);
-  const isToday = dateStr === toDateStr(new Date());
-  return (
-    <Card className={isToday ? "border-primary/40" : ""}>
-      <CardHeader className="pb-2 flex flex-row items-center justify-between">
-        <CardTitle className="text-base capitalize">
-          {props.date.toLocaleDateString("it-IT", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          })}
-        </CardTitle>
-        {props.canCreate ? (
-          <Button variant="ghost" size="sm" onClick={props.onNew}>
-            <Plus className="h-3.5 w-3.5" /> Aggiungi
-          </Button>
-        ) : null}
-      </CardHeader>
-      <CardContent
-        className="min-h-[400px] space-y-2"
-        onDragOver={props.onDragOver}
-        onDrop={e => props.onDrop(e, dateStr)}
-      >
-        {props.interventi.length === 0 && props.externalItems.length === 0 ? (
-          <p className="text-sm text-text-2 text-center py-12">
-            Nessun appuntamento in questa giornata.
-          </p>
-        ) : (
-          <>
-            {props.interventi.map((i: any) => (
-              <InterventoBlock
-                key={i.id}
-                intervento={i}
-                joined={props.getJoined(i)}
-                onEdit={() => props.onEdit(i)}
-                onAnnulla={() => props.onAnnulla(i)}
-                onDragStart={e => props.onDragStart(e, i)}
-                draggingId={props.draggingId}
-                size="large"
-                canDelete={props.canDelete}
-              />
-            ))}
-            {props.externalItems.map((e: any) => (
-              <ExternalBlock
-                key={e.id}
-                event={e}
-                size="large"
-                onOpen={() => props.onOpenExternal(e)}
-              />
-            ))}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── WEEK VIEW ────────────────────────────────────────────────────────────────
-function WeekView(props: {
-  cursor: Date;
-  byDay: Record<string, any[]>;
-  externalByDay: Record<string, any[]>;
-  onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => {
-    nomeCognome: string;
-    indirizzo: string;
-    citta?: string;
-  };
-  onNew: (dateStr: string) => void;
-  onEdit: (i: any) => void;
-  onAnnulla: (i: any) => void;
-  onDragStart: (e: React.DragEvent, i: any) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent, dateStr: string) => void;
-  draggingId: number | null;
-  canCreate: boolean;
-  canDelete: boolean;
-}) {
-  const start = startOfWeek(props.cursor);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  const todayStr = toDateStr(new Date());
-  return (
-    <div className="grid min-w-0 grid-cols-1 md:grid-cols-7 gap-3">
-      {days.map((day, idx) => {
-        const dateStr = toDateStr(day);
-        const isToday = dateStr === todayStr;
-        const isWeekend = idx >= 5;
-        const items = props.byDay[dateStr] ?? [];
-        const extItems = props.externalByDay[dateStr] ?? [];
-        return (
-          <Card
-            key={dateStr}
-            className={`min-w-0 min-h-[200px] ${isToday ? "border-primary/40 bg-surface-2" : ""} ${isWeekend ? "opacity-70" : ""}`}
-            onDragOver={props.onDragOver}
-            onDrop={e => props.onDrop(e, dateStr)}
-          >
-            <CardHeader className="pb-2 pt-3 px-3">
-              <CardTitle className="text-xs font-medium flex items-center justify-between">
-                <span className={isToday ? "font-bold" : ""}>
-                  {dayNames[idx]}
-                </span>
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`text-lg font-bold ${isToday ? "bg-primary text-primary-foreground rounded-full w-7 h-7 flex items-center justify-center" : ""}`}
-                  >
-                    {day.getDate()}
-                  </span>
-                  {props.canCreate ? (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Nuovo appuntamento il ${dateStr}`}
-                      title="Nuovo appuntamento"
-                      onClick={() => props.onNew(dateStr)}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  ) : null}
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-2 pb-2 space-y-1.5">
-              {items.map((i: any) => (
-                <InterventoBlock
-                  key={i.id}
-                  intervento={i}
-                  joined={props.getJoined(i)}
-                  onEdit={() => props.onEdit(i)}
-                  onAnnulla={() => props.onAnnulla(i)}
-                  onDragStart={e => props.onDragStart(e, i)}
-                  draggingId={props.draggingId}
-                  size="small"
-                  canDelete={props.canDelete}
-                />
-              ))}
-              {extItems.map((e: any) => (
-                <ExternalBlock
-                  key={e.id}
-                  event={e}
-                  size="small"
-                  onOpen={() => props.onOpenExternal(e)}
-                />
-              ))}
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── MONTH VIEW ───────────────────────────────────────────────────────────────
+// ── VISTA MESE ───────────────────────────────────────────────────────────────
+// Il mese risponde a una domanda sola: dove c'è spazio. Prima non lo diceva —
+// i quattro tipi avevano fondi tenui a distanza RGB 10-24 e tutti alla stessa
+// luminosità, quindi il colore non si leggeva; l'orario e il nome stavano su
+// una riga sola e uguale, quindi una posa di nove ore sembrava un rilievo di
+// mezz'ora; e «+2 altri» nascondeva proprio i giorni pieni, che sono quelli
+// che contano.
+//
+// Adesso: barra piena del tipo a sinistra (satura, riconoscibile di sfuggita),
+// barretta di carico sotto il numero del giorno, e i sabati/domeniche stretti
+// perché non ci si lavora e non meritano due settimi della larghezza.
 function MonthView(props: {
   cursor: Date;
   byDay: Record<string, any[]>;
   externalByDay: Record<string, any[]>;
-  onOpenExternal: (e: any) => void;
-  getJoined: (i: any) => {
-    nomeCognome: string;
-    indirizzo: string;
-    citta?: string;
-  };
+  vociPerGiorno: Record<string, VoceGriglia[]>;
+  onApri: (voce: VoceGriglia) => void;
   onNew: (dateStr: string) => void;
-  onEdit: (i: any) => void;
   onOpenDay: (dateStr: string) => void;
-  onDragStart: (e: React.DragEvent, i: any) => void;
+  onDragStart: (e: React.DragEvent, voce: VoceGriglia) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, dateStr: string) => void;
   draggingId: number | null;
@@ -1127,14 +1047,19 @@ function MonthView(props: {
   const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
   const todayStr = toDateStr(new Date());
   const monthNum = props.cursor.getMonth();
-  // 6th row is only rendered when the month actually spills into it — avoids a
-  // near-empty trailing week.
+  // La sesta riga si disegna solo se il mese ci arriva davvero.
   const lastWeekUsed = days.slice(35).some(d => d.getMonth() === monthNum);
   const visibleDays = lastWeekUsed ? days : days.slice(0, 35);
+  // Sab e Dom stretti: quasi sempre vuoti, e lo spazio serve ai feriali.
+  const colonne = "repeat(5, minmax(0, 1fr)) repeat(2, minmax(0, 0.62fr))";
+  const MAX_VOCI = 4;
 
   return (
-    <div className="min-w-0 rounded-[var(--radius-panel)] border border-border-soft overflow-hidden bg-surface">
-      <div className="grid grid-cols-7 bg-surface-2 border-b border-border-soft">
+    <div className="min-w-0 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface">
+      <div
+        className="grid bg-surface-2 border-b border-border-soft"
+        style={{ gridTemplateColumns: colonne }}
+      >
         {dayNames.map((d, i) => (
           <div
             key={d}
@@ -1146,32 +1071,22 @@ function MonthView(props: {
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7">
+      <div className="grid" style={{ gridTemplateColumns: colonne }}>
         {visibleDays.map(day => {
           const dateStr = toDateStr(day);
           const isToday = dateStr === todayStr;
           const isOutsideMonth = day.getMonth() !== monthNum;
           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-          const items = props.byDay[dateStr] ?? [];
-          const extItems = props.externalByDay[dateStr] ?? [];
-          // Merge CRM + Google entries into one time-sorted list so the 3-slot
-          // preview and the "+N" overflow count both kinds together.
-          const merged = [
-            ...items.map((x: any) => ({
-              kind: "crm" as const,
-              data: x,
-              t: x.oraInizio ?? "99:99",
-            })),
-            ...extItems.map((x: any) => ({
-              kind: "ext" as const,
-              data: x,
-              t: x.allDay ? "00:00" : (x.oraInizio ?? "99:99"),
-            })),
-          ].sort((a, b) => a.t.localeCompare(b.t));
+          const voci = props.vociPerGiorno[dateStr] ?? [];
+          const carico = caricoGiornata(
+            voci.map(v => ({ id: v.id, inizio: v.oraInizio, fine: v.oraFine }))
+          );
+          const visibili = voci.slice(0, MAX_VOCI);
+          const nascoste = voci.length - visibili.length;
           return (
             <div
               key={dateStr}
-              className={`group min-w-0 min-h-[132px] p-1.5 border-b border-r border-border-soft last:border-r-0 transition-colors ${
+              className={`group min-w-0 min-h-[126px] p-1 border-b border-r border-border-soft last:border-r-0 transition-colors ${
                 isOutsideMonth
                   ? "bg-surface-2/50"
                   : isWeekend
@@ -1181,7 +1096,7 @@ function MonthView(props: {
               onDragOver={props.onDragOver}
               onDrop={e => props.onDrop(e, dateStr)}
             >
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between gap-1 px-0.5">
                 <span
                   className={`text-xs font-semibold tabular-nums grid place-items-center h-6 w-6 rounded-full ${
                     isToday
@@ -1205,81 +1120,38 @@ function MonthView(props: {
                   </button>
                 )}
               </div>
-              <div className="space-y-1">
-                {merged.slice(0, 3).map(m => {
-                  if (m.kind === "ext") {
-                    const e = m.data;
-                    return (
-                      <button
-                        key={`ext-${e.id}`}
-                        type="button"
-                        onClick={ev => {
-                          ev.stopPropagation();
-                          props.onOpenExternal(e);
-                        }}
-                        title={`${e.sourceNome} — ${e.titolo}`}
-                        className="w-full min-w-0 flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight text-left font-medium shadow-sm outline-none transition hover:brightness-105 active:brightness-95 focus-visible:ring-[3px] focus-visible:ring-ring/55"
-                        style={{
-                          backgroundColor: `color-mix(in srgb, ${e.color} 16%, var(--color-surface))`,
-                          color: `color-mix(in srgb, ${e.color} 75%, var(--color-text-1))`,
-                        }}
-                      >
-                        <Lock className="h-2.5 w-2.5 shrink-0 opacity-80" />
-                        {!e.allDay && e.oraInizio && (
-                          <span className="tabular-nums opacity-90 shrink-0">
-                            {e.oraInizio}
-                          </span>
-                        )}
-                        <span className="truncate">{e.titolo}</span>
-                      </button>
-                    );
-                  }
-                  const i = m.data;
-                  const j = props.getJoined(i);
-                  const label = j.nomeCognome || tipoLabels[i.tipo] || i.tipo;
-                  const color =
-                    CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
-                  const soft =
-                    CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
-                  return (
-                    <div
-                      key={i.id}
-                      draggable
-                      onDragStart={e => props.onDragStart(e, i)}
-                      className={`min-w-0 ${props.draggingId === i.id ? "opacity-40" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation();
-                          props.onEdit(i);
-                        }}
-                        title={`${tipoLabels[i.tipo] ?? i.tipo}${
-                          j.nomeCognome ? ` — ${j.nomeCognome}` : ""
-                        }${j.indirizzo ? ` (${j.indirizzo})` : ""}`}
-                        className="w-full min-w-0 flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight text-left font-medium shadow-sm outline-none transition hover:brightness-105 active:brightness-95 focus-visible:ring-[3px] focus-visible:ring-ring/55"
-                        style={{ backgroundColor: soft, color }}
-                      >
-                        {i.oraInizio && (
-                          <span className="tabular-nums opacity-90 shrink-0">
-                            {i.oraInizio}
-                          </span>
-                        )}
-                        <span className="truncate">{label}</span>
-                      </button>
-                    </div>
-                  );
-                })}
-                {merged.length > 3 && (
+              {/* Quanto è piena la giornata, senza doverla aprire. */}
+              {carico > 0 && (
+                <div
+                  className="mx-0.5 mb-1 mt-0.5 h-[3px] overflow-hidden rounded-full bg-border-soft"
+                  title={`Giornata occupata al ${Math.round(carico * 100)}%`}
+                >
+                  <div
+                    className="h-full rounded-full bg-primary/55"
+                    style={{ width: `${Math.max(6, carico * 100)}%` }}
+                  />
+                </div>
+              )}
+              <div className="space-y-[3px]">
+                {visibili.map(voce => (
+                  <PillaMese
+                    key={`${voce.fonte}-${voce.id}`}
+                    voce={voce}
+                    onApri={props.onApri}
+                    onDragStart={props.onDragStart}
+                    draggingId={props.draggingId}
+                  />
+                ))}
+                {nascoste > 0 && (
                   <button
                     type="button"
                     onClick={e => {
                       e.stopPropagation();
                       props.onOpenDay(dateStr);
                     }}
-                    className="w-full text-left text-[11px] font-medium text-accent-text px-1.5 hover:underline"
+                    className="w-full rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-accent-text hover:bg-surface-2 hover:underline"
                   >
-                    +{merged.length - 3} altri
+                    +{nascoste} {nascoste === 1 ? "altro" : "altri"}
                   </button>
                 )}
               </div>
@@ -1291,188 +1163,65 @@ function MonthView(props: {
   );
 }
 
-// ── EXTERNAL (GOOGLE) EVENT BLOCK ────────────────────────────────────────────
-// Read-only mirror of an imported Google event. No drag, no edit, no delete —
-// it lives in Google. Source color on the left edge + lock icon make the
-// read-only nature obvious; dashed border separates it from CRM appointments.
-function ExternalBlock(props: {
-  event: any;
-  size: "small" | "large";
-  onOpen: () => void;
+/**
+ * Un appuntamento nella cella del mese.
+ *
+ * Lo spazio è quello che è, quindi si scelgono due informazioni: l'ora e chi.
+ * Il tipo non è una terza riga di testo — è la barra piena a sinistra, che si
+ * riconosce senza leggere ed è l'unica cosa che prima non funzionava.
+ */
+function PillaMese(props: {
+  voce: VoceGriglia;
+  onApri: (voce: VoceGriglia) => void;
+  onDragStart: (e: React.DragEvent, voce: VoceGriglia) => void;
+  draggingId: number | null;
 }) {
-  const e = props.event;
-  const large = props.size === "large";
+  const { voce } = props;
+  const esterno = voce.fonte === "ext";
+  const colore = esterno
+    ? (voce.colore ?? "var(--color-cal-altro)")
+    : (CALENDAR_COLOR_MAP[voce.tipo] ?? "var(--color-cal-altro)");
+  const fondo = esterno
+    ? `color-mix(in srgb, ${voce.colore ?? "var(--color-cal-altro)"} 12%, var(--color-surface))`
+    : (CALENDAR_SOFT_MAP[voce.tipo] ?? "var(--color-cal-altro-soft)");
+  const orario = voce.oraInizio
+    ? voce.oraFine
+      ? `${voce.oraInizio}–${voce.oraFine}`
+      : voce.oraInizio
+    : null;
+  const descrizione = [voce.tipoLabel, voce.titolo, orario, voce.indirizzo]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <button
       type="button"
-      onClick={props.onOpen}
-      className="w-full min-w-0 text-left rounded-md border border-border-soft bg-surface p-2 cursor-pointer outline-none transition-all hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/55"
-      style={{
-        borderLeftColor: e.color,
-        borderLeftWidth: 4,
-        backgroundColor: `color-mix(in srgb, ${e.color} 8%, var(--color-surface))`,
+      draggable={!esterno}
+      onDragStart={esterno ? undefined : e => props.onDragStart(e, voce)}
+      onClick={e => {
+        e.stopPropagation();
+        props.onApri(voce);
       }}
-      title={e.location || undefined}
+      title={descrizione}
+      aria-label={descrizione}
+      className={`flex w-full min-w-0 items-center gap-1 rounded-[5px] py-[3px] pl-1.5 pr-1 text-left text-[11px] leading-tight outline-none transition hover:brightness-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/55 ${
+        props.draggingId === voce.id ? "opacity-40" : ""
+      } ${esterno ? "" : "cursor-grab active:cursor-grabbing"}`}
+      style={{ backgroundColor: fondo, boxShadow: `inset 3px 0 0 0 ${colore}` }}
     >
-      <div
-        className={`${
-          large ? "text-xs" : "text-[10px]"
-        } flex items-center gap-1.5 flex-wrap`}
-      >
-        <span
-          className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${e.color} 16%, var(--color-surface))`,
-            color: `color-mix(in srgb, ${e.color} 75%, var(--color-text-1))`,
-          }}
-        >
-          <Lock className="h-2 w-2" />
-          Google
-        </span>
-        {e.allDay ? (
-          <span className="font-semibold text-text-2">Tutto il giorno</span>
-        ) : e.oraInizio ? (
-          <span className="inline-flex items-center gap-0.5 font-mono font-bold text-text-1">
-            <Clock className="h-2.5 w-2.5" />
-            {e.oraInizio}
-            {e.oraFine ? `–${e.oraFine}` : ""}
-          </span>
-        ) : null}
-      </div>
-      <p
-        className={`mt-1 font-semibold text-text-1 ${
-          large ? "text-sm" : "text-[11px]"
-        }`}
-        title={e.titolo}
-      >
-        <span className="line-clamp-2">{e.titolo}</span>
-      </p>
-      {e.location && (
-        <p
-          className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${
-            large ? "text-xs" : "text-[10px]"
-          }`}
-        >
-          <MapPin className="h-2.5 w-2.5 shrink-0" />
-          <span className="truncate">{e.location}</span>
-        </p>
+      {esterno && (
+        <Lock className="h-2.5 w-2.5 shrink-0 opacity-70" style={{ color: colore }} />
       )}
-      <p
-        className={`mt-0.5 text-text-3 ${large ? "text-[10px]" : "text-[9px]"}`}
-      >
-        {e.sourceNome}
-      </p>
-    </button>
-  );
-}
-
-// ── INTERVENTO CARD BLOCK ────────────────────────────────────────────────────
-// Joined info — nomeCognome and indirizzo are derived from the linked
-// commessa/cliente at render time so the operator sees who/where directly
-// on the calendar without opening the appointment.
-function InterventoBlock(props: {
-  intervento: any;
-  joined: { nomeCognome: string; indirizzo: string; citta?: string };
-  onEdit: () => void;
-  onAnnulla: () => void;
-  onDragStart: (e: React.DragEvent) => void;
-  draggingId: number | null;
-  size: "small" | "large";
-  canDelete: boolean;
-}) {
-  const i = props.intervento;
-  const isDragging = props.draggingId === i.id;
-  const color = CALENDAR_COLOR_MAP[i.tipo] ?? "var(--color-cal-altro)";
-  const soft = CALENDAR_SOFT_MAP[i.tipo] ?? "var(--color-cal-altro-soft)";
-  const indirizzoFull = props.joined.indirizzo
-    ? props.joined.citta
-      ? `${props.joined.indirizzo}, ${props.joined.citta}`
-      : props.joined.indirizzo
-    : "";
-  return (
-    <div
-      draggable
-      onDragStart={props.onDragStart}
-      className={`min-w-0 rounded-md border border-border-soft p-2 transition-all hover:shadow-md ${
-        isDragging ? "opacity-30" : ""
-      }`}
-      style={{
-        ...tipoCardStyle(i.tipo),
-        borderLeftColor: color,
-        borderLeftWidth: 4,
-      }}
-    >
-      <div className="flex items-start justify-between gap-1">
-        <button
-          type="button"
-          onClick={props.onEdit}
-          className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/55"
+      {voce.oraInizio && (
+        <span
+          className="shrink-0 font-semibold tabular-nums"
+          style={{ color: colore }}
         >
-          <span
-            className={`${props.size === "large" ? "text-xs" : "text-[10px]"} flex items-center gap-1.5 flex-wrap`}
-          >
-            <span
-              className="rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide shrink-0"
-              style={{ backgroundColor: soft, color }}
-            >
-              {tipoLabels[i.tipo] ?? i.tipo}
-            </span>
-            {i.oraInizio && (
-              <span className="inline-flex items-center gap-0.5 font-mono font-bold text-text-1">
-                <Clock className="h-2.5 w-2.5" />
-                {i.oraInizio}
-                {i.oraFine ? `–${i.oraFine}` : ""}
-              </span>
-            )}
-          </span>
-          {props.joined.nomeCognome && (
-            <span
-              className={`mt-0.5 font-semibold flex items-center gap-0.5 ${
-                props.size === "large" ? "text-sm" : "text-[11px]"
-              }`}
-              title={props.joined.nomeCognome}
-            >
-              <UserIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{props.joined.nomeCognome}</span>
-            </span>
-          )}
-          {indirizzoFull && (
-            <span
-              className={`mt-0.5 flex items-center gap-0.5 text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"}`}
-            >
-              <MapPin className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{indirizzoFull}</span>
-            </span>
-          )}
-          {i.note && (
-            <span
-              className={`mt-0.5 block text-text-2 ${props.size === "large" ? "text-xs" : "text-[10px]"} line-clamp-2`}
-            >
-              {i.note}
-            </span>
-          )}
-          <Badge
-            variant={i.stato === "in_corso" ? "default" : "secondary"}
-            className={`${props.size === "large" ? "text-[10px]" : "text-[8px]"} mt-1 px-1 py-0`}
-          >
-            {(i.stato ?? "pianificato").replace(/_/g, " ")}
-          </Badge>
-        </button>
-        {props.canDelete ? (
-          <button
-            type="button"
-            onClick={e => {
-              e.stopPropagation();
-              props.onAnnulla();
-            }}
-            className="shrink-0 rounded p-0.5 hover:bg-danger-soft hover:text-danger transition-colors"
-            aria-label="Elimina appuntamento"
-            title="Elimina appuntamento"
-          >
-            <X className={props.size === "large" ? "h-4 w-4" : "h-3 w-3"} />
-          </button>
-        ) : null}
-      </div>
-    </div>
+          {voce.oraInizio}
+        </span>
+      )}
+      <span className="min-w-0 truncate font-medium text-text-1">
+        {voce.titolo}
+      </span>
+    </button>
   );
 }
