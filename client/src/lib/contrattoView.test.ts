@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
 import {
+  accessoriCompatibili,
   accessoriDisponibili,
   avvisiForm,
   beneSignificativoDefault,
@@ -9,6 +10,7 @@ import {
   etichettaCategoria,
   etichettaTipologia,
   mqRigaForm,
+  opzioniTipologia,
   parametriDaServer,
   parametriVuoti,
   prodottiPerOscurante,
@@ -208,6 +210,62 @@ describe("contrattoView", () => {
     expect(quantitaAccessorioModificabile("m_perimetro")).toBe(true);
   });
 
+  it("la voce già scelta resta nell'elenco anche quando i filtri la escludono", () => {
+    const prodotti = [
+      prodotto({ codice: "pvc-1", nome: "PVC 1 anta" }),
+      prodotto({ codice: "all-fuori", famiglia: "alluminio", nome: "Alluminio zona A", zone: ["A"] }),
+      prodotto({ codice: "tap-1", gruppo: "avvolgibile", famiglia: "pvc", nome: "Avvolgibile" }),
+    ];
+    // Nessuna voce scelta: solo l'elenco filtrato.
+    expect(opzioniTipologia(prodotti, "serramento_pvc", "D", null)).toEqual([
+      { codice: "pvc-1", etichetta: "PVC 1 anta", anomala: false },
+    ]);
+    // Voce già scelta e già nell'elenco: nessun doppione.
+    expect(opzioniTipologia(prodotti, "serramento_pvc", "D", "pvc-1")).toHaveLength(1);
+    // Fuori zona: in coda, con il perché nell'etichetta.
+    expect(opzioniTipologia(prodotti, "serramento_alluminio", "D", "all-fuori")).toEqual([
+      { codice: "all-fuori", etichetta: "Alluminio zona A — fuori zona", anomala: true },
+    ]);
+    // Voce di un altro gruppo e codice sconosciuto (contratti vecchi).
+    expect(opzioniTipologia(prodotti, "serramento_pvc", "D", "tap-1").at(-1)).toEqual({
+      codice: "tap-1", etichetta: "Avvolgibile — altra categoria", anomala: true,
+    });
+    expect(opzioniTipologia(prodotti, "serramento_pvc", "D", "finestra_2_ante").at(-1)).toEqual({
+      codice: "finestra_2_ante", etichetta: "finestra_2_ante — non in catalogo", anomala: true,
+    });
+  });
+
+  it("la voce fuori zona è un avviso, con la descrizione della riga", () => {
+    const prodotti = [prodotto({ codice: "all-a", famiglia: "alluminio", nome: "Alluminio zona A", zone: ["A"] })];
+    const riga = {
+      ...rigaVuota("serramento_alluminio"),
+      descrizione: "Finestra cucina",
+      tipologia: "all-a",
+    };
+    expect(avvisiForm([riga], prodotti, "D")).toEqual([
+      'Riga 1 «Finestra cucina»: la tipologia «Alluminio zona A» non vale per la zona D.',
+    ]);
+    // Nella sua zona non c'è niente da dire; senza zona non si giudica.
+    expect(avvisiForm([riga], prodotti, "A")).toEqual([]);
+    expect(avvisiForm([riga], prodotti, null)).toEqual([]);
+    // Riga senza descrizione: resta il solo numero.
+    expect(avvisiForm([{ ...riga, descrizione: "  " }], prodotti, "D")[0]).toMatch(/^Riga 1: /);
+  });
+
+  it("gli accessori non compatibili cadono quando cambia il prodotto", () => {
+    const accessori = [
+      accessorio({ codice: "serramento.pellicola" }),
+      accessorio({ codice: "avvolgibile.motore", gruppo: "avvolgibile", regola: "cad_pezzo" }),
+    ];
+    const scelti = [
+      { codice: "serramento.pellicola", quantita: 2 },
+      { codice: "avvolgibile.motore", quantita: 1 },
+    ];
+    expect(accessoriCompatibili(scelti, accessori)).toEqual(scelti);
+    expect(accessoriCompatibili(scelti, [accessori[0]])).toEqual([{ codice: "serramento.pellicola", quantita: 2 }]);
+    expect(accessoriCompatibili(scelti, [])).toEqual([]);
+  });
+
   it("un prodotto legacy diventa una riga da completare", () => {
     const r = rigaDaLegacy({ id: 3, nome: "Finestra cucina", tipologia: "PVC", quantita: 2, dimensioni: "120x140", note: null });
     expect(r.descrizione).toBe("Finestra cucina");
@@ -243,6 +301,9 @@ describe("contrattoView", () => {
     expect(p.pattuitoCent).toBe(1539500);
     expect(p.zonaClimatica).toBe("D");
     expect(p.opzioniComputo).toEqual({ rilievo: "pezzo", speseProfessionali: true, eventuali: ["dime"] });
+    // La percentuale non torna indietro: per il servizio sarebbe un override
+    // manuale e la detrazione smetterebbe di seguire tipo, immobile e anno.
+    expect(p.detrazionePct).toBeNull();
     expect(Object.keys(p)).not.toContain("hashRighe");
     expect(Object.keys(p)).not.toContain("sedeId");
     expect(Object.keys(p)).not.toContain("codiceIstat");

@@ -7,13 +7,15 @@ import { useMemo, useState } from "react";
 import { Trash2, X } from "lucide-react";
 import { formatEuro, parseEuroNonNegativo } from "@/lib/euro";
 import {
+  accessoriCompatibili,
   accessoriDisponibili,
   beneSignificativoDefault,
   etichettaAccessorio,
   etichettaCategoria,
+  etichettaTipologia,
   mqRigaForm,
+  opzioniTipologia,
   prodottiPerOscurante,
-  prodottiPerRiga,
   quantitaAccessorioModificabile,
   type CatalogoContratto,
   type ProdottoCatalogo,
@@ -22,6 +24,7 @@ import {
 import {
   CATEGORIE_RIGA,
   OSCURANTI_INTEGRATI,
+  gruppoPerCategoria,
   type CategoriaRiga,
   type OscuranteIntegrato,
   type ZonaClimatica,
@@ -76,10 +79,14 @@ export default function RigaContrattoEditor({
     riga.prezzoTotCent == null ? "" : formatEuro(riga.prezzoTotCent / 100)
   );
 
-  const prodotti = useMemo(
-    () => prodottiPerRiga(catalogo.prodotti, riga.categoria, zona),
-    [catalogo.prodotti, riga.categoria, zona]
+  // La voce già scelta resta sempre nell'elenco, anche se fuori zona o di
+  // un'altra categoria: nasconderla lascerebbe un Select vuoto su un dato
+  // che invece è salvato (v. opzioniTipologia).
+  const opzioni = useMemo(
+    () => opzioniTipologia(catalogo.prodotti, riga.categoria, zona, riga.tipologia),
+    [catalogo.prodotti, riga.categoria, zona, riga.tipologia]
   );
+  const senzaGruppoDei = gruppoPerCategoria(riga.categoria).gruppo === null;
   const trovaProdotto = (codice: string | null): ProdottoCatalogo | null =>
     codice ? (catalogo.prodotti.find(p => p.codice === codice) ?? null) : null;
   const prodottoRiga = trovaProdotto(riga.tipologia);
@@ -93,6 +100,21 @@ export default function RigaContrattoEditor({
   ]);
   const regolaAccessorio = (codice: string) =>
     catalogo.accessori.find(a => a.codice === codice)?.regola ?? "cad_pezzo";
+
+  /**
+   * Cambiare prodotto o oscurante cambia gli accessori proponibili: quelli
+   * che non lo sono più cadono, gli altri restano con la loro quantità.
+   */
+  const cambiaProdotto = (patch: Pick<Partial<RigaForm>, "tipologia" | "oscuranteIntegrato" | "oscuranteTipologia">) => {
+    const tipologia = "tipologia" in patch ? patch.tipologia ?? null : riga.tipologia;
+    const oscuranteTipologia =
+      "oscuranteTipologia" in patch ? patch.oscuranteTipologia ?? null : riga.oscuranteTipologia;
+    const disponibili = accessoriDisponibili(catalogo.accessori, [
+      trovaProdotto(tipologia),
+      trovaProdotto(oscuranteTipologia),
+    ]);
+    onChange({ ...patch, accessori: accessoriCompatibili(riga.accessori, disponibili) });
+  };
 
   return (
     <div className="rounded-lg border border-border p-2 space-y-2 min-w-0">
@@ -152,7 +174,7 @@ export default function RigaContrattoEditor({
           <Select
             value={riga.tipologia ?? ""}
             disabled={!puoModificare}
-            onValueChange={v => onChange({ tipologia: v })}
+            onValueChange={v => cambiaProdotto({ tipologia: v })}
           >
             <SelectTrigger aria-label={`Variante controtelaio riga ${n}`}>
               <SelectValue placeholder="Variante DEI" />
@@ -165,24 +187,7 @@ export default function RigaContrattoEditor({
               ))}
             </SelectContent>
           </Select>
-        ) : prodotti.length > 0 ? (
-          <Select
-            value={riga.tipologia ?? ""}
-            disabled={!puoModificare}
-            onValueChange={v => onChange({ tipologia: v })}
-          >
-            <SelectTrigger aria-label={`Voce DEI riga ${n}`}>
-              <SelectValue placeholder="Voce DEI" />
-            </SelectTrigger>
-            <SelectContent>
-              {prodotti.map(p => (
-                <SelectItem key={p.codice} value={p.codice}>
-                  {p.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
+        ) : senzaGruppoDei ? (
           <Input
             aria-label={`Tipologia riga ${n}`}
             placeholder="Tipologia"
@@ -190,6 +195,30 @@ export default function RigaContrattoEditor({
             disabled={!puoModificare}
             onChange={e => onChange({ tipologia: e.target.value || null })}
           />
+        ) : opzioni.length > 0 ? (
+          <Select
+            value={riga.tipologia ?? ""}
+            disabled={!puoModificare}
+            onValueChange={v => cambiaProdotto({ tipologia: v })}
+          >
+            <SelectTrigger aria-label={`Voce DEI riga ${n}`}>
+              <SelectValue placeholder="Voce DEI">
+                {opzioni.find(o => o.codice === riga.tipologia)?.etichetta ??
+                  etichettaTipologia(riga.tipologia, catalogo.prodotti)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {opzioni.map(o => (
+                <SelectItem key={o.codice} value={o.codice}>
+                  {o.etichetta}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-xs text-text-3 self-center">
+            Nessuna voce DEI per questa categoria{zona ? ` in zona ${zona}` : ""}.
+          </p>
         )}
       </div>
 
@@ -234,8 +263,12 @@ export default function RigaContrattoEditor({
             else if (euro != null) onChange({ prezzoTotCent: Math.round(euro * 100) });
           }}
           onBlur={() => {
+            // Testo illeggibile: si rimette in chiaro il valore che il form
+            // ha davvero, invece di svuotare la casella e far credere che il
+            // prezzo sia sparito.
             const euro = parseEuroNonNegativo(prezzoTesto);
-            setPrezzoTesto(euro == null ? "" : formatEuro(euro));
+            if (euro != null) setPrezzoTesto(formatEuro(euro));
+            else setPrezzoTesto(riga.prezzoTotCent == null ? "" : formatEuro(riga.prezzoTotCent / 100));
           }}
         />
         <Label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
@@ -257,7 +290,7 @@ export default function RigaContrattoEditor({
               value={riga.oscuranteIntegrato ?? "nessuno"}
               disabled={!puoModificare}
               onValueChange={v =>
-                onChange({
+                cambiaProdotto({
                   oscuranteIntegrato: v === "nessuno" ? null : (v as OscuranteIntegrato),
                   // Cambiato l'oscurante, la sua voce DEI va riscelta.
                   oscuranteTipologia: null,
@@ -281,7 +314,7 @@ export default function RigaContrattoEditor({
             <Select
               value={riga.oscuranteTipologia ?? ""}
               disabled={!puoModificare}
-              onValueChange={v => onChange({ oscuranteTipologia: v })}
+              onValueChange={v => cambiaProdotto({ oscuranteTipologia: v })}
             >
               <SelectTrigger aria-label={`Voce DEI oscurante riga ${n}`}>
                 <SelectValue placeholder="Oscurante DEI" />
@@ -328,7 +361,7 @@ export default function RigaContrattoEditor({
                 <Input
                   type="number"
                   min={0}
-                  className="h-6 w-14 px-1 text-xs"
+                  className="h-8 w-16 px-1 text-xs"
                   aria-label={`Quantità ${etichettaAccessorio(a.codice, catalogo.accessori)} riga ${n}`}
                   value={a.quantita}
                   disabled={!puoModificare}
@@ -345,7 +378,7 @@ export default function RigaContrattoEditor({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5"
+                  className="h-7 w-7"
                   aria-label={`Rimuovi ${etichettaAccessorio(a.codice, catalogo.accessori)} dalla riga ${n}`}
                   onClick={() => onChange({ accessori: riga.accessori.filter(x => x.codice !== a.codice) })}
                 >

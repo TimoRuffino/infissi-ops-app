@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
+import { parametriDaServer } from "@/lib/contrattoView";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import { _resetContrattiRepositoryForTests } from "../contratti/repository";
@@ -56,6 +57,27 @@ describe("router contratti", () => {
     expect(letto.catalogo.controtelai.length).toBeGreaterThan(5);
     expect(letto.catalogo.opere.some(o => o.gruppo === "eventuali")).toBe(true);
     await expect(posa.contratti.salva({ commessaId, contratto, righe: [riga] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  // Il form della tab Contratto rilegge l'esito del salvataggio con
+  // parametriDaServer: se quella mappatura perdesse o forzasse un campo, il
+  // salvataggio successivo cambierebbe il contratto da solo.
+  it("il contratto rientrato nel form si risalva identico", async () => {
+    const commessaId = await commessaDiProva();
+    const caller = appRouter.createCaller(context(1, 15, ["direzione"]));
+    const primo = await caller.contratti.salva({ commessaId, contratto, righe: [riga] });
+    expect(primo.contratto.detrazionePct).toBe(50);
+    expect(primo.contratto.zonaClimatica).not.toBeNull();
+
+    const rientro = parametriDaServer(primo.contratto);
+    // La percentuale la ricalcola il server: rimandarla sarebbe un override.
+    expect(rientro.detrazionePct).toBeNull();
+
+    const secondo = await caller.contratti.salva({ commessaId, contratto: rientro, righe: [riga] });
+    expect(secondo.contratto.detrazionePct).toBe(primo.contratto.detrazionePct);
+    expect(secondo.contratto.zonaClimatica).toBe(primo.contratto.zonaClimatica);
+    expect(secondo.contratto.hashParametri).toBe(primo.contratto.hashParametri);
+    expect(secondo.contratto.hashRighe).toBe(primo.contratto.hashRighe);
   });
 
   it("un'altra sede riceve NOT_FOUND, non FORBIDDEN", async () => {

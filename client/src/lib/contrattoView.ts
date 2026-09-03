@@ -10,6 +10,7 @@ import {
   OPZIONI_COMPUTO_DEFAULT,
   gruppoPerCategoria,
   gruppoPerOscurante,
+  type AccessorioRiga,
   type CategoriaRiga,
   type CodiceOpera,
   type Contratto,
@@ -187,6 +188,38 @@ export function prodottiPerRiga(
   );
 }
 
+/**
+ * Opzioni della Select «voce DEI» di una riga. La voce già scelta compare
+ * SEMPRE, anche quando i filtri la escluderebbero: un Select vuoto
+ * nasconderebbe un dato salvato senza dirlo a nessuno. Il perché
+ * dell'anomalia sta nell'etichetta, il rimedio negli avvisi.
+ */
+export type OpzioneTipologia = { codice: string; etichetta: string; anomala: boolean };
+
+export function opzioniTipologia(
+  prodotti: ReadonlyArray<ProdottoCatalogo>,
+  categoria: CategoriaRiga,
+  zona: ZonaClimatica | null,
+  codiceCorrente: string | null
+): OpzioneTipologia[] {
+  const opzioni: OpzioneTipologia[] = prodottiPerRiga(prodotti, categoria, zona).map(p => ({
+    codice: p.codice,
+    etichetta: p.nome,
+    anomala: false,
+  }));
+  if (!codiceCorrente || opzioni.some(o => o.codice === codiceCorrente)) return opzioni;
+  const p = prodotti.find(x => x.codice === codiceCorrente) ?? null;
+  const nota = !p
+    ? "non in catalogo"
+    : prodottiPerRiga(prodotti, categoria, null).some(x => x.codice === p.codice)
+      ? "fuori zona"
+      : "altra categoria";
+  return [
+    ...opzioni,
+    { codice: codiceCorrente, etichetta: `${p?.nome ?? codiceCorrente} — ${nota}`, anomala: true },
+  ];
+}
+
 export function prodottiPerOscurante(
   prodotti: ReadonlyArray<ProdottoCatalogo>,
   oscurante: OscuranteIntegrato
@@ -215,6 +248,14 @@ export function accessoriDisponibili(
     }
   }
   return scelti;
+}
+
+/** Accessori già scelti che restano compatibili con i prodotti della riga. */
+export function accessoriCompatibili(
+  scelti: ReadonlyArray<AccessorioRiga>,
+  disponibili: ReadonlyArray<AccessorioCatalogo>
+): AccessorioRiga[] {
+  return scelti.filter(a => disponibili.some(d => d.codice === a.codice)).map(a => ({ ...a }));
 }
 
 export function rateDefault(): RataContratto[] {
@@ -263,7 +304,11 @@ export function parametriDaServer(c: Contratto): ContrattoInput {
     distanzaKm: c.distanzaKm,
     detrazioneTipo: c.detrazioneTipo,
     detrazioneImmobile: c.detrazioneImmobile,
-    detrazionePct: c.detrazionePct,
+    // Mai rimandare indietro la percentuale: per il servizio un valore
+    // esplicito è un override manuale, e da lì in poi la detrazione non
+    // seguirebbe più tipo, immobile e anno di firma. Il form la mostra e
+    // basta (badge accanto a «Immobile»); a calcolarla è il server.
+    detrazionePct: null,
     dataFirma: c.dataFirma,
     rate: c.rate.map(r => ({ ...r })),
     opzioniComputo: {
@@ -319,26 +364,44 @@ export function erroriForm(
  */
 export function avvisiForm(
   righe: ReadonlyArray<
-    Pick<RigaForm, "categoria" | "tipologia" | "oscuranteIntegrato" | "oscuranteTipologia">
+    Pick<RigaForm, "categoria" | "tipologia" | "oscuranteIntegrato" | "oscuranteTipologia" | "descrizione">
   >,
-  prodotti: ReadonlyArray<ProdottoCatalogo>
+  prodotti: ReadonlyArray<ProdottoCatalogo>,
+  zona: ZonaClimatica | null = null
 ): string[] {
   const perCodice = new Map(prodotti.map(p => [p.codice, p]));
   // Catalogo non ancora arrivato: si può dire che un codice manca, non che
   // un codice scritto è sbagliato.
-  const voceValida = (codice: string | null, gruppo: string): boolean => {
-    if (!codice) return false;
-    if (perCodice.size === 0) return true;
-    return perCodice.get(codice)?.gruppo === gruppo;
+  const catalogoAssente = perCodice.size === 0;
+  const avvisoVoce = (codice: string | null, gruppo: string, mancante: string): string | null => {
+    if (!codice) return mancante;
+    if (catalogoAssente) return null;
+    const p = perCodice.get(codice);
+    if (!p || p.gruppo !== gruppo) return mancante;
+    if (zona && p.zone && !p.zone.includes(zona)) {
+      return `la tipologia «${p.nome}» non vale per la zona ${zona}.`;
+    }
+    return null;
   };
+
   const avvisi: string[] = [];
   righe.forEach((r, i) => {
+    // Il numero della riga da solo non basta: il computo numera le proprie
+    // voci con criteri suoi, la descrizione dice di quale riga si parla.
+    const descrizione = r.descrizione.trim();
+    const prefisso = descrizione ? `Riga ${i + 1} «${descrizione}»` : `Riga ${i + 1}`;
     const { gruppo } = gruppoPerCategoria(r.categoria);
-    if (gruppo && !voceValida(r.tipologia, gruppo)) {
-      avvisi.push(`Riga ${i + 1}: senza voce DEI il computo resterà incompleto.`);
+    if (gruppo) {
+      const avviso = avvisoVoce(r.tipologia, gruppo, "senza voce DEI il computo resterà incompleto.");
+      if (avviso) avvisi.push(`${prefisso}: ${avviso}`);
     }
-    if (r.oscuranteIntegrato && !voceValida(r.oscuranteTipologia, gruppoPerOscurante(r.oscuranteIntegrato))) {
-      avvisi.push(`Riga ${i + 1}: oscurante senza voce DEI.`);
+    if (r.oscuranteIntegrato) {
+      const avviso = avvisoVoce(
+        r.oscuranteTipologia,
+        gruppoPerOscurante(r.oscuranteIntegrato),
+        "oscurante senza voce DEI."
+      );
+      if (avviso) avvisi.push(`${prefisso}: ${avviso}`);
     }
   });
   return avvisi;

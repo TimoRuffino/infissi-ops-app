@@ -61,6 +61,9 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
   const [parametri, setParametri] = useState<ContrattoInput>(parametriVuoti);
   const [righe, setRighe] = useState<RigaForm[]>([]);
   const [pattuitoTesto, setPattuitoTesto] = useState("");
+  // Quote in corso di digitazione: senza questo «12,5» verrebbe riscritto in
+  // «12» a ogni tasto e il decimale sarebbe impossibile da inserire.
+  const [quoteTesto, setQuoteTesto] = useState<Record<number, string>>({});
   const [sporco, setSporco] = useState(false);
 
   // Il form si allinea al server finché l'operatore non tocca qualcosa.
@@ -72,14 +75,21 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
       setPattuitoTesto(formatEuro(c.pattuitoCent / 100));
     }
     setRighe(q.data.righe.map(rigaDaServer));
+    setQuoteTesto({});
   }, [q.data, sporco]);
 
   const salva = trpc.contratti.salva.useMutation({
     onSuccess: esito => {
+      // Prima la cache con quello che il server ha davvero salvato: se si
+      // togliesse «sporco» lasciando in cache la lettura precedente, l'effetto
+      // di allineamento riporterebbe il form indietro fino al refetch.
+      utils.contratti.get.setData({ commessaId }, prev =>
+        prev ? { ...prev, contratto: esito.contratto, righe: esito.righe } : prev
+      );
+      void utils.contratti.get.invalidate({ commessaId });
+      void utils.computo.ultimo.invalidate({ commessaId });
+      void utils.commesse.invalidate();
       setSporco(false);
-      utils.contratti.get.invalidate({ commessaId });
-      utils.computo.ultimo.invalidate({ commessaId });
-      utils.commesse.invalidate();
       toast.success("Contratto salvato");
       esito.avvertenze.forEach(a => toast.warning(a));
     },
@@ -88,11 +98,16 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
 
   const catalogo: CatalogoContratto = q.data?.catalogo ?? CATALOGO_VUOTO;
   const opereEventuali = catalogo.opere.filter(o => o.gruppo === "eventuali");
+  const zona = parametri.zonaManuale
+    ? parametri.zonaClimatica ?? null
+    : q.data?.contratto?.zonaClimatica ?? null;
   const errori = useMemo(() => erroriForm(parametri, righe), [parametri, righe]);
-  const avvisi = useMemo(() => avvisiForm(righe, catalogo.prodotti), [righe, catalogo.prodotti]);
+  const avvisi = useMemo(
+    () => avvisiForm(righe, catalogo.prodotti, zona),
+    [righe, catalogo.prodotti, zona]
+  );
   const totale = totaleRigheCent(righe);
   const puoModificare = q.data?.puoModificare ?? false;
-  const zona = parametri.zonaManuale ? parametri.zonaClimatica ?? null : q.data?.contratto?.zonaClimatica ?? null;
 
   const aggiornaRiga = (chiave: string, patch: Partial<RigaForm>) => {
     setSporco(true);
@@ -101,6 +116,11 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
   const aggiornaParametri = (patch: Partial<ContrattoInput>) => {
     setSporco(true);
     setParametri(prev => ({ ...prev, ...patch }));
+  };
+  /** Aggiunta, rimozione o preset: cambia la struttura, i testi in corso decadono. */
+  const cambiaRate = (rate: ContrattoInput["rate"]) => {
+    setQuoteTesto({});
+    aggiornaParametri({ rate });
   };
   const aggiornaOpzioni = (patch: Partial<ContrattoInput["opzioniComputo"]>) => {
     aggiornaParametri({ opzioniComputo: { ...parametri.opzioniComputo, ...patch } });
@@ -127,8 +147,10 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
               else if (e.target.value.trim() === "") aggiornaParametri({ pattuitoCent: 0 });
             }}
             onBlur={() => {
+              // Testo illeggibile: si rimette in chiaro il pattuito che il
+              // form ha davvero, invece di svuotare la casella.
               const euro = parseEuroNonNegativo(pattuitoTesto);
-              setPattuitoTesto(euro == null ? "" : formatEuro(euro));
+              setPattuitoTesto(formatEuro(euro ?? parametri.pattuitoCent / 100));
             }}
           />
         </div>
@@ -230,7 +252,14 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs text-text-3">Immobile</Label>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-text-3">Immobile</Label>
+            {q.data?.contratto?.detrazionePct != null && (
+              <Badge variant="outline" className="text-[10px]">
+                detrazione {q.data.contratto.detrazionePct}%
+              </Badge>
+            )}
+          </div>
           <Select
             value={parametri.detrazioneImmobile ?? ""}
             disabled={!puoModificare || parametri.detrazioneTipo === "nessuna"}
@@ -277,7 +306,7 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
           {puoModificare && (
             <div className="ml-auto flex gap-2">
               {parametri.rate.length === 0 && (
-                <Button size="sm" variant="outline" className="h-7" onClick={() => aggiornaParametri({ rate: rateDefault() })}>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => cambiaRate(rateDefault())}>
                   50/40/10
                 </Button>
               )}
@@ -286,12 +315,10 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
                 variant="outline"
                 className="h-7"
                 onClick={() =>
-                  aggiornaParametri({
-                    rate: [
-                      ...parametri.rate,
-                      { numero: parametri.rate.length + 1, quotaPct: 0, giorni: 0, data: null, descrizione: null },
-                    ],
-                  })
+                  cambiaRate([
+                    ...parametri.rate,
+                    { numero: parametri.rate.length + 1, quotaPct: 0, giorni: 0, data: null, descrizione: null },
+                  ])
                 }
               >
                 <Plus className="h-3.5 w-3.5 mr-1" /> Rata
@@ -309,11 +336,24 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
               inputMode="decimal"
               aria-label={`Quota in percento della rata ${rata.numero}`}
               placeholder="%"
-              value={rata.quotaPct}
+              value={quoteTesto[rata.numero] ?? String(rata.quotaPct)}
               disabled={!puoModificare}
-              onChange={e =>
-                aggiornaParametri({
-                  rate: parametri.rate.map((r, j) => (j === i ? { ...r, quotaPct: Number(e.target.value) || 0 } : r)),
+              onChange={e => {
+                const testo = e.target.value;
+                setQuoteTesto(q => ({ ...q, [rata.numero]: testo }));
+                // «12,5» come «12.5»: la quota si scrive all'italiana.
+                const quota = parseEuroNonNegativo(testo);
+                if (quota != null) {
+                  aggiornaParametri({
+                    rate: parametri.rate.map((r, j) => (j === i ? { ...r, quotaPct: Math.min(100, quota) } : r)),
+                  });
+                }
+              }}
+              onBlur={() =>
+                setQuoteTesto(q => {
+                  const resto = { ...q };
+                  delete resto[rata.numero];
+                  return resto;
                 })
               }
             />
@@ -350,9 +390,7 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
                 className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
                 aria-label={`Rimuovi la rata ${rata.numero}`}
                 onClick={() =>
-                  aggiornaParametri({
-                    rate: parametri.rate.filter((_, j) => j !== i).map((r, j) => ({ ...r, numero: j + 1 })),
-                  })
+                  cambiaRate(parametri.rate.filter((_, j) => j !== i).map((r, j) => ({ ...r, numero: j + 1 })))
                 }
               >
                 <Trash2 className="h-3.5 w-3.5" />
