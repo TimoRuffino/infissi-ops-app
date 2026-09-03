@@ -115,7 +115,7 @@ export async function risolviEntitaTars(
         etichetta: suo
           ? `Ticket: ${(t.oggetto ?? t.categoria ?? "").trim() || `#${id}`}${commessa ? ` (${commessa})` : ""}`.slice(0, 80)
           : `Ticket ${grezzo}`,
-        link: suo ? "/post-vendita" : null,
+        link: suo ? "/ticket" : null,
       });
       continue;
     }
@@ -137,7 +137,7 @@ export async function risolviEntitaTars(
         etichetta: suo
           ? `${String(i.tipo ?? "intervento").replace(/_/g, " ")} del ${i.data}${commessa ? ` — ${commessa}` : ""}`
           : `Intervento ${grezzo}`,
-        link: suo ? "/cantiere" : null,
+        link: suo ? "/planning" : null,
       });
       continue;
     }

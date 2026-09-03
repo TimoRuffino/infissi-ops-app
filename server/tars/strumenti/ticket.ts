@@ -131,7 +131,7 @@ const creaTicket: StrumentoTars<InputCreaTicket, EsitoAzione> = {
       stato: ticket.stato,
       commessaId: ticket.commessaId,
       clienteId: ticket.clienteId,
-      link: `/post-vendita?ticket=${ticket.id}`,
+      link: `/ticket?ticket=${ticket.id}`,
     };
     return {
       ...base(nome),

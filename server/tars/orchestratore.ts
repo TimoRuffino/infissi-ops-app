@@ -7,6 +7,7 @@
 // 500 grezzo; con il circuito aperto non si chiama proprio il modello.
 
 import { createHash } from "node:crypto";
+import { ZodError } from "zod";
 import {
   aggiungiTurno,
   creaConversazione,
@@ -315,8 +316,20 @@ function chiaveCachePrompt(contesto: ContestoRun, modello: string): string {
   return `tars-${createHash("sha256").update(logica).digest("hex").slice(0, 48)}`;
 }
 
-function sanifica(errore: unknown): string {
+export function sanifica(errore: unknown): string {
   if (errore instanceof ErroreProvider) return errore.message;
+  // Un input fuori schema è un errore del MODELLO, non dell'infrastruttura:
+  // deve tornargli con i dettagli (vincoli dello schema, mai dati) così si
+  // corregge e richiama. Nascosto dietro «Errore interno», in produzione
+  // il run degradava e la chat mostrava «Operatività ridotta» (03/09 sera:
+  // `limite` oltre il massimo consentito dallo schema di una ricerca).
+  if (errore instanceof ZodError) {
+    const dettagli = errore.issues
+      .slice(0, 3)
+      .map(i => `${i.path.join(".") || "input"}: ${i.message}`)
+      .join("; ");
+    return `INPUT_NON_VALIDO: ${dettagli}. Correggi i parametri e richiama lo strumento.`;
+  }
   const messaggio = String((errore as any)?.message ?? "");
   if (messaggio.startsWith("NOT_FOUND") || messaggio.startsWith("FORBIDDEN")) {
     return messaggio;

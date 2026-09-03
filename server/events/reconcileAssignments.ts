@@ -93,7 +93,7 @@ export function collectAssignmentSnapshots(input: {
   }> = [
     { entityType: "cliente", records: input.clienti, link: id => `/clienti/${id}` },
     { entityType: "commessa", records: input.commesse, link: id => `/commesse/${id}` },
-    { entityType: "ticket", records: input.tickets, link: id => `/post-vendita/${id}` },
+    { entityType: "ticket", records: input.tickets, link: id => `/ticket?ticket=${id}` },
   ];
   const snapshots: AssignmentSnapshot[] = [];
   for (const source of sources) {

@@ -315,7 +315,7 @@ export async function costruisciFotografia(input: {
             : ""
         } — aperto da ${giorniDa(t.createdAt, adesso) ?? "?"} giorni, stato «${t.stato}»${t.assegnatoA == null ? ", non assegnato" : ""}.`,
         entita: [`ticket:${t.id}`, ...(t.commessaId ? [`commessa:${t.commessaId}`] : [])],
-        link: "/post-vendita",
+        link: "/ticket",
       })),
   });
 
@@ -346,7 +346,7 @@ export async function costruisciFotografia(input: {
               chiave: "interventi:settimana",
               testo: `${interventi.length} interventi in calendario (${[...perTipo.entries()].map(([t, n]) => `${t} ${n}`).join(", ")}), ${contatori.interventiSenzaSquadra} senza squadra assegnata.`,
               entita: interventi.slice(0, 12).map(i => `intervento:${i.id}`),
-              link: "/cantiere",
+              link: "/planning",
             },
           ]
         : [],

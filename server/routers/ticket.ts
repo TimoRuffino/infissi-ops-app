@@ -113,7 +113,7 @@ export async function creaTicketRecord(input: {
     assigneeId: t.assegnatoA,
     actorUserId: input.apertoBy,
     updatedAt: now,
-    link: `/post-vendita?ticket=${t.id}`,
+    link: `/ticket?ticket=${t.id}`,
   });
   return t;
 }
@@ -229,7 +229,7 @@ export const ticketRouter = router({
           assigneeId: tickets[idx].assegnatoA ?? null,
           actorUserId: ctx.user?.id ?? null,
           updatedAt: tickets[idx].updatedAt,
-          link: `/post-vendita?ticket=${tickets[idx].id}`,
+          link: `/ticket?ticket=${tickets[idx].id}`,
         });
       }
       return tickets[idx];

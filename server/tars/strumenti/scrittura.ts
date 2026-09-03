@@ -366,7 +366,7 @@ const aggiornaTicket: StrumentoTars = {
         azioneId: `${nome}:ticket:${ticketId}:${Date.now()}`,
         entitaToccate: [`ticket:${ticketId}`],
         prima: Object.fromEntries(Object.keys(campi).map(k => [k, prima[k] ?? null])),
-        dopo: { id: ticketId, stato: ticket.stato, ...campi, link: `/post-vendita?ticket=${ticketId}` },
+        dopo: { id: ticketId, stato: ticket.stato, ...campi, link: `/ticket?ticket=${ticketId}` },
         evidenze: [{ tipo: "entita", riferimento: `ticket:${ticketId}`, descrizione: `Ticket #${ticketId} — ${ticket.oggetto}` }],
       });
     } catch (errore) {
@@ -411,7 +411,7 @@ const chiudiTicket: StrumentoTars = {
         azioneId: `${nome}:ticket:${input.ticketId}:${Date.now()}`,
         entitaToccate: [`ticket:${input.ticketId}`],
         prima: { stato: prima.stato },
-        dopo: { id: input.ticketId, stato: ticket.stato, esitoIntervento: ticket.esitoIntervento ?? null, link: `/post-vendita?ticket=${input.ticketId}` },
+        dopo: { id: input.ticketId, stato: ticket.stato, esitoIntervento: ticket.esitoIntervento ?? null, link: `/ticket?ticket=${input.ticketId}` },
         evidenze: [{ tipo: "entita", riferimento: `ticket:${input.ticketId}`, descrizione: `Ticket #${input.ticketId} — ${ticket.oggetto}` }],
         avvertenze: ["Riapribile dalla pagina Post-vendita (rollback di stato)."],
       });
@@ -493,7 +493,7 @@ const pianificaIntervento: StrumentoTars = {
           stato: "pianificato",
           azioneId: `${nome}:intervento:${intervento.id}`,
           entitaToccate: [`intervento:${intervento.id}`, `commessa:${commessaId}`],
-          dopo: { id: intervento.id, tipo: intervento.tipo, data, oraInizio: intervento.oraInizio, oraFine: intervento.oraFine, link: "/calendario" },
+          dopo: { id: intervento.id, tipo: intervento.tipo, data, oraInizio: intervento.oraInizio, oraFine: intervento.oraFine, link: "/planning" },
           evidenze: [evidenzaCommessa(commessa), { tipo: "entita", riferimento: `intervento:${intervento.id}`, descrizione: `${intervento.tipo} il ${data}` }],
           avvertenze: ["Senza squadra assegnata: si assegna dal calendario."],
         }),

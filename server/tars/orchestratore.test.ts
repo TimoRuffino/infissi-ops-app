@@ -19,7 +19,9 @@ import { costruisciContesto } from "./contesto";
 import {
   azzeraCacheTarsPerTest,
   eseguiRun,
+  sanifica,
 } from "./orchestratore";
+import { z } from "zod";
 import { creaProviderFinto, chiamataTool, rispostaTesto } from "./openai/fake";
 import * as providerGovernato from "./costi/providerGovernato";
 import * as esecuzioniR1 from "./azioni/executions";
@@ -1013,5 +1015,20 @@ describe("tars — strumenti: shaping e isolamento", () => {
     await expect(
       callerAltraSede.tars.turni({ conversazioneId: esito.conversazioneId })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("sanifica", () => {
+  it("uno ZodError torna al modello con i vincoli dello schema, non come errore interno", () => {
+    const esito = z
+      .object({ limite: z.number().int().max(50) })
+      .strict()
+      .safeParse({ limite: 100 });
+    expect(esito.success).toBe(false);
+    const testo = sanifica(esito.success ? null : esito.error);
+    expect(testo).toContain("INPUT_NON_VALIDO");
+    expect(testo).toContain("limite");
+    expect(testo).toContain("richiama lo strumento");
+    expect(testo).not.toContain("Errore interno");
   });
 });

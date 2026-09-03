@@ -122,7 +122,7 @@ describe("assignment event reconciler", () => {
       entityId: 8,
       assigneeId: 6,
       updatedAt: new Date("2026-08-25T11:00:00Z"),
-      link: "/post-vendita/8",
+      link: "/ticket?ticket=8",
     };
     store.put(first);
     store.put({ ...first, assigneeId: 9 });

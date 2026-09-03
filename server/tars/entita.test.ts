@@ -77,7 +77,7 @@ describe("risolviEntitaTars", () => {
     const t = risolto.get(`ticket:${ticket.id}`)!;
     expect(t.etichetta).toContain("Finestre con infiltrazioni");
     expect(t.etichetta).toMatch(/COM-/);
-    expect(t.link).toBe("/post-vendita");
+    expect(t.link).toBe("/ticket");
     expect(risolto.get(`comunicazione:${wa.id}`)).toMatchObject({
       etichetta: "WhatsApp: Chiara",
       link: "/messaggi/whatsapp?conversazione=wa%3A8%3A%2B393371563627",
