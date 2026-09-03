@@ -132,7 +132,7 @@ export function tarsAttivo(
 export function assicuraTars(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2"
+    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
   >
 ): void {
   assicuraInterruttore("tars");
