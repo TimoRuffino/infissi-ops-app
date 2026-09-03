@@ -263,6 +263,46 @@ describe("applicaSmistamento", () => {
 describe("pianificaAllegati (D2)", () => {
   const base = { id: 1, sedeId: SEDE, canale: "email" as const, oggetto: "Documenti" } as Comunicazione;
 
+  it("una conferma d'ordine si archivia solo se il TESTO cita la commessa: l'oggetto non basta (04/09/2026)", async () => {
+    const conferma = { indice: 0, tipo: "conferma_ordine" as const, confidenza: "alta" as const, archiviareSecondoModello: true, motivo: "" };
+    const allegato = { ...ALLEGATO_PDF, nome: "Ordini_di_Vendi_1602923(1).pdf", testo: "Conferma Ordine ALIAS" };
+
+    const c = await inserisci();
+    const deps = depsFinte();
+    let chiamate = 0;
+    deps.verificaConferma = async () => {
+      chiamate += 1;
+      return { ok: false, motivo: "Il documento non cita la commessa: né il codice, né il cliente.", prove: [], testoLetto: true, duplicatoDi: null };
+    };
+    const esito = await applicaSmistamento({
+      comunicazione: c,
+      candidati: candidati({ certo: { commessaId: 4242, clienteId: 77, motivo: "Nell'oggetto compare il cognome di Giacomazzi Giulia." } }),
+      analisi: analisi({ allegati: [conferma] }),
+      allegati: [allegato],
+      deps,
+    });
+    expect(chiamate).toBe(1);
+    expect(deps.archiviazioni).toHaveLength(0);
+    expect(esito.esito.archiviati).toHaveLength(0);
+    expect(esito.esito.allegati[0]).toMatchObject({ archiviare: false });
+    expect(esito.esito.allegati[0].motivo).toContain("non cita");
+
+    // Con il riscontro nel testo si archivia, e la nota dice cosa cita.
+    deps.verificaConferma = async () => ({ ok: true, motivo: "Il documento cita cliente giacomazzi.", prove: ["cliente giacomazzi"], testoLetto: true, duplicatoDi: null });
+    const c2 = await inserisci();
+    const esito2 = await applicaSmistamento({
+      comunicazione: c2,
+      candidati: candidati({ certo: { commessaId: 4242, clienteId: 77, motivo: "Nell'oggetto compare il cognome di Giacomazzi Giulia." } }),
+      analisi: analisi({ allegati: [conferma] }),
+      allegati: [allegato],
+      deps,
+    });
+    expect(esito2.esito.archiviati).toHaveLength(1);
+    expect(deps.archiviazioni).toHaveLength(1);
+    expect(deps.archiviazioni[0]).toMatchObject({ tipo: "conferma_ordine", origine: "smistamento" });
+    expect(String(deps.archiviazioni[0].note)).toContain("cita cliente giacomazzi");
+  });
+
   it("un documento «altro» non si archivia; modello e regole discordi su un tipo forte nemmeno", () => {
     const piano = pianificaAllegati({
       comunicazione: base,

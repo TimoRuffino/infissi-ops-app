@@ -79,6 +79,56 @@ Tre mandati arrivati subito dopo:
    («Conferme d'ordine», sotto Cantiere): data, file (si apre), commessa,
    origine, costo imponibile o perché manca, merce a magazzino.
 
+## Terza tranche (notte del 04/09): il caso Giacomazzi
+
+In produzione la commessa 96 (Giacomazzi Giulia) aveva sette «conferme»
+archiviate dallo smistamento perché il cognome era nell'OGGETTO della mail,
+tre delle quali copie dello stesso ordine Alias 1602923, diventate tre costi.
+Mandati: «Tars oltre all'oggetto deve controllare sempre anche il
+riferimento all'interno della conf. ordine; alcune aziende potrebbero
+inviare più conf. ordine nella stessa mail con lo stesso oggetto»; «vanno
+ricontrollate tutte le conf. ordine collegate automaticamente»; «va
+ricontrollato anche il magazzino»; «alcune aziende usano la settimana di
+approntamento»; «spesso Tars mette dei duplicati»; «migliora notevolmente
+l'OCR».
+
+1. **Riscontro nel testo** (`server/documenti/riscontroCommessa.ts`): una
+   conferma entra in un fascicolo DA SOLA solo se il suo testo cita la
+   commessa — codice, cliente (anche troncato: «VS.RIFERIMENTO GIACOMAZZI
+   GIUL»), indirizzo del cantiere o un ordine già noto. Vale per lo
+   smistamento (`applica.ts`), per il worker delle conferme certe e per lo
+   strumento `archivia_allegato_comunicazione` 1.1.0 (che scavalca solo con
+   `confermaSenzaRiscontro: true` detto dall'utente). Le archiviazioni manuali
+   (scheda, Messaggi) restano fidate.
+2. **Ricontrollo retroattivo**: `VERSIONE_LETTURA_COSTO` 1.2.0 fa rileggere
+   ogni conferma; quelle con origine smistamento/automatico senza riscontro
+   perdono costo e merce (`senza_riscontro`) e compaiono nel registro e nella
+   scheda con «È di questa commessa» (`preventiviContratti.confermaRiscontroConferma`,
+   direzione o amministrazione).
+3. **Duplicati**: stesso riferimento d'ordine nel nome del file o nel testo
+   (`Ordini_di_Vendi_1602923(1)`, `(1) (2)`, `(1) (3)`) = stessa conferma:
+   niente secondo costo né seconda merce (`duplicato`), e un file rimandato
+   con il progressivo nel nome e la stessa dimensione (±2 %) non entra due
+   volte nel fascicolo.
+4. **Numeri di commessa** (`conversazione/resolver.ts`, prompt v11): «la
+   commessa 393» è il progressivo del codice COM-2026-393, mai l'id del
+   database (Tars aveva mosso COM-2026-385 e scavalcato cinque gate).
+5. **Settimana di approntamento** (`estrazioneConferma.ts`): «Approntamento
+   [1] … 2026 Settimana 21» non è una consegna: la merce a magazzino resta
+   senza data, la nota dice «merce pronta dal fornitore dal 18/05/2026: la
+   consegna va concordata».
+6. **Righe merce** (`estrazioneMerce.ts` 1.1.0) tarate sul testo reale di
+   Alias: unità e quantità incollate anche a rovescio («NR 1,00PORST-C013»,
+   «1,00NR253003 POMOLO»), quantità nella riga sotto, codici articolo non
+   scambiati per quantità. Le righe lette da un estrattore vecchio si
+   rigenerano se nessuno le ha toccate a mano.
+7. **OCR**: in produzione era spento (i binari tesseract/poppler erano già
+   nell'immagine via `nixpacks.toml`, il flag no): `FLAG_OCR=on` impostato
+   in Railway il 04/09 (gli interruttori restano fail-closed nel codice);
+   tesseract in `--psm 6` con `preserve_interword_spaces=1`, così le righe di
+   tabella restano righe. Lettura con il modello dei PDF scansionati:
+   tranche successiva, da decidere.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

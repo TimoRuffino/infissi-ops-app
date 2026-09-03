@@ -55,6 +55,12 @@ export type EstrazioneConferma = {
   dataDocumento: CampoEstratto<string> | null; // ISO YYYY-MM-DD
   dateConsegna: Array<CampoEstratto<string>>; // ISO, in ordine di apparizione
   settimaneConsegna: Array<CampoEstratto<number>>; // settimana ISO dichiarata
+  /**
+   * Settimana di APPRONTAMENTO (Alias: «Approntamento [1] … 2026 Settimana
+   * 21»): la merce è pronta dal fornitore, non consegnata. Direzione
+   * 04/09/2026: «alcune aziende usano la settimana di approntamento».
+   */
+  settimaneApprontamento?: Array<CampoEstratto<number> & { anno: number | null }>;
   /** Totale del documento: di norma IVA INCLUSA. */
   totaleDocumento: CampoEstratto<number> | null;
   /**
@@ -220,6 +226,7 @@ export function estraiConfermaOrdine(
     dataDocumento: null,
     dateConsegna: [],
     settimaneConsegna: [],
+    settimaneApprontamento: [],
     totaleDocumento: null,
     imponibileDocumento: null,
     righe: [],
@@ -359,24 +366,38 @@ export function estraiConfermaOrdine(
   for (const data of risultato.dateConsegna) delete (data as any).__forte;
 
   // ── Settimana di consegna dichiarata (sett. 37, KW 37) ─────────────────
+  // Se nelle righe prima si parla di APPRONTAMENTO (merce pronta dal
+  // fornitore), la settimana non è una consegna: va in
+  // settimaneApprontamento, con l'anno se dichiarato («2026 Settimana 21»).
+  const PAROLE_APPRONTAMENTO = /(approntament|merce\s+pronta|pront[ae]\s+(?:per|dal|il)|disponibilit|ready\s+(?:for|by)|fertigstellung)/i;
   for (const { pagina, match } of cercaSuPagine(
     pagine,
-    /\b(?:settimana|sett\.?|KW)\s*(\d{1,2})\b/gi
+    /(?:\b(\d{4})\s+)?\b(?:settimana|sett\.?|KW)\s*(\d{1,2})\b/gi
   )) {
-    const settimana = Number(match[1]);
+    const settimana = Number(match[2]);
     if (!(settimana >= 1 && settimana <= 53)) continue;
+    const anno = match[1] ? Number(match[1]) : null;
+    const prima = pagine[pagina].slice(Math.max(0, match.index - 120), match.index);
+    const ev = evidenza(
+      pagine,
+      pagina,
+      match.index,
+      match[0].length,
+      "pattern_testo",
+      "media"
+    );
+    if (PAROLE_APPRONTAMENTO.test(prima)) {
+      risultato.settimaneApprontamento ??= [];
+      if (risultato.settimaneApprontamento.some(s => s.valore === settimana)) continue;
+      risultato.settimaneApprontamento.push({
+        valore: settimana,
+        anno: anno != null && anno >= 2000 && anno <= 2100 ? anno : null,
+        evidenza: ev,
+      });
+      continue;
+    }
     if (risultato.settimaneConsegna.some(s => s.valore === settimana)) continue;
-    risultato.settimaneConsegna.push({
-      valore: settimana,
-      evidenza: evidenza(
-        pagine,
-        pagina,
-        match.index,
-        match[0].length,
-        "pattern_testo",
-        "media"
-      ),
-    });
+    risultato.settimaneConsegna.push({ valore: settimana, evidenza: ev });
   }
 
   // ── Totale del documento ───────────────────────────────────────────────

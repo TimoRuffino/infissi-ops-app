@@ -13,29 +13,55 @@
 // la scheda lo dice; se le righe non si riconoscono, a magazzino entra una
 // riga sola da completare a mano — ma la commessa compare, con la data.
 //
+// Due guardie aggiunte la notte del 04/09/2026, dopo il caso Giacomazzi
+// (conferme archiviate dal solo oggetto della mail, e la stessa conferma
+// inviata tre volte diventata tre costi):
+// - RISCONTRO: una conferma archiviata da un automatismo (smistamento,
+//   regola delle conferme certe) produce costo e merce solo se il suo testo
+//   cita la commessa — codice, cliente, indirizzo o un ordine noto. Se non
+//   la cita, si ritira ciò che era nato e si chiede a una persona.
+// - DUPLICATI: due conferme con lo stesso riferimento d'ordine (nel nome
+//   del file o nel testo) sono la stessa conferma: la seconda non produce
+//   niente.
+//
 // Chi chiama: gli agganci del fascicolo (upload, archiviazione da mail,
 // riclassificazione) SENZA OCR — il percorso della richiesta deve restare
 // rapido — e il worker di fondo CON OCR, per le scansioni e per le conferme
 // già archiviate prima di questa regola.
 
 import { getComunicazione } from "../comunicazioni/comunicazioni";
-import { estraiConfermaOrdine } from "../documenti/estrazioneConferma";
-import { dataDaSettimanaIso, estraiRigheMerce } from "../documenti/estrazioneMerce";
+import { estraiConfermaOrdine, type EstrazioneConferma } from "../documenti/estrazioneConferma";
+import {
+  dataDaSettimanaIso,
+  ESTRATTORE_MERCE_VERSIONE,
+  estraiRigheMerce,
+} from "../documenti/estrazioneMerce";
 import {
   estraiTestoDocumento,
   type EsitoParser,
 } from "../documenti/parserRegistry";
+import {
+  riferimentiOrdineDocumento,
+  riscontroCommessaNelTesto,
+  stessoOrdine,
+  type RiferimentiCommessa,
+  type RiscontroCommessa,
+} from "../documenti/riscontroCommessa";
 import { getCommessaById } from "../routers/commesse";
+import { getOrdiniPerMargine } from "../routers/fornitori";
 import {
   creaProdottiDaConferma,
+  getMagazzinoStore,
   isCommessaEligibleForMagazzino,
   prodottiDelDocumento,
+  rimuoviProdottiDelDocumento,
 } from "../routers/magazzino";
 import {
   documentiDiSede,
   getDocumentiDiCommessa,
   getDocumentoRecordById,
   leggiDocumentoCommessaDaStorage,
+  origineDaRecord,
   salvaLetturaCostoDocumento,
   type Documento,
 } from "../routers/preventiviContratti";
@@ -45,6 +71,7 @@ import {
   costoDelDocumento,
   costoManualeCorrispondente,
   riferimentoNormalizzato,
+  rimuoviCostoDelDocumento,
 } from "./costiRegistro";
 import {
   ESITI_TERMINALI,
@@ -76,6 +103,8 @@ export type EsitoCostoDaConferma = {
   nomeFile: string | null;
   /** Cosa è successo a magazzino in questa lettura (null = testo non letto). */
   merce: MerceDaConferma | null;
+  /** Il documento di cui questa conferma è un duplicato. */
+  duplicatoDi: number | null;
 };
 
 export type DipendenzeCostoDaConferma = {
@@ -135,6 +164,187 @@ function arrotonda(valore: number): number {
   return Math.round((valore + Number.EPSILON) * 100) / 100;
 }
 
+/** Le archiviazioni fatte da un automatismo: qui il testo deve citare la commessa. */
+export function origineAutomatica(documento: Documento): boolean {
+  const origine = documento.origine ?? origineDaRecord(documento);
+  return origine === "smistamento" || origine === "automatico";
+}
+
+// ── Riscontro e duplicati: condivisi con smistamento, worker e strumento ──
+
+/** Tutto ciò che identifica una commessa dentro un documento. */
+export function riferimentiDellaCommessa(commessa: any): RiferimentiCommessa {
+  const riferimentiOrdine = new Set<string>();
+  for (const c of Array.isArray(commessa.costi) ? commessa.costi : []) {
+    if (c?.numeroOrdine) riferimentiOrdine.add(String(c.numeroOrdine));
+  }
+  for (const p of getMagazzinoStore()) {
+    if (p.commessaId === commessa.id && p.numeroOrdine) riferimentiOrdine.add(p.numeroOrdine);
+  }
+  try {
+    for (const o of getOrdiniPerMargine(commessa.id, commessa.sedeId ?? null)) {
+      if (o.codiceOrdine) riferimentiOrdine.add(o.codiceOrdine);
+    }
+  } catch {
+    // Il modulo ordini può non essere caricato: non è un riscontro necessario.
+  }
+  for (const d of getDocumentiDiCommessa(commessa.id)) {
+    if (d.tipo !== "conferma_ordine") continue;
+    for (const r of d.letturaCosto?.riferimenti ?? []) riferimentiOrdine.add(r);
+    if (d.letturaCosto?.numeroOrdine) riferimentiOrdine.add(d.letturaCosto.numeroOrdine);
+  }
+  return {
+    codice: commessa.codice ?? null,
+    cliente: commessa.cliente ?? null,
+    indirizzo: commessa.indirizzo ?? null,
+    citta: commessa.citta ?? null,
+    riferimentiOrdine: [...riferimentiOrdine],
+  };
+}
+
+function riferimentiDiDocumento(documento: Documento): string[] {
+  return (
+    documento.letturaCosto?.riferimenti ??
+    riferimentiOrdineDocumento({
+      nomeFile: documento.nome,
+      riferimentoOrdine: documento.letturaCosto?.numeroOrdine ?? null,
+    })
+  );
+}
+
+/**
+ * Un'altra conferma dello stesso fascicolo che parla dello stesso ordine
+ * (riferimento in comune nel nome o nel testo, oppure stesso imponibile,
+ * fornitore e data) e che ha già prodotto — o avrebbe prodotto — il costo.
+ */
+export function confermaDuplicataNelFascicolo(input: {
+  commessaId: number;
+  documentoId: number | null;
+  riferimenti: readonly string[];
+  imponibile: number | null;
+  fornitore: string | null;
+  dataDocumento: string | null;
+}): { documento: Documento; riferimento: string } | null {
+  const commessa: any = getCommessaById(input.commessaId);
+  if (!commessa) return null;
+  for (const altro of getDocumentiDiCommessa(input.commessaId)) {
+    if (altro.tipo !== "conferma_ordine" || altro.id === input.documentoId) continue;
+    const lettura = altro.letturaCosto ?? null;
+    // Un duplicato di una conferma a sua volta scartata non conta: si
+    // confronta solo con chi «vale» (costo o merce a registro, o lettura che
+    // li ha prodotti — anche se poi una persona li ha tolti).
+    const vale =
+      costoDelDocumento(commessa, altro.id) != null ||
+      prodottiDelDocumento(altro.id).length > 0 ||
+      lettura?.esito === "registrato" ||
+      lettura?.esito === "collegato" ||
+      lettura?.esito === "senza_imponibile";
+    if (!vale) continue;
+    const comune = stessoOrdine(riferimentiDiDocumento(altro), input.riferimenti);
+    if (comune) return { documento: altro, riferimento: comune };
+    if (
+      input.imponibile != null &&
+      lettura?.imponibile != null &&
+      Math.abs(lettura.imponibile - input.imponibile) < 0.005 &&
+      riferimentoNormalizzato(lettura.fornitore) === riferimentoNormalizzato(input.fornitore) &&
+      (lettura.dataDocumento ?? null) === (input.dataDocumento ?? null)
+    ) {
+      return { documento: altro, riferimento: `imponibile ${input.imponibile}` };
+    }
+  }
+  return null;
+}
+
+export type VerificaConfermaPerFascicolo = {
+  ok: boolean;
+  motivo: string;
+  prove: string[];
+  /** Il testo si è letto? Senza testo non si archivia da soli. */
+  testoLetto: boolean;
+  duplicatoDi: { documentoId: number; nome: string; riferimento: string } | null;
+};
+
+/**
+ * Prima di mettere una conferma in un fascicolo DA SOLI (smistamento,
+ * regola delle conferme certe, strumento Tars): il testo deve citare la
+ * commessa e non deve essere una copia di una conferma già presente.
+ */
+export async function verificaConfermaPerFascicolo(input: {
+  commessaId: number;
+  nomeFile: string;
+  mimeType: string;
+  buffer: Buffer;
+  estraiTesto?: DipendenzeCostoDaConferma["estraiTesto"];
+}): Promise<VerificaConfermaPerFascicolo> {
+  const commessa: any = getCommessaById(input.commessaId);
+  if (!commessa) {
+    return { ok: false, motivo: "Commessa non trovata.", prove: [], testoLetto: false, duplicatoDi: null };
+  }
+  const estrai = input.estraiTesto ?? dipendenzeCostoDaConfermaReali().estraiTesto;
+  let parser: EsitoParser;
+  try {
+    parser = await estrai(input.buffer, input.mimeType, input.nomeFile, false);
+  } catch (errore) {
+    return {
+      ok: false,
+      motivo: `Testo non leggibile (${motivoSicuro(errore)}): la conferma va verificata a mano.`,
+      prove: [],
+      testoLetto: false,
+      duplicatoDi: null,
+    };
+  }
+  if (parser.esito !== "estratto") {
+    return {
+      ok: false,
+      motivo:
+        "Testo non leggibile (scansione o formato non supportato): senza leggere dentro la conferma non si archivia da soli.",
+      prove: [],
+      testoLetto: false,
+      duplicatoDi: null,
+    };
+  }
+  const estrazione = estraiConfermaOrdine(parser.pagine, {
+    codiceOrdine: null,
+    fornitoreNome: null,
+    righeOrdine: [],
+  });
+  const riscontro = riscontroCommessaNelTesto(parser.pagine, riferimentiDellaCommessa(commessa));
+  const duplicato = confermaDuplicataNelFascicolo({
+    commessaId: commessa.id,
+    documentoId: null,
+    riferimenti: riferimentiOrdineDocumento({
+      nomeFile: input.nomeFile,
+      riferimentoOrdine: estrazione.riferimentoOrdine?.valore ?? null,
+      numeroConferma: estrazione.numeroConferma?.valore ?? null,
+    }),
+    imponibile: estrazione.imponibileDocumento?.valore ?? null,
+    fornitore: estrazione.fornitoreCitato?.valore ?? null,
+    dataDocumento: estrazione.dataDocumento?.valore ?? null,
+  });
+  if (duplicato) {
+    return {
+      ok: false,
+      motivo: `Stessa conferma di «${duplicato.documento.nome}» già nel fascicolo (riferimento ${duplicato.riferimento}): non si duplica.`,
+      prove: riscontro.prove,
+      testoLetto: true,
+      duplicatoDi: {
+        documentoId: duplicato.documento.id,
+        nome: duplicato.documento.nome,
+        riferimento: duplicato.riferimento,
+      },
+    };
+  }
+  return {
+    ok: riscontro.ok,
+    motivo: riscontro.motivo,
+    prove: riscontro.prove,
+    testoLetto: true,
+    duplicatoDi: null,
+  };
+}
+
+// ── La regola: costo e merce dalla conferma ────────────────────────────────
+
 export async function registraCostoDaConferma(input: {
   documentoId: number;
   /** OCR ammesso: solo dal worker o su richiesta esplicita, mai nel percorso della richiesta. */
@@ -170,6 +380,7 @@ export async function registraCostoDaConferma(input: {
     motivo,
     nomeFile: documento?.nome ?? null,
     merce: null,
+    duplicatoDi: null,
     ...extra,
   });
 
@@ -201,39 +412,6 @@ export async function registraCostoDaConferma(input: {
     (precedente.checksum ?? null) === (documento.checksum ?? null) &&
     precedente.merce !== undefined;
   const esistente = costoDelDocumento(commessa, documento.id);
-  const merceGiaScritta = prodottiDelDocumento(documento.id);
-
-  // Costo a registro e merce a magazzino: niente da rifare. Se il documento
-  // non lo ricorda con questa versione, lo si annota adesso.
-  if (esistente && merceGiaScritta.length > 0) {
-    if (!memoriaValida) {
-      salva({
-        esito: "registrato",
-        fonteTesto: precedente?.fonteTesto ?? "nessuna",
-        imponibile: esistente.importo,
-        fornitore: esistente.fornitore,
-        numeroOrdine: esistente.numeroOrdine,
-        dataDocumento: esistente.data,
-        motivo: null,
-        tentativi: precedente?.tentativi ?? 0,
-        costoId: esistente.id,
-        merce: {
-          righe: merceGiaScritta.length,
-          dataConsegna: merceGiaScritta[0]?.dataConsegna ?? null,
-          motivo: null,
-        },
-      });
-    }
-    return base(documento, "gia_registrato", null, {
-      imponibile: esistente.importo,
-      costoId: esistente.id,
-      merce: precedente?.merce ?? {
-        righe: merceGiaScritta.length,
-        dataConsegna: merceGiaScritta[0]?.dataConsegna ?? null,
-        motivo: null,
-      },
-    });
-  }
 
   // Decisioni già prese con questa versione e questi byte: si rispettano.
   if (memoriaValida && !input.forza) {
@@ -256,6 +434,7 @@ export async function registraCostoDaConferma(input: {
       return base(documento, precedente.esito, precedente.motivo, {
         fonteTesto: precedente.fonteTesto,
         merce: precedente.merce ?? null,
+        duplicatoDi: precedente.duplicatoDi ?? null,
       });
     }
     if (precedente.esito === "da_ocr" && !input.ocr) {
@@ -282,6 +461,7 @@ export async function registraCostoDaConferma(input: {
       tentativi: esito === "errore" ? tentativi + 1 : tentativi,
       costoId: null,
       merce: null,
+      riferimenti: riferimentiOrdineDocumento({ nomeFile: documento.nome }),
     });
     return base(documento, esito, motivo);
   };
@@ -333,34 +513,95 @@ export async function registraCostoDaConferma(input: {
     estrazione.fornitoreCitato?.valore ||
     (await deps.nomeMittente(documento)) ||
     null;
+  const riferimenti = riferimentiOrdineDocumento({
+    nomeFile: raw.nome,
+    riferimentoOrdine: estrazione.riferimentoOrdine?.valore ?? null,
+    numeroConferma: estrazione.numeroConferma?.valore ?? null,
+  });
   const riferimentoDocumento = `«${raw.nome}» (documento:${documento.id})`;
   const avvisoOcr =
     fonteTesto === "ocr" ? " — testo da OCR, verificare sul file" : "";
-
-  // ── Merce in arrivo a magazzino ──────────────────────────────────────────
-  const merce = applicaMerceDaConferma({
-    commessa,
-    documento,
-    pagine: parser.pagine,
-    fornitore,
-    numeroOrdine,
-    dataOrdine: dataDocumento,
-    dateConsegna: estrazione.dateConsegna.map(d => d.valore),
-    settimaneConsegna: estrazione.settimaneConsegna.map(s => s.valore),
-    riferimentoDocumento,
-    avvisoOcr,
-    adesso: deps.adesso(),
-  });
-
-  // ── Costo fornitore ──────────────────────────────────────────────────────
-  const memoriaCosto = {
+  const memoriaBase = {
     fonteTesto,
     imponibile,
     fornitore,
     numeroOrdine,
     dataDocumento,
     tentativi,
+    riferimenti,
+  };
+
+  // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
+  let riscontro: RiscontroCommessa | null = null;
+  if (origineAutomatica(documento) && !documento.riscontroConfermato) {
+    riscontro = riscontroCommessaNelTesto(parser.pagine, riferimentiDellaCommessa(commessa));
+    if (!riscontro.ok) {
+      const ritirato = ritira(commessa, documento);
+      const motivo = `${riscontro.motivo} Archiviata dal solo oggetto della mail: verifica il file e, se è di questa commessa, conferma; altrimenti spostala o cancellala.${
+        ritirato ? " Costo e merce nati da questa conferma sono stati ritirati." : ""
+      }`;
+      salva({
+        ...memoriaBase,
+        esito: "senza_riscontro",
+        motivo,
+        costoId: null,
+        merce: null,
+        riscontro: { ok: false, prove: [] },
+      });
+      return base(documento, "senza_riscontro", motivo, { fonteTesto, imponibile });
+    }
+  }
+
+  // ── Duplicati: stessa conferma già nel fascicolo ──────────────────────────
+  const duplicato = confermaDuplicataNelFascicolo({
+    commessaId: commessa.id,
+    documentoId: documento.id,
+    riferimenti,
+    imponibile,
+    fornitore,
+    dataDocumento,
+  });
+  if (duplicato) {
+    const ritirato = ritira(commessa, documento);
+    const motivo = `Stessa conferma di «${duplicato.documento.nome}» (riferimento ${duplicato.riferimento}): il costo e la merce restano quelli dell'originale.${
+      ritirato ? " Costo e merce doppi ritirati." : ""
+    }`;
+    salva({
+      ...memoriaBase,
+      esito: "duplicato",
+      motivo,
+      costoId: null,
+      merce: null,
+      duplicatoDi: duplicato.documento.id,
+      riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+    });
+    return base(documento, "duplicato", motivo, {
+      fonteTesto,
+      imponibile,
+      duplicatoDi: duplicato.documento.id,
+    });
+  }
+
+  // ── Merce in arrivo a magazzino ──────────────────────────────────────────
+  const merce = applicaMerceDaConferma({
+    commessa,
+    documento,
+    pagine: parser.pagine,
+    estrazione,
+    fornitore,
+    numeroOrdine,
+    dataOrdine: dataDocumento,
+    riferimentoDocumento,
+    avvisoOcr,
+    adesso: deps.adesso(),
+    precedente: precedente?.merce ?? null,
+  });
+
+  // ── Costo fornitore ──────────────────────────────────────────────────────
+  const memoriaCosto = {
+    ...memoriaBase,
     merce,
+    riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
   };
 
   if (esistente) {
@@ -447,55 +688,98 @@ export async function registraCostoDaConferma(input: {
   });
 }
 
+/** Ritira costo e merce nati da un documento che non doveva produrli. */
+function ritira(commessa: any, documento: Documento): boolean {
+  const costo = rimuoviCostoDelDocumento(documento.id, commessa.id);
+  const merce = rimuoviProdottiDelDocumento(documento.id);
+  return costo != null || merce > 0;
+}
+
 /**
  * La merce che la conferma promette, scritta a magazzino sulla commessa:
  * una riga per articolo riconosciuto, altrimenti una riga sola da completare
  * a mano — così la commessa compare comunque, con la sua data di arrivo.
- * Idempotente per documento (le righe già scritte non si raddoppiano).
+ * Idempotente per documento; le righe lette da un estrattore più vecchio si
+ * rigenerano se nessuno le ha toccate a mano (04/09/2026: «va ricontrollato
+ * anche il magazzino»). La settimana di APPRONTAMENTO non è una consegna:
+ * la data resta vuota e la nota lo dice.
  */
 function applicaMerceDaConferma(input: {
   commessa: any;
   documento: Documento;
   pagine: string[];
+  estrazione: EstrazioneConferma;
   fornitore: string | null;
   numeroOrdine: string | null;
   dataOrdine: string | null;
-  dateConsegna: string[];
-  settimaneConsegna: number[];
   riferimentoDocumento: string;
   avvisoOcr: string;
   adesso: Date;
+  precedente: MerceDaConferma | null;
 }): MerceDaConferma {
+  const c = input.commessa;
   const gia = prodottiDelDocumento(input.documento.id);
   if (gia.length > 0) {
-    return { righe: gia.length, dataConsegna: gia[0].dataConsegna, motivo: null };
+    const toccate = gia.some(
+      p =>
+        p.arrivato ||
+        new Date(p.updatedAt as any).getTime() - new Date(p.createdAt as any).getTime() > 2_000
+    );
+    const vecchie = (input.precedente?.versioneEstrattore ?? null) !== ESTRATTORE_MERCE_VERSIONE;
+    if (!vecchie || toccate) {
+      return {
+        righe: gia.length,
+        dataConsegna: gia[0].dataConsegna,
+        motivo: vecchie ? "Righe modificate a mano: non rigenerate." : null,
+        versioneEstrattore: vecchie ? (input.precedente?.versioneEstrattore ?? null) : ESTRATTORE_MERCE_VERSIONE,
+        approntamento: input.precedente?.approntamento ?? null,
+      };
+    }
+    rimuoviProdottiDelDocumento(input.documento.id);
   }
-  const c = input.commessa;
   if (c.archivedAt || !isCommessaEligibleForMagazzino(String(c.stato ?? ""))) {
     return {
       righe: 0,
       dataConsegna: null,
       motivo: `La commessa è in «${c.stato}»: il magazzino parte da «Da ordinare».`,
+      versioneEstrattore: ESTRATTORE_MERCE_VERSIONE,
+      approntamento: null,
     };
   }
   const riferimento = input.dataOrdine ? new Date(`${input.dataOrdine}T00:00:00Z`) : input.adesso;
+  const riferimentoValido = Number.isFinite(riferimento.getTime()) ? riferimento : input.adesso;
+  const dateConsegna = input.estrazione.dateConsegna.map(d => d.valore);
+  const settimaneConsegna = input.estrazione.settimaneConsegna.map(s => s.valore);
+  const approntamentoDichiarato = input.estrazione.settimaneApprontamento?.[0] ?? null;
+  const approntamento = approntamentoDichiarato
+    ? {
+        settimana: approntamentoDichiarato.valore,
+        anno: approntamentoDichiarato.anno,
+        dal: dataDaSettimanaIso(
+          approntamentoDichiarato.valore,
+          riferimentoValido,
+          approntamentoDichiarato.anno
+        ),
+      }
+    : null;
   const dataConsegna =
-    input.dateConsegna[0] ??
-    (input.settimaneConsegna[0] != null
-      ? dataDaSettimanaIso(
-          input.settimaneConsegna[0],
-          Number.isFinite(riferimento.getTime()) ? riferimento : input.adesso
-        )
+    dateConsegna[0] ??
+    (settimaneConsegna[0] != null
+      ? dataDaSettimanaIso(settimaneConsegna[0], riferimentoValido)
       : null);
-  const daSettimana =
-    !input.dateConsegna[0] && input.settimaneConsegna[0] != null
-      ? ` Consegna: settimana ${input.settimaneConsegna[0]}.`
-      : "";
+  const notaConsegna =
+    !dateConsegna[0] && settimaneConsegna[0] != null
+      ? ` Consegna: settimana ${settimaneConsegna[0]}.`
+      : !dataConsegna && approntamento
+        ? ` Approntamento: settimana ${approntamento.settimana}${approntamento.anno ? `/${approntamento.anno}` : ""}${
+            approntamento.dal ? ` (merce pronta dal fornitore dal ${approntamento.dal})` : ""
+          }: la consegna va concordata, la data resta vuota.`
+        : "";
   const righe = estraiRigheMerce(input.pagine);
   const nota = (
     righe.length > 0
-      ? `Letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}.${daSettimana}`
-      : `Dalla conferma d'ordine ${input.riferimentoDocumento}: righe di merce non riconosciute nel PDF, descrizione da completare a mano.${daSettimana}`
+      ? `Letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}.${notaConsegna}`
+      : `Dalla conferma d'ordine ${input.riferimentoDocumento}: righe di merce non riconosciute nel PDF, descrizione da completare a mano.${notaConsegna}`
   ).slice(0, 300);
   const creati = creaProdottiDaConferma({
     commessaId: c.id,
@@ -523,6 +807,8 @@ function applicaMerceDaConferma(input: {
     dataConsegna,
     motivo:
       righe.length > 0 ? null : "Righe di merce non riconosciute: una riga sola da completare a mano.",
+    versioneEstrattore: ESTRATTORE_MERCE_VERSIONE,
+    approntamento,
   };
 }
 
@@ -550,6 +836,10 @@ export type ConfermaSenzaCosto = {
   motivo: string | null;
   fonteTesto: LetturaCostoDocumento["fonteTesto"];
   link: string;
+  /** Il documento originale, quando questa è un duplicato. */
+  duplicatoDi: number | null;
+  /** Una persona può dire «è di questa commessa» e far nascere costo e merce. */
+  confermabile: boolean;
 };
 
 function descriviConferma(commessa: any, documento: Documento): ConfermaSenzaCosto {
@@ -572,6 +862,8 @@ function descriviConferma(commessa: any, documento: Documento): ConfermaSenzaCos
           : (lettura?.motivo ?? null),
     fonteTesto: lettura?.fonteTesto ?? "nessuna",
     link: `/api/documenti/${documento.id}/file`,
+    duplicatoDi: lettura?.duplicatoDi ?? null,
+    confermabile: esito === "senza_riscontro",
   };
 }
 
@@ -586,8 +878,9 @@ export function confermeSenzaCostoDi(commessaId: number): ConfermaSenzaCosto[] {
 
 /**
  * Per la fotografia di Tars: le conferme della sede che il sistema NON è
- * riuscito a trasformare in costo (senza imponibile, illeggibili). Le
- * letture ancora in corso non si segnalano: ci pensa il worker.
+ * riuscito a trasformare in costo (senza imponibile, illeggibili, senza
+ * riscontro). Le letture ancora in corso non si segnalano: ci pensa il
+ * worker. I duplicati non sono un problema: sono già spiegati.
  */
 export function confermeSenzaCostoLeggibileDiSede(
   sedeId: number,
@@ -599,7 +892,12 @@ export function confermeSenzaCostoLeggibileDiSede(
   for (const documento of documentiDiSede(sedeId)) {
     if (documento.tipo !== "conferma_ordine") continue;
     const lettura = documento.letturaCosto;
-    if (!lettura || (lettura.esito !== "senza_imponibile" && lettura.esito !== "non_leggibile")) {
+    if (
+      !lettura ||
+      (lettura.esito !== "senza_imponibile" &&
+        lettura.esito !== "non_leggibile" &&
+        lettura.esito !== "senza_riscontro")
+    ) {
       continue;
     }
     const commessa: any = getCommessaById(documento.commessaId);

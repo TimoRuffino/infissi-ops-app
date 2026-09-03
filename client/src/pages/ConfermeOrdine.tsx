@@ -65,6 +65,10 @@ function costoTesto(costo: { stato: string; importo: number | null }): string {
       return "lettura fallita";
     case "collegato":
       return "collegato a un costo manuale";
+    case "senza_riscontro":
+      return "non cita la commessa: da verificare";
+    case "duplicato":
+      return "copia di una conferma già a registro";
     default:
       return "in attesa di lettura";
   }
@@ -85,6 +89,13 @@ export default function ConfermeOrdine() {
   const [filtro, setFiltro] = useState<FiltroOrigine>("tutte");
   const [search, setSearch] = useState("");
   const registro = trpc.preventiviContratti.registroConferme.useQuery({ origine: filtro });
+  // «È di questa commessa»: una persona conferma una conferma archiviata da
+  // un automatismo il cui testo non cita la commessa; costo e merce nascono.
+  const confermaRiscontro = trpc.preventiviContratti.confermaRiscontroConferma.useMutation({
+    onSuccess: () => {
+      void registro.refetch();
+    },
+  });
 
   const righe = registro.data ?? [];
   const filtrate = useMemo(() => {
@@ -259,7 +270,20 @@ export default function ConfermeOrdine() {
                         {ORIGINE_LABEL[r.origine] ?? r.origine}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{costoTesto(r.costo)}</TableCell>
+                    <TableCell className="text-right tabular-nums" title={r.motivo ?? undefined}>
+                      {costoTesto(r.costo)}
+                      {r.costo.stato === "senza_riscontro" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-2 h-7"
+                          disabled={confermaRiscontro.isPending}
+                          onClick={() => confermaRiscontro.mutate({ documentoId: r.documentoId })}
+                        >
+                          È di questa commessa
+                        </Button>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-text-2">
                       {r.merce.righe > 0
                         ? `${r.merce.righe} ${r.merce.righe === 1 ? "riga" : "righe"} · consegna ${dataIt(r.merce.dataConsegna)}${
@@ -320,6 +344,20 @@ export default function ConfermeOrdine() {
                     </dd>
                   </div>
                 </dl>
+                {r.costo.stato === "senza_riscontro" ? (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {r.motivo ? <p className="text-xs text-text-3">{r.motivo}</p> : null}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 self-start"
+                      disabled={confermaRiscontro.isPending}
+                      onClick={() => confermaRiscontro.mutate({ documentoId: r.documentoId })}
+                    >
+                      È di questa commessa
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

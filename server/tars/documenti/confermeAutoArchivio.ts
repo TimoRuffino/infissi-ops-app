@@ -5,10 +5,13 @@
 // successivi»).
 //
 // Certa = la mail è GIÀ collegata a quella commessa (da una persona, o dallo
-// smistamento con confidenza alta) e il file si dichiara conferma d'ordine
-// nel nome. Non è un'opinione del modello: è la regola di
-// `confermeMancanti.ts`. Tutto il resto («probabile») resta una proposta
-// nella Situazione di Tars, dove decide una persona.
+// smistamento con confidenza alta), il file si dichiara conferma d'ordine
+// nel nome E — dalla notte del 04/09, caso Giacomazzi — il TESTO del
+// documento cita la commessa (codice, cliente, indirizzo, ordine noto) e
+// non è la copia di una conferma già nel fascicolo. Non è un'opinione del
+// modello: sono le regole di `confermeMancanti.ts` e di
+// `verificaConfermaPerFascicolo`. Tutto il resto resta una proposta nella
+// Situazione di Tars, dove decide una persona.
 //
 // Archiviare la conferma fa nascere costo e merce (regola del fascicolo):
 // da qui in poi non serve altro. Ogni archiviazione porta `origine:
@@ -16,6 +19,7 @@
 
 import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
+import { verificaConfermaPerFascicolo } from "../../commesse/costoDaConferma";
 import { archiviaAllegatoComunicazione } from "../../routers/preventiviContratti";
 import { getSediStore } from "../../routers/sedi";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
@@ -34,6 +38,8 @@ export type DipendenzeAutoArchivio = {
   leggiRaw: typeof leggiAllegatoRaw;
   getComunicazione: typeof getLiveComunicazione;
   archivia: typeof archiviaAllegatoComunicazione;
+  /** Il testo deve citare la commessa e non essere una copia. */
+  verifica: typeof verificaConfermaPerFascicolo;
 };
 
 export function dipendenzeAutoArchivioReali(): DipendenzeAutoArchivio {
@@ -42,19 +48,21 @@ export function dipendenzeAutoArchivioReali(): DipendenzeAutoArchivio {
     leggiRaw: leggiAllegatoRaw,
     getComunicazione: getLiveComunicazione,
     archivia: archiviaAllegatoComunicazione,
+    verifica: verificaConfermaPerFascicolo,
   };
 }
 
 export type EsitoGiroAutoArchivio = {
   commesseEsaminate: number;
   archiviate: number;
+  /** Candidati certi dal nome ma non dal testo: lasciati alla proposta. */
   saltate: number;
   errori: number;
   dettagli: Array<{
     commessaId: number;
     codice: string | null;
     nomeFile: string;
-    esito: "archiviata" | "errore";
+    esito: "archiviata" | "saltata" | "errore";
     motivo: string | null;
     documentoId: number | null;
   }>;
@@ -88,7 +96,7 @@ export async function eseguiGiroAutoArchivio(input: {
     if (certe.length === 0) continue;
     // Più conferme certe sulla stessa commessa (più fornitori): tutte, una
     // per allegato; lo stesso allegato non si archivia due volte grazie al
-    // sourceRef.
+    // sourceRef, e una copia dello stesso ordine si ferma alla verifica.
     for (const candidato of certe) {
       if (esito.archiviate >= limite) return esito;
       const fatto = await archiviaCandidato(input.sedeId, riga.commessaId, candidato, deps);
@@ -99,6 +107,7 @@ export async function eseguiGiroAutoArchivio(input: {
         ...fatto,
       });
       if (fatto.esito === "archiviata") esito.archiviate += 1;
+      else if (fatto.esito === "saltata") esito.saltate += 1;
       else esito.errori += 1;
     }
   }
@@ -110,7 +119,11 @@ async function archiviaCandidato(
   commessaId: number,
   candidato: CandidatoConferma,
   deps: DipendenzeAutoArchivio
-): Promise<{ esito: "archiviata" | "errore"; motivo: string | null; documentoId: number | null }> {
+): Promise<{
+  esito: "archiviata" | "saltata" | "errore";
+  motivo: string | null;
+  documentoId: number | null;
+}> {
   try {
     const comunicazione = await deps.getComunicazione(candidato.comunicazioneId, sedeId);
     if (!comunicazione) {
@@ -125,21 +138,31 @@ async function archiviaCandidato(
         documentoId: null,
       };
     }
+    const raw = await deps.leggiRaw(comunicazione, candidato.allegatoIndex);
+    const verifica = await deps.verifica({
+      commessaId,
+      nomeFile: raw.nome,
+      mimeType: raw.mimeType,
+      buffer: raw.buffer,
+    });
+    if (!verifica.ok) {
+      return { esito: "saltata", motivo: verifica.motivo, documentoId: null };
+    }
     const documento = await deps.archivia({
       sedeId,
       comunicazioneId: candidato.comunicazioneId,
       allegatoIndex: candidato.allegatoIndex,
       commessaId,
-      nome: candidato.nomeFile,
+      nome: raw.nome,
       tipo: "conferma_ordine",
-      mimeType: candidato.mimeType,
-      buffer: async () => (await deps.leggiRaw(comunicazione, candidato.allegatoIndex)).buffer,
+      mimeType: raw.mimeType,
+      buffer: raw.buffer,
       createdBy: null,
-      note: NOTA_AUTO_ARCHIVIO,
+      note: `${NOTA_AUTO_ARCHIVIO} ${verifica.motivo}`.slice(0, 300),
       vietaRiassegnazione: true,
       origine: "automatico",
     });
-    return { esito: "archiviata", motivo: null, documentoId: documento.id };
+    return { esito: "archiviata", motivo: verifica.motivo, documentoId: documento.id };
   } catch (errore) {
     return {
       esito: "errore",
@@ -161,11 +184,12 @@ async function giroTutteLeSedi(): Promise<void> {
     inCorso.add(sede.id);
     try {
       const esito = await eseguiGiroAutoArchivio({ sedeId: sede.id });
-      if (esito.archiviate > 0 || esito.errori > 0) {
+      if (esito.archiviate > 0 || esito.errori > 0 || esito.saltate > 0) {
         console.info("[conferme-auto-archivio] giro", {
           sedeId: sede.id,
           commesseEsaminate: esito.commesseEsaminate,
           archiviate: esito.archiviate,
+          saltate: esito.saltate,
           errori: esito.errori,
           dettagli: esito.dettagli.map(d => ({
             commessa: d.codice ?? d.commessaId,

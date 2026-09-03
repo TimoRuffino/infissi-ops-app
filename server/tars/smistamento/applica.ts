@@ -17,6 +17,7 @@ import {
   type DocTipo,
 } from "../../routers/preventiviContratti";
 import { getCommessaById } from "../../routers/commesse";
+import { verificaConfermaPerFascicolo } from "../../commesse/costoDaConferma";
 import { classificaAllegatoComunicazione } from "../documenti/classificazione";
 import type { EsitoAnalisi, AllegatoPerAnalisi } from "./analisi";
 import type { EsitoCandidati } from "./candidati";
@@ -62,6 +63,14 @@ export type DipendenzeApplica = {
   collegaManuale: typeof setMatchComunicazione;
   classifica: typeof setClassificazioneComunicazione;
   salvaEsito: typeof salvaEsitoTarsComunicazione;
+  /**
+   * Prima di archiviare una CONFERMA D'ORDINE da soli: il testo deve citare
+   * la commessa (codice, cliente, indirizzo, ordine noto) e non deve essere
+   * la copia di una conferma già nel fascicolo. L'oggetto della mail non
+   * basta (direzione 04/09/2026, caso Giacomazzi: «alcune aziende
+   * potrebbero inviare più conf. ordine nella stessa mail»).
+   */
+  verificaConferma?: typeof verificaConfermaPerFascicolo;
 };
 
 export const DIPENDENZE_APPLICA_REALI: DipendenzeApplica = {
@@ -77,7 +86,20 @@ export const DIPENDENZE_APPLICA_REALI: DipendenzeApplica = {
   collegaManuale: setMatchComunicazione,
   classifica: setClassificazioneComunicazione,
   salvaEsito: salvaEsitoTarsComunicazione,
+  verificaConferma: verificaConfermaPerFascicolo,
 };
+
+/** Gli allegati scartati all'archiviazione tornano nel piano con il loro motivo. */
+function applicaScarti(
+  piano: readonly PianoAllegato[],
+  scartati: ReadonlyArray<{ indice: number; motivo: string }>
+): PianoAllegato[] {
+  if (scartati.length === 0) return [...piano];
+  return piano.map(voce => {
+    const scarto = scartati.find(s => s.indice === voce.indice);
+    return scarto ? { ...voce, archiviare: false, motivo: scarto.motivo } : voce;
+  });
+}
 
 /**
  * Decisione D2 per ogni allegato: il modello propone, il classificatore
@@ -197,9 +219,11 @@ async function archiviaPianificati(input: {
 }): Promise<{
   archiviati: EsitoSmistamento["archiviati"];
   avvertenze: string[];
+  scartati: Array<{ indice: number; motivo: string }>;
 }> {
   const archiviati: EsitoSmistamento["archiviati"] = [];
   const avvertenze: string[] = [];
+  const scartati: Array<{ indice: number; motivo: string }> = [];
   for (const voce of input.piano) {
     if (!voce.archiviare) continue;
     const esistente = input.deps.documentoEsistente(
@@ -213,6 +237,24 @@ async function archiviaPianificati(input: {
     }
     try {
       const raw = await input.deps.leggiRaw(input.comunicazione, voce.indice);
+      let nota = input.nota;
+      // Una conferma d'ordine entra nel fascicolo solo se il suo testo cita
+      // la commessa e non è una copia: l'oggetto della mail non basta.
+      if (voce.tipo === "conferma_ordine") {
+        const verifica = await (input.deps.verificaConferma ?? verificaConfermaPerFascicolo)({
+          commessaId: input.commessaId,
+          nomeFile: raw.nome,
+          mimeType: raw.mimeType,
+          buffer: raw.buffer,
+        });
+        if (!verifica.ok) {
+          const motivo = `Conferma d'ordine NON archiviata: ${verifica.motivo}`;
+          scartati.push({ indice: voce.indice, motivo });
+          avvertenze.push(`Allegato «${voce.nome}»: ${motivo}`);
+          continue;
+        }
+        nota = `${input.nota} ${verifica.motivo}`.slice(0, 300);
+      }
       const documento = await input.deps.archivia({
         sedeId: input.comunicazione.sedeId,
         comunicazioneId: input.comunicazione.id,
@@ -220,7 +262,7 @@ async function archiviaPianificati(input: {
         commessaId: input.commessaId,
         nome: raw.nome,
         tipo: voce.tipo,
-        note: input.nota,
+        note: nota,
         origine: "smistamento",
         mimeType: raw.mimeType,
         buffer: raw.buffer,
@@ -245,7 +287,7 @@ async function archiviaPianificati(input: {
       );
     }
   }
-  return { archiviati, avvertenze };
+  return { archiviati, avvertenze, scartati };
 }
 
 export type EsitoApplica = {
@@ -367,7 +409,7 @@ export async function applicaSmistamento(input: {
   }
 
   // 2. Allegati: piano sempre, archiviazione solo con commessa collegata.
-  const piano = pianificaAllegati({ comunicazione, allegati: input.allegati, analisi });
+  let piano = pianificaAllegati({ comunicazione, allegati: input.allegati, analisi });
   let archiviati: EsitoSmistamento["archiviati"] = [];
   if (commessaCollegata != null && piano.some(p => p.archiviare)) {
     const esito = await archiviaPianificati({
@@ -380,6 +422,7 @@ export async function applicaSmistamento(input: {
     });
     archiviati = esito.archiviati;
     avvertenze.push(...esito.avvertenze);
+    piano = applicaScarti(piano, esito.scartati);
   }
 
   // 3. Triage sulle colonne della comunicazione (lette dalla UI).
@@ -447,6 +490,7 @@ export async function applicaPropostaApprovata(input: {
     motivo: `Collegamento proposto da Tars, approvato da ${input.utente.nome}.`,
   });
   let archiviati = esito.archiviati;
+  let allegati = esito.allegati;
   const avvertenze: string[] = [];
   if (commessaId != null && esito.allegati.some(a => a.archiviare)) {
     const risultato = await archiviaPianificati({
@@ -459,11 +503,13 @@ export async function applicaPropostaApprovata(input: {
     });
     archiviati = risultato.archiviati;
     avvertenze.push(...risultato.avvertenze);
+    allegati = applicaScarti(esito.allegati, risultato.scartati);
   }
   return {
     esito: {
       ...esito,
       collegamento: { ...esito.collegamento, esito: "certo", commessaId, clienteId },
+      allegati,
       archiviati,
       azioneSuggerita: "nessuna",
     },

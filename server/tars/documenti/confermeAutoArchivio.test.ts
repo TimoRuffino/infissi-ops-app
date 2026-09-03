@@ -110,10 +110,12 @@ describe("eseguiGiroAutoArchivio", () => {
     expect(documenti[0]).toMatchObject({
       tipo: "conferma_ordine",
       origine: "automatico",
-      note: NOTA_AUTO_ARCHIVIO,
+      note: expect.stringContaining(NOTA_AUTO_ARCHIVIO),
       createdBy: null,
       sourceRef: `${SEDE}:${collegata.id}:0`,
     });
+    // La nota dice anche cosa il testo cita (riscontro nel documento).
+    expect(String(documenti[0].note)).toContain("cita cliente tesconi");
     // Regola del fascicolo: costo e merce nascono dall'archiviazione.
     const salvata: any = getCommessaById(commessa.id);
     expect(salvata.costi).toHaveLength(1);
@@ -131,6 +133,18 @@ describe("eseguiGiroAutoArchivio", () => {
     const secondo = await eseguiGiroAutoArchivio({ sedeId: SEDE, deps: deps() });
     expect(secondo.archiviate).toBe(0);
     expect(getDocumentiDiCommessa(commessa.id)).toHaveLength(1);
+  });
+
+  it("certa dal nome ma il testo non cita la commessa: saltata, resta una proposta (04/09/2026)", async () => {
+    const commessa = await direzione().commesse.create({ cliente: "Bianchi Paolo" });
+    (getCommessaById(commessa.id) as any).stato = "produzione";
+    await mail({ commessaId: commessa.id });
+
+    const giro = await eseguiGiroAutoArchivio({ sedeId: SEDE, deps: deps() });
+    const dettaglio = giro.dettagli.find(d => d.commessaId === commessa.id);
+    expect(dettaglio?.esito).toBe("saltata");
+    expect(dettaglio?.motivo).toContain("non cita");
+    expect(getDocumentiDiCommessa(commessa.id)).toHaveLength(0);
   });
 
   it("una conferma solo «probabile» (mail non collegata) resta una proposta, non si archivia", async () => {

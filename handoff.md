@@ -32,6 +32,22 @@
 > dubbie restano proposte. (3) **Registro conferme d'ordine**: campo
 > `Documento.origine`, procedura `preventiviContratti.registroConferme`, pagina
 > `/conferme-ordine`. Piano: `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`.
+>
+> **Notte del 04/09, caso Giacomazzi.** Una conferma entra in un fascicolo da
+> sola SOLO se il suo testo cita la commessa (`documenti/riscontroCommessa.ts`:
+> codice, cliente anche troncato, indirizzo, ordine noto) e non è una copia
+> (stesso riferimento d'ordine nel nome o nel testo → `duplicato`): vale per
+> smistamento, worker delle conferme certe e strumento
+> `archivia_allegato_comunicazione` 1.1.0. Lettura 1.2.0: ricontrollo di
+> tutte le conferme archiviate da automatismi (senza riscontro → costo e merce
+> ritirati, «È di questa commessa» nel registro e nella scheda) e del
+> magazzino (righe rigenerate con l'estrattore nuovo se non toccate a mano).
+> Settimana di APPRONTAMENTO ≠ consegna (data vuota, nota esplicita). Resolver:
+> «commessa 393» = COM-2026-393, mai l'id (prompt v11). OCR: `FLAG_OCR=on`
+> impostato in Railway il 04/09 (prima era spento; i binari c'erano già),
+> tesseract `--psm 6` + `preserve_interword_spaces`. Aperto: lo scavalco dei gate quando l'utente
+> nomina lo stato di arrivo (oggi consentito dal mandato del 02/09) e la
+> lettura con il modello dei PDF scansionati.
 
 ## 1. Contesto
 

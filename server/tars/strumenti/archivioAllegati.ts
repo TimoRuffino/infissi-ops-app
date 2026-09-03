@@ -10,6 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { verificaConfermaPerFascicolo } from "../../commesse/costoDaConferma";
 import {
   getLiveComunicazione,
   type Comunicazione,
@@ -250,6 +251,18 @@ const schemaInput = z
     commessaId: z.number().int().positive().optional(),
     comunicazioneId: z.number().int().positive(),
     allegatoIndex: z.number().int().min(0),
+    /**
+     * Una CONFERMA D'ORDINE entra nel fascicolo solo se il suo testo cita la
+     * commessa (codice, cliente, indirizzo, ordine noto): l'oggetto della
+     * mail non basta. Questo flag scavalca la verifica SOLO quando l'utente
+     * ha detto esplicitamente che il documento è di questa commessa.
+     */
+    confermaSenzaRiscontro: z
+      .boolean()
+      .optional()
+      .describe(
+        "Solo per conferme d'ordine il cui testo NON cita la commessa: true soltanto se l'utente ha confermato esplicitamente che il documento è di questa commessa."
+      ),
   })
   .strict();
 
@@ -427,7 +440,7 @@ export function creaStrumentoArchivioAllegato(
 ): StrumentoTars<InputArchivio, EsitoAzione> {
   return {
     nome: NOME_TOOL,
-    versione: "1.0.0",
+    versione: "1.1.0",
     categoria: "comunicazioni",
     livello: "L2",
     effetto: "interno",
@@ -568,6 +581,31 @@ export function creaStrumentoArchivioAllegato(
           analisi.esito === "estratto" ? analisi.pagine.join("\n") : null,
       });
 
+      // Una conferma d'ordine deve citare la commessa nel testo e non essere
+      // una copia (04/09/2026, caso Giacomazzi). L'utente può scavalcare
+      // SOLO dicendo esplicitamente che il documento è di questa commessa.
+      let notaRiscontro = "";
+      if (classificazione.tipo === "conferma_ordine") {
+        const verifica = await verificaConfermaPerFascicolo({
+          commessaId: commessa.id,
+          nomeFile: raw.nome,
+          mimeType: raw.mimeType,
+          buffer: raw.buffer,
+        });
+        if (verifica.duplicatoDi) {
+          return nonEseguito(deps.now, verifica.motivo);
+        }
+        if (!verifica.ok && input.confermaSenzaRiscontro !== true) {
+          return nonEseguito(
+            deps.now,
+            `${verifica.motivo} Se l'utente conferma che il documento è di questa commessa, richiama con confermaSenzaRiscontro: true.`
+          );
+        }
+        notaRiscontro = verifica.ok
+          ? ` ${verifica.motivo}`
+          : " Il testo non cita la commessa: l'utente ha confermato che è di questa commessa.";
+      }
+
       let documento: Documento;
       try {
         documento = await deps.archivia({
@@ -577,7 +615,7 @@ export function creaStrumentoArchivioAllegato(
           commessaId: commessa.id,
           nome: raw.nome,
           tipo: classificazione.tipo,
-          note: `Archiviato da Tars per l'utente ${contesto.utenteId}.`,
+          note: `Archiviato da Tars per l'utente ${contesto.utenteId}.${notaRiscontro}`.slice(0, 300),
           origine: "tars",
           mimeType: raw.mimeType,
           vietaRiassegnazione: true,

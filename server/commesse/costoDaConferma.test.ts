@@ -11,6 +11,7 @@ import { getCommessaById } from "../routers/commesse";
 import {
   archiviaAllegatoComunicazione,
   caricaDocumentoCommessaDaBuffer,
+  getDocumentiDiCommessa,
   getDocumentoRecordById,
   spostaDocumentoDiCommessa,
   type DocTipo,
@@ -274,7 +275,7 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
       arrivato: false,
     });
     expect(righe[0].note).toContain("settimana 38");
-    expect(getDocumentoRecordById(prima.id)?.letturaCosto?.merce).toEqual({
+    expect(getDocumentoRecordById(prima.id)?.letturaCosto?.merce).toMatchObject({
       righe: 2,
       dataConsegna: "2026-09-14",
       motivo: null,
@@ -327,6 +328,149 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
     expect(getDocumentoRecordById(documento.id)?.letturaCosto?.merce?.motivo).toContain("Da ordinare");
     // Il costo invece nasce comunque: il margine non aspetta lo stato.
     expect(costiDi(commessa.id)).toHaveLength(1);
+  });
+});
+
+describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09/2026)", () => {
+  // Il testo di una conferma Alias come lo restituisce il parser: il cliente
+  // compare come «VS.RIFERIMENTO GIACOMAZZI GIUL» (troncato), la settimana è
+  // di APPRONTAMENTO, le righe hanno l'unità incollata davanti.
+  const ALIAS = (riferimento: string) => [
+    "Conferma Ordine",
+    "ALIAS Srl Porte blindate",
+    "RUFFINO GROUP SRLS",
+    "2026 - CV 003746 del 23/02/2026",
+    "VS.RIFERIMENTO",
+    riferimento,
+    "Approntamento [1]",
+    "2026 Settimana 21",
+    "KPO44 KIT PORTA",
+    "26C0374604 - 003460 - .",
+    "NR 1,00 22 99819,47",
+    "NR 1,00PORST-C013 PORTA BLIND.STEEL/C < 1900",
+    "Tot. Imponibile 948,73",
+  ];
+  const inOrdine = async (cliente: string) => {
+    const commessa = await nuovaCommessa(cliente);
+    (getCommessaById(commessa.id) as any).stato = "da_ordinare";
+    return commessa;
+  };
+  const merceDi = (commessaId: number) =>
+    getMagazzinoStore().filter(p => p.commessaId === commessaId);
+
+  async function archiviataDalloSmistamento(commessaId: number, nome: string, righe: string[]) {
+    const mail = (await insertComunicazione({
+      sedeId: SEDE,
+      casellaId: 9,
+      messageId: `smist-${commessaId}-${nome}`,
+      canale: "email",
+      direzione: "in",
+      mittente: "ordini@aliasblindate.com",
+      mittenteNome: "Alias",
+      destinatari: [],
+      oggetto: "Conferma ordine Giacomazzi Giulia",
+      testo: "In allegato.",
+      allegati: [{ nome, mimeType: "application/pdf", size: 1000 }],
+      clienteId: null,
+      commessaId,
+      matchConfidenza: "alta",
+      matchMotivo: "Nell'oggetto compare il cognome",
+      stato: "nuova",
+      receivedAt: new Date(),
+    } as any))!;
+    return archiviaAllegatoComunicazione({
+      sedeId: SEDE,
+      comunicazioneId: mail.id,
+      allegatoIndex: 0,
+      commessaId,
+      nome,
+      tipo: "conferma_ordine",
+      mimeType: "application/pdf",
+      buffer: pdfConTesto(righe),
+      createdBy: null,
+      note: "Archiviato automaticamente da Tars (smistamento): Nell'oggetto compare il cognome di Giacomazzi Giulia.",
+      origine: "smistamento",
+    });
+  }
+
+  it("archiviata dallo smistamento senza riscontro nel testo: niente costo né merce, finché una persona non conferma", async () => {
+    const commessa = await inOrdine("Giacomazzi Giulia");
+    const documento = await archiviataDalloSmistamento(commessa.id, "Ordini_di_Vendi_1602923(1).pdf", ALIAS("ROSSI MARIO"));
+    expect(costiDi(commessa.id)).toHaveLength(0);
+    expect(merceDi(commessa.id)).toHaveLength(0);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto).toMatchObject({
+      esito: "senza_riscontro",
+      riferimenti: ["1602923"],
+    });
+    const margine = await direzione().commesse.margine(commessa.id);
+    expect(margine.confermeSenzaCosto[0]).toMatchObject({ documentoId: documento.id, esito: "senza_riscontro", confermabile: true });
+
+    // «È di questa commessa»: costo e merce nascono.
+    const conferma = await direzione().preventiviContratti.confermaRiscontroConferma({ documentoId: documento.id });
+    expect(conferma.esito).toBe("registrato");
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].importo).toBe(948.73);
+    expect(merceDi(commessa.id).map(p => p.nome)).toEqual(["KPO44 KIT PORTA", "PORST-C013 PORTA BLIND.STEEL/C < 1900"]);
+  });
+
+  it("con il cognome del cliente nel testo la stessa archiviazione automatica produce costo e merce; la settimana di approntamento non è una consegna", async () => {
+    const commessa = await inOrdine("Giacomazzi Giulia");
+    const documento = await archiviataDalloSmistamento(commessa.id, "Ordini_di_Vendi_1602923(1).pdf", ALIAS("GIACOMAZZI GIUL"));
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    const lettura = getDocumentoRecordById(documento.id)?.letturaCosto;
+    expect(lettura?.riscontro).toEqual({ ok: true, prove: ["cliente giacomazzi"] });
+    expect(lettura?.merce).toMatchObject({ righe: 2, dataConsegna: null, approntamento: { settimana: 21, anno: 2026, dal: "2026-05-18" } });
+    const righe = merceDi(commessa.id);
+    expect(righe.every(p => p.dataConsegna === null)).toBe(true);
+    expect(righe[0].note).toContain("Approntamento: settimana 21/2026");
+    expect(righe[0].note).toContain("la consegna va concordata");
+  });
+
+  it("la stessa conferma rimandata per mail non entra due volte nel fascicolo (stesso nome base, stessa dimensione)", async () => {
+    const commessa = await inOrdine("Giacomazzi Rimando");
+    const prima = await archiviataDalloSmistamento(commessa.id, "Ordini_di_Vendi_1602923(1).pdf", ALIAS("GIACOMAZZI RIMANDO"));
+    const seconda = await archiviataDalloSmistamento(commessa.id, "Ordini_di_Vendi_1602923(1) (2).pdf", ALIAS("GIACOMAZZI RIMANDO "));
+    expect(seconda.id).toBe(prima.id);
+    expect(getDocumentiDiCommessa(commessa.id).filter(d => d.tipo === "conferma_ordine")).toHaveLength(1);
+    expect(costiDi(commessa.id)).toHaveLength(1);
+  });
+
+  it("la stessa conferma inviata tre volte è UN costo e UNA merce: le copie sono duplicati", async () => {
+    const commessa = await inOrdine("Giacomazzi Tre Copie");
+    const prima = await carica(commessa.id, ALIAS("GIACOMAZZI TRE"), { nome: "Ordini_di_Vendi_1602923(1).pdf" });
+    const seconda = await carica(commessa.id, ALIAS("GIACOMAZZI TRE"), { nome: "Ordini_di_Vendi_1602923(1) (2).pdf" });
+    const terza = await carica(commessa.id, ALIAS("GIACOMAZZI TRE"), { nome: "Ordini_di_Vendi_1602923(1) (3).pdf" });
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].documentoId).toBe(prima.id);
+    expect(merceDi(commessa.id).every(p => p.documentoId === prima.id)).toBe(true);
+    for (const copia of [seconda, terza]) {
+      expect(getDocumentoRecordById(copia.id)?.letturaCosto).toMatchObject({ esito: "duplicato", duplicatoDi: prima.id });
+    }
+    const margine = await direzione().commesse.margine(commessa.id);
+    expect(margine.confermeSenzaCosto.map(r => r.esito)).toEqual(["duplicato", "duplicato"]);
+  });
+
+  it("il magazzino si ricontrolla: righe di un estrattore vecchio si rigenerano se nessuno le ha toccate", async () => {
+    const commessa = await inOrdine("Rigenera Merce");
+    const documento = await carica(commessa.id, ALIAS("RIGENERA MERCE"));
+    const record = getDocumentoRecordById(documento.id)!;
+    const primeRighe = merceDi(commessa.id);
+    expect(primeRighe).toHaveLength(2);
+
+    // Lettura di ieri: estrattore vecchio, versione vecchia.
+    record.letturaCosto = { ...record.letturaCosto!, versione: "1.1.0", merce: { ...record.letturaCosto!.merce!, versioneEstrattore: "0.9.0" } };
+    const riletta = await registraCostoDaConferma({ documentoId: documento.id });
+    expect(riletta.esito).toBe("gia_registrato");
+    const nuoveRighe = merceDi(commessa.id);
+    expect(nuoveRighe).toHaveLength(2);
+    expect(nuoveRighe.map(p => p.id)).not.toEqual(primeRighe.map(p => p.id));
+
+    // Una riga segnata arrivata: si rispetta, niente rigenerazione.
+    nuoveRighe[0].arrivato = true;
+    record.letturaCosto = { ...record.letturaCosto!, versione: "1.1.0", merce: { ...record.letturaCosto!.merce!, versioneEstrattore: "0.9.0" } };
+    await registraCostoDaConferma({ documentoId: documento.id });
+    expect(merceDi(commessa.id).map(p => p.id)).toEqual(nuoveRighe.map(p => p.id));
+    expect(record.letturaCosto?.merce?.motivo).toContain("modificate a mano");
   });
 });
 

@@ -5,7 +5,10 @@ import { persistedStore } from "../_core/persistence";
 import { getCommessaById, getCommesseStore } from "./commesse";
 import { STATI_COMMESSA } from "../commesse/transizioni";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import {
+  requireDirezioneOAmministrazione,
+  requireOwnershipOrDirezione,
+} from "../_core/permissions";
 import { Readable } from "stream";
 import {
   deleteFileQuiet,
@@ -87,6 +90,11 @@ export type Documento = {
   letturaCosto?: LetturaCostoDocumento | null;
   /** Chi lo ha messo nel fascicolo (backfill dalle note per i vecchi). */
   origine?: OrigineDocumento;
+  /**
+   * Una persona ha confermato che questa conferma è di questa commessa
+   * anche se il testo non la cita: da qui costo e merce possono nascere.
+   */
+  riscontroConfermato?: boolean;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
@@ -421,7 +429,24 @@ export function trovaDuplicatoNelFascicolo(
         (d.checksum
           ? d.checksum === file.checksum
           : d.size === file.size && nomeSenzaProgressivo(d.nome) === nome)
-    ) ?? null
+    ) ??
+    // Byte diversi ma stesso file RIMANDATO: il portale del fornitore
+    // riesporta la stessa conferma e il client la salva come «… (2).pdf»
+    // («Ordini_di_Vendi_1602923(1).pdf», 110,7 KB, poi «… (1) (2).pdf»,
+    // 110,5 KB). Solo con il progressivo nel nome in arrivo, stesso nome
+    // base e dimensione entro il 2 % — direzione 04/09/2026: «spesso Tars
+    // mette dei duplicati». Un file con lo stesso nome e byte diversi senza
+    // progressivo resta un documento nuovo (contratto del dedup).
+    (/ \(\d+\)(\.[^.]+)?$/.test(file.nome)
+      ? documenti.find(
+          d =>
+            d.commessaId === commessaId &&
+            nomeSenzaProgressivo(d.nome) === nome &&
+            d.size > 0 &&
+            Math.abs(d.size - file.size) <= Math.max(2048, d.size * 0.02)
+        )
+      : null) ??
+    null
   );
 }
 
@@ -1150,6 +1175,34 @@ export const preventiviContrattiRouter = router({
     return { success: true };
   }),
 
+  // «È di questa commessa»: una persona conferma una conferma d'ordine
+  // archiviata da un automatismo il cui testo non cita la commessa. Da qui
+  // costo e merce nascono come per le altre (04/09/2026 notte).
+  confermaRiscontroConferma: protectedProcedure
+    .input(z.object({ documentoId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      const doc = documenti.find(d => d.id === input.documentoId);
+      if (!doc || !commessaInSede(doc.commessaId, ctx.sedeId)) {
+        throw new Error("Documento non trovato");
+      }
+      if (doc.tipo !== "conferma_ordine") {
+        throw new Error("Il documento non è una conferma d'ordine");
+      }
+      doc.riscontroConfermato = true;
+      doc.note = `${doc.note ? `${doc.note} ` : ""}Confermata come conferma di questa commessa da ${
+        ctx.user?.name ?? `utente ${ctx.user?.id ?? "?"}`
+      }.`.slice(0, 300);
+      _documentiStore.save();
+      const { registraCostoDaConferma } = await import("../commesse/costoDaConferma");
+      const esito = await registraCostoDaConferma({
+        documentoId: doc.id,
+        ocr: false,
+        forza: true,
+      });
+      return { esito: esito.esito, imponibile: esito.imponibile, merce: esito.merce, motivo: esito.motivo };
+    }),
+
   // Il registro delle conferme d'ordine della sede: chi le ha messe nel
   // fascicolo (a mano, Tars, smistamento, regola automatica) e cosa ne è
   // nato — costo del margine e merce a magazzino (03/09/2026 sera).
@@ -1220,6 +1273,11 @@ export const preventiviContrattiRouter = router({
               arrivate: merce.filter(p => p.arrivato).length,
             },
             fonteTesto: lettura?.fonteTesto ?? null,
+            /** Il testo cita la commessa? (solo per le archiviazioni automatiche) */
+            riscontro: lettura?.riscontro ?? null,
+            riscontroConfermato: d.riscontroConfermato === true,
+            duplicatoDi: lettura?.duplicatoDi ?? null,
+            motivo: lettura?.motivo ?? null,
             link: `/api/documenti/${d.id}/file`,
           };
         });

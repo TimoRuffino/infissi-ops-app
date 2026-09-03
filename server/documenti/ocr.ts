@@ -325,8 +325,15 @@ async function eseguiOcrIsolato(
             "stdout",
             "-l",
             effettive.join("+"),
+            // psm 6 (blocco uniforme) tiene ogni riga della tabella su una
+            // riga di testo — codice, descrizione, quantità, prezzo — mentre
+            // psm 3 spezzava le colonne in blocchi separati e le righe di
+            // merce diventavano illeggibili. preserve_interword_spaces
+            // conserva gli spazi fra le colonne (04/09/2026).
             "--psm",
-            "3",
+            "6",
+            "-c",
+            "preserve_interword_spaces=1",
             "tsv",
           ],
           {

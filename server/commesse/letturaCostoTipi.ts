@@ -6,7 +6,10 @@
  * Bump quando cambia il modo di leggere (estrattore, regole di aggancio):
  * il worker rilegge ogni conferma con una versione diversa.
  */
-export const VERSIONE_LETTURA_COSTO = "1.1.0"; // 1.1.0: anche la merce a magazzino
+// 1.1.0: anche la merce a magazzino. 1.2.0: riscontro della commessa nel
+// testo per le archiviazioni automatiche, duplicati per riferimento
+// d'ordine, settimana di approntamento (04/09/2026 notte).
+export const VERSIONE_LETTURA_COSTO = "1.2.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -23,7 +26,15 @@ export type EsitoLetturaCosto =
   /** Scansione: serve l'OCR, che gira solo nel worker. */
   | "da_ocr"
   /** Storage o parser hanno fallito: si ritenta. */
-  | "errore";
+  | "errore"
+  /**
+   * Archiviata da un automatismo ma il testo non cita la commessa (né
+   * codice, né cliente, né indirizzo, né ordine noto): niente costo né
+   * merce finché una persona non conferma che è di questa commessa.
+   */
+  | "senza_riscontro"
+  /** Stesso riferimento d'ordine di una conferma già a registro: nessun effetto in più. */
+  | "duplicato";
 
 export type LetturaCostoDocumento = {
   versione: string;
@@ -45,6 +56,12 @@ export type LetturaCostoDocumento = {
    * non letto).
    */
   merce?: MerceDaConferma | null;
+  /** I riferimenti d'ordine del documento (nome file e testo): servono a riconoscere i duplicati. */
+  riferimenti?: string[];
+  /** Il documento di cui questa conferma è un duplicato. */
+  duplicatoDi?: number | null;
+  /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */
+  riscontro?: { ok: boolean; prove: string[] } | null;
 };
 
 export type MerceDaConferma = {
@@ -52,6 +69,10 @@ export type MerceDaConferma = {
   righe: number;
   dataConsegna: string | null;
   motivo: string | null;
+  /** L'estrattore che ha letto le righe: se cambia, le righe non toccate a mano si rigenerano. */
+  versioneEstrattore?: string | null;
+  /** Settimana di approntamento dichiarata (merce pronta dal fornitore, non consegna). */
+  approntamento?: { settimana: number; anno: number | null; dal: string | null } | null;
 };
 
 /** Esiti che chiudono la lettura: il worker non li rivisita. */
@@ -60,4 +81,6 @@ export const ESITI_TERMINALI: ReadonlySet<EsitoLetturaCosto> = new Set([
   "collegato",
   "senza_imponibile",
   "non_leggibile",
+  "senza_riscontro",
+  "duplicato",
 ]);

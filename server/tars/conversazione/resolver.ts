@@ -31,7 +31,37 @@ function tokenSignificativi(riferimento: string): string[] {
     .filter(token => token.length >= 3 && !STOPWORD.has(token));
 }
 
-function candidato(commessa: any, riferimento: string): CandidatoResolverCommessa | null {
+/** Il progressivo di un codice COM-YYYY-NNN, come numero. */
+function progressivoDiCodice(codice: unknown): number | null {
+  const m = /(\d{1,4})\s*$/.exec(String(codice ?? "").trim());
+  return m ? Number(m[1]) : null;
+}
+
+function annoDiCodice(codice: unknown): number | null {
+  const m = /(\d{4})[\s\-–_]+\d{1,4}\s*$/.exec(String(codice ?? "").trim());
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * «la commessa 393», «commessa n. 393», «pratica 96»: un numero nudo detto
+ * da una persona è il PROGRESSIVO del codice (COM-2026-393), mai l'id del
+ * database (04/09/2026 notte: Tars ha portato in finiture la commessa con
+ * id 393 invece della COM-2026-393). Solo con la parola «commessa» accanto:
+ * un numero qualunque nel testo non è un riferimento.
+ */
+export function estraiProgressivoCommessa(testo: string): number | null {
+  const m =
+    /\b(?:commess[ae]|pratic[ae]|com)\s*(?:n\.?|num\.?|numero|#)?\s*[:\-]?\s*(\d{1,4})\b(?![\-\/]\d)/i.exec(
+      testo
+    );
+  return m ? Number(m[1]) : null;
+}
+
+function candidato(
+  commessa: any,
+  riferimento: string,
+  progressivo: number | null = null
+): CandidatoResolverCommessa | null {
   const ref = normalizza(riferimento);
   const codice = normalizza(commessa.codice);
   const cliente = normalizza(commessa.cliente);
@@ -47,6 +77,10 @@ function candidato(commessa: any, riferimento: string): CandidatoResolverCommess
   } else if (ref.includes(codice) && codice.length >= 5) {
     punteggio += 900;
     evidenze.push("codice citato");
+  } else if (progressivo != null && progressivoDiCodice(commessa.codice) === progressivo) {
+    // L'anno corrente vince sugli anni passati con lo stesso progressivo.
+    punteggio += annoDiCodice(commessa.codice) === new Date().getFullYear() ? 950 : 850;
+    evidenze.push(`numero commessa ${progressivo}`);
   }
 
   const token = tokenSignificativi(riferimento);
@@ -93,11 +127,12 @@ export function risolviCommessa(input: {
   if (!riferimento) return { stato: "non_trovato", candidati: [] };
 
   const codiceEsplicito = estraiCodiceCommessa(riferimento);
+  const progressivo = codiceEsplicito ? null : estraiProgressivoCommessa(riferimento);
   const base = (getCommesseStore() as any[]).filter(
     c => c.sedeId === input.sedeId && !c.archivedAt
   );
   const candidati = base
-    .map(c => candidato(c, codiceEsplicito ?? riferimento))
+    .map(c => candidato(c, codiceEsplicito ?? riferimento, progressivo))
     .filter((c): c is CandidatoResolverCommessa => c != null)
     .sort((a, b) => b.punteggio - a.punteggio || a.codice.localeCompare(b.codice));
 

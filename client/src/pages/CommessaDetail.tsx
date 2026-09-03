@@ -3294,6 +3294,21 @@ function EconomiaCard({
     },
     onError: (e) => toast.error(e.message ?? "Import non riuscito"),
   });
+  // «È di questa commessa»: una conferma archiviata da un automatismo il cui
+  // testo non cita la commessa. Confermata da una persona, costo e merce nascono.
+  const confermaRiscontro = trpc.preventiviContratti.confermaRiscontroConferma.useMutation({
+    onSuccess: (r: any) => {
+      refresh();
+      utils.preventiviContratti.invalidate();
+      utils.magazzino.invalidate();
+      toast.success(
+        r?.esito === "registrato" || r?.esito === "collegato"
+          ? "Conferma accettata: costo e merce registrati"
+          : `Conferma accettata: ${r?.motivo ?? r?.esito ?? "letta"}`
+      );
+    },
+    onError: (e) => toast.error(e.message ?? "Conferma non riuscita"),
+  });
 
   if (!canSee || !margine.data) return null;
   const m: any = margine.data;
@@ -3614,21 +3629,33 @@ function EconomiaCard({
                   >
                     Apri
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => {
-                      setForm({
-                        ...emptyCosto,
-                        descrizione: `Conferma d'ordine ${r.nomeFile}`,
-                      });
-                      setEditId(null);
-                      setAddOpen(true);
-                    }}
-                  >
-                    Registra a mano
-                  </Button>
+                  {r.confermabile ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      disabled={confermaRiscontro.isPending}
+                      onClick={() => confermaRiscontro.mutate({ documentoId: r.documentoId })}
+                    >
+                      È di questa commessa
+                    </Button>
+                  ) : r.esito !== "duplicato" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      onClick={() => {
+                        setForm({
+                          ...emptyCosto,
+                          descrizione: `Conferma d'ordine ${r.nomeFile}`,
+                        });
+                        setEditId(null);
+                        setAddOpen(true);
+                      }}
+                    >
+                      Registra a mano
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}
