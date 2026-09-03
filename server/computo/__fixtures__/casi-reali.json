@@ -1,0 +1,50 @@
+{
+ "_nota": "Tre commesse reali del 2026 (fatture 127, 129, 130) ricalcolate dal foglio «CALCOLO NUOVI LIMITI». Solo misure, codici DEI e totali: nessun dato personale. Attesi in euro; i valori del caso 127 vengono da un PDF stampato a 2 decimali (tolleranza 2 centesimi sui totali). Fonte: docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md §4.",
+ "casi": [
+  {
+   "nome": "fattura-130-2026",
+   "parametri": { "zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 571278, "pattuitoTipo": "imponibile", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50,
+                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "righe": [
+    { "categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 1, "larghezzaMm": 1900, "altezzaMm": 2500, "prezzoTotCent": 129462, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-c", "serramento.C25088-h", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1200, "altezzaMm": 1720, "prezzoTotCent": 126863, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1100, "altezzaMm": 1720, "prezzoTotCent": 117140, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 740, "altezzaMm": 1720, "prezzoTotCent": 62658, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] }
+   ],
+   "attesi": {
+    "voci": { "massimale_A": 10869.144, "massimale_B": 0, "massimale_C": 0, "rilievo_pezzo": 105.2975, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 281.761656, "rimozione_tapparelle": 0, "smaltimento": 330.7204212, "trasporto": 0, "tiro_piano": 243.33333, "assistenza_muraria": 319.5012, "posa": 1314, "pulizia": 171.66667, "spese_professionali": 600, "assistenze_murarie_eventuali": 386.16, "dime": 1293.84618, "piattaforma": 517.92, "permessi_suolo": 300 },
+    "deiProdotti": 9239.054236, "check1": 13999.912277, "check2": 10965.567513, "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
+   }
+  },
+  {
+   "nome": "fattura-129-2026",
+   "parametri": { "zona": "E", "piano": null, "distanzaKm": 12, "pattuitoCent": 1409271, "pattuitoTipo": "lordo", "detrazioneTipo": "ecobonus", "detrazionePct": 50,
+                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "righe": [
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 500, "altezzaMm": 1460, "prezzoTotCent": 38792, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 510, "altezzaMm": 1340, "prezzoTotCent": 36341, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15079-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Portafinestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 1000, "altezzaMm": 2540, "prezzoTotCent": 83342, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 2, "larghezzaMm": 1000, "altezzaMm": 1660, "prezzoTotCent": 107200, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 3, "larghezzaMm": 1060, "altezzaMm": 1900, "prezzoTotCent": 184532, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] }
+   ],
+   "attesi": {
+    "voci": { "massimale_A": 569.4, "massimale_B": 11326.86, "massimale_C": 0, "rilievo_pezzo": 172.98875, "rilievo_foro": 220.62333, "progettazione": 119.36, "sviluppo_ordine": 110.31167, "protezione": 146, "rimozione_serramenti": 523.714176, "rimozione_tapparelle": 0, "smaltimento": 323.4740101, "trasporto": 84, "tiro_piano": 444.08333, "assistenza_muraria": 317.2947, "posa": 2518.5, "pulizia": 272.04167, "spese_professionali": 600, "assistenze_murarie_eventuali": 514.88, "dime": 1236.33489, "piattaforma": 517.92, "permessi_suolo": 300 },
+    "deiProdotti": 17369.395892, "check1": 16975.662886, "check2": 19735.987111, "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
+   }
+  },
+  {
+   "nome": "fattura-127-2026",
+   "parametri": { "zona": "D", "piano": 2, "distanzaKm": null, "pattuitoCent": 1549472, "pattuitoTipo": "lordo", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50,
+                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "righe": [
+    { "categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 3, "larghezzaMm": 1900, "altezzaMm": 2400, "prezzoTotCent": 778373, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1660, "altezzaMm": 1540, "prezzoTotCent": 295082, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] },
+    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 1, "larghezzaMm": 1150, "altezzaMm": 1540, "prezzoTotCent": 126222, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] }
+   ],
+   "attesi": {
+    "voci": { "massimale_A": 16039.764, "massimale_B": 0, "massimale_C": 0, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 415.80, "rimozione_tapparelle": 0, "smaltimento": 416.69, "trasporto": 0, "tiro_piano": 243.33, "assistenza_muraria": 448.80, "posa": 1314, "pulizia": 171.67, "spese_professionali": 600 },
+    "deiProdotti": 17231.46, "check1": 19519.84, "check2": 19307.28, "tolleranzaCent": 2, "tolleranzaTotaliCent": 6
+   }
+  }
+ ]
+}

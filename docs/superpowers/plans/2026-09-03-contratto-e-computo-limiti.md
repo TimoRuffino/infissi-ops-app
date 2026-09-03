@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript 5.9, Node 20, Express + tRPC 11 + zod 4, postgres-js (`kvSql`), React 19 + shadcn/Radix + Tailwind 4, vitest 2. Python 3 + openpyxl solo per lo script una tantum di estrazione del seed.
 
-**Spec:** `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` (sezioni 2, 3, 4.1–4.3, 5, 8, 9, 10, 11).
+**Spec:** `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` (sezioni 2, 3, 4.1–4.3, 5, 8, 9, 10, 11) **e** `docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md` (analisi di tre commesse reali del 03/09: formule verificate cella per cella, catalogo DEI, casi d'oro). **Dove divergono, prevale l'analisi.** I task 2, 5, 6, 8, 13 e 15 hanno un blocco «Delta» in testa che corregge il codice sotto; i task 3 e 9 sono stati riscritti.
 
 ## Global Constraints
 
@@ -28,9 +28,11 @@
 |---|---|
 | `shared/euroCent.ts` (+ test) | `euroToCent`, `centToEuro`, `sommaCent`: unico punto di conversione |
 | `shared/limiti/tipi.ts` | tipi condivisi client/server: categorie, righe, contratto, computo, voci |
-| `shared/limiti/tariffe-seed.json` | dati del foglio: massimali, DEI, controtelai, opere, coefficienti, detrazioni, default |
+| `shared/limiti/tariffe-seed.json` (già committato) | dati del foglio: massimali, catalogo prodotti DEI (342), accessori con regola (74), controtelai, opere, coefficienti, detrazioni, default |
 | `shared/limiti/comuni-zona.json` | Tabella A DPR 412/93: comune → zona, gradi giorno |
-| `scripts/estrai-tariffe-limiti.py` | una tantum: xlsx → `tariffe-seed.json` |
+| `scripts/estrai-tariffe-limiti.py` (già committato) | una tantum: xlsx → `tariffe-seed.json` |
+| `server/computo/__fixtures__/casi-reali.json` (già committato) | tre commesse reali ricalcolate dal foglio: giudice del motore |
+| `docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md` (già committato) | formule verificate, modello CHECK2 per riga, stranezze da riprodurre |
 | `scripts/importa-comuni-zona.py` | una tantum: CSV ENEA → `comuni-zona.json` |
 | `server/platform/interruttori.ts` | + `limiti` |
 | `server/authz/capabilities.ts` | + 4 capability e assegnazione ai ruoli |
@@ -164,6 +166,27 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ### Task 2: Tipi condivisi e centesimi
+
+> **Delta (analisi fogli reali, 03/09 — prevale sul codice sotto):**
+> - Eliminare `TIPOLOGIE_SERRAMENTO`/`TipologiaSerramento`: `tipologia` è il **codice del prodotto DEI** del seed (es. `C25077-c`); per i controtelai resta il codice della variante.
+> - `RigaContratto`: dopo `oscuranteIntegrato` aggiungere `oscuranteTipologia: string | null;` (codice DEI dell'oscurante abbinato, es. `C15078-a`). `mq` è `L×H×q/10⁶` **esatto** (6 decimali, nessun arrotondamento a 3). `RigaContrattoInput` lo eredita.
+> - Aggiungere ed esportare:
+>   ```ts
+>   export const CODICI_OPERA = [
+>     "rilievo_pezzo", "rilievo_foro", "progettazione", "sviluppo_ordine", "protezione",
+>     "rimozione_serramenti", "rimozione_tapparelle", "smaltimento", "trasporto", "tiro_piano",
+>     "assistenza_muraria", "posa", "pulizia", "spese_professionali", "altri_servizi",
+>     "assistenze_murarie_eventuali", "dime", "piattaforma", "permessi_suolo",
+>   ] as const;
+>   export type CodiceOpera = (typeof CODICI_OPERA)[number];
+>   /** Scelte che cambiano quali opere entrano nei totali del computo (analisi §3.2). */
+>   export type OpzioniComputo = { rilievo: "foro" | "pezzo"; speseProfessionali: boolean; eventuali: CodiceOpera[] };
+>   export const OPZIONI_COMPUTO_DEFAULT: OpzioniComputo = { rilievo: "foro", speseProfessionali: false, eventuali: [] };
+>   ```
+>   e in `Contratto` (quindi in `ContrattoInput`) il campo `opzioniComputo: OpzioniComputo;` dopo `rate`.
+> - `VoceComputo`: aggiungere `inclusa: boolean; inCheck1: boolean; inCheck2: boolean;` (massimali: 1 sì/2 no; `dei_riga_n`: 1 no/2 sì; controtelai ed eventuali: entrambi; opere: 1 sì, 2 salvo `esclusaDaCheck2`).
+> - `Computo`: aggiungere `deiProdottiCent: number | null;` (T6 del foglio) dopo `check2Cent`.
+> - `GRUPPI_PRODOTTO`, `gruppoPerCategoria`, `gruppoPerOscurante` arrivano con il Task 3.
 
 **Files:**
 - Create: `shared/euroCent.ts`
@@ -428,290 +451,235 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: Seed delle tariffe dal foglio e caricatore
+### Task 3: Seed delle tariffe (catalogo DEI) e caricatore
 
 **Files:**
-- Create: `scripts/estrai-tariffe-limiti.py`
-- Create: `shared/limiti/tariffe-seed.json` (generato dallo script, committato)
+- Già presenti (prodotti dall'analisi del 03/09, committati): `scripts/estrai-tariffe-limiti.py`, `shared/limiti/tariffe-seed.json`, `docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md`
 - Create: `server/computo/tariffe.ts`
+- Modify: `shared/limiti/tipi.ts` (aggiunta `gruppoPerCategoria`)
 - Test: `server/computo/tariffe.test.ts`
 
 **Interfaces:**
-- Produces: `type Tariffe = { versione: string; validoDal: string; massimali: Massimale[]; dei: VoceDei[]; controtelai: VoceControtelaio[]; opere: VoceOpera[]; coefficienti: Coefficienti; detrazioni: RegolaDetrazione[]; beneSignificativoDefault: Record<CategoriaRiga, boolean> }`; `tariffeAttive(alla?: Date): Tariffe`; `massimaleEuroMq(t: Tariffe, gruppo: "A"|"B"|"C", zona: ZonaClimatica): number`; `voceDeiPer(t: Tariffe, categoria: CategoriaRiga, tipologia: string | null): VoceDei | null`; `percentualeDetrazione(t: Tariffe, tipo, immobile, anno): number | null`.
+- Produces:
+  ```ts
+  type Massimale = { gruppo: "A" | "B" | "C"; zona: ZonaClimatica; euroMq: number };
+  type GruppoProdotto = "serramento" | "cassonetto" | "avvolgibile" | "persiana" | "scuro" | "portoncino" | "porta_blindata" | "schermatura";
+  type Prodotto = { codice: string; gruppo: GruppoProdotto; famiglia: string; nome: string; prezzo: number; unita: "mq" | "cad" | "m"; foglio: string;
+                    zone?: string[] | null; nAnte?: number; portafinestra?: boolean; minimoMq?: number | null; mqPezzoMin?: number; mqPezzoMax?: number | null; intervalloL?: string | null; intervalloH?: string | null };
+  type RegolaAccessorio = "pct_mq" | "pct_pezzo" | "cad_pezzo" | "cad_anta" | "cad_fisso" | "m_perimetro";
+  type Accessorio = { codice: string; codiceDei: string | null; nome: string; gruppo: GruppoProdotto; famiglie: string[]; regola: RegolaAccessorio; valore: number; moltiplicatore: number; soloPortafinestra: boolean; foglio: string };
+  type VoceControtelaio = { codice: string; famiglia: string; variante: string; unita: "mq" | "m" | "cad"; prezzo: number; minimoMq: number | null };
+  type VoceOpera = { codice: CodiceOpera; gruppo: "opere" | "eventuali"; descrizione: string; codiceDei: string | null; unita: string; prezzo: number; esclusaDaCheck2: boolean; inclusaDefault: boolean };
+  type Coefficienti = { oreTiro: Record<string, number>; orePosa: Record<string, number>; oreGiornata: number; euroKm: number; installatori: number; maggiorazionePianoOltre: number; maggiorazionePiano: number; puliziaFissoEuro: number; smaltimentoBaseEuro: number; smaltimentoEuroMc: number; smaltimentoEuroOnere: number; smaltimentoMcSerramento: number; smaltimentoMcCassonetto: number; smaltimentoMcOscurante: number; smaltimentoOnereSerramento: number; smaltimentoOnereCassonetto: number; smaltimentoOnereOscurante: number; speseProfessionaliPct: number; speseProfessionaliMinEuro: number; altriServiziPct: number; controtelaiMinMq: number; avvolgibileExtraL: number; avvolgibileExtraLOffset: number; avvolgibileExtraH: number; avvolgibileExtraHOffset: number };
+  type Tariffe = { versione: string; validoDal: string; massimali: Massimale[]; prodotti: Prodotto[]; accessori: Accessorio[]; controtelai: VoceControtelaio[]; opere: VoceOpera[]; coefficienti: Coefficienti; detrazioni: RegolaDetrazione[]; beneSignificativoDefault: Record<CategoriaRiga, boolean> };
+  tariffeAttive(alla?: Date): Tariffe;
+  massimaleEuroMq(t, gruppo, zona): number;
+  prodotto(t, codice: string): Prodotto | null;
+  prodottiPer(t, gruppo: GruppoProdotto, famiglia?: string | null, zona?: ZonaClimatica | null): Prodotto[];
+  accessorio(t, codice: string): Accessorio | null;
+  accessoriPer(t, gruppo: GruppoProdotto, famiglia: string, portafinestra: boolean): Accessorio[];
+  voceControtelaio(t, codice): VoceControtelaio | null;
+  voceOpera(t, codice: CodiceOpera): VoceOpera;
+  percentualeDetrazione(t, tipo, immobile, anno): number | null;
+  // shared/limiti/tipi.ts
+  gruppoPerCategoria(categoria: CategoriaRiga): { gruppo: GruppoProdotto | null; famiglia: string | null };
+  gruppoPerOscurante(o: OscuranteIntegrato): GruppoProdotto;
+  ```
+- Il seed è **la specifica dei dati**: prezzi DEI dei fogli «Calcolo Automatici A…F» (non del foglio «DEI»), accessori con regola di applicazione, opere con `esclusaDaCheck2`/`inclusaDefault`, coefficienti compresi quelli dello smaltimento con la precedenza del foglio (analisi §2.2–2.3).
 
-- [ ] **Step 1: Scrivere lo script di estrazione**
+- [ ] **Step 1: Verificare il seed committato**
 
-```python
-#!/usr/bin/env python3
-# scripts/estrai-tariffe-limiti.py — una tantum.
-# Legge «CALCOLO NUOVI LIMITI.xlsx» (valori, non formule) e scrive
-# shared/limiti/tariffe-seed.json. Le formule del foglio vivono nel motore
-# (server/computo/motore.ts); qui escono SOLO i dati: massimali, listino DEI,
-# controtelai, prezzi delle opere, coefficienti e regole. Il foglio NON va nel
-# repository (13 MB, dati aziendali).
-#
-# Uso: python3 scripts/estrai-tariffe-limiti.py "<percorso>/CALCOLO NUOVI LIMITI .xlsx"
-import json, re, sys, warnings
-from datetime import date
-warnings.filterwarnings("ignore")
-import openpyxl
-
-if len(sys.argv) < 2:
-    sys.exit("uso: estrai-tariffe-limiti.py <file.xlsx>")
-wb = openpyxl.load_workbook(sys.argv[1], data_only=True, read_only=True)
-
-def celle(nome, r1, r2, c1, c2):
-    ws = wb[nome]
-    out = {}
-    for i, row in enumerate(ws.iter_rows(min_row=r1, max_row=r2, min_col=c1, max_col=c2, values_only=True), r1):
-        for j, v in zip(range(c1, c2 + 1), row):
-            if v not in (None, ""):
-                out[(openpyxl.utils.get_column_letter(j), i)] = v
-    return out
-
-def num(v):
-    return round(float(v), 2) if isinstance(v, (int, float)) else None
-
-# ── Massimali Allegato A: 'Calcolo Automatici' B3:D26 → gruppo (A/B/C) × zona
-ca = celle("Calcolo Automatici", 3, 26, 2, 4)
-massimali = []
-for r in range(3, 27):
-    etichetta = str(ca.get(("B", r), ""))
-    gruppo = etichetta.strip()[:1]  # "A)", "B)", "C)", "D)"
-    if gruppo == "D":
-        gruppo = "C"  # schermature solari: stesso massimale degli oscuranti (CHECK1 riga 8)
-    zona = ca.get(("C", r))
-    prezzo = num(ca.get(("D", r)))
-    if gruppo in ("A", "B", "C") and zona and prezzo:
-        massimali.append({"gruppo": gruppo, "zona": str(zona), "euroMq": prezzo})
-# dedup (D e C coincidono)
-visti = set(); massimali = [m for m in massimali if not ((m["gruppo"], m["zona"]) in visti or visti.add((m["gruppo"], m["zona"])))]
-assert len(massimali) == 18, len(massimali)
-
-# ── Listino DEI serramenti: foglio DEI righe 2..85
-dei_celle = celle("DEI", 2, 85, 1, 6)
-def categoria_di(desc):
-    d = desc.upper()
-    if "LEGNO" in d and "ALLUMINIO" in d: return "serramento_legno_alluminio"
-    if "LEGNO" in d: return "serramento_legno"
-    if "ALLUMINIO" in d: return "serramento_alluminio"
-    if "PVC" in d: return "serramento_pvc"
-    return None
-def tipologia_di(desc):
-    d = desc.lower()
-    if "alzante" in d: return "scorrevole_alzante"
-    if "scorrevole" in d and "portafinestra" in d: return "scorrevole_complanare_portafinestra"
-    if "scorrevole" in d: return "scorrevole_complanare_finestra"
-    if "fisso" in d: return "fisso"
-    if "portafinestra" in d and "2 ante" in d: return "portafinestra_2_ante"
-    if "portafinestra" in d: return "portafinestra_1_anta"
-    if "finestra" in d and "2 ante" in d: return "finestra_2_ante"
-    if "finestra" in d: return "finestra_1_anta"
-    return None
-dei = []
-for r in range(2, 86):
-    desc = dei_celle.get(("A", r)); codice = dei_celle.get(("C", r)); prezzo = num(dei_celle.get(("E", r)))
-    if not desc or not codice or prezzo is None: continue
-    desc = str(desc).strip(); codice = str(codice).strip()
-    note = str(dei_celle.get(("F", r)) or "").strip()
-    sovrapprezzo = desc.upper().startswith("SOVRAPPREZZO")
-    dei.append({
-        "codice": codice,
-        "descrizione": desc,
-        "unita": str(dei_celle.get(("D", r)) or "").strip(),
-        "prezzo": prezzo,
-        "note": note or None,
-        "minimoMq": 1 if "minimo di fatturazione 1 mq" in note.lower() else None,
-        "minimoZone": re.findall(r"zone?\s+([A-F](?:\s*-\s*[A-F])?)", note)[0].replace(" ", "") if "zone" in note.lower() else None,
-        "categoria": None if sovrapprezzo else categoria_di(desc),
-        "tipologia": None if sovrapprezzo else tipologia_di(desc),
-        "sovrapprezzo": sovrapprezzo,
-    })
-assert len(dei) >= 80, len(dei)
-
-# ── Accessori (sovrapprezzi DEI): codice stabile dalla descrizione, per le righe del contratto
-SLUG = [("pellicolat", "pellicolatura"), ("incollaggio", "incollaggio_strutturale"),
-        ("soglia ribassata per portefinestre", "soglia_ribassata_portafinestra"),
-        ("soglia ribassata per portoncini", "soglia_ribassata_portoncino"),
-        ("doppia maniglia", "doppia_maniglia"), ("coprifili da 80", "coprifili_80"),
-        ("coprifili da 100", "coprifili_100"), ("traverso", "traverso"), ("anta a ribalta", "ribalta"),
-        ("anodizzazione naturale", "anodizzazione_naturale"), ("anodizzazione elettrocolore", "anodizzazione_elettrocolore"),
-        ("colori speciali", "verniciatura_speciale"), ("effetto legno", "verniciatura_effetto_legno")]
-accessori = []
-for v in dei:
-    if not v["sovrapprezzo"]: continue
-    d = v["descrizione"].lower()
-    slug = next((s for k, s in SLUG if k in d), None)
-    if not slug or any(a["codice"] == slug for a in accessori): continue
-    accessori.append({"codice": slug, "descrizione": v["descrizione"], "codiceDei": v["codice"],
-                      "unita": v["unita"], "valore": v["prezzo"]})
-if not any(a["codice"] == "ribalta" for a in accessori):
-    # Nel foglio il sovrapprezzo ribalta vive in «Calcolo Automatici A» (Y5 = 70, Z5 = C25126)
-    accessori.append({"codice": "ribalta", "descrizione": "Per ciascuna anta a ribalta", "codiceDei": "C25126", "unita": "cad", "valore": 70})
-assert len(accessori) >= 8, len(accessori)
-
-# ── Controtelai: 'Calcolo Automatici' L344:N374 (famiglia = riga senza prezzo)
-ct = celle("Calcolo Automatici", 344, 374, 12, 14)
-controtelai, famiglia, unita = [], None, None
-UNITA = {"acciaio": "mq", "acciaio e legno": "mq", "alluminio": "cad", "legno": "m"}
-for r in range(344, 375):
-    l, m, n = ct.get(("L", r)), ct.get(("M", r)), num(ct.get(("N", r)))
-    if l and n is None:
-        famiglia = str(l).strip()
-        chiave = next((k for k in UNITA if k in famiglia.lower()), "legno")
-        unita = UNITA[chiave]
-    elif l and n is not None:
-        controtelai.append({"codice": str(l).replace(" ", ""), "famiglia": famiglia, "variante": str(m).strip(), "unita": unita, "prezzo": n, "minimoMq": 1.2 if unita == "mq" else None})
-assert len(controtelai) == 22, len(controtelai)
-
-# ── Prezzi delle opere: CHECK1 E22:E43 con codice DEI in N
-ck = celle("CHECK1", 22, 43, 2, 14)
-OPERE = [
-    (22, "rilievo_pezzo", "h"), (23, "rilievo_foro", "h"), (24, "progettazione", "h"),
-    (25, "sviluppo_ordine", "h"), (26, "protezione", "h"), (27, "rimozione_serramenti", "mq"),
-    (28, "rimozione_tapparelle", "mq"), (29, "smaltimento", "fisso"), (30, "trasporto", "km"),
-    (31, "tiro_piano", "h"), (32, "assistenza_muraria", "m"), (33, "posa", "h"),
-    (34, "pulizia", "h"), (35, "spese_professionali", "fisso"),
-    (39, "altri_servizi", "%"), (40, "assistenze_murarie_eventuali", "h"),
-    (41, "dime", "mq"), (42, "piattaforma", "giornata"), (43, "permessi_suolo", "giornata"),
-]
-opere = []
-for r, codice, unita in OPERE:
-    prezzo = num(ck.get(("E", r)))
-    if r == 42: prezzo = round(64.74 * 8, 2)
-    opere.append({
-        "codice": codice,
-        "gruppo": "eventuali" if r >= 39 else "opere",
-        "descrizione": str(ck.get(("B", r)) or "").strip(),
-        "codiceDei": str(ck.get(("N", r)) or "").split("\n")[0].strip() or None,
-        "unita": unita,
-        "prezzo": prezzo,
-    })
-
-# ── Coefficienti: trascritti dalle formule del foglio (CHECK1 H22:H43, Tempi)
-coefficienti = {
-    "oreTiro": {"serramento": 0.5, "cassonetto": 0.25, "tapparella": 0.25, "persiana": 0.25,
-                "scuro": 0.25, "porta_blindata": 0.5, "portoncino": 0.5, "schermatura": 0.25,
-                "zanzariera": 0.25, "tenda": 1, "pergola": 2, "materialiPosa": 1 / 3},
-    "orePosa": {"serramento": 3, "cassonetto": 1, "oscurante": 1.5, "schermatura": 1.5,
-                "zanzariera": 1.5, "tenda": 4, "pergola": 16, "porta_blindata": 3, "portoncino": 3},
-    "oreGiornata": 8, "euroKm": 0.7, "installatori": 2, "maggiorazionePianoOltre": 4,
-    "maggiorazionePiano": 1.3, "puliziaFissoEuro": 50, "smaltimentoBaseEuro": 150,
-    "smaltimentoEuroMc": 104.69, "smaltimentoEuroOnere": 100,
-    "speseProfessionaliPct": 0.04, "speseProfessionaliMinEuro": 600, "altriServiziPct": 0.02,
-    "controtelaiMinMq": 1.2,
-}
-detrazioni = [
-    {"tipo": "ristrutturazione", "immobile": "prima_casa", "anno": 2026, "pct": 50},
-    {"tipo": "ristrutturazione", "immobile": "altro", "anno": 2026, "pct": 36},
-    {"tipo": "ecobonus", "immobile": "prima_casa", "anno": 2026, "pct": 50},
-    {"tipo": "ecobonus", "immobile": "altro", "anno": 2026, "pct": 36},
-]
-bene_default = {c: True for c in ["serramento_pvc", "serramento_alluminio", "serramento_legno",
-    "serramento_legno_alluminio", "cassonetto", "tapparella", "persiana", "scuro", "schermatura",
-    "zanzariera", "tenda", "pergola", "porta_blindata", "portoncino", "porta_interna", "accessorio"]}
-bene_default.update({"controtelaio": False, "altro": False})
-
-seed = {"versione": date.today().isoformat(), "fonte": "CALCOLO NUOVI LIMITI.xlsx", "validoDal": "2022-04-15",
-        "massimali": massimali, "dei": dei, "accessori": accessori, "controtelai": controtelai, "opere": opere,
-        "coefficienti": coefficienti, "detrazioni": detrazioni, "beneSignificativoDefault": bene_default}
-with open("shared/limiti/tariffe-seed.json", "w", encoding="utf-8") as f:
-    json.dump(seed, f, ensure_ascii=False, indent=1)
-print({k: (len(v) if isinstance(v, list) else "ok") for k, v in seed.items()})
+Run:
+```bash
+python3 -c "import json; s=json.load(open('shared/limiti/tariffe-seed.json')); print(len(s['massimali']), len(s['prodotti']), len(s['accessori']), len(s['controtelai']), len(s['opere']))"
 ```
+Expected: `18 342 74 22 19`. Se il seed dovesse essere rigenerato: `python3 scripts/estrai-tariffe-limiti.py "<percorso>/CALCOLO NUOVI LIMITI .xlsx"` (il foglio non è nel repo; chiedere alla direzione). Non modificare il JSON a mano.
 
-- [ ] **Step 2: Generare il seed**
-
-Run: `python3 scripts/estrai-tariffe-limiti.py "/Users/timmy/Library/Mobile Documents/com~apple~CloudDocs/Downloads/CALCOLO NUOVI LIMITI .xlsx"`
-Expected: stampa `{'massimali': 18, 'dei': 8x, 'controtelai': 22, 'opere': 19, …}` e crea `shared/limiti/tariffe-seed.json`. Aprire il JSON e controllare a mano: `massimali` contiene `A/D=780`, `B/E=900`, `C/A=276`; `dei[0].codice == "C25077"`; `opere` con `rilievo_pezzo` 60.17 e `piattaforma` 517.92.
-
-- [ ] **Step 3: Scrivere il test del caricatore**
+- [ ] **Step 2: Scrivere il test del caricatore**
 
 ```ts
 // server/computo/tariffe.test.ts
 import { describe, expect, it } from "vitest";
+import { gruppoPerCategoria, gruppoPerOscurante } from "@shared/limiti/tipi";
 import {
+  accessoriPer,
+  accessorio,
   massimaleEuroMq,
   percentualeDetrazione,
+  prodottiPer,
+  prodotto,
   tariffeAttive,
-  voceDeiPer,
+  voceControtelaio,
   voceOpera,
 } from "./tariffe";
 
 describe("tariffe limiti", () => {
   const t = tariffeAttive(new Date("2026-09-03"));
-  it("carica il seed con le tre tabelle di massimali complete", () => {
+
+  it("carica i massimali Allegato A per gruppo e zona", () => {
     expect(t.massimali).toHaveLength(18);
     expect(massimaleEuroMq(t, "A", "E")).toBe(780);
     expect(massimaleEuroMq(t, "A", "B")).toBe(660);
     expect(massimaleEuroMq(t, "B", "D")).toBe(900);
     expect(massimaleEuroMq(t, "C", "F")).toBe(276);
+    expect(() => tariffeAttive(new Date("2021-01-01"))).toThrow("TARIFFE_NON_DISPONIBILI");
   });
-  it("trova la voce DEI per categoria e tipologia", () => {
-    const v = voceDeiPer(t, "serramento_pvc", "portafinestra_2_ante");
-    expect(v?.codice).toBe("C25077");
-    expect(v?.prezzo).toBe(665.15);
-    expect(voceDeiPer(t, "serramento_pvc", "inesistente")).toBeNull();
-    expect(voceDeiPer(t, "tapparella", null)).toBeNull();
+
+  it("espone i prodotti DEI con i prezzi dei fogli «Calcolo Automatici»", () => {
+    expect(prodotto(t, "C25077-c")).toMatchObject({ gruppo: "serramento", famiglia: "pvc", prezzo: 589.57, unita: "mq", nAnte: 2, portafinestra: false, minimoMq: 1 });
+    expect(prodotto(t, "C25077-e")).toMatchObject({ prezzo: 680.41, portafinestra: true });
+    expect(prodotto(t, "C15078-a")).toMatchObject({ gruppo: "persiana", famiglia: "alluminio", prezzo: 575.99 });
+    expect(prodotto(t, "C25089-a")).toMatchObject({ gruppo: "avvolgibile", minimoMq: 1.8 });
+    expect(prodotto(t, "C25095-a")).toMatchObject({ gruppo: "cassonetto", unita: "cad", mqPezzoMin: 0, mqPezzoMax: 0.51 });
+    expect(prodotto(t, "C25053-a")).toMatchObject({ famiglia: "legno", zone: ["D"], minimoMq: null });
+    expect(prodotto(t, "inesistente")).toBeNull();
+    expect(prodottiPer(t, "serramento", "pvc").length).toBeGreaterThanOrEqual(8);
+    // alluminio per zona: solo le voci della zona D (o senza zona)
+    const alluD = prodottiPer(t, "serramento", "alluminio", "D");
+    expect(alluD.length).toBeGreaterThan(0);
+    expect(alluD.every(p => !p.zone || p.zone.includes("D"))).toBe(true);
   });
-  it("espone opere e coefficienti trascritti dal foglio", () => {
-    expect(voceOpera(t, "posa").prezzo).toBe(36.5);
-    expect(voceOpera(t, "piattaforma").prezzo).toBe(517.92);
-    expect(t.coefficienti.orePosa.serramento).toBe(3);
-    expect(t.coefficienti.oreTiro.serramento).toBe(0.5);
+
+  it("espone gli accessori con la regola del foglio", () => {
+    expect(accessorio(t, "serramento.C25088-a")).toMatchObject({ regola: "pct_mq", valore: 15 });
+    expect(accessorio(t, "serramento.C25088-b")).toMatchObject({ regola: "cad_anta", valore: 120 });
+    expect(accessorio(t, "serramento.C25088-h")).toMatchObject({ regola: "m_perimetro", valore: 1.65 });
+    expect(accessorio(t, "serramento.C25126")).toMatchObject({ regola: "cad_pezzo", valore: 70 });
+    expect(accessorio(t, "persiana.C25084-c")).toMatchObject({ regola: "cad_pezzo", valore: 6, moltiplicatore: 2 });
+    expect(accessorio(t, "persiana.C15154-b")).toMatchObject({ regola: "pct_pezzo", valore: 4, famiglie: ["alluminio"] });
+    const pf = accessoriPer(t, "serramento", "pvc", true).map(a => a.codice);
+    expect(pf).toContain("serramento.C25088-c");
+    expect(accessoriPer(t, "serramento", "pvc", false).map(a => a.codice)).not.toContain("serramento.C25088-c");
+    expect(accessoriPer(t, "persiana", "alluminio", false)).toHaveLength(6);
+  });
+
+  it("espone controtelai, opere e coefficienti", () => {
+    expect(voceControtelaio(t, "C15145-a")?.prezzo).toBe(55.52);
+    expect(voceOpera(t, "posa")).toMatchObject({ prezzo: 36.5, esclusaDaCheck2: true, inclusaDefault: true });
+    expect(voceOpera(t, "rilievo_pezzo").inclusaDefault).toBe(false);
+    expect(voceOpera(t, "piattaforma")).toMatchObject({ prezzo: 517.92, gruppo: "eventuali", inclusaDefault: false });
     expect(() => voceOpera(t, "non_esiste" as any)).toThrow("OPERA_SCONOSCIUTA");
+    expect(t.coefficienti.smaltimentoMcSerramento).toBe(0.1);
+    expect(t.coefficienti.avvolgibileExtraL).toBe(0.05);
   });
+
   it("dà la percentuale di detrazione per tipo, immobile e anno", () => {
     expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2026)).toBe(50);
     expect(percentualeDetrazione(t, "ecobonus", "altro", 2026)).toBe(36);
     expect(percentualeDetrazione(t, "nessuna", "altro", 2026)).toBeNull();
   });
+
+  it("mappa le categorie del contratto sui gruppi DEI", () => {
+    expect(gruppoPerCategoria("serramento_pvc")).toEqual({ gruppo: "serramento", famiglia: "pvc" });
+    expect(gruppoPerCategoria("tapparella")).toEqual({ gruppo: "avvolgibile", famiglia: null });
+    expect(gruppoPerCategoria("controtelaio")).toEqual({ gruppo: null, famiglia: null });
+    expect(gruppoPerOscurante("persiana")).toBe("persiana");
+    expect(gruppoPerOscurante("tapparella")).toBe("avvolgibile");
+  });
 });
 ```
 
-- [ ] **Step 4: Eseguire il test e verificare che fallisca**
+- [ ] **Step 3: Eseguire il test e verificare che fallisca**
 
 Run: `pnpm vitest run server/computo/tariffe.test.ts`
-Expected: FAIL — `./tariffe` non esiste.
+Expected: FAIL — `./tariffe` non esiste; `gruppoPerCategoria` non esportata.
+
+- [ ] **Step 4: Aggiungere le mappe pure a `shared/limiti/tipi.ts`**
+
+In coda al file:
+
+```ts
+export const GRUPPI_PRODOTTO = [
+  "serramento", "cassonetto", "avvolgibile", "persiana", "scuro", "portoncino", "porta_blindata", "schermatura",
+] as const;
+export type GruppoProdotto = (typeof GRUPPI_PRODOTTO)[number];
+
+/** Categoria della riga → gruppo (e famiglia, se univoca) del catalogo DEI. null = la riga non ha voce DEI. */
+export function gruppoPerCategoria(
+  categoria: CategoriaRiga
+): { gruppo: GruppoProdotto | null; famiglia: string | null } {
+  switch (categoria) {
+    case "serramento_pvc": return { gruppo: "serramento", famiglia: "pvc" };
+    case "serramento_alluminio": return { gruppo: "serramento", famiglia: "alluminio" };
+    case "serramento_legno": return { gruppo: "serramento", famiglia: "legno" };
+    case "serramento_legno_alluminio": return { gruppo: "serramento", famiglia: null };
+    case "cassonetto": return { gruppo: "cassonetto", famiglia: null };
+    case "tapparella": return { gruppo: "avvolgibile", famiglia: null };
+    case "persiana": return { gruppo: "persiana", famiglia: null };
+    case "scuro": return { gruppo: "scuro", famiglia: null };
+    case "schermatura": return { gruppo: "schermatura", famiglia: null };
+    case "zanzariera": return { gruppo: "schermatura", famiglia: "zanzariera" };
+    case "tenda": return { gruppo: "schermatura", famiglia: "tenda" };
+    case "pergola": return { gruppo: "schermatura", famiglia: "pergola" };
+    case "porta_blindata": return { gruppo: "porta_blindata", famiglia: null };
+    case "portoncino": return { gruppo: "portoncino", famiglia: null };
+    default: return { gruppo: null, famiglia: null };
+  }
+}
+
+export function gruppoPerOscurante(o: OscuranteIntegrato): GruppoProdotto {
+  return o === "tapparella" ? "avvolgibile" : o === "persiana" ? "persiana" : "scuro";
+}
+```
 
 - [ ] **Step 5: Scrivere `server/computo/tariffe.ts`**
 
 ```ts
 // server/computo/tariffe.ts
-// Tariffe del computo limiti: massimali Allegato A, listino DEI, controtelai,
-// prezzi delle opere, coefficienti e regole di detrazione. Sono DATI con una
-// validità, letti dal seed generato dal foglio; il motore non contiene mai
-// un prezzo. Piano 1: solo seed; la tabella `tariffe` modificabile da
-// direzione arriva con la UI Impostazioni (Task 15).
+// Tariffe del computo limiti: massimali Allegato A, catalogo prodotti DEI
+// (prezzi dei fogli «Calcolo Automatici A…F»), accessori con regola di
+// applicazione, controtelai, opere, coefficienti e detrazioni. Sono DATI con
+// una validità, letti dal seed generato dal foglio con
+// scripts/estrai-tariffe-limiti.py; il motore non contiene mai un prezzo.
+// Specifica: docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md.
 import seed from "@shared/limiti/tariffe-seed.json";
 import type {
   CategoriaRiga,
+  CodiceOpera,
   DetrazioneImmobile,
   DetrazioneTipo,
+  GruppoProdotto,
   ZonaClimatica,
 } from "@shared/limiti/tipi";
 
 export type Massimale = { gruppo: "A" | "B" | "C"; zona: ZonaClimatica; euroMq: number };
-export type VoceDei = {
+
+export type Prodotto = {
   codice: string;
-  descrizione: string;
-  unita: string;
+  gruppo: GruppoProdotto;
+  famiglia: string;
+  nome: string;
   prezzo: number;
-  note: string | null;
-  minimoMq: number | null;
-  minimoZone: string | null;
-  categoria: CategoriaRiga | null;
-  tipologia: string | null;
-  sovrapprezzo: boolean;
+  unita: "mq" | "cad" | "m";
+  foglio: string;
+  /** Serramenti in alluminio/legno: zone climatiche per cui vale la voce; null = tutte. */
+  zone?: string[] | null;
+  nAnte?: number;
+  portafinestra?: boolean;
+  /** Minimo di fatturazione sul totale della riga (1 mq PVC/alluminio, 1,8 mq avvolgibili). */
+  minimoMq?: number | null;
+  /** Cassonetti a pezzo: classe di mq per pezzo [min, max). */
+  mqPezzoMin?: number;
+  mqPezzoMax?: number | null;
+  intervalloL?: string | null;
+  intervalloH?: string | null;
 };
-export type VoceAccessorio = {
+
+export type RegolaAccessorio = "pct_mq" | "pct_pezzo" | "cad_pezzo" | "cad_anta" | "cad_fisso" | "m_perimetro";
+
+export type Accessorio = {
   codice: string;
-  descrizione: string;
-  codiceDei: string;
-  /** "%" = percentuale del prezzo DEI della riga; "cad" e "m" moltiplicano la quantità dell'accessorio. */
-  unita: string;
+  codiceDei: string | null;
+  nome: string;
+  gruppo: GruppoProdotto;
+  famiglie: string[];
+  regola: RegolaAccessorio;
   valore: number;
+  moltiplicatore: number;
+  soloPortafinestra: boolean;
+  foglio: string;
 };
+
 export type VoceControtelaio = {
   codice: string;
   famiglia: string;
@@ -720,13 +688,14 @@ export type VoceControtelaio = {
   prezzo: number;
   minimoMq: number | null;
 };
+
 export const CODICI_OPERA = [
   "rilievo_pezzo", "rilievo_foro", "progettazione", "sviluppo_ordine", "protezione",
   "rimozione_serramenti", "rimozione_tapparelle", "smaltimento", "trasporto", "tiro_piano",
   "assistenza_muraria", "posa", "pulizia", "spese_professionali", "altri_servizi",
   "assistenze_murarie_eventuali", "dime", "piattaforma", "permessi_suolo",
 ] as const;
-export type CodiceOpera = (typeof CODICI_OPERA)[number];
+
 export type VoceOpera = {
   codice: CodiceOpera;
   gruppo: "opere" | "eventuali";
@@ -734,7 +703,12 @@ export type VoceOpera = {
   codiceDei: string | null;
   unita: string;
   prezzo: number;
+  /** Già compresa nel prezzo DEI «opere compiute»: non entra nel CHECK2 (T46). */
+  esclusaDaCheck2: boolean;
+  /** Inclusa nei totali senza scelta esplicita (opere ordinarie, rilievo a foro). */
+  inclusaDefault: boolean;
 };
+
 export type Coefficienti = {
   oreTiro: Record<string, number>;
   orePosa: Record<string, number>;
@@ -747,23 +721,35 @@ export type Coefficienti = {
   smaltimentoBaseEuro: number;
   smaltimentoEuroMc: number;
   smaltimentoEuroOnere: number;
+  smaltimentoMcSerramento: number;
+  smaltimentoMcCassonetto: number;
+  smaltimentoMcOscurante: number;
+  smaltimentoOnereSerramento: number;
+  smaltimentoOnereCassonetto: number;
+  smaltimentoOnereOscurante: number;
   speseProfessionaliPct: number;
   speseProfessionaliMinEuro: number;
   altriServiziPct: number;
   controtelaiMinMq: number;
+  avvolgibileExtraL: number;
+  avvolgibileExtraLOffset: number;
+  avvolgibileExtraH: number;
+  avvolgibileExtraHOffset: number;
 };
+
 export type RegolaDetrazione = {
   tipo: DetrazioneTipo;
   immobile: DetrazioneImmobile;
   anno: number;
   pct: number;
 };
+
 export type Tariffe = {
   versione: string;
   validoDal: string;
   massimali: Massimale[];
-  dei: VoceDei[];
-  accessori: VoceAccessorio[];
+  prodotti: Prodotto[];
+  accessori: Accessorio[];
   controtelai: VoceControtelaio[];
   opere: VoceOpera[];
   coefficienti: Coefficienti;
@@ -772,46 +758,62 @@ export type Tariffe = {
 };
 
 const SEED = seed as unknown as Tariffe;
+const PRODOTTI = new Map(SEED.prodotti.map(p => [p.codice, p]));
+const ACCESSORI = new Map(SEED.accessori.map(a => [a.codice, a]));
 
 /** Tariffe valide alla data indicata. Un solo seed oggi: la data serve al contratto della funzione. */
 export function tariffeAttive(alla: Date = new Date()): Tariffe {
   if (alla.toISOString().slice(0, 10) < SEED.validoDal) {
-    // Prima del DM 14/02/2022 non esiste un massimale: lo diciamo, non
-    // inventiamo un listino precedente.
+    // Prima del DM 14/02/2022 non esiste un massimale: lo diciamo, non inventiamo un listino precedente.
     throw new Error(`TARIFFE_NON_DISPONIBILI: nessuna tariffa prima del ${SEED.validoDal}`);
   }
   return SEED;
 }
 
-export function massimaleEuroMq(
-  t: Tariffe,
-  gruppo: "A" | "B" | "C",
-  zona: ZonaClimatica
-): number {
+export function massimaleEuroMq(t: Tariffe, gruppo: "A" | "B" | "C", zona: ZonaClimatica): number {
   const trovato = t.massimali.find(m => m.gruppo === gruppo && m.zona === zona);
   if (!trovato) throw new Error(`MASSIMALE_MANCANTE: ${gruppo}/${zona}`);
   return trovato.euroMq;
 }
 
-export function voceDeiPer(
+export function prodotto(t: Tariffe, codice: string): Prodotto | null {
+  return (t === SEED ? PRODOTTI.get(codice) : t.prodotti.find(p => p.codice === codice)) ?? null;
+}
+
+export function prodottiPer(
   t: Tariffe,
-  categoria: CategoriaRiga,
-  tipologia: string | null
-): VoceDei | null {
-  if (!tipologia) return null;
-  return (
-    t.dei.find(
-      v => !v.sovrapprezzo && v.categoria === categoria && v.tipologia === tipologia
-    ) ?? null
+  gruppo: GruppoProdotto,
+  famiglia?: string | null,
+  zona?: ZonaClimatica | null
+): Prodotto[] {
+  return t.prodotti.filter(
+    p =>
+      p.gruppo === gruppo &&
+      (!famiglia || p.famiglia === famiglia) &&
+      (!zona || !p.zone || p.zone.includes(zona))
+  );
+}
+
+export function accessorio(t: Tariffe, codice: string): Accessorio | null {
+  return (t === SEED ? ACCESSORI.get(codice) : t.accessori.find(a => a.codice === codice)) ?? null;
+}
+
+export function accessoriPer(
+  t: Tariffe,
+  gruppo: GruppoProdotto,
+  famiglia: string,
+  portafinestra: boolean
+): Accessorio[] {
+  return t.accessori.filter(
+    a =>
+      a.gruppo === gruppo &&
+      (a.famiglie.length === 0 || a.famiglie.includes(famiglia)) &&
+      (!a.soloPortafinestra || portafinestra)
   );
 }
 
 export function voceControtelaio(t: Tariffe, codice: string): VoceControtelaio | null {
   return t.controtelai.find(c => c.codice === codice) ?? null;
-}
-
-export function voceAccessorio(t: Tariffe, codice: string): VoceAccessorio | null {
-  return t.accessori.find(a => a.codice === codice) ?? null;
 }
 
 export function voceOpera(t: Tariffe, codice: CodiceOpera): VoceOpera {
@@ -835,7 +837,7 @@ export function percentualeDetrazione(
 }
 ```
 
-Se `tsconfig.json` non ha `resolveJsonModule: true`, aggiungerlo in `compilerOptions` (verificare con `grep resolveJsonModule tsconfig.json`).
+Aggiungere in `shared/limiti/tipi.ts` `export type CodiceOpera = (typeof CODICI_OPERA)[number]` spostando lì la costante `CODICI_OPERA` (e ri-esportarla da `tariffe.ts`), così `OpzioniComputo.eventuali` può essere `CodiceOpera[]` senza che `shared` importi da `server`. `tsconfig.json` ha già `resolveJsonModule: true`.
 
 - [ ] **Step 6: Eseguire il test e verificare che passi**
 
@@ -845,12 +847,12 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add scripts/estrai-tariffe-limiti.py shared/limiti/tariffe-seed.json server/computo/tariffe.ts server/computo/tariffe.test.ts tsconfig.json
-git commit -m "feat(computo): tariffe dei limiti dal foglio come seed con caricatore
+git add server/computo/tariffe.ts server/computo/tariffe.test.ts shared/limiti/tipi.ts
+git commit -m "feat(computo): caricatore delle tariffe con catalogo DEI, accessori e opere
 
-Massimali Allegato A per gruppo e zona, listino DEI con categoria e
-tipologia, controtelai, prezzi delle opere e coefficienti trascritti dalle
-formule: dati con validità, mai prezzi nel motore.
+Prodotti con i prezzi dei fogli «Calcolo Automatici», accessori con la
+regola del foglio (per mq, per pezzo, per anta, a perimetro), opere con
+esclusione dal CHECK2: dati con validità, mai prezzi nel motore.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1031,6 +1033,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ### Task 5: Repository del contratto (memoria + Postgres)
+
+> **Delta (campi nuovi del Task 2):**
+> - `commessa_contratti`: colonna `opzioni_computo JSONB NOT NULL DEFAULT '{"rilievo":"foro","speseProfessionali":false,"eventuali":[]}'::jsonb` dopo `rate`; `rowToContratto` legge `opzioniComputo: row.opzioni_computo ?? OPZIONI_COMPUTO_DEFAULT`; l'INSERT scrive `${tx.json(c.opzioniComputo as any)}` e l'UPSERT aggiorna `opzioni_computo = EXCLUDED.opzioni_computo`.
+> - `commessa_righe`: colonna `oscurante_tipologia TEXT` dopo `oscurante_integrato`; `mq NUMERIC(12,6) NOT NULL DEFAULT 0`; `rowToRiga` legge `oscuranteTipologia: row.oscurante_tipologia ?? null`; l'INSERT scrive `${r.oscuranteTipologia}`.
+> - Nei test (memoria e Postgres) gli oggetti `contratto()`/`riga()` hanno `opzioniComputo: { rilievo: "foro", speseProfessionali: false, eventuali: [] }` e `oscuranteTipologia: null`; il test Postgres scrive `mq: 5.1128` e lo rilegge uguale.
 
 **Files:**
 - Create: `server/contratti/repository.ts`
@@ -1493,6 +1500,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ### Task 6: Hash e servizio del contratto
+
+> **Delta (analisi fogli reali):**
+> - `mqRiga` = `Math.round((L × H × q / 10⁶) × 1e6) / 1e6` (test: `13.68`, `5.1128`, `1.2728`, `0` — non più `5.113`).
+> - `rigaInputSchema`: `tipologia` resta stringa libera (validata contro il catalogo con **avvertenza**, non blocco); aggiungere `oscuranteTipologia: z.string().trim().max(40).nullable()`; `accessori[].codice` è il codice del seed (`serramento.C25088-a`), `quantita` intera ≥ 0.
+> - `contrattoInputSchema`: aggiungere `opzioniComputo: z.object({ rilievo: z.enum(["foro", "pezzo"]), speseProfessionali: z.boolean(), eventuali: z.array(z.enum(CODICI_OPERA)).max(10) }).default(OPZIONI_COMPUTO_DEFAULT)`.
+> - `hash.ts`: `hashRighe` include `oscuranteTipologia` (dopo `oscuranteIntegrato`); `hashParametri` include `opzioniComputo` in forma canonica (`rilievo|speseProfessionali|eventuali ordinati e uniti da ","`). Test: cambiare `oscuranteTipologia` o un'opzione cambia l'hash; cambiare l'ordine di `eventuali` no.
+> - Avvertenze del servizio: per ogni riga la cui categoria ha un gruppo DEI (`gruppoPerCategoria`, Task 3) e `tipologia` assente o non nel catalogo (`prodotto(tariffeAttive(), tipologia)` nullo o di altro gruppo) → «Riga n: tipologia DEI mancante o non valida: il CHECK2 sarà incompleto.»; oscurante integrato senza `oscuranteTipologia` valida → «Riga n: oscurante senza voce DEI.». Non bloccano il salvataggio.
+> - `salvaContratto` passa `opzioniComputo` al repository (`...parametri` lo include già); `leggiContratto` invariato. Nei test del servizio e del router, `contratto` include `opzioniComputo` di default e le righe `oscuranteTipologia: null`; `esito.righe.map(r => r.mq)` → `[13.68, 5.1128]`.
 
 **Files:**
 - Create: `server/contratti/hash.ts`
@@ -2248,6 +2263,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 8: Aggregati del computo (righe → conteggi, mq, larghezze, ore)
 
+> **Delta:** i mq sono esatti: nel test la funzione `r(...)` calcola `mq = l * h * quantita / 1_000_000` senza arrotondare e le attese diventano `a.mq.serramenti → toBeCloseTo(20.5638, 4)`, `larghezzaM → toBeCloseTo(10.17, 2)`. Il codice di `aggregati.ts` non arrotonda nulla. Verificato sui casi reali: ore tiro 6,0833 e ore posa 34,5 (129); larghezza 7,19 (129), 7,24 (130).
+
 **Files:**
 - Create: `server/computo/aggregati.ts`
 - Test: `server/computo/aggregati.test.ts`
@@ -2488,144 +2505,167 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: Motore del computo (CHECK1, CHECK2, limite, detrazione) — funzione pura
+### Task 9: Motore del computo (CHECK1, CHECK2 per riga, limite, detrazione) — funzione pura
 
 **Files:**
 - Create: `server/computo/motore.ts`
+- Già presente: `server/computo/__fixtures__/casi-reali.json` (tre commesse reali ricalcolate dal foglio)
 - Test: `server/computo/motore.test.ts`
 
 **Interfaces:**
 - Produces:
   ```ts
-  type RigaMotore = Pick<RigaContratto, "categoria" | "tipologia" | "oscuranteIntegrato" | "descrizione" | "quantita" | "larghezzaMm" | "altezzaMm" | "mq" | "misuraDei" | "prezzoTotCent" | "beneSignificativo" | "accessori">;
-  type ParametriMotore = { zona: ZonaClimatica | null; piano: number | null; distanzaKm: number | null; pattuitoCent: number; pattuitoTipo: PattuitoTipo; detrazioneTipo: DetrazioneTipo; detrazionePct: number | null };
-  type EsitoMotore = { voci: VoceComputo[]; check1Cent: number; check2Cent: number | null; limiteCent: number; esito: EsitoComputo; avvertenze: string[]; detraibileCent: number | null; detrazioneStimataCent: number | null };
+  type RigaMotore = Pick<RigaContratto, "categoria" | "tipologia" | "oscuranteIntegrato" | "oscuranteTipologia" | "descrizione" | "quantita" | "larghezzaMm" | "altezzaMm" | "mq" | "misuraDei" | "prezzoTotCent" | "beneSignificativo" | "accessori">;
+  type ParametriMotore = { zona: ZonaClimatica | null; piano: number | null; distanzaKm: number | null; pattuitoCent: number; pattuitoTipo: PattuitoTipo; detrazioneTipo: DetrazioneTipo; detrazionePct: number | null; opzioni: OpzioniComputo };
+  type EsitoMotore = { voci: VoceComputo[]; check1Cent: number; check2Cent: number | null; deiProdottiCent: number | null; limiteCent: number; esito: EsitoComputo; avvertenze: string[]; detraibileCent: number | null; detrazioneStimataCent: number | null };
   calcolaLimiti(righe: RigaMotore[], parametri: ParametriMotore, tariffe: Tariffe): EsitoMotore;
   ```
-- Ogni voce porta in `dettaglio` gli input della formula (ore, mq, km, giornate, coefficiente) per il popover «perché» della UI.
+- Specifica: `docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md` §2 (formule cella per cella) e §5 (stranezze da riprodurre). Ogni voce porta in `dettaglio` gli input della formula.
 
-- [ ] **Step 1: Scrivere il test che fallisce (valori derivati a mano dal foglio)**
+- [ ] **Step 1: Scrivere il test che fallisce (casi d'oro dalla fixture + casi limite)**
 
 ```ts
 // server/computo/motore.test.ts
-// Valori calcolati a mano dalle formule di CHECK1 H22:H43 e dal foglio Tempi
-// per la commessa della fattura 127/2026 (6 serramenti PVC, zona D, 2° piano,
-// 18 km). Da sostituire/affiancare con le fixture dei fogli reali compilati
-// (test d'oro) appena la direzione li fornisce.
+// Tre commesse reali (fixture) ricalcolate dal foglio «CALCOLO NUOVI LIMITI»:
+// sono il giudice del motore. I casi limite coprono ciò che il foglio non
+// mostra: zona mancante, piano alto, minimo 1 mq, controtelai, righe senza DEI.
 import { describe, expect, it } from "vitest";
-import { calcolaLimiti } from "./motore";
+import { euroToCent } from "@shared/euroCent";
+import casi from "./__fixtures__/casi-reali.json";
+import { calcolaLimiti, type ParametriMotore, type RigaMotore } from "./motore";
 import { tariffeAttive } from "./tariffe";
 
 const t = tariffeAttive(new Date("2026-09-03"));
-const riga = (tipologia: string, quantita: number, l: number, h: number, prezzoTotCent: number, accessori: any[] = []) => ({
-  categoria: "serramento_pvc" as const, tipologia, oscuranteIntegrato: null,
-  descrizione: tipologia, quantita, larghezzaMm: l, altezzaMm: h,
-  mq: Math.round((l * h * quantita) / 1_000_000 * 1000) / 1000, misuraDei: null,
-  prezzoTotCent, beneSignificativo: true, accessori,
-});
-const righe127 = [
-  riga("portafinestra_2_ante", 3, 1900, 2400, 500000),
-  riga("finestra_2_ante", 2, 1660, 1540, 224746),
-  riga("finestra_2_ante", 1, 1150, 1540, 100000),
-];
-const parametri = {
-  zona: "D" as const, piano: 2, distanzaKm: 18, pattuitoCent: 1539500, pattuitoTipo: "lordo" as const,
-  detrazioneTipo: "ristrutturazione" as const, detrazionePct: 50,
-};
+
+function rigaDaFixture(r: any): RigaMotore {
+  return {
+    categoria: r.categoria, tipologia: r.tipologia, oscuranteIntegrato: r.oscuranteIntegrato,
+    oscuranteTipologia: r.oscuranteTipologia, descrizione: r.descrizione, quantita: r.quantita,
+    larghezzaMm: r.larghezzaMm, altezzaMm: r.altezzaMm,
+    mq: Math.round((r.larghezzaMm * r.altezzaMm * r.quantita) / 1_000_000 * 1e6) / 1e6,
+    misuraDei: null, prezzoTotCent: r.prezzoTotCent, beneSignificativo: true,
+    accessori: (r.accessori as string[]).map(codice => ({ codice, quantita: r.quantita })),
+  };
+}
 const voce = (esito: ReturnType<typeof calcolaLimiti>, codice: string) => {
   const v = esito.voci.find(x => x.codice === codice);
   if (!v) throw new Error(`voce mancante: ${codice}`);
   return v;
 };
 
-describe("motore limiti — fattura 127", () => {
-  const e = calcolaLimiti(righe127, parametri, t);
+describe("motore limiti — casi reali", () => {
+  for (const caso of casi.casi) {
+    it(`riproduce il foglio per ${caso.nome}`, () => {
+      const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
+      // Ogni voce è arrotondata al centesimo; il foglio somma valori non arrotondati:
+      // sui totali si ammettono pochi centesimi (tolleranzaTotaliCent), mai di più.
+      const toll = caso.attesi.tolleranzaCent;
+      const tollTot = caso.attesi.tolleranzaTotaliCent;
+      for (const [codice, euro] of Object.entries(caso.attesi.voci)) {
+        expect(Math.abs(voce(e, codice).limiteCent - euroToCent(euro as number)), `${codice}`).toBeLessThanOrEqual(toll);
+      }
+      expect(Math.abs((e.deiProdottiCent ?? 0) - euroToCent(caso.attesi.deiProdotti)), "dei").toBeLessThanOrEqual(toll);
+      expect(Math.abs(e.check1Cent - euroToCent(caso.attesi.check1)), "check1").toBeLessThanOrEqual(tollTot);
+      expect(Math.abs((e.check2Cent ?? 0) - euroToCent(caso.attesi.check2)), "check2").toBeLessThanOrEqual(tollTot);
+      expect(e.limiteCent).toBe(Math.min(e.check1Cent, e.check2Cent!));
+      expect(e.esito).toBe("ok");
+    });
+  }
 
-  it("CHECK1: massimale A in zona D su 20,564 mq", () => {
-    expect(voce(e, "massimale_A").limiteCent).toBe(1603992); // 780 × 20,564
-    expect(voce(e, "massimale_B").limiteCent).toBe(0);
-    expect(voce(e, "massimale_C").limiteCent).toBe(0);
+  it("le voci portano inclusione e appartenenza ai check", () => {
+    const caso = casi.casi[0];
+    const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
+    expect(voce(e, "massimale_A")).toMatchObject({ inclusa: true, inCheck1: true, inCheck2: false });
+    expect(voce(e, "dei_riga_1")).toMatchObject({ inclusa: true, inCheck1: false, inCheck2: true });
+    expect(voce(e, "posa")).toMatchObject({ inclusa: true, inCheck1: true, inCheck2: false });
+    expect(voce(e, "rilievo_pezzo").inclusa).toBe(false);
+    expect(voce(e, "spese_professionali").inclusa).toBe(false);
+    expect(voce(e, "piattaforma").inclusa).toBe(false);
+    expect(voce(e, "dei_riga_1").dettaglio).toMatchObject({ codiceDei: "C25077-e", mq: 4.75 });
   });
 
-  it("opere complementari con le formule del foglio", () => {
-    expect(voce(e, "rilievo_pezzo").limiteCent).toBe(10530);       // 60,17 × (6/8 + 1)
-    expect(voce(e, "rilievo_foro").limiteCent).toBe(18051);        // 60,17 × (6/3 + 1)
-    expect(voce(e, "progettazione").limiteCent).toBe(8952);        // 29,84 × 6/2
-    expect(voce(e, "sviluppo_ordine").limiteCent).toBe(9026);      // 60,17 × (6/6 + 1/2)
-    expect(voce(e, "protezione").limiteCent).toBe(10950);          // 36,5 × 0,5 × 6
-    expect(voce(e, "rimozione_serramenti").limiteCent).toBe(41580); // 20,22 × 20,564
-    expect(voce(e, "rimozione_tapparelle").limiteCent).toBe(0);
-    expect(voce(e, "smaltimento").limiteCent).toBe(41669);         // 150 + 104,69×2,0564 + 100×0,5141
-    expect(voce(e, "trasporto").limiteCent).toBe(7560);            // 2 × 18 × 0,7 × 3 giornate
-    expect(voce(e, "tiro_piano").limiteCent).toBe(24333);          // 2 × 36,5 × 3,333 h, piano ≤ 4
-    expect(voce(e, "assistenza_muraria").limiteCent).toBe(44880);  // 44,13 × 10,17 m
-    expect(voce(e, "posa").limiteCent).toBe(131400);               // 18 h × 2 × 36,5
-    expect(voce(e, "pulizia").limiteCent).toBe(17167);             // 50 + 3,333 × 36,5
-    // max(600; 4 % di beni 8.247,46 + opere 3.660,98 + eventuali 3.278,40) = 607,47
-    expect(voce(e, "spese_professionali").limiteCent).toBe(60747);
-  });
-
-  it("servizi eventuali", () => {
-    expect(voce(e, "altri_servizi").limiteCent).toBe(16495);       // 2 % × 8.247,46
-    expect(voce(e, "assistenze_murarie_eventuali").limiteCent).toBe(38616); // 32,18 × 2 × 6
-    expect(voce(e, "dime").limiteCent).toBe(190937);               // 92,85 × 20,564
-    expect(voce(e, "piattaforma").limiteCent).toBe(51792);
-    expect(voce(e, "permessi_suolo").limiteCent).toBe(30000);
-  });
-
-  it("CHECK2 con il listino DEI per riga è il minore e diventa il limite", () => {
-    // 665,15 × 13,68 + 574,72 × 5,113 + 574,72 × 1,771 = 13.055,62
-    expect(voce(e, "dei_riga_1").limiteCent).toBe(909925);
-    expect(voce(e, "dei_riga_2").limiteCent).toBe(293854);
-    expect(voce(e, "dei_riga_3").limiteCent).toBe(101783);
-    const opere = e.voci.filter(v => v.gruppo === "opere" || v.gruppo === "eventuali").reduce((s, v) => s + v.limiteCent, 0);
-    expect(e.check1Cent).toBe(1603992 + opere);
-    expect(e.check2Cent).toBe(909925 + 293854 + 101783 + opere);
-    expect(e.limiteCent).toBe(e.check2Cent);
-    expect(e.esito).toBe("ok");
+  it("le opzioni spostano il rilievo, includono spese ed eventuali", () => {
+    const caso = casi.casi[0];
+    const base = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
+    const e = calcolaLimiti(caso.righe.map(rigaDaFixture), { ...(caso.parametri as ParametriMotore), opzioni: { rilievo: "pezzo", speseProfessionali: true, eventuali: ["piattaforma"] } }, t);
+    expect(voce(e, "rilievo_pezzo").inclusa).toBe(true);
+    expect(voce(e, "rilievo_foro").inclusa).toBe(false);
+    expect(e.check1Cent).toBe(base.check1Cent - voce(base, "rilievo_foro").limiteCent + voce(e, "rilievo_pezzo").limiteCent + 60000 + 51792);
+    expect(e.check2Cent).toBe(base.check2Cent! - voce(base, "rilievo_foro").limiteCent + voce(e, "rilievo_pezzo").limiteCent + 60000 + 51792);
   });
 
   it("detraibile e detrazione stimata sull'imponibile stimato del pattuito lordo", () => {
-    // 15.395 / 1,10 = 13.995,45 < limite → detraibile = 13.995,45; 50 % = 6.997,73
-    expect(e.detraibileCent).toBe(1399545);
-    expect(e.detrazioneStimataCent).toBe(699773);
+    const caso = casi.casi[2]; // 127: 15.494,72 lordo → 14.086,11 imponibile stimato < limite
+    const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
+    expect(e.detraibileCent).toBe(1408611);
+    expect(e.detrazioneStimataCent).toBe(704306);
   });
 });
 
 describe("motore limiti — casi limite", () => {
+  const caso = casi.casi[2];
+  const righe = () => caso.righe.map(rigaDaFixture);
+  const parametri = caso.parametri as ParametriMotore;
+
   it("senza zona: massimali a zero, esito incompleto, avvertenza esplicita", () => {
-    const e = calcolaLimiti(righe127, { ...parametri, zona: null }, t);
+    const e = calcolaLimiti(righe(), { ...parametri, zona: null }, t);
     expect(voce(e, "massimale_A").limiteCent).toBe(0);
     expect(e.esito).toBe("incompleto");
     expect(e.avvertenze.join(" ")).toMatch(/zona/i);
   });
+
   it("oltre il 4° piano il tiro costa il 30 % in più; senza km il trasporto è zero con avvertenza", () => {
-    const e = calcolaLimiti(righe127, { ...parametri, piano: 5, distanzaKm: null }, t);
-    expect(voce(e, "tiro_piano").limiteCent).toBe(31633); // 243,33 × 1,3
+    const e = calcolaLimiti(righe(), { ...parametri, piano: 5, distanzaKm: null }, t);
+    expect(voce(e, "tiro_piano").limiteCent).toBe(Math.round(voce(calcolaLimiti(righe(), parametri, t), "tiro_piano").limiteCent * 1.3));
     expect(voce(e, "trasporto").limiteCent).toBe(0);
     expect(e.avvertenze.join(" ")).toMatch(/distanza/i);
   });
-  it("minimo di fatturazione 1 mq in zona E e accessori DEI sulla riga", () => {
-    const e = calcolaLimiti(
-      [riga("finestra_1_anta", 1, 600, 800, 50000, [{ codice: "ribalta", quantita: 1 }, { codice: "coprifili_80", quantita: 4 }])],
-      { ...parametri, zona: "E" },
-      t
-    );
-    // 586,47 × max(0,48; 1) = 586,47 + ribalta 70 + coprifili 4 × 1,65 = 663,07
-    expect(voce(e, "dei_riga_1").limiteCent).toBe(66307);
+
+  it("minimo 1 mq sul totale della riga e accessori a perimetro", () => {
+    const r: RigaMotore = { categoria: "serramento_pvc", tipologia: "C25077-b", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "piccola", quantita: 1, larghezzaMm: 600, altezzaMm: 800, mq: 0.48, misuraDei: null, prezzoTotCent: 50000, beneSignificativo: true, accessori: [{ codice: "serramento.C25126", quantita: 1 }, { codice: "serramento.C25088-h", quantita: 1 }] };
+    const e = calcolaLimiti([r], parametri, t);
+    // 601,07 × 1 + ribalta 70 + coprifili 1,65 × 2 × (0,6 + 0,8) = 675,69
+    expect(voce(e, "dei_riga_1").limiteCent).toBe(67569);
   });
-  it("controtelaio in acciaio sotto 1,2 mq è fatturato a 1,2 mq; tipologia ignota = avvertenza", () => {
-    const controtelaio = { categoria: "controtelaio" as const, tipologia: "C15145-a", oscuranteIntegrato: null, descrizione: "Controtelaio acciaio", quantita: 2, larghezzaMm: null, altezzaMm: null, mq: 0, misuraDei: 1, prezzoTotCent: null, beneSignificativo: false, accessori: [] };
-    const e = calcolaLimiti([...righe127, controtelaio], parametri, t);
+
+  it("tapparella abbinata: mq maggiorati con minimo 1,8 e motore a pezzo", () => {
+    const r: RigaMotore = { categoria: "serramento_pvc", tipologia: "C25077-c", oscuranteIntegrato: "tapparella", oscuranteTipologia: "C25089-a", descrizione: "con tapparella", quantita: 1, larghezzaMm: 1200, altezzaMm: 1400, mq: 1.68, misuraDei: null, prezzoTotCent: 100000, beneSignificativo: true, accessori: [{ codice: "avvolgibile.C25091-d", quantita: 1 }] };
+    const e = calcolaLimiti([r], parametri, t);
+    // 589,57 × 1,68 = 990,48; tapparella: mq 1,68 + 0,05 × 1,45 + 0,25 × 1,45 = 2,115 → 111,11 × 2,115 = 235,00; motore 176
+    expect(Math.abs(voce(e, "dei_riga_1").limiteCent - euroToCent(990.4776 + 234.99765 + 176))).toBeLessThanOrEqual(1);
+    expect(voce(e, "massimale_B").limiteCent).toBe(euroToCent(900 * 1.68));
+  });
+
+  it("cassonetto: voce scelta dalla classe di mq per pezzo", () => {
+    const r: RigaMotore = { categoria: "cassonetto", tipologia: "C25095-a", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "cassonetti", quantita: 2, larghezzaMm: 1500, altezzaMm: 400, mq: 1.2, misuraDei: null, prezzoTotCent: 60000, beneSignificativo: true, accessori: [] };
+    const e = calcolaLimiti([r], parametri, t);
+    // 0,6 mq/pezzo → classe 150×40 (C25095-b) 261,13 × 2
+    expect(voce(e, "dei_riga_1")).toMatchObject({ limiteCent: 52226, dettaglio: expect.objectContaining({ voceScelta: "C25095-b" }) });
+  });
+
+  it("controtelaio in acciaio sotto 1,2 mq è fatturato a 1,2 mq; variante ignota = avvertenza", () => {
+    const controtelaio: RigaMotore = { categoria: "controtelaio", tipologia: "C15145-a", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "Controtelaio acciaio", quantita: 2, larghezzaMm: null, altezzaMm: null, mq: 0, misuraDei: 1, prezzoTotCent: null, beneSignificativo: false, accessori: [] };
+    const e = calcolaLimiti([...righe(), controtelaio], parametri, t);
     expect(voce(e, "controtelaio_1").limiteCent).toBe(6662); // 55,52 × 1,2
-    const e2 = calcolaLimiti([...righe127, { ...controtelaio, tipologia: "XX" }], parametri, t);
+    expect(voce(e, "controtelaio_1")).toMatchObject({ inCheck1: true, inCheck2: true });
+    const e2 = calcolaLimiti([...righe(), { ...controtelaio, tipologia: "XX" }], parametri, t);
     expect(e2.avvertenze.join(" ")).toMatch(/controtelaio/i);
   });
-  it("una riga senza voce DEI rende CHECK2 non calcolabile: limite = CHECK1", () => {
-    const e = calcolaLimiti([...righe127, { ...righe127[0], tipologia: "sconosciuta" }], parametri, t);
+
+  it("una riga senza voce DEI rende CHECK2 non calcolabile: limite = CHECK1, esito incompleto", () => {
+    const e = calcolaLimiti([...righe(), { ...righe()[0], tipologia: "sconosciuta" }], parametri, t);
     expect(e.check2Cent).toBeNull();
+    expect(e.deiProdottiCent).toBeNull();
     expect(e.limiteCent).toBe(e.check1Cent);
     expect(e.esito).toBe("incompleto");
+    const e2 = calcolaLimiti([...righe(), { ...righe()[0], oscuranteIntegrato: "persiana", oscuranteTipologia: null }], parametri, t);
+    expect(e2.check2Cent).toBeNull();
+    expect(e2.avvertenze.join(" ")).toMatch(/oscurante/i);
+  });
+
+  it("un accessorio del gruppo sbagliato è ignorato con avvertenza", () => {
+    const e = calcolaLimiti([{ ...righe()[0], accessori: [{ codice: "persiana.C15154-b", quantita: 1 }] }], parametri, t);
+    expect(e.avvertenze.join(" ")).toMatch(/accessorio/i);
   });
 });
 ```
@@ -2642,38 +2682,44 @@ Expected: FAIL — `./motore` non esiste.
 // Il computo dei limiti di spesa (DM MITE 14/02/2022) come funzione pura:
 // righe + parametri + tariffe → voci con limite. Nessun I/O, nessun prezzo
 // nel codice. Ogni formula cita la cella del foglio «CALCOLO NUOVI
-// LIMITI.xlsx» da cui è trascritta: quella è la specifica, e i test d'oro
-// con i fogli reali sono il giudice.
+// LIMITI.xlsx» da cui è trascritta (specifica: docs/superpowers/specs/
+// 2026-09-03-limiti-analisi-fogli-reali.md); le tre commesse reali della
+// fixture sono il giudice.
 //
-// CHECK1 (Allegato A): massimali €/mq per gruppo e zona sui prodotti +
-// controtelai + opere complementari ed eventuali. CHECK2 (opere compiute):
-// listino DEI per riga + le stesse opere. Limite = il minore. Se una riga
-// non ha voce DEI, CHECK2 non è calcolabile e lo diciamo (fail-closed):
-// limite = CHECK1, esito «incompleto».
+// CHECK1 (Allegato A): massimali €/mq per gruppo e zona + controtelai + opere
+// incluse. CHECK2 (opere compiute): listino DEI per riga (prodotto + accessori
+// + oscurante abbinato) + controtelai + le stesse opere tranne quelle già nel
+// prezzo DEI. Limite = il minore. Una riga senza voce DEI rende CHECK2 non
+// calcolabile: limite = CHECK1, esito «incompleto» (fail-closed).
 import { euroToCent } from "@shared/euroCent";
-import type {
-  DetrazioneTipo,
-  EsitoComputo,
-  PattuitoTipo,
-  RigaContratto,
-  VoceComputo,
-  ZonaClimatica,
-} from "@shared/limiti/tipi";
-import { aggrega, type Aggregati } from "./aggregati";
 import {
-  massimaleEuroMq,
-  voceAccessorio,
-  voceControtelaio,
-  voceDeiPer,
-  voceOpera,
+  gruppoPerCategoria,
+  gruppoPerOscurante,
   type CodiceOpera,
+  type DetrazioneTipo,
+  type EsitoComputo,
+  type OpzioniComputo,
+  type PattuitoTipo,
+  type RigaContratto,
+  type VoceComputo,
+  type ZonaClimatica,
+} from "@shared/limiti/tipi";
+import { aggrega } from "./aggregati";
+import {
+  accessorio,
+  massimaleEuroMq,
+  prodotto,
+  voceControtelaio,
+  voceOpera,
+  type Accessorio,
+  type Prodotto,
   type Tariffe,
 } from "./tariffe";
 
 export type RigaMotore = Pick<
   RigaContratto,
-  | "categoria" | "tipologia" | "oscuranteIntegrato" | "descrizione" | "quantita"
-  | "larghezzaMm" | "altezzaMm" | "mq" | "misuraDei" | "prezzoTotCent"
+  | "categoria" | "tipologia" | "oscuranteIntegrato" | "oscuranteTipologia" | "descrizione"
+  | "quantita" | "larghezzaMm" | "altezzaMm" | "mq" | "misuraDei" | "prezzoTotCent"
   | "beneSignificativo" | "accessori"
 >;
 
@@ -2685,12 +2731,14 @@ export type ParametriMotore = {
   pattuitoTipo: PattuitoTipo;
   detrazioneTipo: DetrazioneTipo;
   detrazionePct: number | null;
+  opzioni: OpzioniComputo;
 };
 
 export type EsitoMotore = {
   voci: VoceComputo[];
   check1Cent: number;
   check2Cent: number | null;
+  deiProdottiCent: number | null;
   limiteCent: number;
   esito: EsitoComputo;
   avvertenze: string[];
@@ -2700,11 +2748,140 @@ export type EsitoMotore = {
 
 const arrotonda = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 
-export function calcolaLimiti(
-  righe: RigaMotore[],
-  p: ParametriMotore,
-  t: Tariffe
-): EsitoMotore {
+/** Perimetro per i coprifili (CHECK2 colonne T/W): portefinestre L + 2H, finestre 2(L + H). Metri. */
+function perimetroM(p: Prodotto, l: number, h: number): number {
+  return p.portafinestra ? (l + 2 * h) / 1000 : (2 * (l + h)) / 1000;
+}
+
+/** Costo di un accessorio secondo la regola del foglio (analisi §2.3). */
+function costoAccessorio(
+  a: Accessorio,
+  prezzoUnit: number,
+  mqEff: number,
+  quantita: number,
+  nAnte: number,
+  perimetro: number
+): number {
+  switch (a.regola) {
+    case "pct_mq": return (a.valore / 100) * prezzoUnit * mqEff;
+    case "pct_pezzo": return (a.valore / 100) * prezzoUnit * quantita;
+    case "cad_pezzo": return a.valore * a.moltiplicatore * quantita;
+    case "cad_anta": return a.valore * nAnte * quantita;
+    case "cad_fisso": return a.valore;
+    case "m_perimetro": return a.valore * perimetro * quantita;
+  }
+}
+
+type DeiRiga = { euro: number; codiceDei: string; descrizione: string; dettaglio: VoceComputo["dettaglio"] };
+
+/**
+ * Voce DEI «opere compiute» della riga (CHECK2, blocchi «Calcolo Automatici»):
+ * prodotto × misura + accessori + oscurante abbinato × mq + suoi accessori.
+ * null se la riga non ha un prodotto di catalogo (o l'oscurante non ce l'ha).
+ */
+function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): DeiRiga | null {
+  const { gruppo } = gruppoPerCategoria(r.categoria);
+  if (!gruppo) return null;
+  const p = r.tipologia ? prodotto(t, r.tipologia) : null;
+  if (!p || p.gruppo !== gruppo) {
+    avvertenze.push(`Riga ${n} «${r.descrizione}»: nessuna voce DEI per ${r.categoria}/${r.tipologia ?? "tipologia vuota"} — CHECK2 non calcolabile.`);
+    return null;
+  }
+  const c = t.coefficienti;
+  const l = r.larghezzaMm ?? 0;
+  const h = r.altezzaMm ?? 0;
+  const q = r.quantita;
+  const mq = r.mq;
+  const dettaglio: VoceComputo["dettaglio"] = { codiceDei: p.codice, prezzoDei: p.prezzo, mq: arrotonda(mq, 4) };
+  let euro = 0;
+  let mqEff = mq;
+
+  switch (p.gruppo) {
+    case "serramento":
+    case "portoncino":
+    case "persiana":
+    case "scuro":
+    case "schermatura": {
+      // Minimo di fatturazione sul TOTALE della riga (colonna I), solo dove il foglio lo applica (PVC/alluminio).
+      if (p.minimoMq && mq > 0 && mq < p.minimoMq) mqEff = p.minimoMq;
+      euro = p.prezzo * mqEff;
+      break;
+    }
+    case "avvolgibile": {
+      const mqAvv = mq > 0
+        ? mq + c.avvolgibileExtraL * (l / 1000 + c.avvolgibileExtraLOffset) + c.avvolgibileExtraH * (h / 1000 + c.avvolgibileExtraHOffset)
+        : 0; // BS: maggiorazione una volta per riga, come il foglio
+      mqEff = p.minimoMq && mqAvv > 0 && mqAvv < p.minimoMq ? p.minimoMq : mqAvv;
+      euro = p.prezzo * mqEff;
+      break;
+    }
+    case "cassonetto": {
+      // AZ: voce scelta dalla classe di mq per pezzo nella famiglia della tipologia indicata.
+      const mqPezzo = q > 0 ? mq / q : 0;
+      const scelto = p.unita === "cad"
+        ? t.prodotti.find(x => x.gruppo === "cassonetto" && x.famiglia === p.famiglia && x.mqPezzoMin != null && mqPezzo >= x.mqPezzoMin && (x.mqPezzoMax == null || mqPezzo < x.mqPezzoMax)) ?? p
+        : p;
+      euro = scelto.unita === "cad" ? scelto.prezzo * q : scelto.prezzo * (r.misuraDei ?? mq);
+      mqEff = q;
+      dettaglio.voceScelta = scelto.codice;
+      dettaglio.mqPezzo = arrotonda(mqPezzo, 4);
+      break;
+    }
+    case "porta_blindata": {
+      euro = p.prezzo * q;
+      mqEff = q;
+      break;
+    }
+  }
+  dettaglio.mqFatturati = arrotonda(mqEff, 4);
+  dettaglio.base = arrotonda(euro, 2);
+
+  // Oscurante abbinato (blocco B/F): prodotto DEI a sé, × mq del serramento (senza minimo) o formula avvolgibile.
+  let po: Prodotto | null = null;
+  if (r.oscuranteIntegrato) {
+    const gruppoOsc = gruppoPerOscurante(r.oscuranteIntegrato);
+    po = r.oscuranteTipologia ? prodotto(t, r.oscuranteTipologia) : null;
+    if (!po || po.gruppo !== gruppoOsc) {
+      avvertenze.push(`Riga ${n} «${r.descrizione}»: oscurante ${r.oscuranteIntegrato} senza voce DEI (${r.oscuranteTipologia ?? "vuota"}) — CHECK2 non calcolabile.`);
+      return null;
+    }
+    let mqOsc = mq;
+    if (po.gruppo === "avvolgibile") {
+      const mqAvv = mq > 0 ? mq + c.avvolgibileExtraL * (l / 1000 + c.avvolgibileExtraLOffset) + c.avvolgibileExtraH * (h / 1000 + c.avvolgibileExtraHOffset) : 0;
+      mqOsc = po.minimoMq && mqAvv > 0 && mqAvv < po.minimoMq ? po.minimoMq : mqAvv;
+    }
+    const euroOsc = po.prezzo * mqOsc;
+    euro += euroOsc;
+    dettaglio.oscurante = po.codice;
+    dettaglio.oscuranteMq = arrotonda(mqOsc, 4);
+    dettaglio.oscuranteBase = arrotonda(euroOsc, 2);
+  }
+
+  // Accessori: quelli del gruppo del prodotto si applicano al prodotto, quelli del gruppo dell'oscurante all'oscurante.
+  const perimetro = perimetroM(p, l, h);
+  for (const acc of r.accessori) {
+    const a = accessorio(t, acc.codice);
+    if (!a) {
+      avvertenze.push(`Riga ${n}: accessorio «${acc.codice}» non in catalogo, ignorato nel CHECK2.`);
+      continue;
+    }
+    let extra: number;
+    if (a.gruppo === p.gruppo) {
+      extra = costoAccessorio(a, p.prezzo, mqEff, acc.quantita, p.nAnte ?? 1, perimetro);
+    } else if (po && a.gruppo === po.gruppo) {
+      extra = costoAccessorio(a, po.prezzo, dettaglio.oscuranteMq as number, acc.quantita, po.nAnte ?? 1, perimetro);
+    } else {
+      avvertenze.push(`Riga ${n}: accessorio «${a.nome}» non applicabile a ${p.nome}, ignorato nel CHECK2.`);
+      continue;
+    }
+    euro += extra;
+    dettaglio[`accessorio ${a.nome}`] = arrotonda(extra, 2);
+  }
+
+  return { euro, codiceDei: p.codice, descrizione: p.nome, dettaglio };
+}
+
+export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariffe): EsitoMotore {
   const coeff = t.coefficienti;
   const a = aggrega(righe, coeff);
   const voci: VoceComputo[] = [];
@@ -2713,9 +2890,8 @@ export function calcolaLimiti(
   let incompleto = false;
   const aggiungi = (v: Omit<VoceComputo, "ordine">) => voci.push({ ...v, ordine: ++ordine });
 
-  // ── Prodotti: CHECK1 righe 6–8 — massimale(zona) × mq del gruppo ──────────
-  // H6 = E6 × (SERRAMENTI!H59 + EU59): blocco A + legno; H7 = E7 × (AM59 + GJ59);
-  // H8 = E8 × (CW59 + EK59): oscuranti soli + schermature.
+  // ── Prodotti, CHECK1 righe 6–8: massimale(zona) × mq del gruppo ──────────
+  // H6 = E6 × (SERRAMENTI!H59 + EU59); H7 = E7 × (AM59 + GJ59); H8 = E8 × (CW59 + EK59).
   const mqA = a.mq.serramenti + a.mq.cassonetti + a.mq.porteBlindate + a.mq.portoncini + a.mq.legno;
   const mqB = a.mq.serrTapp + a.mq.serrPers + a.mq.serrScuri + a.mq.portoncinoPers + a.mq.legnoTapp + a.mq.legnoPers + a.mq.legnoScuri;
   const mqC = a.mq.tapparelle + a.mq.persiane + a.mq.scuri + a.mq.veneziane + a.mq.tende + a.mq.pergole + a.mq.zanzariere;
@@ -2732,15 +2908,16 @@ export function calcolaLimiti(
     const euroMq = p.zona ? massimaleEuroMq(t, gruppo, p.zona) : 0;
     aggiungi({
       gruppo: "prodotti", codice: `massimale_${gruppo}`, descrizione, codiceDei: null, unita: "€/mq",
-      prezzoUnitCent: euroToCent(euroMq), quantita: arrotonda(mq), limiteCent: euroToCent(euroMq * mq),
-      dettaglio: { zona: p.zona ?? "", mq: arrotonda(mq), euroMq },
+      prezzoUnitCent: euroToCent(euroMq), quantita: arrotonda(mq, 4), limiteCent: euroToCent(euroMq * mq),
+      dettaglio: { zona: p.zona ?? "", mq: arrotonda(mq, 4), euroMq },
+      inclusa: true, inCheck1: true, inCheck2: false,
     });
   }
   if (a.righeSenzaMisure > 0) {
     avvertenze.push(`${a.righeSenzaMisure} righe senza misure: contate nei pezzi ma non nei mq.`);
   }
 
-  // ── Controtelai: CHECK1 righe 11–18 — prezzo DEI × misura (min 1,2 mq acciaio/misto)
+  // ── Controtelai, CHECK1 righe 11–18: prezzo × misura (min 1,2 mq acciaio/misto) ─
   let nControtelaio = 0;
   for (const r of righe) {
     if (r.categoria !== "controtelaio") continue;
@@ -2756,129 +2933,124 @@ export function calcolaLimiti(
     aggiungi({
       gruppo: "controtelai", codice: `controtelaio_${nControtelaio}`, descrizione: `${v.famiglia} — ${v.variante}`,
       codiceDei: v.codice, unita: v.unita, prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(misura),
-      limiteCent: euroToCent(v.prezzo * misura), dettaglio: { misuraDichiarata: r.misuraDei ?? r.quantita, misuraFatturata: arrotonda(misura) },
+      limiteCent: euroToCent(v.prezzo * misura),
+      dettaglio: { misuraDichiarata: r.misuraDei ?? r.quantita, misuraFatturata: arrotonda(misura) },
+      inclusa: true, inCheck1: true, inCheck2: true,
     });
   }
 
-  // ── Opere complementari: CHECK1 H22:H35 ──────────────────────────────────
-  const n = a.n, mq = a.mq;
+  // ── Opere complementari, CHECK1 H22:H35 ──────────────────────────────────
+  const n = a.n;
+  const mq = a.mq;
   const nA = n.serramenti + n.cassonetti + n.porteBlindate + n.portoncini;          // SERRAMENTI!C59
   const nE = n.legno;                                                                 // EP59
   const nC = n.tapparelle + n.persiane + n.scuri;                                     // CR59
   const nD = n.veneziane + n.tende + n.pergole + n.zanzariere;                        // EF59
   const serramentiTutti = n.serramenti + n.legno + n.serrTapp + n.serrPers + n.serrScuri + n.legnoTapp + n.legnoPers + n.legnoScuri;
   const oreRilievoPezzo = nA / 8 + nE / 8 + n.serrTapp / 4 + n.legnoTapp / 4 + n.serrPers / 4 + n.legnoPers / 4 + n.legnoScuri / 4 + n.serrScuri / 8 + nC / 8 + nD / 8 + n.portoncinoPers / 8 + 1; // H22
-  const oreRilievoForo = serramentiTutti / 3 + 1;                                      // H23
-  const oreProgettazione = a.nTotale / 2;                                             // H24
-  const oreSviluppo = a.nTotale / 6 + 1 / 2;                                          // H25
+  const oreRilievoForo = serramentiTutti / 3 + 1;                                     // H23
+  const oreProgettazione = a.nTotale / 2;                                            // H24
+  const oreSviluppo = a.nTotale / 6 + 1 / 2;                                         // H25
   const oreProtezione = 0.5 * (n.serramenti + n.legno + n.serrTapp + n.serrPers + n.serrScuri + n.porteBlindate + n.portoncini + n.tapparelle + n.persiane + n.scuri + n.legnoTapp + n.legnoPers + n.legnoScuri + n.portoncinoPers); // H26
   const mqRimozioneSerr = mq.serramenti + mq.legno + 2 * mq.serrPers + mq.serrTapp + mq.serrScuri + mq.persiane + mq.scuri + mq.tapparelle + mq.porteBlindate + mq.portoncini + 2 * mq.legnoPers + mq.legnoTapp + mq.legnoScuri + 2 * mq.portoncinoPers; // H27
-  const mqRimozioneTapp = mq.serrTapp + mq.cassonetti + mq.tapparelle + mq.legnoTapp; // H28 (R8 e Z9 sono la stessa riga da noi)
+  const mqRimozioneTapp = mq.serrTapp + mq.cassonetti + mq.tapparelle + mq.legnoTapp; // H28
   const mqSerrSmalt = mq.serramenti + mq.legno + mq.serrTapp + mq.serrPers + mq.serrScuri + mq.legnoTapp + mq.legnoPers + mq.legnoScuri + mq.porteBlindate + mq.portoncini + mq.portoncinoPers;
   const mqOscSmalt = mq.serrTapp + mq.serrPers + mq.serrScuri + mq.tapparelle + mq.persiane + mq.scuri;
-  const mqSerrOneri = mq.serramenti + mq.legno + mq.serrTapp + mq.serrPers + mq.serrScuri + mq.porteBlindate + mq.portoncini + mq.portoncinoPers;
+  const mqSerrOneri = mqSerrSmalt - mq.legnoTapp - mq.legnoPers - mq.legnoScuri;
   const mqOscOneri = mqOscSmalt + mq.legnoTapp + mq.legnoPers + mq.legnoScuri;
+  // H29 — la precedenza del foglio moltiplica 104,69 e 100 SOLO per il primo addendo. Si riproduce così (analisi §2.2, §5).
   const smaltimento =
     coeff.smaltimentoBaseEuro +
-    coeff.smaltimentoEuroMc * (mqSerrSmalt * 0.1 + mq.cassonetti * 0.35 + mqOscSmalt * 0.05) +
-    coeff.smaltimentoEuroOnere * (mqSerrOneri * 0.025 + mq.cassonetti * 0.015 + mqOscOneri * 0.0125); // H29
+    coeff.smaltimentoEuroMc * coeff.smaltimentoMcSerramento * mqSerrSmalt +
+    coeff.smaltimentoMcCassonetto * mq.cassonetti +
+    coeff.smaltimentoMcOscurante * mqOscSmalt +
+    coeff.smaltimentoEuroOnere * coeff.smaltimentoOnereSerramento * mqSerrOneri +
+    coeff.smaltimentoOnereCassonetto * mq.cassonetti +
+    coeff.smaltimentoOnereOscurante * mqOscOneri;
   const maggiorazione = p.piano != null && p.piano > coeff.maggiorazionePianoOltre ? coeff.maggiorazionePiano : 1; // H31
   if (p.distanzaKm == null) avvertenze.push("Distanza dal magazzino mancante: il limite del trasporto è zero.");
 
+  const inclusa = (codice: CodiceOpera): boolean => {
+    const o = voceOpera(t, codice);
+    if (codice === "rilievo_foro") return p.opzioni.rilievo === "foro";
+    if (codice === "rilievo_pezzo") return p.opzioni.rilievo === "pezzo";
+    if (codice === "spese_professionali") return p.opzioni.speseProfessionali;
+    if (o.gruppo === "eventuali") return p.opzioni.eventuali.includes(codice);
+    return o.inclusaDefault;
+  };
   const opera = (codice: CodiceOpera, quantita: number, euro: number, dettaglio: VoceComputo["dettaglio"]) => {
     const v = voceOpera(t, codice);
     aggiungi({
       gruppo: v.gruppo, codice, descrizione: v.descrizione, codiceDei: v.codiceDei, unita: v.unita,
       prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(quantita), limiteCent: euroToCent(Math.max(0, euro)), dettaglio,
+      inclusa: inclusa(codice), inCheck1: true, inCheck2: !v.esclusaDaCheck2,
     });
-    return Math.max(0, euro);
   };
   const prezzo = (c: CodiceOpera) => voceOpera(t, c).prezzo;
-  let totOpere = 0;
-  totOpere += opera("rilievo_pezzo", oreRilievoPezzo, prezzo("rilievo_pezzo") * oreRilievoPezzo, { ore: arrotonda(oreRilievoPezzo) });
-  totOpere += opera("rilievo_foro", oreRilievoForo, prezzo("rilievo_foro") * oreRilievoForo, { ore: arrotonda(oreRilievoForo) });
-  totOpere += opera("progettazione", oreProgettazione, prezzo("progettazione") * oreProgettazione, { ore: arrotonda(oreProgettazione) });
-  totOpere += opera("sviluppo_ordine", oreSviluppo, prezzo("sviluppo_ordine") * oreSviluppo, { ore: arrotonda(oreSviluppo) });
-  totOpere += opera("protezione", oreProtezione, prezzo("protezione") * oreProtezione, { ore: arrotonda(oreProtezione) });
-  totOpere += opera("rimozione_serramenti", mqRimozioneSerr, prezzo("rimozione_serramenti") * mqRimozioneSerr, { mq: arrotonda(mqRimozioneSerr) });
-  totOpere += opera("rimozione_tapparelle", mqRimozioneTapp, prezzo("rimozione_tapparelle") * mqRimozioneTapp, { mq: arrotonda(mqRimozioneTapp) });
-  totOpere += opera("smaltimento", 1, smaltimento, { mc: arrotonda(mqSerrSmalt * 0.1 + mq.cassonetti * 0.35 + mqOscSmalt * 0.05), base: coeff.smaltimentoBaseEuro });
-  totOpere += opera("trasporto", p.distanzaKm ?? 0, p.distanzaKm == null ? 0 : 2 * p.distanzaKm * coeff.euroKm * a.giornatePosa, { km: p.distanzaKm ?? 0, giornate: a.giornatePosa, orePosa: arrotonda(a.orePosa) }); // H30
-  totOpere += opera("tiro_piano", a.oreTiro, coeff.installatori * prezzo("tiro_piano") * a.oreTiro * maggiorazione, { ore: arrotonda(a.oreTiro), piano: p.piano ?? 0, maggiorazione }); // H31
-  totOpere += opera("assistenza_muraria", a.larghezzaM, prezzo("assistenza_muraria") * a.larghezzaM, { metri: arrotonda(a.larghezzaM) }); // H32
-  totOpere += opera("posa", a.orePosa, a.orePosa * coeff.installatori * prezzo("posa"), { ore: arrotonda(a.orePosa), installatori: coeff.installatori }); // H33
-  totOpere += opera("pulizia", a.oreTiro, coeff.puliziaFissoEuro + a.oreTiro * prezzo("pulizia"), { ore: arrotonda(a.oreTiro), fisso: coeff.puliziaFissoEuro }); // H34
+  opera("rilievo_pezzo", oreRilievoPezzo, prezzo("rilievo_pezzo") * oreRilievoPezzo, { ore: arrotonda(oreRilievoPezzo) });
+  opera("rilievo_foro", oreRilievoForo, prezzo("rilievo_foro") * oreRilievoForo, { ore: arrotonda(oreRilievoForo) });
+  opera("progettazione", oreProgettazione, prezzo("progettazione") * oreProgettazione, { ore: arrotonda(oreProgettazione) });
+  opera("sviluppo_ordine", oreSviluppo, prezzo("sviluppo_ordine") * oreSviluppo, { ore: arrotonda(oreSviluppo) });
+  opera("protezione", oreProtezione, prezzo("protezione") * oreProtezione, { ore: arrotonda(oreProtezione) });
+  opera("rimozione_serramenti", mqRimozioneSerr, prezzo("rimozione_serramenti") * mqRimozioneSerr, { mq: arrotonda(mqRimozioneSerr, 4) });
+  opera("rimozione_tapparelle", mqRimozioneTapp, prezzo("rimozione_tapparelle") * mqRimozioneTapp, { mq: arrotonda(mqRimozioneTapp, 4) });
+  opera("smaltimento", 1, smaltimento, { mqSerramenti: arrotonda(mqSerrSmalt, 4), mqCassonetti: arrotonda(mq.cassonetti, 4), mqOscuranti: arrotonda(mqOscSmalt, 4), base: coeff.smaltimentoBaseEuro });
+  opera("trasporto", p.distanzaKm ?? 0, p.distanzaKm == null ? 0 : 2 * p.distanzaKm * coeff.euroKm * a.giornatePosa, { km: p.distanzaKm ?? 0, giornate: a.giornatePosa, orePosa: arrotonda(a.orePosa) }); // H30
+  opera("tiro_piano", a.oreTiro, coeff.installatori * prezzo("tiro_piano") * a.oreTiro * maggiorazione, { ore: arrotonda(a.oreTiro), piano: p.piano ?? 0, maggiorazione }); // H31
+  opera("assistenza_muraria", a.larghezzaM, prezzo("assistenza_muraria") * a.larghezzaM, { metri: arrotonda(a.larghezzaM) }); // H32
+  opera("posa", a.orePosa, a.orePosa * coeff.installatori * prezzo("posa"), { ore: arrotonda(a.orePosa), installatori: coeff.installatori }); // H33
+  opera("pulizia", a.oreTiro, coeff.puliziaFissoEuro + a.oreTiro * prezzo("pulizia"), { ore: arrotonda(a.oreTiro), fisso: coeff.puliziaFissoEuro }); // H34
+  // H35 = max(600; 4 % del fatturato). Prima della fattura la base è l'imponibile stimato del pattuito.
+  const imponibileStimato = p.pattuitoTipo === "lordo" ? Math.round(p.pattuitoCent / 1.1) : p.pattuitoCent;
+  opera("spese_professionali", 1, Math.max(coeff.speseProfessionaliMinEuro, coeff.speseProfessionaliPct * (imponibileStimato / 100)), { base: imponibileStimato / 100, pct: coeff.speseProfessionaliPct, minimo: coeff.speseProfessionaliMinEuro, stima: true });
 
-  // ── Servizi eventuali: CHECK1 H39:H43 ────────────────────────────────────
+  // ── Servizi eventuali, CHECK1 H39:H43 ────────────────────────────────────
   const beniEuro = righe.filter(r => r.categoria !== "controtelaio").reduce((s, r) => s + (r.prezzoTotCent ?? 0), 0) / 100;
-  let totEventuali = 0;
-  totEventuali += opera("altri_servizi", beniEuro, beniEuro * coeff.altriServiziPct, { beni: beniEuro, pct: coeff.altriServiziPct }); // H39
-  totEventuali += opera("assistenze_murarie_eventuali", 2 * a.nTotale, prezzo("assistenze_murarie_eventuali") * 2 * a.nTotale, { ore: 2 * a.nTotale }); // H40
-  totEventuali += opera("dime", a.mqTotale, prezzo("dime") * a.mqTotale, { mq: arrotonda(a.mqTotale) }); // H41
-  totEventuali += opera("piattaforma", 1, prezzo("piattaforma"), { giornate: 1 }); // H42
-  totEventuali += opera("permessi_suolo", 1, prezzo("permessi_suolo"), { giornate: 1 }); // H43
+  opera("altri_servizi", beniEuro, beniEuro * coeff.altriServiziPct, { beni: beniEuro, pct: coeff.altriServiziPct }); // H39 (2 % dei prodotti)
+  opera("assistenze_murarie_eventuali", 2 * a.nTotale, prezzo("assistenze_murarie_eventuali") * 2 * a.nTotale, { ore: 2 * a.nTotale }); // H40
+  opera("dime", a.mqTotale, prezzo("dime") * a.mqTotale, { mq: arrotonda(a.mqTotale, 4) }); // H41
+  opera("piattaforma", 1, prezzo("piattaforma"), { giornate: 1 }); // H42
+  opera("permessi_suolo", 1, prezzo("permessi_suolo"), { giornate: 1 }); // H43
 
-  // Spese professionali: H35 = max(600; 4 % della fattura). Prima della
-  // fattura la base è beni + controtelai + opere + eventuali (stima).
-  const totControtelai = voci.filter(v => v.gruppo === "controtelai").reduce((s, v) => s + v.limiteCent, 0) / 100;
-  const baseSpese = beniEuro + totControtelai + totOpere + totEventuali;
-  totOpere += opera("spese_professionali", 1, Math.max(coeff.speseProfessionaliMinEuro, coeff.speseProfessionaliPct * baseSpese), { base: arrotonda(baseSpese, 2), pct: coeff.speseProfessionaliPct, minimo: coeff.speseProfessionaliMinEuro, stima: true }); // H35
-
-  // ── CHECK2: listino DEI opere compiute per riga (T6) ─────────────────────
-  let check2Prodotti: number | null = 0;
+  // ── CHECK2: listino DEI «opere compiute» per riga (T6) ───────────────────
+  let deiProdotti: number | null = 0;
   let iRiga = 0;
   for (const r of righe) {
     if (r.categoria === "controtelaio") continue;
     iRiga += 1;
-    const v = voceDeiPer(t, r.categoria, r.tipologia);
-    if (!v) {
-      if (["accessorio", "altro", "porta_interna"].includes(r.categoria)) continue;
-      check2Prodotti = null;
-      avvertenze.push(`Riga ${iRiga} «${r.descrizione}»: nessuna voce DEI per ${r.categoria}/${r.tipologia ?? "tipologia vuota"} — CHECK2 non calcolabile.`);
+    const { gruppo } = gruppoPerCategoria(r.categoria);
+    if (!gruppo) continue; // porta_interna, accessorio, altro: senza voce DEI e senza blocco del CHECK2
+    const d = deiRiga(r, t, avvertenze, iRiga);
+    if (!d) {
+      deiProdotti = null;
       continue;
     }
-    let mqEff = r.mq;
-    if (v.minimoMq && p.zona && (v.minimoZone ?? "").includes(p.zona)) {
-      mqEff = Math.max(mqEff, v.minimoMq * r.quantita);
-    }
-    let euro = v.prezzo * mqEff;
-    const dettaglio: VoceComputo["dettaglio"] = { prezzoDei: v.prezzo, mq: arrotonda(mqEff) };
-    for (const acc of r.accessori) {
-      const va = voceAccessorio(t, acc.codice);
-      if (!va) { avvertenze.push(`Riga ${iRiga}: accessorio «${acc.codice}» senza sovrapprezzo DEI, ignorato nel CHECK2.`); continue; }
-      const extra = va.unita === "%" ? (v.prezzo * mqEff * va.valore) / 100 : va.valore * acc.quantita;
-      euro += extra;
-      dettaglio[`accessorio_${acc.codice}`] = arrotonda(extra, 2);
-    }
-    if (check2Prodotti != null) check2Prodotti += euro;
+    if (deiProdotti != null) deiProdotti += d.euro;
     aggiungi({
-      gruppo: "prodotti", codice: `dei_riga_${iRiga}`, descrizione: `${r.descrizione} — ${v.descrizione}`, codiceDei: v.codice,
-      unita: "mq", prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(mqEff), limiteCent: euroToCent(euro), dettaglio,
+      gruppo: "prodotti", codice: `dei_riga_${iRiga}`, descrizione: `${r.descrizione} — ${d.descrizione}`, codiceDei: d.codiceDei,
+      unita: "mq", prezzoUnitCent: euroToCent(prodotto(t, d.codiceDei)!.prezzo), quantita: d.dettaglio.mqFatturati as number,
+      limiteCent: euroToCent(d.euro), dettaglio: d.dettaglio, inclusa: true, inCheck1: false, inCheck2: true,
     });
   }
 
-  // ── Totali ───────────────────────────────────────────────────────────────
-  const somma = (filtro: (v: VoceComputo) => boolean) => voci.filter(filtro).reduce((s, v) => s + v.limiteCent, 0);
-  const massimali = somma(v => v.codice.startsWith("massimale_"));
-  const controtelai = somma(v => v.gruppo === "controtelai");
-  const opereEventuali = somma(v => v.gruppo === "opere" || v.gruppo === "eventuali");
-  const check1Cent = massimali + controtelai + opereEventuali;
-  const check2Cent = check2Prodotti == null ? null : euroToCent(check2Prodotti) + controtelai + opereEventuali;
+  // ── Totali (analisi §2.4) ────────────────────────────────────────────────
+  const somma = (filtro: (v: VoceComputo) => boolean) => voci.filter(v => v.inclusa && filtro(v)).reduce((s, v) => s + v.limiteCent, 0);
+  const check1Cent = somma(v => v.inCheck1);
+  const deiProdottiCent = deiProdotti == null ? null : euroToCent(deiProdotti);
+  const check2Cent = deiProdottiCent == null ? null : deiProdottiCent + somma(v => v.inCheck2 && v.gruppo !== "prodotti");
   if (check2Cent == null) incompleto = true;
   const limiteCent = check2Cent == null ? check1Cent : Math.min(check1Cent, check2Cent);
 
-  // Detrazione: stima dell'imponibile dal pattuito (tutto al 10 % se lordo);
-  // il valore esatto arriva con la fattura (piano 2).
+  // Detrazione: stima dell'imponibile dal pattuito (tutto al 10 % se lordo); il valore esatto arriva con la fattura (piano 2).
   let detraibileCent: number | null = null;
   let detrazioneStimataCent: number | null = null;
   if (p.detrazioneTipo !== "nessuna" && p.detrazionePct != null) {
-    const imponibileStimato = p.pattuitoTipo === "lordo" ? Math.round(p.pattuitoCent / 1.1) : p.pattuitoCent;
     detraibileCent = Math.min(imponibileStimato, limiteCent);
     detrazioneStimataCent = Math.round((detraibileCent * p.detrazionePct) / 100);
   }
 
   return {
-    voci, check1Cent, check2Cent, limiteCent, esito: incompleto ? "incompleto" : "ok",
+    voci, check1Cent, check2Cent, deiProdottiCent, limiteCent, esito: incompleto ? "incompleto" : "ok",
     avvertenze, detraibileCent, detrazioneStimataCent,
   };
 }
@@ -2887,17 +3059,17 @@ export function calcolaLimiti(
 - [ ] **Step 4: Eseguire il test e verificare che passi**
 
 Run: `pnpm vitest run server/computo/motore.test.ts && pnpm check`
-Expected: PASS. Se un valore a centesimo differisce di 1 per l'arrotondamento binario, verificare prima la formula contro la cella citata; solo dopo correggere il test.
+Expected: PASS. Se un valore differisce di più di un centesimo, verificare prima la formula contro la cella citata nell'analisi §2; i valori della fixture vengono dal foglio, non si «aggiustano». Se `aggregati.ts` arrotonda i mq, togliere l'arrotondamento (Task 8 delta).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/computo/motore.ts server/computo/motore.test.ts
-git commit -m "feat(computo): motore dei limiti CHECK1/CHECK2 come funzione pura
+git add server/computo/motore.ts server/computo/motore.test.ts server/computo/__fixtures__/casi-reali.json
+git commit -m "feat(computo): motore dei limiti CHECK1/CHECK2 riprodotto su tre commesse reali
 
-Ogni formula cita la cella del foglio da cui è trascritta; prezzi e
-coefficienti vengono dalle tariffe. Senza zona o senza voce DEI il computo
-si dichiara incompleto invece di inventare un numero.
+CHECK2 per riga con catalogo DEI, accessori e oscurante abbinato; opere
+incluse per opzione e escluse dal CHECK2 dove già nel prezzo DEI; formule
+con le stesse precedenze del foglio. Le fixture dei casi reali sono il giudice.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -3753,6 +3925,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ### Task 13: Tab «Contratto» nella pagina commessa
+
+> **Delta (catalogo DEI in UI — prevale sul codice sotto):**
+> - `contratti.get` restituisce `catalogo: { prodotti, accessori, controtelai, opere }` da `tariffeAttive()`: `prodotti` = `Pick<Prodotto, "codice"|"gruppo"|"famiglia"|"nome"|"prezzo"|"unita"|"zone"|"portafinestra"|"nAnte">[]`, `accessori` = `Pick<Accessorio, "codice"|"gruppo"|"famiglie"|"nome"|"regola"|"valore"|"soloPortafinestra">[]`, `controtelai` = `{ codice, famiglia, variante, unita }[]`, `opere` = `Pick<VoceOpera, "codice"|"gruppo"|"descrizione"|"inclusaDefault">[]`. Il test del router verifica `catalogo.prodotti.length > 300`.
+> - Nella riga, al posto della `Select` su `TIPOLOGIE_SERRAMENTO`: `Select` sui `catalogo.prodotti` filtrati con `gruppoPerCategoria(r.categoria)` (gruppo e, se non nulla, famiglia) e per i serramenti anche per zona del contratto (`!p.zone || p.zone.includes(zona)`); etichetta = `nome`; valore = `codice`. `etichettaTipologia(codice, prodotti)` in `contrattoView.ts` cerca il nome nel catalogo e ripiega sul codice (test: `etichettaTipologia("C25077-c", [{codice:"C25077-c", nome:"PVC finestra a 2 ante"}])` → il nome; codice ignoto → il codice).
+> - Se `oscuranteIntegrato` ≠ null: seconda `Select` «Oscurante DEI» sui prodotti del gruppo `gruppoPerOscurante(oscuranteIntegrato)` → `oscuranteTipologia`; cambiare `oscuranteIntegrato` azzera `oscuranteTipologia`.
+> - Accessori: la `Select` «+ accessorio» propone `catalogo.accessori` con `gruppo` uguale a quello del prodotto della riga, `famiglie` vuota o contenente la famiglia del prodotto, `soloPortafinestra` solo se il prodotto è portafinestra, **più** quelli del gruppo/famiglia dell'oscurante scelto; il badge mostra `nome` e, per le regole diverse da `pct_mq`/`cad_fisso`, un campo quantità (default = quantità riga).
+> - Nuova sezione «Opere e servizi nel limite» dopo le rate: radio «Rilievo misure: a foro finestra / al pezzo», switch «Spese professionali», una checkbox per ogni opera con `gruppo === "eventuali"` (etichetta = `descrizione`) → `parametri.opzioniComputo`. `parametriVuoti()` usa `OPZIONI_COMPUTO_DEFAULT`.
+> - `erroriForm`: riga con categoria di gruppo DEI senza `tipologia` → **avviso** (lista gialla separata, non blocca il salvataggio); `rigaVuota()` ha `oscuranteTipologia: null`.
 
 **Files:**
 - Create: `client/src/lib/contrattoView.ts`
@@ -4702,6 +4882,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 15: Impostazioni → pannello «Tariffe limiti» (sola lettura, direzione)
 
+> **Delta:** le tab del pannello sono «Massimali», «Prodotti DEI (n)» (tabella codice · gruppo/famiglia · nome · prezzo/unità, con filtro testuale e `max-h-96 overflow-y-auto`), «Accessori (n)» (codice · nome · regola · valore), «Opere», «Coefficienti», «Detrazioni». Non esiste più `t.dei`. Il test verifica `t.prodotti.length > 300` e `t.accessori.length > 60`.
+
 **Files:**
 - Create: `server/routers/tariffe.ts`
 - Modify: `server/routers.ts` (`tariffe: tariffeRouter,`)
@@ -4904,3 +5086,4 @@ Nessun push su `main`. Il branch `feature/limiti-fatturazione` resta aperto per 
 - **Placeholder**: nessun «TBD/TODO»; ogni step ha codice o comando.
 - **Coerenza dei nomi**: `RigaContrattoInput`/`RigaForm` (client aggiunge `chiave`), `ContrattoInput`, `Computo.voci: VoceComputo[]`, `ultimoComputo → { computo, valido, motivo }` + `puoEseguire` dal router, `computoValido(sedeId, commessaId)`, `eseguiComputo({ sedeId, commessaId, actorUserId })`, `salvaContratto({ sedeId, commessaId, contratto, righe, actorUserId })`, `leggiContratto(sedeId, commessaId)`, `tariffeAttive(alla)`, `voceDeiPer`, `voceOpera`, `voceControtelaio`, `voceAccessorio`, `massimaleEuroMq`, `percentualeDetrazione`, `aggrega`, `calcolaLimiti`, `hashRighe`, `hashParametri`, `applicaPattuitoDaContratto`, interruttore `limiti`, capability `contratto.read|contratto.manage|computo.run|tariffe.manage`.
 - **Punti da verificare a runtime** (dichiarati nei task): firma di `creaCommessa` nei test; `resolveJsonModule` in `tsconfig.json`; `Select` shadcn con valore vuoto; campo `limiti` nel tipo di `platform.interruttori`.
+- **Revisione del 03/09 (analisi dei fogli reali)**: i task 3 e 9 sono stati riscritti sul catalogo DEI dei fogli «Calcolo Automatici» e sui tre casi d'oro; i delta dei task 2, 5, 6, 8, 13, 15 aggiungono `oscuranteTipologia`, `opzioniComputo`, `inclusa/inCheck1/inCheck2`, `deiProdottiCent`, mq esatti e il catalogo in UI. Chi esegue un task legge prima il suo delta.
