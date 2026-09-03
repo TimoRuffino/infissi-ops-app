@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { etichettaTabLimiti } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
@@ -73,6 +74,8 @@ import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TarsFascicoloCard from "@/components/TarsFascicoloCard";
 import ContrattoTab from "@/components/contratto/ContrattoTab";
+import ContrattoStatoBanner from "@/components/contratto/ContrattoStatoBanner";
+import LimitiTab from "@/components/computo/LimitiTab";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
@@ -163,6 +166,15 @@ export default function CommessaDetail() {
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
   });
+  // Tab controllate: il banner di stato porta l'operatore su Contratto o
+  // Limiti senza fargli cercare la linguetta.
+  const [tab, setTab] = useState("preventivi");
+  const limitiAttivi = Boolean(interruttori.data?.limiti);
+  // L'etichetta della tab dice già se il computo è aggiornato o da rifare.
+  const computoQ = trpc.computo.ultimo.useQuery(
+    { commessaId },
+    { enabled: limitiAttivi, retry: false },
+  );
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
   // commesse without a clienteId; in that case we fall back to editing only
@@ -1123,6 +1135,14 @@ export default function CommessaDetail() {
           );
         })()}
 
+        {limitiAttivi && (
+          <ContrattoStatoBanner
+            commessaId={commessaId}
+            stato={c.stato}
+            onApri={setTab}
+          />
+        )}
+
       </div>
 
       <Commessa360Workspace
@@ -1157,7 +1177,7 @@ export default function CommessaDetail() {
           ) : undefined
         }
         documents={
-          <Tabs defaultValue="preventivi">
+          <Tabs value={tab} onValueChange={setTab}>
         <TabsList
           aria-label="Sezioni della commessa"
           className="h-auto w-full justify-start overflow-x-auto"
@@ -1170,6 +1190,11 @@ export default function CommessaDetail() {
               ? "Contratto"
               : `Prodotti (${c.prodotti?.length ?? 0})`}
           </TabsTrigger>
+          {limitiAttivi && (
+            <TabsTrigger value="limiti">
+              {etichettaTabLimiti(computoQ.data)}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="interventi">
             Interventi ({interventi.data?.length ?? 0})
           </TabsTrigger>
@@ -1518,6 +1543,13 @@ export default function CommessaDetail() {
           </>
           )}
         </TabsContent>
+
+        {/* Limiti Tab */}
+        {limitiAttivi && (
+          <TabsContent value="limiti">
+            <LimitiTab commessaId={commessaId} />
+          </TabsContent>
+        )}
 
         {/* Interventi Tab */}
         <TabsContent value="interventi" className="space-y-4 mt-4">
@@ -2581,9 +2613,12 @@ export function tipoPagamentoSuggerito(nGiaRegistrati: number): string {
 function PianoRateSezione({
   commessaId,
   totalePattuito,
+  soloLettura = false,
 }: {
   commessaId: number;
   totalePattuito: number | null;
+  /** Le rate arrivano da un'altra fonte (FiC o contratto): qui si leggono. */
+  soloLettura?: boolean;
 }) {
   const utils = trpc.useUtils();
   const q = trpc.commesse.pattuito.useQuery(commessaId);
@@ -2620,7 +2655,10 @@ function PianoRateSezione({
   });
 
   const rate = q.data?.rate ?? [];
-  const modificabile = q.data?.modificabile ?? false;
+  // Il badge dice la fonte (FiC), `modificabile` decide i comandi: quando a
+  // bloccare è il contratto la fonte non cambia, ma il piano si legge e basta.
+  const rateDaFic = !(q.data?.modificabile ?? false);
+  const modificabile = !rateDaFic && !soloLettura;
   const sommaRate = rate
     .filter((r: any) => r.stato !== "stornata")
     .reduce((s: number, r: any) => s + (r.importo ?? 0), 0);
@@ -2637,7 +2675,7 @@ function PianoRateSezione({
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60 flex-wrap">
         <CalendarClock className="h-4 w-4 text-text-3" />
         <span className="text-sm font-medium">Piano rate</span>
-        {!modificabile && (
+        {rateDaFic && (
           <Badge variant="outline" className="h-4 px-1 text-[10px]">
             da FiC
           </Badge>
@@ -2792,6 +2830,18 @@ function PagamentiCard({
   const pattuitoQ = trpc.commesse.pattuito.useQuery(commessaId);
   const pattuitoDaFic = pattuitoQ.data?.fonte === "fic";
   const motivoBlocco = pattuitoQ.data?.motivoBlocco ?? null;
+  // Col contratto strutturato il pattuito e le rate nascono lì: qui si
+  // leggono, non si riscrivono — altrimenti la stessa cifra avrebbe due
+  // padroni. FiC resta la fonte più forte e vince sul contratto.
+  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const contrattoQ = trpc.contratti.get.useQuery(
+    { commessaId },
+    { enabled: Boolean(interruttoriQ.data?.limiti), retry: false },
+  );
+  const contratto = pattuitoDaFic ? null : (contrattoQ.data?.contratto ?? null);
+  const daContratto = contratto != null;
   // Capability effettive (ruoli + override individuali): decidono se offrire
   // i comandi di registrazione. Il registro stesso segue il payload: se il
   // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
@@ -2871,14 +2921,22 @@ function PagamentiCard({
                   da FiC
                 </Badge>
               )}
+              {contratto && (
+                <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                  da contratto · {contratto.pattuitoTipo}
+                </Badge>
+              )}
             </div>
             {/* Il pattuito di una commessa fatturata è FiC: mostrarlo come
                 campo editabile prometterebbe una modifica che il server
                 rifiuta. Qui diventa una cifra con la sua fonte. */}
-            {pattuitoDaFic ? (
+            {pattuitoDaFic || daContratto ? (
               <p
                 className="h-9 w-32 flex items-center text-sm font-semibold tabular-nums"
-                title={motivoBlocco ?? undefined}
+                title={
+                  motivoBlocco ??
+                  (daContratto ? "Il pattuito arriva dalla tab Contratto." : undefined)
+                }
               >
                 {totale != null ? `€ ${fmt(totale)}` : "—"}
               </p>
@@ -2927,7 +2985,11 @@ function PagamentiCard({
         </div>
 
         {/* Scadenze concordate — distinte dagli incassi qui sotto */}
-        <PianoRateSezione commessaId={commessaId} totalePattuito={totale} />
+        <PianoRateSezione
+          commessaId={commessaId}
+          totalePattuito={totale}
+          soloLettura={pattuitoDaFic || daContratto}
+        />
 
         {/* Acconti registrati */}
         {ordered.length > 0 && (
