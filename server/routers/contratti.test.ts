@@ -49,6 +49,12 @@ describe("router contratti", () => {
     const letto = await posa.contratti.get({ commessaId });
     expect(letto.contratto?.pattuitoCent).toBe(1539500);
     expect(letto.puoModificare).toBe(false);
+    // Il catalogo DEI viaggia con la lettura: la tab Contratto sceglie le
+    // voci dal listino, non da un elenco scritto a mano nel client.
+    expect(letto.catalogo.prodotti.length).toBeGreaterThan(300);
+    expect(letto.catalogo.accessori.length).toBeGreaterThan(5);
+    expect(letto.catalogo.controtelai.length).toBeGreaterThan(5);
+    expect(letto.catalogo.opere.some(o => o.gruppo === "eventuali")).toBe(true);
     await expect(posa.contratti.salva({ commessaId, contratto, righe: [riga] })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 

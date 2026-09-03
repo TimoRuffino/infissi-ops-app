@@ -72,6 +72,7 @@ import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TarsFascicoloCard from "@/components/TarsFascicoloCard";
+import ContrattoTab from "@/components/contratto/ContrattoTab";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
@@ -1165,7 +1166,9 @@ export default function CommessaDetail() {
             File e documenti ({documenti.data?.length ?? 0})
           </TabsTrigger>
           <TabsTrigger value="prodotti">
-            Prodotti ({(c.prodotti?.length ?? 0)})
+            {interruttori.data?.limiti
+              ? "Contratto"
+              : `Prodotti (${c.prodotti?.length ?? 0})`}
           </TabsTrigger>
           <TabsTrigger value="interventi">
             Interventi ({interventi.data?.length ?? 0})
@@ -1440,8 +1443,12 @@ export default function CommessaDetail() {
           )}
         </TabsContent>
 
-        {/* Prodotti Tab */}
+        {/* Prodotti Tab — con FLAG_LIMITI diventa il contratto strutturato */}
         <TabsContent value="prodotti" className="space-y-4 mt-4">
+          {interruttori.data?.limiti ? (
+            <ContrattoTab commessaId={commessaId} />
+          ) : (
+          <>
           <div className="flex justify-end">
             <Button
               size="sm"
@@ -1507,6 +1514,8 @@ export default function CommessaDetail() {
                 </Card>
               ))}
             </div>
+          )}
+          </>
           )}
         </TabsContent>
 

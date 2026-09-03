@@ -11,10 +11,54 @@ import {
   rigaInputSchema,
   salvaContratto,
 } from "../contratti/servizio";
+import { tariffeAttive } from "../computo/tariffe";
 import { getCommessaById } from "./commesse";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
 const procedura = procedureConInterruttore("limiti");
+
+/**
+ * Catalogo DEI per la tab Contratto: solo i campi che servono a scegliere e
+ * a etichettare una voce. Il prezzo viaggia perché la UI lo mostra accanto
+ * al nome, ma resta il motore a calcolare — il client non prezza mai nulla.
+ */
+function catalogoPerUi(alla: Date = new Date()) {
+  const t = tariffeAttive(alla);
+  return {
+    prodotti: t.prodotti.map(p => ({
+      codice: p.codice,
+      gruppo: p.gruppo,
+      famiglia: p.famiglia,
+      nome: p.nome,
+      prezzo: p.prezzo,
+      unita: p.unita,
+      zone: p.zone ?? null,
+      portafinestra: p.portafinestra ?? false,
+      nAnte: p.nAnte ?? null,
+    })),
+    accessori: t.accessori.map(a => ({
+      codice: a.codice,
+      gruppo: a.gruppo,
+      famiglie: a.famiglie,
+      nome: a.nome,
+      regola: a.regola,
+      valore: a.valore,
+      soloPortafinestra: a.soloPortafinestra,
+    })),
+    controtelai: t.controtelai.map(c => ({
+      codice: c.codice,
+      famiglia: c.famiglia,
+      variante: c.variante,
+      unita: c.unita,
+    })),
+    opere: t.opere.map(o => ({
+      codice: o.codice,
+      gruppo: o.gruppo,
+      descrizione: o.descrizione,
+      inclusaDefault: o.inclusaDefault,
+    })),
+  };
+}
 
 function sedeCorrente(ctx: { sedeId: number | null }): number {
   return ctx.sedeId ?? DEFAULT_SEDE_ID;
@@ -58,7 +102,11 @@ export const contrattiRouter = router({
       });
       const caps = await effectiveCapabilitySet(ctx, ["contratto.manage"]);
       const letto = await leggiContratto(sedeId, input.commessaId);
-      return { ...letto, puoModificare: caps.has("contratto.manage") };
+      return {
+        ...letto,
+        puoModificare: caps.has("contratto.manage"),
+        catalogo: catalogoPerUi(),
+      };
     }),
 
   salva: procedura
