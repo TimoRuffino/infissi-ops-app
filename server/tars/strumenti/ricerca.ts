@@ -281,7 +281,7 @@ const cercaConfermeMancanti: StrumentoTars = {
   capability: ["commessa.read"],
   interruttore: "tars",
   descrizione:
-    "Le commesse da «da ordinare» in poi che NON hanno la conferma d'ordine nel fascicolo, con i file candidati trovati fra gli allegati delle mail. Un candidato «certa» (mail già collegata alla commessa e file che si dichiara conferma) si archivia subito con archivia_allegato_comunicazione, tipo conferma_ordine: fallo senza chiedere. Un candidato «probabile» va chiesto all'utente prima. La conferma serve al gate documentale e porta il costo imponibile che alimenta il margine.",
+    "Le commesse da «da ordinare» in poi che NON hanno la conferma d'ordine nel fascicolo, con i file candidati cercati fra gli allegati delle mail (collegate alla commessa, che citano il codice, o dello stesso cliente). Ogni riga dice il suo esito: «archiviabile_subito» → archivia con archivia_allegato_comunicazione tipo conferma_ordine, senza chiedere; «da_confermare» → prima leggi il file con leggi_conferma_ordine, e se cita la commessa procedi, altrimenti chiedi; «non_trovata» → DILLO all'utente esplicitamente, elencando quali commesse restano scoperte. La conferma serve al gate documentale e porta il costo imponibile del margine.",
   schemaInput: z
     .object({
       soloConCandidati: z.boolean().optional(),
@@ -305,7 +305,14 @@ const cercaConfermeMancanti: StrumentoTars = {
       dati: {
         commesse: righe,
         senzaConferma: righe.length,
-        conCandidati: righe.filter(r => r.candidati.length > 0).length,
+        archiviabiliSubito: righe.filter(r => r.esito === "archiviabile_subito").length,
+        daConfermare: righe.filter(r => r.esito === "da_confermare").length,
+        // Il risultato più importante da riferire: qui la conferma non
+        // esiste proprio e va chiesta al fornitore.
+        nonTrovate: righe.filter(r => r.esito === "non_trovata").length,
+        commesseSenzaNessunFile: righe
+          .filter(r => r.esito === "non_trovata")
+          .map(r => `${r.codice ?? r.commessaId} — ${r.cliente ?? ""}`.trim()),
         candidatiCerti: certe,
       },
       evidenze: righe.slice(0, 8).map(r => ({

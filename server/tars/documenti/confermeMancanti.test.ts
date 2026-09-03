@@ -80,6 +80,7 @@ describe("confermeOrdineMancanti", () => {
       certezza: "certa",
       link: "/messaggi/email?messaggio=900",
     });
+    expect(tesconi.esito).toBe("archiviabile_subito");
     // La commessa con il file pronto viene prima di quella senza.
     expect(righe[0].commessaId).toBe(10);
   });
@@ -113,6 +114,35 @@ describe("confermeOrdineMancanti", () => {
     });
   });
 
+  it("dice «non trovata» quando la conferma non c'è, e cerca anche fra le mail del cliente", async () => {
+    const righe = await confermeOrdineMancanti({
+      sedeId: SEDE,
+      deps: deps({
+        commesse: () => [
+          { id: 20, sedeId: SEDE, codice: "COM-2026-020", cliente: "Tesconi", clienteId: 77, stato: "produzione" },
+          { id: 21, sedeId: SEDE, codice: "COM-2026-021", cliente: "Scoperta", clienteId: 78, stato: "produzione" },
+        ],
+        comunicazioniConAllegati: async () => [
+          // Del cliente della commessa 20, ma non collegata e senza codice:
+          // il fornitore cita il SUO riferimento, non il nostro.
+          comunicazione({
+            id: 910,
+            commessaId: null,
+            clienteId: 77,
+            oggetto: "Conferma ordine 4471",
+            allegati: [{ nome: "CO_4471.pdf", mimeType: "application/pdf", size: 10 }],
+          }),
+        ],
+      }),
+    });
+    const conFile = righe.find(r => r.commessaId === 20)!;
+    expect(conFile.esito).toBe("da_confermare");
+    expect(conFile.candidati[0].motivo).toContain("stesso cliente");
+    const scoperta = righe.find(r => r.commessaId === 21)!;
+    expect(scoperta.esito).toBe("non_trovata");
+    expect(scoperta.candidati).toEqual([]);
+  });
+
   it("allegato già archiviato o mail estranea: nessun candidato", async () => {
     const comunicazioni = [
       comunicazione({
@@ -137,5 +167,6 @@ describe("confermeOrdineMancanti", () => {
       }),
     });
     expect(righe.every(r => r.candidati.length === 0)).toBe(true);
+    expect(righe.every(r => r.esito === "non_trovata")).toBe(true);
   });
 });

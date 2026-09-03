@@ -21,9 +21,20 @@ import { STATI_COMMESSA } from "../../commesse/transizioni";
 /** Dallo stato in cui si ordina in poi la conferma deve esserci. */
 const DA_ORDINARE = STATI_COMMESSA.indexOf("da_ordinare");
 
-/** Nome file che parla di una conferma d'ordine (o dell'ordine stesso). */
-const NOME_CONFERMA = /conferma|\bconf[\W_]?ord|\bc\.?o\.?\b|order[\W_]?confirm|\backnowledg/i;
-const NOME_ORDINE = /\bordin|\border\b|\boda\b|\bo\.d\.a\b/i;
+// Nome file che parla di una conferma d'ordine (o dell'ordine stesso).
+// I separatori dei nomi reali sono `_` e `-`, che sono caratteri di parola
+// per `\b`: «CO_4471.pdf» sfuggiva a un confine di parola classico. Qui il
+// confine è esplicito (inizio, separatore o cifra), così «CO_4471» entra e
+// «costo», «conto», «record» restano fuori.
+const CONFINE = "(?:^|[\\W_])";
+const NOME_CONFERMA = new RegExp(
+  `conferma|${CONFINE}conf[\\W_]?ord|${CONFINE}c\\.?o\\.?(?=[\\W_]|\\d|$)|${CONFINE}o\\.?c\\.?(?=[\\W_]|\\d|$)|order[\\W_]?confirm|${CONFINE}acknowledg`,
+  "i"
+);
+const NOME_ORDINE = new RegExp(
+  `${CONFINE}ordin|${CONFINE}order(?=[\\W_]|\\d|$)|${CONFINE}oda(?=[\\W_]|\\d|$)|${CONFINE}o\\.d\\.a`,
+  "i"
+);
 
 export type CandidatoConferma = {
   comunicazioneId: number;
@@ -49,6 +60,12 @@ export type CommessaSenzaConferma = {
   codice: string | null;
   cliente: string | null;
   stato: string;
+  /**
+   * L'esito della ricerca, detto a parole: «non_trovata» è un risultato,
+   * non un silenzio (direzione 03/09/2026: «se non l'ha trovata deve
+   * dirmelo»).
+   */
+  esito: "archiviabile_subito" | "da_confermare" | "non_trovata";
   candidati: CandidatoConferma[];
 };
 
@@ -111,9 +128,14 @@ export async function confermeOrdineMancanti(input: {
     for (const c of comunicazioni) {
       const collegataQui = c.commessaId === commessa.id;
       const citaIlCodice = commessaCitataNelTesto(c, commessa.codice ?? null);
-      // Una mail che non parla di questa commessa non è un candidato: senza
-      // un aggancio esplicito si proporrebbe rumore su ogni commessa aperta.
-      if (!collegataQui && !citaIlCodice) continue;
+      // Il cliente è l'aggancio più debole ammesso: i fornitori citano il
+      // LORO riferimento, non il nostro codice commessa, quindi senza
+      // questo ramo le conferme «senza codice» resterebbero invisibili.
+      const stessoCliente =
+        commessa.clienteId != null && c.clienteId === commessa.clienteId;
+      // Una mail che non parla né di questa commessa né del suo cliente non
+      // è un candidato: senza aggancio si proporrebbe rumore ovunque.
+      if (!collegataQui && !citaIlCodice && !stessoCliente) continue;
 
       c.allegati.forEach((allegato, indice) => {
         if (deps.giaArchiviato(sedeId, c.id, indice)) return;
@@ -134,7 +156,9 @@ export async function confermeOrdineMancanti(input: {
             ? conferma
               ? "la mail è collegata a questa commessa e l'allegato si dichiara conferma d'ordine"
               : "la mail è collegata a questa commessa, ma il nome del file dice solo «ordine»"
-            : `la mail cita il codice ${commessa.codice} ma non è collegata alla commessa`,
+            : citaIlCodice
+              ? `la mail cita il codice ${commessa.codice} ma non è collegata alla commessa`
+              : "la mail è dello stesso cliente ma non cita la commessa: leggi il documento (leggi_conferma_ordine) prima di archiviarlo",
           link: deps.link(c),
         });
       });
@@ -150,6 +174,12 @@ export async function confermeOrdineMancanti(input: {
       codice: commessa.codice ?? null,
       cliente: commessa.cliente ?? null,
       stato: commessa.stato,
+      esito:
+        candidati.length === 0
+          ? "non_trovata"
+          : candidati.some(c => c.certezza === "certa")
+            ? "archiviabile_subito"
+            : "da_confermare",
       candidati,
     });
   }
