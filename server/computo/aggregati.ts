@@ -85,13 +85,15 @@ export function aggrega(
   let larghezzaM = 0;
   let righeSenzaMisure = 0;
   for (const r of righe) {
-    // Righe senza misure (mq 0): un segnale di qualità dati indipendente
-    // dal fatto che la riga entri o meno in un aggregato (es. controtelai).
-    if (r.mq === 0) righeSenzaMisure += 1;
     const k = chiaveDi(r);
     if (!k) continue;
     n[k] += r.quantita;
     mq[k] += r.mq;
+    // Righe aggregate (contate in n) ma senza misure (mq 0): es. una
+    // persiana rilevata solo a pezzo. Un controtelaio non ha chiave (k
+    // null, sopra) quindi non entra qui: non ha misure per natura, non è
+    // "un pezzo senza mq" nel senso del warning che questo numero alimenta.
+    if (r.mq === 0) righeSenzaMisure += 1;
     // Q13: larghezza dei soli serramenti (blocchi A, B, E, F).
     const serramento = SERRAMENTO_NON_LEGNO.has(r.categoria) || SERRAMENTO_LEGNO.has(r.categoria);
     if (serramento && r.larghezzaMm != null) larghezzaM += (r.larghezzaMm * r.quantita) / 1000;
