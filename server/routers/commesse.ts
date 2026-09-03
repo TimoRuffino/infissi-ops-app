@@ -244,6 +244,15 @@ export function dipendenzeTransizioniCommesse(): DipendenzeTransizioneCommessa {
       const { allineaTimelineAlBoard } = await import("./timeline");
       allineaTimelineAlBoard(commessaId, stato, attoreNome);
     },
+    computoValido: async commessaId => {
+      const { interruttoreAttivo } = await import("../platform/interruttori");
+      if (!interruttoreAttivo("limiti")) return true;
+      const commessa: any = getCommessaById(commessaId);
+      if (!commessa) return false;
+      // Import dinamico: computo → contratti → routers/commesse è un ciclo.
+      const { computoValido } = await import("../computo/servizio");
+      return computoValido(commessa.sedeId ?? DEFAULT_SEDE_ID, commessaId);
+    },
   };
 }
 
