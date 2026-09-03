@@ -78,6 +78,10 @@ import {
 } from "../tars/azioni/executions";
 import { getProposteStore } from "../proposte/gateway";
 import { repositoryAnalisiCorrente } from "../tars/analisi/repository";
+import {
+  eseguiPropostaAnalisi,
+  PropostaNonEseguibile,
+} from "../tars/analisi/esecuzione";
 import { generaAnalisiAzienda } from "../tars/analisi/worker";
 import { giornoLocale as giornoLocaleAnalisi } from "../tars/analisi/fotografia";
 import { proiezioneProposta } from "./proposte";
@@ -1247,4 +1251,54 @@ export const tarsRouter = router({
       comeErrore(errore);
     }
   }),
+
+  /**
+   * T3 — il bottone Esegui di una proposta dell'analisi: il server
+   * riverifica catalogo e input col contesto di CHI clicca e passa dal
+   * ledger R1; il doppio click riusa l'esito (runId deterministico).
+   */
+  eseguiPropostaAnalisi: procedura
+    .input(
+      z.object({
+        analisiId: z.number().int().positive(),
+        indice: z.number().int().min(0).max(50),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        assicuraTars("tarsAnalisiAzienda");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "L'analisi dell'azienda è riservata alla direzione.",
+          });
+        }
+        const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        if (!record || record.id !== input.analisiId) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "L'analisi è cambiata: ricaricala e rileggi la proposta.",
+          });
+        }
+        const { esecuzione } = await eseguiPropostaAnalisi({
+          contesto,
+          record,
+          indice: input.indice,
+        });
+        const aggiornato = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        return {
+          esecuzione,
+          record: await conEntitaRisolte(aggiornato, contesto.sedeId),
+          oggi: giornoLocaleAnalisi(new Date()),
+        };
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        if (errore instanceof PropostaNonEseguibile) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: errore.message });
+        }
+        comeErrore(errore);
+      }
+    }),
 });

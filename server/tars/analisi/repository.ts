@@ -21,6 +21,8 @@ export type RepositoryAnalisiAzienda = {
   salva(input: NuovaAnalisiAzienda): Promise<RecordAnalisiAzienda>;
   ultima(sedeId: number): Promise<RecordAnalisiAzienda | null>;
   perGiorno(sedeId: number, giorno: string): Promise<RecordAnalisiAzienda | null>;
+  /** Riscrive l'esito (T3: l'esecuzione di una proposta si salva dentro). */
+  aggiornaEsito(id: number, esito: EsitoAnalisiAzienda): Promise<void>;
 };
 
 function jsonbTollerante<T>(valore: unknown): T | null {
@@ -81,6 +83,10 @@ export function creaRepositoryAnalisiMemoria(): RepositoryAnalisiAzienda {
       const r = righe.find(x => x.sedeId === sedeId && x.giorno === giorno);
       return r ? { ...r } : null;
     },
+    async aggiornaEsito(id, esito) {
+      const r = righe.find(x => x.id === id);
+      if (r) r.esito = esito;
+    },
   };
 }
 
@@ -138,6 +144,11 @@ function creaRepositoryAnalisiPostgres(): RepositoryAnalisiAzienda {
       const [riga] = await sql`SELECT * FROM tars_analisi_azienda
         WHERE sede_id = ${sedeId} AND giorno = ${giorno}`;
       return riga ? rigaDaDb(riga) : null;
+    },
+    async aggiornaEsito(id, esito) {
+      await assicura();
+      await sql`UPDATE tars_analisi_azienda
+        SET esito = ${sql.json(esito as any)} WHERE id = ${id}`;
     },
   };
 }
