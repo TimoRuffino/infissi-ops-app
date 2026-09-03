@@ -394,11 +394,24 @@ coefficienti = {
     # Avvolgibili (CHECK2 BS): mq = mq serramento + 0,05 × (L + 0,25) + 0,25 × (H + 0,05), minimo 1,8 mq
     "avvolgibileExtraL": 0.05, "avvolgibileExtraLOffset": 0.25, "avvolgibileExtraH": 0.25, "avvolgibileExtraHOffset": 0.05,
 }
+# Aliquote per anno di firma. `percentualeDetrazione` prende la riga con
+# l'anno più alto <= anno della firma: senza il 2025 un contratto firmato in
+# quell'anno non aveva alcuna percentuale e il detraibile restava «—».
+# 2025 e 2026: 50 % prima casa, 36 % altri immobili. 2027: 36 % e 30 %
+# (legge di bilancio 2025, art. 1 c. 54-55).
 detrazioni = [
+    {"tipo": "ristrutturazione", "immobile": "prima_casa", "anno": 2025, "pct": 50},
+    {"tipo": "ristrutturazione", "immobile": "altro", "anno": 2025, "pct": 36},
+    {"tipo": "ecobonus", "immobile": "prima_casa", "anno": 2025, "pct": 50},
+    {"tipo": "ecobonus", "immobile": "altro", "anno": 2025, "pct": 36},
     {"tipo": "ristrutturazione", "immobile": "prima_casa", "anno": 2026, "pct": 50},
     {"tipo": "ristrutturazione", "immobile": "altro", "anno": 2026, "pct": 36},
     {"tipo": "ecobonus", "immobile": "prima_casa", "anno": 2026, "pct": 50},
     {"tipo": "ecobonus", "immobile": "altro", "anno": 2026, "pct": 36},
+    {"tipo": "ristrutturazione", "immobile": "prima_casa", "anno": 2027, "pct": 36},
+    {"tipo": "ristrutturazione", "immobile": "altro", "anno": 2027, "pct": 30},
+    {"tipo": "ecobonus", "immobile": "prima_casa", "anno": 2027, "pct": 36},
+    {"tipo": "ecobonus", "immobile": "altro", "anno": 2027, "pct": 30},
 ]
 bene_default = {c: True for c in ["serramento_pvc", "serramento_alluminio", "serramento_legno", "serramento_legno_alluminio",
                                   "cassonetto", "tapparella", "persiana", "scuro", "schermatura", "zanzariera", "tenda",

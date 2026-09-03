@@ -1,5 +1,5 @@
 {
- "versione": "2026-09-03",
+ "versione": "2026-09-04",
  "fonte": "CALCOLO NUOVI LIMITI.xlsx",
  "validoDal": "2022-04-15",
  "massimali": [
@@ -5775,6 +5775,30 @@
   {
    "tipo": "ristrutturazione",
    "immobile": "prima_casa",
+   "anno": 2025,
+   "pct": 50
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "altro",
+   "anno": 2025,
+   "pct": 36
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "prima_casa",
+   "anno": 2025,
+   "pct": 50
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "altro",
+   "anno": 2025,
+   "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "prima_casa",
    "anno": 2026,
    "pct": 50
   },
@@ -5795,6 +5819,30 @@
    "immobile": "altro",
    "anno": 2026,
    "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "prima_casa",
+   "anno": 2027,
+   "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "altro",
+   "anno": 2027,
+   "pct": 30
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "prima_casa",
+   "anno": 2027,
+   "pct": 36
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "altro",
+   "anno": 2027,
+   "pct": 30
   }
  ],
  "beneSignificativoDefault": {

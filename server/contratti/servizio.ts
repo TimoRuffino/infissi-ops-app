@@ -218,7 +218,12 @@ export async function salvaContratto(input: {
       : parametri.detrazionePct ??
         percentualeDetrazione(tariffe, parametri.detrazioneTipo, parametri.detrazioneImmobile, anno);
   if (parametri.detrazioneTipo !== "nessuna" && pct == null) {
-    avvertenze.push("Percentuale di detrazione non trovata nelle tariffe: indicarla a mano.");
+    // L'anno è l'informazione che manca davvero: le tariffe hanno le aliquote
+    // per anno di firma e questa non ne ha una. Dire «indicarla a mano»
+    // mandava a cercare un campo che il form del contratto non offre.
+    avvertenze.push(
+      `Percentuale di detrazione non calcolabile per l'anno ${anno}: le tariffe non hanno un'aliquota per quell'anno, il detraibile resta vuoto.`
+    );
   }
 
   const righePersist: RigaPersist[] = righeValide.map((r, i) => ({

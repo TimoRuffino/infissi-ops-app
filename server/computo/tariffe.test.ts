@@ -68,6 +68,24 @@ describe("tariffe limiti", () => {
     expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2026)).toBe(50);
     expect(percentualeDetrazione(t, "ecobonus", "altro", 2026)).toBe(36);
     expect(percentualeDetrazione(t, "nessuna", "altro", 2026)).toBeNull();
+    // 2025: stesse aliquote del 2026. Senza queste righe una firma del 2025
+    // non aveva percentuale e il detraibile restava «—».
+    expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2025)).toBe(50);
+    expect(percentualeDetrazione(t, "ristrutturazione", "altro", 2025)).toBe(36);
+    expect(percentualeDetrazione(t, "ecobonus", "prima_casa", 2025)).toBe(50);
+    expect(percentualeDetrazione(t, "ecobonus", "altro", 2025)).toBe(36);
+    // 2027: legge di bilancio 2025 — 36 % prima casa, 30 % altri immobili.
+    expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2027)).toBe(36);
+    expect(percentualeDetrazione(t, "ristrutturazione", "altro", 2027)).toBe(30);
+    expect(percentualeDetrazione(t, "ecobonus", "prima_casa", 2027)).toBe(36);
+    expect(percentualeDetrazione(t, "ecobonus", "altro", 2027)).toBe(30);
+    // Oltre l'ultimo anno noto resta valida l'ultima riga: non si inventa.
+    expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2030)).toBe(36);
+    // Prima del 2025 le tariffe non hanno aliquote: null, non uno zero.
+    expect(percentualeDetrazione(t, "ristrutturazione", "prima_casa", 2024)).toBeNull();
+    // `immobile` non indicato vale come «altro».
+    expect(percentualeDetrazione(t, "ristrutturazione", null, 2027)).toBe(30);
+    expect(t.detrazioni).toHaveLength(12);
   });
 
   it("mappa le categorie del contratto sui gruppi DEI", () => {

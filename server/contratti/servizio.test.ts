@@ -197,6 +197,36 @@ describe("servizio contratto", () => {
     ).rejects.toThrow("VALIDAZIONE: zona manuale senza zona indicata.");
   });
 
+  // ── Fix round 2 (review finale): R33 — aliquote per anno di firma ───────
+
+  it("una firma del 2025 o del 2027 deriva la sua aliquota, senza avvertenze", async () => {
+    const commessaId = await commessaDiProva();
+    const nel2025 = await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: { ...contratto, dataFirma: "2025-11-10" },
+    });
+    expect(nel2025.contratto.detrazionePct).toBe(50);
+    expect(nel2025.avvertenze.some(a => a.toLowerCase().includes("detrazione"))).toBe(false);
+
+    const nel2027 = await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: { ...contratto, dataFirma: "2027-03-01", detrazioneImmobile: "altro" },
+    });
+    expect(nel2027.contratto.detrazionePct).toBe(30);
+  });
+
+  it("un anno senza aliquota lo dice con l'anno, non con un generico «indicarla a mano»", async () => {
+    const commessaId = await commessaDiProva();
+    const esito = await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: { ...contratto, dataFirma: "2023-05-04" },
+    });
+    expect(esito.contratto.detrazionePct).toBeNull();
+    expect(esito.avvertenze).toContain(
+      "Percentuale di detrazione non calcolabile per l'anno 2023: le tariffe non hanno un'aliquota per quell'anno, il detraibile resta vuoto."
+    );
+  });
+
   it("detrazioneTipo nessuna lascia detrazionePct a null e non genera l'avvertenza di detrazione", async () => {
     const commessaId = await commessaDiProva();
     const esito = await salvaContratto({
