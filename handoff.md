@@ -2337,6 +2337,175 @@ per route: è una decisione registrata, non una dimenticanza, e le colonne
 5. I rilievi minori rimandati batch per batch sono elencati nei due ledger SDD
    sopra: è il backlog UI più onesto che esista oggi.
 
+## 11-vicies terdecies. Contratto strutturato e computo limiti — piano 1 (03/09/2026)
+
+Piano 1 di 3 (`docs/superpowers/plans/2026-09-03-contratto-e-computo-limiti.md`,
+16 task) chiuso su `feature/limiti-fatturazione`, **mai integrato su `main`**.
+Spec di riferimento:
+`docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` (§1-§13);
+le formule del motore e il modello delle righe seguono invece
+`docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md`, che
+**integra e prevale sulla spec dove divergono** — è la specifica scritta a
+mano su tre commesse reali chiuse nel 2026 (fatture FiC 127, 129, 130) con
+foglio «CALCOLO NUOVI LIMITI» compilato.
+
+**Cosa esiste.**
+
+- Contratto strutturato: `server/contratti/repository.ts` (tabelle
+  `commessa_contratti`, `commessa_righe`; memoria senza `DATABASE_URL`,
+  Postgres altrimenti), `server/contratti/hash.ts` (hash di righe e
+  parametri), `server/contratti/servizio.ts` (`leggiContratto`,
+  `salvaContratto`); router `contratti` (`get`, `salva`, `catalogo`) in
+  `server/routers/contratti.ts`.
+- Computo limiti: `server/computo/motore.ts` (CHECK1/CHECK2, verificato al
+  centesimo sulle tre fatture reali in
+  `server/computo/__fixtures__/casi-reali.json`), `server/computo/aggregati.ts`
+  (aggregati per gruppo, ore tiro/posa), `server/computo/zone.ts` (zona
+  climatica dal comune, Tabella A DPR 412/93), `server/computo/tariffe.ts`
+  (caricatore del seed), `server/computo/repository.ts` (tabelle `computi`,
+  `computo_voci`), `server/computo/servizio.ts` (`eseguiComputo`,
+  `ultimoComputo`, `computoValido`); router `computo` (`ultimo`, `esegui`) in
+  `server/routers/computo.ts`; router `tariffe` in `server/routers/tariffe.ts`.
+- Dati condivisi: `shared/limiti/tipi.ts`, `shared/euroCent.ts`; seed
+  `shared/limiti/tariffe-seed.json` (342 prodotti DEI, 74 accessori, 22
+  controtelai, 19 opere; rigenerato da `scripts/estrai-tariffe-limiti.py`, il
+  foglio sorgente **non entra mai nel repository**); `shared/limiti/comuni-zona.json`
+  (8.104 comuni dal PDF DPR 412/93 — sigle provincia del 1993:
+  LO/MB/PU/FM/BT/BI non aggiornate; la provincia disambigua solo gli
+  omonimi, non cambia la zona).
+- Interruttore `limiti` (env `FLAG_LIMITI`, fail-closed) in
+  `server/platform/interruttori.ts`, **spento in produzione**. Capability
+  nuove in `server/authz/capabilities.ts`: `contratto.read` (condivisa da
+  tutti i ruoli), `contratto.manage` e `computo.run` (amministrazione,
+  commerciale, direzione), `tariffe.manage` (solo direzione). Il client non
+  duplica queste stringhe in `client/src/lib/roles.ts` (che resta solo
+  helper di ruolo): legge il proprio set effettivo da `trpc.permessi.mie`
+  in `client/src/contexts/OperationalContext.tsx`.
+- Gate: `richiedeComputo` (`server/commesse/transizioni.ts`) blocca **solo**
+  il passo `aggiornamento_contratto → fatture_pagamento`. Lo scavalco è lo
+  stesso `bypassGateDocumentale` del dialog «Procedi comunque» del board,
+  registrato come `gateScavalcato: "documentale" | "computo"` in
+  `RegistroTransizione` (`null` quando non c'era un gate da scavalcare).
+  Tars vede lo stesso gate: `verifica_transizione_commessa` chiede
+  `computoValido` sul passo governato e restituisce `gate.computo`
+  (`richiesto`/`valido`), quindi l'anteprima dichiara il blocco prima di
+  muovere qualcosa; `transizione_adiacente_commessa` lo rivaluta a ogni
+  tappa e senza scavalco si ferma dicendo che manca il **computo**, non un
+  file, con l'istruzione `scavalcaGate: true`. Con lo scavalco — solo su
+  richiesta esplicita dell'utente — il passaggio usa lo stesso
+  `bypassGateDocumentale`, l'avvertenza nomina il gate del computo e il
+  registro segna `gateScavalcato: "computo"`. `motivoSicuro`
+  (`server/tars/strumenti/commesse.ts`) resta la rete per il caso TOCTOU in
+  cui il gate cambia tra verifica ed effetto.
+- UI: tab «Contratto» al posto di «Prodotti» quando il flag è acceso
+  (`client/src/components/contratto/ContrattoTab.tsx`,
+  `RigaContrattoEditor.tsx`), tab «Limiti»
+  (`client/src/components/computo/LimitiTab.tsx`), riga di stato
+  `ContrattoStatoBanner.tsx`, badge «da contratto · {pattuitoTipo}» accanto
+  al pattuito nella card Pagamenti di `client/src/pages/CommessaDetail.tsx`,
+  pannello Tariffe in sola lettura in Impostazioni
+  (`client/src/components/computo/TariffeLimitiPanel.tsx`, dietro
+  `tariffe.manage`).
+
+**Come si usa.** Con `FLAG_LIMITI=on`: tab Contratto → si inseriscono le
+righe (misura, codice prodotto del catalogo DEI, accessori, eventuale
+oscurante abbinato) e i dati di testata (pattuito, tipo IVA, rate, opzioni
+di computo) → Salva — `applicaPattuitoDaContratto` in
+`server/routers/commesse.ts` allinea pattuito e piano rate della commessa
+alle nuove righe, senza toccare le rate già incassate — → tab Limiti →
+«Calcola i limiti» (richiede `computo.run`): il motore deriva la zona dal
+comune, aggrega le righe, calcola CHECK1 e CHECK2 e mostra il limite
+vincolante voce per voce, con `inclusa`/`inCheck2` per ciascuna. Avanzando
+la commessa da «Aggiornamento contratto» a «Fatture pagamento»: se il
+computo è valido (hash righe e parametri = correnti) il passaggio è
+diretto; se il contratto manca o è stato modificato dopo l'ultimo computo
+compare lo stesso dialog «Procedi comunque» dei gate documentali — «Il
+computo dei limiti manca o non è aggiornato per lo stato "Aggiornamento
+contratto": compila il contratto e calcola i limiti dalla tab Limiti.
+Procedere comunque?» — e lo scavalco resta registrato.
+
+**Cosa manca.**
+
+- Fatturazione dal contratto (piano 2, `FLAG_FATTURAZIONE`): oggi il
+  pattuito «da contratto» mostrato in Pagamenti è **solo uno specchio di
+  UI** (commento esplicito in `CommessaDetail.tsx`); la riaffermazione lato
+  server, la bozza fattura e l'emissione via FiC arrivano col piano 2.
+- Lettura del contratto da PDF (piano 3, `FLAG_CONTRATTO_ESTRAZIONE`): oggi
+  solo inserimento manuale delle righe, nessuna estrazione automatica.
+- Tariffe modificabili con validità (decisione D10 della spec):
+  `TariffeLimitiPanel` è sola lettura; il seed si aggiorna solo rigenerando
+  `shared/limiti/tariffe-seed.json` da `scripts/estrai-tariffe-limiti.py`,
+  non da UI.
+- Fixture d'oro da estendere: i tre casi in `casi-reali.json` coprono
+  serramenti PVC/alluminio; mancano fogli reali con tapparelle, cassonetti
+  e legno per chiudere la copertura delle altre famiglie di prodotto —
+  **da chiedere alla direzione** (v. «Debito aperto prioritario» qui sotto).
+- Debito tecnico minore: i test di servizio di `server/contratti` e
+  `server/computo` non possono forzare il repository in memoria quando
+  `DATABASE_URL` è impostata — `getContrattiRepository`/`getComputiRepository`
+  scelgono il driver da un singleton legato all'env al primo uso, non
+  iniettabile dal test.
+
+- Debito residuo dichiarato dalla review finale (04/09/2026), tutto
+  rinviato a dopo il merge: (1) `applicaPattuitoDaContratto` mette il resto
+  dell'arrotondamento sull'ultima rata, che può scendere sotto zero solo se
+  lo split sfrutta la tolleranza di ±0,01 punti di `validaRate` (≤ 0,0001 ×
+  totale, irraggiungibile dalla UI); (2) l'INSERT in blocco di
+  `commessa_righe`/`computo_voci` ha il tetto PostgreSQL di 65 535
+  parametri (~2 900 righe, ~4 600 voci per statement); (3) su uno step con
+  gate computo Tars legge il computo due volte (pre-verifica più ricontrollo
+  del dominio), una riga sola; (4) all'apertura di una commessa l'override
+  di policy viene caricato due volte da `authorizeCoreOperation`; (5) in
+  `RigaContrattoEditor` la quantità degli accessori non segue quella della
+  riga e la numerazione delle righe è triplice (ordine, indice, id);
+  (6) `TariffeLimitiPanel` restituisce null su errore invece di dirlo;
+  (7) `immobile` null viene letto come «altro»; (8) i CHECK constraint
+  delle tabelle non sono additivi (una categoria nuova richiede una
+  migrazione); (9) la spec di design §4.1/4.2 descrive ancora il motore
+  della prima stesura: prevale l'analisi dei fogli reali.
+
+**Runbook di attivazione.** Per una sede di prova: 1) accendere
+`FLAG_LIMITI=on` solo su quella sede/ambiente — `.claude/launch.json` ha
+già la configurazione «Limiti demo (porta 5198)» con il flag acceso; 2) il
+seed dei comuni (`shared/limiti/comuni-zona.json`) è un import statico
+letto da `server/computo/zone.ts`: non serve nessun caricamento manuale,
+solo il deploy del codice; 3) su una commessa reale già chiusa, compilare
+il contratto con le stesse righe del foglio «CALCOLO NUOVI LIMITI»
+compilato a mano, calcolare i limiti e confrontare CHECK1/CHECK2 **voce
+per voce** con il foglio, non solo il totale; 4) solo dopo un confronto
+pulito su almeno una commessa reale per sede, considerare il gate
+affidabile per quella sede — resta comunque scavalcabile con «Procedi
+comunque» e ogni scavalco resta nel registro.
+
+**Verifica (03/09/2026).** `pnpm check` pulito (nessun errore); `pnpm test`
+170 file passati e 6 saltati (176), 1586 test passati e 23 saltati (1609),
+0 falliti — i saltati sono le suite `*.pg.test.ts` (incluse
+`server/contratti/repository.pg.test.ts` e
+`server/computo/repository.pg.test.ts`) che girano solo con `DATABASE_URL`:
+il controller le ha eseguite a parte contro un PostgreSQL 16 locale, tutte
+verdi; `pnpm build` completa (`dist/public` + `dist/index.js`) con un solo
+avviso, esbuild che segnala `dist/index.js` a 2,6 MB — lo stesso avviso già
+noto da `docs/design/modular-control/verification-log.md` (1,1 MB alla
+baseline del 31/08, 1,3 MB al gate 03+04): cresce con ogni feature del
+bundle server, non è stato introdotto da questo piano. Il percorso in
+browser (commessa → tab Contratto → salva → Limiti → Calcola → avanzamento
+a «Fatture pagamento» con e senza dialog, screenshot 1440×900 e 390×844,
+console senza errori) è registrato nella verifica del controller, eseguita
+in parallelo a questo task, non in questa sezione.
+
+**Verifica (04/09/2026, dopo la review finale).** `pnpm check` pulito;
+`pnpm test` 1591 passati e 23 saltati; le due suite pg 3/3 contro
+PostgreSQL 16 locale; `pnpm build` ok. In browser sul demo (flag acceso):
+da Commessa 360, con il file contratto caricato e nessun computo, «Avanza
+a: Fatture / Pagamento» apre «Computo dei limiti non aggiornato» col
+messaggio del server e «Procedi comunque» completa la transizione; senza
+file contratto compare prima il dialogo documentale (precedenza corretta);
+Impostazioni → «Limiti di spesa» mostra il pannello tariffe (seed
+2026-09-04, sei tab) senza overflow orizzontale. Nota operativa: il server
+demo va riavviato dopo ogni modifica server, `tsx` senza `watch` non
+ricarica i router (un `tariffe.limiti` → 404 «No procedure found» è un
+processo vecchio, non un bug).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
@@ -2395,6 +2564,12 @@ per route: è una decisione registrata, non una dimenticanza, e le colonne
     campo→consumer, sorte dei dati. Annotazione in
     `server/routers/produzione.ts`; la vecchia route reindirizza a
     `/kanban` (test in `server/routers/produzionePagina.test.ts`).
+14. **Fixture d'oro del computo**: 2–3 fogli compilati reali; finché
+    mancano, il gate resta un avviso da confermare. I tre casi già in
+    `server/computo/__fixtures__/casi-reali.json` (fatture 127/129/130
+    2026) coprono solo serramenti PVC/alluminio; servono fogli reali con
+    tapparelle, cassonetti e legno per le altre famiglie — **da chiedere
+    alla direzione** (v. §11-vicies terdecies).
 
 ## 13. Cosa resta della piattaforma
 

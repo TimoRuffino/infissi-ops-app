@@ -34,6 +34,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { titoloGateBloccato } from "@/lib/limitiView";
 import {
   KANBAN_COLUMN_STATES,
   kanbanPresentation,
@@ -515,7 +516,7 @@ export default function KanbanBoard() {
       <ConfirmDialog
         open={!!forceMoveTarget}
         onOpenChange={open => !open && setForceMoveTarget(null)}
-        title="File richiesto non caricato"
+        title={titoloGateBloccato(forceMoveTarget?.message)}
         description={forceMoveTarget?.message ?? ""}
         destructive={false}
         confirmLabel="Procedi comunque"

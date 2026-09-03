@@ -42,7 +42,10 @@ export type Interruttore =
   | "tarsAnalisiAzienda"
   // Modular Control / Borgogna Operativa (31/08/2026): governa solo la
   // generazione visuale del client. Nessun percorso server dipende dal flag.
-  | "uiV2";
+  | "uiV2"
+  // Contratto strutturato e computo limiti DM MITE (03/09/2026): tab
+  // Contratto/Limiti, gate sulla transizione verso «Fatture pagamento».
+  | "limiti";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -62,6 +65,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsSmistamento: "FLAG_TARS_SMISTAMENTO",
   tarsAnalisiAzienda: "FLAG_TARS_ANALISI_AZIENDA",
   uiV2: "FLAG_UI_V2",
+  limiti: "FLAG_LIMITI",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -83,6 +87,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsSmistamento: "Lo smistamento automatico delle comunicazioni di Tars",
   tarsAnalisiAzienda: "L'analisi giornaliera dell'azienda di Tars",
   uiV2: "L'interfaccia Modular Control / Borgogna Operativa",
+  limiti: "Il contratto strutturato e il computo dei limiti di spesa",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -116,7 +121,7 @@ export function statoInterruttori(): Record<Interruttore, boolean> {
 export function tarsAttivo(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2"
+    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
   >
 ): boolean {
   if (!interruttoreAttivo("tars")) return false;
@@ -127,7 +132,7 @@ export function tarsAttivo(
 export function assicuraTars(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2"
+    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
   >
 ): void {
   assicuraInterruttore("tars");

@@ -68,6 +68,11 @@ type RegistroTransizione = {
   prima: SnapshotTransizione;
   dopo: SnapshotTransizione;
   bypassGateDocumentale: boolean;
+  /**
+   * Quale gate è stato scavalcato con «Procedi comunque» (03/09/2026).
+   * `null` quando non c'era gate o la transizione era consentita.
+   */
+  gateScavalcato: "documentale" | "computo" | null;
   compensaTransizioneId: number | null;
   compensataDaId: number | null;
   createdAt: Date;
@@ -87,6 +92,9 @@ export const storeTransizioniCommessa = persistedStore<RegistroTransizione>(
       if ((riga as any).compensataDaId === undefined) {
         (riga as any).compensataDaId = null;
       }
+      if ((riga as any).gateScavalcato === undefined) {
+        (riga as any).gateScavalcato = null;
+      }
     }
   }
 );
@@ -105,6 +113,12 @@ export type DipendenzeTransizioneCommessa = {
     stato: StatoCommessa,
     attoreNome: string | null
   ): void | Promise<void>;
+  /**
+   * Gate computo limiti (03/09/2026): true se l'ultimo computo copre le
+   * righe e i parametri correnti del contratto. Assente = gate non
+   * attivo (flag spento o dipendenze legacy).
+   */
+  computoValido?: (commessaId: number) => Promise<boolean> | boolean;
   ora?: () => Date;
 };
 
@@ -121,6 +135,7 @@ export type VerificaTransizioneCommessa = {
     richiesti: string[];
     soddisfatto: boolean;
     bloccante: boolean;
+    computo: { richiesto: boolean; valido: boolean | null };
   };
   motivo: string | null;
 };
@@ -193,11 +208,26 @@ function indice(stato: StatoCommessa): number {
   return STATI_COMMESSA.indexOf(stato);
 }
 
+/**
+ * Il gate computo governa un solo passo della sequenza: l'ingresso in
+ * «Fatture pagamento» dall'aggiornamento del contratto. Predicato puro,
+ * condiviso da verifica ed esecuzione perché non possano divergere.
+ */
+export function richiedeComputo(
+  stato: string,
+  nuovoStato: StatoCommessa | null | undefined
+): boolean {
+  return (
+    stato === "aggiornamento_contratto" && nuovoStato === "fatture_pagamento"
+  );
+}
+
 export function verificaTransizioneCommessa(input: {
   commessa: CommessaTransizionabile;
   nuovoStato?: StatoCommessa | null;
   haDocumentoRichiesto: (commessaId: number, stato: string) => boolean;
   documentiRichiesti: (stato: StatoCommessa) => readonly string[];
+  computoValido?: boolean | null;
 }): VerificaTransizioneCommessa {
   const { commessa } = input;
   if (!statoValido(commessa.stato)) {
@@ -211,6 +241,13 @@ export function verificaTransizioneCommessa(input: {
   const gateSoddisfatto =
     richiesti.length === 0 ||
     input.haDocumentoRichiesto(commessa.id, commessa.stato);
+  // Gate computo: vale SOLO per il passo in avanti da «Aggiornamento
+  // contratto» a «Fatture pagamento». null = non verificato (flag spento,
+  // lettura senza dipendenza): non blocca, ma la UI lo mostra come ignoto.
+  const computoRichiesto = richiedeComputo(commessa.stato, nuovoStato);
+  const computoValido = computoRichiesto ? (input.computoValido ?? null) : null;
+  const computoBloccante = computoRichiesto && computoValido === false;
+  const gateComputo = { richiesto: computoRichiesto, valido: computoValido };
 
   if (nuovoStato == null) {
     return {
@@ -226,6 +263,7 @@ export function verificaTransizioneCommessa(input: {
         richiesti,
         soddisfatto: gateSoddisfatto,
         bloccante: Boolean(successivo && richiesti.length > 0 && !gateSoddisfatto),
+        computo: gateComputo,
       },
       motivo: null,
     };
@@ -245,6 +283,7 @@ export function verificaTransizioneCommessa(input: {
         richiesti,
         soddisfatto: gateSoddisfatto,
         bloccante: false,
+        computo: gateComputo,
       },
       motivo: "La commessa è già nello stato richiesto.",
     };
@@ -265,6 +304,7 @@ export function verificaTransizioneCommessa(input: {
         richiesti,
         soddisfatto: gateSoddisfatto,
         bloccante: false,
+        computo: gateComputo,
       },
       motivo:
         `Transizione non consentita: ${commessa.stato} → ${nuovoStato}. ` +
@@ -273,7 +313,9 @@ export function verificaTransizioneCommessa(input: {
   }
 
   const avanti = indice(nuovoStato) > currentIdx;
-  const gateBloccante = avanti && richiesti.length > 0 && !gateSoddisfatto;
+  const gateDocumentaleBloccante =
+    avanti && richiesti.length > 0 && !gateSoddisfatto;
+  const gateBloccante = gateDocumentaleBloccante || computoBloccante;
   return {
     commessaId: commessa.id,
     statoAttuale: commessa.stato,
@@ -287,9 +329,17 @@ export function verificaTransizioneCommessa(input: {
       richiesti,
       soddisfatto: gateSoddisfatto,
       bloccante: gateBloccante,
+      computo: gateComputo,
     },
     motivo: gateBloccante
-      ? `Manca ${richiesti.join(" o ")}.`
+      ? [
+          gateDocumentaleBloccante ? `Manca ${richiesti.join(" o ")}.` : null,
+          computoBloccante
+            ? "Il computo dei limiti manca o non è aggiornato: compila il contratto e calcola i limiti dalla tab Limiti."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
       : null,
   };
 }
@@ -438,22 +488,38 @@ async function applicaTransizioneCommessa(
     };
   }
 
+  // La domanda al servizio computo costa una lettura: la si fa solo sul
+  // passo che il gate governa. Dipendenza assente = gate non valutato.
+  const computoOk =
+    dipendenze.computoValido && richiedeComputo(commessa.stato, input.nuovoStato)
+      ? await dipendenze.computoValido(commessa.id)
+      : null;
   const verifica = verificaTransizioneCommessa({
     commessa,
     nuovoStato: input.nuovoStato,
     haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
     documentiRichiesti: dipendenze.documentiRichiesti,
+    computoValido: computoOk,
   });
+  // Precedenza unica per messaggio e registro (R24): se manca anche il
+  // documento comanda il gate documentale; il computo si dichiara solo
+  // quando è l'unico a fermare il passaggio.
+  const soloComputoBlocca =
+    verifica.gate.computo.valido === false && verifica.gate.soddisfatto;
   if (!verifica.consentita) {
     if (verifica.gate.bloccante && input.bypassGateDocumentale) {
       // «Procedi comunque»: dal board (router) o da Tars su richiesta
       // esplicita dell'utente; il registro conserva il flag.
     } else if (verifica.gate.bloccante) {
+      // Il prefisso resta `DOC_GATE_BLOCKED:` anche per il computo: board e
+      // timeline riusano lo stesso dialog «Procedi comunque».
       const labels = verifica.gate.richiesti
         .map(tipo => dipendenze.etichettaDocumento(tipo))
         .join(" o ");
       throw new Error(
-        `DOC_GATE_BLOCKED: Non è stato caricato il file "${labels}" per lo stato "${commessa.stato.replace(/_/g, " ")}". Procedere comunque?`
+        soloComputoBlocca
+          ? `DOC_GATE_BLOCKED: Il computo dei limiti manca o non è aggiornato per lo stato "${commessa.stato.replace(/_/g, " ")}": compila il contratto e calcola i limiti dalla tab Limiti. Procedere comunque?`
+          : `DOC_GATE_BLOCKED: Non è stato caricato il file "${labels}" per lo stato "${commessa.stato.replace(/_/g, " ")}". Procedere comunque?`
       );
     } else {
       throw new Error(verifica.motivo ?? "TRANSIZIONE_NON_CONSENTITA");
@@ -493,6 +559,12 @@ async function applicaTransizioneCommessa(
     prima,
     dopo,
     bypassGateDocumentale: Boolean(input.bypassGateDocumentale),
+    gateScavalcato:
+      verifica.gate.bloccante && input.bypassGateDocumentale
+        ? soloComputoBlocca
+          ? "computo"
+          : "documentale"
+        : null,
     compensaTransizioneId: input.compensaTransizioneId ?? null,
     compensataDaId: null,
     createdAt: dipendenze.ora?.() ?? new Date(),

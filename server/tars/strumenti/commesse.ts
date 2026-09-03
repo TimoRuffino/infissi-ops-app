@@ -11,9 +11,12 @@ import {
   STATI_COMMESSA,
   eseguiTransizioneCommessa,
   firmaTransizioneCommessa,
+  richiedeComputo,
   verificaTransizioneCommessa,
   versioneCommessa,
+  type DipendenzeTransizioneCommessa,
   type StatoCommessa,
+  type VerificaTransizioneCommessa,
 } from "../../commesse/transizioni";
 import {
   dipendenzeTransizioniCommesse,
@@ -152,7 +155,11 @@ export function richiestaEsplicitaTransizione(messaggio: string): boolean {
   return analizzaRichiestaTransizione(messaggio) != null;
 }
 
-/** Fissa il solo target consentito all'inizio del run, prima del provider. */
+/**
+ * Fissa il solo target consentito all'inizio del run, prima del provider.
+ * Senza `nuovoStato` il gate computo non è in gioco (`richiedeComputo` è
+ * falso): qui servono soltanto lo stato precedente e quello successivo.
+ */
 export function concretizzaRichiestaTransizione(
   richiesta: RichiestaTransizioneEsplicita,
   commessa: any
@@ -199,6 +206,52 @@ function haCapability(
 function commessaInSede(contesto: ContestoRun, id: number): any | null {
   const commessa: any = getCommessaById(id);
   return commessa?.sedeId === contesto.sedeId ? commessa : null;
+}
+
+/**
+ * Gate computo (03/09/2026): la domanda al servizio costa una lettura, quindi
+ * la si fa solo sul passo che il gate governa. `null` = non valutato
+ * (dipendenza assente, flag spento): la verifica lo dichiara ignoto e non
+ * blocca. Senza questa risposta Tars vedrebbe `consentita: true` su un
+ * passaggio che il dominio poi rifiuta.
+ */
+async function computoValidoPer(
+  dipendenze: DipendenzeTransizioneCommessa,
+  commessa: { id: number; stato: string },
+  tappa: StatoCommessa | null | undefined
+): Promise<boolean | null> {
+  if (!dipendenze.computoValido || !richiedeComputo(commessa.stato, tappa ?? null)) {
+    return null;
+  }
+  return dipendenze.computoValido(commessa.id);
+}
+
+/**
+ * Stessa precedenza del dominio (R24): se manca anche il documento comanda il
+ * gate documentale; il computo si dichiara solo quando è l'unico a fermare.
+ */
+function bloccaSoloComputo(verifica: VerificaTransizioneCommessa): boolean {
+  return verifica.gate.computo.valido === false && verifica.gate.soddisfatto;
+}
+
+const ISTRUZIONE_SCAVALCO =
+  "Se l'utente vuole procedere comunque, richiama lo strumento con scavalcaGate: true (resta registrato).";
+
+/** Che cosa ferma il passaggio, detto per quello che è. */
+function descrizioneGate(verifica: VerificaTransizioneCommessa): string {
+  return bloccaSoloComputo(verifica)
+    ? "dal gate del computo. Il computo dei limiti manca o non è aggiornato: compila il contratto e calcola i limiti dalla tab Limiti."
+    : `dal gate documentale: manca «${etichetteGate(verifica.gate.richiesti)}».`;
+}
+
+/** L'avvertenza dopo uno scavalco deve nominare il gate davvero scavalcato. */
+function avvertenzaScavalco(
+  verifica: VerificaTransizioneCommessa,
+  stato: string
+): string {
+  return bloccaSoloComputo(verifica)
+    ? `Gate del computo scavalcato su richiesta: il computo dei limiti mancava o non era aggiornato per lo stato «${leggibile(stato)}».`
+    : `Gate documentale scavalcato su richiesta: mancava «${etichetteGate(verifica.gate.richiesti)}» per lo stato «${leggibile(stato)}».`;
 }
 
 function contestoAutorizzazione(
@@ -274,7 +327,7 @@ const verifica: StrumentoTars = {
   capability: ["commessa.read"],
   interruttore: "tarsReadTools",
   descrizione:
-    "Verifica, senza modificare nulla, stato/versione, passaggi adiacenti e gate documentale della commessa attiva o indicata. È la preview autorevole da usare prima di descrivere un avanzamento.",
+    "Verifica, senza modificare nulla, stato/versione, passaggi adiacenti e gate della commessa attiva o indicata: sia quello documentale sia quello del computo limiti (gate.computo, che governa «aggiornamento contratto» → «fatture pagamento»). È la preview autorevole da usare prima di descrivere un avanzamento.",
   schemaInput: schemaVerifica,
   async esegui(contesto, input): Promise<EsitoLettura<unknown>> {
     if (!tarsAttivo("tarsReadTools") || !haCapability(contesto, ["commessa.read"])) {
@@ -286,11 +339,15 @@ const verifica: StrumentoTars = {
       throw new Error("NOT_FOUND: commessa non trovata o non autorizzata.");
     }
     const dipendenze = dipendenzeTransizioniCommesse();
+    const nuovoStato = input.nuovoStato as StatoCommessa | undefined;
     const dati = verificaTransizioneCommessa({
       commessa,
-      nuovoStato: input.nuovoStato as StatoCommessa | undefined,
+      nuovoStato,
       haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
       documentiRichiesti: dipendenze.documentiRichiesti,
+      // L'anteprima deve vedere lo stesso gate dell'effetto, computo incluso:
+      // altrimenti dichiara «consentita» un passaggio che il dominio rifiuta.
+      computoValido: await computoValidoPer(dipendenze, commessa, nuovoStato),
     });
     return {
       dati,
@@ -421,6 +478,7 @@ async function materializzaTransizione(
     nuovoStato: percorso[0],
     haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
     documentiRichiesti: dipendenze.documentiRichiesti,
+    computoValido: await computoValidoPer(dipendenze, commessa, percorso[0]),
   });
   if (!anteprima.consentita && !(anteprima.gate.bloccante && input.scavalcaGate)) {
     return {
@@ -428,7 +486,7 @@ async function materializzaTransizione(
       esito: nonEseguito(
         nome,
         anteprima.gate.bloccante
-          ? `Passaggio da «${leggibile(commessa.stato)}» a «${leggibile(percorso[0])}» bloccato dal gate documentale: manca «${etichetteGate(anteprima.gate.richiesti)}». Se l'utente vuole procedere comunque, richiama lo strumento con scavalcaGate: true (resta registrato).`
+          ? `Passaggio da «${leggibile(commessa.stato)}» a «${leggibile(percorso[0])}» bloccato ${descrizioneGate(anteprima)} ${ISTRUZIONE_SCAVALCO}`
           : (anteprima.motivo ?? "La transizione non è consentita nello stato corrente.")
       ),
     };
@@ -451,7 +509,11 @@ function motivoSicuro(errore: unknown): string {
     return "La commessa è cambiata durante il passaggio: fermato qui. Rileggila e riprova.";
   }
   if (testo.includes("DOC_GATE_BLOCKED")) {
-    return "Il gate documentale ha bloccato il passaggio: fermato qui.";
+    // Lo stesso prefisso copre due gate diversi: dire «documentale» quando a
+    // mancare è il computo manderebbe l'utente a cercare un file inesistente.
+    return testo.includes("computo dei limiti")
+      ? "Il computo dei limiti manca o non è aggiornato: fermato qui."
+      : "Il gate documentale ha bloccato il passaggio: fermato qui.";
   }
   if (testo.includes("Transizione non consentita")) {
     return "Lo stato è cambiato e il passaggio richiesto non è più valido: fermato qui.";
@@ -478,7 +540,7 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
   capability: ["commessa.update_operational", "commessa.change_state"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Porta UNA commessa allo stato chiesto (commessa indicata o quella attiva nella conversazione), anche non adiacente: fa i passaggi uno alla volta con la state machine del CRM, ognuno registrato e annullabile. Se un gate documentale blocca, si ferma e dice cosa manca; con scavalcaGate: true — SOLO quando l'utente ha chiesto esplicitamente di arrivare a quello stato o di procedere comunque — scavalca il gate come «Procedi comunque» dal board (registrato). Sinonimi: «finita / lavori finiti» → finiture_saldo; «interventi» → interventi_regolazioni; «chiusa / archiviata» → archiviata.",
+    "Porta UNA commessa allo stato chiesto (commessa indicata o quella attiva nella conversazione), anche non adiacente: fa i passaggi uno alla volta con la state machine del CRM, ognuno registrato e annullabile. Se un gate blocca — documentale (file mancante) o computo dei limiti non aggiornato — si ferma e dice cosa manca; con scavalcaGate: true — SOLO quando l'utente ha chiesto esplicitamente di arrivare a quello stato o di procedere comunque — scavalca il gate come «Procedi comunque» dal board (registrato). Sinonimi: «finita / lavori finiti» → finiture_saldo; «interventi» → interventi_regolazioni; «chiusa / archiviata» → archiviata.",
   schemaInput: schemaTransizione,
   materializzaInput: materializzaTransizione,
   async esegui(contesto, input): Promise<EsitoAzione> {
@@ -536,16 +598,15 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
         nuovoStato: tappa,
         haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
         documentiRichiesti: dipendenze.documentiRichiesti,
+        computoValido: await computoValidoPer(dipendenze, corrente, tappa),
       });
       let bypass = false;
       if (!verifica.consentita) {
         if (verifica.gate.bloccante && input.scavalcaGate) {
           bypass = true;
-          avvertenze.push(
-            `Gate documentale scavalcato su richiesta: mancava «${etichetteGate(verifica.gate.richiesti)}» per lo stato «${leggibile(corrente.stato)}».`
-          );
+          avvertenze.push(avvertenzaScavalco(verifica, corrente.stato));
         } else if (verifica.gate.bloccante) {
-          blocco = `Fermato a «${leggibile(corrente.stato)}»: il passaggio a «${leggibile(tappa)}» è bloccato dal gate documentale, manca «${etichetteGate(verifica.gate.richiesti)}». Se l'utente vuole procedere comunque, richiama lo strumento con scavalcaGate: true (resta registrato).`;
+          blocco = `Fermato a «${leggibile(corrente.stato)}»: il passaggio a «${leggibile(tappa)}» è bloccato ${descrizioneGate(verifica)} ${ISTRUZIONE_SCAVALCO}`;
           break;
         } else {
           blocco = verifica.motivo ?? "La transizione non è consentita nello stato corrente.";

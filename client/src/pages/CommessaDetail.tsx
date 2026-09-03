@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
@@ -72,12 +73,15 @@ import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
 import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TarsFascicoloCard from "@/components/TarsFascicoloCard";
+import ContrattoTab from "@/components/contratto/ContrattoTab";
+import ContrattoStatoBanner from "@/components/contratto/ContrattoStatoBanner";
+import LimitiTab from "@/components/computo/LimitiTab";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
 import StatusRail from "@/components/StatusRail";
-import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
+import { statoLabel, STATI_ORDER, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -144,6 +148,23 @@ export default function CommessaDetail() {
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
   });
+  // Tab controllate: il banner di stato porta l'operatore su Contratto o
+  // Limiti senza fargli cercare la linguetta.
+  const [tab, setTab] = useState("preventivi");
+  const limitiAttivi = Boolean(interruttori.data?.limiti);
+  // L'etichetta della tab dice già se il computo è aggiornato o da rifare —
+  // ma solo da «Aggiornamento contratto» in poi, quando un computo può
+  // esistere. Prima di lì la query pagherebbe contratto + computo + voci a
+  // ogni apertura di commessa per scrivere «Limiti» senza spunta.
+  const statoCommessa = (commessa.data as any)?.stato as string | undefined;
+  const statoUsaLimiti =
+    statoCommessa != null &&
+    STATI_ORDER.indexOf(statoCommessa as never) >=
+      STATI_ORDER.indexOf("aggiornamento_contratto");
+  const computoQ = trpc.computo.ultimo.useQuery(
+    { commessaId },
+    { enabled: limitiAttivi && statoUsaLimiti, retry: false },
+  );
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
   // commesse without a clienteId; in that case we fall back to editing only
@@ -313,6 +334,10 @@ export default function CommessaDetail() {
       });
     },
   });
+  // Il server rifiuta un avanzamento bloccato da un gate (file richiesto o
+  // computo dei limiti) con questo prefisso: come sul board, si apre
+  // «Procedi comunque» invece di lasciare l'errore muto in console.
+  const DOC_GATE_PREFIX = "DOC_GATE_BLOCKED:";
   const updateCommessa = trpc.commesse.update.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
@@ -320,6 +345,17 @@ export default function CommessaDetail() {
       utils.preventiviContratti.statoGate.invalidate(commessaId);
       setEditDialog(false);
       setForceAdvanceTarget(null);
+    },
+    onError: (err, variables) => {
+      const msg = err.message ?? "";
+      if (msg.startsWith(DOC_GATE_PREFIX) && variables?.stato) {
+        setForceAdvanceTarget({
+          stato: variables.stato as string,
+          message: msg.slice(DOC_GATE_PREFIX.length).trim(),
+        });
+      } else {
+        toast.error(msg || "Aggiornamento non riuscito");
+      }
     },
   });
   const updateCliente = trpc.clienti.update.useMutation({
@@ -1122,6 +1158,13 @@ export default function CommessaDetail() {
           );
         })()}
 
+        <ContrattoStatoBanner
+          commessaId={commessaId}
+          stato={c.stato}
+          flagAttivo={limitiAttivi}
+          onApri={setTab}
+        />
+
       </div>
 
       <Commessa360Workspace
@@ -1159,7 +1202,7 @@ export default function CommessaDetail() {
           ) : undefined
         }
         documents={
-          <Tabs defaultValue="preventivi">
+          <Tabs value={tab} onValueChange={setTab}>
         <TabsList
           aria-label="Sezioni della commessa"
           className="h-auto w-full justify-start overflow-x-auto"
@@ -1168,8 +1211,15 @@ export default function CommessaDetail() {
             File e documenti ({documenti.data?.length ?? 0})
           </TabsTrigger>
           <TabsTrigger value="prodotti">
-            Prodotti ({(c.prodotti?.length ?? 0)})
+            {interruttori.data?.limiti
+              ? "Contratto"
+              : `Prodotti (${c.prodotti?.length ?? 0})`}
           </TabsTrigger>
+          {limitiAttivi && (
+            <TabsTrigger value="limiti">
+              {etichettaTabLimiti(computoQ.data)}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="interventi">
             Interventi ({interventi.data?.length ?? 0})
           </TabsTrigger>
@@ -1443,8 +1493,12 @@ export default function CommessaDetail() {
           )}
         </TabsContent>
 
-        {/* Prodotti Tab */}
+        {/* Prodotti Tab — con FLAG_LIMITI diventa il contratto strutturato */}
         <TabsContent value="prodotti" className="space-y-4 mt-4">
+          {interruttori.data?.limiti ? (
+            <ContrattoTab commessaId={commessaId} />
+          ) : (
+          <>
           <div className="flex justify-end">
             <Button
               size="sm"
@@ -1511,7 +1565,16 @@ export default function CommessaDetail() {
               ))}
             </div>
           )}
+          </>
+          )}
         </TabsContent>
+
+        {/* Limiti Tab */}
+        {limitiAttivi && (
+          <TabsContent value="limiti">
+            <LimitiTab commessaId={commessaId} />
+          </TabsContent>
+        )}
 
         {/* Interventi Tab */}
         <TabsContent value="interventi" className="space-y-4 mt-4">
@@ -2085,7 +2148,7 @@ export default function CommessaDetail() {
       <ConfirmDialog
         open={!!forceAdvanceTarget}
         onOpenChange={(open) => !open && setForceAdvanceTarget(null)}
-        title="File richiesto non caricato"
+        title={titoloGateBloccato(forceAdvanceTarget?.message)}
         description={forceAdvanceTarget?.message ?? ""}
         destructive={false}
         confirmLabel="Procedi comunque"
@@ -2575,9 +2638,15 @@ export function tipoPagamentoSuggerito(nGiaRegistrati: number): string {
 function PianoRateSezione({
   commessaId,
   totalePattuito,
+  soloLettura = false,
+  daContratto = false,
 }: {
   commessaId: number;
   totalePattuito: number | null;
+  /** Le rate arrivano da un'altra fonte (FiC o contratto): qui si leggono. */
+  soloLettura?: boolean;
+  /** Quale delle due fonti: cambia solo cosa si dice quando non ce ne sono. */
+  daContratto?: boolean;
 }) {
   const utils = trpc.useUtils();
   const q = trpc.commesse.pattuito.useQuery(commessaId);
@@ -2614,7 +2683,10 @@ function PianoRateSezione({
   });
 
   const rate = q.data?.rate ?? [];
-  const modificabile = q.data?.modificabile ?? false;
+  // Il badge dice la fonte (FiC), `modificabile` decide i comandi: quando a
+  // bloccare è il contratto la fonte non cambia, ma il piano si legge e basta.
+  const rateDaFic = !(q.data?.modificabile ?? false);
+  const modificabile = !rateDaFic && !soloLettura;
   const sommaRate = rate
     .filter((r: any) => r.stato !== "stornata")
     .reduce((s: number, r: any) => s + (r.importo ?? 0), 0);
@@ -2624,14 +2696,24 @@ function PianoRateSezione({
       : null;
 
   if (q.isLoading) return null;
-  if (rate.length === 0 && !modificabile) return null;
+  if (rate.length === 0 && !modificabile) {
+    // Col contratto strutturato «nessuna rata» è un'informazione: sparire
+    // lascerebbe credere che il piano non sia stato ancora guardato. Con FiC
+    // resta il comportamento di prima, e FiC vince sul contratto.
+    if (!daContratto || rateDaFic) return null;
+    return (
+      <p className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
+        Rate dal contratto: nessuna
+      </p>
+    );
+  }
 
   return (
     <div className="rounded-md border border-border">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60 flex-wrap">
         <CalendarClock className="h-4 w-4 text-text-3" />
         <span className="text-sm font-medium">Piano rate</span>
-        {!modificabile && (
+        {rateDaFic && (
           <Badge variant="outline" className="h-4 px-1 text-[10px]">
             da FiC
           </Badge>
@@ -2786,6 +2868,18 @@ function PagamentiCard({
   const pattuitoQ = trpc.commesse.pattuito.useQuery(commessaId);
   const pattuitoDaFic = pattuitoQ.data?.fonte === "fic";
   const motivoBlocco = pattuitoQ.data?.motivoBlocco ?? null;
+  // Col contratto strutturato il pattuito e le rate nascono lì: qui si
+  // leggono, non si riscrivono — altrimenti la stessa cifra avrebbe due
+  // padroni. FiC resta la fonte più forte e vince sul contratto.
+  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const contrattoQ = trpc.contratti.get.useQuery(
+    { commessaId },
+    { enabled: Boolean(interruttoriQ.data?.limiti), retry: false },
+  );
+  const contratto = pattuitoDaFic ? null : (contrattoQ.data?.contratto ?? null);
+  const daContratto = contratto != null;
   // Capability effettive (ruoli + override individuali): decidono se offrire
   // i comandi di registrazione. Il registro stesso segue il payload: se il
   // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
@@ -2865,14 +2959,24 @@ function PagamentiCard({
                   da FiC
                 </Badge>
               )}
+              {contratto && (
+                <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                  da contratto · {contratto.pattuitoTipo}
+                </Badge>
+              )}
             </div>
             {/* Il pattuito di una commessa fatturata è FiC: mostrarlo come
                 campo editabile prometterebbe una modifica che il server
-                rifiuta. Qui diventa una cifra con la sua fonte. */}
-            {pattuitoDaFic ? (
+                rifiuta. Qui diventa una cifra con la sua fonte. Il blocco
+                «da contratto» invece per ora è solo di questa UI: la
+                riaffermazione lato server arriva col piano 2. */}
+            {pattuitoDaFic || daContratto ? (
               <p
                 className="h-9 w-32 flex items-center text-sm font-semibold tabular-nums"
-                title={motivoBlocco ?? undefined}
+                title={
+                  motivoBlocco ??
+                  (daContratto ? "Il pattuito arriva dalla tab Contratto." : undefined)
+                }
               >
                 {totale != null ? `€ ${fmt(totale)}` : "—"}
               </p>
@@ -2921,7 +3025,12 @@ function PagamentiCard({
         </div>
 
         {/* Scadenze concordate — distinte dagli incassi qui sotto */}
-        <PianoRateSezione commessaId={commessaId} totalePattuito={totale} />
+        <PianoRateSezione
+          commessaId={commessaId}
+          totalePattuito={totale}
+          soloLettura={pattuitoDaFic || daContratto}
+          daContratto={daContratto}
+        />
 
         {/* Acconti registrati */}
         {ordered.length > 0 && (

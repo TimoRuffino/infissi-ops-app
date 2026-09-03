@@ -1,0 +1,5868 @@
+{
+ "versione": "2026-09-04",
+ "fonte": "CALCOLO NUOVI LIMITI.xlsx",
+ "validoDal": "2022-04-15",
+ "massimali": [
+  {
+   "gruppo": "A",
+   "zona": "A",
+   "euroMq": 660.0
+  },
+  {
+   "gruppo": "A",
+   "zona": "B",
+   "euroMq": 660.0
+  },
+  {
+   "gruppo": "A",
+   "zona": "C",
+   "euroMq": 660.0
+  },
+  {
+   "gruppo": "A",
+   "zona": "D",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "A",
+   "zona": "E",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "A",
+   "zona": "F",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "A",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "B",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "C",
+   "euroMq": 780.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "D",
+   "euroMq": 900.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "E",
+   "euroMq": 900.0
+  },
+  {
+   "gruppo": "B",
+   "zona": "F",
+   "euroMq": 900.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "A",
+   "euroMq": 276.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "B",
+   "euroMq": 276.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "C",
+   "euroMq": 276.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "D",
+   "euroMq": 276.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "E",
+   "euroMq": 276.0
+  },
+  {
+   "gruppo": "C",
+   "zona": "F",
+   "euroMq": 276.0
+  }
+ ],
+ "prodotti": [
+  {
+   "codice": "C25077-a",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC finestra, a telaio fisso",
+   "prezzo": 433.55,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-b",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC finestra a 1 anta, a battente",
+   "prezzo": 601.07,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-c",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC finestra a 2 ante, a battente",
+   "prezzo": 589.57,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-d",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC portafinestra 1 anta, a battente",
+   "prezzo": 595.16,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-e",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC portafinestra 2 ante, a battente",
+   "prezzo": 680.41,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-f",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC finestra scorrevole complanare",
+   "prezzo": 827.77,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25077-g",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC portafinestra scorrevole complanare",
+   "prezzo": 774.91,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25080",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC scorrevole alzante",
+   "prezzo": 936.36,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25076-f",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC finestra scorrevole complanare > 1,3 W/mqK",
+   "prezzo": 732.92,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25076-g",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC portafinestra scorrevole complanare > 1,3 W/mqK",
+   "prezzo": 648.49,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25079",
+   "gruppo": "serramento",
+   "famiglia": "pvc",
+   "nome": "PVC scorrevole alzante > 1,3 W/mqK",
+   "prezzo": 844.68,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15038-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra, a telaio fisso - Zone Climatiche A-B",
+   "prezzo": 290.07,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15038-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 1 anta, a battente - Zone Climatiche A-B",
+   "prezzo": 541.18,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15038-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 2 ante, a battente - Zone Climatiche A-B",
+   "prezzo": 514.85,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15038-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 1 anta, a battente - Zone Climatiche A-B",
+   "prezzo": 454.99,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15038-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 2 ante, a battente - Zone Climatiche A-B",
+   "prezzo": 444.72,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15042-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche A-B",
+   "prezzo": 759.7,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15042-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche A-B",
+   "prezzo": 758.02,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15042-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zona Climatiche A-B",
+   "prezzo": 826.29,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15039-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra, a telaio fisso - Zone Climatiche C-D",
+   "prezzo": 318.67,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15039-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 1 anta, a battente Zone Climatiche C-D",
+   "prezzo": 615.96,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15039-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 2 ante, a battente Zone Climatiche C-D",
+   "prezzo": 586.43,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15039-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 1 anta, a battente Zone Climatiche C-D",
+   "prezzo": 517.54,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15039-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 2 ante, a battente Zone Climatiche C-D",
+   "prezzo": 505.86,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15043-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche C-D",
+   "prezzo": 804.75,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15043-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche C-D",
+   "prezzo": 803.08,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15043-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche C-D",
+   "prezzo": 875.42,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15040-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra, a telaio fisso Zone Climatiche E",
+   "prezzo": 400.35,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15040-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 1 anta, a battente Zone Climatiche E",
+   "prezzo": 765.57,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15040-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 2 ante, a battente Zone Climatiche E",
+   "prezzo": 729.6,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15040-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 1 anta, a battente Zone Climatiche E",
+   "prezzo": 642.68,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15040-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 2 ante, a battente Zone Climatiche E",
+   "prezzo": 628.15,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15044-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 884.34,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15044-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 882.66,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15044-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche E",
+   "prezzo": 962.23,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15041-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra, a telaio fisso Zone Climatiche F",
+   "prezzo": 463.69,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15041-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 1 anta, a battente Zone Climatiche F",
+   "prezzo": 835.18,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15041-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra a 2 ante, a battente Zone Climatiche F",
+   "prezzo": 799.2,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15041-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 1 anta, a battente Zone Climatiche F",
+   "prezzo": 712.29,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15041-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra 2 ante, a battente Zone Climatiche F",
+   "prezzo": 697.76,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15045-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 936.22,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15045-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 934.52,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C15045-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio",
+   "nome": "ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche F",
+   "prezzo": 1014.11,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-a",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 55 x 98 cm",
+   "prezzo": 646.53,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-b",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 66 x 118 cm",
+   "prezzo": 719.88,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-c",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 78 x 98 cm",
+   "prezzo": 714.74,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-d",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 78 x 140 cm",
+   "prezzo": 795.82,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-e",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 94 x 98 cm",
+   "prezzo": 779.09,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-f",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 114 x 70 cm",
+   "prezzo": 874.32,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-g",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 114 x 118 cm",
+   "prezzo": 892.34,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25115-h",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX manuale 134 x 140 cm",
+   "prezzo": 1031.34,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-a",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 55 x 98 cm",
+   "prezzo": 906.24,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-b",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 66 x 118 cm",
+   "prezzo": 965.96,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-c",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 78 x 98 cm",
+   "prezzo": 960.81,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-d",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 78 x 140 cm",
+   "prezzo": 1023.62,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-e",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 94 x 98 cm",
+   "prezzo": 1011.26,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-f",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 114 x 70 cm",
+   "prezzo": 1086.42,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-g",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 114 x 118 cm",
+   "prezzo": 1101.87,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25127-h",
+   "gruppo": "serramento",
+   "famiglia": "velux",
+   "nome": "VELUX motorizzata 134 x 140 cm",
+   "prezzo": 1213.06,
+   "unita": "mq",
+   "foglio": "A",
+   "zone": null,
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": 1
+  },
+  {
+   "codice": "C25095-a",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 100 × 40 cm (0,40 mq)",
+   "prezzo": 215.39,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0,
+   "mqPezzoMax": 0.51
+  },
+  {
+   "codice": "C25095-b",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 150 × 40 cm (0,60 m2)",
+   "prezzo": 261.13,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.51,
+   "mqPezzoMax": 0.71
+  },
+  {
+   "codice": "C25095-c",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 200 × 40 cm (0,80 m2)",
+   "prezzo": 318.89,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.71,
+   "mqPezzoMax": 0.91
+  },
+  {
+   "codice": "C25095-d",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 250 × 40 cm (1 m2)",
+   "prezzo": 375.91,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.91,
+   "mqPezzoMax": 1.11
+  },
+  {
+   "codice": "C25095-e",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 300 × 40 cm (1,2 m2)",
+   "prezzo": 431.2,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 1.11,
+   "mqPezzoMax": null
+  },
+  {
+   "codice": "C25096-a",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 100 × 40 cm (0,40 mq)",
+   "prezzo": 347.6,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0,
+   "mqPezzoMax": 0.51
+  },
+  {
+   "codice": "C25096-b",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 150 × 40 cm (0,60 m2)",
+   "prezzo": 421.16,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.51,
+   "mqPezzoMax": 0.71
+  },
+  {
+   "codice": "C25096-c",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 200 × 40 cm (0,80 m2)",
+   "prezzo": 500.7,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.71,
+   "mqPezzoMax": 0.91
+  },
+  {
+   "codice": "C25096-d",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 250 × 40 cm (1 m2)",
+   "prezzo": 582.43,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0.91,
+   "mqPezzoMax": 1.11
+  },
+  {
+   "codice": "C25096-e",
+   "gruppo": "cassonetto",
+   "famiglia": "pvc_fino_110",
+   "nome": "Cassonetto in pvc colore bianco in massa 300 × 40 cm (1,2 m2)",
+   "prezzo": 666.61,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 1.11,
+   "mqPezzoMax": null
+  },
+  {
+   "codice": "C25098-a",
+   "gruppo": "cassonetto",
+   "famiglia": "coibentazione",
+   "nome": "Coibentazione di cassonetti - con smontaggio e rimontaggio",
+   "prezzo": 30.34,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25098-b",
+   "gruppo": "cassonetto",
+   "famiglia": "coibentazione",
+   "nome": "Coibentazione di cassonetti - senza smontaggio",
+   "prezzo": 23.59,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C15080-a",
+   "gruppo": "cassonetto",
+   "famiglia": "monoblocco",
+   "nome": "Cassonetto monoblocco isolante fino a 1 mq",
+   "prezzo": 547.32,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 0,
+   "mqPezzoMax": 1.0
+  },
+  {
+   "codice": "C15080-b",
+   "gruppo": "cassonetto",
+   "famiglia": "monoblocco",
+   "nome": "Cassonetto monoblocco isolante da 1,10 a 1,70 mq",
+   "prezzo": 518.87,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 1.1,
+   "mqPezzoMax": 1.7
+  },
+  {
+   "codice": "C15080-c",
+   "gruppo": "cassonetto",
+   "famiglia": "monoblocco",
+   "nome": "Cassonetto monoblocco isolante da 1,80 a 2,55 mq",
+   "prezzo": 474.26,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 1.8,
+   "mqPezzoMax": 2.55
+  },
+  {
+   "codice": "C15080-d",
+   "gruppo": "cassonetto",
+   "famiglia": "monoblocco",
+   "nome": "Cassonetto monoblocco isolante da 2,65 a 4,50 mq",
+   "prezzo": 442.07,
+   "unita": "cad",
+   "foglio": "A",
+   "mqPezzoMin": 2.65,
+   "mqPezzoMax": 4.5
+  },
+  {
+   "codice": "C25050-a",
+   "gruppo": "porta_blindata",
+   "famiglia": "blindata",
+   "nome": "Un'anta, posa meccanica",
+   "prezzo": 1420.27,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25050-b",
+   "gruppo": "porta_blindata",
+   "famiglia": "blindata",
+   "nome": "Un'anta, posa muraria",
+   "prezzo": 1683.83,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25051-a",
+   "gruppo": "porta_blindata",
+   "famiglia": "blindata",
+   "nome": "Due ante, posa meccanica",
+   "prezzo": 2449.87,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25051-b",
+   "gruppo": "porta_blindata",
+   "famiglia": "blindata",
+   "nome": "Due ante, posa muraria",
+   "prezzo": 2713.43,
+   "unita": "cad",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25087-a",
+   "gruppo": "portoncino",
+   "famiglia": "pvc",
+   "nome": "Un'anta, a battente",
+   "prezzo": 765.22,
+   "unita": "mq",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25087-b",
+   "gruppo": "portoncino",
+   "famiglia": "pvc",
+   "nome": "Due ante, a battente",
+   "prezzo": 836.19,
+   "unita": "mq",
+   "foglio": "A"
+  },
+  {
+   "codice": "C25089-a",
+   "gruppo": "avvolgibile",
+   "famiglia": "pvc",
+   "nome": "PVC - Standard",
+   "prezzo": 111.11,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25089-b",
+   "gruppo": "avvolgibile",
+   "famiglia": "pvc",
+   "nome": "PVC - Antigrandine",
+   "prezzo": 127.71,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25089-c",
+   "gruppo": "avvolgibile",
+   "famiglia": "pvc",
+   "nome": "PVC - Rinforzato con anima metallica",
+   "prezzo": 133.81,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C15084-b",
+   "gruppo": "avvolgibile",
+   "famiglia": "alluminio",
+   "nome": "Alluminio coibentato - stecche da 55 mm",
+   "prezzo": 117.64,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C15084-a",
+   "gruppo": "avvolgibile",
+   "famiglia": "alluminio",
+   "nome": "Alluminio coibentato - stecche da 45 mm",
+   "prezzo": 122.66,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C15085-a",
+   "gruppo": "avvolgibile",
+   "famiglia": "acciaio",
+   "nome": "Acciaio coibentato - stecche da 40 mm",
+   "prezzo": 109.79,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C15085-b",
+   "gruppo": "avvolgibile",
+   "famiglia": "acciaio",
+   "nome": "Acciaio coibentato - stecche da 55 mm",
+   "prezzo": 105.52,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C15086",
+   "gruppo": "avvolgibile",
+   "famiglia": "alluminio_pvc",
+   "nome": "Alluminio PVC coibentate",
+   "prezzo": 123.49,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-a",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 55 X 98 cm",
+   "prezzo": 461.92,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-b",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 66 X 118 cm",
+   "prezzo": 492.81,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-c",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 78 X 98 cm",
+   "prezzo": 483.8,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-d",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 78 X 140 cm",
+   "prezzo": 522.41,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-e",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 94 X 98 cm",
+   "prezzo": 518.55,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-f",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 114 X 70 cm",
+   "prezzo": 536.57,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-g",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 114 X 118 cm",
+   "prezzo": 571.32,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25120-h",
+   "gruppo": "avvolgibile",
+   "famiglia": "velux",
+   "nome": "Tapp. VELUX - 134 X 140 cm",
+   "prezzo": 638.24,
+   "unita": "mq",
+   "foglio": "B",
+   "minimoMq": 1.8
+  },
+  {
+   "codice": "C25081-a",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - doghe verticali, sp. 36 mm - per finestra a 1 anta",
+   "prezzo": 452.4,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25081-b",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - doghe verticali, sp. 36 mm - per finestra a 2 ante",
+   "prezzo": 468.23,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25081-c",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - doghe verticali, sp. 36 mm - per portafinestra a 1 anta",
+   "prezzo": 441.06,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25081-d",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - doghe verticali, sp. 36 mm - per portafinestra a 2 ante",
+   "prezzo": 439.36,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25083-a",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche orientabili, sp. 50 mm - per finestra a 1 anta",
+   "prezzo": 503.92,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25083-b",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche orientabili, sp. 50 mm - per finestra a 2 ante",
+   "prezzo": 584.46,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25083-c",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche orientabili, sp. 50 mm - per portafinestra a 1 anta, con traversino orizzontale",
+   "prezzo": 458.55,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25083-d",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche orientabili, sp. 50 mm - per portafinestra a 2 ante, con traversino orizzontale",
+   "prezzo": 486.89,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25082-a",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche fisse aperte, sp. 50 mm - per finestra a 1 anta",
+   "prezzo": 441.18,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25082-b",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche fisse aperte, sp. 50 mm - per finestra a 2 ante",
+   "prezzo": 514.33,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25082-c",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche fisse aperte, sp. 50 mm - per portafinestra a 1 anta, con traversino orizzontale",
+   "prezzo": 424.14,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25082-d",
+   "gruppo": "persiana",
+   "famiglia": "pvc",
+   "nome": "Persiane PVC - stecche fisse aperte, sp. 50 mm - per portafinestra a 2 ante, con traversino orizzontale",
+   "prezzo": 456.85,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25063-a",
+   "gruppo": "persiana",
+   "famiglia": "legno",
+   "nome": "Persiane in LEGNO - portafinestra 1 o 2 ante",
+   "prezzo": 510.86,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25063-b",
+   "gruppo": "persiana",
+   "famiglia": "legno",
+   "nome": "Persiane in LEGNO - finestra 1 o 2 ante",
+   "prezzo": 458.73,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15078-a",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta",
+   "prezzo": 575.99,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15078-b",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 2 ante",
+   "prezzo": 507.86,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15078-c",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - lamelle orientabili -per portafinestra 1 anta",
+   "prezzo": 472.01,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15078-d",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - lamelle orientabili -per portafinestra 2 ante",
+   "prezzo": 449.76,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15079-a",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - senza lamelle orientabili - per finestra 1 anta",
+   "prezzo": 525.58,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15079-b",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - senza lamelle orientabili - per finestra 2 ante",
+   "prezzo": 499.49,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15079-c",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - senza lamelle orientabili -per portafinestra 1 anta",
+   "prezzo": 442.0,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C15079-d",
+   "gruppo": "persiana",
+   "famiglia": "alluminio",
+   "nome": "Persiane in ALLUMINIO - senza lamelle orientabili -per portafinestra 2 ante",
+   "prezzo": 417.16,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25068-b",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In abete o pino massello con doghe verticali all'esterno - per finestra a 1 o 2 ante",
+   "prezzo": 421.77,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25068-d",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In abete o pino massello con doghe verticali all'esterno - per portafinestra a 1 o 2 ante",
+   "prezzo": 398.73,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25069-b",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - Dogato, in abete o pino massello - per finestra a 1 o 2 ante",
+   "prezzo": 476.76,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25069-d",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - Dogato, in abete o pino massello - per portafinestra a 1 o 2 ante",
+   "prezzo": 458.73,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25070-b",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In abete o pino massello con fodrine a bugne in multistrato marino - per finestra a 1 o 2 ante",
+   "prezzo": 696.76,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25070-d",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In abete o pino massello con fodrine a bugne in multistrato marino - per portafinestra a 1 o 2 ante",
+   "prezzo": 722.73,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25071-b",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In multistrato marino 40mm, liscio o pantografato - per finestra a 1 o 2 ante",
+   "prezzo": 476.76,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25071-d",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - In multistrato marino 40mm, liscio o pantografato - per portafinestra a 1 o 2 ante",
+   "prezzo": 458.73,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25072-b",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - A pannelli tipo \"alla vicentina\" in legno massello 19mm - per finestra a 1 o 2 ante",
+   "prezzo": 575.76,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C25072-d",
+   "gruppo": "scuro",
+   "famiglia": "legno",
+   "nome": "LEGNO - A pannelli tipo \"alla vicentina\" in legno massello 19mm - per portafinestra a 1 o 2 ante",
+   "prezzo": 614.72,
+   "unita": "mq",
+   "foglio": "B"
+  },
+  {
+   "codice": "C55001-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 3 m a 4 m",
+   "prezzo": 648.65,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "[<4]"
+  },
+  {
+   "codice": "C55001-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 4 m a 5 m",
+   "prezzo": 590.35,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(4-5]"
+  },
+  {
+   "codice": "C55001-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 5 m a 8 m",
+   "prezzo": 621.36,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(5-8]"
+  },
+  {
+   "codice": "C55001-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 8 m a 10 m",
+   "prezzo": 588.93,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(>8)"
+  },
+  {
+   "codice": "C55002-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 3 m a 4 m",
+   "prezzo": 584.94,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4)",
+   "intervalloH": "[<4]"
+  },
+  {
+   "codice": "C55002-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 4 m a 5 m",
+   "prezzo": 543.24,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4)",
+   "intervalloH": "(4-5]"
+  },
+  {
+   "codice": "C55002-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 5 m a 8 m",
+   "prezzo": 587.64,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4)",
+   "intervalloH": "(5-8]"
+  },
+  {
+   "codice": "C55002-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 8 m a 10 m",
+   "prezzo": 566.8,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4)",
+   "intervalloH": "(>8)"
+  },
+  {
+   "codice": "C55003-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 1.5 m a 2 m",
+   "prezzo": 1103.6,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<3]",
+   "intervalloH": "[<2]"
+  },
+  {
+   "codice": "C55003-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 2 m a 2.5 m",
+   "prezzo": 984.17,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<3]",
+   "intervalloH": "(2-2,5]"
+  },
+  {
+   "codice": "C55003-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 2.5 m a 3.5 m",
+   "prezzo": 896.4,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<3]",
+   "intervalloH": "(2,5-3]"
+  },
+  {
+   "codice": "C55003-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 3.5 m a 4 m",
+   "prezzo": 905.28,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<3]",
+   "intervalloH": "(>3]"
+  },
+  {
+   "codice": "C55004-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 1.5 m a 2 m",
+   "prezzo": 993.82,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(3-3,5]",
+   "intervalloH": "[<2]"
+  },
+  {
+   "codice": "C55004-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 2 m a 2.5 m",
+   "prezzo": 889.7,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(3-3,5]",
+   "intervalloH": "(2-2,5]"
+  },
+  {
+   "codice": "C55004-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 2.5 m a 3.5 m",
+   "prezzo": 827.67,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(3-3,5]",
+   "intervalloH": "(2,5-3]"
+  },
+  {
+   "codice": "C55004-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 3.5 m a 4 m",
+   "prezzo": 840.28,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(3-3,5]",
+   "intervalloH": "(>3]"
+  },
+  {
+   "codice": "C55005-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 1.5 m a 2 m",
+   "prezzo": 918.02,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>3,5)",
+   "intervalloH": "[<2]"
+  },
+  {
+   "codice": "C55005-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 2 m a 2.5 m",
+   "prezzo": 831.27,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>3,5)",
+   "intervalloH": "(2-2,5]"
+  },
+  {
+   "codice": "C55005-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 2.5 m a 3 m",
+   "prezzo": 844.14,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>3,5)",
+   "intervalloH": "(>2,5)"
+  },
+  {
+   "codice": "C55006-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 2 m a 3 m",
+   "prezzo": 831.92,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4,5]",
+   "intervalloH": "[<3]"
+  },
+  {
+   "codice": "C55006-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 3 m a 4 m",
+   "prezzo": 742.86,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4,5]",
+   "intervalloH": "(3-4]"
+  },
+  {
+   "codice": "C55006-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 4 m a 5 m",
+   "prezzo": 766.41,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4,5]",
+   "intervalloH": "(4-5]"
+  },
+  {
+   "codice": "C55006-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 5 m a 6 m",
+   "prezzo": 735.14,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4,5]",
+   "intervalloH": "(>5)"
+  },
+  {
+   "codice": "C55007-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 2 m a 3 m",
+   "prezzo": 778.76,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4,5]",
+   "intervalloH": "[<3]"
+  },
+  {
+   "codice": "C55007-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 3 m a 4 m",
+   "prezzo": 692.79,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4,5]",
+   "intervalloH": "(3-4]"
+  },
+  {
+   "codice": "C55007-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 4 m a 5 m",
+   "prezzo": 719.69,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4,5]",
+   "intervalloH": "(4-5]"
+  },
+  {
+   "codice": "C55007-d",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 5 m a 6 m",
+   "prezzo": 691.38,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>4,5]",
+   "intervalloH": "(>5)"
+  },
+  {
+   "codice": "C55011",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m",
+   "prezzo": 281.85,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[2,5-6]",
+   "intervalloH": "[2,5-3,5]"
+  },
+  {
+   "codice": "C55012-a",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a guide laterali e telo scorrevole - profondità 2 m",
+   "prezzo": 436.94,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<2]",
+   "intervalloH": null
+  },
+  {
+   "codice": "C55012-b",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 2,5 m",
+   "prezzo": 496.14,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(2,0-2,5]",
+   "intervalloH": null
+  },
+  {
+   "codice": "C55012-c",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 3 m",
+   "prezzo": 607.14,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(2,5-3]",
+   "intervalloH": null
+  },
+  {
+   "codice": "C55012-d",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 3,5 m",
+   "prezzo": 665.06,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(3-3,5]",
+   "intervalloH": null
+  },
+  {
+   "codice": "C55012-e",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 4 m",
+   "prezzo": 742.28,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>3,5)",
+   "intervalloH": null
+  },
+  {
+   "codice": "C55013-a",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a cappotina con richiamo a fune - larghezza fino a 2 m",
+   "prezzo": 338.96,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<2]",
+   "intervalloH": "[<2]"
+  },
+  {
+   "codice": "C55013-b",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a cappotina con richiamo a fune - larghezza da 2 m a 3 m",
+   "prezzo": 298.58,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(2-3]",
+   "intervalloH": "[0,8-2]"
+  },
+  {
+   "codice": "C55013-c",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a cappotina con richiamo a fune - larguezza oltre 4 m",
+   "prezzo": 310.49,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(>3]",
+   "intervalloH": "[0,8-2]"
+  },
+  {
+   "codice": "C55014-a",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a guide laterali e telo scorrevole - profondità 2 m",
+   "prezzo": 268.98,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "[<2]"
+  },
+  {
+   "codice": "C55014-b",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a guide laterali e telo scorrevole - profondità 3 m",
+   "prezzo": 284.75,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(2-3]"
+  },
+  {
+   "codice": "C55014-c",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a guide laterali e telo scorrevole - profondità 4 m",
+   "prezzo": 306.95,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(>3)"
+  },
+  {
+   "codice": "C55015-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 80 x 120 cm",
+   "prezzo": 90.71,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55015-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 80 x 160 cm",
+   "prezzo": 95.74,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55015-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 80 x 200 cm",
+   "prezzo": 101.17,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55015-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 80 x 220 cm",
+   "prezzo": 103.5,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55016-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 80 x 120 cm",
+   "prezzo": 97.3,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55016-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 80 x 160 cm",
+   "prezzo": 104.66,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55016-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 80 x 200 cm",
+   "prezzo": 112.02,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55016-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 80 x 220 cm",
+   "prezzo": 115.52,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55023-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 80 x 120 cm",
+   "prezzo": 78.29,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55023-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 80 x 160 cm",
+   "prezzo": 81.79,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55023-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 80 x 200 cm",
+   "prezzo": 85.28,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55023-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 80 x 220 cm",
+   "prezzo": 87.21,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55024-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 80 x 120 cm",
+   "prezzo": 80.62,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55024-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 80 x 160 cm",
+   "prezzo": 84.5,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55024-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 80 x 200 cm",
+   "prezzo": 88.76,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55024-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 80 x 220 cm",
+   "prezzo": 91.09,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55031-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 80 x 120 cm",
+   "prezzo": 81.39,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55031-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 80 x 160 cm",
+   "prezzo": 88.76,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55031-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 80 x 200 cm",
+   "prezzo": 96.91,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55031-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 80 x 220 cm",
+   "prezzo": 101.17,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55035-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 80 x 120 cm",
+   "prezzo": 84.12,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55035-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 80 x 160 cm",
+   "prezzo": 88.38,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55035-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 80 x 200 cm",
+   "prezzo": 96.52,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55035-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 80 x 220 cm",
+   "prezzo": 108.55,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "<100",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55017-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 120 x 120 cm",
+   "prezzo": 101.56,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55017-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 120 x 160 cm",
+   "prezzo": 108.92,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55017-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 120 x 200 cm",
+   "prezzo": 116.68,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55017-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 120 x 220 cm",
+   "prezzo": 120.57,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55018-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 120 x 120 cm",
+   "prezzo": 111.25,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55018-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 120 x 160 cm",
+   "prezzo": 122.11,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55018-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 120 x 200 cm",
+   "prezzo": 132.96,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55018-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 120 x 220 cm",
+   "prezzo": 138.39,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55025-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 120 x 120 cm",
+   "prezzo": 86.82,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55025-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 120 x 160 cm",
+   "prezzo": 91.87,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55025-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 120 x 200 cm",
+   "prezzo": 96.91,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55025-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 120 x 220 cm",
+   "prezzo": 100.0,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55026-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 120 x 120 cm",
+   "prezzo": 89.94,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55026-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 120 x 160 cm",
+   "prezzo": 96.13,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55026-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 120 x 200 cm",
+   "prezzo": 101.04,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55026-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 120 x 220 cm",
+   "prezzo": 105.83,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55032-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 120 x 120 cm",
+   "prezzo": 89.15,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55032-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 120 x 160 cm",
+   "prezzo": 98.84,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55032-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 120 x 200 cm",
+   "prezzo": 108.92,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55032-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 120 x 220 cm",
+   "prezzo": 113.96,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55036-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 120 x 120 cm",
+   "prezzo": 92.25,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55036-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 120 x 160 cm",
+   "prezzo": 100.0,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55036-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 120 x 200 cm",
+   "prezzo": 108.15,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55036-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 120 x 220 cm",
+   "prezzo": 111.65,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(100-140]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55019-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 160 x 120 cm",
+   "prezzo": 112.02,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55019-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 160 x 160 cm",
+   "prezzo": 122.11,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55019-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 160 x 200 cm",
+   "prezzo": 132.19,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55019-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 160 x 220 cm",
+   "prezzo": 137.62,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55020-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 160 x 120 cm",
+   "prezzo": 125.21,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55020-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 160 x 160 cm",
+   "prezzo": 139.55,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55020-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 160 x 200 cm",
+   "prezzo": 154.3,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55020-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 160 x 220 cm",
+   "prezzo": 161.26,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55027-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 160 x 120 cm",
+   "prezzo": 95.35,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55027-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 160 x 160 cm",
+   "prezzo": 101.96,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55027-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 160 x 200 cm",
+   "prezzo": 108.92,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55027-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 160 x 220 cm",
+   "prezzo": 112.42,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55028-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 160 x 120 cm",
+   "prezzo": 99.63,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55028-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 160 x 160 cm",
+   "prezzo": 107.76,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55028-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 160 x 200 cm",
+   "prezzo": 115.52,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55028-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 160 x 220 cm",
+   "prezzo": 120.17,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55033-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 160 x 120 cm",
+   "prezzo": 102.33,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55033-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 160 x 120 cm",
+   "prezzo": 115.14,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55033-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 160 x 200 cm",
+   "prezzo": 127.54,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55033-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 160 x 220 cm",
+   "prezzo": 134.13,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55037-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 160 x 120 cm",
+   "prezzo": 100.4,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55037-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 160 x 160 cm",
+   "prezzo": 110.09,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55037-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 160 x 200 cm",
+   "prezzo": 120.17,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55037-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 160 x 220 cm",
+   "prezzo": 124.44,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(140-180]",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55021-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 200 x 120 cm",
+   "prezzo": 138.39,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55021-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 200 x 160 cm",
+   "prezzo": 151.2,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55021-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 163.59,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55021-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - bianche o colorate - 200 x 220 cm",
+   "prezzo": 169.81,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55022-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 200 x 120 cm",
+   "prezzo": 154.62,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55022-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 200 x 160 cm",
+   "prezzo": 172.91,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55022-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 200 x 200 cm",
+   "prezzo": 190.75,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55022-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 15mm - metalizzate o perlate - 200 x 220 cm",
+   "prezzo": 200.04,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55029-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 200 x 120 cm",
+   "prezzo": 119.4,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55029-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 200 x 160 cm",
+   "prezzo": 127.54,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55029-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 136.06,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55029-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - bianche o colorate - 200 x 220 cm",
+   "prezzo": 140.72,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55030-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 200 x 200 cm",
+   "prezzo": 124.44,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55030-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 200 x 160 cm",
+   "prezzo": 134.52,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55030-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 200 x 200 cm",
+   "prezzo": 144.59,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55030-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 25mm - metalizzate o perlate - 200 x 220 cm",
+   "prezzo": 150.03,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55034-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 115.52,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55034-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 200 x 160 cm",
+   "prezzo": 131.42,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55034-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 146.54,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C55034-d",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 35mm - bianche o colorate - 200 x 220 cm",
+   "prezzo": 155.07,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": ">210"
+  },
+  {
+   "codice": "C55038-a",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 113.58,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "<=140"
+  },
+  {
+   "codice": "C55038-b",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 200 x 160 cm",
+   "prezzo": 125.99,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(140-180]"
+  },
+  {
+   "codice": "C55038-c",
+   "gruppo": "schermatura",
+   "famiglia": "veneziana",
+   "nome": "Tenda alla veneziana spesore 50mm - bianche o colorate - 200 x 200 cm",
+   "prezzo": 138.39,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": ">180",
+   "intervalloH": "(180-210]"
+  },
+  {
+   "codice": "C15156-a",
+   "gruppo": "schermatura",
+   "famiglia": "zanzariera",
+   "nome": "Avvolgibile a rullo verticale",
+   "prezzo": 118.84,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": null,
+   "intervalloH": null
+  },
+  {
+   "codice": "C15156-b",
+   "gruppo": "schermatura",
+   "famiglia": "zanzariera",
+   "nome": "Scorrevole laterale a singolo pannello",
+   "prezzo": 166.33,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": null,
+   "intervalloH": null
+  },
+  {
+   "codice": "C15156-c",
+   "gruppo": "schermatura",
+   "famiglia": "zanzariera",
+   "nome": "Scorrevole laterale a più pannelli",
+   "prezzo": 166.33,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": null,
+   "intervalloH": null
+  },
+  {
+   "codice": "C15157-b",
+   "gruppo": "schermatura",
+   "famiglia": "zanzariera",
+   "nome": "Plisettata - scorrevole laterale a singolo pannello",
+   "prezzo": 207.91,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": null,
+   "intervalloH": null
+  },
+  {
+   "codice": "C15157-c",
+   "gruppo": "schermatura",
+   "famiglia": "zanzariera",
+   "nome": "Plisettata - scorrevole laterale a più pannelli",
+   "prezzo": 207.91,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": null,
+   "intervalloH": null
+  },
+  {
+   "codice": "C25053-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra, a telaio fisso - Zone Climatiche D",
+   "prezzo": 566.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25053-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 1 anta, a battente - Zone Climatiche D",
+   "prezzo": 830.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25053-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 2 ante, a battente - Zone Climatiche D",
+   "prezzo": 752.0,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25053-d",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra 1 o 2 ante, a battente - Zone Climatiche D",
+   "prezzo": 751.2,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25054-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra, a telaio fisso - Zone Climatiche E",
+   "prezzo": 621.09,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25054-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 1 anta, a battente - Zone Climatiche E",
+   "prezzo": 885.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25054-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 807.01,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25054-d",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra 1 o 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 806.2,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25055-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra, a telaio fisso - Zone Climatiche F",
+   "prezzo": 659.58,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25055-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 1 anta, a battente - Zone Climatiche F",
+   "prezzo": 929.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25055-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra a 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 845.5,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25055-d",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra 1 o 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 844.7,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25057-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche D",
+   "prezzo": 1156.22,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25057-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole complanare a 2 ante - Zone Climatiche D",
+   "prezzo": 985.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25057-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche D",
+   "prezzo": 1150.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25058-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 1233.22,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25058-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 1062.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25058-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche E",
+   "prezzo": 1227.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25059-a",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 1288.22,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25059-b",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 1117.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25059-c",
+   "gruppo": "serramento",
+   "famiglia": "legno",
+   "nome": "LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche F",
+   "prezzo": 1282.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25102-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra, a telaio fisso - Zone Climatiche D",
+   "prezzo": 686.58,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25102-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 1 anta, a battente - Zone Climatiche D",
+   "prezzo": 1030.59,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25102-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 2 ante, a battente - Zone Climatiche D",
+   "prezzo": 952.58,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25102-d",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra 1 o 2 ante, a battente - Zone Climatiche D",
+   "prezzo": 951.83,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25103-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra, a telaio fisso - Zone Climatiche E",
+   "prezzo": 821.59,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25103-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 1 anta, a battente - Zone Climatiche E",
+   "prezzo": 1085.59,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25103-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 1007.59,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25103-d",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra 1 o 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 1006.82,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25104-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra, a telaio fisso - Zone Climatiche F",
+   "prezzo": 860.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25104-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 1 anta, a battente - Zone Climatiche F",
+   "prezzo": 1129.58,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25104-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra a 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 1046.08,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25104-d",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra 1 o 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 1045.33,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25106-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche D",
+   "prezzo": 1356.23,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25106-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche D",
+   "prezzo": 1185.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25106-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche D",
+   "prezzo": 1350.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25107-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 1433.22,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25107-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 1262.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25107-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche E",
+   "prezzo": 1427.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25108-a",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO finestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 1488.22,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25108-b",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 1317.48,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25108-c",
+   "gruppo": "serramento",
+   "famiglia": "legno_alluminio",
+   "nome": "LEGNO - ALLUMINIO portafinestra scorrevole alzante a 2 ante - Zone Climatiche F",
+   "prezzo": 1482.49,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15056-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra, a telaio fisso - Zone Climatiche A-B",
+   "prezzo": 311.07,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15056-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 1 anta, a battente - Zone Climatiche A-B",
+   "prezzo": 580.93,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15056-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 2 ante, a battente - Zone Climatiche A-B",
+   "prezzo": 552.79,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15056-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 1 anta, a battente - Zone Climatiche A-B",
+   "prezzo": 488.02,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15056-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 2 ante, a battente - Zone Climatiche A-B",
+   "prezzo": 476.91,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15060-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche A-B",
+   "prezzo": 868.82,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15060-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevale complanare 2 ante - Zone Climatiche A-B",
+   "prezzo": 815.79,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15060-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche A-B",
+   "prezzo": 889.29,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "A",
+    "B"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15057-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra, a telaio fisso - Zone Climatiche C-D",
+   "prezzo": 341.87,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15057-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 1 anta, a battente - Zone Climatiche C-D",
+   "prezzo": 661.47,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15057-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 2 ante, a battente - Zone Climatiche C-D",
+   "prezzo": 629.88,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15057-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 1 anta, a battente - Zone Climatiche C-D",
+   "prezzo": 555.39,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15057-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 2 ante, a battente - Zone Climatiche C-D",
+   "prezzo": 542.77,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15061-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche C-D",
+   "prezzo": 917.34,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15061-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevale complanare 2 ante - Zone Climatiche C-D",
+   "prezzo": 873.71,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15061-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche C-D",
+   "prezzo": 951.62,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "C",
+    "D"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15058-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra, a telaio fisso - Zone Climatiche E",
+   "prezzo": 429.85,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15058-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 1 anta, a battente - Zone Climatiche E",
+   "prezzo": 822.58,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15058-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 784.05,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15058-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 1 anta, a battente - Zone Climatiche E",
+   "prezzo": 690.14,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15058-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 2 ante, a battente - Zone Climatiche E",
+   "prezzo": 674.44,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15062-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche E",
+   "prezzo": 1003.04,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15062-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevale complanare 2 ante - Zone Climatiche E",
+   "prezzo": 959.4,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15062-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevole alzante a 2 ante - Zone Climatiche E",
+   "prezzo": 1045.11,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "E"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15059-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra, a telaio fisso - Zone Climatiche F",
+   "prezzo": 498.05,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15059-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 1 anta, a battente - Zone Climatiche F",
+   "prezzo": 897.55,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15059-c",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra a 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 859.02,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15059-d",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 1 anta, a battente - Zone Climatiche F",
+   "prezzo": 765.11,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 1,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15059-e",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra 2 ante, a battente - Zone Climatiche F",
+   "prezzo": 749.41,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15063-a",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO finestra scorrevole complanare a 2 ante - Zone Climatiche F",
+   "prezzo": 1058.88,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": false,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15063-b",
+   "gruppo": "serramento",
+   "famiglia": "alluminio_legno",
+   "nome": "ALLUMINIO - LEGNO portafinestra scorrevale complanare 2 ante - Zone Climatiche F",
+   "prezzo": 1015.27,
+   "unita": "mq",
+   "foglio": "E",
+   "zone": [
+    "F"
+   ],
+   "nAnte": 2,
+   "portafinestra": true,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25094",
+   "gruppo": "cassonetto",
+   "famiglia": "legno",
+   "nome": "Cassonetto coprirullo in legno",
+   "prezzo": 116.81,
+   "unita": "m",
+   "foglio": "E"
+  }
+ ],
+ "accessori": [
+  {
+   "codice": "serramento.C25088-a",
+   "codiceDei": "C25088-a",
+   "nome": "Finitura pellicolata dei serramenti",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "pct_mq",
+   "valore": 15.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C25088-b",
+   "codiceDei": "C25088-b",
+   "nome": "Incollaggio strutturale tra vetro e anta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_anta",
+   "valore": 120.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C25088-c",
+   "codiceDei": "C25088-c",
+   "nome": "Soglia ribassata per portefinestre",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 100.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": true,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C25088-h",
+   "codiceDei": "C25088-h",
+   "nome": "Coprifili da 80 mm in sostituzione di quello da 60 mm",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "m_perimetro",
+   "valore": 1.65,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C25088-i",
+   "codiceDei": "C25088-i",
+   "nome": "Coprifili da 100 mm in sostituzione di quello da 60 mm",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "m_perimetro",
+   "valore": 3.45,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C25126",
+   "codiceDei": "C25126",
+   "nome": "Per ciascuna anta a ribalta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 70.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15054-a",
+   "codiceDei": "C15054-a",
+   "nome": "Anodizzazione naturale sp.15 μ",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 2.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15054-b",
+   "codiceDei": "C15054-b",
+   "nome": "Anodizzazione elettrocolore sp. 20 μ",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 3.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15054-c",
+   "codiceDei": "C15054-c",
+   "nome": "Verniciatura colori speciali",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 8.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15054-d",
+   "codiceDei": "C15054-d",
+   "nome": "Verniciatura effetto legno",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 15.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15055",
+   "codiceDei": "C15055",
+   "nome": "Finestre e portefinestre con prestazione acustica superiore: Indice potere fonoisolante Rw=40dB",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 5.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15140-a",
+   "codiceDei": "C15140-a",
+   "nome": "Serramenti oscillobattenti - finestra a 1 anta, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 6.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15140-b",
+   "codiceDei": "C15140-b",
+   "nome": "Serramenti oscillobattenti - finestra a 2 ante, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15140-c",
+   "codiceDei": "C15140-c",
+   "nome": "Serramenti oscillobattenti - portafinestra 1 anta, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 6.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15140-d",
+   "codiceDei": "C15140-d",
+   "nome": "Serramenti oscillobattenti - portafinestra 2 ante, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15142",
+   "codiceDei": "C15142",
+   "nome": "ALLUMINO - Ciascuna anta a ribalta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 70.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15143-a",
+   "codiceDei": "C15143-a",
+   "nome": "Più di due ante a battente - 3 ante",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 23.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "serramento.C15143-b",
+   "codiceDei": "C15143-b",
+   "nome": "Più di due ante a battente - 4 ante",
+   "gruppo": "serramento",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_mq",
+   "valore": 30.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "cassonetto.C25097-a",
+   "codiceDei": "C25097-a",
+   "nome": "Per finitura pellicolata dei cassonetti",
+   "gruppo": "cassonetto",
+   "famiglie": [
+    "coibentazione",
+    "monoblocco",
+    "pvc_fino_110"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 19.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "cassonetto.C25097-b",
+   "codiceDei": "C25097-b",
+   "nome": "Per inserimento di traverso verticale per l'irrigidimento del cassonetto",
+   "gruppo": "cassonetto",
+   "famiglie": [
+    "coibentazione",
+    "monoblocco",
+    "pvc_fino_110"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 45.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "portoncino.C25088-a",
+   "codiceDei": "C25088-a",
+   "nome": "Finitura pellicolata dei serramenti",
+   "gruppo": "portoncino",
+   "famiglie": [
+    "pvc"
+   ],
+   "regola": "pct_mq",
+   "valore": 15.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "portoncino.C25088-d",
+   "codiceDei": "C25088-d",
+   "nome": "Soglia ribassata per portoncini",
+   "gruppo": "portoncino",
+   "famiglie": [
+    "pvc"
+   ],
+   "regola": "cad_fisso",
+   "valore": 120.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "A"
+  },
+  {
+   "codice": "avvolgibile.C25091-d",
+   "codiceDei": "C25091-d",
+   "nome": "Motore elettrico fino a 25 kg",
+   "gruppo": "avvolgibile",
+   "famiglie": [
+    "acciaio",
+    "alluminio",
+    "alluminio_pvc",
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 176.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "avvolgibile.C25091-e",
+   "codiceDei": "C25091-e",
+   "nome": "Motore elettrico fino a 60 kg",
+   "gruppo": "avvolgibile",
+   "famiglie": [
+    "acciaio",
+    "alluminio",
+    "alluminio_pvc",
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 198.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "avvolgibile.C25091-f",
+   "codiceDei": "C25091-f",
+   "nome": "Motore elettrico fino a 80 kg",
+   "gruppo": "avvolgibile",
+   "famiglie": [
+    "acciaio",
+    "alluminio",
+    "alluminio_pvc",
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 225.5,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "avvolgibile.C25091-g",
+   "codiceDei": "C25091-g",
+   "nome": "Motore elettrico fino a 100 kg",
+   "gruppo": "avvolgibile",
+   "famiglie": [
+    "acciaio",
+    "alluminio",
+    "alluminio_pvc",
+    "pvc",
+    "velux"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 247.5,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25084-a",
+   "codiceDei": "C25084-a",
+   "nome": "PVC - Finitura pellicolata",
+   "gruppo": "persiana",
+   "famiglie": [
+    "pvc"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 19.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25084-b",
+   "codiceDei": "C25084-b",
+   "nome": "PVC - Serratura a pompa con chiave e puntale",
+   "gruppo": "persiana",
+   "famiglie": [
+    "pvc"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 163.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25084-c",
+   "codiceDei": "C25084-c",
+   "nome": "PVC - Cardini per capotto",
+   "gruppo": "persiana",
+   "famiglie": [
+    "pvc"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 6.0,
+   "moltiplicatore": 2,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25066-c",
+   "codiceDei": "C25066-c",
+   "nome": "LEGNO - Lamelle orientabili",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 30.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25066-e",
+   "codiceDei": "C25066-e",
+   "nome": "LEGNO - Sportello a sporgere",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 30.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25066-b",
+   "codiceDei": "C25066-b",
+   "nome": "LEGNO - Scorrevoli esterno muro",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 25.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25066-a",
+   "codiceDei": "C25066-a",
+   "nome": "LEGNO - Apertura a libro o impacco",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 50.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25124-a",
+   "codiceDei": "C25124-a",
+   "nome": "LEGNO - Forma ad arco",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 100.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25124-b",
+   "codiceDei": "C25124-b",
+   "nome": "LEGNO - Forma trapezoidale",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 45.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25064-a",
+   "codiceDei": "C25064-a",
+   "nome": "LEGNO - Lamellare douglas",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 28.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25064-b",
+   "codiceDei": "C25064-b",
+   "nome": "LEGNO - Massello rovere",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 33.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C25064-c",
+   "codiceDei": "C25064-c",
+   "nome": "LEGNO - Lamellare rovere",
+   "gruppo": "persiana",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 40.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15154-a",
+   "codiceDei": "C15154-a",
+   "nome": "ALLUMINIO - Anodizzazione naturale sp. 15 u",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 3.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15154-b",
+   "codiceDei": "C15154-b",
+   "nome": "ALLUMINIO - Anodizzazione elettrocolore sp. 20 u",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15154-c",
+   "codiceDei": "C15154-c",
+   "nome": "ALLUMINIO - Verniciatura con colore speciali diversi dal RAL standard",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15154-d",
+   "codiceDei": "C15154-d",
+   "nome": "ALLUMINIO - Verniciatura effetto legno",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 8.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15155-a",
+   "codiceDei": "C15155-a",
+   "nome": "ALLUMINIO - Fissaggio dei cardini fino a 180 mm 1 anta",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 3.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "persiana.C15155-b",
+   "codiceDei": "C15155-b",
+   "nome": "ALLUMINIO - Fissaggio dei cardini fino a 180 mm 2 ante",
+   "gruppo": "persiana",
+   "famiglie": [
+    "alluminio"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "scuro.C25073-a",
+   "codiceDei": "C25073-a",
+   "nome": "LEGNO - Lamellare di douglas",
+   "gruppo": "scuro",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 28.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "scuro.C25073-b",
+   "codiceDei": "C25073-b",
+   "nome": "LEGNO - Lamellare di rovere",
+   "gruppo": "scuro",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 33.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "scuro.C25074-a",
+   "codiceDei": "C25074-a",
+   "nome": "LEGNO - Colore bianco",
+   "gruppo": "scuro",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 46.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "scuro.C25074-b",
+   "codiceDei": "C25074-b",
+   "nome": "LEGNO - Colori RAL",
+   "gruppo": "scuro",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 50.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "B"
+  },
+  {
+   "codice": "serramento.C25060-a",
+   "codiceDei": "C25060-a",
+   "nome": "LEGNO - Lamellare di douglas",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 28.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25060-b",
+   "codiceDei": "C25060-b",
+   "nome": "LEGNO - Massello di rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 33.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25060-c",
+   "codiceDei": "C25060-c",
+   "nome": "LEGNO - Lamellare di rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 40.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25123",
+   "codiceDei": "C25123",
+   "nome": "LEGNO - Per ciascuna anta a ribalta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 70.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25132-a",
+   "codiceDei": "C25132-a",
+   "nome": "LEGNO - Archi fissi o apribili a raggio constante",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 100.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25132-b",
+   "codiceDei": "C25132-b",
+   "nome": "LEGNO - A forma trapezoidale",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 45.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25109-a",
+   "codiceDei": "C25109-a",
+   "nome": "LEGNO - ALLUMINIO - Lamellare di douglas",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 28.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25109-b",
+   "codiceDei": "C25109-b",
+   "nome": "LEGNO - ALLUMINIO - Massello di rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 33.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25109-c",
+   "codiceDei": "C25109-c",
+   "nome": "LEGNO - ALLUMINIO - Lamellare di rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 40.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25112-a",
+   "codiceDei": "C25112-a",
+   "nome": "LEGNO - ALLUMINIO - Scorrevili - Lamellare di douglas",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 10.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25112-b",
+   "codiceDei": "C25112-b",
+   "nome": "LEGNO - ALLUMINIO - Scorrevili - Lamellare di rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 15.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25124",
+   "codiceDei": "C25124",
+   "nome": "LEGNO - ALLUMINIO - Per ciascuna anta a ribalta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 70.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15072-a",
+   "codiceDei": "C15072-a",
+   "nome": "ALLUMINIO - LEGNO - anodizzazione naturale spesore 15u",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 8.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15072-b",
+   "codiceDei": "C15072-b",
+   "nome": "ALLUMINIO - LEGNO - anodizzazione elettrocolore spesore 20u",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 20.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15072-c",
+   "codiceDei": "C15072-c",
+   "nome": "ALLUMINIO - LEGNO - verniciatura colori speciali",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 10.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C25072-d",
+   "codiceDei": "C25072-d",
+   "nome": "ALLUMINIO - LEGNO - verniciatura effetto legno",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 25.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15073-a",
+   "codiceDei": "C15073-a",
+   "nome": "ALLUMINIO - LEGNO - frassino",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 8.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15073-b",
+   "codiceDei": "C15073-b",
+   "nome": "ALLUMINIO - LEGNO - rovere",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 8.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15074-a",
+   "codiceDei": "C15074-a",
+   "nome": "ALLUMINIO - LEGNO - laccato poro aperto",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 10.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15074-b",
+   "codiceDei": "C15074-b",
+   "nome": "ALLUMINIO - LEGNO - effetti particolari (es. decapè)",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 10.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15075",
+   "codiceDei": "C15075",
+   "nome": "ALLUMINIO - LEGNO - prestazione acustica superiore",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 10.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15141-a",
+   "codiceDei": "C15141-a",
+   "nome": "ALLUMINIO - LEGNO - oscillobattenti - finestra a 1 anta, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 6.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15141-b",
+   "codiceDei": "C15141-b",
+   "nome": "ALLUMINIO - LEGNO - oscillobattenti - finestra a 2 ante, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15141-c",
+   "codiceDei": "C15141-c",
+   "nome": "ALLUMINIO - LEGNO - oscillobattenti - portafinestra a 1 anta, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 6.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15141-d",
+   "codiceDei": "C15141-d",
+   "nome": "ALLUMINIO - LEGNO - oscillobattenti - portafinestra a 2 ante, a battente",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "pct_pezzo",
+   "valore": 4.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  },
+  {
+   "codice": "serramento.C15144",
+   "codiceDei": "C15144",
+   "nome": "ALLUMINIO - LEGNO - ciascuna anta a ribalta",
+   "gruppo": "serramento",
+   "famiglie": [
+    "legno_alluminio",
+    "alluminio_legno"
+   ],
+   "regola": "cad_pezzo",
+   "valore": 70.0,
+   "moltiplicatore": 1,
+   "soloPortafinestra": false,
+   "foglio": "E"
+  }
+ ],
+ "controtelai": [
+  {
+   "codice": "C15145-a",
+   "famiglia": "Controtelaio in acciao",
+   "variante": "profondità 60 ÷ 100 mm",
+   "unita": "mq",
+   "prezzo": 55.52,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15145-b",
+   "famiglia": "Controtelaio in acciao",
+   "variante": "profondità 101 ÷ 150 mm",
+   "unita": "mq",
+   "prezzo": 60.92,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15145-c",
+   "famiglia": "Controtelaio in acciao",
+   "variante": "profondità 151 ÷ 200 mm",
+   "unita": "mq",
+   "prezzo": 69.93,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15145-d",
+   "famiglia": "Controtelaio in acciao",
+   "variante": "profondità 201 ÷ 250 mm",
+   "unita": "mq",
+   "prezzo": 80.74,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15145-e",
+   "famiglia": "Controtelaio in acciao",
+   "variante": "profondità 251 ÷ 300 mm",
+   "unita": "mq",
+   "prezzo": 89.75,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15147-a",
+   "famiglia": "Controtelaio in acciao e legno",
+   "variante": "profondità 60 ÷ 100 mm",
+   "unita": "mq",
+   "prezzo": 64.53,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15147-b",
+   "famiglia": "Controtelaio in acciao e legno",
+   "variante": "profondità 101 ÷ 150 mm",
+   "unita": "mq",
+   "prezzo": 69.93,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15147-c",
+   "famiglia": "Controtelaio in acciao e legno",
+   "variante": "profondità 151 ÷ 200 mm",
+   "unita": "mq",
+   "prezzo": 78.94,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15147-d",
+   "famiglia": "Controtelaio in acciao e legno",
+   "variante": "profondità 201 ÷ 250 mm",
+   "unita": "mq",
+   "prezzo": 88.67,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15147-e",
+   "famiglia": "Controtelaio in acciao e legno",
+   "variante": "profondità 251 ÷ 300 mm",
+   "unita": "mq",
+   "prezzo": 99.48,
+   "minimoMq": 1.2
+  },
+  {
+   "codice": "C15153-a",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 1400 mm",
+   "unita": "cad",
+   "prezzo": 149.98,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-b",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 1700 mm",
+   "unita": "cad",
+   "prezzo": 162.85,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-c",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 1800 mm",
+   "unita": "cad",
+   "prezzo": 175.72,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-d",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 2000 mm",
+   "unita": "cad",
+   "prezzo": 188.59,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-f",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 2400 mm",
+   "unita": "cad",
+   "prezzo": 201.46,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-g",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 2600 mm",
+   "unita": "cad",
+   "prezzo": 214.34,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-h",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 2800 mm",
+   "unita": "cad",
+   "prezzo": 227.2,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-i",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 3000 mm",
+   "unita": "cad",
+   "prezzo": 233.64,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25133+C23074-a",
+   "famiglia": "Falso telaio in legno con finale in PVC",
+   "variante": "spalla fino a 90 mm",
+   "unita": "m",
+   "prezzo": 82.87,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25133+C23074-b",
+   "famiglia": "Falso telaio in legno con finale in PVC",
+   "variante": "spalla da 91 a 130 mm",
+   "unita": "m",
+   "prezzo": 83.46,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25133+C23074-c",
+   "famiglia": "Falso telaio in legno con finale in PVC",
+   "variante": "spalla da 131 a 200 mm",
+   "unita": "m",
+   "prezzo": 86.67,
+   "minimoMq": null
+  },
+  {
+   "codice": "C25133+C23074-d",
+   "famiglia": "Falso telaio in legno con finale in PVC",
+   "variante": "spalla oltre i 201 mm",
+   "unita": "m",
+   "prezzo": 89.4,
+   "minimoMq": null
+  }
+ ],
+ "opere": [
+  {
+   "codice": "rilievo_pezzo",
+   "gruppo": "opere",
+   "descrizione": "Rilievo misure esecutive presso il cantiere (conteggio al pezzo) - in alternativa alla riga sotto",
+   "codiceDei": "M01018",
+   "unita": "h",
+   "prezzo": 60.17,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "rilievo_foro",
+   "gruppo": "opere",
+   "descrizione": "Rilievo misure esecutive presso il cantiere (conteggio a foro finestra) - in alternativa alla riga sopra",
+   "codiceDei": "M01018",
+   "unita": "h",
+   "prezzo": 60.17,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "progettazione",
+   "gruppo": "opere",
+   "descrizione": "Progettazione dell'intervento con analisi nodi di posa (conteggio a foro finestra)",
+   "codiceDei": "M01022",
+   "unita": "h",
+   "prezzo": 29.84,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "sviluppo_ordine",
+   "gruppo": "opere",
+   "descrizione": "Sviluppo ordine (conteggio al pezzo)",
+   "codiceDei": "M01023",
+   "unita": "h",
+   "prezzo": 60.17,
+   "esclusaDaCheck2": true,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "protezione",
+   "gruppo": "opere",
+   "descrizione": "Protezione pavimento e arredamento (2 installatori)",
+   "codiceDei": "M01024",
+   "unita": "h",
+   "prezzo": 36.5,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "rimozione_serramenti",
+   "gruppo": "opere",
+   "descrizione": "Rimozione dei serramenti, persiane esistenti compreso abbassamento al piano strada",
+   "codiceDei": "A25114",
+   "unita": "mq",
+   "prezzo": 20.22,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "rimozione_tapparelle",
+   "gruppo": "opere",
+   "descrizione": "Rimozione delle tapparelle e dei cassonetti",
+   "codiceDei": "A25115",
+   "unita": "mq",
+   "prezzo": 26.97,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "smaltimento",
+   "gruppo": "opere",
+   "descrizione": "Smaltimento e trasporto in discarica (compresi oneri locali)",
+   "codiceDei": "A25130",
+   "unita": "fisso",
+   "prezzo": 150.0,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "trasporto",
+   "gruppo": "opere",
+   "descrizione": "Trasporto (rimborso chilometrico Andata / Ritorno per giornate considerate)",
+   "codiceDei": "TABELLA",
+   "unita": "km",
+   "prezzo": 0.7,
+   "esclusaDaCheck2": true,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "tiro_piano",
+   "gruppo": "opere",
+   "descrizione": "Carico, scarico e tiro al piano a spalla d'uomo",
+   "codiceDei": "M01024",
+   "unita": "h",
+   "prezzo": 36.5,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "assistenza_muraria",
+   "gruppo": "opere",
+   "descrizione": "Assistenza muraria: taglio soglie e davanzali - riquadrature",
+   "codiceDei": "A25023-a",
+   "unita": "m",
+   "prezzo": 44.13,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "posa",
+   "gruppo": "opere",
+   "descrizione": "Posa in opera (2 installatori qualificati)",
+   "codiceDei": "M01024",
+   "unita": "h",
+   "prezzo": 36.5,
+   "esclusaDaCheck2": true,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "pulizia",
+   "gruppo": "opere",
+   "descrizione": "Servizio di pulizia serramenti, dismissione cantiere e rimozione imballaggi",
+   "codiceDei": "M01024",
+   "unita": "h",
+   "prezzo": 36.5,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": true
+  },
+  {
+   "codice": "spese_professionali",
+   "gruppo": "opere",
+   "descrizione": "Spese professionali: visto di conformità - asseverazione tecnica con computo metrico (messi 600 € di base = Visto Deloitte + Asseverazione / Attestazione Studio 79)",
+   "codiceDei": "DM 2016",
+   "unita": "fisso",
+   "prezzo": 600.0,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "altri_servizi",
+   "gruppo": "eventuali",
+   "descrizione": "Altri servizi vari (elettricista, allarmista, ecc...)",
+   "codiceDei": "varie",
+   "unita": "%",
+   "prezzo": 2.0,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "assistenze_murarie_eventuali",
+   "gruppo": "eventuali",
+   "descrizione": "Assistenze murarie",
+   "codiceDei": "M01004",
+   "unita": "h",
+   "prezzo": 32.18,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "dime",
+   "gruppo": "eventuali",
+   "descrizione": "Realizzazione di dime / centine per serramenti fuori forma standard",
+   "codiceDei": "A15031-a",
+   "unita": "mq",
+   "prezzo": 92.85,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "piattaforma",
+   "gruppo": "eventuali",
+   "descrizione": "Nolo piattaforma aerea per sollevamento al piano",
+   "codiceDei": "N04143-a",
+   "unita": "giornata",
+   "prezzo": 517.92,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  },
+  {
+   "codice": "permessi_suolo",
+   "gruppo": "eventuali",
+   "descrizione": "Richiesta permessi per occupazione di suolo pubblico",
+   "codiceDei": "tributi locali",
+   "unita": "giornata",
+   "prezzo": 300.0,
+   "esclusaDaCheck2": false,
+   "inclusaDefault": false
+  }
+ ],
+ "coefficienti": {
+  "oreTiro": {
+   "serramento": 0.5,
+   "cassonetto": 0.25,
+   "tapparella": 0.25,
+   "persiana": 0.25,
+   "scuro": 0.25,
+   "porta_blindata": 0.5,
+   "portoncino": 0.5,
+   "schermatura": 0.25,
+   "zanzariera": 0.25,
+   "tenda": 1,
+   "pergola": 2,
+   "materialiPosa": 0.3333333333333333
+  },
+  "orePosa": {
+   "serramento": 3,
+   "cassonetto": 1,
+   "oscurante": 1.5,
+   "schermatura": 1.5,
+   "zanzariera": 1.5,
+   "tenda": 4,
+   "pergola": 16,
+   "porta_blindata": 3,
+   "portoncino": 3
+  },
+  "oreGiornata": 8,
+  "euroKm": 0.7,
+  "installatori": 2,
+  "maggiorazionePianoOltre": 4,
+  "maggiorazionePiano": 1.3,
+  "puliziaFissoEuro": 50,
+  "smaltimentoBaseEuro": 150,
+  "smaltimentoEuroMc": 104.69,
+  "smaltimentoEuroOnere": 100,
+  "smaltimentoMcSerramento": 0.1,
+  "smaltimentoMcCassonetto": 0.35,
+  "smaltimentoMcOscurante": 0.05,
+  "smaltimentoOnereSerramento": 0.025,
+  "smaltimentoOnereCassonetto": 0.015,
+  "smaltimentoOnereOscurante": 0.0125,
+  "speseProfessionaliPct": 0.04,
+  "speseProfessionaliMinEuro": 600,
+  "altriServiziPct": 0.02,
+  "controtelaiMinMq": 1.2,
+  "ivaAgevolata": 0.1,
+  "avvolgibileExtraL": 0.05,
+  "avvolgibileExtraLOffset": 0.25,
+  "avvolgibileExtraH": 0.25,
+  "avvolgibileExtraHOffset": 0.05
+ },
+ "detrazioni": [
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "prima_casa",
+   "anno": 2025,
+   "pct": 50
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "altro",
+   "anno": 2025,
+   "pct": 36
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "prima_casa",
+   "anno": 2025,
+   "pct": 50
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "altro",
+   "anno": 2025,
+   "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "prima_casa",
+   "anno": 2026,
+   "pct": 50
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "altro",
+   "anno": 2026,
+   "pct": 36
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "prima_casa",
+   "anno": 2026,
+   "pct": 50
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "altro",
+   "anno": 2026,
+   "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "prima_casa",
+   "anno": 2027,
+   "pct": 36
+  },
+  {
+   "tipo": "ristrutturazione",
+   "immobile": "altro",
+   "anno": 2027,
+   "pct": 30
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "prima_casa",
+   "anno": 2027,
+   "pct": 36
+  },
+  {
+   "tipo": "ecobonus",
+   "immobile": "altro",
+   "anno": 2027,
+   "pct": 30
+  }
+ ],
+ "beneSignificativoDefault": {
+  "serramento_pvc": true,
+  "serramento_alluminio": true,
+  "serramento_legno": true,
+  "serramento_legno_alluminio": true,
+  "cassonetto": true,
+  "tapparella": true,
+  "persiana": true,
+  "scuro": true,
+  "schermatura": true,
+  "zanzariera": true,
+  "tenda": true,
+  "pergola": true,
+  "porta_blindata": true,
+  "portoncino": true,
+  "porta_interna": true,
+  "accessorio": true,
+  "controtelaio": false,
+  "altro": false
+ }
+}
