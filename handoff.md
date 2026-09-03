@@ -2286,9 +2286,17 @@ foglio «CALCOLO NUOVI LIMITI» compilato.
   stesso `bypassGateDocumentale` del dialog «Procedi comunque» del board,
   registrato come `gateScavalcato: "documentale" | "computo"` in
   `RegistroTransizione` (`null` quando non c'era un gate da scavalcare).
-  Tars vede lo stesso prefisso `DOC_GATE_BLOCKED` e distingue il messaggio
-  in `motivoSicuro` (`server/tars/strumenti/commesse.ts`): «Il computo dei
-  limiti manca o non è aggiornato» invece del generico gate documentale.
+  Tars vede lo stesso gate: `verifica_transizione_commessa` chiede
+  `computoValido` sul passo governato e restituisce `gate.computo`
+  (`richiesto`/`valido`), quindi l'anteprima dichiara il blocco prima di
+  muovere qualcosa; `transizione_adiacente_commessa` lo rivaluta a ogni
+  tappa e senza scavalco si ferma dicendo che manca il **computo**, non un
+  file, con l'istruzione `scavalcaGate: true`. Con lo scavalco — solo su
+  richiesta esplicita dell'utente — il passaggio usa lo stesso
+  `bypassGateDocumentale`, l'avvertenza nomina il gate del computo e il
+  registro segna `gateScavalcato: "computo"`. `motivoSicuro`
+  (`server/tars/strumenti/commesse.ts`) resta la rete per il caso TOCTOU in
+  cui il gate cambia tra verifica ed effetto.
 - UI: tab «Contratto» al posto di «Prodotti» quando il flag è acceso
   (`client/src/components/contratto/ContrattoTab.tsx`,
   `RigaContrattoEditor.tsx`), tab «Limiti»

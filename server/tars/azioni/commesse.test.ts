@@ -449,16 +449,64 @@ describe("Tars libero — stato di arrivo non adiacente e gate (02/09/2026 sera)
 
       // Fermato dal computo, non dai documenti: il motivo non deve mandare
       // l'utente a cercare un file che c'è già (R22) né a «ricalcolare» un
-      // computo che non ha nemmeno un contratto (R23).
+      // computo che non ha nemmeno un contratto (R23). E deve dire al modello
+      // come procedere, come fa il gate documentale.
       expect(esito).toMatchObject({
         stato: "transizione_parziale",
         dopo: { stato: "aggiornamento_contratto" },
       });
-      expect(esito.motivo).toBe(
-        "Il computo dei limiti manca o non è aggiornato: fermato qui."
+      expect(esito.motivo).toMatch(/gate del computo/i);
+      expect(esito.motivo).toMatch(
+        /Il computo dei limiti manca o non è aggiornato/
       );
+      expect(esito.motivo).not.toMatch(/gate documentale/i);
+      expect(esito.motivo).toMatch(/scavalcaGate: true/);
       expect((await caller.commesse.byId(commessa.id)).stato).toBe(
         "aggiornamento_contratto"
+      );
+
+      // Anteprima: lo stesso gate, visibile prima di muovere qualcosa.
+      const verifica = descrittoreAzione("verifica_transizione_commessa")!;
+      const lettura: any = await verifica.strumento.esegui(contesto, {
+        commessaId: commessa.id,
+        nuovoStato: "fatture_pagamento",
+      });
+      expect(lettura.dati).toMatchObject({
+        statoAttuale: "aggiornamento_contratto",
+        consentita: false,
+        gate: {
+          soddisfatto: true,
+          bloccante: true,
+          computo: { richiesto: true, valido: false },
+        },
+      });
+      expect(lettura.dati.motivo).toMatch(/computo dei limiti/i);
+
+      // Con lo scavalco esplicito il passaggio va a buon fine e il registro
+      // dice quale gate è stato scavalcato: «computo», non «documentale».
+      const m2 = await azione.strumento.materializzaInput!(contesto, {
+        commessaId: commessa.id,
+        nuovoStato: "fatture_pagamento",
+        scavalcaGate: true,
+      });
+      expect(m2.tipo).toBe("input");
+      if (m2.tipo !== "input") return;
+      const forzata = await azione.strumento.esegui(contesto, m2.input);
+      expect(forzata).toMatchObject({
+        stato: "transizione_eseguita",
+        prima: { stato: "aggiornamento_contratto" },
+        dopo: { stato: "fatture_pagamento" },
+        dati: { arrivata: true },
+      });
+      expect(forzata.avvertenze).toHaveLength(1);
+      expect(forzata.avvertenze[0]).toMatch(/Gate del computo scavalcato/);
+      const registro = (storeTransizioniCommessa.items as any[]).filter(
+        r => r.commessaId === commessa.id && r.bypassGateDocumentale
+      );
+      expect(registro).toHaveLength(1);
+      expect(registro[0].gateScavalcato).toBe("computo");
+      expect((await caller.commesse.byId(commessa.id)).stato).toBe(
+        "fatture_pagamento"
       );
     } finally {
       if (flagPrima === undefined) delete process.env.FLAG_LIMITI;

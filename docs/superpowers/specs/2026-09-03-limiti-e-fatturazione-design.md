@@ -55,7 +55,11 @@ Gate nuovo: transizione `aggiornamento_contratto → fatture_pagamento` richiede
 un computo valido (hash righe e parametri = correnti). Scavalco con lo stesso
 `ConfirmDialog` «Procedi comunque» dei gate documentali: lo stesso
 `bypassGateDocumentale` del dialog, con `gateScavalcato: "documentale" |
-"computo"` nel registro.
+"computo"` nel registro. Vale anche per Tars, con la stessa regola del gate
+documentale: l'anteprima
+(`verifica_transizione_commessa`, `gate.computo`) mostra il gate prima di
+muovere qualcosa, e lo scavalco arriva solo da una richiesta esplicita
+dell'utente (`scavalcaGate: true`).
 
 ## 4. Modello dati
 
@@ -374,6 +378,13 @@ originale riceve evento `nota_credito` e il fascicolo mostra il legame.
 - Timeline: «Firma Contratto (allegato)» completata all'applicazione del
   contratto; «Fatturazione» completata all'emissione
   (`allineaTimelineAlBoard`, stesso meccanismo).
+- Tars usa lo stesso gate: `verifica_transizione_commessa` chiede
+  `computoValido` sul passo governato e restituisce `gate.computo`
+  (`richiesto`/`valido`) insieme a `consentita`; `transizione_adiacente_commessa`
+  lo rivaluta a ogni tappa, e senza scavalco si ferma dicendo che manca il
+  computo — non un file. Con `scavalcaGate: true` (solo su richiesta esplicita
+  dell'utente) passa con lo stesso `bypassGateDocumentale`, l'avvertenza nomina
+  il gate del computo e il registro segna `gateScavalcato: "computo"`.
 - L'Undo di Tars non forza mai un gate (regola esistente).
 
 ## 9. UI/UX sulla pagina reale
