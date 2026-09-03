@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { getCommessaById } from "./commesse";
+import { getCommessaById, getCommesseStore } from "./commesse";
 import { STATI_COMMESSA } from "../commesse/transizioni";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
@@ -724,6 +724,53 @@ export function getDocumentoCommessaById(
 // una commessa serve a invalidare fascicoli e cache quando il gate
 // documentale cambia. Sola lettura; lo scope di sede lo applica chi
 // chiama tramite la commessa.
+/**
+ * Tutti i documenti dei fascicoli di una sede: serve alle ricerche di Tars
+ * («dov'è finito quel DDT?») senza esporre le altre sedi.
+ */
+export function documentiDiSede(sedeId: number): Documento[] {
+  const commesse = new Set(
+    getCommesseStore()
+      .filter((c: any) => (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId)
+      .map((c: any) => c.id as number)
+  );
+  return documenti.filter(d => commesse.has(d.commessaId));
+}
+
+/**
+ * Sposta un documento nel fascicolo di un'altra commessa della stessa
+ * sede: correzione di archiviazione, non una copia. Il gate documentale
+ * segue il documento — `statoAtUpload` diventa lo stato in cui si trova la
+ * commessa di destinazione, esattamente come se il file fosse stato
+ * caricato lì (03/09/2026: «Tars non riesce a spostare i documenti»).
+ */
+export function spostaDocumentoDiCommessa(input: {
+  documentoId: number;
+  commessaId: number;
+  sedeId: number | null;
+  note?: string | null;
+}): { documento: Documento; da: number; a: number } {
+  const documento = documenti.find(d => d.id === input.documentoId);
+  if (!documento) throw new Error("Documento non trovato");
+  const origine = commessaInSede(documento.commessaId, input.sedeId);
+  if (!origine) throw new Error("Documento non trovato");
+  const destinazione: any = commessaInSede(input.commessaId, input.sedeId);
+  if (!destinazione) throw new Error("Commessa di destinazione non trovata");
+  if (destinazione.archivedAt) {
+    throw new Error("La commessa di destinazione è archiviata: ripristinala prima.");
+  }
+  if (documento.commessaId === input.commessaId) {
+    throw new Error("Il documento è già in questa commessa");
+  }
+  const da = documento.commessaId;
+  documento.commessaId = input.commessaId;
+  documento.nome = dedupeName(documento.nome, input.commessaId, documento.id);
+  documento.statoAtUpload = destinazione.stato ?? documento.statoAtUpload ?? null;
+  if (input.note !== undefined) documento.note = input.note?.trim() || null;
+  _documentiStore.save();
+  return { documento, da, a: input.commessaId };
+}
+
 export function getDocumentiDiCommessa(commessaId: number): Documento[] {
   return documenti.filter(d => d.commessaId === commessaId);
 }

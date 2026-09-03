@@ -110,20 +110,63 @@ diventare un bottone che **fa la cosa**, con Undo dove il dominio lo
 consente: «Collega la fattura n. 130 a COM-2026-168», «Sposta il DDT nella
 commessa giusta», «Ricorda al commerciale il preventivo Soare».
 
-### T4 — Follow-up commerciale sui preventivi
+### T4 — Il calendario dentro il CRM (D2)
 
-Il 71% del portafoglio è in preventivo. Tars segue: promemoria a chi ha in
-carico, bozza del messaggio al cliente, e dopo N giorni senza risposta
-propone di archiviare. È qui che si vede o non si vede il ritorno.
+`leggi_agenda` (giorno/settimana, per squadra o per commessa),
+`pianifica_intervento` esteso (ora, squadra, spostamento), `sposta_intervento`
+e `segna_intervento_fatto` che porta avanti la commessa. La vista Planning
+diventa la fonte, i calendari Google importati restano solo come sfondo
+finché non si spengono.
 
-## 5. Domande alla direzione (cambiano il piano)
+### T5 — Follow-up commerciale sui preventivi
 
-1. Gli ordini ai fornitori si fanno via mail/PEC e non entrano nel CRM:
-   Tars deve **leggere le conferme d'ordine dalle mail** e tenere lui le
-   date di consegna, oppure lasciamo perdere il modulo ordini?
-2. La posa: il calendario vive fuori (3 interventi nel CRM). Tars deve
-   **pianificare gli interventi nel CRM** o basta che ricordi le date?
-3. Preventivo: dopo quanti giorni senza risposta un preventivo è da
-   sollecitare, e dopo quanti è perso?
-4. Chi deve ricevere cosa: le proposte sono per la direzione o vanno
-   assegnate a chi ha in carico la commessa?
+Il 71% del portafoglio è in preventivo. Ritmo deciso (D3): **7 giorni** di
+silenzio → sollecito a chi ha in carico, con la bozza del messaggio al
+cliente; **30 giorni** → proposta di chiuderlo come perso. È qui che si
+vede o non si vede il ritorno.
+
+### T6 — Ogni proposta al suo destinatario (D4)
+
+Le proposte e le notifiche nascono con un destinatario derivato da
+assegnatario della commessa, ruolo, stato della commessa e natura del
+tema (commerciale, amministrativo, post-vendita). La coda «di tutti»
+sparisce: ognuno vede la sua, la direzione vede tutto e ciò che non ha
+padrone.
+
+## 5. Decisioni della direzione (03/09/2026)
+
+- **D1 — Ordini dai messaggi, non dal modulo.** Il modulo Fornitori resta
+  vuoto. Tars legge le conferme d'ordine che arrivano via mail/PEC
+  (Antenore, Oknoplast, Primed…), ne ricava fornitore, riferimento e data
+  di consegna, li tiene sulla commessa e segnala i ritardi.
+- **D2 — Il calendario diventa quello del CRM, Google si spegne.** Oggi è
+  il contrario: il CRM ha 3 interventi, espone un feed ICS che Google
+  sottoscrive (`calendarSync.ts`) e importa in sola lettura i calendari
+  Google nel Planning (`externalCalendars.ts`, 3 sorgenti). Gli
+  appuntamenti veri vivono su Google. Tars deve: leggere gli appuntamenti
+  (interventi CRM e, finché esistono, quelli importati) e capire a quale
+  commessa e cliente appartengono; **inserirli e spostarli** nel CRM con
+  data, ora, tipo e squadra; far seguire la commessa (posa fissata →
+  attesa posa, posa fatta → finiture e saldo, rilievo fatto → misure) con
+  lo stesso gate e lo stesso Undo delle altre transizioni. Fine corsa:
+  Google spento, al massimo resta il feed in uscita per il telefono.
+- **D3 — Ritmo commerciale.** Un preventivo senza risposta si sollecita
+  dopo **7 giorni**; dopo **30** si propone di chiuderlo come perso.
+- **D4 — Ogni proposta ha un destinatario.** Non esiste la coda «di
+  tutti»:
+  - commessa assegnata a un commerciale + tema commerciale (preventivo,
+    sollecito, cliente) → solo a quell'utente;
+  - tema amministrativo (fattura, pagamento, incasso) o commessa negli
+    stati «fatture e pagamento» / «ordini e ultimazione» → amministrazione;
+  - post-vendita → chi ha il ticket in carico, altrimenti chi ha la
+    commessa;
+  - direzione: vede tutto, più ciò che non ha un assegnatario.
+  Le notifiche seguono lo stesso criterio: stessa proposta, stesso
+  destinatario.
+
+## 6. Domande residue
+
+- Quale casella/PEC riceve le conferme d'ordine, e con quale mittente
+  tipico? (serve a Tars per riconoscerle senza aprire tutto)
+- Chi sono i commerciali da considerare assegnatari per D4, e come si
+  assegna oggi una commessa?
