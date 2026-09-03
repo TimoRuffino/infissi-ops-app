@@ -92,7 +92,7 @@ documenti e delle decisioni, e FiC come fonte della verità economica.
 - `crea_cliente_da_messaggio`: da una comunicazione WhatsApp o mail,
   cliente e commessa in un colpo, con i dati estratti dal testo.
 
-### T2 — La fotografia guarda dove si lavora
+### T2 — La fotografia guarda dove si lavora — FATTO il 03/09/2026 (fotografia 1.1.0, prompt analisi-v4)
 
 Fuori i segnali su moduli vuoti. Dentro:
 - preventivi fermi da più di N giorni (attività reale) con il valore e il
@@ -135,10 +135,15 @@ padrone.
 
 ## 5. Decisioni della direzione (03/09/2026)
 
-- **D1 — Ordini dai messaggi, non dal modulo.** Il modulo Fornitori resta
+- **D1 — Ordini dai messaggi, non dal modulo.** — **SOSPESA il 03/09/2026
+  sera**: la direzione ha detto che «per quanto riguarda gli ordini non è
+  così, dobbiamo riparlarne». Nessuna implementazione sugli ordini
+  (lettura conferme PEC, segnali, dati sulla commessa) finché la decisione
+  non viene ridiscussa e registrata qui. Il testo originale resta sotto
+  come riferimento della proposta superata: ~~Il modulo Fornitori resta
   vuoto. Tars legge le conferme d'ordine che arrivano via mail/PEC
   (Antenore, Oknoplast, Primed…), ne ricava fornitore, riferimento e data
-  di consegna, li tiene sulla commessa e segnala i ritardi.
+  di consegna, li tiene sulla commessa e segnala i ritardi.~~
 - **D2 — Il calendario diventa quello del CRM, Google si spegne.** Oggi è
   il contrario: il CRM ha 3 interventi, espone un feed ICS che Google
   sottoscrive (`calendarSync.ts`) e importa in sola lettura i calendari
