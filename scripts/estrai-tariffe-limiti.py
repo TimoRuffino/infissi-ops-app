@@ -332,7 +332,8 @@ assert len(accessori) > 40, len(accessori)
 # ── Controtelai: 'Calcolo Automatici' L344:N374 (famiglia = riga senza prezzo)
 _, ct = griglia("Calcolo Automatici", 344, 374, 14)
 controtelai, famiglia_ct, unita_ct = [], None, None
-UNITA_CT = {"acciaio e legno": "mq", "acciaio": "mq", "alluminio": "cad", "legno": "m"}
+# Il foglio scrive «acciao» (refuso) accanto ad «acciaio»: si riconosce la radice «accia».
+UNITA_CT = {"accia": "mq", "alluminio": "cad", "legno": "m"}
 for r in range(344, 375):
     l, m, n = ct.get(f"L{r}"), ct.get(f"M{r}"), num(ct.get(f"N{r}"))
     if l and n is None:
@@ -388,6 +389,8 @@ coefficienti = {
     "smaltimentoOnereSerramento": 0.025, "smaltimentoOnereCassonetto": 0.015, "smaltimentoOnereOscurante": 0.0125,
     "speseProfessionaliPct": 0.04, "speseProfessionaliMinEuro": 600, "altriServiziPct": 0.02,
     "controtelaiMinMq": 1.2,
+    # IVA agevolata (10 %) usata per stimare l'imponibile da un pattuito lordo prima della fattura.
+    "ivaAgevolata": 0.10,
     # Avvolgibili (CHECK2 BS): mq = mq serramento + 0,05 × (L + 0,25) + 0,25 × (H + 0,05), minimo 1,8 mq
     "avvolgibileExtraL": 0.05, "avvolgibileExtraLOffset": 0.25, "avvolgibileExtraH": 0.25, "avvolgibileExtraHOffset": 0.05,
 }

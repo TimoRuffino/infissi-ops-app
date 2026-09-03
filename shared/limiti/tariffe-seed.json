@@ -5355,81 +5355,81 @@
    "codice": "C15145-a",
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 60 ÷ 100 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 55.52,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15145-b",
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 101 ÷ 150 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 60.92,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15145-c",
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 151 ÷ 200 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 69.93,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15145-d",
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 201 ÷ 250 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 80.74,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15145-e",
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 251 ÷ 300 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 89.75,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15147-a",
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 60 ÷ 100 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 64.53,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15147-b",
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 101 ÷ 150 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 69.93,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15147-c",
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 151 ÷ 200 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 78.94,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15147-d",
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 201 ÷ 250 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 88.67,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15147-e",
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 251 ÷ 300 mm",
-   "unita": "m",
+   "unita": "mq",
    "prezzo": 99.48,
-   "minimoMq": null
+   "minimoMq": 1.2
   },
   {
    "codice": "C15153-a",
@@ -5765,6 +5765,7 @@
   "speseProfessionaliMinEuro": 600,
   "altriServiziPct": 0.02,
   "controtelaiMinMq": 1.2,
+  "ivaAgevolata": 0.1,
   "avvolgibileExtraL": 0.05,
   "avvolgibileExtraLOffset": 0.25,
   "avvolgibileExtraH": 0.25,
