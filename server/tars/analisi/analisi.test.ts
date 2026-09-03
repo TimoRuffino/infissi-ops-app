@@ -50,6 +50,17 @@ function depsFotografia(parziale: Partial<DipendenzeFotografia> = {}): Dipendenz
       giorni: commessa.id === 1 ? 200 : 3,
       fonte: "documento",
     }),
+    fatture: () => [
+      { id: 900, sedeId: SEDE, numero: "12/B", data: "2026-08-20", clienteNome: "Bianchi Piero", commessaId: null, ignorata: false },
+      { id: 901, sedeId: SEDE, numero: "13/B", data: "2026-08-21", clienteNome: "Verdi Luca", commessaId: 2, ignorata: false },
+      { id: 902, sedeId: SEDE + 1, numero: "14/B", data: "2026-08-22", clienteNome: "Altra Sede", commessaId: null, ignorata: false },
+    ],
+    statoFattura: (f: any) => (f.id === 901 ? "da_riconciliare" : "attesa_incasso"),
+    gate: (commessaId: number) =>
+      commessaId === 2
+        ? { ok: false, mancano: ["Ordine", "Conferma d'ordine"] }
+        : { ok: true, mancano: [] },
+    ordini: () => [],
     ...parziale,
   };
 }
@@ -59,8 +70,13 @@ describe("fotografia", () => {
     const f = await costruisciFotografia({ sedeId: SEDE, adesso: ADESSO, deps: depsFotografia() });
     expect(f.contatori).toMatchObject({
       commesseAttive: 2, commesseUrgenti: 1, casiAperti: 1, casiCritici: 1, osservazioniAperte: 1,
-      pattern: 1, comunicazioniUrgenti: 1, ticketAperti: 1, ticketUrgenti: 1,
+      // Con zero ordini a sistema il pattern «ritardi_fornitore» non entra:
+      // era calcolato su un modulo vuoto (T2).
+      pattern: 0, comunicazioniUrgenti: 1, ticketAperti: 1, ticketUrgenti: 1,
       interventiSettimana: 1, interventiSenzaSquadra: 1, proposteDocumentali: 1,
+      preventiviAttivi: 1, preventiviFermi7: 0, preventiviFermi30: 0,
+      gateMancanti: 1, fattureNonCollegate: 1, fattureDaRiconciliare: 1,
+      fattureAttesaIncasso: 0, ticketSenzaAssegnatario: 1,
     });
     const entita = entitaDellaFotografia(f);
     expect(entita.has("commessa:1")).toBe(true); // ferma da 20 giorni
@@ -79,6 +95,44 @@ describe("fotografia", () => {
     expect(dormienti.fatti[0].testo).toContain("ferma da 200 gg");
     const ferme = f.sezioni.find(s => s.chiave === "commesse")!.fatti;
     expect(ferme.some(fatto => fatto.chiave === "commessa:1:ferma")).toBe(false);
+    const gate = f.sezioni.find(s => s.chiave === "gate")!;
+    expect(gate.fatti[0].testo).toContain("COM-2026-002");
+    expect(gate.fatti[0].testo).toContain("Ordine");
+    const fatture = f.sezioni.find(s => s.chiave === "fatture")!;
+    expect(fatture.fatti.some(x => x.testo.includes("12/B"))).toBe(true);
+    expect(fatture.fatti.some(x => x.testo.includes("14/B"))).toBe(false);
+    expect(testo).toContain("## Perimetro");
+    expect(testo).toContain("Ordini fornitore: 0");
+    expect(testo).not.toContain("Ritardi fornitore");
+  });
+
+  it("i preventivi fermi hanno una sezione con l'età reale; 7 e 30 giorni contati", async () => {
+    const f = await costruisciFotografia({
+      sedeId: SEDE, adesso: ADESSO,
+      deps: depsFotografia({
+        commesse: () => [
+          { id: 51, sedeId: SEDE, codice: "COM-2026-051", cliente: "Soare", stato: "preventivo", updatedAt: giorniFa(1) },
+          { id: 52, sedeId: SEDE, codice: "COM-2026-052", cliente: "Butticè", stato: "preventivo", updatedAt: giorniFa(1) },
+          { id: 53, sedeId: SEDE, codice: "COM-2026-053", cliente: "Fresco", stato: "preventivo", updatedAt: giorniFa(1) },
+          { id: 54, sedeId: SEDE, codice: "COM-2026-054", cliente: "Attiva", stato: "produzione", updatedAt: giorniFa(1) },
+        ],
+        attivita: (commessa: any) => ({
+          giorni: commessa.id === 51 ? 35 : commessa.id === 52 ? 10 : commessa.id === 53 ? 2 : 40,
+          fonte: "documento",
+        }),
+      }),
+    });
+    expect(f.contatori).toMatchObject({ preventiviAttivi: 3, preventiviFermi7: 2, preventiviFermi30: 1 });
+    const sezione = f.sezioni.find(s => s.chiave === "preventivi")!;
+    expect(sezione.fatti[0].testo).toContain("COM-2026-051");
+    expect(sezione.fatti[0].testo).toContain("35 giorni");
+    expect(sezione.fatti[0].testo).toContain("perso");
+    expect(sezione.fatti[1].testo).toContain("da sollecitare");
+    // La commessa 54 non è un preventivo: sta nella sezione «ferme», non qui.
+    expect(sezione.fatti.some(x => x.entita.includes("commessa:54"))).toBe(false);
+    const ferme = f.sezioni.find(s => s.chiave === "commesse")!.fatti;
+    expect(ferme.some(x => x.chiave === "commessa:54:ferma")).toBe(true);
+    expect(ferme.some(x => x.chiave === "commessa:51:ferma")).toBe(false);
   });
 
   it("una fonte che fallisce non azzera la fotografia", async () => {
@@ -113,7 +167,9 @@ describe("verifica e sintesi", () => {
     expect(esito.punti[0]).toMatchObject({ tipo: "rischio", entita: ["caso:30"], link: "/commesse/2" });
     expect(esito.proposte[0].link).toBe("/commesse/2");
     expect(esito.domande).toHaveLength(3);
-    expect(esito.avvertenze[0]).toContain("1 riferimenti");
+    // Anche pattern:ritardi_fornitore è scartato: con ordini a zero quel
+    // pattern non sta più nella fotografia (T2).
+    expect(esito.avvertenze[0]).toContain("2 riferimenti");
   });
 
   it("col provider finto la sintesi arriva dal JSON; senza provider è deterministica", async () => {

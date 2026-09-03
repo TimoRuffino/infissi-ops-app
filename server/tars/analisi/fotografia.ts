@@ -7,7 +7,14 @@ import { getActionCaseRepository } from "../../actionCenter/repository";
 import { OPEN_ACTION_STATUSES } from "../../actionCenter/service";
 import { getProposteStore } from "../../proposte/gateway";
 import { getCommesseStore } from "../../routers/commesse";
+import { ficFatture, statoFattura } from "../../routers/ficFatture";
+import { getOrdiniFornitoriStore } from "../../routers/fornitori";
 import { getInterventiStore } from "../../routers/interventi";
+import {
+  DOC_TIPO_LABEL,
+  REQUIRED_DOC_TIPI_PER_STATO,
+  statoHasRequiredDoc,
+} from "../../routers/preventiviContratti";
 import { getTicketStore } from "../../routers/ticket";
 import { sezioneSmistamento } from "../briefing";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
@@ -23,6 +30,9 @@ const CASI_MASSIMI = 12;
 const OSSERVAZIONI_MASSIME = 10;
 const TICKET_MASSIMI = 6;
 const GIORNI_INTERVENTI = 7;
+const PREVENTIVI_MASSIMI = 10;
+const GATE_MASSIMI = 8;
+const FATTURE_MASSIME = 5;
 /**
  * Una commessa senza FATTI reali da così tanto è dormiente: non lavoro da
  * proporre, al più da archiviare. Era 120 giorni misurati su `updatedAt`,
@@ -69,6 +79,14 @@ export type DipendenzeFotografia = {
     ultimaComunicazione: Date | undefined,
     adesso: Date
   ) => { giorni: number; fonte: string };
+  /** Fatture FiC (tutte le sedi: il filtro sede è della fotografia). */
+  fatture: () => any[];
+  /** Stato di riconciliazione di una fattura collegata (dominio FiC). */
+  statoFattura: (fattura: any) => string;
+  /** Il gate documentale dello stato corrente: passa? cosa manca? */
+  gate: (commessaId: number, stato: string) => { ok: boolean; mancano: string[] };
+  /** Ordini fornitore: servono solo a dichiarare il modulo vuoto. */
+  ordini: () => any[];
 };
 
 export function dipendenzeFotografiaReali(): DipendenzeFotografia {
@@ -96,6 +114,13 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     ultimeComunicazioni: sedeId => ultimaComunicazionePerCommessa(sedeId),
     attivita: (commessa, ultimaComunicazione, adesso) =>
       ultimaAttivitaCommessa(commessa, ultimaComunicazione ?? null, adesso),
+    fatture: () => ficFatture as any[],
+    statoFattura: f => statoFattura(f, getCommesseStore() as any[]).stato,
+    gate: (commessaId, stato) => ({
+      ok: statoHasRequiredDoc(commessaId, stato),
+      mancano: (REQUIRED_DOC_TIPI_PER_STATO[stato] ?? []).map(t => DOC_TIPO_LABEL[t]),
+    }),
+    ordini: () => getOrdiniFornitoriStore() as any[],
   };
 }
 
@@ -151,7 +176,9 @@ export async function costruisciFotografia(input: {
     );
   }
   const giorniFermi = (id: number) => attivita.get(id)?.giorni ?? 0;
+  // I preventivi hanno la loro sezione (1-bis): qui le altre fasi.
   const ferme = [...commesse]
+    .filter(c => c.stato !== "preventivo")
     .map(c => ({ c, giorni: giorniFermi(c.id) }))
     .filter(x => x.giorni <= giorniDormiente())
     .sort((a, b) => b.giorni - a.giorni)
@@ -166,6 +193,77 @@ export async function costruisciFotografia(input: {
     });
   }
   sezioni.push({ chiave: "commesse", titolo: "Commesse", fatti: fattiCommesse });
+
+  // 1-bis. Preventivi: il collo di bottiglia commerciale (D3: 7 giorni
+  // sollecito, 30 perso). Età = attività reale, non updatedAt.
+  const preventivi = commesse.filter(c => c.stato === "preventivo");
+  const preventiviFermi = preventivi
+    .map(c => ({ c, giorni: giorniFermi(c.id) }))
+    .filter(x => x.giorni >= 7 && x.giorni <= giorniDormiente())
+    .sort((a, b) => b.giorni - a.giorni);
+  contatori.preventiviAttivi = preventivi.length;
+  contatori.preventiviFermi7 = preventiviFermi.length;
+  contatori.preventiviFermi30 = preventiviFermi.filter(x => x.giorni >= 30).length;
+  sezioni.push({
+    chiave: "preventivi",
+    titolo: "Preventivi fermi (sollecito a 7 giorni, perso a 30)",
+    fatti: preventiviFermi.slice(0, PREVENTIVI_MASSIMI).map(({ c, giorni }) => ({
+      chiave: `commessa:${c.id}:preventivo_fermo`,
+      testo: `${etichettaCommessa(c)}: preventivo senza fatti nuovi da ${giorni} giorni${
+        giorni >= 30 ? " — da proporre come perso" : " — da sollecitare"
+      }.`,
+      entita: [`commessa:${c.id}`],
+      link: `/commesse/${c.id}`,
+    })),
+  });
+
+  // 1-ter. Gate documentali mancanti sulle commesse vive: il documento che
+  // blocca il passo successivo. Le più attive prima: è lì che si lavora.
+  const gateMancanti = commesse
+    .map(c => ({ c, giorni: giorniFermi(c.id), gate: deps.gate(c.id, c.stato) }))
+    .filter(x => x.giorni <= giorniDormiente() && !x.gate.ok);
+  contatori.gateMancanti = gateMancanti.length;
+  sezioni.push({
+    chiave: "gate",
+    titolo: "Gate documentali mancanti (il documento che blocca l'avanzamento)",
+    fatti: [...gateMancanti]
+      .sort((a, b) => a.giorni - b.giorni)
+      .slice(0, GATE_MASSIMI)
+      .map(({ c, gate }) => ({
+        chiave: `commessa:${c.id}:gate`,
+        testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      })),
+  });
+
+  // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.
+  // Mai importi. «attesa_incasso» è il corso normale: solo contatore.
+  const fatture = deps.fatture().filter(f => f.sedeId === sedeId);
+  const fattureNonCollegate = fatture.filter(f => f.commessaId == null && !f.ignorata);
+  const statiFatture = fatture
+    .filter(f => f.commessaId != null && !f.ignorata)
+    .map(f => deps.statoFattura(f));
+  contatori.fattureNonCollegate = fattureNonCollegate.length;
+  contatori.fattureDaRiconciliare = statiFatture.filter(s => s === "da_riconciliare").length;
+  contatori.fattureAttesaIncasso = statiFatture.filter(s => s === "attesa_incasso").length;
+  const fattiFatture: FattoAnalisi[] = fattureNonCollegate
+    .slice(0, FATTURE_MASSIME)
+    .map(f => ({
+      chiave: `fattura:${f.id}:non_collegata`,
+      testo: `Fattura n. ${f.numero} del ${f.data} — ${f.clienteNome}: non collegata a nessuna commessa.`,
+      entita: [`fattura:${f.id}`],
+      link: "/economia",
+    }));
+  if (contatori.fattureDaRiconciliare > 0) {
+    fattiFatture.push({
+      chiave: "fatture:da_riconciliare",
+      testo: `${contatori.fattureDaRiconciliare} fatture risultano incassate ma senza gli incassi a registro sulla commessa.`,
+      entita: [],
+      link: "/economia",
+    });
+  }
+  sezioni.push({ chiave: "fatture", titolo: "Fatture (FiC)", fatti: fattiFatture });
 
   // 2. Casi aperti del Centro Azioni (già deterministici e prioritizzati).
   // I casi su commesse DORMIENTI (ferme da oltre 120 giorni) vanno a parte:
@@ -212,7 +310,7 @@ export async function costruisciFotografia(input: {
   contatori.commesseDormienti = commesseDormienti.length;
   sezioni.push({
     chiave: "dormienti",
-    titolo: "Commesse dormienti (ferme da oltre 120 giorni): niente lavoro da proporre, al più archiviarle in blocco",
+    titolo: `Commesse dormienti (ferme da oltre ${giorniDormiente()} giorni): niente lavoro da proporre, al più archiviarle in blocco`,
     fatti:
       commesseDormienti.length > 0
         ? [
@@ -247,9 +345,16 @@ export async function costruisciFotografia(input: {
     })),
   });
 
-  // 4. Pattern azienda (correlazioni, mai cause).
+  // 4. Pattern azienda (correlazioni, mai cause). Un pattern calcolato su
+  // un modulo vuoto è rumore: con zero ordini a sistema «ritardi_fornitore»
+  // non entra (03/09: l'analisi citava ritardi fornitore su dati inesistenti).
+  const ordiniSede = deps
+    .ordini()
+    .filter((o: any) => (o.sedeId ?? sedeId) === sedeId);
   const pattern = await tenta(() => deps.pattern(sedeId, adesso), null);
-  const listaPattern = pattern?.pattern ?? [];
+  const listaPattern = (pattern?.pattern ?? []).filter(
+    p => ordiniSede.length > 0 || p.chiave !== "ritardi_fornitore"
+  );
   contatori.pattern = listaPattern.length;
   sezioni.push({
     chiave: "pattern",
@@ -278,6 +383,19 @@ export async function costruisciFotografia(input: {
       entita: [],
       link: "/messaggi/email",
     });
+    const senzaRisposta24h = (smistamento.daRispondere ?? []).filter((v: any) => {
+      const t = new Date(v.ricevutaIl ?? 0).getTime();
+      return Number.isFinite(t) && t > 0 && adesso.getTime() - t >= 86_400_000;
+    });
+    contatori.comunicazioniSenzaRisposta24h = senzaRisposta24h.length;
+    if (senzaRisposta24h.length > 0) {
+      fattiComunicazioni.push({
+        chiave: "comunicazioni:senza_risposta_24h",
+        testo: `${senzaRisposta24h.length} comunicazioni attendono una risposta da oltre 24 ore.`,
+        entita: senzaRisposta24h.slice(0, 5).map((v: any) => `comunicazione:${v.comunicazioneId}`),
+        link: "/messaggi/email",
+      });
+    }
     for (const [gruppo, etichetta] of [
       ["urgenti", "Urgente"],
       ["daRispondere", "Da rispondere"],
@@ -301,6 +419,7 @@ export async function costruisciFotografia(input: {
     .filter(t => (t.sedeId ?? sedeId) === sedeId && t.stato !== "chiuso" && !t.deletedAt);
   contatori.ticketAperti = ticket.length;
   contatori.ticketUrgenti = ticket.filter(t => t.priorita === "urgente" || t.priorita === "alta").length;
+  contatori.ticketSenzaAssegnatario = ticket.filter(t => t.assegnatoA == null).length;
   sezioni.push({
     chiave: "ticket",
     titolo: "Ticket post-vendita aperti",
@@ -357,6 +476,26 @@ export async function costruisciFotografia(input: {
     .proposteGateway()
     .filter(p => p.sedeId === sedeId && (p.stato === "proposta" || p.stato === "approvata"));
   contatori.proposteDocumentali = proposte.length;
+
+  // 9. Perimetro: i moduli senza dati esistono nel CRM ma non in questa
+  // azienda. Dichiararli evita al modello di inventarci sopra rischi.
+  const moduliVuoti: string[] = [];
+  if (ordiniSede.length === 0) moduliVuoti.push("Ordini fornitore: 0 record");
+  sezioni.push({
+    chiave: "perimetro",
+    titolo: "Perimetro (moduli senza dati: non trarne conclusioni)",
+    fatti:
+      moduliVuoti.length > 0
+        ? [
+            {
+              chiave: "perimetro:moduli_vuoti",
+              testo: `Moduli non usati in questa azienda: ${moduliVuoti.join("; ")}. Nessuna analisi o proposta deve riguardarli.`,
+              entita: [],
+              link: null,
+            },
+          ]
+        : [],
+  });
 
   return { sedeId, generataIl: adesso.toISOString(), contatori, sezioni };
 }

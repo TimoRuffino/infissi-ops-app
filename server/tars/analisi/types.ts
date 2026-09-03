@@ -2,7 +2,7 @@
 // dell'azienda al giorno, una sintesi del modello sopra, proposte che si
 // eseguono SOLO chiedendolo a Tars in chat (nessuna mutazione da qui).
 
-export const VERSIONE_ANALISI_AZIENDA = "1.0.0";
+export const VERSIONE_ANALISI_AZIENDA = "1.1.0";
 
 export type FattoAnalisi = {
   /** Chiave stabile del fatto (per i test e per il modello). */
