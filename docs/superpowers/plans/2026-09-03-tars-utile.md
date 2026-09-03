@@ -103,7 +103,7 @@ Fuori i segnali su moduli vuoti. Dentro:
 - comunicazioni senza risposta oltre 24 h e proposte di collegamento;
 - ticket aperti senza assegnatario.
 
-### T3 — Proposte che si eseguono, non che si leggono
+### T3 — Proposte che si eseguono, non che si leggono — FATTO il 03/09/2026 (analisi 1.2.0, prompt analisi-v5, mutation eseguiPropostaAnalisi)
 
 Oggi una proposta dell'analisi apre la chat con la frase già scritta. Deve
 diventare un bottone che **fa la cosa**, con Undo dove il dominio lo

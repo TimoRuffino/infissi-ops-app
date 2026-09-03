@@ -92,6 +92,14 @@ tool citati dalle tranche; i nomi completi si ricavano con
   `executeSql` o `updateRecord` nel catalogo.
 - Nessun provider fuori dal governor; capability, sede, feature flag,
   freschezza/versione e audit restano verificati dal server.
+- Proposta→azione (T3, 03/09/2026): una proposta dell'analisi può portare
+  `azione {strumento, input JSON}` SOLO dalla whitelist
+  `STRUMENTI_PROPOSTE_ESEGUIBILI` (`analisi/analisi.ts`); la verifica
+  passa da `descrittoreAzione` + `schemaInput` alla generazione E
+  dall'intero percorso catalogo+ledger R1 al click
+  (`analisi/esecuzione.ts`, runId `analisi:<id>:proposta:<indice>`,
+  doppio click = riuso). `scavalcaGate` da proposta è vietato in entrambi
+  i punti.
 - T0 è documentale: il delta non deve contenere `client/`.
 
 ## Accettazione che questa matrice vincola
