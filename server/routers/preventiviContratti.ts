@@ -18,6 +18,11 @@ import {
   COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES,
   erroreUploadCommessa,
 } from "@shared/commessaUpload";
+import {
+  rimuoviCostoDelDocumento,
+  spostaCostoDelDocumento,
+} from "../commesse/costiRegistro";
+import type { LetturaCostoDocumento } from "../commesse/letturaCostoTipi";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +58,12 @@ export type Documento = {
   createdAt: Date;
   source?: "fic" | "comunicazione";
   sourceRef?: string;
+  /**
+   * Cosa ha dato la lettura del documento come conferma d'ordine (il costo
+   * del margine, 03/09/2026). Null finché nessuno l'ha letto: il worker
+   * passa a leggere le conferme senza esito.
+   */
+  letturaCosto?: LetturaCostoDocumento | null;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
@@ -94,6 +105,8 @@ const _documentiStore = persistedStore<Documento>(
       if ((d as any).statoAtUpload === undefined) {
         (d as any).statoAtUpload = "preventivo";
       }
+      // Conferme archiviate prima della regola del costo: da leggere.
+      if ((d as any).letturaCosto === undefined) (d as any).letturaCosto = null;
     }
   }
 );
@@ -430,7 +443,7 @@ export async function archiviaAllegatoComunicazione(args: {
     args.comunicazioneId,
     args.allegatoIndex
   );
-  return serializzaArchivioComunicazione(sourceRef, async () => {
+  const archiviato = await serializzaArchivioComunicazione(sourceRef, async () => {
     const existing = documenti.find(
       documento =>
         documento.source === "comunicazione" &&
@@ -512,6 +525,10 @@ export async function archiviaAllegatoComunicazione(args: {
     }
     return documento;
   });
+  // Fuori dalla sezione serializzata: leggere il PDF non deve tenere il
+  // lucchetto dell'allegato.
+  await agganciaCostoDaConferma(archiviato, "archiviazione");
+  return archiviato;
 }
 
 /** Crea o sposta il documento FIC senza duplicarlo nei ricollegamenti. */
@@ -762,11 +779,61 @@ export function spostaDocumentoDiCommessa(input: {
   documento.statoAtUpload = destinazione.stato ?? documento.statoAtUpload ?? null;
   if (input.note !== undefined) documento.note = input.note?.trim() || null;
   _documentiStore.save();
+  // Il costo nato dalla conferma segue il documento nel nuovo fascicolo.
+  spostaCostoDelDocumento(documento.id, da, input.commessaId);
   return { documento, da, a: input.commessaId };
 }
 
 export function getDocumentiDiCommessa(commessaId: number): Documento[] {
   return documenti.filter(d => d.commessaId === commessaId);
+}
+
+/** Tutte le conferme d'ordine dei fascicoli: il worker del costo le legge a lotti. */
+export function documentiConfermaOrdine(): Documento[] {
+  return documenti.filter(d => d.tipo === "conferma_ordine");
+}
+
+/** La memoria del documento sul costo che ne è nato: la scrive solo il servizio. */
+export function salvaLetturaCostoDocumento(
+  documentoId: number,
+  lettura: LetturaCostoDocumento | null
+): void {
+  const documento = documenti.find(d => d.id === documentoId);
+  if (!documento) return;
+  documento.letturaCosto = lettura;
+  _documentiStore.save();
+}
+
+/**
+ * La regola del 03/09/2026: una conferma d'ordine che entra nel fascicolo
+ * porta il suo costo imponibile sulla commessa. Senza OCR (il percorso della
+ * richiesta resta rapido; le scansioni le riprende il worker) e senza mai
+ * far fallire l'archiviazione: il documento è salvo, il costo si ritenta.
+ */
+export async function agganciaCostoDaConferma(
+  documento: Documento,
+  origine: "upload" | "archiviazione" | "riclassificazione"
+): Promise<void> {
+  if (documento.tipo !== "conferma_ordine") return;
+  try {
+    const { registraCostoDaConferma } = await import("../commesse/costoDaConferma");
+    const esito = await registraCostoDaConferma({ documentoId: documento.id, ocr: false });
+    if (esito.esito === "registrato" || esito.esito === "collegato") {
+      console.info("[costo-da-conferma]", {
+        origine,
+        documentoId: documento.id,
+        commessaId: documento.commessaId,
+        esito: esito.esito,
+        imponibile: esito.imponibile,
+      });
+    }
+  } catch (errore) {
+    console.error("[costo-da-conferma] aggancio fallito", {
+      origine,
+      documentoId: documento.id,
+      message: errore instanceof Error ? errore.message : "unknown",
+    });
+  }
 }
 
 export async function apriDocumentoCommessaDaStorage(
@@ -861,6 +928,7 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
 
   documenti.push(doc);
   _documentiStore.save();
+  await agganciaCostoDaConferma(doc, "upload");
   const { dataBase64, ...rest } = doc;
   return { ...rest, hasData: true };
 }
@@ -965,16 +1033,28 @@ export const preventiviContrattiRouter = router({
         note: z.string().nullable().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const doc = documenti.find(d => d.id === input.id);
       if (!doc) throw new Error("Documento non trovato");
       if (!commessaInSede(doc.commessaId, ctx.sedeId)) {
         throw new Error("Documento non trovato");
       }
+      const tipoPrima = doc.tipo;
       if (input.nome !== undefined) doc.nome = input.nome.trim();
       if (input.tipo !== undefined) doc.tipo = input.tipo;
       if (input.note !== undefined) doc.note = input.note?.trim() || null;
       _documentiStore.save();
+      // Riclassificare È far entrare (o uscire) una conferma dal fascicolo:
+      // il costo nasce o sparisce con il tipo.
+      if (input.tipo !== undefined && input.tipo !== tipoPrima) {
+        if (input.tipo === "conferma_ordine") {
+          await agganciaCostoDaConferma(doc, "riclassificazione");
+        } else if (tipoPrima === "conferma_ordine") {
+          rimuoviCostoDelDocumento(doc.id, doc.commessaId);
+          doc.letturaCosto = null;
+          _documentiStore.save();
+        }
+      }
       const { dataBase64, ...rest } = doc;
       return { ...rest, hasData: !!dataBase64 || !!doc.storageKey };
     }),
@@ -997,6 +1077,8 @@ export const preventiviContrattiRouter = router({
     documenti.splice(idx, 1);
     _documentiStore.save();
     deleteFileQuiet(doc.storageKey);
+    // Il costo nato da questa conferma se ne va con lei.
+    rimuoviCostoDelDocumento(doc.id, doc.commessaId);
 
     // Togliere il PDF di una fattura dal fascicolo E' scollegare la fattura.
     // Finora era solo la cancellazione di un file: la fattura restava

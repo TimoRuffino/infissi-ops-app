@@ -9,6 +9,8 @@
 
 import { TZDate } from "@date-fns/tz";
 import { z } from "zod";
+import { VERSIONE_LETTURA_COSTO } from "../../commesse/letturaCostoTipi";
+import { salvaLetturaCostoDocumento } from "../../routers/preventiviContratti";
 import { getActionCaseRepository } from "../../actionCenter/repository";
 import { transitionActionCase } from "../../actionCenter/service";
 import { CATEGORIE_COMUNICAZIONE } from "../../comunicazioni/filtroComunicazioni";
@@ -871,7 +873,7 @@ const spostaDocumento: StrumentoTars = {
  */
 const registraCostoFornitore: StrumentoTars = {
   nome: "registra_costo_fornitore",
-  versione: "1.0.0",
+  versione: "1.1.0",
   categoria: "economia",
   livello: "L2",
   effetto: "interno",
@@ -879,7 +881,7 @@ const registraCostoFornitore: StrumentoTars = {
   capability: ["economia.read"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Registra il costo del fornitore su una commessa leggendolo dalla conferma d'ordine già nel fascicolo. L'importo è l'IMPONIBILE (IVA esclusa): è la base del margine. PRIMA mostra all'utente l'importo letto dal documento e fatti dire di sì; poi richiama con importoImponibile uguale a quello letto — il server rilegge il documento e rifiuta se non coincide. Se il documento non dichiara l'imponibile, l'importo va inserito a mano dalla scheda commessa: non si scorpora l'IVA per stima.",
+    "Rimette sulla commessa il costo del fornitore letto da una conferma d'ordine già nel fascicolo. DI NORMA NON SERVE: il costo nasce da solo nel momento in cui la conferma viene allegata alla commessa (regola di dominio); usalo solo se il costo è stato tolto a mano o manca. L'importo è l'IMPONIBILE (IVA esclusa), base del margine. PRIMA mostra all'utente l'importo letto dal documento (leggi_conferma_ordine) e fatti dire di sì; poi richiama con importoImponibile uguale a quello letto — il server rilegge il documento e rifiuta se non coincide. Se il documento non dichiara l'imponibile, l'importo va inserito a mano dalla scheda commessa: non si scorpora l'IVA per stima.",
   schemaInput: z
     .object({
       commessaId: z.number().int().positive(),
@@ -903,15 +905,17 @@ const registraCostoFornitore: StrumentoTars = {
         "Il documento non è nel fascicolo di questa commessa: spostalo prima (sposta_documento)."
       );
     }
-    // Un costo già registrato sullo stesso documento non si duplica.
+    // Di norma il costo è già nato quando la conferma è entrata nel
+    // fascicolo (regola di dominio 03/09/2026): non si duplica.
     const giaRegistrato = (commessa.costi ?? []).some(
       (c: any) =>
-        c.note && String(c.note).includes(`documento:${input.documentoId}`)
+        c.documentoId === input.documentoId ||
+        (c.note && String(c.note).includes(`documento:${input.documentoId}`))
     );
     if (giaRegistrato) {
       return nonEseguito(
         nome,
-        "Il costo di questo documento è già registrato sulla commessa."
+        "Il costo di questo documento è già registrato sulla commessa: è nato quando la conferma è entrata nel fascicolo."
       );
     }
 
@@ -957,17 +961,36 @@ const registraCostoFornitore: StrumentoTars = {
 
     try {
       const caller = await callerPer(contesto);
-      await caller.commesse.addCosto({
+      const aggiornata: any = await caller.commesse.addCosto({
         commessaId: input.commessaId,
         importo: imponibile,
         fornitore: fornitore ?? undefined,
         descrizione: `Conferma d'ordine ${lettura.nomeFile}`.slice(0, 160),
         data: dataDocumento ?? undefined,
         numeroOrdine: numeroOrdine ?? undefined,
-        // Il riferimento al documento serve anche da chiave anti-doppione.
+        documentoId: input.documentoId,
         note: `${input.note ? `${input.note} ` : ""}Letto da Tars dal documento:${input.documentoId}${
           lettura.fonteTesto === "ocr" ? " (testo da OCR)" : ""
         }`.slice(0, 300),
+      });
+      // Il documento ricorda che il suo costo è a registro: il worker di
+      // fondo non lo rilegge e la scheda non lo segnala più.
+      const costoScritto = (aggiornata?.costi ?? []).find(
+        (c: any) => c.documentoId === input.documentoId
+      );
+      salvaLetturaCostoDocumento(input.documentoId, {
+        versione: VERSIONE_LETTURA_COSTO,
+        checksum: documento.checksum ?? null,
+        quando: new Date().toISOString(),
+        esito: "registrato",
+        fonteTesto: lettura.fonteTesto,
+        imponibile,
+        fornitore,
+        numeroOrdine,
+        dataDocumento,
+        motivo: null,
+        tentativi: documento.letturaCosto?.tentativi ?? 0,
+        costoId: costoScritto?.id ?? null,
       });
       return fatto({
         strumento: nome,

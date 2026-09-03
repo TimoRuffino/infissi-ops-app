@@ -161,6 +161,15 @@ const _store = persistedStore<any>("commesse", (items) => {
     if ((c as any).costoPosaStimato === undefined) (c as any).costoPosaStimato = null;
     // Registro costi fornitore — inserito direttamente in scheda commessa.
     if (!Array.isArray((c as any).costi)) (c as any).costi = [];
+    // Il costo nato da una conferma d'ordine ricorda il documento in un
+    // campo, non in una stringa nelle note (03/09/2026). I costi scritti da
+    // Tars prima del campo portavano «documento:<id>» nella nota.
+    for (const costo of (c as any).costi) {
+      if (costo.documentoId === undefined) {
+        const riferimento = /documento:(\d+)/.exec(String(costo.note ?? ""));
+        costo.documentoId = riferimento ? Number(riferimento[1]) : null;
+      }
+    }
     if ((c as any).importoIncassato === undefined) (c as any).importoIncassato = 0;
     // Acconti register — importoIncassato is derived from it. Legacy records
     // with a bare incassato figure get a single imported entry.
@@ -1143,12 +1152,17 @@ export const commesseRouter = router({
             (o) => o.importoTotale > 0 && o.stato !== "bozza" && o.stato !== "contestato"
           )
         : [];
+    // Conferme d'ordine nel fascicolo senza un costo a registro: la scheda
+    // dice perché (imponibile non dichiarato, scansione…) invece di mostrare
+    // uno zero muto.
+    const { confermeSenzaCostoDi } = await import("../commesse/costoDaConferma");
     return {
       ...calcolaMargine({
         ...c!,
         pattuitoImponibile: await pattuitoImponibileDi(c!),
       }),
       ordiniImportabili,
+      confermeSenzaCosto: confermeSenzaCostoDi(input),
     };
   }),
 
@@ -1164,6 +1178,9 @@ export const commesseRouter = router({
       data: z.string().nullable().optional(), // "YYYY-MM-DD"
       numeroOrdine: z.string().nullable().optional(),
       note: z.string().nullable().optional(),
+      // Il documento del fascicolo da cui il costo è letto (Tars): la scheda
+      // non lo manda mai.
+      documentoId: z.number().int().positive().nullable().optional(),
     }))
     .mutation(({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
@@ -1181,6 +1198,7 @@ export const commesseRouter = router({
         data: input.data || null,
         numeroOrdine: input.numeroOrdine?.trim() || null,
         note: input.note?.trim() || null,
+        documentoId: input.documentoId ?? null,
         createdAt: new Date(),
       });
       c!.updatedAt = new Date();
@@ -1258,6 +1276,7 @@ export const commesseRouter = router({
           data: null,
           numeroOrdine: o.codiceOrdine,
           note: null,
+          documentoId: null,
           createdAt: new Date(),
         });
         importati++;

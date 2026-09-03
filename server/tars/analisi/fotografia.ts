@@ -25,8 +25,12 @@ import { ultimaComunicazionePerCommessa } from "../../comunicazioni/comunicazion
 import { ultimaAttivitaCommessa } from "../../commesse/attivita";
 import {
   confermeOrdineMancanti,
+
   type CommessaSenzaConferma,
 } from "../documenti/confermeMancanti";
+// Il costo che nasce dalla conferma è regola di dominio, non di Tars: qui
+// si legge solo dove NON è nato, per dirlo.
+import { confermeSenzaCostoLeggibileDiSede } from "../../commesse/costoDaConferma";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
 import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
 
@@ -94,7 +98,16 @@ export type DipendenzeFotografia = {
   ordini: () => any[];
   /** Commesse senza conferma d'ordine nel fascicolo, con i file candidati. */
   confermeMancanti: (sedeId: number) => Promise<CommessaSenzaConferma[]>;
+  /**
+   * Conferme NEL fascicolo da cui il costo del margine non è nato (imponibile
+   * non dichiarato, scansione illeggibile): il costo va scritto a mano.
+   */
+  confermeSenzaCosto?: (sedeId: number) => Promise<ConfermaSenzaCostoFotografia[]>;
 };
+
+type ConfermaSenzaCostoFotografia = ReturnType<
+  typeof confermeSenzaCostoLeggibileDiSede
+>[number];
 
 export function dipendenzeFotografiaReali(): DipendenzeFotografia {
   return {
@@ -134,6 +147,7 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
         deps: dipendenzeConfermeReali(),
         limite: 25,
       }),
+    confermeSenzaCosto: async sedeId => confermeSenzaCostoLeggibileDiSede(sedeId, 20),
   };
 }
 
@@ -264,10 +278,24 @@ export async function costruisciFotografia(input: {
   contatori.confermeOrdineDaArchiviareSubito = confermeConFile.filter(r =>
     r.candidati.some(c => c.certezza === "certa")
   ).length;
+  // Conferme già nel fascicolo da cui il costo non è nato da solo: qui non
+  // si cerca niente, si registra a mano (regola del costo, 03/09 sera).
+  const senzaCosto = deps.confermeSenzaCosto
+    ? await tenta(() => deps.confermeSenzaCosto!(sedeId), [] as ConfermaSenzaCostoFotografia[])
+    : [];
+  contatori.confermeOrdineSenzaCostoLeggibile = senzaCosto.length;
+  const fattiSenzaCosto = senzaCosto.slice(0, GATE_MASSIMI).map(riga => ({
+    chiave: `commessa:${riga.commessaId}:conferma_senza_costo`,
+    testo: `${riga.codice ?? `Commessa ${riga.commessaId}`} — ${riga.cliente ?? "cliente non indicato"}: la conferma «${riga.nomeFile}» è nel fascicolo ma il costo del margine non si legge da sola (${
+      riga.esito === "senza_imponibile" ? "imponibile non dichiarato" : "documento non leggibile"
+    }): il costo va registrato a mano dalla scheda commessa.`,
+    entita: [`commessa:${riga.commessaId}`, `documento:${riga.documentoId}`],
+    link: riga.link,
+  }));
   sezioni.push({
     chiave: "conferme_ordine",
-    titolo: "Conferme d'ordine mancanti (gate documentale e costo del margine)",
-    fatti: conferme.slice(0, GATE_MASSIMI).map(riga => {
+    titolo: "Conferme d'ordine mancanti o senza costo leggibile (gate documentale e costo del margine)",
+    fatti: [...fattiSenzaCosto, ...conferme.slice(0, GATE_MASSIMI).map(riga => {
       const certo = riga.candidati.find(c => c.certezza === "certa");
       const primo = certo ?? riga.candidati[0] ?? null;
       return {
@@ -285,7 +313,7 @@ export async function costruisciFotografia(input: {
         ],
         link: primo?.link ?? `/commesse/${riga.commessaId}`,
       };
-    }),
+    })],
   });
 
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.

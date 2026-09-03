@@ -16,6 +16,7 @@ import {
   ficFatture,
   upsertFatture,
 } from "../../routers/ficFatture";
+import { pdfConTesto } from "../../documenti/pdfMinimo";
 import {
   caricaDocumentoCommessaDaBuffer,
   getDocumentoRecordById,
@@ -318,37 +319,7 @@ describe("fatture e documenti del fascicolo (T1)", () => {
 });
 
 describe("costo fornitore dalla conferma d'ordine (margine)", () => {
-  /**
-   * Un PDF 1.4 minimo ma valido, con un flusso di testo non compresso: il
-   * parser (unpdf/pdfjs) lo legge davvero, quindi il test attraversa la
-   * stessa strada della produzione, OCR escluso.
-   */
-  function pdfConTesto(righe: string[]): Buffer {
-    const sicura = (r: string) => r.replace(/[()\\]/g, m => "\\" + m);
-    const contenuto = righe
-      .map((r, i) => `BT /F1 11 Tf 40 ${780 - i * 16} Td (${sicura(r)}) Tj ET`)
-      .join("\n");
-    const oggetti = [
-      "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-      `<< /Length ${Buffer.byteLength(contenuto, "latin1")} >>\nstream\n${contenuto}\nendstream`,
-    ];
-    let pdf = "%PDF-1.4\n";
-    const offsets: number[] = [];
-    oggetti.forEach((o, i) => {
-      offsets.push(Buffer.byteLength(pdf, "latin1"));
-      pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
-    });
-    const xref = Buffer.byteLength(pdf, "latin1");
-    pdf +=
-      `xref\n0 ${oggetti.length + 1}\n0000000000 65535 f \n` +
-      offsets.map(o => `${String(o).padStart(10, "0")} 00000 n \n`).join("") +
-      `trailer\n<< /Size ${oggetti.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    return Buffer.from(pdf, "latin1");
-  }
-
+  // Il PDF è vero (parser di produzione, OCR escluso): vedi pdfMinimo.ts.
   async function confermaNelFascicolo(commessaId: number, righe: string[]) {
     return caricaDocumentoCommessaDaBuffer({
       commessaId,
@@ -362,7 +333,7 @@ describe("costo fornitore dalla conferma d'ordine (margine)", () => {
     });
   }
 
-  it("registra l'imponibile letto dal documento e non lo duplica al secondo giro", async () => {
+  it("il costo è già nato con l'archiviazione; lo strumento non duplica e rimette solo ciò che è stato tolto a mano", async () => {
     const ctx = await contesto();
     const commessa = await direzione().commesse.create({ cliente: "Tesconi Giorgio" });
     const documento = await confermaNelFascicolo(commessa.id, [
@@ -372,20 +343,11 @@ describe("costo fornitore dalla conferma d'ordine (margine)", () => {
       "IVA 22%: EUR 770,00",
       "Totale documento: EUR 4.270,00",
     ]);
+    // Regola di dominio (03/09 sera): la conferma nel fascicolo porta il costo.
+    const nata: any = getCommessaById(commessa.id);
+    expect(nata.costi).toHaveLength(1);
+    expect(nata.costi[0]).toMatchObject({ importo: 3500, documentoId: documento.id });
 
-    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
-      commessaId: commessa.id,
-      documentoId: documento.id,
-      importoImponibile: 3500,
-    });
-    expect(esito.stato).toBe("registrato");
-    expect(esito.dati.importoImponibile).toBe(3500);
-
-    const salvata: any = getCommessaById(commessa.id);
-    expect(salvata.costi).toHaveLength(1);
-    expect(salvata.costi[0].importo).toBe(3500);
-
-    // Secondo giro sullo stesso documento: nessun doppione.
     const doppio = await tool("registra_costo_fornitore").esegui(ctx, {
       commessaId: commessa.id,
       documentoId: documento.id,
@@ -394,6 +356,20 @@ describe("costo fornitore dalla conferma d'ordine (margine)", () => {
     expect(doppio.stato).toBe("non_eseguito");
     expect(doppio.motivo).toContain("già registrato");
     expect((getCommessaById(commessa.id) as any).costi).toHaveLength(1);
+
+    // Tolto a mano: su richiesta esplicita lo strumento lo rimette, ancorato al documento.
+    await direzione().commesse.removeCosto({ commessaId: commessa.id, costoId: nata.costi[0].id });
+    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 3500,
+    });
+    expect(esito.stato).toBe("registrato");
+    expect(esito.dati.importoImponibile).toBe(3500);
+    const salvata: any = getCommessaById(commessa.id);
+    expect(salvata.costi).toHaveLength(1);
+    expect(salvata.costi[0]).toMatchObject({ importo: 3500, documentoId: documento.id });
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto?.esito).toBe("registrato");
   });
 
   it("un importo diverso da quello scritto nel documento viene rifiutato", async () => {
@@ -404,6 +380,9 @@ describe("costo fornitore dalla conferma d'ordine (margine)", () => {
       "Totale imponibile: EUR 1.000,00",
       "IVA 22%: EUR 220,00",
     ]);
+    // Il costo nato con l'archiviazione va tolto per provare l'ancora dello strumento.
+    const nata: any = getCommessaById(commessa.id);
+    await direzione().commesse.removeCosto({ commessaId: commessa.id, costoId: nata.costi[0].id });
     const esito = await tool("registra_costo_fornitore").esegui(ctx, {
       commessaId: commessa.id,
       documentoId: documento.id,

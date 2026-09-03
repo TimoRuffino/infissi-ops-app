@@ -277,15 +277,23 @@ export default function CommessaDetail() {
   const deleteIntervento = trpc.interventi.delete.useMutation({
     onSuccess: () => { utils.interventi.list.invalidate(); setDeleteTarget(null); },
   });
+  // Il fascicolo muove il margine: una conferma d'ordine che entra, esce o
+  // cambia tipo fa nascere o sparire il costo fornitore (03/09/2026).
+  const aggiornaEconomia = () => {
+    utils.commesse.margine.invalidate(commessaId);
+    utils.commesse.marginalita.invalidate();
+  };
   const deleteDocumento = trpc.preventiviContratti.delete.useMutation({
     onSuccess: () => {
       utils.preventiviContratti.invalidate();
+      aggiornaEconomia();
       setDeleteTarget(null);
     },
   });
   const rinominaDocumento = trpc.preventiviContratti.update.useMutation({
     onSuccess: () => {
       utils.preventiviContratti.invalidate();
+      aggiornaEconomia();
       setRinominaDoc(null);
       toast.success("Documento aggiornato");
     },
@@ -521,6 +529,7 @@ export default function CommessaDetail() {
         throw new Error(payload?.error || "Caricamento non riuscito.");
       }
       await utils.preventiviContratti.invalidate();
+      aggiornaEconomia();
       setUploadDialog(false);
       setUploadForm({ file: null, tipo: "preventivo", note: "" });
       setUploadError(null);
@@ -556,6 +565,15 @@ export default function CommessaDetail() {
       mimeType: doc.mimeType,
       url: documentoFileUrl(doc.id),
     });
+  }
+
+  // Dalla card economia: la conferma d'ordine da cui è nato un costo si apre
+  // in anteprima come dal fascicolo (direzione: «ogni volta che si fa
+  // riferimento a un file devo poterlo aprire»).
+  function apriDocumentoDelFascicolo(documentoId: number) {
+    const doc = (documenti.data ?? []).find((d: any) => d.id === documentoId);
+    if (doc) openPreview(doc);
+    else window.open(documentoFileUrl(documentoId), "_blank", "noopener,noreferrer");
   }
 
   function openEmailDialog(doc: any) {
@@ -1129,7 +1147,10 @@ export default function CommessaDetail() {
         }
         economy={
           puoVedereEconomia ? (
-            <EconomiaCard commessaId={commessaId} />
+            <EconomiaCard
+              commessaId={commessaId}
+              onApriDocumento={apriDocumentoDelFascicolo}
+            />
           ) : undefined
         }
         tars={
@@ -3202,7 +3223,13 @@ const FORNITORI_COSTO = [
   "Sharknet",
 ];
 
-function EconomiaCard({ commessaId }: { commessaId: number }) {
+function EconomiaCard({
+  commessaId,
+  onApriDocumento,
+}: {
+  commessaId: number;
+  onApriDocumento?: (documentoId: number) => void;
+}) {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const canSee = isDirezione(user) || hasRuolo(user, "amministrazione");
@@ -3271,6 +3298,9 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
   if (!canSee || !margine.data) return null;
   const m: any = margine.data;
   const costi: any[] = m.costi ?? [];
+  // Conferme d'ordine nel fascicolo da cui il costo non è nato (imponibile
+  // non dichiarato, scansione, costo tolto a mano): si dice il perché.
+  const confermeSenzaCosto: any[] = m.confermeSenzaCosto ?? [];
 
   const fmt = formatEuro;
   const parse = parseEuroPositivo;
@@ -3453,7 +3483,9 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                 <div className="text-[11px]">
                   {m.ricavi == null
                     ? "collega la fattura: senza imponibile non c'è margine"
-                    : "nessun costo fornitore registrato"}
+                    : confermeSenzaCosto.length > 0
+                      ? "la conferma d'ordine nel fascicolo non dà un costo leggibile: registralo a mano"
+                      : "nessun costo fornitore: allega la conferma d'ordine e il costo nasce da solo"}
                 </div>
               </div>
             ) : (
@@ -3512,6 +3544,18 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                       {fmtData(c.data)}
                     </span>
                   )}
+                  {c.documentoId != null && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-2 hover:bg-surface-2"
+                      onClick={() => onApriDocumento?.(c.documentoId)}
+                      aria-label="Apri la conferma d'ordine da cui è nato il costo"
+                      title="Nato dalla conferma d'ordine nel fascicolo: apri il file"
+                    >
+                      <FileText className="h-3 w-3" />
+                      da conferma d'ordine
+                    </button>
+                  )}
                   <div className="ml-auto flex items-center gap-1">
                     <Button
                       variant="ghost"
@@ -3545,6 +3589,49 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                 </div>
               )
             )}
+          </div>
+        )}
+
+        {/* Conferme nel fascicolo da cui il costo non è nato: il perché e la via */}
+        {confermeSenzaCosto.length > 0 && (
+          <div className="space-y-1.5">
+            {confermeSenzaCosto.map((r: any) => (
+              <div
+                key={r.documentoId}
+                className="flex items-center gap-2 rounded-lg border border-dashed border-warning px-3 py-2 text-xs flex-wrap"
+              >
+                <FileText className="h-3.5 w-3.5 text-warning shrink-0" />
+                <span className="text-text-2 min-w-0">
+                  Conferma «{r.nomeFile}» nel fascicolo, costo non registrato:{" "}
+                  {r.motivo ?? r.esito}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => onApriDocumento?.(r.documentoId)}
+                  >
+                    Apri
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => {
+                      setForm({
+                        ...emptyCosto,
+                        descrizione: `Conferma d'ordine ${r.nomeFile}`,
+                      });
+                      setEditId(null);
+                      setAddOpen(true);
+                    }}
+                  >
+                    Registra a mano
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

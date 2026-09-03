@@ -39,6 +39,18 @@ describe("calcolaMargine", () => {
     expect(risultato.datiIncompleti).toBe(false);
   });
 
+  it("ogni costo dice da quale conferma d'ordine è nato (null = a mano)", () => {
+    const risultato = calcolaMargine({
+      pattuitoImponibile: 10_000,
+      costi: [
+        { id: 1, importo: 3_500, documentoId: 77 },
+        { id: 2, importo: 200 },
+      ],
+    });
+    expect(risultato.costi.map(c => c.documentoId)).toEqual([77, null]);
+    expect(risultato.costiFornitore).toBe(3_700);
+  });
+
   it("senza fattura collegata non c'è imponibile: margine incompleto, nessuna aliquota inventata", () => {
     const risultato = calcolaMargine({
       importoTotale: 12_200,

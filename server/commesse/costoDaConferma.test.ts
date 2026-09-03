@@ -1,0 +1,335 @@
+// La regola del 03/09/2026: «il costo deve nascere nel momento in cui la
+// conf. ordine viene allegata alla commessa». Qui si attraversano gli
+// agganci veri del fascicolo con PDF veri (parser di produzione, OCR escluso).
+
+import { describe, expect, it } from "vitest";
+import type { TrpcContext } from "../_core/context";
+import { insertComunicazione } from "../comunicazioni/comunicazioni";
+import { pdfConTesto } from "../documenti/pdfMinimo";
+import { appRouter } from "../routers";
+import { getCommessaById } from "../routers/commesse";
+import {
+  archiviaAllegatoComunicazione,
+  caricaDocumentoCommessaDaBuffer,
+  getDocumentoRecordById,
+  spostaDocumentoDiCommessa,
+  type DocTipo,
+} from "../routers/preventiviContratti";
+import { getUtentiStore } from "../routers/utenti";
+import { confermeSenzaCostoDi, registraCostoDaConferma } from "./costoDaConferma";
+import {
+  daLeggere,
+  documentiDaLeggere,
+  eseguiGiroCostiDaConferma,
+} from "./costoDaConfermaWorker";
+
+const SEDE = 97_401;
+const DIREZIONE_ID = 97_411;
+
+{
+  const utenti = getUtentiStore() as any[];
+  if (!utenti.some(u => u.id === DIREZIONE_ID)) {
+    utenti.push({
+      id: DIREZIONE_ID,
+      nome: "Dir",
+      cognome: "Costi",
+      email: "costi-dir@example.test",
+      attivo: true,
+      ruoli: ["direzione"],
+      ruolo: "direzione",
+      sediIds: [SEDE],
+    });
+  }
+}
+
+function contestoTrpc(): TrpcContext {
+  return {
+    user: {
+      id: DIREZIONE_ID,
+      role: "admin",
+      ruolo: "direzione",
+      ruoli: ["direzione"],
+      name: "Direzione",
+    } as any,
+    req: { protocol: "http", headers: {} } as any,
+    res: {} as any,
+    sedeId: SEDE,
+    sediIds: [SEDE],
+  };
+}
+const direzione = () => appRouter.createCaller(contestoTrpc());
+
+const RIGHE_TESCONI = [
+  "TESCONI SRL - Serramenti",
+  "Conferma d'ordine n. 4471 del 01/09/2026",
+  "Totale imponibile: EUR 3.500,00",
+  "IVA 22%: EUR 770,00",
+  "Totale documento: EUR 4.270,00",
+];
+
+async function nuovaCommessa(cliente: string) {
+  return direzione().commesse.create({ cliente });
+}
+
+async function carica(
+  commessaId: number,
+  righe: string[],
+  opzioni: { tipo?: DocTipo; nome?: string } = {}
+) {
+  return caricaDocumentoCommessaDaBuffer({
+    commessaId,
+    nome: opzioni.nome ?? "Conferma_ordine_4471.pdf",
+    tipo: opzioni.tipo ?? "conferma_ordine",
+    mimeType: "application/pdf",
+    buffer: pdfConTesto(righe),
+    sedeId: SEDE,
+    createdBy: DIREZIONE_ID,
+    keepNome: true,
+  });
+}
+
+const costiDi = (commessaId: number): any[] =>
+  (getCommessaById(commessaId) as any).costi ?? [];
+
+describe("il costo fornitore nasce quando la conferma entra nel fascicolo", () => {
+  it("l'upload di una conferma registra l'imponibile sulla commessa, una volta sola", async () => {
+    const commessa = await nuovaCommessa("Tesconi Giorgio");
+    const documento = await carica(commessa.id, RIGHE_TESCONI);
+
+    const costi = costiDi(commessa.id);
+    expect(costi).toHaveLength(1);
+    expect(costi[0].importo).toBe(3500);
+    expect(costi[0].documentoId).toBe(documento.id);
+    expect(costi[0].note).toContain(`documento:${documento.id}`);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto).toMatchObject({
+      esito: "registrato",
+      imponibile: 3500,
+      fonteTesto: "testo_pdf",
+      costoId: costi[0].id,
+    });
+
+    const margine = await direzione().commesse.margine(commessa.id);
+    expect(margine.costiFornitore).toBe(3500);
+    expect(margine.costi[0].documentoId).toBe(documento.id);
+    expect(margine.confermeSenzaCosto).toEqual([]);
+
+    // Rileggere non raddoppia.
+    const secondo = await registraCostoDaConferma({ documentoId: documento.id });
+    expect(secondo.esito).toBe("gia_registrato");
+    expect(costiDi(commessa.id)).toHaveLength(1);
+  });
+
+  it("senza imponibile dichiarato non nasce niente e la scheda dice perché", async () => {
+    const commessa = await nuovaCommessa("Solo Totale");
+    const documento = await carica(commessa.id, [
+      "Conferma d'ordine n. 9",
+      "Totale documento: EUR 4.270,00",
+    ]);
+    expect(costiDi(commessa.id)).toHaveLength(0);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto?.esito).toBe(
+      "senza_imponibile"
+    );
+    const margine = await direzione().commesse.margine(commessa.id);
+    expect(margine.confermeSenzaCosto).toHaveLength(1);
+    expect(margine.confermeSenzaCosto[0]).toMatchObject({
+      documentoId: documento.id,
+      esito: "senza_imponibile",
+      link: `/api/documenti/${documento.id}/file`,
+    });
+    expect(margine.confermeSenzaCosto[0].motivo).toContain("a mano");
+  });
+
+  it("un costo già scritto a mano per lo stesso ordine viene collegato, non raddoppiato", async () => {
+    const commessa = await nuovaCommessa("Doppio No");
+    await direzione().commesse.addCosto({
+      commessaId: commessa.id,
+      importo: 3500,
+      fornitore: "Tesconi",
+      numeroOrdine: "4471",
+    });
+    const documento = await carica(commessa.id, RIGHE_TESCONI);
+    const costi = costiDi(commessa.id);
+    expect(costi).toHaveLength(1);
+    expect(costi[0].documentoId).toBe(documento.id);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto?.esito).toBe("collegato");
+  });
+
+  it("riclassificare un documento fa nascere o sparire il costo", async () => {
+    const commessa = await nuovaCommessa("Riclassifica");
+    const documento = await carica(commessa.id, RIGHE_TESCONI, {
+      tipo: "altro",
+      nome: "allegato.pdf",
+    });
+    expect(costiDi(commessa.id)).toHaveLength(0);
+
+    await direzione().preventiviContratti.update({ id: documento.id, tipo: "conferma_ordine" });
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].documentoId).toBe(documento.id);
+
+    await direzione().preventiviContratti.update({ id: documento.id, tipo: "altro" });
+    expect(costiDi(commessa.id)).toHaveLength(0);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto).toBeNull();
+  });
+
+  it("cancellare la conferma toglie il costo nato da lei", async () => {
+    const commessa = await nuovaCommessa("Cancella");
+    const documento = await carica(commessa.id, RIGHE_TESCONI);
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    await direzione().preventiviContratti.delete(documento.id);
+    expect(costiDi(commessa.id)).toHaveLength(0);
+  });
+
+  it("spostare la conferma in un altro fascicolo sposta il costo", async () => {
+    const origine = await nuovaCommessa("Origine");
+    const destinazione = await nuovaCommessa("Destinazione");
+    const documento = await carica(origine.id, RIGHE_TESCONI);
+    expect(costiDi(origine.id)).toHaveLength(1);
+
+    spostaDocumentoDiCommessa({
+      documentoId: documento.id,
+      commessaId: destinazione.id,
+      sedeId: SEDE,
+    });
+    expect(costiDi(origine.id)).toHaveLength(0);
+    expect(costiDi(destinazione.id)).toHaveLength(1);
+    expect(costiDi(destinazione.id)[0]).toMatchObject({
+      importo: 3500,
+      documentoId: documento.id,
+    });
+  });
+
+  it("l'archiviazione da mail registra il costo; il fornitore è il mittente se il documento non lo dice", async () => {
+    const commessa = await nuovaCommessa("Da Mail");
+    const mail = (await insertComunicazione({
+      sedeId: SEDE,
+      casellaId: 9,
+      messageId: `costo-${commessa.id}`,
+      canale: "email",
+      direzione: "in",
+      mittente: "ordini@tesconi.it",
+      mittenteNome: "Tesconi Serramenti",
+      destinatari: [],
+      oggetto: "Conferma ordine",
+      testo: "In allegato.",
+      allegati: [{ nome: "CO_4471.pdf", mimeType: "application/pdf", size: 1000 }],
+      clienteId: null,
+      commessaId: commessa.id,
+      matchConfidenza: "nessuna",
+      matchMotivo: null,
+      stato: "nuova",
+      receivedAt: new Date(),
+    } as any))!;
+
+    const documento = await archiviaAllegatoComunicazione({
+      sedeId: SEDE,
+      comunicazioneId: mail.id,
+      allegatoIndex: 0,
+      commessaId: commessa.id,
+      nome: "CO_4471.pdf",
+      tipo: "conferma_ordine",
+      mimeType: "application/pdf",
+      buffer: pdfConTesto(["Conferma d'ordine", "Imponibile: EUR 1.200,00"]),
+      createdBy: DIREZIONE_ID,
+    });
+    const costi = costiDi(commessa.id);
+    expect(costi).toHaveLength(1);
+    expect(costi[0]).toMatchObject({
+      importo: 1200,
+      fornitore: "Tesconi Serramenti",
+      documentoId: documento.id,
+    });
+  });
+});
+
+describe("il worker legge le conferme archiviate prima della regola", () => {
+  it("a lotti, le più recenti prima, senza rimettere un costo tolto a mano", async () => {
+    const commessa = await nuovaCommessa("Pregresso");
+    // Una conferma «vecchia»: archiviata come altro, poi diventata conferma
+    // senza passare dagli agganci (com'era prima di questa regola).
+    const documento = await carica(commessa.id, RIGHE_TESCONI, { tipo: "altro" });
+    const record = getDocumentoRecordById(documento.id)!;
+    record.tipo = "conferma_ordine";
+    record.letturaCosto = null;
+    expect(daLeggere(record)).toBe(true);
+    expect(documentiDaLeggere(100).map(d => d.id)).toContain(documento.id);
+
+    const giro = await eseguiGiroCostiDaConferma({ limite: 100, ocr: false });
+    expect(giro.registrati).toBeGreaterThanOrEqual(1);
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(daLeggere(record)).toBe(false);
+
+    // Tolto a mano: il worker lo rispetta, la scheda lo dice.
+    await direzione().commesse.removeCosto({
+      commessaId: commessa.id,
+      costoId: costiDi(commessa.id)[0].id,
+    });
+    const rispettato = await registraCostoDaConferma({ documentoId: documento.id });
+    expect(rispettato.esito).toBe("rimosso_a_mano");
+    expect(costiDi(commessa.id)).toHaveLength(0);
+    expect(confermeSenzaCostoDi(commessa.id)[0]).toMatchObject({
+      documentoId: documento.id,
+      esito: "rimosso_a_mano",
+    });
+
+    // Su richiesta esplicita (Tars) il costo torna.
+    const forzato = await registraCostoDaConferma({ documentoId: documento.id, forza: true });
+    expect(forzato.esito).toBe("registrato");
+    expect(costiDi(commessa.id)).toHaveLength(1);
+  });
+
+  it("una scansione resta al worker (da OCR); se l'OCR non la legge, diventa non leggibile", async () => {
+    const commessa = await nuovaCommessa("Scansione");
+    const documento = await carica(commessa.id, ["vuoto"], { tipo: "altro" });
+    const record = getDocumentoRecordById(documento.id)!;
+    record.tipo = "conferma_ordine";
+    record.letturaCosto = null;
+    const scansione = async () =>
+      ({ esito: "scansione_senza_testo", parser: "pdf-testo-nativo", versione: "1" }) as const;
+
+    const inAttesa = await registraCostoDaConferma({
+      documentoId: documento.id,
+      ocr: false,
+      deps: { estraiTesto: scansione },
+    });
+    expect(inAttesa.esito).toBe("da_ocr");
+    expect(daLeggere(record)).toBe(true);
+
+    const senzaOcr = await registraCostoDaConferma({
+      documentoId: documento.id,
+      ocr: true,
+      deps: { estraiTesto: scansione },
+    });
+    expect(senzaOcr.esito).toBe("non_leggibile");
+    expect(daLeggere(record)).toBe(false);
+    expect(costiDi(commessa.id)).toHaveLength(0);
+  });
+
+  it("un errore dello storage si ritenta tre volte, poi si ferma", async () => {
+    const commessa = await nuovaCommessa("Storage Giù");
+    const documento = await carica(commessa.id, RIGHE_TESCONI, { tipo: "altro" });
+    const record = getDocumentoRecordById(documento.id)!;
+    record.tipo = "conferma_ordine";
+    record.letturaCosto = null;
+    let chiamate = 0;
+    const rotto = async () => {
+      chiamate += 1;
+      throw new Error("R2 non risponde");
+    };
+    for (let i = 1; i <= 3; i += 1) {
+      const esito = await registraCostoDaConferma({
+        documentoId: documento.id,
+        deps: { leggiDocumento: rotto },
+      });
+      expect(esito.esito).toBe("errore");
+      expect(record.letturaCosto?.tentativi).toBe(i);
+      expect(daLeggere(record)).toBe(i < 3);
+    }
+    const quarto = await registraCostoDaConferma({
+      documentoId: documento.id,
+      deps: { leggiDocumento: rotto },
+    });
+    expect(quarto.esito).toBe("errore");
+    expect(chiamate).toBe(3);
+    expect(costiDi(commessa.id)).toHaveLength(0);
+  });
+});

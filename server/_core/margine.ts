@@ -18,10 +18,12 @@
 // inventa e il margine si dichiara incompleto — collegare la fattura è il
 // modo di ottenerlo.
 //
-// I costi si inseriscono in scheda commessa, come gli acconti: un registro
-// embedded `costi[]`. Il modulo Ordini fornitore resta per la parte
-// logistica (righe, ricevimento merce) ma NON alimenta il margine — un solo
-// posto dove scrivere un costo, nessun doppio conteggio.
+// I costi stanno in un registro embedded `costi[]` sulla commessa, come gli
+// acconti. Nascono da soli quando una conferma d'ordine entra nel fascicolo
+// (`server/commesse/costoDaConferma.ts`, direzione 03/09/2026) e si
+// inseriscono a mano per il resto. Il modulo Ordini fornitore resta per la
+// parte logistica (righe, ricevimento merce) ma NON alimenta il margine — un
+// solo posto dove scrivere un costo, nessun doppio conteggio.
 //
 // Pure function: nessuna dipendenza dagli store, banale da testare.
 
@@ -34,6 +36,8 @@ export type CostoCommessa = {
   data: string | null; // "YYYY-MM-DD"
   numeroOrdine: string | null;
   note: string | null;
+  /** La conferma d'ordine del fascicolo da cui il costo è nato (null = a mano). */
+  documentoId: number | null;
 };
 
 /** Perché i ricavi non sono utilizzabili: si dice, non si stima. */
@@ -78,6 +82,7 @@ export function calcolaMargine(commessa: {
     data: c.data ?? null,
     numeroOrdine: c.numeroOrdine ?? null,
     note: c.note ?? null,
+    documentoId: c.documentoId ?? null,
   }));
   const costiFornitore =
     Math.round(costi.reduce((sum, c) => sum + c.importo, 0) * 100) / 100;

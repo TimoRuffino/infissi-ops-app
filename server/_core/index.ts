@@ -77,6 +77,13 @@ async function startServer() {
   startAnalisiAziendaWorker();
   const { startFollowupPreventiviWorker } = await import("../tars/followup/worker");
   startFollowupPreventiviWorker();
+  // Costo fornitore dalla conferma d'ordine (03/09/2026): il flusso vivo lo
+  // registra all'archiviazione; il worker legge le conferme già nei
+  // fascicoli e le scansioni che aspettano l'OCR.
+  const { startCostoDaConfermaWorker } = await import(
+    "../commesse/costoDaConfermaWorker"
+  );
+  startCostoDaConfermaWorker();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();

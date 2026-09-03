@@ -3,10 +3,24 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 02/09/2026<br>
+**Aggiornato:** 03/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 03/09/2026 sera — il costo fornitore nasce dalla conferma d'ordine.**
+> Regola di dominio deterministica (`server/commesse/costoDaConferma.ts`, piano
+> `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`): quando un documento
+> di tipo `conferma_ordine` entra nel fascicolo (upload, archiviazione da mail,
+> riclassificazione, spostamento) la commessa registra in `costi[]` l'IMPONIBILE
+> letto dal PDF (`costi[].documentoId` lo lega al documento; cancellare o
+> riclassificare il documento toglie il costo). Il worker
+> `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per giro, OCR locale
+> ammesso, `COSTO_DA_CONFERMA_WORKER=off` per spegnerlo) legge le conferme già
+> archiviate e le scansioni; il documento ricorda l'esito in `letturaCosto`.
+> Senza imponibile nel documento non si scorpora l'IVA: la scheda commessa e la
+> fotografia di Tars dicono «registra a mano». La chat di Tars
+> (`registra_costo_fornitore` 1.1.0) serve solo a rimettere un costo tolto a mano.
 
 ## 1. Contesto
 
