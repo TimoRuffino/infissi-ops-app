@@ -44,6 +44,12 @@ function depsFotografia(parziale: Partial<DipendenzeFotografia> = {}): Dipendenz
       daDecidere: [],
     }),
     proposteGateway: () => [{ sedeId: SEDE, stato: "proposta" }, { sedeId: SEDE + 1, stato: "proposta" }],
+    // L'attività vera è finta qui: la commessa 1 è ferma da mesi, le altre no.
+    ultimeComunicazioni: async () => new Map<number, Date>(),
+    attivita: (commessa: any) => ({
+      giorni: commessa.id === 1 ? 200 : 3,
+      fonte: "documento",
+    }),
     ...parziale,
   };
 }
@@ -65,6 +71,14 @@ describe("fotografia", () => {
     expect(testo).toContain("## Commesse");
     expect(testo).toContain("[commessa:1]");
     expect(testo).toContain("Sollecito");
+    // L'attività VERA (non updatedAt) decide chi è dormiente: la commessa 1
+    // è ferma da 200 giorni, quindi esce dal lavoro proponibile.
+    expect(f.contatori.commesseDormienti).toBe(1);
+    const dormienti = f.sezioni.find(s => s.chiave === "dormienti")!;
+    expect(dormienti.fatti[0].testo).toContain("COM-2026-001");
+    expect(dormienti.fatti[0].testo).toContain("ferma da 200 gg");
+    const ferme = f.sezioni.find(s => s.chiave === "commesse")!.fatti;
+    expect(ferme.some(fatto => fatto.chiave === "commessa:1:ferma")).toBe(false);
   });
 
   it("una fonte che fallisce non azzera la fotografia", async () => {

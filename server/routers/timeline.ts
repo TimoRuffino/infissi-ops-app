@@ -120,6 +120,20 @@ const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
 });
 const steps = _stepsStore.items;
 
+/**
+ * Gli step della timeline di una commessa: servono a capire quando la
+ * commessa ha visto l'ultimo fatto reale (`updatedAt` viene riscritto in
+ * blocco dai lavori di fondo e non dice più niente — 03/09/2026).
+ */
+export function stepsDiCommessa(commessaId: number): {
+  dataCompletamento: string | null;
+  stato: string;
+}[] {
+  return steps
+    .filter(s => s.commessaId === commessaId)
+    .map(s => ({ dataCompletamento: s.dataCompletamento, stato: s.stato }));
+}
+
 export function reconcileTimelineBoardStates(): {
   analizzate: number;
   aggiornate: number;

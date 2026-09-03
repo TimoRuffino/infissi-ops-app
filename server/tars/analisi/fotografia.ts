@@ -14,6 +14,8 @@ import { calcolaPatternAzienda } from "../proattivita/patterns";
 import { repositoryOsservazioniCorrente } from "../proattivita/repository";
 import { smistamentoAttivo } from "../smistamento/worker";
 import { tarsAttivo } from "../../platform/interruttori";
+import { ultimaComunicazionePerCommessa } from "../../comunicazioni/comunicazioni";
+import { ultimaAttivitaCommessa } from "../../commesse/attivita";
 import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
 
 const COMMESSE_FERME = 6;
@@ -21,8 +23,16 @@ const CASI_MASSIMI = 12;
 const OSSERVAZIONI_MASSIME = 10;
 const TICKET_MASSIMI = 6;
 const GIORNI_INTERVENTI = 7;
-/** Una commessa senza aggiornamenti da così tanto è dormiente: non lavoro da proporre, al più da archiviare. */
-export const GIORNI_DORMIENTE = 120;
+/**
+ * Una commessa senza FATTI reali da così tanto è dormiente: non lavoro da
+ * proporre, al più da archiviare. Era 120 giorni misurati su `updatedAt`,
+ * che i lavori di fondo riscrivono: nessuna commessa risultava mai ferma
+ * (direzione 03/09: «continua a fare proposte di commesse vecchie mesi»).
+ */
+export function giorniDormiente(): number {
+  const n = Number.parseInt(process.env.TARS_GIORNI_DORMIENTE ?? "", 10);
+  return Number.isFinite(n) && n >= 7 ? n : 60;
+}
 
 function giorniDa(data: Date | string | null | undefined, adesso: Date): number | null {
   if (!data) return null;
@@ -51,6 +61,14 @@ export type DipendenzeFotografia = {
   pattern: (sedeId: number, adesso: Date) => Promise<{ pattern: any[] } | null>;
   smistamento: (sedeId: number, adesso: Date) => Promise<any | null>;
   proposteGateway: () => readonly any[];
+  /** Ultima comunicazione collegata per commessa: data l'attività vera. */
+  ultimeComunicazioni: (sedeId: number) => Promise<Map<number, Date>>;
+  /** Ultimo fatto reale della commessa (documenti, transizioni, timeline…). */
+  attivita: (
+    commessa: { id: number; createdAt?: Date | string | null },
+    ultimaComunicazione: Date | undefined,
+    adesso: Date
+  ) => { giorni: number; fonte: string };
 };
 
 export function dipendenzeFotografiaReali(): DipendenzeFotografia {
@@ -75,6 +93,9 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     smistamento: async (sedeId, adesso) =>
       smistamentoAttivo() ? await sezioneSmistamento(sedeId, adesso) : null,
     proposteGateway: () => getProposteStore(),
+    ultimeComunicazioni: sedeId => ultimaComunicazionePerCommessa(sedeId),
+    attivita: (commessa, ultimaComunicazione, adesso) =>
+      ultimaAttivitaCommessa(commessa, ultimaComunicazione ?? null, adesso),
   };
 }
 
@@ -117,16 +138,29 @@ export async function costruisciFotografia(input: {
       link: "/commesse",
     });
   }
+  const ultimeComunicazioni = await tenta(
+    () => deps.ultimeComunicazioni(sedeId),
+    new Map<number, Date>()
+  );
+  const attivita = new Map<number, { giorni: number; fonte: string }>();
+  for (const c of deps.commesse()) {
+    if (c.sedeId !== sedeId) continue;
+    attivita.set(
+      c.id,
+      deps.attivita(c, ultimeComunicazioni.get(c.id), adesso)
+    );
+  }
+  const giorniFermi = (id: number) => attivita.get(id)?.giorni ?? 0;
   const ferme = [...commesse]
-    .map(c => ({ c, giorni: giorniDa(c.updatedAt ?? c.createdAt, adesso) ?? 0 }))
-    .filter(x => x.giorni <= GIORNI_DORMIENTE)
+    .map(c => ({ c, giorni: giorniFermi(c.id) }))
+    .filter(x => x.giorni <= giorniDormiente())
     .sort((a, b) => b.giorni - a.giorni)
     .slice(0, COMMESSE_FERME);
   for (const { c, giorni } of ferme) {
     if (giorni < 7) continue;
     fattiCommesse.push({
       chiave: `commessa:${c.id}:ferma`,
-      testo: `${etichettaCommessa(c)}: in stato «${c.stato}» senza aggiornamenti da ${giorni} giorni${c.priorita === "urgente" ? " (priorità urgente)" : ""}.`,
+      testo: `${etichettaCommessa(c)}: in stato «${c.stato}» senza fatti nuovi da ${giorni} giorni${c.priorita === "urgente" ? " (priorità urgente)" : ""}.`,
       entita: [`commessa:${c.id}`],
       link: `/commesse/${c.id}`,
     });
@@ -148,9 +182,8 @@ export async function costruisciFotografia(input: {
   );
   const dormiente = (commessaId: number | null | undefined) => {
     if (commessaId == null) return false;
-    const c = perCommessa.get(commessaId);
-    if (!c) return false;
-    return (giorniDa(c.updatedAt ?? c.createdAt, adesso) ?? 0) > GIORNI_DORMIENTE;
+    if (!perCommessa.get(commessaId)) return false;
+    return giorniFermi(commessaId) > giorniDormiente();
   };
   const casi = tuttiICasi.filter(k => !dormiente(k.commessaId));
   const casiDormienti = tuttiICasi.filter(k => dormiente(k.commessaId));
@@ -185,9 +218,9 @@ export async function costruisciFotografia(input: {
         ? [
             {
               chiave: "dormienti:elenco",
-              testo: `${commesseDormienti.length} commesse ferme da oltre ${GIORNI_DORMIENTE} giorni: ${commesseDormienti
+              testo: `${commesseDormienti.length} commesse ferme da oltre ${giorniDormiente()} giorni: ${commesseDormienti
                 .slice(0, 10)
-                .map(c => `${etichettaCommessa(c)} (${c.stato}, ${giorniDa(c.updatedAt ?? c.createdAt, adesso)} gg)`)
+                .map(c => `${etichettaCommessa(c)} (${c.stato}, ferma da ${giorniFermi(c.id)} gg)`)
                 .join("; ")}${commesseDormienti.length > 10 ? "; …" : ""}. ${casiDormienti.length} casi aperti le riguardano.`,
               entita: commesseDormienti.slice(0, 10).map(c => `commessa:${c.id}`),
               link: "/commesse",

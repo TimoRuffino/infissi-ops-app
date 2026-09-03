@@ -2371,6 +2371,34 @@ export async function getComunicazione(
  * Stesse regole del getter singolo: sede-scoped, e le tombstone restano
  * dentro perché chi chiama guarda `deletedAt` da sé.
  */
+/**
+ * L'ultima comunicazione collegata, per commessa: una sola aggregazione
+ * invece di una query per riga. Serve a datare l'attività vera di una
+ * commessa (03/09/2026).
+ */
+export async function ultimaComunicazionePerCommessa(
+  sedeId: number
+): Promise<Map<number, Date>> {
+  if (!kvSql) {
+    const mappa = new Map<number, Date>();
+    for (const r of memRows) {
+      if (r.sedeId !== sedeId || r.commessaId == null || r.deletedAt) continue;
+      const attuale = mappa.get(r.commessaId);
+      if (!attuale || r.receivedAt > attuale) mappa.set(r.commessaId, r.receivedAt);
+    }
+    return mappa;
+  }
+  await ensureComunicazioniSchema();
+  const righe = await kvSql`
+    SELECT commessa_id, MAX(received_at) AS ultima
+    FROM comunicazioni
+    WHERE sede_id = ${sedeId} AND commessa_id IS NOT NULL AND deleted_at IS NULL
+    GROUP BY commessa_id`;
+  return new Map(
+    righe.map(r => [Number(r.commessa_id), new Date(r.ultima)] as const)
+  );
+}
+
 export async function getComunicazioniByIds(
   ids: readonly number[],
   sedeId: number
