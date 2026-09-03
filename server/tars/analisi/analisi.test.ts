@@ -62,6 +62,27 @@ function depsFotografia(parziale: Partial<DipendenzeFotografia> = {}): Dipendenz
         ? { ok: false, mancano: ["Ordine", "Conferma d'ordine"] }
         : { ok: true, mancano: [] },
     ordini: () => [],
+    confermeMancanti: async () => [
+      {
+        commessaId: 2,
+        codice: "COM-2026-002",
+        cliente: "Verdi Luca",
+        stato: "produzione",
+        candidati: [
+          {
+            comunicazioneId: 50,
+            allegatoIndex: 0,
+            nomeFile: "Conferma_ordine_4471.pdf",
+            mimeType: "application/pdf",
+            mittente: "Tesconi",
+            ricevutaIl: "2026-09-01T09:00:00.000Z",
+            certezza: "certa" as const,
+            motivo: "mail collegata e file di conferma",
+            link: "/messaggi/email?messaggio=50",
+          },
+        ],
+      },
+    ],
     ...parziale,
   };
 }
@@ -78,6 +99,8 @@ describe("fotografia", () => {
       preventiviAttivi: 1, preventiviFermi7: 0, preventiviFermi30: 0,
       gateMancanti: 1, fattureNonCollegate: 1, fattureDaRiconciliare: 1,
       fattureAttesaIncasso: 0, ticketSenzaAssegnatario: 1,
+      confermeOrdineMancanti: 1, confermeOrdineConFileInCasa: 1,
+      confermeOrdineDaArchiviareSubito: 1,
     });
     const entita = entitaDellaFotografia(f);
     expect(entita.has("commessa:1")).toBe(true); // ferma da 20 giorni
@@ -105,6 +128,10 @@ describe("fotografia", () => {
     expect(testo).toContain("## Perimetro");
     expect(testo).toContain("Ordini fornitore: 0");
     expect(testo).not.toContain("Ritardi fornitore");
+    const conferme = f.sezioni.find(s => s.chiave === "conferme_ordine")!;
+    expect(conferme.fatti[0].testo).toContain("Conferma_ordine_4471.pdf");
+    expect(conferme.fatti[0].testo).toContain("archiviare subito");
+    expect(conferme.fatti[0].entita).toContain("comunicazione:50");
   });
 
   it("i preventivi fermi hanno una sezione con l'età reale; 7 e 30 giorni contati", async () => {
@@ -147,12 +174,13 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v7: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v7");
+  it("analisi-v8: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v8");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
     expect(PROMPT_ANALISI).toContain("crea_ticket");
+    expect(PROMPT_ANALISI).toContain("Conferme d'ordine mancanti");
     expect(PROMPT_ANALISI).toMatch(/[Ss]olo se conosci TUTTI i parametri/);
     expect(PROMPT_ANALISI).toContain("MAI proporre di «rispondere»");
   });

@@ -23,6 +23,11 @@ import { smistamentoAttivo } from "../smistamento/worker";
 import { tarsAttivo } from "../../platform/interruttori";
 import { ultimaComunicazionePerCommessa } from "../../comunicazioni/comunicazioni";
 import { ultimaAttivitaCommessa } from "../../commesse/attivita";
+import {
+  confermeOrdineMancanti,
+  type CommessaSenzaConferma,
+} from "../documenti/confermeMancanti";
+import { dipendenzeConfermeReali } from "../strumenti/ricerca";
 import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
 
 const COMMESSE_FERME = 6;
@@ -87,6 +92,8 @@ export type DipendenzeFotografia = {
   gate: (commessaId: number, stato: string) => { ok: boolean; mancano: string[] };
   /** Ordini fornitore: servono solo a dichiarare il modulo vuoto. */
   ordini: () => any[];
+  /** Commesse senza conferma d'ordine nel fascicolo, con i file candidati. */
+  confermeMancanti: (sedeId: number) => Promise<CommessaSenzaConferma[]>;
 };
 
 export function dipendenzeFotografiaReali(): DipendenzeFotografia {
@@ -121,6 +128,12 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
       mancano: (REQUIRED_DOC_TIPI_PER_STATO[stato] ?? []).map(t => DOC_TIPO_LABEL[t]),
     }),
     ordini: () => getOrdiniFornitoriStore() as any[],
+    confermeMancanti: sedeId =>
+      confermeOrdineMancanti({
+        sedeId,
+        deps: dipendenzeConfermeReali(),
+        limite: 25,
+      }),
   };
 }
 
@@ -235,6 +248,44 @@ export async function costruisciFotografia(input: {
         entita: [`commessa:${c.id}`],
         link: `/commesse/${c.id}`,
       })),
+  });
+
+  // 1-ter-bis. Conferme d'ordine mancanti: il documento che blocca il gate
+  // e che porta il costo imponibile del margine. Se il file è già arrivato
+  // per mail, il lavoro è un clic (direzione 03/09: «è essenziale che Tars
+  // vada alla ricerca delle conf. ordine dove mancano»).
+  const conferme = await tenta(
+    () => deps.confermeMancanti(sedeId),
+    [] as CommessaSenzaConferma[]
+  );
+  const confermeConFile = conferme.filter(r => r.candidati.length > 0);
+  contatori.confermeOrdineMancanti = conferme.length;
+  contatori.confermeOrdineConFileInCasa = confermeConFile.length;
+  contatori.confermeOrdineDaArchiviareSubito = confermeConFile.filter(r =>
+    r.candidati.some(c => c.certezza === "certa")
+  ).length;
+  sezioni.push({
+    chiave: "conferme_ordine",
+    titolo: "Conferme d'ordine mancanti (gate documentale e costo del margine)",
+    fatti: conferme.slice(0, GATE_MASSIMI).map(riga => {
+      const certo = riga.candidati.find(c => c.certezza === "certa");
+      const primo = certo ?? riga.candidati[0] ?? null;
+      return {
+        chiave: `commessa:${riga.commessaId}:conferma_ordine`,
+        testo: `${riga.codice ?? `Commessa ${riga.commessaId}`} — ${riga.cliente ?? "cliente non indicato"}: in «${riga.stato}» senza conferma d'ordine nel fascicolo${
+          primo
+            ? `; il file «${primo.nomeFile}» è arrivato da ${primo.mittente}${
+                certo ? " e si può archiviare subito" : " ma va confermato"
+              }`
+            : "; nessun allegato candidato trovato nelle mail"
+        }.`,
+        entita: [
+          `commessa:${riga.commessaId}`,
+          ...(primo ? [`comunicazione:${primo.comunicazioneId}`] : []),
+        ],
+        link: primo?.link ?? `/commesse/${riga.commessaId}`,
+      };
+    }),
   });
 
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.

@@ -4,7 +4,7 @@
 
 import { PRIORITA_PUNTO, TIPI_PUNTO } from "./types";
 
-export const PROMPT_ANALISI_VERSIONE = "analisi-v7";
+export const PROMPT_ANALISI_VERSIONE = "analisi-v8";
 
 export const PROMPT_ANALISI = `Sei Tars, il cervello operativo di Ruffino Group, azienda di infissi e serramenti (La Spezia). Ogni mattina leggi la fotografia deterministica dell'azienda e dici alla direzione, in italiano diretto e senza fronzoli, cosa vedi, cosa rischia e cosa faresti.
 
@@ -36,6 +36,7 @@ Regole assolute:
 - La sezione «Perimetro» elenca i moduli SENZA dati (es. ordini fornitore a zero): su quei temi non scrivere niente — nessun rischio, nessuna proposta, nessuna menzione.
 - «Preventivi fermi» è il collo di bottiglia commerciale: a 7 giorni di silenzio si sollecita, a 30 si propone di chiudere come perso. Le proposte più utili nascono qui e dai «Gate documentali mancanti» (il documento che blocca l'avanzamento di una commessa).
 - Le fatture non collegate o incassate ma non a registro sono lavoro amministrativo concreto: citale per numero e cliente, mai con importi.
+- «Conferme d'ordine mancanti» è priorità alta: senza quel documento il gate non passa e manca il costo che serve al margine. Quando la fotografia dice che il file è già arrivato per mail ed è archiviabile subito, la proposta è archiviarlo nel fascicolo (strumento archivia_allegato_comunicazione, tipo conferma_ordine) — non «cercare il documento».
 - Nessun tono da consulente: frasi corte, sostanza, priorità chiare.`;
 
 export const SCHEMA_JSON_ANALISI = {

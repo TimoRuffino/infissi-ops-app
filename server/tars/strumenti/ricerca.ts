@@ -18,6 +18,12 @@ import {
   documentiDiSede,
 } from "../../routers/preventiviContratti";
 import { linkComunicazione } from "../smistamento/segnali";
+import {
+  confermeOrdineMancanti,
+  type DipendenzeConfermeMancanti,
+} from "../documenti/confermeMancanti";
+import { getCommesseStore } from "../../routers/commesse";
+import { findDocumentoComunicazione } from "../../routers/preventiviContratti";
 import type { ContestoRun, EsitoLettura, EvidenzaTars, StrumentoTars } from "./tipi";
 
 const FONTE_CRM = "CRM Ruffino Flow";
@@ -246,8 +252,79 @@ const cercaDocumenti: StrumentoTars = {
   },
 };
 
+/** Le dipendenze reali del detector: solo servizi di dominio, nessuna query nuova. */
+export function dipendenzeConfermeReali(): DipendenzeConfermeMancanti {
+  return {
+    commesse: () => getCommesseStore() as any[],
+    documentiDiCommessa: commessaId => getDocumentiDiCommessa(commessaId),
+    comunicazioniConAllegati: sedeId =>
+      listComunicazioni({
+        sedeId,
+        soloConAllegati: true,
+        limit: 400,
+      } as any),
+    giaArchiviato: (sedeId, comunicazioneId, allegatoIndex) =>
+      findDocumentoComunicazione(sedeId, comunicazioneId, allegatoIndex) != null,
+    link: c => linkComunicazione(c),
+  };
+}
+
+const cercaConfermeMancanti: StrumentoTars = {
+  nome: "cerca_conferme_ordine_mancanti",
+  versione: "1.0.0",
+  categoria: "documenti",
+  livello: "L0",
+  effetto: "nessuno",
+  reversibile: true,
+  capability: ["commessa.read"],
+  interruttore: "tars",
+  descrizione:
+    "Le commesse da «da ordinare» in poi che NON hanno la conferma d'ordine nel fascicolo, con i file candidati trovati fra gli allegati delle mail. Un candidato «certa» (mail già collegata alla commessa e file che si dichiara conferma) si archivia subito con archivia_allegato_comunicazione, tipo conferma_ordine: fallo senza chiedere. Un candidato «probabile» va chiesto all'utente prima. La conferma serve al gate documentale e porta il costo imponibile che alimenta il margine.",
+  schemaInput: z
+    .object({
+      soloConCandidati: z.boolean().optional(),
+      limite: z.number().int().min(1).max(30).default(15),
+    })
+    .strict(),
+  async esegui(contesto: ContestoRun, input: any) {
+    const tutte = await confermeOrdineMancanti({
+      sedeId: contesto.sedeId,
+      deps: dipendenzeConfermeReali(),
+      limite: input.limite,
+    });
+    const righe = input.soloConCandidati
+      ? tutte.filter(r => r.candidati.length > 0)
+      : tutte;
+    const certe = righe.reduce(
+      (n, r) => n + r.candidati.filter(c => c.certezza === "certa").length,
+      0
+    );
+    return lettura({
+      dati: {
+        commesse: righe,
+        senzaConferma: righe.length,
+        conCandidati: righe.filter(r => r.candidati.length > 0).length,
+        candidatiCerti: certe,
+      },
+      evidenze: righe.slice(0, 8).map(r => ({
+        tipo: "entita" as const,
+        riferimento: `commessa:${r.commessaId}`,
+        descrizione: `${r.codice ?? r.commessaId} — ${r.cliente ?? ""}: conferma d'ordine mancante${
+          r.candidati.length ? ` (${r.candidati.length} file candidati)` : ""
+        }`,
+      })),
+      omissioni: [
+        "commesse prima di «da ordinare»: lì la conferma non è ancora attesa",
+        "allegati già archiviati nel fascicolo",
+        "mail che non citano il codice commessa e non sono collegate",
+      ],
+    });
+  },
+};
+
 export const STRUMENTI_RICERCA: readonly StrumentoTars[] = [
   cercaComunicazioni,
   cercaFatture,
   cercaDocumenti,
+  cercaConfermeMancanti,
 ];
