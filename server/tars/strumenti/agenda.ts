@@ -195,6 +195,8 @@ const spostaIntervento: StrumentoTars = {
       oraInizio: z.string().regex(/^\d{2}:\d{2}$/).optional(),
       oraFine: z.string().regex(/^\d{2}:\d{2}$/).optional(),
       squadraId: z.number().int().positive().nullable().optional(),
+      /** Chi esegue un rilievo: un utente con ruolo `tecnico_rilievi`. */
+      tecnicoId: z.number().int().positive().nullable().optional(),
     })
     .strict(),
   async esegui(contesto, input): Promise<EsitoAzione> {
@@ -215,14 +217,36 @@ const spostaIntervento: StrumentoTars = {
         return nonEseguito(nome, `Non riesco a interpretare «${input.quando}»: indica una data precisa.`);
       }
     }
-    if (!data && input.oraInizio == null && input.oraFine == null && input.squadraId === undefined) {
-      return nonEseguito(nome, "Niente da spostare: indica data, orari o squadra.");
+    if (
+      !data &&
+      input.oraInizio == null &&
+      input.oraFine == null &&
+      input.squadraId === undefined &&
+      input.tecnicoId === undefined
+    ) {
+      return nonEseguito(nome, "Niente da spostare: indica data, orari o chi lo esegue.");
+    }
+    // Un rilievo lo fa un tecnico, il resto una squadra: il dominio azzera
+    // il campo che non compete al tipo. Se lo lasciassimo passare in
+    // silenzio, Tars direbbe «assegnato» e non lo sarebbe. Meglio dirlo.
+    if (input.squadraId != null && corrente.tipo === "rilievo") {
+      return nonEseguito(
+        nome,
+        "Un rilievo lo esegue un tecnico dei rilievi, non una squadra di posa: indica `tecnicoId`."
+      );
+    }
+    if (input.tecnicoId != null && corrente.tipo !== "rilievo") {
+      return nonEseguito(
+        nome,
+        `Un intervento di tipo «${corrente.tipo}» lo esegue una squadra di posa, non un tecnico dei rilievi: indica \`squadraId\`.`
+      );
     }
     const prima = {
       data: corrente.dataPianificata ?? null,
       oraInizio: corrente.oraInizio ?? null,
       oraFine: corrente.oraFine ?? null,
       squadraId: corrente.squadraId ?? null,
+      tecnicoId: corrente.tecnicoId ?? null,
     };
     try {
       const caller = await callerPer(contesto);
@@ -232,6 +256,7 @@ const spostaIntervento: StrumentoTars = {
         ...(input.oraInizio != null ? { oraInizio: input.oraInizio } : {}),
         ...(input.oraFine != null ? { oraFine: input.oraFine } : {}),
         ...(input.squadraId !== undefined ? { squadraId: input.squadraId } : {}),
+        ...(input.tecnicoId !== undefined ? { tecnicoId: input.tecnicoId } : {}),
       });
       const commessa: any = aggiornato.commessaId ? getCommessaById(aggiornato.commessaId) : null;
       return {
@@ -250,6 +275,7 @@ const spostaIntervento: StrumentoTars = {
             oraInizio: aggiornato.oraInizio ?? null,
             oraFine: aggiornato.oraFine ?? null,
             squadraId: aggiornato.squadraId ?? null,
+            tecnicoId: aggiornato.tecnicoId ?? null,
             link: "/planning",
           },
           evidenze: [

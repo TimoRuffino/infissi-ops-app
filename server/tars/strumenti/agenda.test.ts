@@ -81,8 +81,9 @@ describe("sposta_intervento", () => {
   it("sposta data (in parole), orari e squadra con prima/dopo; cross-sede invisibile", async () => {
     const ctx = await contesto();
     const commessa = await direzione().commesse.create({ cliente: "Sposta Test" });
+    // Una posa: la esegue una squadra di posa.
     const intervento = await direzione().interventi.create({
-      commessaId: commessa.id, tipo: "rilievo", dataPianificata: giornoIso(1), oraInizio: "09:00",
+      commessaId: commessa.id, tipo: "posa", dataPianificata: giornoIso(1), oraInizio: "09:00",
     });
     const esito = await tool("sposta_intervento").esegui(ctx, {
       interventoId: intervento.id, quando: "dopodomani", oraInizio: "15:00", squadraId: SQUADRA_ID,
@@ -140,5 +141,54 @@ describe("migra_calendario_google", () => {
     expect(esito.dati).toMatchObject({ eventiTrovati: 0, daImportare: 0, giaImportati: 0 });
     expect(esito.dati.finestra.da <= esito.dati.finestra.a).toBe(true);
     expect((getInterventiStore() as any[]).length).toBe(prima);
+  });
+});
+
+// Un rilievo lo esegue un tecnico dei rilievi, una posa una squadra di posa:
+// sono due insiemi di persone diversi. Il dominio azzera il campo che non
+// compete al tipo, quindi lo strumento deve rifiutare invece di lasciar
+// passare — altrimenti Tars risponderebbe «assegnato» e non lo sarebbe, che è
+// il modo esatto in cui una squadra si presenta dove non doveva.
+describe("sposta_intervento — chi esegue dipende dal tipo", () => {
+  it("assegnare una squadra di posa a un rilievo viene rifiutato, non ignorato", async () => {
+    const ctx = await contesto();
+    const rilievo = await direzione().interventi.create({
+      tipo: "rilievo",
+      dataPianificata: giornoIso(1),
+      oraInizio: "09:00",
+    });
+    const esito = await tool("sposta_intervento").esegui(ctx, {
+      interventoId: rilievo.id,
+      squadraId: SQUADRA_ID,
+    });
+    expect(esito.stato).not.toBe("spostato");
+    expect(JSON.stringify(esito)).toContain("tecnico");
+    const salvato = (getInterventiStore() as any[]).find(i => i.id === rilievo.id)!;
+    expect(salvato.squadraId ?? null).toBeNull();
+  });
+
+  it("assegnare un tecnico a una posa viene rifiutato allo stesso modo", async () => {
+    const ctx = await contesto();
+    const posa = await direzione().interventi.create({
+      tipo: "posa",
+      dataPianificata: giornoIso(1),
+    });
+    const esito = await tool("sposta_intervento").esegui(ctx, {
+      interventoId: posa.id,
+      tecnicoId: 4242,
+    });
+    expect(esito.stato).not.toBe("spostato");
+    const salvato = (getInterventiStore() as any[]).find(i => i.id === posa.id)!;
+    expect(salvato.tecnicoId ?? null).toBeNull();
+  });
+
+  it("senza data, orari né esecutore non c'è niente da spostare", async () => {
+    const ctx = await contesto();
+    const i = await direzione().interventi.create({
+      tipo: "posa",
+      dataPianificata: giornoIso(1),
+    });
+    const esito = await tool("sposta_intervento").esegui(ctx, { interventoId: i.id });
+    expect(esito.stato).not.toBe("spostato");
   });
 });
