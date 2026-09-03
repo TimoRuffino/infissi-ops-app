@@ -55,7 +55,16 @@ export type EstrazioneConferma = {
   dataDocumento: CampoEstratto<string> | null; // ISO YYYY-MM-DD
   dateConsegna: Array<CampoEstratto<string>>; // ISO, in ordine di apparizione
   settimaneConsegna: Array<CampoEstratto<number>>; // settimana ISO dichiarata
+  /** Totale del documento: di norma IVA INCLUSA. */
   totaleDocumento: CampoEstratto<number> | null;
+  /**
+   * Imponibile (IVA esclusa): è questo il costo che alimenta il margine
+   * (direzione 03/09/2026: «imponibile fattura meno imponibile ordine
+   * fornitore»). Letto da un'etichetta esplicita, oppure ricavato per
+   * differenza quando il documento dichiara totale e IVA. Null quando il
+   * documento non lo dice: non si scorpora un'aliquota indovinata.
+   */
+  imponibileDocumento: CampoEstratto<number> | null;
   righe: RigaRiscontrata[];
 };
 
@@ -212,6 +221,7 @@ export function estraiConfermaOrdine(
     dateConsegna: [],
     settimaneConsegna: [],
     totaleDocumento: null,
+    imponibileDocumento: null,
     righe: [],
   };
 
@@ -441,6 +451,72 @@ export function estraiConfermaOrdine(
           }
         : null,
     });
+  }
+
+  // ── Imponibile (base del margine) ──────────────────────────────────────
+  // Prima l'etichetta esplicita; poi, se il documento dichiara l'IVA, la
+  // differenza dal totale. Mai un'aliquota presunta.
+  {
+    const reImponibile =
+      /\b(?:totale\s+)?(?:imponibile|netto\s+merce|base\s+imponibile)\b[^\d€]{0,20}(?:€|EUR)?\s*([\d.,]+)/gi;
+    const candidati: Array<{ valore: number; ev: Evidenza }> = [];
+    for (const { pagina, match } of cercaSuPagine(pagine, reImponibile)) {
+      const valore = parseImporto(match[1]);
+      if (valore == null || valore <= 0) continue;
+      candidati.push({
+        valore,
+        ev: evidenza(
+          pagine,
+          pagina,
+          match.index,
+          match[0].length,
+          "pattern_testo",
+          "media"
+        ),
+      });
+    }
+    if (candidati.length > 0) {
+      // Con più imponibili (per aliquota) vale il maggiore: è il totale
+      // imponibile del documento nei layout usuali.
+      candidati.sort((a, b) => b.valore - a.valore);
+      risultato.imponibileDocumento = {
+        valore: candidati[0].valore,
+        evidenza: candidati[0].ev,
+      };
+    } else if (risultato.totaleDocumento) {
+      const reIva = /\bi\.?v\.?a\.?\b(?:\s*\d{1,2}\s*%)?[^\d€]{0,20}(?:€|EUR)?\s*([\d.,]+)/gi;
+      let iva: { valore: number; ev: Evidenza } | null = null;
+      for (const { pagina, match } of cercaSuPagine(pagine, reIva)) {
+        const valore = parseImporto(match[1]);
+        if (valore == null || valore <= 0) continue;
+        // L'IVA non può superare il totale: un match del genere è un falso
+        // positivo (numero d'ordine, partita IVA…).
+        if (valore >= risultato.totaleDocumento.valore) continue;
+        if (!iva || valore > iva.valore) {
+          iva = {
+            valore,
+            ev: evidenza(
+              pagine,
+              pagina,
+              match.index,
+              match[0].length,
+              "pattern_testo",
+              "bassa"
+            ),
+          };
+        }
+      }
+      if (iva) {
+        const differenza =
+          Math.round((risultato.totaleDocumento.valore - iva.valore) * 100) / 100;
+        if (differenza > 0) {
+          risultato.imponibileDocumento = {
+            valore: differenza,
+            evidenza: iva.ev,
+          };
+        }
+      }
+    }
   }
 
   return risultato;

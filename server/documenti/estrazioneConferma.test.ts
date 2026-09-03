@@ -63,3 +63,32 @@ describe("estrazioneConferma — date", () => {
     expect(esito.dateConsegna.map(d => d.valore)).toContain("2026-09-05");
   });
 });
+
+describe("estrazioneConferma — imponibile (base del margine)", () => {
+  it("legge l'imponibile dichiarato, distinto dal totale ivato", () => {
+    const esito = estrai(
+      "Totale imponibile: € 1.000,00\nIVA 22%: € 220,00\nTotale documento: € 1.220,00"
+    );
+    expect(esito.imponibileDocumento?.valore).toBe(1000);
+    expect(esito.totaleDocumento?.valore).toBe(1220);
+  });
+
+  it("senza etichetta imponibile lo ricava per differenza da totale e IVA", () => {
+    const esito = estrai("Totale documento: € 1.220,00\nIVA 22% € 220,00");
+    expect(esito.totaleDocumento?.valore).toBe(1220);
+    expect(esito.imponibileDocumento?.valore).toBe(1000);
+  });
+
+  it("senza IVA dichiarata non inventa nessuno scorporo", () => {
+    const esito = estrai("Totale documento: € 1.220,00");
+    expect(esito.totaleDocumento?.valore).toBe(1220);
+    expect(esito.imponibileDocumento).toBeNull();
+  });
+
+  it("una partita IVA non è un importo di imposta", () => {
+    const esito = estrai(
+      "P.IVA 01234567890\nTotale documento: € 500,00"
+    );
+    expect(esito.imponibileDocumento).toBeNull();
+  });
+});
