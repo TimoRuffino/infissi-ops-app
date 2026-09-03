@@ -7,7 +7,13 @@
 
 import { TZDate } from "@date-fns/tz";
 import { z } from "zod";
-import { getCommessaById } from "../../routers/commesse";
+import {
+  chiaveEvento,
+  finestraMigrazione,
+  pianoMigrazione,
+  type EventoEsterno,
+} from "../calendario/migrazione";
+import { getCommessaById, getCommesseStore } from "../../routers/commesse";
 import { getInterventiStore } from "../../routers/interventi";
 import { getSquadreStore } from "../../routers/squadre";
 import { tarsAttivo } from "../../platform/interruttori";
@@ -338,8 +344,138 @@ const segnaInterventoFatto: StrumentoTars = {
   },
 };
 
+const migraCalendarioGoogle: StrumentoTars = {
+  nome: "migra_calendario_google",
+  versione: "1.0.0",
+  categoria: "interventi",
+  livello: "L2",
+  effetto: "interno",
+  reversibile: false,
+  capability: ["intervento.plan"],
+  interruttore: "tarsL2Actions",
+  descrizione:
+    "Migrazione D2 (solo direzione): importa gli appuntamenti dei calendari Google collegati come interventi del CRM — storico dal 1° del mese di due mesi fa, più tutto il futuro in finestra. Rilanciabile: chi è già stato importato non si duplica. Con anteprima=true mostra il piano senza scrivere. La commessa si collega solo su match univoco (codice o cognome cliente nel titolo).",
+  schemaInput: z
+    .object({
+      anteprima: z.boolean().default(false),
+    })
+    .strict(),
+  async esegui(contesto, input): Promise<EsitoAzione> {
+    assicuraL2();
+    const nome = "migra_calendario_google";
+    const finestra = finestraMigrazione(new Date());
+    let eventi: EventoEsterno[];
+    try {
+      const caller = await callerPer(contesto);
+      eventi = ((await caller.externalCalendars.events({
+        from: finestra.da,
+        to: finestra.a,
+      })) as any[]).map(e => ({
+        sourceId: e.sourceId,
+        sourceNome: e.sourceNome,
+        uid: e.id,
+        titolo: e.titolo,
+        location: e.location ?? null,
+        dataPianificata: e.dataPianificata,
+        oraInizio: e.oraInizio ?? null,
+        oraFine: e.oraFine ?? null,
+        allDay: Boolean(e.allDay),
+      }));
+    } catch (errore) {
+      return nonEseguito(nome, motivoSicuro(errore));
+    }
+    const esistenti = new Set<string>(
+      (getInterventiStore() as any[])
+        .filter(i => i.sedeId === contesto.sedeId)
+        .map(i => i.origineEsterna)
+        .filter((v: unknown): v is string => typeof v === "string")
+    );
+    const commesse = (getCommesseStore() as any[]).filter(
+      c => c.sedeId === contesto.sedeId
+    );
+    const piano = pianoMigrazione({ eventi, commesse, esistenti });
+    const senzaCommessa = piano.daCreare.filter(p => p.commessaId == null).length;
+    if (input.anteprima) {
+      return fatto({
+        strumento: nome,
+        stato: "anteprima",
+        azioneId: `${nome}:anteprima:${Date.now()}`,
+        entitaToccate: [],
+        dopo: {
+          finestra,
+          eventiTrovati: eventi.length,
+          daImportare: piano.daCreare.length,
+          giaImportati: piano.giaImportati,
+          senzaCommessa,
+          esempi: piano.daCreare.slice(0, 6).map(p => ({
+            titolo: p.titolo,
+            data: p.data,
+            tipo: p.tipo,
+            commessaId: p.commessaId,
+            motivoCommessa: p.motivoCommessa,
+          })),
+        },
+        evidenze: [],
+        avvertenze: ["Anteprima: nessun intervento creato. Rilancia senza anteprima per importare."],
+      });
+    }
+    const caller = await callerPer(contesto);
+    let creati = 0;
+    let collegati = 0;
+    const errori: string[] = [];
+    const toccate: string[] = [];
+    for (const p of piano.daCreare) {
+      try {
+        const intervento: any = await caller.interventi.create({
+          commessaId: p.commessaId,
+          tipo: p.tipo,
+          dataPianificata: p.data,
+          oraInizio: p.oraInizio,
+          oraFine: p.oraFine,
+          indirizzo: p.indirizzo ?? undefined,
+          note: p.note,
+          origineEsterna: p.chiave,
+        });
+        creati += 1;
+        if (p.commessaId != null) collegati += 1;
+        if (toccate.length < 15) toccate.push(`intervento:${intervento.id}`);
+      } catch (errore) {
+        if (errori.length < 3) errori.push(`${p.titolo} (${p.data}): ${motivoSicuro(errore)}`);
+      }
+    }
+    return fatto({
+      strumento: nome,
+      stato: "migrato",
+      azioneId: `${nome}:${finestra.da}:${Date.now()}`,
+      entitaToccate: toccate,
+      dopo: {
+        finestra,
+        creati,
+        collegati,
+        senzaCommessa: creati - collegati,
+        giaImportati: piano.giaImportati,
+        falliti: errori.length,
+        link: "/planning",
+      },
+      evidenze: toccate.slice(0, 8).map(riferimento => ({
+        tipo: "entita" as const,
+        riferimento,
+        descrizione: "importato da Google",
+      })),
+      avvertenze: [
+        "Gli stessi appuntamenti ora compaiono due volte nel Planning (Google + CRM): verificato l'import, disattiva le sorgenti Google da Integrazioni.",
+        ...(creati - collegati > 0
+          ? [`${creati - collegati} interventi importati senza commessa: collegali con sposta/aggiorna o chiedimelo.`]
+          : []),
+        ...errori.map(e => `Non importato: ${e}`),
+      ],
+    });
+  },
+};
+
 export const STRUMENTI_AGENDA: readonly StrumentoTars[] = [
   leggiAgenda,
   spostaIntervento,
   segnaInterventoFatto,
+  migraCalendarioGoogle,
 ];

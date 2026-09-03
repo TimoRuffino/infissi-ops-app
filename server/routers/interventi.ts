@@ -71,6 +71,10 @@ export const interventiRouter = router({
       ticketId: z.number().nullable().optional(),
       reclamoId: z.number().nullable().optional(),
       rifacimentoId: z.number().nullable().optional(),
+      // Migrazione calendario (T4/D2): chiave dell'evento esterno di
+      // origine (`google:<sorgente>:<uid>:<data>`) — la dedupe del
+      // reimport vive su questo campo.
+      origineEsterna: z.string().max(200).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       await authorizeCoreOperation({
@@ -100,6 +104,7 @@ export const interventiRouter = router({
         ticketId: input.ticketId ?? null,
         reclamoId: input.reclamoId ?? null,
         rifacimentoId: input.rifacimentoId ?? null,
+        origineEsterna: input.origineEsterna ?? null,
         oraInizio: input.oraInizio ?? null,
         oraFine: input.oraFine ?? null,
         stato: "pianificato" as const,

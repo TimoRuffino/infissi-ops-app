@@ -110,7 +110,7 @@ diventare un bottone che **fa la cosa**, con Undo dove il dominio lo
 consente: «Collega la fattura n. 130 a COM-2026-168», «Sposta il DDT nella
 commessa giusta», «Ricorda al commerciale il preventivo Soare».
 
-### T4 — Il calendario dentro il CRM (D2) — STRUMENTI FATTI il 03/09/2026 (leggi_agenda, pianifica 1.1.0 con squadra, sposta, segna fatto + transizione consigliata); la MIGRAZIONE degli appuntamenti Google resta in attesa della risposta alla domanda aperta n. 3
+### T4 — Il calendario dentro il CRM (D2) — FATTO il 03/09/2026: strumenti (leggi_agenda, pianifica 1.1.0 con squadra, sposta, segna fatto + transizione consigliata) E migrazione. Mandato direzione 03/09 sera: «importa gli ultimi 2 mesi e quello corrente» → tool `migra_calendario_google` (direzione, rilanciabile, dedupe `origineEsterna`), finestra dal 1° del mese−2 a +180 giorni (il futuro entra per costruzione: un CRM-fonte senza le pose già fissate sarebbe monco). Si lancia dalla chat: «migra il calendario Google» (prima con anteprima). Dopo la verifica: disattivare le sorgenti Google da Integrazioni
 
 `leggi_agenda` (giorno/settimana, per squadra o per commessa),
 `pianifica_intervento` esteso (ora, squadra, spostamento), `sposta_intervento`

@@ -31,7 +31,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.12.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.13.0";
 
 const schemaLettura = z
   .object({
@@ -255,6 +255,8 @@ const METADATI: Record<string, Metadati> = {
   leggi_agenda: lettura("sede", ["generale", "commessa", "post-vendita"], ["commessa"]),
   sposta_intervento: r1("sposta_intervento", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
   segna_intervento_fatto: r1("segna_intervento_fatto", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  // Migrazione D2 (mandato 03/09 sera): una tantum rilanciabile, direzione.
+  migra_calendario_google: r1("migra_calendario_google", "sede", ["generale", "direzione"], ["commessa"], ["tars", "tarsL2Actions"], false, true),
   collega_comunicazione: r1("collega_comunicazione", "entita", ["generale", "commessa", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
   classifica_comunicazione: r1("classifica_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
   segna_gestita_comunicazione: r1("segna_gestita_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),

@@ -130,3 +130,15 @@ describe("segna_intervento_fatto", () => {
     expect(transizioneConsigliataPerTipo("assistenza")).toBeNull();
   });
 });
+
+describe("migra_calendario_google", () => {
+  it("anteprima senza sorgenti: zero eventi, nessuna scrittura", async () => {
+    const ctx = await contesto();
+    const prima = (getInterventiStore() as any[]).length;
+    const esito = await tool("migra_calendario_google").esegui(ctx, { anteprima: true });
+    expect(esito.stato).toBe("anteprima");
+    expect(esito.dati).toMatchObject({ eventiTrovati: 0, daImportare: 0, giaImportati: 0 });
+    expect(esito.dati.finestra.da <= esito.dati.finestra.a).toBe(true);
+    expect((getInterventiStore() as any[]).length).toBe(prima);
+  });
+});
