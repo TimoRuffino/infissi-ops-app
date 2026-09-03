@@ -2346,6 +2346,24 @@ Procedere comunque?» — e lo scavalco resta registrato.
   scelgono il driver da un singleton legato all'env al primo uso, non
   iniettabile dal test.
 
+- Debito residuo dichiarato dalla review finale (04/09/2026), tutto
+  rinviato a dopo il merge: (1) `applicaPattuitoDaContratto` mette il resto
+  dell'arrotondamento sull'ultima rata, che può scendere sotto zero solo se
+  lo split sfrutta la tolleranza di ±0,01 punti di `validaRate` (≤ 0,0001 ×
+  totale, irraggiungibile dalla UI); (2) l'INSERT in blocco di
+  `commessa_righe`/`computo_voci` ha il tetto PostgreSQL di 65 535
+  parametri (~2 900 righe, ~4 600 voci per statement); (3) su uno step con
+  gate computo Tars legge il computo due volte (pre-verifica più ricontrollo
+  del dominio), una riga sola; (4) all'apertura di una commessa l'override
+  di policy viene caricato due volte da `authorizeCoreOperation`; (5) in
+  `RigaContrattoEditor` la quantità degli accessori non segue quella della
+  riga e la numerazione delle righe è triplice (ordine, indice, id);
+  (6) `TariffeLimitiPanel` restituisce null su errore invece di dirlo;
+  (7) `immobile` null viene letto come «altro»; (8) i CHECK constraint
+  delle tabelle non sono additivi (una categoria nuova richiede una
+  migrazione); (9) la spec di design §4.1/4.2 descrive ancora il motore
+  della prima stesura: prevale l'analisi dei fogli reali.
+
 **Runbook di attivazione.** Per una sede di prova: 1) accendere
 `FLAG_LIMITI=on` solo su quella sede/ambiente — `.claude/launch.json` ha
 già la configurazione «Limiti demo (porta 5198)» con il flag acceso; 2) il
@@ -2374,6 +2392,19 @@ browser (commessa → tab Contratto → salva → Limiti → Calcola → avanzam
 a «Fatture pagamento» con e senza dialog, screenshot 1440×900 e 390×844,
 console senza errori) è registrato nella verifica del controller, eseguita
 in parallelo a questo task, non in questa sezione.
+
+**Verifica (04/09/2026, dopo la review finale).** `pnpm check` pulito;
+`pnpm test` 1591 passati e 23 saltati; le due suite pg 3/3 contro
+PostgreSQL 16 locale; `pnpm build` ok. In browser sul demo (flag acceso):
+da Commessa 360, con il file contratto caricato e nessun computo, «Avanza
+a: Fatture / Pagamento» apre «Computo dei limiti non aggiornato» col
+messaggio del server e «Procedi comunque» completa la transizione; senza
+file contratto compare prima il dialogo documentale (precedenza corretta);
+Impostazioni → «Limiti di spesa» mostra il pannello tariffe (seed
+2026-09-04, sei tab) senza overflow orizzontale. Nota operativa: il server
+demo va riavviato dopo ogni modifica server, `tsx` senza `watch` non
+ricarica i router (un `tariffe.limiti` → 404 «No procedure found» è un
+processo vecchio, non un bug).
 
 ## 12. Debito aperto prioritario
 
