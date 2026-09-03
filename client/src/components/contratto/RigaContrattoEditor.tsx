@@ -1,7 +1,7 @@
 // Editor di una riga del contratto strutturato: categoria, voce DEI,
 // misure, prezzo, oscurante integrato e accessori. Non chiama nulla e non
 // decide nulla: riceve la riga e restituisce le modifiche al chiamante, che
-// le manda al servizio. Il catalogo arriva già dal server (contratti.get):
+// le manda al servizio. Il catalogo arriva dal server (contratti.catalogo):
 // qui si sceglie soltanto tra le voci compatibili con la riga.
 import { useMemo, useState } from "react";
 import { Trash2, X } from "lucide-react";

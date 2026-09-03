@@ -3,7 +3,13 @@
 // cambiati. Nessun calcolo qui: il server è l'unico confine.
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { badgeStato, formatCent, raggruppaVoci, spiegaVoce } from "@/lib/limitiView";
+import {
+  badgeStato,
+  formatCent,
+  motivoSintetico,
+  raggruppaVoci,
+  spiegaVoce,
+} from "@/lib/limitiView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -31,6 +37,7 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
   const stato = q.data;
   const badge = badgeStato(stato);
   const c = stato.computo;
+  const motivo = motivoSintetico(stato.motivo, c?.avvertenze.length ?? 0);
 
   return (
     <div className="space-y-4 mt-4 min-w-0">
@@ -39,7 +46,7 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
         <Badge variant="outline" className={TONO[badge.tono]}>
           {badge.testo}
         </Badge>
-        {stato.motivo && <span className="text-xs text-muted-foreground">{stato.motivo}</span>}
+        {motivo && <span className="text-xs text-muted-foreground">{motivo}</span>}
         {stato.puoEseguire && (
           <Button
             size="sm"
@@ -61,7 +68,11 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
 
       {c && (
         <>
-          <dl className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm" aria-label="Riepilogo limiti">
+          <dl
+            role="group"
+            aria-label="Riepilogo limiti"
+            className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm"
+          >
             {(
               [
                 ["CHECK 1 · Allegato A", formatCent(c.check1Cent)],
@@ -90,10 +101,15 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
             </ul>
           )}
 
-          {raggruppaVoci(c.voci).map(g => (
+          {raggruppaVoci(c.voci, c.deiProdottiCent).map(g => (
             <section key={g.gruppo} aria-label={g.etichetta} className="min-w-0">
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-baseline gap-2 flex-wrap">
                 <h3 className="text-sm font-medium">{g.etichetta}</h3>
+                {g.incompleto && (
+                  <span className="text-xs text-muted-foreground">
+                    incompleto: manca una voce DEI
+                  </span>
+                )}
                 <span className="ml-auto text-sm tabular-nums font-semibold">
                   {formatCent(g.totaleCent)}
                 </span>

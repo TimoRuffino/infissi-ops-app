@@ -10,13 +10,17 @@ import { FileSignature } from "lucide-react";
 export default function ContrattoStatoBanner({
   commessaId,
   stato,
+  flagAttivo,
   onApri,
 }: {
   commessaId: number;
   stato: string;
+  /** Le procedure vivono dietro FLAG_LIMITI: senza flag non si chiamano. */
+  flagAttivo: boolean;
   onApri: (tab: "prodotti" | "limiti") => void;
 }) {
-  const mostra = stato === "aggiornamento_contratto" || stato === "fatture_pagamento";
+  const mostra =
+    flagAttivo && (stato === "aggiornamento_contratto" || stato === "fatture_pagamento");
   const contratto = trpc.contratti.get.useQuery({ commessaId }, { enabled: mostra, retry: false });
   const computo = trpc.computo.ultimo.useQuery({ commessaId }, { enabled: mostra, retry: false });
   if (!mostra || !contratto.data || !computo.data) return null;

@@ -1135,13 +1135,12 @@ export default function CommessaDetail() {
           );
         })()}
 
-        {limitiAttivi && (
-          <ContrattoStatoBanner
-            commessaId={commessaId}
-            stato={c.stato}
-            onApri={setTab}
-          />
-        )}
+        <ContrattoStatoBanner
+          commessaId={commessaId}
+          stato={c.stato}
+          flagAttivo={limitiAttivi}
+          onApri={setTab}
+        />
 
       </div>
 
@@ -2614,11 +2613,14 @@ function PianoRateSezione({
   commessaId,
   totalePattuito,
   soloLettura = false,
+  daContratto = false,
 }: {
   commessaId: number;
   totalePattuito: number | null;
   /** Le rate arrivano da un'altra fonte (FiC o contratto): qui si leggono. */
   soloLettura?: boolean;
+  /** Quale delle due fonti: cambia solo cosa si dice quando non ce ne sono. */
+  daContratto?: boolean;
 }) {
   const utils = trpc.useUtils();
   const q = trpc.commesse.pattuito.useQuery(commessaId);
@@ -2668,7 +2670,17 @@ function PianoRateSezione({
       : null;
 
   if (q.isLoading) return null;
-  if (rate.length === 0 && !modificabile) return null;
+  if (rate.length === 0 && !modificabile) {
+    // Col contratto strutturato «nessuna rata» è un'informazione: sparire
+    // lascerebbe credere che il piano non sia stato ancora guardato. Con FiC
+    // resta il comportamento di prima, e FiC vince sul contratto.
+    if (!daContratto || rateDaFic) return null;
+    return (
+      <p className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
+        Rate dal contratto: nessuna
+      </p>
+    );
+  }
 
   return (
     <div className="rounded-md border border-border">
@@ -2929,7 +2941,9 @@ function PagamentiCard({
             </div>
             {/* Il pattuito di una commessa fatturata è FiC: mostrarlo come
                 campo editabile prometterebbe una modifica che il server
-                rifiuta. Qui diventa una cifra con la sua fonte. */}
+                rifiuta. Qui diventa una cifra con la sua fonte. Il blocco
+                «da contratto» invece per ora è solo di questa UI: la
+                riaffermazione lato server arriva col piano 2. */}
             {pattuitoDaFic || daContratto ? (
               <p
                 className="h-9 w-32 flex items-center text-sm font-semibold tabular-nums"
@@ -2989,6 +3003,7 @@ function PagamentiCard({
           commessaId={commessaId}
           totalePattuito={totale}
           soloLettura={pattuitoDaFic || daContratto}
+          daContratto={daContratto}
         />
 
         {/* Acconti registrati */}

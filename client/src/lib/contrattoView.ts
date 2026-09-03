@@ -33,7 +33,7 @@ export type RigaLegacy = {
   note: string | null;
 };
 
-// Forme strutturali del catalogo che arriva da `contratti.get`: qui bastano i
+// Forme strutturali del catalogo che arriva da `contratti.catalogo`: qui bastano i
 // campi usati dalla UI, così il client non importa i tipi del server.
 export type ProdottoCatalogo = {
   codice: string;

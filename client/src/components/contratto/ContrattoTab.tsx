@@ -3,7 +3,8 @@
 // prodotti legacy restano visibili come righe «da completare».
 // Salvataggio esplicito; il server ricalcola mq, zona, hash e specchia il
 // pattuito sulla card Pagamenti. Le voci si scelgono dal catalogo DEI che
-// arriva con la lettura: il client non prezza e non decide nulla.
+// arriva dalla sua query (contratti.catalogo): il client non prezza e non
+// decide nulla.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Save, Trash2 } from "lucide-react";
@@ -58,6 +59,12 @@ const ETICHETTA_DETRAZIONE: Record<DetrazioneTipo, string> = {
 export default function ContrattoTab({ commessaId }: { commessaId: number }) {
   const utils = trpc.useUtils();
   const q = trpc.contratti.get.useQuery({ commessaId }, { retry: false });
+  // Il catalogo DEI non dipende dalla commessa e cambia solo col listino:
+  // una query sua, tenuta in cache, invece di un allegato di ogni lettura.
+  const catalogoQ = trpc.contratti.catalogo.useQuery(undefined, {
+    staleTime: Infinity,
+    retry: false,
+  });
   const [parametri, setParametri] = useState<ContrattoInput>(parametriVuoti);
   const [righe, setRighe] = useState<RigaForm[]>([]);
   const [pattuitoTesto, setPattuitoTesto] = useState("");
@@ -96,7 +103,7 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
     onError: e => toast.error(e.message),
   });
 
-  const catalogo: CatalogoContratto = q.data?.catalogo ?? CATALOGO_VUOTO;
+  const catalogo: CatalogoContratto = catalogoQ.data ?? CATALOGO_VUOTO;
   const opereEventuali = catalogo.opere.filter(o => o.gruppo === "eventuali");
   const zona = parametri.zonaManuale
     ? parametri.zonaClimatica ?? null

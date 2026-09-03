@@ -102,12 +102,27 @@ export const contrattiRouter = router({
       });
       const caps = await effectiveCapabilitySet(ctx, ["contratto.manage"]);
       const letto = await leggiContratto(sedeId, input.commessaId);
-      return {
-        ...letto,
-        puoModificare: caps.has("contratto.manage"),
-        catalogo: catalogoPerUi(),
-      };
+      return { ...letto, puoModificare: caps.has("contratto.manage") };
     }),
+
+  /**
+   * Il catalogo DEI sta su una query sua: non dipende dalla commessa, cambia
+   * solo col listino, e la card Pagamenti legge `get` a ogni commessa aperta
+   * per sapere se il pattuito viene dal contratto. Farglisi trascinare dietro
+   * centinaia di voci a ogni apertura era un peso senza motivo.
+   */
+  catalogo: procedura.query(async ({ ctx }) => {
+    const sedeId = sedeCorrente(ctx);
+    await authorizeCoreOperation({
+      ctx,
+      endpoint: "contratti.catalogo",
+      capability: "contratto.read",
+      resourceType: "contratto",
+      resource: { sedeId },
+      legacyAllowed: "capability",
+    });
+    return catalogoPerUi();
+  }),
 
   salva: procedura
     .input(
