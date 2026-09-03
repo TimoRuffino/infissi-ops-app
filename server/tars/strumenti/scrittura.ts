@@ -16,6 +16,10 @@ import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import { getClienteById } from "../../routers/clienti";
 import { getCommessaById } from "../../routers/commesse";
 import { ficFatture } from "../../routers/ficFatture";
+import {
+  getDocumentoCommessaById,
+  spostaDocumentoDiCommessa,
+} from "../../routers/preventiviContratti";
 import { getTicketById, TICKET_CATEGORIE, TICKET_PRIORITA } from "../../routers/ticket";
 import { tarsAttivo } from "../../platform/interruttori";
 import { risolviEspressioneTempo } from "../tempo";
@@ -771,6 +775,84 @@ const collegaFatturaCommessa: StrumentoTars = {
   },
 };
 
+// ── Documenti del fascicolo ─────────────────────────────────────────────
+
+const spostaDocumento: StrumentoTars = {
+  nome: "sposta_documento",
+  versione: "1.0.0",
+  categoria: "documenti",
+  livello: "L2",
+  effetto: "interno",
+  reversibile: true,
+  capability: ["commessa.manage_documents"],
+  interruttore: "tarsL2Actions",
+  descrizione:
+    "Sposta un documento nel fascicolo di un'altra commessa della stessa sede (correzione di archiviazione, non una copia). Il gate documentale segue il documento: statoAtUpload diventa lo stato della commessa di destinazione. Trova prima il documento con cerca_documenti.",
+  schemaInput: z
+    .object({
+      documentoId: z.number().int().positive(),
+      commessaId: z.number().int().positive(),
+      note: z.string().max(300).optional(),
+    })
+    .strict(),
+  async esegui(contesto, input): Promise<EsitoAzione> {
+    assicuraL2();
+    const nome = "sposta_documento";
+    if (!contesto.capability.has("commessa.manage_documents")) {
+      return nonEseguito(nome, "Non autorizzato: servono i permessi sui documenti delle commesse.");
+    }
+    const documento = getDocumentoCommessaById(input.documentoId, contesto.sedeId);
+    if (!documento) return nonEseguito(nome, "Documento non trovato in questa sede.");
+    const prima = {
+      commessaId: documento.commessaId,
+      nome: documento.nome,
+      statoAtUpload: documento.statoAtUpload ?? null,
+    };
+    try {
+      const { documento: spostato, da, a } = spostaDocumentoDiCommessa({
+        documentoId: input.documentoId,
+        commessaId: input.commessaId,
+        sedeId: contesto.sedeId,
+        note: input.note,
+      });
+      const origine: any = getCommessaById(da);
+      const destinazione: any = getCommessaById(a);
+      return fatto({
+        strumento: nome,
+        stato: "spostato",
+        azioneId: `${nome}:documento:${spostato.id}:${Date.now()}`,
+        entitaToccate: [`documento:${spostato.id}`, `commessa:${da}`, `commessa:${a}`],
+        prima,
+        dopo: {
+          documentoId: spostato.id,
+          nome: spostato.nome,
+          commessaId: a,
+          commessa: destinazione ? `${destinazione.codice} — ${destinazione.cliente}` : null,
+          statoAtUpload: spostato.statoAtUpload ?? null,
+        },
+        evidenze: [
+          {
+            tipo: "entita",
+            riferimento: `documento:${spostato.id}`,
+            descrizione: `${spostato.tipo} «${spostato.nome}»`,
+          },
+          ...(destinazione ? [evidenzaCommessa(destinazione)] : []),
+        ],
+        avvertenze: [
+          ...(origine
+            ? [`Tolto dal fascicolo di ${origine.codice ?? `commessa ${da}`}: il suo gate documentale va ricontrollato.`]
+            : []),
+          ...(spostato.nome !== prima.nome
+            ? [`Rinominato in «${spostato.nome}»: il nome era già preso nella destinazione.`]
+            : []),
+        ],
+      });
+    } catch (errore) {
+      return nonEseguito(nome, motivoSicuro(errore));
+    }
+  },
+};
+
 export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   creaCliente,
   aggiornaCliente,
@@ -786,4 +868,5 @@ export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   gestisciComunicazione,
   risolviCaso,
   collegaFatturaCommessa,
+  spostaDocumento,
 ];

@@ -16,6 +16,10 @@ import {
   ficFatture,
   upsertFatture,
 } from "../../routers/ficFatture";
+import {
+  caricaDocumentoCommessaDaBuffer,
+  getDocumentoRecordById,
+} from "../../routers/preventiviContratti";
 import { getInterventiStore } from "../../routers/interventi";
 import { getTicketById } from "../../routers/ticket";
 import { getUtentiStore } from "../../routers/utenti";
@@ -265,5 +269,50 @@ describe("fatture e documenti del fascicolo (T1)", () => {
     expect(esito.stato).toBe("non_eseguito");
     expect(esito.motivo).toMatch(/autorizzat|direzione|amministrazione/i);
     expect((ficFatture as any[]).find(x => x.id === 968_103)!.commessaId ?? null).toBeNull();
+  });
+
+  it("sposta_documento: fascicolo giusto, gate ricalcolato, destinazione archiviata rifiutata", async () => {
+    const ctx = await contesto();
+    const origine = await direzione().commesse.create({ cliente: "Doc Origine" });
+    const destinazione = await direzione().commesse.create({ cliente: "Doc Destinazione" });
+    (getCommessaById(destinazione.id) as any).stato = "misure_esecutive";
+    const caricato = await caricaDocumentoCommessaDaBuffer({
+      commessaId: origine.id, nome: "contratto-prova.pdf", tipo: "contratto",
+      mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 doc"),
+      sedeId: SEDE, createdBy: DIREZIONE_ID,
+    });
+
+    const esito = await tool("sposta_documento").esegui(ctx, {
+      documentoId: caricato.id, commessaId: destinazione.id,
+    });
+    expect(esito.stato).toBe("spostato");
+    expect(esito.prima).toMatchObject({ commessaId: origine.id, statoAtUpload: "preventivo" });
+    expect(esito.dati).toMatchObject({ commessaId: destinazione.id, statoAtUpload: "misure_esecutive" });
+    expect(getDocumentoRecordById(caricato.id)!.commessaId).toBe(destinazione.id);
+
+    const archiviata = await direzione().commesse.create({ cliente: "Doc Archiviata" });
+    await direzione().commesse.archive(archiviata.id);
+    const suArchiviata = await tool("sposta_documento").esegui(ctx, {
+      documentoId: caricato.id, commessaId: archiviata.id,
+    });
+    expect(suArchiviata.stato).toBe("non_eseguito");
+    expect(suArchiviata.motivo).toContain("archiviata");
+    expect(getDocumentoRecordById(caricato.id)!.commessaId).toBe(destinazione.id);
+  });
+
+  it("sposta_documento: documento di un'altra sede invisibile", async () => {
+    const ctx = await contesto();
+    const qui = await direzione().commesse.create({ cliente: "Doc Qui" });
+    const altrove = await direzione(ALTRA_SEDE).commesse.create({ cliente: "Doc Altrove" });
+    const caricato = await caricaDocumentoCommessaDaBuffer({
+      commessaId: altrove.id, nome: "misure-altrove.pdf", tipo: "misure",
+      mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 alt"),
+      sedeId: ALTRA_SEDE, createdBy: DIREZIONE_ID,
+    });
+    const esito = await tool("sposta_documento").esegui(ctx, {
+      documentoId: caricato.id, commessaId: qui.id,
+    });
+    expect(esito.stato).toBe("non_eseguito");
+    expect(esito.motivo).toContain("non trovato");
   });
 });

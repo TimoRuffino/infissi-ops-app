@@ -249,6 +249,7 @@ const METADATI: Record<string, Metadati> = {
   segna_gestita_comunicazione: r1("segna_gestita_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
   risolvi_caso: r1("risolvi_caso", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "caso"], ["tars", "tarsL2Actions"], false),
   collega_fattura_commessa: r1("collega_fattura_commessa", "entita", ["generale", "economia", "commessa"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
+  sposta_documento: r1("sposta_documento", "entita", ["generale", "commessa", "documenti-ordini"], ["commessa", "documento"], ["tars", "tarsL2Actions"], false),
   // Ticket di post-vendita (02/09/2026): dalla chat, dal fascicolo o da
   // una comunicazione; entità cliente inclusa per i ticket senza commessa.
   crea_ticket: r1(
