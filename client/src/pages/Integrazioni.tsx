@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
+import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
 
 // Scorciatoie di direzione verso route già registrate in App.tsx. L'elenco non
 // autorizza nulla: ogni destinazione ha la sua guardia (RequireDirezione) e il
@@ -143,6 +144,11 @@ export default function Integrazioni() {
   // `permessoNegato` dentro ogni pannello restano come difesa in profondità.
   // Non è una capability e non va usato per decidere cosa può essere scritto.
   const canManage = isDirezione(user);
+  // Kill switch «limiti»: la UI nasconde la sezione, il server decide.
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const limitiAttivi = Boolean(interruttori.data?.limiti);
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
@@ -186,6 +192,15 @@ export default function Integrazioni() {
           <FattureInCloudCard />
           <ImportaClientiCard />
           <ResetPattuitiCard />
+        </SezioneHub>
+      )}
+
+      {canManage && limitiAttivi && (
+        <SezioneHub
+          titolo="Limiti di spesa"
+          descrizione="Massimali, prodotti DEI, accessori, opere, coefficienti e detrazioni del computo limiti in vigore, con la data di validità. Sola lettura in questa fase."
+        >
+          <TariffeLimitiPanel />
         </SezioneHub>
       )}
 
