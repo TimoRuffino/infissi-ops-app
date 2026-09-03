@@ -40,6 +40,9 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `cerca_comunicazioni` — comunicazioni | `comunicazioni/listComunicazioni` (ricerca sede-scoped, anche per sole cifre del numero) | L0 | R0 | `commessa.read`; testo o numero obbligatorio, estratti e mai corpi interi | T + RT + TC | `strumenti/ricerca.test.ts`; contenuto trattato come dato, mai istruzione. |
 | `cerca_fatture` — economia FiC | `routers/ficFatture` (store sincronizzato, lettura sede-scoped) | L0 | R0 | `economia.read`; numero/cliente/commessa o solo-non-collegate obbligatorio | T + RT | `strumenti/ricerca.test.ts`; righe e rate escluse. |
 | `cerca_documenti` — fascicoli | `preventiviContratti.documentiDiSede` / `getDocumentiDiCommessa` | L0 | R0 | `commessa.read`; nome/tipo/commessa/cliente obbligatorio | T + RT | `strumenti/ricerca.test.ts`; solo anagrafica del documento. |
+| `leggi_agenda` — calendario | `routers/interventi` + `externalCalendars.events` (Google in sola lettura, via caller) | L0 | R0 | `commessa.read`; sede; squadre elencate col nome; feed esterno assente = omissione dichiarata | T + RT | `strumenti/agenda.test.ts`. |
+| `sposta_intervento` — calendario | `interventi.update` (stessa procedura del Planning) | L2 | R1 | `intervento.plan` (+`intervento.assign` per la squadra, dal router); sede; «quando» in parole risolto server-side | T + L2 | `strumenti/agenda.test.ts`; prima/dopo. |
+| `segna_intervento_fatto` — calendario | `interventi.updateStato` («completato») | L2 | R1 | `intervento.plan`; sede; la commessa NON avanza: `transizioneConsigliata` nell'esito (posa→finiture_saldo, rilievo→misure_esecutive) e il modello usa `transizione_adiacente_commessa` | T + L2 | `strumenti/agenda.test.ts`. |
 | `collega_fattura_commessa` — economia FiC | `ficFatture.collega` (stessa procedura del router: pattuito, incassi, PDF nel fascicolo) | L2 | R1 | `economia.read`; direzione o amministrazione (router); sede; commessa non archiviata | T + L2 | `strumenti/scrittura.test.ts`; prima/dopo nel ledger, scollegamento solo manuale. |
 | `sposta_documento` — fascicoli | `preventiviContratti.spostaDocumentoDiCommessa` (servizio di dominio) | L2 | R1 | `commessa.manage_documents` (verificata dallo strumento); sede; destinazione non archiviata; rinomina se il nome è preso; `statoAtUpload` riallineato | T + L2 | `strumenti/scrittura.test.ts`; il gate segue il documento. |
 | `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
@@ -66,8 +69,8 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `leggi_memorie` — memoria | `tars/memoria.memorieValide` | L0 | R0 | solo memorie valide di utente+sede | T + TM | `t7Memoria.test.ts`; esistente, non richiede read-tools. |
 
 **Inventario verificabile.** La fonte di verità del conteggio è
-`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.11.0"`) e
-il golden di `registry.test.ts`: **49 azioni**. La tabella sopra descrive i
+`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.12.0"`) e
+il golden di `registry.test.ts`: **52 azioni**. La tabella sopra descrive i
 tool citati dalle tranche; i nomi completi si ricavano con
 `rg -o 'nome: "[^"]+"' server/tars/strumenti/*.ts | sort -u`.
 
