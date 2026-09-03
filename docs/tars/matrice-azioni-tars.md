@@ -92,6 +92,11 @@ tool citati dalle tranche; i nomi completi si ricavano con
   `executeSql` o `updateRecord` nel catalogo.
 - Nessun provider fuori dal governor; capability, sede, feature flag,
   freschezza/versione e audit restano verificati dal server.
+- Follow-up preventivi (T5/D3, 03/09/2026): deterministico in
+  `server/tars/followup/` — promemoria di sollecito a 7 giorni
+  (canonicalKey `tars:sollecito-preventivo:<id>:<giorno ultima attività>`)
+  e segnale `preventivo_followup` a 30 nel reconcile UNICO del Centro
+  Azioni. L'età è l'attività reale, mai `updatedAt`; nessun modello.
 - Proposta→azione (T3, 03/09/2026): una proposta dell'analisi può portare
   `azione {strumento, input JSON}` SOLO dalla whitelist
   `STRUMENTI_PROPOSTE_ESEGUIBILI` (`analisi/analisi.ts`); la verifica

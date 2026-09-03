@@ -118,7 +118,7 @@ e `segna_intervento_fatto` che porta avanti la commessa. La vista Planning
 diventa la fonte, i calendari Google importati restano solo come sfondo
 finché non si spengono.
 
-### T5 — Follow-up commerciale sui preventivi
+### T5 — Follow-up commerciale sui preventivi — FATTO il 03/09/2026 (promemoria 7 gg + caso «perso?» 30 gg, deterministici)
 
 Il 71% del portafoglio è in preventivo. Ritmo deciso (D3): **7 giorni** di
 silenzio → sollecito a chi ha in carico, con la bozza del messaggio al
