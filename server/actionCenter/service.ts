@@ -51,14 +51,22 @@ function isVisibleNow(record: ActionCaseRecord, now: Date): boolean {
   return true;
 }
 
+/**
+ * Tutti i casi della sede, per l'ordinamento e i filtri che vivono qui e non
+ * in SQL. `statuses` non è una comodità: senza, questo giro porta a casa lo
+ * storico intero cento righe per volta, una pagina dopo l'altra, per poi
+ * buttare via i risolti in memoria. Chi sa già quali stati gli servono lo
+ * dice, e il database gli manda solo quelli.
+ */
 async function allCases(
   repository: ActionCaseRepository,
-  sedeId: number
+  sedeId: number,
+  statuses?: ActionStatus[]
 ): Promise<ActionCaseRecord[]> {
   const items: ActionCaseRecord[] = [];
   let cursor: string | null = null;
   do {
-    const page = await repository.list({ sedeId, cursor, limit: 100 });
+    const page = await repository.list({ sedeId, statuses, cursor, limit: 100 });
     items.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor);
@@ -89,7 +97,7 @@ export async function listActionCases(input: {
   }
   const offset = input.cursor ? Math.max(0, Number(input.cursor) || 0) : 0;
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
-  const cases = (await allCases(input.repository, input.sedeId))
+  const cases = (await allCases(input.repository, input.sedeId, input.statuses))
     .filter(record => input.scope === "site" || isMine(record, input.userId, input.roles))
     .filter(record => !input.statuses || input.statuses.includes(record.status))
     .sort((a, b) => {
@@ -115,7 +123,12 @@ export async function getActionCenterSummary(input: {
   roles: string[];
   now: Date;
 }) {
-  const records = (await allCases(input.repository, input.sedeId))
+  // `isVisibleNow` scarta i risolti, e «risolta» è l'unico stato fuori da
+  // OPEN_ACTION_STATUSES: chiederli al database è lo stesso filtro, fatto
+  // prima di trascinarsi dietro lo storico.
+  const records = (await allCases(input.repository, input.sedeId, [
+    ...OPEN_ACTION_STATUSES,
+  ]))
     .filter(record => isMine(record, input.userId, input.roles))
     .filter(record => isVisibleNow(record, input.now));
   const badge = records.filter(record => {

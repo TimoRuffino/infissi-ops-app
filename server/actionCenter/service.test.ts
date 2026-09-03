@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMemoryActionCaseRepository } from "./repository";
 import {
+  OPEN_ACTION_STATUSES,
   getActionCenterSummary,
   listActionCases,
   transitionActionCase,
 } from "./service";
-import type { ActionCaseDraft } from "./types";
+import type { ActionCaseDraft, ActionStatus } from "./types";
 import { createMemoryBusinessEventRepository } from "../events/repository";
 import { setFeatureFlags } from "../platform/featureFlags";
 
@@ -186,5 +187,101 @@ describe("Action Center service", () => {
       recipientHints: [8],
       payload: { previousAssigneeId: 7, assigneeId: 8 },
     });
+  });
+});
+
+// Chi legge un elenco filtrato non deve pagare lo storico intero. Il filtro
+// per stato va chiesto al database, non applicato dopo: con qualche migliaio
+// di casi risolti alle spalle, la differenza è fra una domanda e trenta.
+describe("Action Center — il filtro per stato arriva al database", () => {
+  function repositorySpia() {
+    const vero = createMemoryActionCaseRepository();
+    const chiamate: (ActionStatus[] | undefined)[] = [];
+    return {
+      chiamate,
+      repository: {
+        ...vero,
+        list: (input: Parameters<typeof vero.list>[0]) => {
+          chiamate.push(input.statuses);
+          return vero.list(input);
+        },
+      } as typeof vero,
+      vero,
+    };
+  }
+
+  async function conCasi() {
+    const spia = repositorySpia();
+    await spia.vero.upsertDraft(draft(), NOW);
+    await spia.vero.upsertDraft(
+      draft({ canonicalKey: "commessa:2", targetId: 2, signalFingerprint: "fp-2" }),
+      NOW
+    );
+    return spia;
+  }
+
+  it("listActionCases gira gli stati richiesti al repository", async () => {
+    const spia = await conCasi();
+    await listActionCases({
+      repository: spia.repository,
+      sedeId: 1,
+      userId: 7,
+      roles: ["ufficio"],
+      scope: "mine",
+      now: NOW,
+      statuses: ["da_valutare", "in_carico"],
+      limit: 10,
+    });
+    expect(spia.chiamate).toEqual([["da_valutare", "in_carico"]]);
+  });
+
+  it("senza stati richiesti non ne inventa", async () => {
+    const spia = await conCasi();
+    await listActionCases({
+      repository: spia.repository,
+      sedeId: 1,
+      userId: 7,
+      roles: ["ufficio"],
+      scope: "mine",
+      now: NOW,
+    });
+    expect(spia.chiamate).toEqual([undefined]);
+  });
+
+  it("il riepilogo chiede solo gli stati vivi: i risolti non lo riguardano", async () => {
+    const spia = await conCasi();
+    await getActionCenterSummary({
+      repository: spia.repository,
+      sedeId: 1,
+      userId: 7,
+      roles: ["ufficio"],
+      now: NOW,
+    });
+    expect(spia.chiamate).toEqual([[...OPEN_ACTION_STATUSES]]);
+    expect(spia.chiamate[0]).not.toContain("risolta");
+  });
+
+  it("filtrare in SQL dà lo stesso elenco che filtrare in memoria", async () => {
+    const spia = await conCasi();
+    const record = await spia.vero.findByCanonicalKey(1, "commessa:2");
+    await spia.vero.transition({
+      sedeId: 1,
+      id: record!.id,
+      expectedFingerprint: record!.signalFingerprint,
+      actorUserId: 7,
+      eventType: "resolve",
+      status: "risolta",
+      now: NOW,
+    });
+    const aperti = await listActionCases({
+      repository: spia.repository,
+      sedeId: 1,
+      userId: 7,
+      roles: ["ufficio"],
+      scope: "mine",
+      now: NOW,
+      statuses: [...OPEN_ACTION_STATUSES],
+    });
+    expect(aperti.items.map(c => c.canonicalKey)).toEqual(["commessa:1"]);
   });
 });

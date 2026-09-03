@@ -213,3 +213,140 @@ describe("tars.briefing — sezione smistamento", () => {
     expect(spento.smistamento).toBeNull();
   });
 });
+
+// «Da rispondere» è l'unica lista del briefing che, per riempirsi, deve
+// chiedere al database una cosa per candidato: se una risposta è già
+// partita, quella voce non va mostrata. Le domande ora partono a blocchi
+// invece che una alla volta, e questi casi fissano ciò che il blocco non
+// deve cambiare: l'ordine, il tetto di otto, e il fatto che uno scartato non
+// consumi un posto — nemmeno quando cade dentro il primo blocco.
+async function comunicazioneDaRispondere(input: {
+  mittente: string;
+  ricevutaIl: Date;
+}) {
+  const n = contatore++;
+  const c = (await insertComunicazione({
+    sedeId: SEDE,
+    casellaId: 3,
+    messageId: `risposta-${n}-${Date.now()}`,
+    canale: "email",
+    direzione: "in",
+    mittente: input.mittente,
+    mittenteNome: "Cliente",
+    destinatari: ["info@azienda.test"],
+    oggetto: `Domanda ${input.mittente}`,
+    testo: "Mi fate sapere?",
+    allegati: [],
+    clienteId: null,
+    commessaId: null,
+    matchConfidenza: "nessuna",
+    matchMotivo: null,
+    stato: "nuova",
+    receivedAt: input.ricevutaIl,
+  }))!;
+  const esito: EsitoSmistamento = {
+    versione: "1.0.0",
+    fonte: "modello",
+    modello: "gpt-5.6-terra",
+    categoria: "operativa",
+    urgenza: "normale",
+    riepilogo: "Il cliente aspetta una risposta.",
+    richiedeRisposta: true,
+    azioneSuggerita: "rispondi",
+    istruzione: "Rispondere al cliente.",
+    collegamento: {
+      esito: "nessuno",
+      commessaId: null,
+      clienteId: null,
+      confidenza: "nessuna",
+      motivo: "Nessun aggancio.",
+    },
+    allegati: [],
+    archiviati: [],
+    candidati: [],
+    segnali: { interno: false, inoltro: false, mittenteOriginale: null },
+  };
+  await repository.registra({
+    comunicazioneId: c.id,
+    sedeId: SEDE,
+    versione: "1.0.0",
+    stato: "analizzata",
+    esito,
+    propostaStato: null,
+    ultimoErrore: null,
+    now: input.ricevutaIl,
+  });
+  return c;
+}
+
+async function rispostaGiaPartita(mittente: string, quando: Date) {
+  await insertComunicazione({
+    sedeId: SEDE,
+    casellaId: 3,
+    messageId: `uscita-${contatore++}-${Date.now()}`,
+    canale: "email",
+    direzione: "out",
+    mittente: "info@azienda.test",
+    mittenteNome: "Azienda",
+    destinatari: [mittente],
+    oggetto: "Re: Domanda",
+    testo: "Ecco.",
+    allegati: [],
+    clienteId: null,
+    commessaId: null,
+    matchConfidenza: "nessuna",
+    matchMotivo: null,
+    stato: "gestita",
+    receivedAt: quando,
+  });
+}
+
+describe("tars.briefing — da rispondere", () => {
+  const BASE = new Date("2026-09-01T09:00:00.000Z");
+  /** i-esima comunicazione: più è alto l'indice, più è recente. */
+  const quando = (i: number) => new Date(BASE.getTime() + i * 60_000);
+
+  it("si ferma a otto voci anche con più candidati", async () => {
+    for (let i = 0; i < 11; i++) {
+      await comunicazioneDaRispondere({
+        mittente: `c${i}@example.test`,
+        ricevutaIl: quando(i),
+      });
+    }
+    const briefing = await direzione().tars.briefing();
+    expect(briefing.smistamento!.daRispondere).toHaveLength(8);
+  });
+
+  it("chi ha già ricevuto risposta non compare, e non consuma un posto", async () => {
+    for (let i = 0; i < 9; i++) {
+      await comunicazioneDaRispondere({
+        mittente: `d${i}@example.test`,
+        ricevutaIl: quando(i),
+      });
+    }
+    // La più recente è d8: cade nel primo blocco di otto, quindi mette alla
+    // prova proprio il confine fra un blocco e il successivo.
+    await rispostaGiaPartita("d8@example.test", quando(20));
+
+    const voci = (await direzione().tars.briefing()).smistamento!.daRispondere;
+    expect(voci).toHaveLength(8);
+    const oggetti = voci.map(v => v.oggetto);
+    expect(oggetti).not.toContain("Domanda d8@example.test");
+    expect(oggetti).toContain("Domanda d0@example.test");
+  });
+
+  it("tiene l'ordine del registro: prima le più recenti", async () => {
+    for (let i = 0; i < 3; i++) {
+      await comunicazioneDaRispondere({
+        mittente: `e${i}@example.test`,
+        ricevutaIl: quando(i),
+      });
+    }
+    const voci = (await direzione().tars.briefing()).smistamento!.daRispondere;
+    expect(voci.map(v => v.oggetto)).toEqual([
+      "Domanda e2@example.test",
+      "Domanda e1@example.test",
+      "Domanda e0@example.test",
+    ]);
+  });
+});

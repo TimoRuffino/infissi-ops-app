@@ -17,8 +17,9 @@ import { getReminderService } from "../reminders/service";
 import { misura } from "../_core/osservabilita";
 import {
   esisteUscitaVerso,
-  getComunicazione,
+  getComunicazioniByIds,
 } from "../comunicazioni/comunicazioni";
+import type { Comunicazione } from "../comunicazioni/comunicazioni";
 import { registraRun } from "./archivio";
 import { repositorySmistamentoCorrente } from "./smistamento/repository";
 import { linkComunicazione } from "./smistamento/segnali";
@@ -147,18 +148,25 @@ export async function sezioneSmistamento(
     }),
     repository.statistiche(sedeId),
   ]);
-  const cache = new Map<number, Awaited<ReturnType<typeof getComunicazione>>>();
-  const carica = async (id: number) => {
-    if (!cache.has(id)) cache.set(id, await getComunicazione(id, sedeId));
-    return cache.get(id) ?? null;
-  };
-  const voce = async (
+  // Le comunicazioni citate dal registro arrivano tutte insieme: erano fino
+  // a centonovanta letture da una riga l'una, in fila, e ognuna pagava per
+  // intero l'andata e il ritorno verso il database. È lì che se ne andavano
+  // i cinque secondi della sezione, non nel lavoro.
+  const cache = await getComunicazioniByIds(
+    [
+      ...proposte.map(r => r.comunicazioneId),
+      ...recenti.map(r => r.comunicazioneId),
+    ],
+    sedeId
+  );
+  const carica = (id: number): Comunicazione | null => cache.get(id) ?? null;
+  const voce = (
     record: (typeof recenti)[number],
     conProposta: boolean
-  ): Promise<VoceSmistamentoBriefing | null> => {
+  ): VoceSmistamentoBriefing | null => {
     const esito = record.esito;
     if (!esito) return null;
-    const c = await carica(record.comunicazioneId);
+    const c = carica(record.comunicazioneId);
     if (!c || c.deletedAt) return null;
     const bersaglio = esito.collegamento.commessaId
       ? esito.candidati.find(x => x.tipo === "commessa" && x.id === esito.collegamento.commessaId)?.etichetta ?? `commessa ${esito.collegamento.commessaId}`
@@ -189,12 +197,15 @@ export async function sezioneSmistamento(
   for (const record of proposte) {
     if (daDecidere.length >= VOCI_MASSIME) break;
     if (record.esito?.collegamento.esito !== "proposto") continue;
-    const v = await voce(record, true);
+    const v = voce(record, true);
     if (v) daDecidere.push(v);
   }
 
-  const daRispondere: VoceSmistamentoBriefing[] = [];
   const urgenti: VoceSmistamentoBriefing[] = [];
+  const candidatiRisposta: {
+    record: (typeof recenti)[number];
+    comunicazione: Comunicazione;
+  }[] = [];
   const inizioOggi = inizioGiornata(adesso).getTime();
   let smistateOggi = 0;
   let collegateOggi = 0;
@@ -213,21 +224,40 @@ export async function sezioneSmistamento(
       (esito.urgenza === "critica" || esito.urgenza === "alta") &&
       urgenti.length < VOCI_MASSIME
     ) {
-      const v = await voce(record, false);
+      const v = voce(record, false);
       if (v) urgenti.push(v);
     }
-    if (esito.richiedeRisposta && daRispondere.length < VOCI_MASSIME) {
-      const c = await carica(record.comunicazioneId);
-      if (!c || c.stato === "gestita" || c.direzione !== "in") continue;
-      const risposta = await esisteUscitaVerso({
-        sedeId,
-        canale: c.canale,
-        casellaId: c.casellaId,
-        controparte: c.mittente,
-        dopo: c.receivedAt,
-      });
-      if (risposta) continue;
-      const v = await voce(record, false);
+    if (!esito.richiedeRisposta) continue;
+    const c = carica(record.comunicazioneId);
+    if (!c || c.stato === "gestita" || c.direzione !== "in") continue;
+    candidatiRisposta.push({ record, comunicazione: c });
+  }
+
+  // «Ha già avuto risposta?» resta una domanda per candidato — non si può
+  // sapere in blocco — ma non c'è motivo di aspettarle in fila: ogni giro ne
+  // chiede un blocco insieme e si ferma appena il briefing ha le sue otto
+  // voci. L'ordine e il criterio restano quelli di prima.
+  const daRispondere: VoceSmistamentoBriefing[] = [];
+  for (
+    let i = 0;
+    i < candidatiRisposta.length && daRispondere.length < VOCI_MASSIME;
+    i += VOCI_MASSIME
+  ) {
+    const blocco = candidatiRisposta.slice(i, i + VOCI_MASSIME);
+    const risposte = await Promise.all(
+      blocco.map(({ comunicazione }) =>
+        esisteUscitaVerso({
+          sedeId,
+          canale: comunicazione.canale,
+          casellaId: comunicazione.casellaId,
+          controparte: comunicazione.mittente,
+          dopo: comunicazione.receivedAt,
+        })
+      )
+    );
+    for (const [j, { record }] of blocco.entries()) {
+      if (risposte[j] || daRispondere.length >= VOCI_MASSIME) continue;
+      const v = voce(record, false);
       if (v) daRispondere.push(v);
     }
   }

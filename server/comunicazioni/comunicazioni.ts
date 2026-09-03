@@ -2362,6 +2362,40 @@ export async function getComunicazione(
   return rows.length ? fromRow(rows[0]) : null;
 }
 
+/**
+ * Le stesse righe di `getComunicazione`, ma per molti id in una domanda
+ * sola. Serve dove un elenco già in mano va arricchito riga per riga: cento
+ * andate e ritorni verso il database costano cento volte la latenza di rete,
+ * anche quando ogni singola query è istantanea.
+ *
+ * Stesse regole del getter singolo: sede-scoped, e le tombstone restano
+ * dentro perché chi chiama guarda `deletedAt` da sé.
+ */
+export async function getComunicazioniByIds(
+  ids: readonly number[],
+  sedeId: number
+): Promise<Map<number, Comunicazione>> {
+  const unici = [...new Set(ids)];
+  if (unici.length === 0) return new Map();
+  if (!kvSql) {
+    return new Map(
+      memRows
+        .filter(r => r.sedeId === sedeId && unici.includes(r.id))
+        .map(r => [r.id, r] as const)
+    );
+  }
+  await ensureComunicazioniSchema();
+  const rows = await kvSql`
+    SELECT * FROM comunicazioni
+    WHERE sede_id = ${sedeId} AND id = ANY(${unici}::integer[])`;
+  return new Map(
+    rows.map(r => {
+      const c = fromRow(r);
+      return [c.id, c] as const;
+    })
+  );
+}
+
 /** Getter canonico per effetti/letture Tars: sede-scoped e tombstone-safe. */
 export async function getLiveComunicazione(
   id: number,
