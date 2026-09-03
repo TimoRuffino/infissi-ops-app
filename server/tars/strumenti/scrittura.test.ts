@@ -11,6 +11,11 @@ import { insertComunicazione, getComunicazione } from "../../comunicazioni/comun
 import { appRouter } from "../../routers";
 import { getClienteById } from "../../routers/clienti";
 import { getCommessaById } from "../../routers/commesse";
+import {
+  _setScaricaFatturaPdfForTests,
+  ficFatture,
+  upsertFatture,
+} from "../../routers/ficFatture";
 import { getInterventiStore } from "../../routers/interventi";
 import { getTicketById } from "../../routers/ticket";
 import { getUtentiStore } from "../../routers/utenti";
@@ -201,5 +206,64 @@ describe("ticket, interventi, comunicazioni, casi", () => {
     expect(esito.stato).toBe("risolto");
     expect((await repo.findById(SEDE, caso.id))?.status).toBe("risolta");
     expect((await tool("risolvi_caso").esegui(ctx, { casoId: caso.id })).stato).toBe("non_eseguito");
+  });
+});
+
+describe("fatture e documenti del fascicolo (T1)", () => {
+  it("collega_fattura_commessa collega, con prima/dopo; già collegata e cross-sede non eseguite", async () => {
+    const ctx = await contesto();
+    const commessa = await direzione().commesse.create({ cliente: "Fattura Test" });
+    upsertFatture([{
+      id: 968_101, numero: "130/T", data: "2026-08-01",
+      clienteNome: "Fattura Test", clienteVat: null, clienteCf: null,
+      importoNetto: 1000, importoLordo: 1220, rate: [],
+    }], SEDE);
+    upsertFatture([{
+      id: 968_102, numero: "131/T", data: "2026-08-02",
+      clienteNome: "Altra Sede Srl", clienteVat: null, clienteCf: null,
+      importoNetto: 500, importoLordo: 610, rate: [],
+    }], ALTRA_SEDE);
+    _setScaricaFatturaPdfForTests(async () => Buffer.from("%PDF-1.4 finto"));
+    try {
+      const esito = await tool("collega_fattura_commessa").esegui(ctx, {
+        ficId: 968_101, commessaId: commessa.id,
+      });
+      expect(esito.stato).toBe("collegata");
+      expect(esito.prima).toMatchObject({ commessaId: null });
+      expect(esito.dati.commessaId).toBe(commessa.id);
+      const f = (ficFatture as any[]).find(x => x.id === 968_101)!;
+      expect(f.commessaId).toBe(commessa.id);
+      expect(f.collegataAMano).toBe(true);
+
+      const doppia = await tool("collega_fattura_commessa").esegui(ctx, {
+        ficId: 968_101, commessaId: commessa.id,
+      });
+      expect(doppia.stato).toBe("non_eseguito");
+      expect(doppia.motivo).toContain("già collegata");
+
+      const crossSede = await tool("collega_fattura_commessa").esegui(ctx, {
+        ficId: 968_102, commessaId: commessa.id,
+      });
+      expect(crossSede.stato).toBe("non_eseguito");
+      expect(crossSede.motivo).toContain("non trovata");
+    } finally {
+      _setScaricaFatturaPdfForTests(null);
+    }
+  });
+
+  it("collega_fattura_commessa: senza direzione/amministrazione il router rifiuta senza leak", async () => {
+    const ctxPosa = await contesto(POSA_ID, ["squadra_posa"]);
+    const commessa = await direzione().commesse.create({ cliente: "Fattura Ruoli" });
+    upsertFatture([{
+      id: 968_103, numero: "132/T", data: "2026-08-03",
+      clienteNome: "Fattura Ruoli", clienteVat: null, clienteCf: null,
+      importoNetto: 100, importoLordo: 122, rate: [],
+    }], SEDE);
+    const esito = await tool("collega_fattura_commessa").esegui(ctxPosa, {
+      ficId: 968_103, commessaId: commessa.id,
+    });
+    expect(esito.stato).toBe("non_eseguito");
+    expect(esito.motivo).toMatch(/autorizzat|direzione|amministrazione/i);
+    expect((ficFatture as any[]).find(x => x.id === 968_103)!.commessaId ?? null).toBeNull();
   });
 });

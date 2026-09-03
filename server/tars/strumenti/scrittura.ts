@@ -15,6 +15,7 @@ import { CATEGORIE_COMUNICAZIONE } from "../../comunicazioni/filtroComunicazioni
 import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import { getClienteById } from "../../routers/clienti";
 import { getCommessaById } from "../../routers/commesse";
+import { ficFatture } from "../../routers/ficFatture";
 import { getTicketById, TICKET_CATEGORIE, TICKET_PRIORITA } from "../../routers/ticket";
 import { tarsAttivo } from "../../platform/interruttori";
 import { risolviEspressioneTempo } from "../tempo";
@@ -691,6 +692,85 @@ const risolviCaso: StrumentoTars = {
   },
 };
 
+// ── Fatture (FiC) ───────────────────────────────────────────────────────
+
+const collegaFatturaCommessa: StrumentoTars = {
+  nome: "collega_fattura_commessa",
+  versione: "1.0.0",
+  categoria: "economia",
+  livello: "L2",
+  effetto: "interno",
+  reversibile: true,
+  capability: ["economia.read"],
+  interruttore: "tarsL2Actions",
+  descrizione:
+    "Collega una fattura di Fatture in Cloud a una commessa della sede: il pattuito si aggiorna dalla fattura, gli incassi si riconciliano e il PDF finisce nel fascicolo. Richiede direzione o amministrazione. Trova prima la fattura con cerca_fatture.",
+  schemaInput: z
+    .object({
+      ficId: z.number().int().positive(),
+      commessaId: z.number().int().positive(),
+    })
+    .strict(),
+  async esegui(contesto, input): Promise<EsitoAzione> {
+    assicuraL2();
+    const nome = "collega_fattura_commessa";
+    const fattura: any = (ficFatture as any[]).find(
+      f => f.id === input.ficId && f.sedeId === contesto.sedeId
+    );
+    if (!fattura) return nonEseguito(nome, "Fattura non trovata in questa sede.");
+    const commessa = commessaInSede(contesto, input.commessaId);
+    if (!commessa) return nonEseguito(nome, "Commessa non trovata in questa sede.");
+    if (commessa.archivedAt) {
+      return nonEseguito(nome, "La commessa è archiviata: ripristinala prima.");
+    }
+    if (fattura.commessaId === input.commessaId) {
+      return nonEseguito(nome, "La fattura è già collegata a questa commessa.");
+    }
+    const prima = {
+      commessaId: fattura.commessaId ?? null,
+      collegataAMano: fattura.collegataAMano ?? false,
+    };
+    try {
+      const caller = await callerPer(contesto);
+      const esito = await caller.ficFatture.collega({
+        ficId: input.ficId,
+        commessaId: input.commessaId,
+      });
+      return fatto({
+        strumento: nome,
+        stato: "collegata",
+        azioneId: `${nome}:fattura:${input.ficId}:${Date.now()}`,
+        entitaToccate: [`fattura:${input.ficId}`, `commessa:${commessa.id}`],
+        prima,
+        dopo: {
+          ficId: input.ficId,
+          numero: fattura.numero,
+          commessaId: commessa.id,
+          commessa: `${commessa.codice} — ${commessa.cliente}`,
+          pdfNelFascicolo: esito.pdf.stato === "archiviata",
+          documentoId: esito.documentoId,
+        },
+        evidenze: [
+          evidenzaCommessa(commessa),
+          {
+            tipo: "entita",
+            riferimento: `fattura:${input.ficId}`,
+            descrizione: `Fattura n. ${fattura.numero} del ${fattura.data} — ${fattura.clienteNome}`,
+          },
+        ],
+        avvertenze: [
+          "Pattuito e incassi della commessa ora derivano dalla fattura (dominio FiC).",
+          ...(esito.pdf.stato === "errore"
+            ? [`PDF non archiviato: ${esito.pdf.errore ?? "errore sconosciuto"}`]
+            : []),
+        ],
+      });
+    } catch (errore) {
+      return nonEseguito(nome, motivoSicuro(errore));
+    }
+  },
+};
+
 export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   creaCliente,
   aggiornaCliente,
@@ -705,4 +785,5 @@ export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   classificaComunicazione,
   gestisciComunicazione,
   risolviCaso,
+  collegaFatturaCommessa,
 ];
