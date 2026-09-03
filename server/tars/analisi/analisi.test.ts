@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { creaProviderFinto } from "../openai/fake";
+import { PROMPT_ANALISI, PROMPT_ANALISI_VERSIONE } from "./prompt";
 import { analisiDeterministica, analizzaConModello, verificaEsito } from "./analisi";
 import { costruisciFotografia, entitaDellaFotografia, testoFotografia, type DipendenzeFotografia } from "./fotografia";
 import { creaRepositoryAnalisiMemoria } from "./repository";
@@ -142,6 +143,15 @@ describe("fotografia", () => {
     });
     expect(f.contatori.casiAperti).toBe(0);
     expect(f.contatori.commesseAttive).toBe(2);
+  });
+});
+
+describe("prompt", () => {
+  it("analisi-v4: perimetro vietato, preventivi e gate spiegati", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v4");
+    expect(PROMPT_ANALISI).toContain("Perimetro");
+    expect(PROMPT_ANALISI).toContain("Preventivi fermi");
+    expect(PROMPT_ANALISI).toMatch(/gate/i);
   });
 });
 
