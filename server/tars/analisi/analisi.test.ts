@@ -147,11 +147,13 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v4: perimetro vietato, preventivi e gate spiegati", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v4");
+  it("analisi-v5: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v5");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
+    expect(PROMPT_ANALISI).toContain("crea_ticket");
+    expect(PROMPT_ANALISI).toMatch(/[Ss]olo se conosci TUTTI i parametri/);
   });
 });
 
@@ -180,6 +182,50 @@ describe("verifica e sintesi", () => {
     // Anche pattern:ritardi_fornitore è scartato: con ordini a zero quel
     // pattern non sta più nella fotografia (T2).
     expect(esito.avvertenze[0]).toContain("2 riferimenti");
+  });
+
+  it("un'azione valida della whitelist resta; tool sconosciuto o input fuori schema la azzera con avvertenza", async () => {
+    const f = await costruisciFotografia({ sedeId: SEDE, adesso: ADESSO, deps: depsFotografia() });
+    const esito = verificaEsito(
+      {
+        sintesi: "Ok.",
+        punti: [],
+        proposte: [
+          {
+            testo: "Crea un ticket per il vetro rotto di COM-2026-002",
+            richiestaPerTars: "Crea un ticket per COM-2026-002: vetro rotto",
+            entita: ["commessa:2"],
+            azione: { strumento: "crea_ticket", input: JSON.stringify({ commessaId: 2, oggetto: "Vetro rotto", categoria: "difetto_prodotto" }) },
+          },
+          {
+            testo: "Tool inesistente",
+            richiestaPerTars: "Fai qualcosa",
+            entita: [],
+            azione: { strumento: "cancella_tutto", input: "{}" },
+          },
+          {
+            testo: "Input fuori schema",
+            richiestaPerTars: "Crea un ticket",
+            entita: ["commessa:2"],
+            azione: { strumento: "crea_ticket", input: JSON.stringify({ oggetto: 12 }) },
+          },
+          {
+            testo: "Scavalco vietato da proposta",
+            richiestaPerTars: "Porta avanti la commessa",
+            entita: ["commessa:2"],
+            azione: { strumento: "transizione_adiacente_commessa", input: JSON.stringify({ commessaId: 2, nuovoStato: "produzione", scavalcaGate: true }) },
+          },
+        ],
+        domande: [],
+      },
+      f,
+      "gpt-test"
+    );
+    expect(esito.proposte[0].azione).toMatchObject({ strumento: "crea_ticket" });
+    expect(esito.proposte[1].azione).toBeNull();
+    expect(esito.proposte[2].azione).toBeNull();
+    expect(esito.proposte[3].azione).toBeNull();
+    expect(esito.avvertenze.join(" ")).toMatch(/3 azioni proposte non valide/);
   });
 
   it("col provider finto la sintesi arriva dal JSON; senza provider è deterministica", async () => {

@@ -4,7 +4,7 @@
 
 import { PRIORITA_PUNTO, TIPI_PUNTO } from "./types";
 
-export const PROMPT_ANALISI_VERSIONE = "analisi-v4";
+export const PROMPT_ANALISI_VERSIONE = "analisi-v5";
 
 export const PROMPT_ANALISI = `Sei Tars, il cervello operativo di Ruffino Group, azienda di infissi e serramenti (La Spezia). Ogni mattina leggi la fotografia deterministica dell'azienda e dici alla direzione, in italiano diretto e senza fronzoli, cosa vedi, cosa rischia e cosa faresti.
 
@@ -15,6 +15,15 @@ Produci:
 - punti: da 0 a 8, ordinati per priorità. tipo = rischio (qualcosa può andare male), anomalia (qualcosa non torna), andamento (una tendenza del periodo), opportunita (un'occasione operativa). Ogni punto cita nel campo entita SOLO riferimenti presenti nella fotografia; se non ne ha, entita vuoto.
 - proposte: da 0 a 6 azioni concrete che Tars può eseguire con i suoi strumenti (pianificare un rilievo o una posa, creare o aggiornare un ticket, collegare una comunicazione, aggiornare note o priorità di una commessa, ricordare una scadenza, rispondere a un cliente). richiestaPerTars è la frase esatta, imperativa, che una persona scriverebbe a Tars per farla eseguire (es. «Pianifica un rilievo per COM-2026-096 giovedì mattina», «Crea un ticket urgente per la commessa 12: vetro rotto segnalato dal cliente»). Nessuna proposta su pagamenti, importi, cancellazioni o invii esterni.
 - domande: da 0 a 3 domande alla direzione, solo se la fotografia non basta a decidere.
+- azione: quando una proposta corrisponde ESATTAMENTE a uno degli strumenti qui sotto e conosci TUTTI i parametri dalla fotografia, compila azione con {strumento, input} dove input è una STRINGA JSON con i parametri; altrimenti azione = null e resta la richiesta in chat. Solo se conosci TUTTI i parametri: mai inventare id, mai importi, mai scavalcaGate. Strumenti ammessi (gli id arrivano dai riferimenti della fotografia):
+  - crea_ticket: input {"commessaId": 12, "oggetto": "Vetro rotto", "categoria": "difetto_prodotto|difetto_posa|regolazione|garanzia|altro", "priorita": "bassa|media|alta|urgente"}
+  - pianifica_intervento: input {"commessaId": 12, "tipo": "rilievo|posa|assistenza|altro", "quando": "domani alle 9"}
+  - crea_promemoria: input {"testo": "Sollecitare il preventivo Soare", "quando": "lunedì alle 10", "commessaId": 12}
+  - collega_comunicazione: input {"comunicazioneId": 90, "commessaId": 12}
+  - collega_fattura_commessa: input {"ficId": 130, "commessaId": 12}
+  - sposta_documento: input {"documentoId": 5, "commessaId": 12}
+  - archivia_commessa: input {"commessaId": 12}
+  - transizione_adiacente_commessa: input {"commessaId": 12, "nuovoStato": "attesa_posa"}
 
 Regole assolute:
 - Mai importi in euro, mai cifre economiche: non li hai e non li inventi.
@@ -53,11 +62,25 @@ export const SCHEMA_JSON_ANALISI = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["testo", "richiestaPerTars", "entita"],
+        required: ["testo", "richiestaPerTars", "entita", "azione"],
         properties: {
           testo: { type: "string" },
           richiestaPerTars: { type: "string" },
           entita: { type: "array", items: { type: "string" } },
+          azione: {
+            anyOf: [
+              { type: "null" },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["strumento", "input"],
+                properties: {
+                  strumento: { type: "string" },
+                  input: { type: "string" },
+                },
+              },
+            ],
+          },
         },
       },
     },

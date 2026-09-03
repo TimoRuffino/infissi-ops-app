@@ -2,7 +2,7 @@
 // dell'azienda al giorno, una sintesi del modello sopra, proposte che si
 // eseguono SOLO chiedendolo a Tars in chat (nessuna mutazione da qui).
 
-export const VERSIONE_ANALISI_AZIENDA = "1.1.0";
+export const VERSIONE_ANALISI_AZIENDA = "1.2.0";
 
 export type FattoAnalisi = {
   /** Chiave stabile del fatto (per i test e per il modello). */
@@ -39,12 +39,32 @@ export type PuntoAnalisi = {
   link: string | null;
 };
 
+/** L'azione eseguibile con un click (T3): verificata contro il catalogo. */
+export type AzionePropostaAnalisi = {
+  strumento: string;
+  /** Input dello strumento come stringa JSON (formato strict del provider). */
+  input: string;
+};
+
+/** Cosa è successo quando l'utente ha cliccato Esegui (dal ledger R1). */
+export type EsecuzionePropostaAnalisi = {
+  stato: string;
+  motivo: string | null;
+  azioneId: string | null;
+  entitaToccate: string[];
+  quando: string;
+  daUtente: number;
+};
+
 export type PropostaAnalisi = {
   testo: string;
   /** La frase da dire a Tars per farla eseguire (precompila la chat). */
   richiestaPerTars: string;
   entita: string[];
   link: string | null;
+  /** null = la proposta si porta in chat; valorizzata = bottone Esegui. */
+  azione: AzionePropostaAnalisi | null;
+  esecuzione?: EsecuzionePropostaAnalisi | null;
 };
 
 export type EsitoAnalisiAzienda = {

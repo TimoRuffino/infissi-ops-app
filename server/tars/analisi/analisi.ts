@@ -2,6 +2,7 @@
 // deterministica. Senza provider: sintesi deterministica dai contatori.
 
 import { z } from "zod";
+import { descrittoreAzione } from "../azioni/registry";
 import type { RichiestaProvider, TarsProvider } from "../provider";
 import { senzaImportiEuro } from "../smistamento/analisi";
 import { entitaDellaFotografia, testoFotografia } from "./fotografia";
@@ -10,11 +11,28 @@ import {
   PRIORITA_PUNTO,
   TIPI_PUNTO,
   VERSIONE_ANALISI_AZIENDA,
+  type AzionePropostaAnalisi,
   type EsitoAnalisiAzienda,
   type FotografiaAzienda,
   type PropostaAnalisi,
   type PuntoAnalisi,
 } from "./types";
+
+/**
+ * Gli strumenti che una proposta può portare come azione eseguibile con un
+ * click (T3). Whitelist chiusa: tutte azioni R1 già nel registro; lo
+ * scavalco del gate non nasce MAI da una proposta.
+ */
+export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = [
+  "crea_ticket",
+  "pianifica_intervento",
+  "crea_promemoria",
+  "collega_comunicazione",
+  "collega_fattura_commessa",
+  "sposta_documento",
+  "archivia_commessa",
+  "transizione_adiacente_commessa",
+];
 
 const MODELLO_ANALISI_DEFAULT = "gpt-5.6-sol";
 const SINTESI_MASSIMA = 900;
@@ -45,6 +63,10 @@ const schemaEsitoModello = z.object({
         testo: z.string(),
         richiestaPerTars: z.string(),
         entita: z.array(z.string()),
+        azione: z
+          .object({ strumento: z.string(), input: z.string().max(2000) })
+          .nullable()
+          .default(null),
       })
     )
     .default([]),
@@ -78,6 +100,33 @@ export function verificaEsito(
     return { entita: valide, link };
   };
 
+  // T3: l'azione allegata a una proposta vale solo se regge contro il
+  // catalogo VERO (whitelist, registro, schema di input); tutto il resto
+  // decade a richiesta in chat, e lo scarto è dichiarato.
+  let azioniScartate = 0;
+  const verificaAzione = (
+    azione: { strumento: string; input: string } | null | undefined
+  ): AzionePropostaAnalisi | null => {
+    if (!azione) return null;
+    const scarta = () => {
+      azioniScartate += 1;
+      return null;
+    };
+    if (!STRUMENTI_PROPOSTE_ESEGUIBILI.includes(azione.strumento)) return scarta();
+    const descrittore = descrittoreAzione(azione.strumento);
+    if (!descrittore) return scarta();
+    let grezzi: unknown;
+    try {
+      grezzi = JSON.parse(azione.input);
+    } catch {
+      return scarta();
+    }
+    if ((grezzi as any)?.scavalcaGate) return scarta();
+    const valido = descrittore.strumento.schemaInput.safeParse(grezzi);
+    if (!valido.success) return scarta();
+    return { strumento: azione.strumento, input: JSON.stringify(valido.data) };
+  };
+
   const punti: PuntoAnalisi[] = grezzo.punti
     .filter(p => p.testo.trim().length > 0)
     .map(p => ({ tipo: p.tipo, priorita: p.priorita, testo: pulisci(p.testo, TESTO_MASSIMO), ...filtraEntita(p.entita) }))
@@ -89,6 +138,7 @@ export function verificaEsito(
       testo: pulisci(p.testo, TESTO_MASSIMO),
       richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
       ...filtraEntita(p.entita),
+      azione: verificaAzione(p.azione),
     }))
     .slice(0, PROPOSTE_MASSIME);
   const domande = grezzo.domande
@@ -97,6 +147,11 @@ export function verificaEsito(
     .slice(0, DOMANDE_MASSIME);
   if (scartate > 0) {
     avvertenze.push(`${scartate} riferimenti indicati dal modello non erano nella fotografia: ignorati.`);
+  }
+  if (azioniScartate > 0) {
+    avvertenze.push(
+      `${azioniScartate} azioni proposte non valide per il catalogo: restano come richieste in chat.`
+    );
   }
   return {
     versione: VERSIONE_ANALISI_AZIENDA,
