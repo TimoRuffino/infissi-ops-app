@@ -53,8 +53,9 @@ tramite servizi di dominio tipizzati, nessun base64 nuovo in JSONB.
 
 Gate nuovo: transizione `aggiornamento_contratto → fatture_pagamento` richiede
 un computo valido (hash righe e parametri = correnti). Scavalco con lo stesso
-`ConfirmDialog` «Procedi comunque» dei gate documentali, registrato nella
-transizione (`bypassGateComputo`).
+`ConfirmDialog` «Procedi comunque» dei gate documentali: lo stesso
+`bypassGateDocumentale` del dialog, con `gateScavalcato: "documentale" |
+"computo"` nel registro.
 
 ## 4. Modello dati
 
@@ -366,7 +367,8 @@ originale riceve evento `nota_credito` e il fascicolo mostra il legame.
 
 - `verificaTransizioneCommessa` riceve una nuova dipendenza
   `computoValido(commessaId)`; per `aggiornamento_contratto → fatture_pagamento`
-  il gate è bloccante se falso; scavalco `bypassGateComputo` registrato nel
+  il gate è bloccante se falso; scavalco con lo stesso `bypassGateDocumentale`
+  del dialog, registrato come `gateScavalcato: "documentale" | "computo"` nel
   `RegistroTransizione`, stesso `ConfirmDialog` («Il computo dei limiti non è
   aggiornato per lo stato "Aggiornamento contratto". Procedere comunque?»).
 - Timeline: «Firma Contratto (allegato)» completata all'applicazione del
@@ -418,8 +420,9 @@ Nessuno strumento Tars in v1.
 
 ## 11. Flag, rollout, test
 
-Interruttori (fail-closed, come `platform/interruttori.ts`):
-`FLAG_FATTURAZIONE` (tab Limiti/Fattura, emissione), `FLAG_CONTRATTO_ESTRAZIONE`,
+Interruttori (fail-closed, come `platform/interruttori.ts`): `FLAG_LIMITI`
+(contratto, computo, gate — piano 1), `FLAG_FATTURAZIONE` (tab Limiti/Fattura,
+emissione — piano 2), `FLAG_CONTRATTO_ESTRAZIONE` (piano 3),
 `FATTURAZIONE_SDI_DRY_RUN` (default acceso in produzione).
 
 Test:
