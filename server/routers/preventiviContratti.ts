@@ -185,6 +185,9 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // XML FatturaPA archiviato dal CRM (piano 2): mai offerto all'upload manuale
+  "application/xml",
+  "text/xml",
 ]);
 
 export function validaAllegatoFascicolo(

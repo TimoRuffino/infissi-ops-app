@@ -22,6 +22,9 @@ export const COMMESSA_UPLOAD_ALLOWED_MIME_TYPES = [
   "video/mp4",
   "video/quicktime",
   "video/webm",
+  // XML FatturaPA archiviato dal CRM (piano 2): mai offerto all'upload manuale
+  "application/xml",
+  "text/xml",
 ] as const;
 
 const allowedMimeTypes = new Set<string>(COMMESSA_UPLOAD_ALLOWED_MIME_TYPES);

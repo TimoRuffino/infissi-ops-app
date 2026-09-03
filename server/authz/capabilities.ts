@@ -29,6 +29,13 @@ export const CAPABILITIES = [
   "contratto.manage",
   "computo.run",
   "tariffe.manage",
+  // Fatturazione dal contratto (piano 2, 04/09/2026). `fattura.read` è di chi
+  // vende e di chi amministra; bozza, emissione e nota di credito solo di chi
+  // amministra (la direzione ha il set completo per costruzione).
+  "fattura.read",
+  "fattura.draft",
+  "fattura.emit",
+  "fattura.credit_note",
   // D7 slice 3: il doppio requisito dell'approval gateway documentale.
   // `documento.approve_proposals` approva le proposte generate dai
   // documenti; `fornitore.manage_ordini` è l'operazione finale sull'ordine
@@ -77,6 +84,10 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "computo.run",
     "tars.approve_low_risk",
     "tars.approve_high_risk",
+    "fattura.read",
+    "fattura.draft",
+    "fattura.emit",
+    "fattura.credit_note",
   ],
   commerciale: [
     ...SHARED_CAPABILITIES,
@@ -92,6 +103,7 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "contratto.manage",
     "computo.run",
     "tars.approve_low_risk",
+    "fattura.read",
   ],
   tecnico_rilievi: [
     ...SHARED_CAPABILITIES,

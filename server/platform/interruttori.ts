@@ -45,7 +45,9 @@ export type Interruttore =
   | "uiV2"
   // Contratto strutturato e computo limiti DM MITE (03/09/2026): tab
   // Contratto/Limiti, gate sulla transizione verso «Fatture pagamento».
-  | "limiti";
+  | "limiti"
+  // Fatturazione dal contratto (piano 2, 04/09/2026): bozza, emissione FiC, sonda SdI
+  | "fatturazione";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -66,6 +68,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "FLAG_TARS_ANALISI_AZIENDA",
   uiV2: "FLAG_UI_V2",
   limiti: "FLAG_LIMITI",
+  fatturazione: "FLAG_FATTURAZIONE",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -88,6 +91,8 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "L'analisi giornaliera dell'azienda di Tars",
   uiV2: "L'interfaccia Modular Control / Borgogna Operativa",
   limiti: "Il contratto strutturato e il computo dei limiti di spesa",
+  fatturazione:
+    "La fatturazione dal contratto (bozza, emissione su Fatture in Cloud, stati SdI)",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -121,7 +126,12 @@ export function statoInterruttori(): Record<Interruttore, boolean> {
 export function tarsAttivo(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
+    | "documentIntelligence"
+    | "proposte"
+    | "ocr"
+    | "uiV2"
+    | "limiti"
+    | "fatturazione"
   >
 ): boolean {
   if (!interruttoreAttivo("tars")) return false;
@@ -132,7 +142,12 @@ export function tarsAttivo(
 export function assicuraTars(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
+    | "documentIntelligence"
+    | "proposte"
+    | "ocr"
+    | "uiV2"
+    | "limiti"
+    | "fatturazione"
   >
 ): void {
   assicuraInterruttore("tars");

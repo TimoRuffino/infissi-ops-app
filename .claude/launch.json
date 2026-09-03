@@ -50,7 +50,8 @@
         "BOOTSTRAP_ADMIN_NAME": "Marco",
         "BOOTSTRAP_ADMIN_SURNAME": "Demo",
         "OPENAI_API_KEY": "sk-promo-capture-placeholder-never-called",
-        "FLAG_LIMITI": "on"
+        "FLAG_LIMITI": "on",
+        "FLAG_FATTURAZIONE": "on"
       },
       "port": 5198
     }
