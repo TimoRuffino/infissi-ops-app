@@ -344,6 +344,10 @@ export default function CommessaDetail() {
       });
     },
   });
+  // Il server rifiuta un avanzamento bloccato da un gate (file richiesto o
+  // computo dei limiti) con questo prefisso: come sul board, si apre
+  // «Procedi comunque» invece di lasciare l'errore muto in console.
+  const DOC_GATE_PREFIX = "DOC_GATE_BLOCKED:";
   const updateCommessa = trpc.commesse.update.useMutation({
     onSuccess: () => {
       utils.commesse.byId.invalidate(commessaId);
@@ -351,6 +355,17 @@ export default function CommessaDetail() {
       utils.preventiviContratti.statoGate.invalidate(commessaId);
       setEditDialog(false);
       setForceAdvanceTarget(null);
+    },
+    onError: (err, variables) => {
+      const msg = err.message ?? "";
+      if (msg.startsWith(DOC_GATE_PREFIX) && variables?.stato) {
+        setForceAdvanceTarget({
+          stato: variables.stato as string,
+          message: msg.slice(DOC_GATE_PREFIX.length).trim(),
+        });
+      } else {
+        toast.error(msg || "Aggiornamento non riuscito");
+      }
     },
   });
   const updateCliente = trpc.clienti.update.useMutation({
