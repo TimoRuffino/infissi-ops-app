@@ -93,3 +93,35 @@ describe("risolviEntitaTars", () => {
     });
   });
 });
+
+describe("riferimenti a file", () => {
+  it("un documento citato da Tars si apre: nome, commessa e link di anteprima; l'altra sede resta anonima", async () => {
+    const { caricaDocumentoCommessaDaBuffer } = await import(
+      "../routers/preventiviContratti"
+    );
+    const commessa = await caller().commesse.create({ cliente: "Anteprima File" });
+    const documento = await caricaDocumentoCommessaDaBuffer({
+      commessaId: commessa.id,
+      nome: "conferma-ordine-tesconi.pdf",
+      tipo: "conferma_ordine",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4 conferma"),
+      sedeId: SEDE,
+      createdBy: UTENTE,
+      keepNome: true,
+    });
+
+    const risolti = await risolviEntitaTars([`documento:${documento.id}`], SEDE);
+    const voce = risolti.get(`documento:${documento.id}`)!;
+    expect(voce.etichetta).toContain("conferma-ordine-tesconi.pdf");
+    expect(voce.etichetta).toContain(commessa.codice);
+    expect(voce.link).toBe(`/api/documenti/${documento.id}/file`);
+
+    // Sede diversa: niente nome del file e niente link apribile.
+    const altrove = await risolviEntitaTars(
+      [`documento:${documento.id}`],
+      ALTRA_SEDE
+    );
+    expect(altrove.get(`documento:${documento.id}`)!.link).toBeNull();
+  });
+});

@@ -320,11 +320,15 @@ export function applicaPattuitoDaFic(
 
   const primaFonte = commessa.pattuitoFonte ?? null;
   const primaImporto = commessa.importoTotale ?? null;
+  const primaImponibile = commessa.pattuitoImponibile ?? null;
   const primaFirma = JSON.stringify(commessa.pianoRate ?? []);
   const primaDocs = JSON.stringify(commessa.pattuitoFicDocumentoIds ?? []);
 
   if (documenti.length === 0) {
     commessa.pattuitoFicDocumentoIds = [];
+    // Senza fattura non esiste un imponibile certo: il margine lo dichiara
+    // incompleto invece di scorporare un'aliquota inventata.
+    commessa.pattuitoImponibile = null;
     commessa.pattuitoFonte = commessa.importoTotale == null ? null : "manuale";
     commessa.pianoRate = (commessa.pianoRate ?? []).filter(
       (rata: RataCommessa) => rata.origine === "manuale"
@@ -332,6 +336,7 @@ export function applicaPattuitoDaFic(
   } else {
     const derivato = derivaPattuitoDaFic(documenti);
     commessa.importoTotale = derivato.importoTotale;
+    commessa.pattuitoImponibile = derivato.importoImponibile;
     commessa.pianoRate = derivato.rate;
     commessa.pattuitoFicDocumentoIds = derivato.documentoIds;
     commessa.pattuitoFonte = "fic";
@@ -340,6 +345,7 @@ export function applicaPattuitoDaFic(
   const cambiato =
     primaFonte !== (commessa.pattuitoFonte ?? null) ||
     primaImporto !== (commessa.importoTotale ?? null) ||
+    primaImponibile !== (commessa.pattuitoImponibile ?? null) ||
     primaFirma !== JSON.stringify(commessa.pianoRate ?? []) ||
     primaDocs !== JSON.stringify(commessa.pattuitoFicDocumentoIds ?? []);
 

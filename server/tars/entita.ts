@@ -12,6 +12,7 @@ import { getActionCaseRepository } from "../actionCenter/repository";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getInterventiStore } from "../routers/interventi";
+import { getDocumentoCommessaById } from "../routers/preventiviContratti";
 import { getTicketById } from "../routers/ticket";
 import { linkComunicazione } from "./smistamento/segnali";
 
@@ -138,6 +139,25 @@ export async function risolviEntitaTars(
           ? `${String(i.tipo ?? "intervento").replace(/_/g, " ")} del ${i.data}${commessa ? ` — ${commessa}` : ""}`
           : `Intervento ${grezzo}`,
         link: suo ? "/planning" : null,
+      });
+      continue;
+    }
+    // Un file che Tars cita si deve poter APRIRE, sempre (direzione
+    // 03/09/2026: «ogni volta che Tars fa riferimento a un file devo
+    // poterlo aprire e vedere l'anteprima»). Il link è la rotta di
+    // anteprima già servita dal CRM; la sede si verifica dalla commessa
+    // del documento, come ovunque.
+    if (tipo === "documento" && valido) {
+      const documento = getDocumentoCommessaById(id, sedeId);
+      const commessa = documento
+        ? commessaEtichetta(documento.commessaId, sedeId)
+        : null;
+      risolto.set(riferimento, {
+        riferimento,
+        etichetta: documento
+          ? `${documento.nome}${commessa ? ` — ${commessa}` : ""}`.slice(0, 90)
+          : `Documento ${grezzo}`,
+        link: documento ? `/api/documenti/${documento.id}/file` : null,
       });
       continue;
     }

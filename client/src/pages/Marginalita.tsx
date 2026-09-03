@@ -29,13 +29,15 @@ import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 
 // P0.2 — vista direzione sulla marginalità delle commesse attive.
-// margine = pattuito − costi fornitore (no bozza/contestato) − costo posa.
+// margine = imponibile fatturato (FiC) − costi fornitore imponibili − costo
+// posa. IVA esclusa su entrambi i lati (direzione 03/09/2026): il pattuito
+// in scheda resta lordo, qui i ricavi sono l'imponibile delle fatture.
 //
 // La guardia di route resta `RequireDirezione` in App.tsx: `economia.read` non
 // apre questa pagina e qui non esiste nessun bypass di capability.
 
 const DISCLAIMER =
-  "Stima CRM, non contabilità: i valori derivano da pattuito, costi fornitore registrati e posa stimata.";
+  "Stima CRM, non contabilità. IVA esclusa: ricavi = imponibile delle fatture collegate, costi = imponibile degli ordini fornitore, più la posa stimata.";
 
 // Fascia colore condivisa con la card Economia: ≥30% ok, 15–30% attenzione,
 // <15% problema, grigio = dati insufficienti. Il colore non è mai l'unico
@@ -224,7 +226,7 @@ export default function Marginalita() {
             : "Nessuna commessa da mostrare",
           description: hasActiveFilters
             ? "Cambia ricerca o stato per vedere le altre commesse della sede."
-            : "Registra il totale pattuito e gli ordini fornitore per vedere i margini.",
+            : "Collega le fatture (per l'imponibile) e registra i costi fornitore per vedere i margini.",
           action: hasActiveFilters ? (
             <Button
               type="button"

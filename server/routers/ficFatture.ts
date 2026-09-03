@@ -761,6 +761,7 @@ export function sincronizzaPattuitoDaFic(sedeId: number): {
       numero: documento.numero,
       data: documento.data,
       importoLordo: documento.importoLordo,
+      importoNetto: documento.importoNetto,
       rate: documento.rate,
     });
     perCommessa.set(documento.commessaId, gruppo);

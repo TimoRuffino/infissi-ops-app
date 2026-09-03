@@ -1,13 +1,27 @@
 // P0.2 — marginalità per commessa.
 //
-// margine lordo = ricavi (importoTotale pattuito)
-//              − costi fornitore (Σ del registro costi[] della commessa)
+// margine lordo = ricavi IMPONIBILI (imponibile delle fatture FiC)
+//              − costi fornitore IMPONIBILI (registro costi[] della commessa)
 //              − costo posa stimato (campo manuale sulla commessa)
 //
-// I costi si inseriscono direttamente in scheda commessa, come gli acconti:
-// un registro embedded `costi[]`. Il modulo Ordini fornitore resta per la
-// parte logistica (righe, ricevimento merce) ma NON alimenta più il margine
-// — un solo posto dove scrivere un costo, nessun doppio conteggio.
+// BASE IVA (decisione direzione 03/09/2026): «il pattuito da FiC va sempre
+// visto IVA inclusa, il margine va calcolato IVA esclusa, quindi imponibile
+// fattura meno imponibile ordine fornitore». Quindi:
+// - `commessa.importoTotale` (pattuito) resta LORDO: è quello che il cliente
+//   paga e non si tocca;
+// - il margine usa `commessa.pattuitoImponibile`, derivato dagli imponibili
+//   delle fatture FiC collegate;
+// - i costi in `costi[]` sono imponibili (l'IVA sugli acquisti è partita di
+//   giro come quella sulle vendite).
+//
+// Senza fattura collegata l'imponibile non esiste: nessuna aliquota si
+// inventa e il margine si dichiara incompleto — collegare la fattura è il
+// modo di ottenerlo.
+//
+// I costi si inseriscono in scheda commessa, come gli acconti: un registro
+// embedded `costi[]`. Il modulo Ordini fornitore resta per la parte
+// logistica (righe, ricevimento merce) ma NON alimenta il margine — un solo
+// posto dove scrivere un costo, nessun doppio conteggio.
 //
 // Pure function: nessuna dipendenza dagli store, banale da testare.
 
@@ -15,32 +29,43 @@ export type CostoCommessa = {
   id: number;
   fornitore: string | null;
   descrizione: string | null;
+  /** IMPONIBILE (IVA esclusa): è la base del margine. */
   importo: number;
   data: string | null; // "YYYY-MM-DD"
   numeroOrdine: string | null;
   note: string | null;
 };
 
+/** Perché i ricavi non sono utilizzabili: si dice, non si stima. */
+export type FonteRicaviMargine = "fic_imponibile" | "assente";
+
 export type MargineCommessa = {
-  ricavi: number | null; // importoTotale pattuito (null = non impostato)
+  /** Ricavo IMPONIBILE (null = nessuna fattura collegata). */
+  ricavi: number | null;
+  /** Il pattuito lordo, solo per mostrarlo accanto: non entra nel calcolo. */
+  pattuitoLordo: number | null;
+  fonteRicavi: FonteRicaviMargine;
   costiFornitore: number;
   costoPosa: number | null;
   margineLordo: number | null;
   marginePerc: number | null; // 0–1
   costi: CostoCommessa[];
-  // true when the numbers cannot be trusted yet: no pattuito, or no cost
-  // registered at all (costs would read as zero → fake 100% margin).
+  // true quando i numeri non sono ancora affidabili: nessun imponibile
+  // (fattura non collegata) o nessun costo registrato (i costi leggerebbero
+  // zero → margine finto al 100%).
   datiIncompleti: boolean;
 };
 
-export function calcolaMargine(
-  commessa: {
-    importoTotale?: number | null;
-    costoPosaStimato?: number | null;
-    costi?: any[] | null;
-  }
-): MargineCommessa {
-  const ricavi = commessa.importoTotale ?? null;
+export function calcolaMargine(commessa: {
+  importoTotale?: number | null;
+  pattuitoImponibile?: number | null;
+  costoPosaStimato?: number | null;
+  costi?: any[] | null;
+}): MargineCommessa {
+  const pattuitoLordo = commessa.importoTotale ?? null;
+  const ricavi = commessa.pattuitoImponibile ?? null;
+  const fonteRicavi: FonteRicaviMargine =
+    ricavi == null ? "assente" : "fic_imponibile";
   const costoPosa = commessa.costoPosaStimato ?? null;
 
   const costi: CostoCommessa[] = (
@@ -67,6 +92,8 @@ export function calcolaMargine(
 
   return {
     ricavi,
+    pattuitoLordo,
+    fonteRicavi,
     costiFornitore,
     costoPosa,
     margineLordo,

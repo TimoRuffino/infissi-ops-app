@@ -38,6 +38,14 @@ export type RataCommessa = {
 
 export type CommessaPattuito = {
   importoTotale?: number | null;
+  /**
+   * Ricavo IMPONIBILE (IVA esclusa) derivato dalle fatture FiC collegate.
+   * Il pattuito `importoTotale` resta IVA inclusa — è quello che il cliente
+   * paga — ma il margine si calcola imponibile contro imponibile (decisione
+   * direzione 03/09/2026). Null quando non c'è fattura: senza documento non
+   * si conosce l'aliquota e il ricavo netto non si inventa.
+   */
+  pattuitoImponibile?: number | null;
   pattuitoFonte?: FontePattuito | null;
   pattuitoFicDocumentoIds?: number[];
   pattuitoAggiornatoAt?: Date | null;
@@ -133,6 +141,8 @@ export type DocumentoFicPerPiano = {
   numero: string;
   data: string;
   importoLordo: number;
+  /** Imponibile del documento: la base del margine, mai il lordo. */
+  importoNetto?: number | null;
   rate: readonly RataFicPerPiano[];
 };
 
@@ -152,17 +162,24 @@ function statoRataDaFic(stato: string): StatoRata {
  */
 export function derivaPattuitoDaFic(
   documenti: readonly DocumentoFicPerPiano[]
-): { importoTotale: number; rate: RataCommessa[]; documentoIds: number[] } {
+): {
+  importoTotale: number;
+  importoImponibile: number;
+  rate: RataCommessa[];
+  documentoIds: number[];
+} {
   const ordinati = [...documenti].sort(
     (a, b) => a.data.localeCompare(b.data) || a.id - b.id
   );
   const now = new Date();
   const rate: RataCommessa[] = [];
   let importoTotale = 0;
+  let importoImponibile = 0;
 
   for (const documento of ordinati) {
     const segno = documento.tipo === "credit_note" ? -1 : 1;
     importoTotale += segno * importoValido(documento.importoLordo);
+    importoImponibile += segno * importoValido(documento.importoNetto);
     if (segno < 0) continue;
     const scadenze = [...documento.rate].sort(
       (a, b) =>
@@ -190,6 +207,8 @@ export function derivaPattuitoDaFic(
 
   return {
     importoTotale: Math.round((importoTotale + Number.EPSILON) * 100) / 100,
+    importoImponibile:
+      Math.round((importoImponibile + Number.EPSILON) * 100) / 100,
     rate,
     documentoIds: ordinati.map(documento => documento.id),
   };

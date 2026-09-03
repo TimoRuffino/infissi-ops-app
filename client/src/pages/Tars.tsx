@@ -86,6 +86,7 @@ import {
 import {
   type FormEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -431,6 +432,23 @@ function ListaWorkbench({
 
 export default function Tars() {
   const [, navigate] = useLocation();
+  /**
+   * Un riferimento di Tars si apre sempre. I file (anteprima servita da
+   * `/api/documenti/:id/file`) NON passano dal router della SPA: wouter li
+   * tratterebbe come rotta e mostrerebbe «Pagina non trovata». Vanno in una
+   * scheda nuova, dove il browser fa l'anteprima di PDF e immagini
+   * (direzione 03/09/2026: «devo poterlo aprire e vedere l'anteprima»).
+   */
+  const apriRiferimento = useCallback(
+    (link: string) => {
+      if (/^(https?:)?\/\//.test(link) || link.startsWith("/api/")) {
+        window.open(link, "_blank", "noopener,noreferrer");
+        return;
+      }
+      navigate(link);
+    },
+    [navigate]
+  );
   const { capabilities } = useOperationalContext();
   const puoUsareTars = capabilities?.has("tars.use") ?? false;
   const utils = trpc.useUtils();
@@ -1052,12 +1070,12 @@ export default function Tars() {
           {vista === "proposte" ? (
             <TarsProposteBoard
               dati={proposte}
-              onApriLink={navigate}
+              onApriLink={apriRiferimento}
               onSuggerimento={suggerisci}
               onVaiAlRegistro={() => setVista("registro")}
             />
           ) : vista === "registro" ? (
-            <TarsRegistro onApriLink={navigate} />
+            <TarsRegistro onApriLink={apriRiferimento} />
           ) : (
           <>
           {/* Flex container: senza, il `flex-1` della conversazione non si
@@ -1195,12 +1213,12 @@ export default function Tars() {
         {vista === "chat" && (
         <aside className="hidden h-full w-80 shrink-0 border-l border-border-soft xl:block 2xl:w-[21rem]">
           <TarsContextPanel
-            analisi={<SezioneAnalisiAzienda onApriLink={navigate} />}
+            analisi={<SezioneAnalisiAzienda onApriLink={apriRiferimento} />}
             contesto={contesto}
             briefing={briefing.data ?? null}
             loading={stato.isFetching || briefing.isLoading}
             error={briefing.error?.message ?? null}
-            onApriLink={navigate}
+            onApriLink={apriRiferimento}
             onRetry={() => {
               void stato.refetch();
               void briefing.refetch();
@@ -1269,7 +1287,7 @@ export default function Tars() {
             </SheetClose>
           </div>
           <TarsContextPanel
-            analisi={<SezioneAnalisiAzienda onApriLink={navigate} />}
+            analisi={<SezioneAnalisiAzienda onApriLink={apriRiferimento} />}
             contesto={contesto}
             briefing={briefing.data ?? null}
             loading={stato.isFetching || briefing.isLoading}
