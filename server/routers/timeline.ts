@@ -17,7 +17,7 @@ function commessaInSede(commessaId: number, sedeId: number | null) {
   return c;
 }
 
-// ── 17-step order timeline ────────────────────────────────────────────────────
+// ── 16-step order timeline ────────────────────────────────────────────────────
 const STEP_LABELS: string[] = [
   "Rilievo Misure",
   "Firma Contratto (allegato)",
@@ -25,7 +25,9 @@ const STEP_LABELS: string[] = [
   // "Invio Fattura al Cliente" rimosso su richiesta: emettere la fattura
   // significa già mandarla, e lo step restava aperto per sempre.
   "Pagamento 1\u00B0 Acconto Cliente",
-  "Ordine Merce al Fornitore",
+  // "Ordine Merce al Fornitore" fuso nella conferma su richiesta: per chi
+  // lavora è lo stesso gesto. Resta la conferma perché è il documento che
+  // porta il costo imponibile del margine e sblocca il gate di «da ordinare».
   "Conferma Ordine Fornitore (allegato)",
   "Pagamento Acconto Fornitore",
   "Data Spedizione Prevista Fornitore",
@@ -49,12 +51,14 @@ const STATO_PER_MILESTONE: Partial<Record<number, (typeof STATI_COMMESSA)[number
   2: "aggiornamento_contratto",
   3: "fatture_pagamento",
   4: "da_ordinare",
+  // La commessa entra in produzione quando il fornitore ha confermato, non
+  // quando l'ordine è partito.
   5: "produzione",
-  9: "ordini_ultimazione",
-  10: "attesa_posa",
-  14: "finiture_saldo",
-  16: "interventi_regolazioni",
-  17: "archiviata",
+  8: "ordini_ultimazione",
+  9: "attesa_posa",
+  13: "finiture_saldo",
+  15: "interventi_regolazioni",
+  16: "archiviata",
 };
 
 type Stato = "da_fare" | "in_corso" | "completato";
@@ -79,16 +83,81 @@ const STEP_RITIRATI: RegExp[] = [
   /DDT\s*Finale/i,
   // Emettere la fattura significa già mandarla (richiesta del 02/09/2026).
   /^\s*Invio Fattura al Cliente\s*$/i,
+  // Fuso nella conferma d'ordine (richiesta del 03/09/2026).
+  /^\s*Ordine Merce al Fornitore\s*$/i,
 ];
 
 /**
- * Toglie dalle timeline già salvate gli step ritirati e rinumera 1..n gli
- * step di ogni commessa, così non restano buchi fra un passo e l'altro.
+ * Passi fusi: `da` sparisce, ma il lavoro registrato lì non si butta. Se era
+ * spuntato e `a` no, la spunta ci si trasferisce con data, esecutore e nota:
+ * per chi lavora era lo stesso gesto, e senza questo travaso una commessa
+ * già ordinata si ritroverebbe il passo riaperto dopo la migrazione.
+ */
+const STEP_FUSI: { da: RegExp; a: RegExp }[] = [
+  {
+    da: /^\s*Ordine Merce al Fornitore\s*$/i,
+    a: /^\s*Conferma Ordine Fornitore/i,
+  },
+];
+
+/** Le due note diventano una sola: nessuna delle due si perde. */
+function uniscilNote(
+  destinazione: string | null,
+  origine: string | null
+): string | null {
+  const a = destinazione?.trim() || null;
+  const b = origine?.trim() || null;
+  if (!a) return b;
+  if (!b || a === b) return a;
+  return `${a} \u00B7 ${b}`;
+}
+
+function fondiStep(perCommessa: Map<number, TimelineStep[]>): boolean {
+  let fuso = false;
+  perCommessa.forEach((suoi) => {
+    for (const regola of STEP_FUSI) {
+      const origine = suoi.find((step) => regola.da.test(step.label ?? ""));
+      const destinazione = suoi.find((step) => regola.a.test(step.label ?? ""));
+      if (!origine || !destinazione) continue;
+      destinazione.note = uniscilNote(destinazione.note, origine.note);
+      destinazione.allegato = destinazione.allegato ?? origine.allegato;
+      // Una destinazione già completata resta com'è: la sua data e il suo
+      // esecutore sono quelli del passo che sopravvive.
+      if (origine.stato === "completato" && destinazione.stato !== "completato") {
+        destinazione.stato = origine.stato;
+        destinazione.dataCompletamento = origine.dataCompletamento;
+        destinazione.utente = origine.utente;
+      }
+      fuso = true;
+    }
+  });
+  return fuso;
+}
+
+function raggruppaPerCommessa(
+  caricati: TimelineStep[]
+): Map<number, TimelineStep[]> {
+  const perCommessa = new Map<number, TimelineStep[]>();
+  for (const step of caricati) {
+    const arr = perCommessa.get(step.commessaId);
+    if (arr) arr.push(step);
+    else perCommessa.set(step.commessaId, [step]);
+  }
+  return perCommessa;
+}
+
+/**
+ * Porta le timeline già salvate alla lista di passi corrente: fonde i passi
+ * accorpati, toglie quelli ritirati e rinumera 1..n gli step di ogni
+ * commessa, così non restano buchi fra un passo e l'altro.
  *
- * Idempotente: su uno store già ripulito non tocca niente e risponde
+ * Idempotente: su uno store già allineato non tocca niente e risponde
  * `false`, altrimenti ogni avvio riscriverebbe l'intero blob.
  */
-export function migraStepRitirati(caricati: TimelineStep[]): boolean {
+export function migraStepTimeline(caricati: TimelineStep[]): boolean {
+  // La fusione va fatta prima della rimozione: dopo, l'origine non c'è più.
+  const fuso = fondiStep(raggruppaPerCommessa(caricati));
+
   let rimosso = false;
   for (let i = caricati.length - 1; i >= 0; i--) {
     const label = caricati[i].label ?? "";
@@ -97,15 +166,9 @@ export function migraStepRitirati(caricati: TimelineStep[]): boolean {
       rimosso = true;
     }
   }
-  if (!rimosso) return false;
+  if (!rimosso && !fuso) return false;
 
-  const perCommessa = new Map<number, TimelineStep[]>();
-  for (const step of caricati) {
-    const arr = perCommessa.get(step.commessaId);
-    if (arr) arr.push(step);
-    else perCommessa.set(step.commessaId, [step]);
-  }
-  perCommessa.forEach((arr) => {
+  raggruppaPerCommessa(caricati).forEach((arr) => {
     arr.sort((a, b) => a.stepNumber - b.stepNumber);
     arr.forEach((step, idx) => (step.stepNumber = idx + 1));
   });
@@ -115,7 +178,7 @@ export function migraStepRitirati(caricati: TimelineStep[]): boolean {
 // In-memory store (replace with Drizzle queries when DB is available)
 let nextId = 1;
 const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
-  if (migraStepRitirati(loaded)) setTimeout(() => _stepsStore.save(), 0);
+  if (migraStepTimeline(loaded)) setTimeout(() => _stepsStore.save(), 0);
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;

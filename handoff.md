@@ -1964,6 +1964,28 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
+## 11-undetricies. Ordine e conferma fornitore fusi in un passo (03/09/2026)
+
+Richiesta direzione: «ordine fornitore e conferma ordine sono la stessa
+identica cosa». Nel dominio non lo sono — il gate di `da_ordinare` chiede sia
+`ordine` sia `conferma_ordine`, e dal 03/09 il costo imponibile del margine
+esce dalla conferma allegata (v. `server/tars/documenti/confermeMancanti.ts`)
+— ma come passi di checklist sono due spunte per un gesto solo. Decisione
+presa in sessione: sopravvive **«Conferma Ordine Fornitore (allegato)»**, e
+con lei si sposta la milestone verso `produzione`. La commessa avanza quando
+il fornitore ha risposto, non quando l'ordine è partito. La timeline passa da
+17 a 16 step; le milestone successive scalano (`8`, `9`, `13`, `15`, `16`) e
+le fasce di fase diventano Vendita 1-4, Ordine 5-8, Consegna 9-13, Chiusura
+14-16.
+
+`migraStepRitirati` diventa `migraStepTimeline` e impara la **fusione**: dove
+«Ordine Merce al Fornitore» era spuntato e la conferma no, la spunta si
+travasa con data, esecutore e nota, così una commessa già ordinata non si
+ritrova il passo riaperto; se erano spuntati entrambi vince la conferma e le
+due note si uniscono. Poi come prima: rimozione dei ritirati, rinumerazione
+1..n, idempotenza. Il gate documentale e la ricerca Tars delle conferme
+mancanti non sono stati toccati: la conferma resta un documento a sé.
+
 ## 11-vicies octies. I ticket si vedono anche dalla commessa (02/09/2026)
 
 Un ticket aperto su una commessa si leggeva solo dalla coda Post-vendita e

@@ -22,14 +22,15 @@ import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
-// The 17 PRD steps grouped under the 4 board phases (redesign §4.3).
-// Ranges are by stepNumber (1-based, inclusive). Gli estremi sono scalati di
-// uno dopo la rimozione di «Invio Fattura al Cliente», che stava in Vendita.
+// The 16 PRD steps grouped under the 4 board phases (redesign §4.3).
+// Ranges are by stepNumber (1-based, inclusive). Gli estremi seguono i due
+// passi ritirati: «Invio Fattura al Cliente» (stava in Vendita) e «Ordine
+// Merce al Fornitore», fuso nella conferma dentro Ordine & Produzione.
 const FASI = [
   { id: "vendita", label: "Vendita", dot: "bg-st-preventivo", from: 1, to: 4 },
-  { id: "ordine", label: "Ordine & Produzione", dot: "bg-st-ordine", from: 5, to: 9 },
-  { id: "consegna", label: "Consegna & Posa", dot: "bg-st-produzione", from: 10, to: 14 },
-  { id: "chiusura", label: "Chiusura", dot: "bg-st-pagamento", from: 15, to: 17 },
+  { id: "ordine", label: "Ordine & Produzione", dot: "bg-st-ordine", from: 5, to: 8 },
+  { id: "consegna", label: "Consegna & Posa", dot: "bg-st-produzione", from: 9, to: 13 },
+  { id: "chiusura", label: "Chiusura", dot: "bg-st-pagamento", from: 14, to: 16 },
 ] as const;
 
 function faseOf(stepNumber: number) {

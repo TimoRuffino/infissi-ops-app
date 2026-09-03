@@ -4,7 +4,7 @@ import { appRouter } from "../routers";
 import { getCommesseStore } from "./commesse";
 import {
   allineaTimelineAlBoard,
-  migraStepRitirati,
+  migraStepTimeline,
   reconcileTimelineBoardStates,
 } from "./timeline";
 
@@ -63,7 +63,7 @@ describe("timeline ordine e stato commessa", () => {
     const caller = appRouter.createCaller(context(97102));
     const commessa = await caller.commesse.create({ cliente: "Timeline Neutra" });
     const steps = await caller.timeline.byCommessa(commessa.id);
-    const dataSpedizione = steps.find((step) => step.stepNumber === 8)!;
+    const dataSpedizione = steps.find((step) => step.stepNumber === 7)!;
 
     await caller.timeline.updateStep({
       id: dataSpedizione.id,
@@ -75,18 +75,50 @@ describe("timeline ordine e stato commessa", () => {
     });
   });
 
-  it("nasce con 17 step e senza l'invio fattura, che seguiva l'emissione", async () => {
+  it("nasce con 16 step: niente invio fattura, ordine e conferma fusi", async () => {
     const caller = appRouter.createCaller(context(97107));
     const commessa = await caller.commesse.create({ cliente: "Timeline Nuova" });
     const steps = await caller.timeline.byCommessa(commessa.id);
 
-    expect(steps).toHaveLength(17);
-    expect(steps.map((step) => step.label)).not.toContain(
-      "Invio Fattura al Cliente"
-    );
-    // Dopo «Fatturazione» si passa direttamente all'acconto del cliente.
+    expect(steps).toHaveLength(16);
+    const etichette = steps.map((step) => step.label);
+    expect(etichette).not.toContain("Invio Fattura al Cliente");
+    expect(etichette).not.toContain("Ordine Merce al Fornitore");
+    // Dopo «Fatturazione» si passa direttamente all'acconto del cliente, e
+    // l'ordine al fornitore vive nella sola conferma.
     expect(steps[2].label).toBe("Fatturazione");
     expect(steps[3].label).toBe("Pagamento 1\u00B0 Acconto Cliente");
+    expect(steps[4].label).toBe("Conferma Ordine Fornitore (allegato)");
+  });
+
+  it("porta in produzione quando il fornitore ha confermato", async () => {
+    const caller = appRouter.createCaller(context(97108));
+    const commessa = await caller.commesse.create({ cliente: "Timeline Conferma" });
+    const steps = await caller.timeline.byCommessa(commessa.id);
+
+    for (const stepNumber of [1, 2, 3, 4]) {
+      const step = steps.find((item) => item.stepNumber === stepNumber)!;
+      await caller.timeline.updateStep({
+        id: step.id,
+        stato: "completato",
+        force: true,
+      });
+    }
+    expect(await caller.commesse.byId(commessa.id)).toMatchObject({
+      stato: "da_ordinare",
+    });
+
+    const conferma = steps.find((item) => item.stepNumber === 5)!;
+    expect(conferma.label).toBe("Conferma Ordine Fornitore (allegato)");
+    await caller.timeline.updateStep({
+      id: conferma.id,
+      stato: "completato",
+      force: true,
+    });
+
+    expect(await caller.commesse.byId(commessa.id)).toMatchObject({
+      stato: "produzione",
+    });
   });
 
   it("riaprire uno step non riporta indietro la commessa", async () => {
@@ -119,11 +151,11 @@ describe("timeline ordine e stato commessa", () => {
       [3, "fatture_pagamento"],
       [4, "da_ordinare"],
       [5, "produzione"],
-      [9, "ordini_ultimazione"],
-      [10, "attesa_posa"],
-      [14, "finiture_saldo"],
-      [16, "interventi_regolazioni"],
-      [17, "archiviata"],
+      [8, "ordini_ultimazione"],
+      [9, "attesa_posa"],
+      [13, "finiture_saldo"],
+      [15, "interventi_regolazioni"],
+      [16, "archiviata"],
     ] as const;
 
     for (const [stepNumber, stato] of milestones) {
@@ -230,7 +262,7 @@ describe("allineaTimelineAlBoard", () => {
 
 // Le timeline già salvate vanno ripulite al bootstrap: qui si verifica la
 // funzione pura che `onLoad` applica allo store persistito.
-describe("migrazione degli step ritirati", () => {
+describe("migrazione degli step della timeline", () => {
   function passo(commessaId: number, stepNumber: number, label: string) {
     return {
       id: commessaId * 100 + stepNumber,
@@ -245,6 +277,16 @@ describe("migrazione degli step ritirati", () => {
     } as any;
   }
 
+  function completo(passo: any, data: string, utente: string, note: string) {
+    return {
+      ...passo,
+      stato: "completato",
+      dataCompletamento: data,
+      utente,
+      note,
+    };
+  }
+
   it("toglie l'invio fattura e rinumera gli step senza lasciare buchi", () => {
     const caricati = [
       passo(7, 1, "Rilievo Misure"),
@@ -254,7 +296,7 @@ describe("migrazione degli step ritirati", () => {
       passo(7, 5, "Pagamento 1\u00B0 Acconto Cliente"),
     ];
 
-    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(migraStepTimeline(caricati)).toBe(true);
     expect(caricati.map((step) => [step.stepNumber, step.label])).toEqual([
       [1, "Rilievo Misure"],
       [2, "Firma Contratto (allegato)"],
@@ -272,7 +314,7 @@ describe("migrazione degli step ritirati", () => {
       passo(2, 2, "Invio Fattura al Cliente"),
     ];
 
-    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(migraStepTimeline(caricati)).toBe(true);
     expect(
       caricati.filter((s) => s.commessaId === 1).map((s) => s.stepNumber)
     ).toEqual([1, 2]);
@@ -280,7 +322,65 @@ describe("migrazione degli step ritirati", () => {
       caricati.filter((s) => s.commessaId === 2).map((s) => s.stepNumber)
     ).toEqual([1]);
     // Uno store già migrato non viene riscritto a ogni avvio.
-    expect(migraStepRitirati(caricati)).toBe(false);
+    expect(migraStepTimeline(caricati)).toBe(false);
+  });
+
+  it("fonde l'ordine nella conferma portandosi dietro la spunta", () => {
+    const caricati = [
+      passo(9, 4, "Pagamento 1\u00B0 Acconto Cliente"),
+      completo(
+        passo(9, 5, "Ordine Merce al Fornitore"),
+        "2026-03-04",
+        "Anna Russo",
+        "Ordinato al fornitore per telefono"
+      ),
+      passo(9, 6, "Conferma Ordine Fornitore (allegato)"),
+      passo(9, 7, "Pagamento Acconto Fornitore"),
+    ];
+
+    expect(migraStepTimeline(caricati)).toBe(true);
+
+    const conferma = caricati.find((s) =>
+      s.label.startsWith("Conferma Ordine Fornitore")
+    )!;
+    // Chi aveva spuntato l'ordine non deve ritrovarsi il passo riaperto:
+    // era lo stesso gesto, quindi data, esecutore e nota si travasano.
+    expect(conferma).toMatchObject({
+      // I quattro passi di partenza diventano tre e si rinumerano da 1.
+      stepNumber: 2,
+      stato: "completato",
+      dataCompletamento: "2026-03-04",
+      utente: "Anna Russo",
+      note: "Ordinato al fornitore per telefono",
+    });
+    expect(caricati.map((s) => s.stepNumber)).toEqual([1, 2, 3]);
+  });
+
+  it("non sovrascrive una conferma già spuntata e tiene le due note", () => {
+    const caricati = [
+      completo(
+        passo(11, 5, "Ordine Merce al Fornitore"),
+        "2026-03-04",
+        "Anna Russo",
+        "Ordinato per telefono"
+      ),
+      completo(
+        passo(11, 6, "Conferma Ordine Fornitore (allegato)"),
+        "2026-03-09",
+        "Marco Ferrara",
+        "Conferma CO_4471 allegata"
+      ),
+    ];
+
+    expect(migraStepTimeline(caricati)).toBe(true);
+
+    expect(caricati).toHaveLength(1);
+    expect(caricati[0]).toMatchObject({
+      stepNumber: 1,
+      dataCompletamento: "2026-03-09",
+      utente: "Marco Ferrara",
+      note: "Conferma CO_4471 allegata · Ordinato per telefono",
+    });
   });
 
   it("continua a togliere il DDT finale ritirato in precedenza", () => {
@@ -290,7 +390,7 @@ describe("migrazione degli step ritirati", () => {
       passo(3, 3, "Recensione del Cliente"),
     ];
 
-    expect(migraStepRitirati(caricati)).toBe(true);
+    expect(migraStepTimeline(caricati)).toBe(true);
     expect(caricati.map((step) => step.label)).toEqual([
       "Pagamento Ultimo Cliente (Saldo)",
       "Recensione del Cliente",
