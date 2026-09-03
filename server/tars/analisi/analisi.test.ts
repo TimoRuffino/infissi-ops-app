@@ -28,8 +28,8 @@ function depsFotografia(parziale: Partial<DipendenzeFotografia> = {}): Dipendenz
       { id: 11, sedeId: SEDE, commessaId: 1, oggetto: "Chiuso", priorita: "bassa", stato: "chiuso", createdAt: giorniFa(9) },
     ],
     interventi: () => [
-      { id: 20, sedeId: SEDE, commessaId: 2, tipo: "posa", data: "2026-09-04", stato: "pianificato", squadraId: null },
-      { id: 21, sedeId: SEDE, commessaId: 1, tipo: "rilievo", data: "2026-09-20", stato: "pianificato", squadraId: 1 },
+      { id: 20, sedeId: SEDE, commessaId: 2, tipo: "posa", dataPianificata: "2026-09-04", stato: "pianificato", squadraId: null },
+      { id: 21, sedeId: SEDE, commessaId: 1, tipo: "rilievo", dataPianificata: "2026-09-20", stato: "pianificato", squadraId: 1 },
     ],
     casiAperti: async () => [
       { id: 30, title: "Consegna in ritardo", priority: "critica", priorityScore: 90, commessaId: 2, nextAction: { label: "Sollecita il fornitore" }, link: "/commesse/2", assigneeUserId: null },

@@ -441,16 +441,26 @@ export async function costruisciFotografia(input: {
   // 7. Interventi dei prossimi sette giorni.
   const oggi = giornoLocale(adesso);
   const limite = giornoLocale(new Date(adesso.getTime() + GIORNI_INTERVENTI * 86_400_000));
+  // Il dominio scrive `dataPianificata` (routers/interventi): leggere
+  // `i.data` lasciava la sezione SEMPRE vuota sui dati veri (fix T4).
+  const dataIntervento = (i: any): string | null =>
+    typeof i.dataPianificata === "string"
+      ? i.dataPianificata
+      : typeof i.data === "string"
+        ? i.data
+        : null;
   const interventi = deps
     .interventi()
-    .filter(
-      i =>
+    .filter(i => {
+      const data = dataIntervento(i);
+      return (
         (i.sedeId ?? sedeId) === sedeId &&
-        typeof i.data === "string" &&
-        i.data >= oggi &&
-        i.data <= limite &&
+        data != null &&
+        data >= oggi &&
+        data <= limite &&
         i.stato !== "annullato"
-    );
+      );
+    });
   contatori.interventiSettimana = interventi.length;
   contatori.interventiSenzaSquadra = interventi.filter(i => i.squadraId == null).length;
   const perTipo = new Map<string, number>();
