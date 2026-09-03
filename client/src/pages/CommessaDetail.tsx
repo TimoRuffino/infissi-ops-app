@@ -93,13 +93,13 @@ import {
   erroreUploadCommessa,
   normalizzaMimeUploadCommessa,
 } from "@shared/commessaUpload";
+import { DOC_TIPO_LABEL, docTipoLabel } from "@shared/docTipi";
 
 const tipoDocColors: Record<string, string> = {
   preventivo: "bg-info-soft text-info",
   contratto: "bg-success-soft text-success",
   misure: "bg-st-misure-soft text-st-misure",
   fattura: "bg-st-pagamento-soft text-st-pagamento",
-  ordine: "bg-st-ordine-soft text-st-ordine",
   conferma_ordine: "bg-st-ordine-soft text-st-ordine",
   ddt_consegna: "bg-st-produzione-soft text-st-produzione",
   ddt_posa: "bg-st-produzione-soft text-st-produzione",
@@ -113,24 +113,6 @@ const tipoDocColors: Record<string, string> = {
   altro: "bg-surface-2 text-text-2",
 };
 
-const DOC_TIPO_LABEL: Record<string, string> = {
-  preventivo: "Preventivo",
-  contratto: "Contratto",
-  misure: "Misure esecutive",
-  fattura: "Fattura",
-  ordine: "Ordine fornitore",
-  conferma_ordine: "Conferma ordine",
-  ddt_consegna: "DDT consegna",
-  ddt_posa: "DDT posa",
-  ddt_finale: "DDT finale",
-  saldo: "Ricevuta saldo",
-  foto: "Foto",
-  documento_identita: "Documento d'identità",
-  visura: "Visura",
-  planimetria: "Planimetria",
-  certificazione: "Certificazione",
-  altro: "Altro",
-};
 
 // Mirror of REQUIRED_DOC_TIPI_PER_STATO on the server — used to hint the
 // user which doc tipo they should upload for the current state.
@@ -139,7 +121,7 @@ const SUGGESTED_TIPO_FOR_STATO: Record<string, string> = {
   misure_esecutive: "misure",
   aggiornamento_contratto: "contratto",
   fatture_pagamento: "fattura",
-  da_ordinare: "ordine",
+  da_ordinare: "conferma_ordine",
   ordini_ultimazione: "saldo",
   attesa_posa: "ddt_consegna",
   finiture_saldo: "ddt_posa",
@@ -1216,9 +1198,9 @@ export default function CommessaDetail() {
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
-                      {/* Una lista sola: DOC_TIPO_LABEL rispecchia DOC_TIPI
-                          del server, quindi un tipo nuovo compare qui senza
-                          che nessuno debba ricordarsene. */}
+                      {/* La lista arriva da @shared/docTipi, la stessa che
+                          il router usa per l'enum e per il gate: un tipo
+                          nuovo compare qui senza doverlo ricopiare. */}
                       <SelectContent>
                         {Object.entries(DOC_TIPO_LABEL).map(([tipo, label]) => (
                           <SelectItem key={tipo} value={tipo}>
@@ -1342,7 +1324,7 @@ export default function CommessaDetail() {
                             variant="secondary"
                             className={`text-[10px] ${tipoDocColors[d.tipo] ?? ""}`}
                           >
-                            {DOC_TIPO_LABEL[d.tipo] ?? d.tipo}
+                            {docTipoLabel(d.tipo)}
                           </Badge>
                           {d.source === "fic" && (
                             <Badge variant="outline" className="text-[10px]">

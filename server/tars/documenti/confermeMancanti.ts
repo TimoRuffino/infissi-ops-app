@@ -116,7 +116,7 @@ export async function confermeOrdineMancanti(input: {
     (c: any) =>
       !deps
         .documentiDiCommessa(c.id)
-        .some(d => d.tipo === "conferma_ordine" || d.tipo === "ordine")
+        .some(d => d.tipo === "conferma_ordine")
   );
   if (senzaConferma.length === 0) return [];
 

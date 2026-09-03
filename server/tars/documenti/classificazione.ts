@@ -28,13 +28,15 @@ type Regola = {
 };
 
 // Ordine = priorità a parità di punteggio: i tipi più specifici precedono
-// i generici (conferma_ordine prima di ordine, ddt_posa prima di ddt_consegna).
+// i generici (ddt_posa prima di ddt_consegna).
 const REGOLE: readonly Regola[] = [
   {
+    // Conferma e ordine fornitore sono un tipo solo (03/09/2026): la regola
+    // copre entrambi i modi in cui il documento si presenta.
     tipo: "conferma_ordine",
-    nome: /conferma[\s_-]*(?:d.)?ordine|order[\s_-]*confirmation|\bab\b|auftragsbest/i,
-    oggetto: /conferma[\s_-]*(?:d.)?ordine/i,
-    testo: /conferma\s+(?:d.)?ordine|order\s+confirmation|auftragsbest/i,
+    nome: /conferma[\s_-]*(?:d.)?ordine|order[\s_-]*confirmation|\bab\b|auftragsbest|\bordine\b|purchase[\s_-]*order|\bpo[\s_-]?\d/i,
+    oggetto: /conferma[\s_-]*(?:d.)?ordine|\bordine\b/i,
+    testo: /conferma\s+(?:d.)?ordine|order\s+confirmation|auftragsbest|ordine\s+(?:d.acquisto|fornitore)\s*n\.?/i,
     etichetta: "conferma d'ordine",
   },
   {
@@ -85,13 +87,6 @@ const REGOLE: readonly Regola[] = [
     oggetto: /fattura|invoice/i,
     testo: /\bfattura\b\s+n\.?\s*[\w/-]+|imponibile/i,
     etichetta: "fattura",
-  },
-  {
-    tipo: "ordine",
-    nome: /\bordine\b|purchase[\s_-]*order|\bpo[\s_-]?\d/i,
-    oggetto: /\bordine\b/i,
-    testo: /ordine\s+(?:d.acquisto|fornitore)\s*n\.?/i,
-    etichetta: "ordine fornitore",
   },
   {
     tipo: "saldo",

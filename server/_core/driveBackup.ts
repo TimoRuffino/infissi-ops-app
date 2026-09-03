@@ -596,7 +596,7 @@ function docFolder(tipo: string): string {
     return "Preventivi e contratti";
   if (tipo === "misure") return "Misure";
   if (tipo === "fattura" || tipo === "saldo") return "Fatture e pagamenti";
-  if (tipo === "ordine" || tipo === "conferma_ordine") return "Ordini";
+  if (tipo === "conferma_ordine") return "Ordini";
   if (tipo?.startsWith("ddt")) return "DDT";
   return "Foto e altro";
 }

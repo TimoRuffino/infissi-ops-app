@@ -18,7 +18,10 @@ vi.mock("../_core/fileStorage", async importOriginal => {
 
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
-import { validaUploadManualeFascicolo } from "./preventiviContratti";
+import {
+  migraTipiDocumento,
+  validaUploadManualeFascicolo,
+} from "./preventiviContratti";
 import {
   deleteDocumentoFic,
   findDocumentoFic,
@@ -240,6 +243,33 @@ describe("gate documentale — documenti caricati prima dello stato che li chied
     expect(gate?.canAdvance).toBe(false);
   });
 
+  it("a «da ordinare» chiede una cosa sola: la conferma d'ordine", async () => {
+    const commessa = await caller().commesse.create({
+      cliente: `Gate ordine ${Math.random()}`,
+    });
+    await caller().preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "conferma.pdf",
+      tipo: "conferma_ordine",
+      mimeType: "application/pdf",
+      size: 14,
+      dataBase64: pdf,
+    });
+    await portaA(commessa.id, [
+      "misure_esecutive",
+      "aggiornamento_contratto",
+      "fatture_pagamento",
+      "da_ordinare",
+    ]);
+
+    const gate = await caller().preventiviContratti.statoGate(commessa.id);
+    expect(gate?.stato).toBe("da_ordinare");
+    // Ordine e conferma erano due voci per lo stesso documento: la rail ne
+    // mostrava due, una verde e una arancione, e sembrava mancasse qualcosa.
+    expect(gate?.required.map(r => r.tipo)).toEqual(["conferma_ordine"]);
+    expect(gate?.canAdvance).toBe(true);
+  });
+
   it("un contratto firmato in preventivo non vale come aggiornamento del contratto", async () => {
     const commessa = await commessaConDocumento("contratto");
     await portaA(commessa.id, ["misure_esecutive", "aggiornamento_contratto"]);
@@ -247,5 +277,34 @@ describe("gate documentale — documenti caricati prima dello stato che li chied
     const gate = await caller().preventiviContratti.statoGate(commessa.id);
     expect(gate?.stato).toBe("aggiornamento_contratto");
     expect(gate?.canAdvance).toBe(false);
+  });
+});
+
+// I documenti già archiviati come «Ordine fornitore» non vanno persi: il
+// tipo è stato accorpato, quindi al bootstrap prendono quello che resta.
+describe("migrazione dei tipi documento accorpati", () => {
+  function documento(id: number, tipo: string) {
+    return { id, commessaId: 1, nome: `doc-${id}.pdf`, tipo } as any;
+  }
+
+  it("porta i vecchi «ordine» sotto la conferma d'ordine", () => {
+    const caricati = [
+      documento(1, "ordine"),
+      documento(2, "conferma_ordine"),
+      documento(3, "fattura"),
+    ];
+
+    expect(migraTipiDocumento(caricati)).toBe(true);
+    expect(caricati.map(d => d.tipo)).toEqual([
+      "conferma_ordine",
+      "conferma_ordine",
+      "fattura",
+    ]);
+  });
+
+  it("non riscrive uno store già migrato", () => {
+    const caricati = [documento(1, "conferma_ordine"), documento(2, "fattura")];
+
+    expect(migraTipiDocumento(caricati)).toBe(false);
   });
 });

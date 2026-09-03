@@ -1964,6 +1964,39 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
+## 11-tricies. Ordine e conferma: un tipo di documento solo (03/09/2026)
+
+Seguito della fusione dei passi timeline: restavano due voci nel menu dei
+tipi documento e due pastiglie nel gate di `da_ordinare`, una verde e una
+arancione, che facevano sembrare mancante un documento già presente. In
+realtà il gate usa `.some`: bastava uno dei due, e anche
+`confermeMancanti.ts` accettava indifferentemente l'uno o l'altro. Erano già
+sinonimi ovunque contasse.
+
+Accorpati: `ordine` esce da `DOC_TIPI` e da `DOC_TIPO_LABEL`, il gate di
+`da_ordinare` chiede solo `conferma_ordine`, la regola di classificazione
+Tars per «ordine / purchase order / PO 123» confluisce nella conferma,
+`TIPI_ARCHIVIABILI` e la cartella Drive «Ordini» seguono. Nuova
+`migraTipiDocumento` in `preventiviContratti.ts`: i documenti già archiviati
+come `ordine` passano a `conferma_ordine` al bootstrap, idempotente come le
+altre migrazioni.
+
+NON toccato: `confrontoOrdine.ts` confronta la conferma con l'**ordine
+strutturato** del modulo Fornitori (codice, righe, importi), non col PDF di
+tipo `ordine` — quella funzione resta intera. Nemmeno `versioni.ts`, dove
+`"ordine"` è una chiave di cache degli ordini fornitore, non un tipo
+documento.
+
+Causa vera del «continuo a vederlo»: la lista dei tipi era **duplicata a
+mano** in `CommessaDetail.tsx`, sotto un commento che dichiarava di
+rispecchiare il server. Le due erano già divergenti («Conferma ordine» contro
+«Conferma ordine fornitore»), e togliere il tipo dal router non cambiava il
+menu. Ora la lista vive in `shared/docTipi.ts` — `DOC_TIPI`, `DOC_TIPO_LABEL`
+e `docTipoLabel()` per i record storici con tipi fuori elenco — e il router la
+re-esporta, così ogni import esistente continua a funzionare. Guardia in
+`client/src/lib/docTipi.test.ts`: le etichette coprono esattamente i tipi e la
+scheda commessa non può tornare a tenersi una copia.
+
 ## 11-undetricies. Ordine e conferma fornitore fusi in un passo (03/09/2026)
 
 Richiesta direzione: «ordine fornitore e conferma ordine sono la stessa

@@ -29,25 +29,10 @@ import {
 // non fanno avanzare niente — un documento d'identità, una visura, una
 // planimetria — e "Altro" li rendeva tutti indistinguibili al momento di
 // ritrovarli.
-export const DOC_TIPI = [
-  "preventivo",
-  "contratto",
-  "misure",
-  "fattura",
-  "ordine",
-  "conferma_ordine",
-  "ddt_consegna",
-  "ddt_posa",
-  "ddt_finale",
-  "saldo",
-  "foto",
-  "documento_identita",
-  "visura",
-  "planimetria",
-  "certificazione",
-  "altro",
-] as const;
-export type DocTipo = (typeof DOC_TIPI)[number];
+// La lista vive in /shared: server e client ne usano una sola.
+import { DOC_TIPI, DOC_TIPO_LABEL, type DocTipo } from "@shared/docTipi";
+export { DOC_TIPI, DOC_TIPO_LABEL };
+export type { DocTipo };
 
 export type Documento = {
   id: number;
@@ -73,10 +58,36 @@ export type Documento = {
 // ── In-memory data ──────────────────────────────────────────────────────────
 
 let nextId = 1;
+/**
+ * Tipi accorpati: la chiave sparisce dall'elenco, ma i documenti già
+ * archiviati sotto quel nome restano leggibili solo se li si riporta al tipo
+ * che sopravvive. Idempotente: su uno store già migrato risponde `false` e
+ * non fa riscrivere il blob a ogni avvio.
+ */
+const TIPI_ACCORPATI: Record<string, DocTipo> = {
+  // Ordine fornitore e conferma d'ordine erano due voci per lo stesso
+  // foglio (richiesta del 03/09/2026).
+  ordine: "conferma_ordine",
+};
+
+export function migraTipiDocumento(caricati: Documento[]): boolean {
+  let cambiato = false;
+  for (const documento of caricati) {
+    const accorpato = TIPI_ACCORPATI[documento.tipo as string];
+    if (!accorpato) continue;
+    documento.tipo = accorpato;
+    cambiato = true;
+  }
+  return cambiato;
+}
+
 const _documentiStore = persistedStore<Documento>(
   "preventivi_documenti",
   loaded => {
     nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
+    if (migraTipiDocumento(loaded)) {
+      setTimeout(() => _documentiStore.save(), 0);
+    }
     // Backfill statoAtUpload on legacy docs: default to "preventivo" so the
     // first transition still works for existing commesse.
     for (const d of loaded) {
@@ -228,7 +239,7 @@ export const REQUIRED_DOC_TIPI_PER_STATO: Record<string, DocTipo[]> = {
   misure_esecutive: ["misure"],
   aggiornamento_contratto: ["contratto"],
   fatture_pagamento: ["fattura"],
-  da_ordinare: ["ordine", "conferma_ordine"],
+  da_ordinare: ["conferma_ordine"],
   produzione: [], // gated by dataConsegnaConfermata elsewhere
   ordini_ultimazione: ["saldo", "fattura"],
   attesa_posa: ["ddt_consegna"],
@@ -238,24 +249,7 @@ export const REQUIRED_DOC_TIPI_PER_STATO: Record<string, DocTipo[]> = {
 };
 
 // Convenience label map used by the UI and error messages.
-export const DOC_TIPO_LABEL: Record<DocTipo, string> = {
-  preventivo: "Preventivo",
-  contratto: "Contratto",
-  misure: "Misure esecutive",
-  fattura: "Fattura",
-  ordine: "Ordine fornitore",
-  conferma_ordine: "Conferma ordine fornitore",
-  ddt_consegna: "DDT consegna",
-  ddt_posa: "DDT posa",
-  ddt_finale: "DDT finale",
-  saldo: "Ricevuta saldo",
-  foto: "Foto",
-  documento_identita: "Documento d'identità",
-  visura: "Visura",
-  planimetria: "Planimetria",
-  certificazione: "Certificazione",
-  altro: "Altro",
-};
+
 
 // Tipi il cui nome non va riscritto automaticamente all'upload.
 //

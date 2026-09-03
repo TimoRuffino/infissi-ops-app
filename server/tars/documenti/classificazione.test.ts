@@ -15,6 +15,17 @@ describe("classificazione deterministica degli allegati", () => {
     expect(esito.segnali.length).toBeGreaterThan(0);
   });
 
+  it("riconosce come conferma anche un allegato chiamato solo «ordine»", () => {
+    const esito = classificaAllegatoComunicazione({
+      nome: "Ordine_4471.pdf",
+      mimeType: "application/pdf",
+      oggetto: "ordine serramenti",
+      testo: "Ordine fornitore n. 4471 del 12/03/2026",
+    });
+    // I due tipi sono stati accorpati: resta la conferma d'ordine.
+    expect(esito.tipo).toBe("conferma_ordine");
+  });
+
   it("riconosce le misure esecutive dall'oggetto anche con nome generico", () => {
     const esito = classificaAllegatoComunicazione({
       nome: "scan0001.pdf",

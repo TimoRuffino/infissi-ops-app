@@ -34,7 +34,6 @@ const TIPI_ARCHIVIABILI: ReadonlySet<DocTipo> = new Set<DocTipo>([
   "contratto",
   "misure",
   "fattura",
-  "ordine",
   "conferma_ordine",
   "ddt_consegna",
   "ddt_posa",

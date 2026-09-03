@@ -275,7 +275,7 @@ Ordine canonico (`STATI_COMMESSA`):
 - `misure_esecutive` → `misure`.
 - `aggiornamento_contratto` → `contratto`.
 - `fatture_pagamento` → `fattura`.
-- `da_ordinare` → `ordine` o `conferma_ordine`.
+- `da_ordinare` → `conferma_ordine`.
 - `produzione` → nessun documento richiesto (gated da `dataConsegnaConfermata`).
 - `ordini_ultimazione` → `saldo` o `fattura`.
 - `attesa_posa` → `ddt_consegna`.
@@ -288,7 +288,9 @@ Ordine canonico (`STATI_COMMESSA`):
 ## 8. Documenti commessa (Preventivi/Contratti)
 
 ### 8.1 Tipi documento
-`preventivo, contratto, misure, fattura, ordine, conferma_ordine, ddt_consegna, ddt_posa, ddt_finale, saldo, foto, documento_identita, visura, planimetria, certificazione, altro`.
+`preventivo, contratto, misure, fattura, conferma_ordine, ddt_consegna, ddt_posa, ddt_finale, saldo, foto, documento_identita, visura, planimetria, certificazione, altro`.
+
+Il tipo `ordine` è stato accorpato in `conferma_ordine` il 03/09/2026: erano due voci per lo stesso foglio e il gate già accettava indifferentemente l'una o l'altra, mostrando però due pastiglie di cui una arancione. I documenti già archiviati come `ordine` vengono riportati a `conferma_ordine` al bootstrap.
 
 I primi dieci hanno un ruolo nel doc gate (§9). Gli ultimi quattro sono stati
 aggiunti il 26/08/2026 perché una commessa raccoglie anche documenti che non
