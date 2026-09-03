@@ -20,6 +20,7 @@ import {
   getDocumentoCommessaById,
   spostaDocumentoDiCommessa,
 } from "../../routers/preventiviContratti";
+import { leggiConfermaDocumento } from "../documenti/letturaConferma";
 import { TIPI_INTERVENTO } from "../../routers/interventi";
 import { getTicketById, TICKET_CATEGORIE, TICKET_PRIORITA } from "../../routers/ticket";
 import { tarsAttivo } from "../../platform/interruttori";
@@ -861,6 +862,152 @@ const spostaDocumento: StrumentoTars = {
   },
 };
 
+// ── Costi fornitore (margine) ───────────────────────────────────────────
+
+/**
+ * Scarto ammesso fra l'importo che l'utente conferma e quello letto dal
+ * documento: zero. L'importo non si arrotonda e non si "avvicina" — o è
+ * quello scritto nella conferma, o non si registra.
+ */
+const registraCostoFornitore: StrumentoTars = {
+  nome: "registra_costo_fornitore",
+  versione: "1.0.0",
+  categoria: "economia",
+  livello: "L2",
+  effetto: "interno",
+  reversibile: true,
+  capability: ["economia.read"],
+  interruttore: "tarsL2Actions",
+  descrizione:
+    "Registra il costo del fornitore su una commessa leggendolo dalla conferma d'ordine già nel fascicolo. L'importo è l'IMPONIBILE (IVA esclusa): è la base del margine. PRIMA mostra all'utente l'importo letto dal documento e fatti dire di sì; poi richiama con importoImponibile uguale a quello letto — il server rilegge il documento e rifiuta se non coincide. Se il documento non dichiara l'imponibile, l'importo va inserito a mano dalla scheda commessa: non si scorpora l'IVA per stima.",
+  schemaInput: z
+    .object({
+      commessaId: z.number().int().positive(),
+      documentoId: z.number().int().positive(),
+      importoImponibile: z.number().positive(),
+      fornitore: z.string().max(120).optional(),
+      numeroOrdine: z.string().max(60).optional(),
+      note: z.string().max(300).optional(),
+    })
+    .strict(),
+  async esegui(contesto, input): Promise<EsitoAzione> {
+    assicuraL2();
+    const nome = "registra_costo_fornitore";
+    const commessa = commessaInSede(contesto, input.commessaId);
+    if (!commessa) return nonEseguito(nome, "Commessa non trovata in questa sede.");
+    const documento = getDocumentoCommessaById(input.documentoId, contesto.sedeId);
+    if (!documento) return nonEseguito(nome, "Documento non trovato in questa sede.");
+    if (documento.commessaId !== input.commessaId) {
+      return nonEseguito(
+        nome,
+        "Il documento non è nel fascicolo di questa commessa: spostalo prima (sposta_documento)."
+      );
+    }
+    // Un costo già registrato sullo stesso documento non si duplica.
+    const giaRegistrato = (commessa.costi ?? []).some(
+      (c: any) =>
+        c.note && String(c.note).includes(`documento:${input.documentoId}`)
+    );
+    if (giaRegistrato) {
+      return nonEseguito(
+        nome,
+        "Il costo di questo documento è già registrato sulla commessa."
+      );
+    }
+
+    let lettura;
+    try {
+      lettura = await leggiConfermaDocumento({
+        documentoId: input.documentoId,
+        sedeId: contesto.sedeId,
+        codiceCommessa: commessa.codice ?? null,
+        fornitoreAtteso: input.fornitore ?? null,
+        numeroOrdineAtteso: input.numeroOrdine ?? null,
+      });
+    } catch (errore) {
+      return nonEseguito(nome, motivoSicuro(errore));
+    }
+    if (!lettura) return nonEseguito(nome, "Il documento non è leggibile.");
+    const imponibile = lettura.estrazione?.imponibileDocumento?.valore ?? null;
+    if (imponibile == null) {
+      return nonEseguito(
+        nome,
+        lettura.fonteTesto === "nessuna"
+          ? `Non riesco a leggere «${lettura.nomeFile}»: registra il costo a mano dalla scheda commessa.`
+          : `«${lettura.nomeFile}» non dichiara un imponibile: registra il costo a mano dalla scheda commessa (l'IVA non si scorpora per stima).`
+      );
+    }
+    // L'ancora: l'importo scritto è quello del documento, non uno proposto.
+    if (Math.round(imponibile * 100) !== Math.round(input.importoImponibile * 100)) {
+      return nonEseguito(
+        nome,
+        `L'imponibile letto da «${lettura.nomeFile}» è diverso da quello indicato: registro solo l'importo che sta nel documento. Rileggilo con leggi_conferma_ordine e riprova.`
+      );
+    }
+
+    const fornitore =
+      input.fornitore?.trim() ||
+      lettura.estrazione?.fornitoreCitato?.valore ||
+      null;
+    const numeroOrdine =
+      input.numeroOrdine?.trim() ||
+      lettura.estrazione?.riferimentoOrdine?.valore ||
+      null;
+    const dataDocumento = lettura.estrazione?.dataDocumento?.valore ?? null;
+
+    try {
+      const caller = await callerPer(contesto);
+      await caller.commesse.addCosto({
+        commessaId: input.commessaId,
+        importo: imponibile,
+        fornitore: fornitore ?? undefined,
+        descrizione: `Conferma d'ordine ${lettura.nomeFile}`.slice(0, 160),
+        data: dataDocumento ?? undefined,
+        numeroOrdine: numeroOrdine ?? undefined,
+        // Il riferimento al documento serve anche da chiave anti-doppione.
+        note: `${input.note ? `${input.note} ` : ""}Letto da Tars dal documento:${input.documentoId}${
+          lettura.fonteTesto === "ocr" ? " (testo da OCR)" : ""
+        }`.slice(0, 300),
+      });
+      return fatto({
+        strumento: nome,
+        stato: "registrato",
+        azioneId: `${nome}:commessa:${input.commessaId}:documento:${input.documentoId}`,
+        entitaToccate: [
+          `commessa:${input.commessaId}`,
+          `documento:${input.documentoId}`,
+        ],
+        prima: { costiRegistrati: (commessa.costi ?? []).length },
+        dopo: {
+          commessaId: input.commessaId,
+          importoImponibile: imponibile,
+          fornitore,
+          numeroOrdine,
+          documentoId: input.documentoId,
+          link: `/commesse/${input.commessaId}`,
+        },
+        evidenze: [
+          evidenzaCommessa(commessa),
+          {
+            tipo: "entita",
+            riferimento: `documento:${input.documentoId}`,
+            descrizione: `${lettura.nomeFile} — imponibile letto dal documento`,
+          },
+        ],
+        avvertenze: [
+          "Il costo è IVA esclusa: il margine si calcola imponibile contro imponibile.",
+          ...(lettura.fonteTesto === "ocr"
+            ? ["Testo ricostruito con OCR: verifica l'importo sul file."]
+            : []),
+          ...lettura.avvertenze,
+        ],
+      });
+    } catch (errore) {
+      return nonEseguito(nome, motivoSicuro(errore));
+    }
+  },
+};
+
 export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   creaCliente,
   aggiornaCliente,
@@ -877,4 +1024,5 @@ export const STRUMENTI_SCRITTURA: readonly StrumentoTars[] = [
   risolviCaso,
   collegaFatturaCommessa,
   spostaDocumento,
+  registraCostoFornitore,
 ];

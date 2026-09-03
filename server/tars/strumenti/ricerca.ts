@@ -22,10 +22,16 @@ import {
   confermeOrdineMancanti,
   type DipendenzeConfermeMancanti,
 } from "../documenti/confermeMancanti";
-import { leggiConfermaAllegata } from "../documenti/letturaConferma";
+import {
+  leggiConfermaAllegata,
+  leggiConfermaDocumento,
+} from "../documenti/letturaConferma";
 import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import { getCommesseStore } from "../../routers/commesse";
-import { findDocumentoComunicazione } from "../../routers/preventiviContratti";
+import {
+  findDocumentoComunicazione,
+  getDocumentoCommessaById,
+} from "../../routers/preventiviContratti";
 import type { ContestoRun, EsitoLettura, EvidenzaTars, StrumentoTars } from "./tipi";
 
 const FONTE_CRM = "CRM Ruffino Flow";
@@ -333,7 +339,10 @@ const cercaConfermeMancanti: StrumentoTars = {
 
 const leggiConferma: StrumentoTars = {
   nome: "leggi_conferma_ordine",
-  versione: "1.0.0",
+  // 1.1.0: legge anche un documento GIÀ nel fascicolo (documentoId), non
+  // solo un allegato di mail — è il caso della conferma archiviata di cui
+  // resta da registrare il costo.
+  versione: "1.1.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -341,19 +350,24 @@ const leggiConferma: StrumentoTars = {
   capability: ["commessa.read"],
   interruttore: ["tars", "tarsCommunications"],
   descrizione:
-    "Apre e LEGGE un allegato (conferma d'ordine) di una comunicazione: testo del PDF, OCR se è una scansione. Restituisce fornitore, riferimento d'ordine, numero conferma, date di consegna, totale e IMPONIBILE (il costo che vale per il margine), e dice se il documento cita il codice della commessa. Usalo quando cerca_conferme_ordine_mancanti dà un candidato «probabile»: se il documento cita la commessa, il dubbio è sciolto e puoi archiviarlo. Lettura pesante: un allegato per volta.",
+    "Apre e LEGGE una conferma d'ordine: un allegato di una comunicazione (comunicazioneId + allegatoIndex) oppure un documento già nel fascicolo di una commessa (documentoId). Testo del PDF, OCR se è una scansione. Restituisce fornitore, riferimento d'ordine, numero conferma, date di consegna, totale e IMPONIBILE (il costo che vale per il margine), e dice se il documento cita il codice della commessa. Due usi: (1) un candidato «probabile» di cerca_conferme_ordine_mancanti — se cita la commessa, archivialo; (2) la conferma già nel fascicolo di cui manca il costo — mostra l'imponibile all'utente e, dopo il suo sì, registra_costo_fornitore con quello stesso importo. Lettura pesante: un file per volta.",
   schemaInput: z
     .object({
-      comunicazioneId: z.number().int().positive(),
-      allegatoIndex: z.number().int().min(0).max(50),
+      comunicazioneId: z.number().int().positive().optional(),
+      allegatoIndex: z.number().int().min(0).max(50).optional(),
+      documentoId: z.number().int().positive().optional(),
       commessaId: z.number().int().positive().optional(),
+      fornitoreAtteso: z.string().max(120).optional(),
+      numeroOrdineAtteso: z.string().max(60).optional(),
     })
     .strict(),
   async esegui(contesto: ContestoRun, input: any) {
-    const c = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
-    if (!c) throw new Error("NOT_FOUND: comunicazione non trovata in questa sede.");
-    if (!c.allegati[input.allegatoIndex]) {
-      throw new Error("NOT_FOUND: allegato non presente in questa comunicazione.");
+    const daAllegato = input.comunicazioneId != null;
+    const daDocumento = input.documentoId != null;
+    if (daAllegato === daDocumento) {
+      throw new Error(
+        "FORBIDDEN: indica O un allegato (comunicazioneId + allegatoIndex) O un documento del fascicolo (documentoId)."
+      );
     }
     let commessa: any = null;
     if (input.commessaId != null) {
@@ -362,11 +376,42 @@ const leggiConferma: StrumentoTars = {
         throw new Error("NOT_FOUND: commessa non trovata in questa sede.");
       }
     }
-    const lettura_ = await leggiConfermaAllegata({
-      comunicazione: c,
-      allegatoIndex: input.allegatoIndex,
-      codiceCommessa: commessa?.codice ?? null,
-    });
+    let lettura_;
+    let riferimentoEvidenza: string;
+    let descrizioneEvidenza: string;
+    if (daDocumento) {
+      const documento = getDocumentoCommessaById(input.documentoId, contesto.sedeId);
+      if (!documento) throw new Error("NOT_FOUND: documento non trovato in questa sede.");
+      if (!commessa) commessa = getCommessaById(documento.commessaId);
+      const letto = await leggiConfermaDocumento({
+        documentoId: input.documentoId,
+        sedeId: contesto.sedeId,
+        codiceCommessa: commessa?.codice ?? null,
+        fornitoreAtteso: input.fornitoreAtteso ?? null,
+        numeroOrdineAtteso: input.numeroOrdineAtteso ?? null,
+      });
+      if (!letto) throw new Error("NOT_FOUND: documento non leggibile.");
+      lettura_ = letto;
+      riferimentoEvidenza = `documento:${documento.id}`;
+      descrizioneEvidenza = `${lettura_.nomeFile} — nel fascicolo di ${commessa?.codice ?? documento.commessaId}`;
+    } else {
+      if (input.allegatoIndex == null) {
+        throw new Error("FORBIDDEN: con comunicazioneId serve anche allegatoIndex.");
+      }
+      const c = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
+      if (!c) throw new Error("NOT_FOUND: comunicazione non trovata in questa sede.");
+      if (!c.allegati[input.allegatoIndex]) {
+        throw new Error("NOT_FOUND: allegato non presente in questa comunicazione.");
+      }
+      lettura_ = await leggiConfermaAllegata({
+        comunicazione: c,
+        allegatoIndex: input.allegatoIndex,
+        codiceCommessa: commessa?.codice ?? null,
+        fornitoreAtteso: input.fornitoreAtteso ?? null,
+      });
+      riferimentoEvidenza = `comunicazione:${c.id}`;
+      descrizioneEvidenza = `${lettura_.nomeFile} — allegato di ${c.mittenteNome?.trim() || c.mittente}`;
+    }
     const e = lettura_.estrazione;
     return lettura({
       dati: {
@@ -391,8 +436,8 @@ const leggiConferma: StrumentoTars = {
       evidenze: [
         {
           tipo: "entita" as const,
-          riferimento: `comunicazione:${c.id}`,
-          descrizione: `${lettura_.nomeFile} — allegato di ${c.mittenteNome?.trim() || c.mittente}`,
+          riferimento: riferimentoEvidenza,
+          descrizione: descrizioneEvidenza,
         },
       ],
       omissioni: [

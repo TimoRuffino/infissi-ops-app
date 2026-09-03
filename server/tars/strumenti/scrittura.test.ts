@@ -316,3 +316,135 @@ describe("fatture e documenti del fascicolo (T1)", () => {
     expect(esito.motivo).toContain("non trovato");
   });
 });
+
+describe("costo fornitore dalla conferma d'ordine (margine)", () => {
+  /**
+   * Un PDF 1.4 minimo ma valido, con un flusso di testo non compresso: il
+   * parser (unpdf/pdfjs) lo legge davvero, quindi il test attraversa la
+   * stessa strada della produzione, OCR escluso.
+   */
+  function pdfConTesto(righe: string[]): Buffer {
+    const sicura = (r: string) => r.replace(/[()\\]/g, m => "\\" + m);
+    const contenuto = righe
+      .map((r, i) => `BT /F1 11 Tf 40 ${780 - i * 16} Td (${sicura(r)}) Tj ET`)
+      .join("\n");
+    const oggetti = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+      `<< /Length ${Buffer.byteLength(contenuto, "latin1")} >>\nstream\n${contenuto}\nendstream`,
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [];
+    oggetti.forEach((o, i) => {
+      offsets.push(Buffer.byteLength(pdf, "latin1"));
+      pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    });
+    const xref = Buffer.byteLength(pdf, "latin1");
+    pdf +=
+      `xref\n0 ${oggetti.length + 1}\n0000000000 65535 f \n` +
+      offsets.map(o => `${String(o).padStart(10, "0")} 00000 n \n`).join("") +
+      `trailer\n<< /Size ${oggetti.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return Buffer.from(pdf, "latin1");
+  }
+
+  async function confermaNelFascicolo(commessaId: number, righe: string[]) {
+    return caricaDocumentoCommessaDaBuffer({
+      commessaId,
+      nome: "Conferma_ordine_4471.pdf",
+      tipo: "conferma_ordine",
+      mimeType: "application/pdf",
+      buffer: pdfConTesto(righe),
+      sedeId: SEDE,
+      createdBy: DIREZIONE_ID,
+      keepNome: true,
+    });
+  }
+
+  it("registra l'imponibile letto dal documento e non lo duplica al secondo giro", async () => {
+    const ctx = await contesto();
+    const commessa = await direzione().commesse.create({ cliente: "Tesconi Giorgio" });
+    const documento = await confermaNelFascicolo(commessa.id, [
+      "TESCONI SRL",
+      "Conferma d'ordine n. 4471",
+      "Totale imponibile: EUR 3.500,00",
+      "IVA 22%: EUR 770,00",
+      "Totale documento: EUR 4.270,00",
+    ]);
+
+    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 3500,
+    });
+    expect(esito.stato).toBe("registrato");
+    expect(esito.dati.importoImponibile).toBe(3500);
+
+    const salvata: any = getCommessaById(commessa.id);
+    expect(salvata.costi).toHaveLength(1);
+    expect(salvata.costi[0].importo).toBe(3500);
+
+    // Secondo giro sullo stesso documento: nessun doppione.
+    const doppio = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 3500,
+    });
+    expect(doppio.stato).toBe("non_eseguito");
+    expect(doppio.motivo).toContain("già registrato");
+    expect((getCommessaById(commessa.id) as any).costi).toHaveLength(1);
+  });
+
+  it("un importo diverso da quello scritto nel documento viene rifiutato", async () => {
+    const ctx = await contesto();
+    const commessa = await direzione().commesse.create({ cliente: "Ancora Importo" });
+    const documento = await confermaNelFascicolo(commessa.id, [
+      "Conferma d'ordine",
+      "Totale imponibile: EUR 1.000,00",
+      "IVA 22%: EUR 220,00",
+    ]);
+    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 1220, // il totale ivato, non l'imponibile
+    });
+    expect(esito.stato).toBe("non_eseguito");
+    expect(esito.motivo).toContain("diverso");
+    expect(((getCommessaById(commessa.id) as any).costi ?? [])).toHaveLength(0);
+  });
+
+  it("senza imponibile dichiarato non scorpora niente: manda alla scheda", async () => {
+    const ctx = await contesto();
+    const commessa = await direzione().commesse.create({ cliente: "Solo Totale" });
+    const documento = await confermaNelFascicolo(commessa.id, [
+      "Conferma d'ordine n. 9",
+      "Totale documento: EUR 4.270,00",
+    ]);
+    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 3500,
+    });
+    expect(esito.stato).toBe("non_eseguito");
+    expect(esito.motivo).toContain("a mano");
+    expect(((getCommessaById(commessa.id) as any).costi ?? [])).toHaveLength(0);
+  });
+
+  it("un documento di un'altra commessa non diventa mai un costo di questa", async () => {
+    const ctx = await contesto();
+    const commessa = await direzione().commesse.create({ cliente: "Destinataria" });
+    const altra = await direzione().commesse.create({ cliente: "Proprietaria" });
+    const documento = await confermaNelFascicolo(altra.id, [
+      "Conferma d'ordine",
+      "Totale imponibile: EUR 900,00",
+    ]);
+    const esito = await tool("registra_costo_fornitore").esegui(ctx, {
+      commessaId: commessa.id,
+      documentoId: documento.id,
+      importoImponibile: 900,
+    });
+    expect(esito.stato).toBe("non_eseguito");
+    expect(esito.motivo).toContain("non è nel fascicolo");
+  });
+});

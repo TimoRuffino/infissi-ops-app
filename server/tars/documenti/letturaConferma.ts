@@ -20,6 +20,7 @@ import {
   type EstrazioneConferma,
 } from "../../documenti/estrazioneConferma";
 import { estraiTestoDocumento } from "../../documenti/parserRegistry";
+import { leggiDocumentoCommessaDaStorage } from "../../routers/preventiviContratti";
 
 export type LetturaConferma = {
   nomeFile: string;
@@ -139,6 +140,92 @@ export async function leggiConfermaAllegata(input: {
     nomeFile: raw.nome,
     mimeType: raw.mimeType,
     fonteTesto,
+    pagine: pagine.length,
+    estrazione,
+    citaLaCommessa,
+    avvertenze,
+  };
+}
+
+
+/**
+ * Lo stesso, ma su un documento GIÀ nel fascicolo della commessa: è il caso
+ * normale quando la conferma è stata archiviata (a mano o da Tars) e resta
+ * da leggerne l'importo per il margine.
+ */
+export async function leggiConfermaDocumento(input: {
+  documentoId: number;
+  sedeId: number;
+  codiceCommessa?: string | null;
+  fornitoreAtteso?: string | null;
+  numeroOrdineAtteso?: string | null;
+  deps?: Pick<DipendenzeLettura, "estraiTesto"> & {
+    leggiDocumento?: (
+      documentoId: number,
+      sedeId: number
+    ) => Promise<{ buffer: Buffer; nome: string; mimeType: string } | null>;
+  };
+}): Promise<LetturaConferma | null> {
+  const estraiTesto =
+    input.deps?.estraiTesto ?? dipendenzeLetturaReali().estraiTesto;
+  const leggiDocumento =
+    input.deps?.leggiDocumento ??
+    (async (documentoId: number, sedeId: number) => {
+      const letto = await leggiDocumentoCommessaDaStorage(documentoId, sedeId);
+      if (!letto) return null;
+      return {
+        buffer: letto.buffer,
+        nome: letto.documento.nome,
+        mimeType: letto.documento.mimeType,
+      };
+    });
+
+  const raw = await leggiDocumento(input.documentoId, input.sedeId);
+  if (!raw) return null;
+
+  const avvertenze: string[] = [];
+  const testo = await estraiTesto(raw.buffer, raw.mimeType, raw.nome);
+  if (testo.pagine == null) {
+    return {
+      nomeFile: raw.nome,
+      mimeType: raw.mimeType,
+      fonteTesto: "nessuna",
+      pagine: 0,
+      estrazione: null,
+      citaLaCommessa: false,
+      avvertenze: [`${testo.motivo} Apri il file e registra i dati a mano.`],
+    };
+  }
+  const pagine = testo.pagine;
+  avvertenze.push(...testo.avvertenze);
+  if (testo.daOcr) {
+    avvertenze.push(
+      "PDF scansionato: testo ricostruito con OCR, verifica gli importi prima di registrarli."
+    );
+  }
+
+  const estrazione = estraiConfermaOrdine(pagine, {
+    codiceOrdine: input.numeroOrdineAtteso ?? null,
+    fornitoreNome: input.fornitoreAtteso ?? null,
+    righeOrdine: [],
+  });
+  const codice = input.codiceCommessa?.trim().toLowerCase() ?? null;
+  const citaLaCommessa = codice
+    ? estrazione.codiciCommessaCitati.some(
+        c => c.valore.trim().toLowerCase() === codice
+      ) || pagine.join(" ").toLowerCase().includes(codice)
+    : false;
+
+  if (!estrazione.imponibileDocumento && estrazione.totaleDocumento) {
+    avvertenze.push(
+      "Il documento dichiara un totale ma non l'imponibile: il costo del margine va confermato a mano (l'IVA non si scorpora per stima)."
+    );
+  }
+
+  return {
+    nomeFile: raw.nome,
+    mimeType: raw.mimeType,
+    fonteTesto: testo.daOcr ? "ocr" : "testo_pdf",
     pagine: pagine.length,
     estrazione,
     citaLaCommessa,

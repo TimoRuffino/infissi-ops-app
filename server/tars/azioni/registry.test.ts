@@ -62,8 +62,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(55);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(55);
+    expect(REGISTRO_AZIONI).toHaveLength(56);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(56);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -151,6 +151,7 @@ describe("registro centrale delle azioni Tars", () => {
       risolvi_caso: "R1",
       collega_fattura_commessa: "R1",
       sposta_documento: "R1",
+      registra_costo_fornitore: "R1",
       dimentica: "R1",
       leggi_analisi_ordine: "R0",
       leggi_allegato_comunicazione: "R0",
@@ -260,6 +261,7 @@ describe("registro centrale delle azioni Tars", () => {
       risolvi_caso: "entita",
       collega_fattura_commessa: "entita",
       sposta_documento: "entita",
+      registra_costo_fornitore: "entita",
       dimentica: "sede",
       leggi_analisi_ordine: "entita",
       leggi_allegato_comunicazione: "entita",
@@ -317,6 +319,7 @@ describe("registro centrale delle azioni Tars", () => {
       risolvi_caso: false,
       collega_fattura_commessa: false,
       sposta_documento: false,
+      registra_costo_fornitore: false,
       dimentica: false,
       prendi_in_carico_caso: false,
       ricorda: false,
@@ -367,7 +370,7 @@ describe("policy dinamica del catalogo", () => {
       intento: "proposta" as const,
     };
     const catalogo = catalogoAzioniPerContesto({ ...contesto(), ...selettori });
-    expect(catalogo).toHaveLength(55);
+    expect(catalogo).toHaveLength(56);
     expect(catalogo.map(a => a.nome)).toContain("proponi_data_consegna");
     expect(catalogo.map(a => a.nome)).toContain("cerca_commesse");
     expect(
@@ -416,7 +419,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("con o senza selettori il catalogo è lo stesso: tutto l'autorizzato", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(55);
+    expect(completo).toHaveLength(56);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 
@@ -432,7 +435,7 @@ describe("policy dinamica del catalogo", () => {
         superficie: "economia",
         intento: "azione_esplicita",
       }).map(a => a.nome)
-    ).toEqual(["collega_fattura_commessa"]);
+    ).toEqual(["collega_fattura_commessa", "registra_costo_fornitore"]);
   });
 
   it("in produzione senza PostgreSQL non espone R1", () => {
