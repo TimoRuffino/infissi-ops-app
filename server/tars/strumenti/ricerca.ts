@@ -22,6 +22,8 @@ import {
   confermeOrdineMancanti,
   type DipendenzeConfermeMancanti,
 } from "../documenti/confermeMancanti";
+import { leggiConfermaAllegata } from "../documenti/letturaConferma";
+import { getLiveComunicazione } from "../../comunicazioni/comunicazioni";
 import { getCommesseStore } from "../../routers/commesse";
 import { findDocumentoComunicazione } from "../../routers/preventiviContratti";
 import type { ContestoRun, EsitoLettura, EvidenzaTars, StrumentoTars } from "./tipi";
@@ -322,9 +324,84 @@ const cercaConfermeMancanti: StrumentoTars = {
   },
 };
 
+const leggiConferma: StrumentoTars = {
+  nome: "leggi_conferma_ordine",
+  versione: "1.0.0",
+  categoria: "documenti",
+  livello: "L0",
+  effetto: "nessuno",
+  reversibile: true,
+  capability: ["commessa.read"],
+  interruttore: ["tars", "tarsCommunications"],
+  descrizione:
+    "Apre e LEGGE un allegato (conferma d'ordine) di una comunicazione: testo del PDF, OCR se è una scansione. Restituisce fornitore, riferimento d'ordine, numero conferma, date di consegna, totale e IMPONIBILE (il costo che vale per il margine), e dice se il documento cita il codice della commessa. Usalo quando cerca_conferme_ordine_mancanti dà un candidato «probabile»: se il documento cita la commessa, il dubbio è sciolto e puoi archiviarlo. Lettura pesante: un allegato per volta.",
+  schemaInput: z
+    .object({
+      comunicazioneId: z.number().int().positive(),
+      allegatoIndex: z.number().int().min(0).max(50),
+      commessaId: z.number().int().positive().optional(),
+    })
+    .strict(),
+  async esegui(contesto: ContestoRun, input: any) {
+    const c = await getLiveComunicazione(input.comunicazioneId, contesto.sedeId);
+    if (!c) throw new Error("NOT_FOUND: comunicazione non trovata in questa sede.");
+    if (!c.allegati[input.allegatoIndex]) {
+      throw new Error("NOT_FOUND: allegato non presente in questa comunicazione.");
+    }
+    let commessa: any = null;
+    if (input.commessaId != null) {
+      commessa = getCommessaById(input.commessaId);
+      if (!commessa || commessa.sedeId !== contesto.sedeId) {
+        throw new Error("NOT_FOUND: commessa non trovata in questa sede.");
+      }
+    }
+    const lettura_ = await leggiConfermaAllegata({
+      comunicazione: c,
+      allegatoIndex: input.allegatoIndex,
+      codiceCommessa: commessa?.codice ?? null,
+    });
+    const e = lettura_.estrazione;
+    return lettura({
+      dati: {
+        nomeFile: lettura_.nomeFile,
+        letturaRiuscita: lettura_.fonteTesto !== "nessuna",
+        fonteTesto: lettura_.fonteTesto,
+        pagine: lettura_.pagine,
+        citaLaCommessa: lettura_.citaLaCommessa,
+        fornitore: e?.fornitoreCitato?.valore ?? null,
+        riferimentoOrdine: e?.riferimentoOrdine?.valore ?? null,
+        numeroConferma: e?.numeroConferma?.valore ?? null,
+        dataDocumento: e?.dataDocumento?.valore ?? null,
+        dateConsegna: (e?.dateConsegna ?? []).map(d => d.valore),
+        settimaneConsegna: (e?.settimaneConsegna ?? []).map(d => d.valore),
+        codiciCommessaCitati: (e?.codiciCommessaCitati ?? []).map(x => x.valore),
+        // Gli importi si dichiarano ma NON si registrano da qui: il costo
+        // passa da una conferma umana (sono soldi).
+        imponibile: e?.imponibileDocumento?.valore ?? null,
+        totaleIvato: e?.totaleDocumento?.valore ?? null,
+        avvertenze: lettura_.avvertenze,
+      },
+      evidenze: [
+        {
+          tipo: "entita" as const,
+          riferimento: `comunicazione:${c.id}`,
+          descrizione: `${lettura_.nomeFile} — allegato di ${c.mittenteNome?.trim() || c.mittente}`,
+        },
+      ],
+      omissioni: [
+        "questa è una lettura: nessun costo, ordine o documento viene registrato",
+        ...(lettura_.fonteTesto === "ocr"
+          ? ["testo da OCR: gli importi vanno verificati sul file"]
+          : []),
+      ],
+    });
+  },
+};
+
 export const STRUMENTI_RICERCA: readonly StrumentoTars[] = [
   cercaComunicazioni,
   cercaFatture,
   cercaDocumenti,
   cercaConfermeMancanti,
+  leggiConferma,
 ];

@@ -31,7 +31,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.14.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.15.0";
 
 const schemaLettura = z
   .object({
@@ -169,6 +169,12 @@ const METADATI: Record<string, Metadati> = {
   cerca_documenti: lettura("sede", ["generale", "commessa", "documenti-ordini"], ["commessa", "documento"]),
   // Caccia alle conferme d'ordine mancanti (direzione 03/09/2026).
   cerca_conferme_ordine_mancanti: lettura("sede", ["generale", "commessa", "documenti-ordini"], ["commessa", "documento"]),
+  // Legge e capisce il documento (testo o OCR): pesante, un file per volta.
+  leggi_conferma_ordine: {
+    ...lettura("entita", ["comunicazioni", "documenti-ordini", "commessa"], ["documento", "commessa"], ["tars", "tarsReadTools", "tarsCommunications"]),
+    timeoutMs: 120_000,
+    costo: { unita: "operazione", massimo: 1, classe: "medio" },
+  },
   // Clienti (01/09/2026): entità «commessa» inclusa perché dal fascicolo
   // di una commessa si chiede legittimamente del suo cliente.
   cerca_clienti: lettura(
