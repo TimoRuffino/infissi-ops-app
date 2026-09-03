@@ -151,6 +151,38 @@ export type VoceComputo = {
 
 export type EsitoComputo = "ok" | "incompleto";
 
+export const GRUPPI_PRODOTTO = [
+  "serramento", "cassonetto", "avvolgibile", "persiana", "scuro", "portoncino", "porta_blindata", "schermatura",
+] as const;
+export type GruppoProdotto = (typeof GRUPPI_PRODOTTO)[number];
+
+/** Categoria della riga → gruppo (e famiglia, se univoca) del catalogo DEI. null = la riga non ha voce DEI. */
+export function gruppoPerCategoria(
+  categoria: CategoriaRiga
+): { gruppo: GruppoProdotto | null; famiglia: string | null } {
+  switch (categoria) {
+    case "serramento_pvc": return { gruppo: "serramento", famiglia: "pvc" };
+    case "serramento_alluminio": return { gruppo: "serramento", famiglia: "alluminio" };
+    case "serramento_legno": return { gruppo: "serramento", famiglia: "legno" };
+    case "serramento_legno_alluminio": return { gruppo: "serramento", famiglia: null };
+    case "cassonetto": return { gruppo: "cassonetto", famiglia: null };
+    case "tapparella": return { gruppo: "avvolgibile", famiglia: null };
+    case "persiana": return { gruppo: "persiana", famiglia: null };
+    case "scuro": return { gruppo: "scuro", famiglia: null };
+    case "schermatura": return { gruppo: "schermatura", famiglia: null };
+    case "zanzariera": return { gruppo: "schermatura", famiglia: "zanzariera" };
+    case "tenda": return { gruppo: "schermatura", famiglia: "tenda" };
+    case "pergola": return { gruppo: "schermatura", famiglia: "pergola" };
+    case "porta_blindata": return { gruppo: "porta_blindata", famiglia: null };
+    case "portoncino": return { gruppo: "portoncino", famiglia: null };
+    default: return { gruppo: null, famiglia: null };
+  }
+}
+
+export function gruppoPerOscurante(o: OscuranteIntegrato): GruppoProdotto {
+  return o === "tapparella" ? "avvolgibile" : o === "persiana" ? "persiana" : "scuro";
+}
+
 export type Computo = {
   id: number;
   sedeId: number;
