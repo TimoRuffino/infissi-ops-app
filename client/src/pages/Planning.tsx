@@ -286,15 +286,24 @@ export default function Planning() {
           : null;
         // Senza cliente collegato il titolo cadeva sul tipo, e il blocco
         // diceva «ALTRO Altro»: il tipo due volte e il contenuto mai. Nei
-        // dati veri metà appuntamenti sono così — inseriti al volo con la
-        // sola nota — quindi la nota È il titolo, quando c'è.
+        // dati veri metà appuntamenti sono così, inseriti al volo.
+        //
+        // L'ordine conta: `titolo` è il nome vero (lo scrive la migrazione
+        // Google, o chi crea l'appuntamento), la nota è il ripiego. Prendere
+        // la nota per prima significava mostrare i sessanta caratteri di
+        // «Importato dal calendario Google «…»:» uguali su ogni riga.
         const nota = String(i.note ?? "").trim().split("\n")[0];
         (mappa[data] ||= []).push({
           id: i.id,
           fonte: "crm",
           tipo: i.tipo,
           tipoLabel: tipoLabels[i.tipo] ?? i.tipo,
-          titolo: j.nomeCognome || nota || tipoLabels[i.tipo] || i.tipo,
+          titolo:
+            j.nomeCognome ||
+            String(i.titolo ?? "").trim() ||
+            nota ||
+            tipoLabels[i.tipo] ||
+            i.tipo,
           oraInizio: i.oraInizio ?? null,
           oraFine: i.oraFine ?? null,
           indirizzo,
@@ -382,6 +391,7 @@ export default function Planning() {
             tipoLabel: tipoLabels[i.tipo] ?? i.tipo,
             titolo:
               joined.nomeCognome ||
+              String(i.titolo ?? "").trim() ||
               String(i.note ?? "").trim().split("\n")[0] ||
               tipoLabels[i.tipo] ||
               i.tipo,

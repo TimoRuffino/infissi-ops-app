@@ -180,15 +180,20 @@ export default function PlanningGrigliaOraria({
             const dateStr = toDateStr(giorno);
             const voci = senzaOrario(perGiorno[dateStr] ?? []);
             return (
+              // `items-start`: senza, le celle della griglia si allungano
+              // fino alla più alta della riga e ogni blocco (che è `h-full`)
+              // si gonfia con loro — un evento senza orario diventava alto
+              // centotrenta pixel e la fascia mangiava mezza giornata.
               <div
                 key={dateStr}
-                className="min-w-0 space-y-1 border-r border-border-soft p-1 last:border-r-0"
+                className="flex min-w-0 flex-col items-stretch gap-1 self-start border-r border-border-soft p-1 last:border-r-0"
               >
                 {voci.map(voce => (
                   <BloccoVoce
                     key={`${voce.fonte}-${voce.id}`}
                     voce={voce}
                     righe={1}
+                    altezzaAuto
                     onApri={onApri}
                     onDragStart={onDragStart}
                     draggingId={draggingId}
@@ -341,11 +346,13 @@ function BloccoVoce(props: {
   compatto?: boolean;
   /** Vista Giorno: c'è larghezza da vendere, il testo sta su una riga. */
   orizzontale?: boolean;
+  /** Fuori dalla griglia oraria l'altezza non è la durata: si sta stretti. */
+  altezzaAuto?: boolean;
   onApri: (voce: VoceGriglia) => void;
   onDragStart: (e: React.DragEvent, voce: VoceGriglia) => void;
   draggingId: number | null;
 }) {
-  const { voce, righe, stretto, compatto, orizzontale } = props;
+  const { voce, righe, stretto, compatto, orizzontale, altezzaAuto } = props;
   // In settimana una colonna è ~160px: «Squadra B — Neri Alberto» e «Via
   // Napoli 33, La Spezia» ci finiscono tagliate a metà parola, che è peggio
   // che dirne una sola per intero. Si tolgono le parti che si ripetono su
@@ -421,7 +428,9 @@ function BloccoVoce(props: {
       // centrato fluttua a metà pomeriggio e la mattina resta un colore
       // muto. L'etichetta sta dove il lavoro comincia. Solo il blocco basso
       // da una riga centra, perché lì non c'è nessun «sopra».
-      className={`flex h-full w-full min-w-0 overflow-hidden rounded-[6px] border border-black/[0.04] pl-2 pr-1.5 py-1 text-left outline-none transition hover:brightness-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/55 ${
+      className={`flex w-full min-w-0 overflow-hidden rounded-[6px] ${
+        altezzaAuto ? "" : "h-full"
+      } border border-black/[0.04] pl-2 pr-1.5 py-1 text-left outline-none transition hover:brightness-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/55 ${
         orizzontale || righe === 1
           ? `flex-row gap-1.5 ${righe === 1 && !orizzontale ? "items-center" : "items-start"}`
           : "flex-col gap-0.5"
@@ -445,7 +454,12 @@ function BloccoVoce(props: {
             className="shrink-0 text-[11px] font-semibold tabular-nums leading-none"
             style={{ color: colore }}
           >
-            {righe === 1 && !orizzontale ? (voce.oraInizio ?? "") : orario}
+            {/* In un blocco stretto «09:00–10:00» sono dieci caratteri su
+                venti disponibili, e al nome non ne resta nessuno. L'ora di
+                fine si legge dall'altezza del blocco, che è la sua durata. */}
+            {(righe === 1 || stretto) && !orizzontale
+              ? (voce.oraInizio ?? "")
+              : orario}
           </span>
         )}
         {chipVisibile && (

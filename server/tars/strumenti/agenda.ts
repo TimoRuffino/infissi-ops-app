@@ -460,6 +460,9 @@ const migraCalendarioGoogle: StrumentoTars = {
           oraFine: p.oraFine,
           indirizzo: p.indirizzo ?? undefined,
           note: p.note,
+          // Il titolo dell'evento Google è un campo suo: nella nota resta
+          // solo come traccia di provenienza, e da lì non si legge.
+          titolo: p.titolo,
           origineEsterna: p.chiave,
         });
         creati += 1;

@@ -29,6 +29,14 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
     // riapre. Nessuna riscrittura all'avvio: un rilievo storico senza tecnico
     // resta senza tecnico, che è la verità.
     if ((i as any).tecnicoId === undefined) (i as any).tecnicoId = null;
+    // Gli eventi arrivati dalla migrazione Google hanno il titolo vero
+    // sepolto in fondo alla nota, dopo sessanta caratteri di provenienza
+    // uguali per tutti. Il calendario mostrava quelli, quindi ogni blocco
+    // diceva la stessa frase. Il titolo si estrae una volta e diventa un
+    // campo suo; la nota resta intatta, è la traccia di dove viene.
+    if ((i as any).titolo === undefined) {
+      (i as any).titolo = titoloDaNotaImportata((i as any).note) ?? null;
+    }
   }
   nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
@@ -53,6 +61,25 @@ export const TIPI_INTERVENTO = [
   "altro",
 ] as const;
 export type TipoIntervento = (typeof TIPI_INTERVENTO)[number];
+
+/**
+ * Il titolo vero dentro la nota scritta dalla migrazione Google.
+ *
+ * La nota è `Importato dal calendario Google «<calendario>»: <titolo>`: il
+ * prefisso è identico su ogni riga importata, quindi mostrarlo come titolo
+ * vuol dire un calendario in cui tutti gli appuntamenti si chiamano uguale.
+ * Torna `null` per le note scritte a mano, che non hanno quella forma.
+ */
+export function titoloDaNotaImportata(
+  nota: string | null | undefined
+): string | null {
+  if (!nota) return null;
+  const m = /^Importato dal calendario Google «[^»]*»:\s*([\s\S]+)$/.exec(
+    String(nota).trim()
+  );
+  const titolo = m?.[1]?.trim().split("\n")[0]?.trim();
+  return titolo ? titolo : null;
+}
 
 /**
  * Chi esegue l'intervento, secondo il tipo.
@@ -111,6 +138,8 @@ export const interventiRouter = router({
       squadraId: z.number().nullable().optional(),
       /** Chi fa il rilievo: un utente con ruolo `tecnico_rilievi`. */
       tecnicoId: z.number().nullable().optional(),
+      /** Nome dell'appuntamento quando non c'è un cliente a dargliene uno. */
+      titolo: z.string().max(200).nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(), // "HH:MM"
@@ -156,6 +185,10 @@ export const interventiRouter = router({
         clienteId: input.clienteId ?? null,
         squadraId: esecutore.squadraId,
         tecnicoId: esecutore.tecnicoId,
+        // Se non lo passa chi crea, si prova a ricavarlo dalla nota: è il
+        // caso della migrazione, che la nota la scrive in quella forma.
+        titolo:
+          (input.titolo?.trim() || titoloDaNotaImportata(input.note)) ?? null,
         ticketId: input.ticketId ?? null,
         reclamoId: input.reclamoId ?? null,
         rifacimentoId: input.rifacimentoId ?? null,
@@ -182,6 +215,8 @@ export const interventiRouter = router({
       squadraId: z.number().nullable().optional(),
       /** Chi fa il rilievo: un utente con ruolo `tecnico_rilievi`. */
       tecnicoId: z.number().nullable().optional(),
+      /** Nome dell'appuntamento quando non c'è un cliente a dargliene uno. */
+      titolo: z.string().max(200).nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO).optional(),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(),

@@ -257,17 +257,29 @@ describe("posizioneBlocco", () => {
     expect(p.altezzaPct).toBeCloseTo((60 / 720) * 100, 5);
   });
 
-  it("due sovrapposti si accavallano a cascata, larghi almeno il minimo", () => {
+  it("due sovrapposti si dividono a metà senza coprirsi", () => {
     const d = disponiSovrapposti([
       ev(1, "09:00", "11:00"),
       ev(2, "09:30", "11:30"),
     ]);
     const p = d.map(b => posizioneBlocco(b, finestra));
-    expect(p[0]).toMatchObject({ sinistraPct: 0, larghezzaPct: LARGHEZZA_MINIMA_PCT });
-    expect(p[1]).toMatchObject({
-      sinistraPct: 100 - LARGHEZZA_MINIMA_PCT,
-      larghezzaPct: LARGHEZZA_MINIMA_PCT,
-    });
+    expect(p[0]).toMatchObject({ sinistraPct: 0, larghezzaPct: 50 });
+    expect(p[1]).toMatchObject({ sinistraPct: 50, larghezzaPct: 50 });
+    // Il bordo destro del primo tocca il sinistro del secondo: niente
+    // sovrapposizione, perché a due colonne non serve.
+    expect(p[0].sinistraPct + p[0].larghezzaPct).toBe(p[1].sinistraPct);
+  });
+
+  it("da tre in su si accavallano invece di assottigliarsi", () => {
+    const d = disponiSovrapposti([
+      ev(1, "09:00", "12:00"),
+      ev(2, "09:00", "12:00"),
+      ev(3, "09:00", "12:00"),
+    ]);
+    const p = d.map(b => posizioneBlocco(b, finestra));
+    // A parti uguali sarebbero 33%: qui restano metà colonna e si coprono.
+    for (const x of p) expect(x.larghezzaPct).toBe(LARGHEZZA_MINIMA_PCT);
+    expect(p[0].sinistraPct + p[0].larghezzaPct).toBeGreaterThan(p[1].sinistraPct);
   });
 
   it("con quattro in parallelo nessuno scende sotto la larghezza minima", () => {

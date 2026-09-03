@@ -9,7 +9,7 @@
 // appuntamento che non le compete.
 import { describe, expect, it } from "vitest";
 
-import { esecutorePerTipo } from "./interventi";
+import { esecutorePerTipo, titoloDaNotaImportata } from "./interventi";
 
 describe("esecutorePerTipo", () => {
   it("un rilievo tiene il tecnico e lascia andare la squadra", () => {
@@ -81,5 +81,54 @@ describe("esecutorePerTipo", () => {
       const una = esecutorePerTipo({ tipo, squadraId: 1, tecnicoId: 2 });
       expect(esecutorePerTipo({ tipo, ...una })).toEqual(una);
     }
+  });
+});
+
+// La migrazione Google scrive la provenienza in testa alla nota e il titolo
+// vero in coda. Il prefisso è identico su ogni riga importata: mostrarlo come
+// titolo dà un calendario dove ogni appuntamento si chiama «Importato dal
+// calendario Google «Montaggio Ruffino Gr…» — successo davvero, in produzione.
+describe("titoloDaNotaImportata", () => {
+  const nota = (titolo: string, cal = "Montaggio Ruffino Group") =>
+    `Importato dal calendario Google «${cal}»: ${titolo}`;
+
+  it("tira fuori il titolo da una nota importata", () => {
+    expect(titoloDaNotaImportata(nota("Guerrero - posa pf"))).toBe(
+      "Guerrero - posa pf"
+    );
+  });
+
+  it("funziona con qualunque nome di calendario", () => {
+    expect(titoloDaNotaImportata(nota("Palma - MR 1 zanzariera rotta", "Altro"))).toBe(
+      "Palma - MR 1 zanzariera rotta"
+    );
+  });
+
+  it("una nota scritta a mano non è una nota importata", () => {
+    expect(titoloDaNotaImportata("Portare ponteggio")).toBeNull();
+    expect(titoloDaNotaImportata("Registrare ante Zannini")).toBeNull();
+  });
+
+  it("niente nota, niente titolo", () => {
+    expect(titoloDaNotaImportata(null)).toBeNull();
+    expect(titoloDaNotaImportata(undefined)).toBeNull();
+    expect(titoloDaNotaImportata("   ")).toBeNull();
+  });
+
+  it("un prefisso senza titolo dietro non inventa un titolo vuoto", () => {
+    expect(titoloDaNotaImportata(nota(""))).toBeNull();
+    expect(titoloDaNotaImportata(nota("   "))).toBeNull();
+  });
+
+  it("prende solo la prima riga: il resto della nota non è il nome", () => {
+    expect(
+      titoloDaNotaImportata(nota("Guerrero - posa pf\nSecondo piano, citofono 3"))
+    ).toBe("Guerrero - posa pf");
+  });
+
+  it("gli spazi attorno alla nota non contano", () => {
+    expect(titoloDaNotaImportata(`  ${nota("Rossi - rilievo")}  `)).toBe(
+      "Rossi - rilievo"
+    );
   });
 });

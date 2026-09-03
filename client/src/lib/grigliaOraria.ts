@@ -219,8 +219,15 @@ export function posizioneBlocco<T>(
   };
 }
 
-/** Sotto questa larghezza un blocco è un righello muto: meglio accavallare. */
-export const LARGHEZZA_MINIMA_PCT = 55;
+/**
+ * Mai più stretto di mezza colonna.
+ *
+ * Esattamente mezza, non di più: a due colonne la divisione in parti uguali
+ * dà già il 50% e i blocchi non si toccano — alzare il minimo li farebbe
+ * accavallare per niente, coprendo un nome che ci stava. Da tre in su la
+ * divisione scenderebbe sotto (33%, 25%, …) e lì la cascata serve davvero.
+ */
+export const LARGHEZZA_MINIMA_PCT = 50;
 
 /**
  * Quanto è carica una giornata, da 0 a 1, sulle ore lavorative.
