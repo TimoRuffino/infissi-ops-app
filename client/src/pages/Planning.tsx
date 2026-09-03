@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import {
   CALENDAR_COLOR_MAP,
   CALENDAR_SOFT_MAP,
+  CALENDARI,
   addDays,
   startOfMonth,
   startOfWeek,
@@ -57,12 +58,9 @@ const tipoCardStyle = (tipo: string): React.CSSProperties => ({
   backgroundColor: CALENDAR_SOFT_MAP[tipo] ?? "var(--color-cal-altro-soft)",
 });
 
-const tipoLabels: Record<string, string> = {
-  rilievo: "Rilievo",
-  posa: "Posa",
-  assistenza: "Assistenza",
-  altro: "Altro",
-};
+const tipoLabels: Record<string, string> = Object.fromEntries(
+  CALENDARI.map(c => [c.key, c.label])
+);
 
 type LinkKind = PlanningLinkKind;
 
@@ -340,6 +338,14 @@ export default function Planning() {
           : cm.indirizzo;
       }
     }
+    if (linkKind === "cliente" && linkId && !form.indirizzo) {
+      const cl = clienteById.get(parseInt(linkId));
+      if (cl?.indirizzo) {
+        nextIndirizzo = cl.citta
+          ? `${cl.indirizzo}, ${cl.citta}`
+          : cl.indirizzo;
+      }
+    }
     setForm({ ...form, linkKind, linkId, indirizzo: nextIndirizzo });
   }
 
@@ -351,16 +357,25 @@ export default function Planning() {
         ? "reclamo"
         : i.ticketId
           ? "ticket"
-          : "commessa";
-    const linkId = String(
-      linkKind === "commessa"
-        ? (i.commessaId ?? "")
-        : linkKind === "ticket"
-          ? (i.ticketId ?? "")
-          : linkKind === "reclamo"
-            ? (i.reclamoId ?? "")
-            : (i.rifacimentoId ?? "")
-    );
+          : i.commessaId
+            ? "commessa"
+            : i.clienteId
+              ? "cliente"
+              : "nessuno";
+    const linkId =
+      linkKind === "nessuno"
+        ? ""
+        : String(
+            linkKind === "commessa"
+              ? (i.commessaId ?? "")
+              : linkKind === "cliente"
+                ? (i.clienteId ?? "")
+                : linkKind === "ticket"
+                  ? (i.ticketId ?? "")
+                  : linkKind === "reclamo"
+                    ? (i.reclamoId ?? "")
+                    : (i.rifacimentoId ?? "")
+          );
     setForm({
       linkKind,
       linkId,
@@ -390,6 +405,8 @@ export default function Planning() {
     const linkIds = {
       commessaId:
         f.linkKind === "commessa" && f.linkId ? parseInt(f.linkId) : null,
+      clienteId:
+        f.linkKind === "cliente" && f.linkId ? parseInt(f.linkId) : null,
       ticketId: f.linkKind === "ticket" && f.linkId ? parseInt(f.linkId) : null,
       reclamoId:
         f.linkKind === "reclamo" && f.linkId ? parseInt(f.linkId) : null,
@@ -416,7 +433,7 @@ export default function Planning() {
   function handleSave() {
     if (!permissions.canPlan) return;
     if (!form.dataPianificata) return;
-    if (form.linkKind === "commessa" && !form.linkId) return; // commessa required when selected
+    if ((form.linkKind === "commessa" || form.linkKind === "cliente") && !form.linkId) return; // target required when selected
     const payload = buildPayload(form);
     if (editId) {
       updateIntervento.mutate({ id: editId, ...payload });
@@ -464,6 +481,18 @@ export default function Planning() {
           .join(" "),
       }));
     }
+    if (form.linkKind === "cliente") {
+      return (clienti.data ?? []).map((c: any) => ({
+        value: String(c.id),
+        label: `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`,
+        keywords: [c.cognome, c.nome, c.citta, c.telefono, c.email]
+          .filter(Boolean)
+          .join(" "),
+      }));
+    }
+    if (form.linkKind === "nessuno") {
+      return [];
+    }
     if (form.linkKind === "ticket") {
       return (ticketList.data ?? []).map((t: any) => ({
         value: String(t.id),
@@ -488,6 +517,7 @@ export default function Planning() {
   }, [
     form.linkKind,
     commesse.data,
+    clienti.data,
     ticketList.data,
     reclami.data,
     rifacimenti.data,

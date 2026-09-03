@@ -34,9 +34,11 @@ import { Textarea } from "@/components/ui/textarea";
 
 export type PlanningLinkKind =
   | "commessa"
+  | "cliente"
   | "ticket"
   | "reclamo"
-  | "rifacimento";
+  | "rifacimento"
+  | "nessuno";
 
 export type PlanningInterventoDraft = {
   linkKind: PlanningLinkKind;
@@ -102,9 +104,11 @@ export type PlanningInterventoSheetProps = SheetBase &
 
 const LINK_LABEL: Record<PlanningLinkKind, string> = {
   commessa: "Commessa *",
+  cliente: "Cliente *",
   ticket: "Ticket",
   reclamo: "Reclamo",
   rifacimento: "Rifacimento",
+  nessuno: "",
 };
 
 function dataEstesa(data: string): string {
@@ -253,25 +257,33 @@ export default function PlanningInterventoSheet(
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="commessa">Commessa</SelectItem>
+                <SelectItem value="cliente">Cliente</SelectItem>
                 <SelectItem value="ticket">Ticket</SelectItem>
                 <SelectItem value="reclamo">Reclamo</SelectItem>
                 <SelectItem value="rifacimento">Rifacimento</SelectItem>
+                <SelectItem value="nessuno">Nessuno (evento libero)</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>{LINK_LABEL[draft.linkKind]}</Label>
-            <SearchSelect
-              options={linkOptions}
-              value={draft.linkId}
-              onChange={onLinkIdChange}
-              disabled={campiBloccati}
-              className="min-h-11"
-              placeholder="Seleziona..."
-              searchPlaceholder="Cerca per codice, cliente..."
-            />
-          </div>
+          {draft.linkKind !== "nessuno" ? (
+            <div className="space-y-1.5">
+              <Label>{LINK_LABEL[draft.linkKind]}</Label>
+              <SearchSelect
+                options={linkOptions}
+                value={draft.linkId}
+                onChange={onLinkIdChange}
+                disabled={campiBloccati}
+                className="min-h-11"
+                placeholder="Seleziona..."
+                searchPlaceholder="Cerca per codice, cliente..."
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-text-3">
+              Evento libero: nessun collegamento (ferie, riunioni, impegni interni).
+            </p>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="planning-tipo">Tipo</Label>

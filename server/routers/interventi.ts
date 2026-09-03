@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { getClienteById } from "./clienti";
 import { getCommessaById } from "./commesse";
 import { assertSedeScope, isDirezione } from "../_core/permissions";
 import { authorizeCoreOperation } from "../authz/enforcement";
@@ -76,6 +77,10 @@ export const interventiRouter = router({
   create: protectedProcedure
     .input(z.object({
       commessaId: z.number().nullable().optional(),
+      // «Collega a → Cliente» (03/09 sera): appuntamento con un cliente
+      // senza commessa (showroom, primo contatto). Con tutti i link null
+      // l'evento è libero (ferie, riunioni).
+      clienteId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO),
       dataPianificata: z.string().optional(),
@@ -109,12 +114,16 @@ export const interventiRouter = router({
       if (input.commessaId != null) {
         assertSedeScope(getCommessaById(input.commessaId), ctx.sedeId);
       }
+      if (input.clienteId != null) {
+        assertSedeScope(getClienteById(input.clienteId) as any, ctx.sedeId);
+      }
       const now = new Date();
       const intervento = {
         id: nextId++,
         ...input,
         sedeId: ctx.sedeId ?? 1,
         commessaId: input.commessaId ?? null,
+        clienteId: input.clienteId ?? null,
         squadraId: input.squadraId ?? null,
         ticketId: input.ticketId ?? null,
         reclamoId: input.reclamoId ?? null,
@@ -137,6 +146,8 @@ export const interventiRouter = router({
   update: protectedProcedure
     .input(z.object({
       id: z.number(),
+      commessaId: z.number().nullable().optional(),
+      clienteId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
       tipo: z.enum(TIPI_INTERVENTO).optional(),
       dataPianificata: z.string().optional(),
@@ -175,6 +186,12 @@ export const interventiRouter = router({
           resourceType: "intervento",
           resource: policyResource,
         });
+      }
+      if (input.commessaId != null) {
+        assertSedeScope(getCommessaById(input.commessaId), ctx.sedeId);
+      }
+      if (input.clienteId != null) {
+        assertSedeScope(getClienteById(input.clienteId) as any, ctx.sedeId);
       }
       const { id, ...updates } = input;
       interventi[idx] = { ...interventi[idx], ...updates, updatedAt: new Date() };
