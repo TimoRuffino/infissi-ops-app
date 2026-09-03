@@ -3407,15 +3407,24 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
             <span className="font-semibold text-sm">Stima economia CRM</span>
           </div>
 
+          {/* Il margine è IVA esclusa (direzione 03/09/2026): qui il ricavo
+              è l'imponibile delle fatture, non il pattuito lordo mostrato
+              nei Pagamenti — due numeri diversi con la stessa etichetta si
+              leggerebbero come un errore. */}
           <div className="space-y-0.5">
-            <div className="eyebrow">Pattuito</div>
+            <div className="eyebrow">Imponibile fatturato</div>
             <div className="tabular-nums font-medium">
               {m.ricavi != null ? `€ ${fmt(m.ricavi)}` : "—"}
             </div>
+            {m.ricavi != null && m.pattuitoLordo != null ? (
+              <div className="text-text-3 text-xs">
+                pattuito € {fmt(m.pattuitoLordo)} IVA inclusa
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-0.5">
-            <div className="eyebrow">Costi manuali stimati</div>
+            <div className="eyebrow">Costi fornitore (imponibili)</div>
             <div className="tabular-nums font-medium">
               € {fmt(m.costiFornitore)}
               <span className="text-text-3 text-xs ml-1">({costi.length})</span>
@@ -3461,8 +3470,8 @@ function EconomiaCard({ commessaId }: { commessaId: number }) {
                 Dati incompleti
                 <div className="text-[11px]">
                   {m.ricavi == null
-                    ? "manca il totale pattuito"
-                    : "nessun costo registrato"}
+                    ? "collega la fattura: senza imponibile non c'è margine"
+                    : "nessun costo fornitore registrato"}
                 </div>
               </div>
             ) : (
