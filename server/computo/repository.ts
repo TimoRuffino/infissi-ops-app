@@ -7,15 +7,30 @@ import type { Computo, VoceComputo } from "@shared/limiti/tipi";
 
 export type ComputoPersist = Omit<Computo, "id" | "createdAt">;
 
+/**
+ * Il computo senza le sue voci: basta a rispondere «è ancora valido?» (hash,
+ * esito, avvertenze) e non paga la lettura di `computo_voci`, che
+ * sull'apertura di una commessa è la parte più cara e non serve a nessuno.
+ */
+export type IntestazioneComputo = Omit<Computo, "voci">;
+
 export type ComputiRepository = {
   ensureSchema(): Promise<void>;
   salva(input: { computo: ComputoPersist; now: Date }): Promise<Computo>;
   ultimo(sedeId: number, commessaId: number): Promise<Computo | null>;
+  ultimoIntestazione(
+    sedeId: number,
+    commessaId: number
+  ): Promise<IntestazioneComputo | null>;
 };
 
 export function createMemoryComputiRepository(): ComputiRepository {
   const computi: Computo[] = [];
   let nextId = 1;
+  const ultimoDi = (sedeId: number, commessaId: number): Computo | null => {
+    const trovati = computi.filter(c => c.sedeId === sedeId && c.commessaId === commessaId);
+    return trovati[trovati.length - 1] ?? null;
+  };
   return {
     async ensureSchema() {},
     async salva({ computo, now }) {
@@ -24,14 +39,23 @@ export function createMemoryComputiRepository(): ComputiRepository {
       return structuredClone(salvato);
     },
     async ultimo(sedeId, commessaId) {
-      const trovati = computi.filter(c => c.sedeId === sedeId && c.commessaId === commessaId);
-      const u = trovati[trovati.length - 1];
+      const u = ultimoDi(sedeId, commessaId);
       return u ? structuredClone(u) : null;
+    },
+    async ultimoIntestazione(sedeId, commessaId) {
+      const u = ultimoDi(sedeId, commessaId);
+      if (!u) return null;
+      const { voci: _voci, ...intestazione } = structuredClone(u);
+      return intestazione;
     },
   };
 }
 
 function rowToComputo(row: any, voci: VoceComputo[]): Computo {
+  return { ...rowToIntestazione(row), voci };
+}
+
+function rowToIntestazione(row: any): IntestazioneComputo {
   return {
     id: Number(row.id),
     sedeId: Number(row.sede_id),
@@ -50,7 +74,6 @@ function rowToComputo(row: any, voci: VoceComputo[]): Computo {
     detraibileCent: row.detraibile_cent == null ? null : Number(row.detraibile_cent),
     detrazioneStimataCent: row.detrazione_stimata_cent == null ? null : Number(row.detrazione_stimata_cent),
     avvertenze: Array.isArray(row.avvertenze) ? row.avvertenze : [],
-    voci,
     createdBy: row.created_by == null ? null : Number(row.created_by),
     createdAt: new Date(row.created_at),
   };
@@ -190,6 +213,14 @@ export function createPostgresComputiRepository(
       const voci = await sql`SELECT * FROM computo_voci
         WHERE computo_id = ${rows[0].id} ORDER BY ordine`;
       return rowToComputo(rows[0], voci.map(rowToVoce));
+    },
+    async ultimoIntestazione(sedeId, commessaId) {
+      await ensureSchema();
+      // Nessuna lettura di `computo_voci`: il gate confronta solo gli hash.
+      const rows = await sql`SELECT * FROM computi
+        WHERE sede_id = ${sedeId} AND commessa_id = ${commessaId}
+        ORDER BY id DESC LIMIT 1`;
+      return rows[0] ? rowToIntestazione(rows[0]) : null;
     },
   };
 }

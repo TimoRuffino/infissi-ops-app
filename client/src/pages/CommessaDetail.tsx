@@ -81,7 +81,7 @@ import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
 import StatoChip from "@/components/StatoChip";
 import StatusRail from "@/components/StatusRail";
-import { statoLabel, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
+import { statoLabel, STATI_ORDER, PRIORITA_VARIANT, PRIORITA_LABEL } from "@/lib/stato";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -170,10 +170,18 @@ export default function CommessaDetail() {
   // Limiti senza fargli cercare la linguetta.
   const [tab, setTab] = useState("preventivi");
   const limitiAttivi = Boolean(interruttori.data?.limiti);
-  // L'etichetta della tab dice già se il computo è aggiornato o da rifare.
+  // L'etichetta della tab dice già se il computo è aggiornato o da rifare —
+  // ma solo da «Aggiornamento contratto» in poi, quando un computo può
+  // esistere. Prima di lì la query pagherebbe contratto + computo + voci a
+  // ogni apertura di commessa per scrivere «Limiti» senza spunta.
+  const statoCommessa = (commessa.data as any)?.stato as string | undefined;
+  const statoUsaLimiti =
+    statoCommessa != null &&
+    STATI_ORDER.indexOf(statoCommessa as never) >=
+      STATI_ORDER.indexOf("aggiornamento_contratto");
   const computoQ = trpc.computo.ultimo.useQuery(
     { commessaId },
-    { enabled: limitiAttivi, retry: false },
+    { enabled: limitiAttivi && statoUsaLimiti, retry: false },
   );
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy

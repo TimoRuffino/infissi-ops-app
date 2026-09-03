@@ -54,5 +54,18 @@ describe.skipIf(!conDatabase)("repository computi (PostgreSQL)", () => {
     expect(letto?.deiProdottiCent).toBe(6);
     expect(letto?.avvertenze).toEqual(["a"]);
     expect(await repo.ultimo(SEDE + 1, 992001)).toBeNull();
+
+    // Intestazione: stesso record, senza toccare `computo_voci`.
+    const intestazione = await repo.ultimoIntestazione(SEDE, 992001);
+    expect(intestazione).toMatchObject({
+      id: nuovo.id,
+      hashRighe: "h",
+      hashParametri: "p",
+      esito: "ok",
+      tariffeAl: "2026-09-03",
+    });
+    expect(intestazione).not.toHaveProperty("voci");
+    expect(intestazione?.avvertenze).toEqual(["a"]);
+    expect(await repo.ultimoIntestazione(SEDE + 1, 992001)).toBeNull();
   });
 });

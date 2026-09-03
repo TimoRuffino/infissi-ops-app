@@ -20,4 +20,15 @@ describe("repository computi (memoria)", () => {
     expect((await repo.ultimo(1, 10))?.tariffeAl).toBe("2026-09-03");
     expect(await repo.ultimo(2, 10)).toBeNull();
   });
+
+  it("l'intestazione dell'ultimo computo non porta le voci ma basta al giudizio di validità", async () => {
+    const repo = createMemoryComputiRepository();
+    await repo.salva({ computo: computo(), now: NOW });
+    const secondo = await repo.salva({ computo: computo(10, "h2"), now: new Date("2026-09-04T10:00:00.000Z") });
+    const intestazione = await repo.ultimoIntestazione(1, 10);
+    expect(intestazione).toMatchObject({ id: secondo.id, hashRighe: "h2", hashParametri: "p1", esito: "ok" });
+    expect(intestazione).not.toHaveProperty("voci");
+    expect(await repo.ultimoIntestazione(2, 10)).toBeNull();
+    expect(await repo.ultimoIntestazione(1, 11)).toBeNull();
+  });
 });

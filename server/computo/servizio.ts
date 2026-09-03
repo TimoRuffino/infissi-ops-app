@@ -3,9 +3,9 @@
 // hash: se righe o parametri sono cambiati dopo l'ultimo computo, il gate
 // e la UI lo dicono e chiedono di ricalcolare.
 import { leggiContratto } from "../contratti/servizio";
-import type { Computo } from "@shared/limiti/tipi";
+import type { Computo, Contratto } from "@shared/limiti/tipi";
 import { calcolaLimiti } from "./motore";
-import { getComputiRepository } from "./repository";
+import { getComputiRepository, type IntestazioneComputo } from "./repository";
 import { tariffeAttive } from "./tariffe";
 
 export async function eseguiComputo(input: {
@@ -57,28 +57,45 @@ export async function eseguiComputo(input: {
   });
 }
 
+/**
+ * «È ancora valido?» è una domanda sulla sola intestazione: hash delle righe,
+ * hash dei parametri, esito. Le voci non entrano nel giudizio, quindi il
+ * predicato non le fa nemmeno leggere.
+ */
+function giudizio(
+  contratto: Contratto | null,
+  computo: IntestazioneComputo | null
+): { valido: boolean; motivo: string | null } {
+  if (!contratto) return { valido: false, motivo: "Manca il contratto." };
+  if (!computo) return { valido: false, motivo: "Nessun computo eseguito." };
+  if (computo.hashRighe !== contratto.hashRighe) {
+    return { valido: false, motivo: "Le righe del contratto sono cambiate dopo il computo." };
+  }
+  if (computo.hashParametri !== contratto.hashParametri) {
+    return { valido: false, motivo: "I parametri del contratto sono cambiati dopo il computo." };
+  }
+  if (computo.esito !== "ok") {
+    return { valido: false, motivo: "Il computo è incompleto: " + computo.avvertenze.join(" ") };
+  }
+  return { valido: true, motivo: null };
+}
+
 export async function ultimoComputo(
   sedeId: number,
   commessaId: number
 ): Promise<{ computo: Computo | null; valido: boolean; motivo: string | null }> {
+  // La UI mostra le voci: qui il computo si legge intero.
   const [{ contratto }, computo] = await Promise.all([
     leggiContratto(sedeId, commessaId),
     getComputiRepository().ultimo(sedeId, commessaId),
   ]);
-  if (!contratto) return { computo, valido: false, motivo: "Manca il contratto." };
-  if (!computo) return { computo: null, valido: false, motivo: "Nessun computo eseguito." };
-  if (computo.hashRighe !== contratto.hashRighe) {
-    return { computo, valido: false, motivo: "Le righe del contratto sono cambiate dopo il computo." };
-  }
-  if (computo.hashParametri !== contratto.hashParametri) {
-    return { computo, valido: false, motivo: "I parametri del contratto sono cambiati dopo il computo." };
-  }
-  if (computo.esito !== "ok") {
-    return { computo, valido: false, motivo: "Il computo è incompleto: " + computo.avvertenze.join(" ") };
-  }
-  return { computo, valido: true, motivo: null };
+  return { computo, ...giudizio(contratto, computo) };
 }
 
 export async function computoValido(sedeId: number, commessaId: number): Promise<boolean> {
-  return (await ultimoComputo(sedeId, commessaId)).valido;
+  const [{ contratto }, intestazione] = await Promise.all([
+    leggiContratto(sedeId, commessaId),
+    getComputiRepository().ultimoIntestazione(sedeId, commessaId),
+  ]);
+  return giudizio(contratto, intestazione).valido;
 }
