@@ -133,3 +133,30 @@ describe("eseguiPropostaAnalisi", () => {
     ).rejects.toThrow(/FORBIDDEN/);
   });
 });
+
+describe("scartaPropostaAnalisi", () => {
+  it("registra lo scarto senza effetti; dopo lo scarto non si esegue più", async () => {
+    const { scartaPropostaAnalisi } = await import("./esecuzione");
+    const record = await repository.salva({
+      sedeId: SEDE,
+      giorno: "2026-09-04",
+      versione: VERSIONE_ANALISI_AZIENDA,
+      stato: "pronta",
+      esito: esitoConProposta({
+        strumento: "crea_ticket",
+        input: JSON.stringify({ commessaId: 1, oggetto: "Da scartare qui", categoria: "altro" }),
+      }),
+      errore: null,
+      richiestaDa: null,
+      now: new Date("2026-09-04T08:00:00Z"),
+    });
+    const { esecuzione } = await scartaPropostaAnalisi({ record, indice: 0, utenteId: DIREZIONE_ID });
+    expect(esecuzione.stato).toBe("scartata");
+    const dopo = (await repository.ultima(SEDE))!;
+    expect(dopo.esito?.proposte[0]?.esecuzione?.stato).toBe("scartata");
+    const prima = (getTicketStore() as any[]).length;
+    const riuso = await eseguiPropostaAnalisi({ contesto: await contesto(), record: dopo, indice: 0 });
+    expect(riuso.esecuzione.stato).toBe("scartata");
+    expect((getTicketStore() as any[]).length).toBe(prima);
+  });
+});

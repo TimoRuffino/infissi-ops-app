@@ -424,6 +424,18 @@ export function TarsProposteBoard({
       toast.error(errore.message || "Esecuzione non riuscita.");
     },
   });
+  const scartaAnalisi = trpc.tars.scartaPropostaAnalisi.useMutation({
+    onSuccess: () => {
+      setAnalisiInCorso(null);
+      void utils.tars.analisiAzienda.invalidate();
+      toast.success("Proposta scartata.");
+    },
+    onError: errore => {
+      setAnalisiInCorso(null);
+      void utils.tars.analisiAzienda.invalidate();
+      toast.error(errore.message || "Scarto non riuscito.");
+    },
+  });
   const rifiuta = trpc.proposte.rifiuta.useMutation({
     onSuccess: () => {
       setGatewayInCorso(null);
@@ -695,62 +707,87 @@ export function TarsProposteBoard({
                           <span
                             className={cn(
                               "rounded-full px-2 py-1 text-[11px] font-semibold",
-                              p.esecuzione.stato === "non_eseguito"
-                                ? "bg-warning-soft text-warning"
-                                : "bg-success-soft text-success"
+                              p.esecuzione.stato === "scartata"
+                                ? "bg-surface-2 text-text-3"
+                                : p.esecuzione.stato === "non_eseguito"
+                                  ? "bg-warning-soft text-warning"
+                                  : "bg-success-soft text-success"
                             )}
                           >
-                            {p.esecuzione.stato === "non_eseguito"
-                              ? (p.esecuzione.motivo ?? "Non eseguita")
-                              : "Fatto da Tars"}
+                            {p.esecuzione.stato === "scartata"
+                              ? "Scartata"
+                              : p.esecuzione.stato === "non_eseguito"
+                                ? (p.esecuzione.motivo ?? "Non eseguita")
+                                : "Fatto da Tars"}
                           </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="min-h-10"
-                            onClick={onVaiAlRegistro}
-                          >
-                            Registro
-                          </Button>
+                          {p.esecuzione.stato !== "scartata" && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="min-h-10"
+                              onClick={onVaiAlRegistro}
+                            >
+                              Registro
+                            </Button>
+                          )}
                         </div>
-                      ) : p.azione ? (
+                      ) : (
                         <>
+                          {p.azione ? (
+                            <Button
+                              type="button"
+                              className="min-h-10 flex-1 md:flex-none"
+                              disabled={analisiInCorso === i || dati.analisiId == null}
+                              onClick={() => {
+                                setAnalisiInCorso(i);
+                                eseguiAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
+                              }}
+                            >
+                              {analisiInCorso === i ? (
+                                <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+                              ) : (
+                                <Check aria-hidden="true" />
+                              )}
+                              Esegui
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              className="min-h-10 flex-1 md:flex-none"
+                              onClick={() => onSuggerimento(p.richiestaPerTars)}
+                            >
+                              <MessageSquarePlus aria-hidden="true" />
+                              Chiedi a Tars
+                            </Button>
+                          )}
+                          {p.azione && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-10"
+                              aria-label="Chiedi a Tars in chat"
+                              title="Chiedi a Tars"
+                              onClick={() => onSuggerimento(p.richiestaPerTars)}
+                            >
+                              <MessageSquarePlus aria-hidden="true" />
+                            </Button>
+                          )}
                           <Button
                             type="button"
-                            className="min-h-10 flex-1 md:flex-none"
+                            size="icon"
+                            variant="ghost"
+                            className="min-h-10 shrink-0"
+                            aria-label="Scarta la proposta"
+                            title="Scarta"
                             disabled={analisiInCorso === i || dati.analisiId == null}
                             onClick={() => {
                               setAnalisiInCorso(i);
-                              eseguiAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
+                              scartaAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
                             }}
                           >
-                            {analisiInCorso === i ? (
-                              <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
-                            ) : (
-                              <Check aria-hidden="true" />
-                            )}
-                            Esegui
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="min-h-10"
-                            aria-label="Chiedi a Tars in chat"
-                            title="Chiedi a Tars"
-                            onClick={() => onSuggerimento(p.richiestaPerTars)}
-                          >
-                            <MessageSquarePlus aria-hidden="true" />
+                            <X aria-hidden="true" />
                           </Button>
                         </>
-                      ) : (
-                        <Button
-                          type="button"
-                          className="min-h-10 flex-1 md:flex-none"
-                          onClick={() => onSuggerimento(p.richiestaPerTars)}
-                        >
-                          <MessageSquarePlus aria-hidden="true" />
-                          Chiedi a Tars
-                        </Button>
                       )
                     }
                     onApri={

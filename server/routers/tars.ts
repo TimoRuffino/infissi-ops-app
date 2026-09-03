@@ -82,6 +82,7 @@ import { repositoryAnalisiCorrente } from "../tars/analisi/repository";
 import {
   eseguiPropostaAnalisi,
   PropostaNonEseguibile,
+  scartaPropostaAnalisi,
 } from "../tars/analisi/esecuzione";
 import { generaAnalisiAzienda } from "../tars/analisi/worker";
 import { giornoLocale as giornoLocaleAnalisi } from "../tars/analisi/fotografia";
@@ -1304,6 +1305,52 @@ export const tarsRouter = router({
           contesto,
           record,
           indice: input.indice,
+        });
+        const aggiornato = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        return {
+          esecuzione,
+          record: await conEntitaRisolte(aggiornato, contesto.sedeId),
+          oggi: giornoLocaleAnalisi(new Date()),
+        };
+      } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
+        if (errore instanceof PropostaNonEseguibile) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: errore.message });
+        }
+        comeErrore(errore);
+      }
+    }),
+
+  /** Scarta una proposta dell'analisi: decisione registrata, zero effetti. */
+  scartaPropostaAnalisi: procedura
+    .input(
+      z.object({
+        analisiId: z.number().int().positive(),
+        indice: z.number().int().min(0).max(50),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        assicuraTars("tarsProactive");
+        assicuraTars("tarsAnalisiAzienda");
+        const contesto = await costruisciContesto(ctx);
+        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "L'analisi dell'azienda è riservata alla direzione.",
+          });
+        }
+        const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        if (!record || record.id !== input.analisiId) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "L'analisi è cambiata: ricaricala e rileggi la proposta.",
+          });
+        }
+        const { esecuzione } = await scartaPropostaAnalisi({
+          record,
+          indice: input.indice,
+          utenteId: contesto.utenteId,
         });
         const aggiornato = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
         return {

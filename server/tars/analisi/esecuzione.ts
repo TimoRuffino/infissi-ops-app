@@ -23,6 +23,41 @@ import type {
 /** La proposta non porta un'azione eseguibile: si porta in chat. */
 export class PropostaNonEseguibile extends Error {}
 
+/**
+ * Scarta una proposta dell'analisi: nessun effetto sul dominio, solo la
+ * decisione registrata dentro l'esito («scartata», da chi). Una proposta
+ * scartata non si esegue più (il ramo `esecuzione` presente la blocca).
+ */
+export async function scartaPropostaAnalisi(input: {
+  record: RecordAnalisiAzienda;
+  indice: number;
+  utenteId: number;
+}): Promise<{ esecuzione: EsecuzionePropostaAnalisi; esito: EsitoAnalisiAzienda }> {
+  const esitoAnalisi = input.record.esito;
+  if (!esitoAnalisi) throw new PropostaNonEseguibile("L'analisi non ha un esito.");
+  const proposta = esitoAnalisi.proposte[input.indice];
+  if (!proposta) throw new PropostaNonEseguibile("Proposta non trovata nell'analisi.");
+  if (proposta.esecuzione) {
+    return { esecuzione: proposta.esecuzione, esito: esitoAnalisi };
+  }
+  const esecuzione: EsecuzionePropostaAnalisi = {
+    stato: "scartata",
+    motivo: "Scartata dall'utente: nessun effetto.",
+    azioneId: null,
+    entitaToccate: [],
+    quando: new Date().toISOString(),
+    daUtente: input.utenteId,
+  };
+  const aggiornato: EsitoAnalisiAzienda = {
+    ...esitoAnalisi,
+    proposte: esitoAnalisi.proposte.map((p, i) =>
+      i === input.indice ? { ...p, esecuzione } : p
+    ),
+  };
+  await repositoryAnalisiCorrente().aggiornaEsito(input.record.id, aggiornato);
+  return { esecuzione, esito: aggiornato };
+}
+
 export async function eseguiPropostaAnalisi(input: {
   contesto: ContestoRun;
   record: RecordAnalisiAzienda;

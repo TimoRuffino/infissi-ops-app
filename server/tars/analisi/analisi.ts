@@ -25,6 +25,7 @@ import {
  */
 export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = [
   "crea_ticket",
+  "aggiorna_ticket",
   "pianifica_intervento",
   "crea_promemoria",
   "collega_comunicazione",
