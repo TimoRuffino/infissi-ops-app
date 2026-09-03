@@ -40,7 +40,14 @@ import {
   Users as UsersIcon,
   Lock,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useLocation } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import WhatsAppButton from "@/components/WhatsAppButton";
@@ -325,6 +332,26 @@ export default function Planning() {
     return mappa;
     // getJoinedInfo legge solo le mappe di lookup, che sono nelle deps.
   }, [byDay, externalByDay, commessaById, clienteById, squadraById, tecnicoById]);
+
+  // Le intestazioni del calendario si agganciano sotto la barra del periodo,
+  // che è sticky a sua volta. La sua altezza cambia con la larghezza (a
+  // schermo stretto i controlli vanno a capo), quindi si misura invece di
+  // scriverla a mano: un numero fisso qui vorrebbe dire intestazioni che
+  // scompaiono sotto la barra su metà degli schermi.
+  const barra = useRef<HTMLDivElement>(null);
+  // `offsetHeight` letto dopo il layout e a ogni ridimensionamento: la barra
+  // cambia altezza solo quando cambia la larghezza della finestra, e questo
+  // è l'unico evento che serve. Niente ResizeObserver — misurato in
+  // anteprima, in una pagina non dipinta non consegna mai, e un aggancio che
+  // dipende da una callback che può non arrivare è un aggancio rotto.
+  const [barraH, setBarraH] = useState(0);
+  useLayoutEffect(() => {
+    const misura = () => setBarraH(barra.current?.offsetHeight ?? 0);
+    misura();
+    window.addEventListener("resize", misura);
+    return () => window.removeEventListener("resize", misura);
+    // La vista cambia i controlli mostrati, quindi anche l'altezza possibile.
+  }, [view]);
 
   function apriVoce(voce: VoceGriglia) {
     if (voce.fonte === "ext") setExtDetail(voce.originale);
@@ -918,8 +945,19 @@ export default function Planning() {
         }
       />
 
-      <div className="min-w-0 space-y-4">
-        <div className="sticky top-0 z-20 border-b border-border-soft bg-surface px-4 py-3">
+      <div
+        className="min-w-0 space-y-4"
+        style={{ ["--planning-barra-h" as any]: `${barraH}px` }}
+      >
+        <div
+          ref={barra}
+          // Agganciata solo da desktop in su. Sotto `lg` i controlli vanno a
+          // capo e la barra diventa alta 195px: bloccarne un quarto di
+          // schermo mentre si scorre l'agenda vuol dire vedere due
+          // appuntamenti invece di quattro, per tenere fermi dei pulsanti che
+          // si toccano una volta ogni tanto.
+          className="z-20 border-b border-border-soft bg-surface px-4 py-3 lg:sticky lg:top-0"
+        >
           <PlanningToolbar
             view={view}
             cursor={cursor}
@@ -938,6 +976,9 @@ export default function Planning() {
             tone="sunken"
             toolbar={legendaCalendari}
             state={statoSuperficie}
+            // Le intestazioni del calendario si agganciano allo scroll della
+            // pagina: dentro un riquadro che ritaglia non potrebbero.
+            clip={false}
           >
             <div className="hidden min-w-0 lg:block">{desktopView}</div>
             <div className="lg:hidden">
@@ -1055,10 +1096,13 @@ function MonthView(props: {
   const MAX_VOCI = 4;
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface">
+    <div className="min-w-0 rounded-[var(--radius-panel)] border border-border-soft bg-surface [&>*:first-child]:rounded-t-[var(--radius-panel)] [&>*:last-child]:overflow-hidden [&>*:last-child]:rounded-b-[var(--radius-panel)]">
+      {/* Sei righe di mese non stanno in una schermata: senza l'aggancio, a
+          metà scroll le colonne perdono il nome e non si sa più se quella è
+          una domenica. */}
       <div
-        className="grid bg-surface-2 border-b border-border-soft"
-        style={{ gridTemplateColumns: colonne }}
+        className="sticky z-10 grid bg-surface-2 border-b border-border-soft"
+        style={{ gridTemplateColumns: colonne, top: "var(--planning-barra-h, 0px)" }}
       >
         {dayNames.map((d, i) => (
           <div

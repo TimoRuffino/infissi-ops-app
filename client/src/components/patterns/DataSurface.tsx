@@ -22,6 +22,17 @@ export type DataSurfaceProps = {
   state?: StatePanelProps;
   children?: ReactNode;
   id?: string;
+  /**
+   * Lascia uscire i figli dal riquadro.
+   *
+   * `overflow: hidden` serve a tenere gli angoli arrotondati, ma è anche il
+   * muro contro cui muore ogni `position: sticky` interno: un elemento
+   * agganciato non può sporgere oltre un antenato che ritaglia, quindi
+   * scorre via insieme al resto invece di restare fermo. Serve al calendario,
+   * dove l'intestazione delle colonne deve reggere lo scroll della pagina.
+   * Chi lo spegne si arrotonda i bordi per conto suo.
+   */
+  clip?: boolean;
 };
 
 const toneClasses: Record<DataSurfaceTone, string> = {
@@ -52,6 +63,7 @@ export default function DataSurface({
   state,
   children,
   id,
+  clip = true,
 }: DataSurfaceProps) {
   const generatedId = useId();
   const titleId = title ? `${id ?? generatedId}-title` : undefined;
@@ -64,7 +76,8 @@ export default function DataSurface({
       data-tone={tone}
       aria-labelledby={titleId}
       className={cn(
-        "flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-panel)] border",
+        "flex min-w-0 flex-col rounded-[var(--radius-panel)] border",
+        clip && "overflow-hidden",
         densityClasses[density],
         toneClasses[tone]
       )}

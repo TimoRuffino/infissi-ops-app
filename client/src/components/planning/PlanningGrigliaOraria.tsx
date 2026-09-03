@@ -11,7 +11,7 @@
 // lib/grigliaOraria.ts ed è provata a parte; qui c'è solo il disegno.
 
 import { Lock, MapPin, Users as UsersIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   CALENDAR_COLOR_MAP,
@@ -109,21 +109,17 @@ export default function PlanningGrigliaOraria({
     return () => clearInterval(t);
   }, []);
 
-  // All'apertura si guarda l'orario di lavoro, non le sette del mattino.
-  const scorrevole = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = scorrevole.current;
-    if (!el) return;
-    const bersaglio = Math.max(0, ((8 * 60 - finestra.daMin) / 60) * PX_PER_ORA - 8);
-    el.scrollTop = bersaglio;
-  }, [finestra.daMin]);
-
   return (
-    <div className="min-w-0 overflow-hidden rounded-[var(--radius-panel)] border border-border-soft bg-surface">
-      {/* Intestazione dei giorni: resta visibile mentre si scorrono le ore. */}
+    <div className="min-w-0 rounded-[var(--radius-panel)] border border-border-soft bg-surface [&>*:first-child]:rounded-t-[var(--radius-panel)] [&>*:last-child]:overflow-hidden [&>*:last-child]:rounded-b-[var(--radius-panel)]">
+      {/* Resta agganciata sotto la barra del periodo mentre le ore scorrono:
+          a metà giornata bisogna ancora poter dire che colonna si guarda.
+          L'altezza della barra la misura la pagina e la passa qui. */}
       <div
-        className="grid border-b border-border-soft bg-surface-2"
-        style={{ gridTemplateColumns: `3.25rem repeat(${giorni.length}, minmax(0, 1fr))` }}
+        className="sticky z-10 grid border-b border-border-soft bg-surface-2"
+        style={{
+          gridTemplateColumns: `3.25rem repeat(${giorni.length}, minmax(0, 1fr))`,
+          top: "var(--planning-barra-h, 0px)",
+        }}
       >
         <div aria-hidden className="border-r border-border-soft" />
         {giorni.map((giorno, idx) => {
@@ -204,7 +200,12 @@ export default function PlanningGrigliaOraria({
         </div>
       )}
 
-      <div ref={scorrevole} className="max-h-[clamp(24rem,60vh,44rem)] overflow-y-auto">
+      {/* Nessuno scroll qui dentro: la pagina ne ha già uno suo, e due
+          contenitori annidati vogliono dire che la rotella sposta quello
+          sbagliato e che l'unico modo per vedere il resto è togliere il
+          mouse dal calendario. La griglia sta alta quanto le sue ore e a
+          scorrere ci pensa la pagina. */}
+      <div>
         <div
           className="grid"
           style={{
@@ -401,8 +402,13 @@ function BloccoVoce(props: {
       onClick={() => props.onApri(voce)}
       title={descrizione}
       aria-label={descrizione}
+      // Un blocco alto una riga (mezz'ora) impilato mostra l'ora e taglia il
+      // nome: si vede che c'è qualcosa e non chi. Su una riga sola ci stanno
+      // tutti e due, ed è l'unica cosa che serve sapere a colpo d'occhio.
       className={`flex h-full w-full min-w-0 overflow-hidden rounded-[6px] border border-black/[0.04] pl-2 pr-1.5 py-1 text-left outline-none transition hover:brightness-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/55 ${
-        orizzontale ? "flex-row items-center gap-2" : "flex-col gap-0.5"
+        orizzontale || righe === 1
+          ? "flex-row items-center gap-1.5"
+          : "flex-col gap-0.5"
       } ${props.draggingId === voce.id ? "opacity-40" : ""} ${
         esterno ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
       }`}
