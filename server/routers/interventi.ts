@@ -5,6 +5,11 @@ import { getClienteById } from "./clienti";
 import { getCommessaById } from "./commesse";
 import { assertSedeScope, isDirezione } from "../_core/permissions";
 import { authorizeCoreOperation } from "../authz/enforcement";
+import {
+  TIPI_INTERVENTO,
+  esecutorePerTipo,
+  titoloDaNotaImportata,
+} from "@shared/interventi";
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
@@ -47,61 +52,17 @@ export function getInterventiStore() {
   return interventi;
 }
 
-// L'unica definizione dei tipi di evento del calendario (03/09/2026,
-// direzione: «i tipi disponibili sono troppo pochi» — con la migrazione
-// Google ci arrivano anche consegne, appuntamenti, riunioni e ferie).
-export const TIPI_INTERVENTO = [
-  "rilievo",
-  "posa",
-  "assistenza",
-  "consegna",
-  "appuntamento",
-  "riunione",
-  "ferie",
-  "altro",
-] as const;
-export type TipoIntervento = (typeof TIPI_INTERVENTO)[number];
-
-/**
- * Il titolo vero dentro la nota scritta dalla migrazione Google.
- *
- * La nota è `Importato dal calendario Google «<calendario>»: <titolo>`: il
- * prefisso è identico su ogni riga importata, quindi mostrarlo come titolo
- * vuol dire un calendario in cui tutti gli appuntamenti si chiamano uguale.
- * Torna `null` per le note scritte a mano, che non hanno quella forma.
- */
-export function titoloDaNotaImportata(
-  nota: string | null | undefined
-): string | null {
-  if (!nota) return null;
-  const m = /^Importato dal calendario Google «[^»]*»:\s*([\s\S]+)$/.exec(
-    String(nota).trim()
-  );
-  const titolo = m?.[1]?.trim().split("\n")[0]?.trim();
-  return titolo ? titolo : null;
-}
-
-/**
- * Chi esegue l'intervento, secondo il tipo.
- *
- * Un rilievo lo fa un tecnico dei rilievi; una posa, un'assistenza o altro li
- * fa una squadra di posa. Sono due insiemi di persone diversi, quindi due
- * campi diversi: tenerli entrambi pieni vorrebbe dire che un rilievo è
- * assegnato a una squadra che non lo farà mai, e prima o poi qualcuno ci va.
- *
- * La regola sta qui e non solo nel form: il form è un aiuto, il dominio è la
- * verità, e questo endpoint lo chiamano anche Tars e la sincronizzazione.
- */
-export function esecutorePerTipo(input: {
-  tipo?: string;
-  squadraId?: number | null;
-  tecnicoId?: number | null;
-}): { squadraId: number | null; tecnicoId: number | null } {
-  if (input.tipo === "rilievo") {
-    return { squadraId: null, tecnicoId: input.tecnicoId ?? null };
-  }
-  return { squadraId: input.squadraId ?? null, tecnicoId: null };
-}
+// I tipi di evento e le regole su chi li esegue vivono in `shared/`: le usa
+// anche la Dashboard per decidere cosa è davvero scoperto, e due copie
+// vorrebbero dire un elenco che segnala lavoro già assegnato.
+export {
+  TIPI_INTERVENTO,
+  TIPI_CON_ESECUTORE,
+  esecutorePerTipo,
+  senzaEsecutore,
+  titoloDaNotaImportata,
+} from "@shared/interventi";
+export type { TipoIntervento } from "@shared/interventi";
 
 export const interventiRouter = router({
   list: protectedProcedure

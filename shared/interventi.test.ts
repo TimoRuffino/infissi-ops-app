@@ -9,7 +9,11 @@
 // appuntamento che non le compete.
 import { describe, expect, it } from "vitest";
 
-import { esecutorePerTipo, titoloDaNotaImportata } from "./interventi";
+import {
+  esecutorePerTipo,
+  senzaEsecutore,
+  titoloDaNotaImportata,
+} from "./interventi";
 
 describe("esecutorePerTipo", () => {
   it("un rilievo tiene il tecnico e lascia andare la squadra", () => {
@@ -130,5 +134,52 @@ describe("titoloDaNotaImportata", () => {
     expect(titoloDaNotaImportata(`  ${nota("Rossi - rilievo")}  `)).toBe(
       "Rossi - rilievo"
     );
+  });
+});
+
+// «Assegna la squadra» sulla Dashboard guardava solo `squadraId`: un rilievo
+// con il tecnico già assegnato risultava scoperto, perché per un rilievo la
+// squadra è null per costruzione. Segnalare lavoro che è già assegnato è il
+// modo più rapido per far ignorare l'elenco.
+describe("senzaEsecutore", () => {
+  it("un rilievo col tecnico è assegnato, anche se la squadra è vuota", () => {
+    expect(senzaEsecutore({ tipo: "rilievo", squadraId: null, tecnicoId: 7 })).toBe(
+      false
+    );
+  });
+
+  it("una posa con la squadra è assegnata", () => {
+    expect(senzaEsecutore({ tipo: "posa", squadraId: 3, tecnicoId: null })).toBe(
+      false
+    );
+  });
+
+  it("senza nessuno dei due è scoperto", () => {
+    for (const tipo of ["rilievo", "posa", "assistenza", "consegna"]) {
+      expect(senzaEsecutore({ tipo })).toBe(true);
+    }
+  });
+
+  it("un rilievo con la sola squadra resta scoperto: quella non lo farà", () => {
+    expect(senzaEsecutore({ tipo: "rilievo", squadraId: 3, tecnicoId: null })).toBe(
+      true
+    );
+  });
+
+  it("una posa col solo tecnico resta scoperta, per lo stesso motivo", () => {
+    expect(senzaEsecutore({ tipo: "posa", squadraId: null, tecnicoId: 7 })).toBe(
+      true
+    );
+  });
+
+  it("ferie, riunioni e appuntamenti non chiedono nessuno", () => {
+    for (const tipo of ["ferie", "riunione", "appuntamento", "altro"]) {
+      expect(senzaEsecutore({ tipo })).toBe(false);
+    }
+  });
+
+  it("un tipo sconosciuto non genera una segnalazione", () => {
+    expect(senzaEsecutore({ tipo: undefined })).toBe(false);
+    expect(senzaEsecutore({ tipo: "boh" })).toBe(false);
   });
 });

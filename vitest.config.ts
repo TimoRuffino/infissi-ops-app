@@ -20,6 +20,10 @@ export default defineConfig({
       "server/**/*.test.ts",
       "server/**/*.spec.ts",
       "client/src/lib/**/*.test.ts",
+      // Le regole condivise fra server e client vivono in `shared/`: senza
+      // questa riga i loro test esistono e non girano mai, che è peggio che
+      // non averli — sembrano una rete e non lo sono.
+      "shared/**/*.test.ts",
     ],
   },
 });

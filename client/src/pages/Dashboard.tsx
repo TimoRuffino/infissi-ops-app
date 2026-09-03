@@ -15,6 +15,11 @@ import {
   CALENDAR_COLOR_MAP,
   CALENDAR_SOFT_MAP,
 } from "@/lib/calendario";
+import { senzaEsecutore } from "@shared/interventi";
+
+/** Etichetta leggibile di un tipo di evento, dal catalogo condiviso. */
+const etichettaTipo = (tipo: string): string =>
+  CALENDARI.find(c => c.key === tipo)?.label ?? tipo;
 import { formatEuroSimbolo } from "@/lib/euro";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -583,20 +588,35 @@ export default function Dashboard() {
     const byId = new Map<number, any>(commesse.map((c: any) => [c.id, c]));
     const items: TodoItem[] = [];
 
-    // 1. Interventi di oggi ancora senza squadra — blocca il lavoro di oggi.
+    // 1. Lavoro di oggi senza nessuno che lo faccia — blocca la giornata.
+    //
+    // La regola sta nel dominio: guardare solo `squadraId` faceva comparire
+    // ogni rilievo con il tecnico già assegnato — per un rilievo la squadra è
+    // vuota per costruzione — e chiedeva di assegnare una squadra alle ferie
+    // di qualcuno. Segnalare lavoro già assegnato insegna a ignorare
+    // l'elenco, che è l'unico modo di rompere una lista di cose da fare.
     for (const i of interventiOggi.data ?? []) {
-      if (i.squadraId || i.stato !== "pianificato") continue;
+      if (i.stato !== "pianificato" || !senzaEsecutore(i)) continue;
       const cm = i.commessaId ? byId.get(i.commessaId) : null;
       if (cm ? !isMine(cm) : !direzione) continue;
+      const chi = i.tipo === "rilievo" ? "il tecnico" : "la squadra";
+      const nome =
+        cm?.cliente ||
+        String(i.titolo ?? "").trim() ||
+        i.indirizzo ||
+        etichettaTipo(i.tipo) ||
+        i.tipo;
       items.push({
         key: `int-${i.id}`,
         rank: 0,
         icon: CalendarClock,
         iconClass: "bg-danger-soft text-danger",
-        title: `Assegna la squadra — ${cm?.cliente ?? i.indirizzo ?? i.tipo}${i.oraInizio ? ` (${i.oraInizio})` : ""}`,
+        title: `Assegna ${chi} — ${nome}${i.oraInizio ? ` (${i.oraInizio})` : ""}`,
         sub: cm?.codice,
-        cta: "Apri calendario",
-        onClick: () => setLocation("/planning"),
+        cta: "Apri appuntamento",
+        // All'evento, non alla pagina: chi ha appena letto la riga non deve
+        // ricercarsi a mano l'appuntamento dentro il mese.
+        onClick: () => setLocation(`/planning?intervento=${i.id}`),
       });
     }
 
@@ -822,39 +842,48 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   todoItems.map(item => (
+                    // Su schermo stretto il pulsante e il testo non ci stanno
+                    // sulla stessa riga: a 320px il pulsante prendeva 157px e
+                    // al titolo restava «Ass…», col codice commessa spezzato
+                    // su tre righe. Sotto `sm` la riga diventa una colonna e
+                    // il pulsante va sotto, a tutta larghezza.
                     <div
                       key={item.key}
-                      className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors"
+                      className="flex flex-col gap-2 rounded-md px-2 py-2 hover:bg-surface-2 cursor-pointer transition-colors sm:flex-row sm:items-center sm:gap-3"
                       {...attivabile(item.onClick)}
                     >
-                      <span
-                        className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
-                      >
-                        <item.icon className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-text-1 truncate">
-                          {item.title}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          {item.sub && (
-                            <span className="codice-mono text-text-3">
-                              {item.sub}
-                            </span>
-                          )}
-                          {item.stato && <StatoChip stato={item.stato} />}
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <span
+                          className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${item.iconClass}`}
+                        >
+                          <item.icon className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-text-1 truncate">
+                            {item.title}
+                          </p>
+                          <div className="flex min-w-0 items-center gap-2">
+                            {item.sub && (
+                              // Un codice commessa non si spezza a metà: o ci
+                              // sta, o si tronca in fondo.
+                              <span className="codice-mono truncate whitespace-nowrap text-text-3">
+                                {item.sub}
+                              </span>
+                            )}
+                            {item.stato && <StatoChip stato={item.stato} />}
+                          </div>
                         </div>
                       </div>
                       {item.cta ? (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="shrink-0"
+                          className="w-full shrink-0 sm:w-auto"
                         >
                           {item.cta}
                         </Button>
                       ) : (
-                        <ArrowRight className="h-4 w-4 text-text-3 shrink-0" />
+                        <ArrowRight className="hidden h-4 w-4 shrink-0 text-text-3 sm:block" />
                       )}
                     </div>
                   ))

@@ -48,7 +48,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import { FIRMA_WHATSAPP } from "@/lib/whatsapp";
@@ -534,6 +534,37 @@ export default function Planning() {
     const intervento = (interventi.data ?? []).find((i: any) => i.id === id);
     if (intervento) openEdit(intervento);
   }
+
+  // Arrivo da fuori: «Apri calendario» dalla Dashboard porta all'evento, non
+  // alla pagina. Senza questo si atterrava sul mese corrente e toccava
+  // ritrovare a mano l'appuntamento che si era appena letto in elenco.
+  //
+  // Il salto avviene una volta sola per id: se poi si chiude la scheda, non
+  // deve riaprirsi da sola a ogni render. La query può ancora essere in volo
+  // al primo giro, quindi si aspetta che l'intervento ci sia davvero.
+  const richiesta = useSearch();
+  const idRichiesto = Number(
+    new URLSearchParams(richiesta).get("intervento") ?? ""
+  );
+  const gia = useRef<number | null>(null);
+  useEffect(() => {
+    if (!Number.isFinite(idRichiesto) || idRichiesto <= 0) return;
+    if (gia.current === idRichiesto) return;
+    const intervento = (interventi.data ?? []).find(
+      (i: any) => i.id === idRichiesto
+    );
+    if (!intervento) return;
+    gia.current = idRichiesto;
+    // Il periodo mostrato deve contenere l'appuntamento, altrimenti la
+    // scheda si apre su un calendario che non lo fa vedere.
+    if (intervento.dataPianificata) {
+      setCursor(new Date(`${intervento.dataPianificata}T12:00:00`));
+    }
+    openEdit(intervento);
+    // L'id resta nella barra degli indirizzi: toglierlo eviterebbe che un
+    // ricaricamento riapra la scheda, ma romperebbe il link condiviso. Il
+    // guardiano `gia` basta a non riaprirla dentro la stessa sessione.
+  }, [idRichiesto, interventi.data]);
 
   function openExternal(id: string) {
     setExtDetail(
