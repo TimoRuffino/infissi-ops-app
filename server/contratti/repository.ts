@@ -25,15 +25,14 @@ function ordina(righe: RigaContratto[]): RigaContratto[] {
 }
 
 export function createMemoryContrattiRepository(): ContrattiRepository {
-  const contratti = new Map<string, Contratto>();
+  const contratti = new Map<number, Contratto>();
   const righe: RigaContratto[] = [];
   let nextId = 1;
-  const chiave = (sedeId: number, commessaId: number) => `${sedeId}:${commessaId}`;
   return {
     async ensureSchema() {},
     async getContratto(sedeId, commessaId) {
-      const c = contratti.get(chiave(sedeId, commessaId));
-      return c ? structuredClone(c) : null;
+      const c = contratti.get(commessaId);
+      return c && c.sedeId === sedeId ? structuredClone(c) : null;
     },
     async listRighe(sedeId, commessaId) {
       return ordina(
@@ -41,21 +40,31 @@ export function createMemoryContrattiRepository(): ContrattiRepository {
       ).map(r => structuredClone(r));
     },
     async salva({ contratto, righe: nuove, now }) {
-      const k = chiave(contratto.sedeId, contratto.commessaId);
-      const precedente = contratti.get(k);
+      // Una commessa appartiene a una sola sede per sempre: un salvataggio da
+      // un'altra sede sulla stessa commessa è NOT_FOUND, come su Postgres
+      // (la guardia WHERE sede_id = EXCLUDED.sede_id sull'UPSERT), non una
+      // sostituzione silenziosa che sposterebbe la commessa di sede.
+      const precedente = contratti.get(contratto.commessaId);
+      if (precedente && precedente.sedeId !== contratto.sedeId) {
+        throw new Error("NOT_FOUND: Commessa non trovata.");
+      }
       const salvato: Contratto = {
         ...structuredClone(contratto),
         createdAt: precedente?.createdAt ?? now,
         updatedAt: now,
       };
-      contratti.set(k, salvato);
+      contratti.set(contratto.commessaId, salvato);
       for (let i = righe.length - 1; i >= 0; i--) {
         if (righe[i].sedeId === contratto.sedeId && righe[i].commessaId === contratto.commessaId) {
           righe.splice(i, 1);
         }
       }
+      // Sede e commessa della riga sono quelle del contratto padre: mai
+      // quelle (eventualmente sbagliate) passate dal chiamante.
       const inserite = nuove.map(r => ({
         ...structuredClone(r),
+        sedeId: contratto.sedeId,
+        commessaId: contratto.commessaId,
         id: nextId++,
         createdAt: now,
         updatedAt: now,
@@ -83,7 +92,11 @@ function rowToContratto(row: any): Contratto {
     detrazioneTipo: row.detrazione_tipo,
     detrazioneImmobile: row.detrazione_immobile ?? null,
     detrazionePct: row.detrazione_pct == null ? null : Number(row.detrazione_pct),
-    dataFirma: row.data_firma ? String(row.data_firma).slice(0, 10) : null,
+    dataFirma: row.data_firma == null
+      ? null
+      : row.data_firma instanceof Date
+        ? row.data_firma.toISOString().slice(0, 10)
+        : String(row.data_firma).slice(0, 10),
     rate: Array.isArray(row.rate) ? row.rate : [],
     opzioniComputo: row.opzioni_computo ?? OPZIONI_COMPUTO_DEFAULT,
     hashRighe: row.hash_righe,
@@ -254,7 +267,7 @@ export function createPostgresContrattiRepository(
             prezzo_unit_cent, prezzo_tot_cent, bene_significativo, accessori, note,
             origine, evidenza, created_at, updated_at
           ) VALUES (
-            ${r.sedeId}, ${r.commessaId}, ${r.ordine}, ${r.categoria}, ${r.tipologia},
+            ${c.sedeId}, ${c.commessaId}, ${r.ordine}, ${r.categoria}, ${r.tipologia},
             ${r.oscuranteIntegrato}, ${r.oscuranteTipologia}, ${r.descrizione}, ${r.quantita}, ${r.larghezzaMm},
             ${r.altezzaMm}, ${r.mq}, ${r.misuraDei}, ${r.prezzoUnitCent}, ${r.prezzoTotCent},
             ${r.beneSignificativo}, ${tx.json(r.accessori as any)}, ${r.note}, ${r.origine},

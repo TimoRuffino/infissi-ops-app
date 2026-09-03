@@ -51,4 +51,19 @@ describe("repository contratti (memoria)", () => {
     expect(await repo.getContratto(2, 10)).toBeNull();
     expect(await repo.listRighe(2, 10)).toEqual([]);
   });
+  it("rifiuta un salvataggio da un'altra sede sulla stessa commessa", async () => {
+    const repo = createMemoryContrattiRepository();
+    await repo.salva({ contratto: contratto(1, 10), righe: [], now: NOW });
+    await expect(
+      repo.salva({ contratto: { ...contratto(1, 10), sedeId: 2 }, righe: [], now: NOW })
+    ).rejects.toThrow("NOT_FOUND");
+  });
+  it("scrive su ogni riga la sede del contratto, ignorando quella passata dal chiamante", async () => {
+    const repo = createMemoryContrattiRepository();
+    // riga() genera sempre sedeId: 1: qui il contratto è della sede 2, la
+    // riga deve comunque finire con sedeId 2, non con quello (sbagliato) 1.
+    const esito = await repo.salva({ contratto: contratto(2, 20), righe: [riga(20, 1)], now: NOW });
+    expect(esito.righe[0].sedeId).toBe(2);
+    expect((await repo.listRighe(2, 20))[0].sedeId).toBe(2);
+  });
 });
