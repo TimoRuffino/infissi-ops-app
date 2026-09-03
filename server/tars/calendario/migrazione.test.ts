@@ -39,7 +39,12 @@ describe("tipoDaTitolo", () => {
     expect(tipoDaTitolo("Sopralluogo condominio Aurora")).toBe("rilievo");
     expect(tipoDaTitolo("prendere misure Verdi")).toBe("rilievo");
     expect(tipoDaTitolo("Riparazione tapparella")).toBe("assistenza");
-    expect(tipoDaTitolo("Ferie Marco")).toBe("altro");
+    expect(tipoDaTitolo("Consegna Oknoplast")).toBe("consegna");
+    expect(tipoDaTitolo("Ritiro riparazioni Primed")).toBe("consegna");
+    expect(tipoDaTitolo("Ferie Marco")).toBe("ferie");
+    expect(tipoDaTitolo("Riunione commerciale")).toBe("riunione");
+    expect(tipoDaTitolo("Appuntamento showroom Bianchi")).toBe("appuntamento");
+    expect(tipoDaTitolo("Compleanno nonna")).toBe("altro");
   });
 });
 
@@ -76,7 +81,7 @@ describe("pianoMigrazione", () => {
     expect(daCreare).toHaveLength(2);
     expect(daCreare[0]).toMatchObject({ tipo: "posa", commessaId: 1, oraInizio: "08:00" });
     expect(daCreare[0].note).toContain("Cantieri");
-    expect(daCreare[1]).toMatchObject({ tipo: "altro", commessaId: null, oraInizio: null });
+    expect(daCreare[1]).toMatchObject({ tipo: "ferie", commessaId: null, oraInizio: null });
     // Chiavi stabili e distinte per occorrenza.
     expect(daCreare[0].chiave).toBe("google:3:a:2026-09-10");
   });

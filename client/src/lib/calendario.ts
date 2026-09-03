@@ -6,7 +6,15 @@
 // dire la stessa cosa ovunque, e deve seguire il tema — gli hex scritti a mano
 // restavano identici anche in dark mode.
 
-export type TipoCalendario = "rilievo" | "posa" | "assistenza" | "altro";
+export type TipoCalendario =
+  | "rilievo"
+  | "posa"
+  | "assistenza"
+  | "consegna"
+  | "appuntamento"
+  | "riunione"
+  | "ferie"
+  | "altro";
 
 export const CALENDARI: ReadonlyArray<{
   key: TipoCalendario;
@@ -18,6 +26,10 @@ export const CALENDARI: ReadonlyArray<{
   { key: "rilievo", label: "Rilievo", color: "var(--color-cal-rilievo)", soft: "var(--color-cal-rilievo-soft)" },
   { key: "posa", label: "Posa", color: "var(--color-cal-posa)", soft: "var(--color-cal-posa-soft)" },
   { key: "assistenza", label: "Interventi/Regolazioni", color: "var(--color-cal-assistenza)", soft: "var(--color-cal-assistenza-soft)" },
+  { key: "consegna", label: "Consegna", color: "var(--color-cal-consegna)", soft: "var(--color-cal-consegna-soft)" },
+  { key: "appuntamento", label: "Appuntamento", color: "var(--color-cal-appuntamento)", soft: "var(--color-cal-appuntamento-soft)" },
+  { key: "riunione", label: "Riunione", color: "var(--color-cal-riunione)", soft: "var(--color-cal-riunione-soft)" },
+  { key: "ferie", label: "Ferie/assenze", color: "var(--color-cal-ferie)", soft: "var(--color-cal-ferie-soft)" },
   { key: "altro", label: "Altro", color: "var(--color-cal-altro)", soft: "var(--color-cal-altro-soft)" },
 ];
 

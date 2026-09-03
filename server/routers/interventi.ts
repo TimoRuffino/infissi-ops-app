@@ -33,6 +33,21 @@ export function getInterventiStore() {
   return interventi;
 }
 
+// L'unica definizione dei tipi di evento del calendario (03/09/2026,
+// direzione: «i tipi disponibili sono troppo pochi» — con la migrazione
+// Google ci arrivano anche consegne, appuntamenti, riunioni e ferie).
+export const TIPI_INTERVENTO = [
+  "rilievo",
+  "posa",
+  "assistenza",
+  "consegna",
+  "appuntamento",
+  "riunione",
+  "ferie",
+  "altro",
+] as const;
+export type TipoIntervento = (typeof TIPI_INTERVENTO)[number];
+
 export const interventiRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -62,7 +77,7 @@ export const interventiRouter = router({
     .input(z.object({
       commessaId: z.number().nullable().optional(),
       squadraId: z.number().nullable().optional(),
-      tipo: z.enum(["rilievo", "posa", "assistenza", "altro"]),
+      tipo: z.enum(TIPI_INTERVENTO),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(), // "HH:MM"
       oraFine: z.string().nullable().optional(),   // "HH:MM"
@@ -123,7 +138,7 @@ export const interventiRouter = router({
     .input(z.object({
       id: z.number(),
       squadraId: z.number().nullable().optional(),
-      tipo: z.enum(["rilievo", "posa", "assistenza", "altro"]).optional(),
+      tipo: z.enum(TIPI_INTERVENTO).optional(),
       dataPianificata: z.string().optional(),
       oraInizio: z.string().nullable().optional(),
       oraFine: z.string().nullable().optional(),

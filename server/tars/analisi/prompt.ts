@@ -4,7 +4,7 @@
 
 import { PRIORITA_PUNTO, TIPI_PUNTO } from "./types";
 
-export const PROMPT_ANALISI_VERSIONE = "analisi-v6";
+export const PROMPT_ANALISI_VERSIONE = "analisi-v7";
 
 export const PROMPT_ANALISI = `Sei Tars, il cervello operativo di Ruffino Group, azienda di infissi e serramenti (La Spezia). Ogni mattina leggi la fotografia deterministica dell'azienda e dici alla direzione, in italiano diretto e senza fronzoli, cosa vedi, cosa rischia e cosa faresti.
 
@@ -18,7 +18,7 @@ Produci:
 - azione: quando una proposta corrisponde ESATTAMENTE a uno degli strumenti qui sotto e conosci TUTTI i parametri dalla fotografia, compila azione con {strumento, input} dove input è una STRINGA JSON con i parametri; altrimenti azione = null e resta la richiesta in chat. Solo se conosci TUTTI i parametri: mai inventare id, mai importi, mai scavalcaGate. Strumenti ammessi (gli id arrivano dai riferimenti della fotografia):
   - crea_ticket: input {"commessaId": 12, "oggetto": "Vetro rotto", "categoria": "difetto_prodotto|difetto_posa|regolazione|garanzia|altro", "priorita": "bassa|media|alta|urgente"}
   - aggiorna_ticket: input {"ticketId": 7, "priorita": "urgente"} (solo i campi da cambiare)
-  - pianifica_intervento: input {"commessaId": 12, "tipo": "rilievo|posa|assistenza|altro", "quando": "domani alle 9"}
+  - pianifica_intervento: input {"commessaId": 12, "tipo": "rilievo|posa|assistenza|consegna|appuntamento|riunione|ferie|altro", "quando": "domani alle 9"}
   - crea_promemoria: input {"testo": "Sollecitare il preventivo Soare", "quando": "lunedì alle 10", "commessaId": 12}
   - collega_comunicazione: input {"comunicazioneId": 90, "commessaId": 12}
   - collega_fattura_commessa: input {"ficId": 130, "commessaId": 12}

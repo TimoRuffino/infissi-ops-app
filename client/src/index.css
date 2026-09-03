@@ -108,6 +108,14 @@
   --color-cal-posa-soft: #dff6f1;
   --color-cal-assistenza: #a73967;
   --color-cal-assistenza-soft: #fce7f0;
+  --color-cal-consegna: #b07a1f;
+  --color-cal-consegna-soft: #fdf2dc;
+  --color-cal-appuntamento: #6d4fc4;
+  --color-cal-appuntamento-soft: #eeeaff;
+  --color-cal-riunione: #7a5c46;
+  --color-cal-riunione-soft: #f3eae2;
+  --color-cal-ferie: #5f7a2f;
+  --color-cal-ferie-soft: #eef4dd;
   --color-cal-altro: #5e6560;
   --color-cal-altro-soft: #ecefec;
 
@@ -324,6 +332,14 @@
   --color-cal-posa-soft: #132923;
   --color-cal-assistenza: #ee94b4;
   --color-cal-assistenza-soft: #331821;
+  --color-cal-consegna: #e3b45e;
+  --color-cal-consegna-soft: #33270f;
+  --color-cal-appuntamento: #b3a1ee;
+  --color-cal-appuntamento-soft: #211a38;
+  --color-cal-riunione: #c9a084;
+  --color-cal-riunione-soft: #2d221a;
+  --color-cal-ferie: #a9c46a;
+  --color-cal-ferie-soft: #262e12;
   --color-cal-altro: #adb9b5;
   --color-cal-altro-soft: #202826;
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);

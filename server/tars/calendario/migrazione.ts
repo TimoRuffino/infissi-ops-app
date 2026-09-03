@@ -10,6 +10,8 @@
 // commessa attiva candidata); tutto il resto resta senza commessa, da
 // collegare poi.
 
+import { TIPI_INTERVENTO } from "../../routers/interventi";
+
 export type EventoEsterno = {
   sourceId: number | string;
   sourceNome: string;
@@ -34,7 +36,7 @@ export type CommessaCandidata = {
 
 export type PianoEvento = {
   chiave: string;
-  tipo: "rilievo" | "posa" | "assistenza" | "altro";
+  tipo: (typeof TIPI_INTERVENTO)[number];
   commessaId: number | null;
   motivoCommessa: string | null;
   data: string;
@@ -66,7 +68,13 @@ export function tipoDaTitolo(titolo: string): PianoEvento["tipo"] {
   const t = titolo.toLowerCase();
   if (/\bposa\b|montagg/.test(t)) return "posa";
   if (/rilievo|sopralluogo|misur/.test(t)) return "rilievo";
+  // Prima di assistenza: «ritiro riparazioni» è una consegna/ritiro,
+  // non l'intervento di riparazione.
+  if (/consegn|ritir/.test(t)) return "consegna";
   if (/assistenz|riparaz|regolaz|intervent/.test(t)) return "assistenza";
+  if (/\bferie\b|permess|chiusur|festiv/.test(t)) return "ferie";
+  if (/riunion|meeting/.test(t)) return "riunione";
+  if (/appuntament|showroom/.test(t)) return "appuntamento";
   return "altro";
 }
 

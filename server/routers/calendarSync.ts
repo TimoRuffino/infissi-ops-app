@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { getInterventiStore } from "./interventi";
+import { getInterventiStore, TIPI_INTERVENTO } from "./interventi";
 import { getCommessaById } from "./commesse";
 import { getClienteById } from "./clienti";
 
@@ -54,6 +54,10 @@ export const CALENDAR_FEEDS = [
   { key: "rilievo", label: "Rilievi", tipo: "rilievo" },
   { key: "posa", label: "Pose", tipo: "posa" },
   { key: "assistenza", label: "Assistenza", tipo: "assistenza" },
+  { key: "consegna", label: "Consegne", tipo: "consegna" },
+  { key: "appuntamento", label: "Appuntamenti", tipo: "appuntamento" },
+  { key: "riunione", label: "Riunioni", tipo: "riunione" },
+  { key: "ferie", label: "Ferie e assenze", tipo: "ferie" },
   { key: "altro", label: "Altro", tipo: "altro" },
 ] as const;
 
@@ -61,6 +65,10 @@ const TIPO_LABEL: Record<string, string> = {
   rilievo: "Rilievo",
   posa: "Posa",
   assistenza: "Assistenza",
+  consegna: "Consegna",
+  appuntamento: "Appuntamento",
+  riunione: "Riunione",
+  ferie: "Ferie/assenza",
   altro: "Intervento",
 };
 
@@ -250,5 +258,5 @@ export const calendarSyncRouter = router({
   }),
 });
 
-const _feedKeys = z.enum(["tutti", "rilievo", "posa", "assistenza", "altro"]);
+const _feedKeys = z.enum(["tutti", ...TIPI_INTERVENTO]);
 export type FeedKey = z.infer<typeof _feedKeys>;

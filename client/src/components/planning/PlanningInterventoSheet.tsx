@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CALENDARI } from "@/lib/calendario";
 import {
   Calendar as CalIcon,
   Clock,
@@ -41,7 +42,7 @@ export type PlanningInterventoDraft = {
   linkKind: PlanningLinkKind;
   linkId: string;
   squadraId: string;
-  tipo: "rilievo" | "posa" | "assistenza" | "altro";
+  tipo: import("@/lib/calendario").TipoCalendario;
   dataPianificata: string;
   oraInizio: string;
   oraFine: string;
@@ -285,10 +286,11 @@ export default function PlanningInterventoSheet(
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="rilievo">Rilievo</SelectItem>
-                <SelectItem value="posa">Posa</SelectItem>
-                <SelectItem value="assistenza">Assistenza</SelectItem>
-                <SelectItem value="altro">Altro</SelectItem>
+                {CALENDARI.map(cal => (
+                  <SelectItem key={cal.key} value={cal.key}>
+                    {cal.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

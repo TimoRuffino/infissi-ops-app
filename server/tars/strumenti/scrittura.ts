@@ -20,6 +20,7 @@ import {
   getDocumentoCommessaById,
   spostaDocumentoDiCommessa,
 } from "../../routers/preventiviContratti";
+import { TIPI_INTERVENTO } from "../../routers/interventi";
 import { getTicketById, TICKET_CATEGORIE, TICKET_PRIORITA } from "../../routers/ticket";
 import { tarsAttivo } from "../../platform/interruttori";
 import { risolviEspressioneTempo } from "../tempo";
@@ -436,9 +437,9 @@ function dataLocaleDa(quando: string, adesso: Date): { data: string; assunzioni:
 
 const pianificaIntervento: StrumentoTars = {
   nome: "pianifica_intervento",
-  // 1.1.0 (T4): anche la squadra, dal catalogo — il router esige
-  // intervento.assign quando la squadra viene indicata.
-  versione: "1.1.0",
+  // 1.2.0 (03/09 sera): tipi di evento allargati (consegna, appuntamento,
+  // riunione, ferie) — 1.1.0 aveva aggiunto la squadra.
+  versione: "1.2.0",
   categoria: "interventi",
   livello: "L2",
   effetto: "interno",
@@ -446,11 +447,11 @@ const pianificaIntervento: StrumentoTars = {
   capability: ["intervento.plan"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Pianifica un intervento (rilievo, posa, assistenza, altro) su una commessa (indicata o attiva), in una data: passa «quando» con le parole dell'utente («martedì prossimo», «domani mattina») oppure una data YYYY-MM-DD; orari facoltativi HH:MM; squadraId se l'utente ha detto quale squadra (leggi_agenda le elenca). Va nel calendario della sede (/planning).",
+    "Pianifica un evento del calendario (rilievo, posa, assistenza, consegna, appuntamento, riunione, ferie, altro) su una commessa (indicata o attiva), in una data: passa «quando» con le parole dell'utente («martedì prossimo», «domani mattina») oppure una data YYYY-MM-DD; orari facoltativi HH:MM; squadraId se l'utente ha detto quale squadra (leggi_agenda le elenca). Va nel calendario della sede (/planning).",
   schemaInput: z
     .object({
       commessaId: z.number().int().positive().optional(),
-      tipo: z.enum(["rilievo", "posa", "assistenza", "altro"]),
+      tipo: z.enum(TIPI_INTERVENTO),
       quando: z.string().min(1).max(120).optional(),
       data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       oraInizio: z.string().regex(/^\d{2}:\d{2}$/).optional(),
