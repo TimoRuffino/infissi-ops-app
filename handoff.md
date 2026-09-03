@@ -2142,6 +2142,43 @@ Atteso: smistamento a regime ≈ 50–80 chiamate/giorno × ~0,004 USD
 (tier normale, prompt corto) ≈ 0,3 USD/giorno; analisi ≈ 0,3 USD/giorno;
 chat secondo l'uso.
 
+## 11-vicies duodecies. «Tars non fa quello che gli dico» — transizioni libere e niente proposte su lavoro morto (03/09/2026, notte)
+
+Chat della direzione: «porta la commessa Da Pozzo come finita» → Tars
+faceva UN passaggio (ordini ultimazione) e si fermava al gate «manca
+saldo o fattura»; «portala a interventi» → «non eseguito, deve prima
+passare da…». Poi: «tars continua a fare proposte su commesse vecchie
+mesi o già gestite». Misura: 40 proposte di smistamento aperte, 32 su
+mail più vecchie di 30 giorni, 12 oltre 120 (percorso deterministico
+sull'arretrato).
+
+- **Transizioni** (`strumenti/commesse.ts`, tool 1.1.0; dominio
+  `commesse/transizioni.ts`): lo strumento accetta lo stato di ARRIVO,
+  anche non adiacente, e fa i passaggi uno alla volta (ognuno registrato
+  e annullabile, Undo dall'ultimo). Un gate documentale lo ferma e dice
+  cosa manca (`transizione_parziale`); con `scavalcaGate: true` — che il
+  modello passa SOLO quando l'utente ha chiesto esplicitamente lo stato o
+  «procedi comunque» — scavalca come «Procedi comunque» dal board, con la
+  stessa capability, registrato (`bypassGateDocumentale`) e dichiarato
+  nelle avvertenze. Il dominio vieta il bypass solo all'Undo. Via anche il
+  rifiuto «rileggi prima» sul contesto persistito (il lock ottimistico
+  del dominio basta). Prompt v10: sinonimi «finita → finiture_saldo,
+  interventi → interventi_regolazioni, chiusa → archiviata, indietro»;
+  «non fermarti a metà di un compito».
+- **Proposte di smistamento**: nessuna proposta su comunicazioni oltre
+  `TARS_SMISTAMENTO_GIORNI_PROPOSTE` (30) o già gestite — i collegamenti
+  CERTI si applicano comunque; a ogni giro il worker chiude come
+  `scaduta` le proposte aperte su mail invecchiate, gestite o collegate a
+  mano.
+- **Analisi**: le commesse ferme da oltre 120 giorni sono «dormienti»,
+  sezione a parte con i loro casi; il prompt (analisi-v2) non propone
+  lavoro su di esse, al più una proposta unica di archiviazione.
+
+Test: `azioni/commesse.test.ts` (percorso a più passaggi, gate, scavalco
+registrato, Undo, all'indietro), `commesse/transizioni.test.ts` (bypass
+vietato solo all'Undo), `smistamento/applica.test.ts` e `worker.test.ts`
+(niente proposte su mail vecchie/gestite, scadenza), `analisi.test.ts`.
+
 ## 11-vicies semel. UI v2 Frame & Flow — Modular Control migrato (31/08/2026)
 
 Branch `codex/modular-control-completion` (worktree

@@ -104,10 +104,16 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   vive negli strumenti e nei servizi di dominio: sede, capability, state
   machine, gate, versione, idempotenza, importi, scadenze. Il modello non
   reimplementa questi vincoli: li invoca e ne rispetta l'esito.
-- Ogni azione Tars passa da un servizio di dominio tipizzato: mai `force`,
-  mai mutazioni tRPC invocate dal modello, mai SQL generico, `executeSql`,
+- Ogni azione Tars passa da un servizio di dominio tipizzato: mai
+  mutazioni tRPC invocate dal modello, mai SQL generico, `executeSql`,
   `updateRecord` o scritture dirette. Il provider reale nasce solo dietro il
-  governor; nessun percorso parallelo può aggirarlo.
+  governor; nessun percorso parallelo può aggirarlo. Lo scavalco di un gate
+  documentale è lo stesso «Procedi comunque» del board: Tars lo usa SOLO
+  quando l'utente ha chiesto esplicitamente lo stato di arrivo (o di
+  procedere comunque), con la capability dell'utente, registrato
+  (`bypassGateDocumentale`) e dichiarato nella risposta; l'Undo non forza
+  mai. Uno stato non adiacente si raggiunge un passaggio alla volta,
+  ognuno annullabile.
 - Il catalogo è fail-closed per capability, sede e flag. Un record di un'altra
   sede dà `NOT_FOUND`. Conferma umana (proposta con anteprima, un click)
   SOLO per pagamenti e importi, cancellazioni definitive, effetti esterni o

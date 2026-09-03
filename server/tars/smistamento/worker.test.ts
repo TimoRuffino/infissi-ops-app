@@ -259,3 +259,31 @@ describe("risparmio (02/09 sera): il modello non si chiama quando non serve", ()
     }
   });
 });
+
+describe("scadenza delle proposte (02/09 notte)", () => {
+  it("una proposta aperta su una mail invecchiata o già collegata a mano scade al giro successivo", async () => {
+    const d = deps(() => jsonModello({ tipo: "nessuno", id: 0, confidenza: "bassa", motivo: "" }));
+    const vecchia = await inserisci({
+      mittente: "vecchio@example.test",
+      oggetto: "Vecchia",
+      receivedAt: new Date(Date.now() - 45 * 86_400_000),
+    });
+    const collegataAMano = await inserisci({ mittente: "mano@example.test", oggetto: "A mano" });
+    await setMatchComunicazione(collegataAMano.id, SEDE, { commessaId: 12, clienteId: null, confidenza: "alta", motivo: "a mano" } as any).catch(() => undefined);
+    for (const c of [vecchia, collegataAMano]) {
+      await d.repository.registra({
+        comunicazioneId: c.id,
+        sedeId: SEDE,
+        versione: "0.9.0",
+        stato: "analizzata",
+        esito: { collegamento: { esito: "proposto", commessaId: 12, clienteId: null, confidenza: "media", motivo: "x" } } as any,
+        propostaStato: "aperta",
+        ultimoErrore: null,
+        now: new Date(),
+      });
+    }
+    const giro = await eseguiGiroSmistamento({ sedeId: SEDE, deps: d, limite: 50 });
+    expect(giro.scadute).toBeGreaterThanOrEqual(1);
+    expect((await d.repository.perComunicazione(SEDE, vecchia.id))?.propostaStato).toBe("scaduta");
+  });
+});

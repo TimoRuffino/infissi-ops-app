@@ -201,20 +201,6 @@ function commessaInSede(contesto: ContestoRun, id: number): any | null {
   return commessa?.sedeId === contesto.sedeId ? commessa : null;
 }
 
-function versionePersistitaCoerente(
-  contesto: ContestoRun,
-  commessa: any
-): boolean {
-  const persistito = contesto.contestoConversazione;
-  if (!persistito || persistito.commessaId !== commessa.id) return true;
-  const attesa = persistito.versioniEntita[`commessa:${commessa.id}`];
-  return (
-    persistito.verifiche.commessa === "verificato" &&
-    typeof attesa === "string" &&
-    attesa === versioneCommessa(commessa)
-  );
-}
-
 function contestoAutorizzazione(
   contesto: ContestoRun
 ): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> {
@@ -323,14 +309,46 @@ const schemaTransizione = z
   .object({
     commessaId: z.number().int().positive().optional(),
     nuovoStato: z.enum(STATI_COMMESSA),
+    /**
+     * Tars libero (02/09/2026 sera): true SOLO se l'utente ha chiesto
+     * esplicitamente di arrivare a quello stato o di procedere comunque.
+     * Scavalca un gate documentale come «Procedi comunque» dal board; resta
+     * registrato e dichiarato nella risposta.
+     */
+    scavalcaGate: z.boolean().optional(),
   })
   .strict();
 
+type StatoCommessaTars = (typeof STATI_COMMESSA)[number];
+
 type InputTransizione = z.infer<typeof schemaTransizione> & {
-  /** Allegato dal server dopo la preview; non appartiene allo schema provider. */
+  /** Allegati dal server dopo la preview; non appartengono allo schema provider. */
   __versioneAttesa?: string;
   __firmaAttesa?: string;
+  __percorso?: StatoCommessaTars[];
 };
+
+/** Gli stati da attraversare, uno alla volta, dallo stato corrente a quello chiesto. */
+export function percorsoStati(da: string, a: StatoCommessaTars): StatoCommessaTars[] {
+  const i = STATI_COMMESSA.indexOf(da as StatoCommessaTars);
+  const j = STATI_COMMESSA.indexOf(a);
+  if (i < 0 || j < 0 || i === j) return [];
+  const passo = j > i ? 1 : -1;
+  const tappe: StatoCommessaTars[] = [];
+  for (let k = i + passo; passo > 0 ? k <= j : k >= j; k += passo) {
+    tappe.push(STATI_COMMESSA[k]);
+  }
+  return tappe;
+}
+
+function etichetteGate(richiesti: readonly string[]): string {
+  const dipendenze = dipendenzeTransizioniCommesse();
+  return richiesti.map(tipo => dipendenze.etichettaDocumento(tipo)).join(" o ");
+}
+
+function leggibile(stato: string): string {
+  return stato.replace(/_/g, " ");
+}
 
 async function materializzaTransizione(
   contesto: ContestoRun,
@@ -343,7 +361,8 @@ async function materializzaTransizione(
   // Tars libero (02/09/2026): nessuna autorità derivata dal testo. La
   // commessa è quella indicata dal modello o quella attiva e verificata
   // nella conversazione; sede, capability, versione, state machine e gate
-  // li verifica il dominio qui sotto.
+  // li verifica il dominio. Lo stato chiesto può non essere adiacente: lo
+  // strumento fa i passaggi uno alla volta, ognuno registrato e annullabile.
   if (
     !tarsAttivo("tarsL2Actions") ||
     !haCapability(contesto, [
@@ -383,28 +402,34 @@ async function materializzaTransizione(
       ),
     };
   }
-  if (!versionePersistitaCoerente(contesto, commessa)) {
+  if (commessa.stato === input.nuovoStato) {
     return {
       tipo: "esito",
-      esito: nonEseguito(
-        nome,
-        "La commessa è cambiata dall'ultima lettura: rileggila prima di modificare lo stato."
-      ),
+      esito: nonEseguito(nome, "La commessa è già nello stato richiesto."),
+    };
+  }
+  const percorso = percorsoStati(commessa.stato, input.nuovoStato);
+  if (percorso.length === 0) {
+    return {
+      tipo: "esito",
+      esito: nonEseguito(nome, "Stato non riconosciuto dalla state machine della commessa."),
     };
   }
   const dipendenze = dipendenzeTransizioniCommesse();
   const anteprima = verificaTransizioneCommessa({
     commessa,
-    nuovoStato: input.nuovoStato,
+    nuovoStato: percorso[0],
     haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
     documentiRichiesti: dipendenze.documentiRichiesti,
   });
-  if (!anteprima.consentita) {
+  if (!anteprima.consentita && !(anteprima.gate.bloccante && input.scavalcaGate)) {
     return {
       tipo: "esito",
       esito: nonEseguito(
         nome,
-        anteprima.motivo ?? "La transizione non è consentita nello stato corrente."
+        anteprima.gate.bloccante
+          ? `Passaggio da «${leggibile(commessa.stato)}» a «${leggibile(percorso[0])}» bloccato dal gate documentale: manca «${etichetteGate(anteprima.gate.richiesti)}». Se l'utente vuole procedere comunque, richiama lo strumento con scavalcaGate: true (resta registrato).`
+          : (anteprima.motivo ?? "La transizione non è consentita nello stato corrente.")
       ),
     };
   }
@@ -415,6 +440,7 @@ async function materializzaTransizione(
       commessaId: commessa.id,
       __versioneAttesa: anteprima.versione,
       __firmaAttesa: firmaTransizioneCommessa(commessa),
+      __percorso: percorso,
     },
   };
 }
@@ -422,20 +448,29 @@ async function materializzaTransizione(
 function motivoSicuro(errore: unknown): string {
   const testo = errore instanceof Error ? errore.message : "";
   if (testo.includes("VERSIONE_COMMESSA_OBSOLETA")) {
-    return "La commessa è cambiata dopo la verifica: nessuna transizione applicata. Rileggila e riprova.";
+    return "La commessa è cambiata durante il passaggio: fermato qui. Rileggila e riprova.";
   }
   if (testo.includes("DOC_GATE_BLOCKED")) {
-    return "Il gate documentale corrente non è più soddisfatto: nessuna transizione applicata.";
+    return "Il gate documentale ha bloccato il passaggio: fermato qui.";
   }
   if (testo.includes("Transizione non consentita")) {
-    return "Lo stato è cambiato e il passaggio richiesto non è più adiacente: nessuna transizione applicata.";
+    return "Lo stato è cambiato e il passaggio richiesto non è più valido: fermato qui.";
   }
   return "Commessa non trovata o operazione non autorizzata.";
 }
 
+type PassoTransizione = {
+  da: string;
+  a: string;
+  transizioneId: number;
+  gateScavalcato: boolean;
+  versionePrima: string;
+  versioneDopo: string;
+};
+
 const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
   nome: "transizione_adiacente_commessa",
-  versione: "1.0.0",
+  versione: "1.1.0",
   categoria: "commesse",
   livello: "L2",
   effetto: "interno",
@@ -443,7 +478,7 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
   capability: ["commessa.update_operational", "commessa.change_state"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Cambia lo stato di UNA commessa di un passaggio adiacente quando l'utente lo chiede (commessa indicata o quella attiva nella conversazione). Usa la state machine e i gate del CRM, non accetta force, rilegge la versione prima dell'effetto e restituisce Undo sicuro. Per più passaggi, chiamalo più volte.",
+    "Porta UNA commessa allo stato chiesto (commessa indicata o quella attiva nella conversazione), anche non adiacente: fa i passaggi uno alla volta con la state machine del CRM, ognuno registrato e annullabile. Se un gate documentale blocca, si ferma e dice cosa manca; con scavalcaGate: true — SOLO quando l'utente ha chiesto esplicitamente di arrivare a quello stato o di procedere comunque — scavalca il gate come «Procedi comunque» dal board (registrato). Sinonimi: «finita / lavori finiti» → finiture_saldo; «interventi» → interventi_regolazioni; «chiusa / archiviata» → archiviata.",
   schemaInput: schemaTransizione,
   materializzaInput: materializzaTransizione,
   async esegui(contesto, input): Promise<EsitoAzione> {
@@ -460,88 +495,140 @@ const transizione: StrumentoTars<InputTransizione, EsitoAzione> = {
         "Commessa non trovata o operazione non autorizzata."
       );
     }
+    if (!Number.isInteger(input.commessaId)) {
+      return nonEseguito(
+        nome,
+        "La commessa non è stata verificata: nessuna modifica applicata."
+      );
+    }
+    const commessaId = input.commessaId!;
+    if (!commessaInSede(contesto, commessaId)) {
+      return nonEseguito(
+        nome,
+        "Commessa non trovata o operazione non autorizzata."
+      );
+    }
     if (
-      !Number.isInteger(input.commessaId) ||
       !input.__versioneAttesa ||
-      !input.__firmaAttesa
+      !input.__firmaAttesa ||
+      !input.__percorso?.length
     ) {
       return nonEseguito(
         nome,
         "La commessa non è stata verificata: nessuna modifica applicata."
       );
     }
-    const commessa = commessaInSede(contesto, input.commessaId!);
-    if (!commessa) {
-      return nonEseguito(
-        nome,
-        "Commessa non trovata o operazione non autorizzata."
-      );
-    }
-    const anteprima = verificaTransizioneCommessa({
-      commessa,
-      nuovoStato: input.nuovoStato,
-      haDocumentoRichiesto:
-        dipendenzeTransizioniCommesse().haDocumentoRichiesto,
-      documentiRichiesti:
-        dipendenzeTransizioniCommesse().documentiRichiesti,
-    });
-    if (!anteprima.consentita) {
-      return nonEseguito(
-        nome,
-        anteprima.motivo ?? "La transizione non è consentita nello stato corrente."
-      );
-    }
-    try {
-      const esito = await eseguiTransizioneCommessa(
-        {
-          ctx: contestoAutorizzazione(contesto),
-          commessaId: input.commessaId!,
-          nuovoStato: input.nuovoStato,
-          origine: "tars",
-          versioneAttesa: input.__versioneAttesa,
-          firmaAttesa: input.__firmaAttesa,
-          attoreNome: `Tars — utente ${contesto.utenteId}`,
-        },
-        dipendenzeTransizioniCommesse()
-      );
-      if (esito.riusata || esito.transizioneId == null) {
-        return nonEseguito(
-          nome,
-          "La commessa è già nello stato richiesto: nessuna modifica applicata."
-        );
+    const dipendenze = dipendenzeTransizioniCommesse();
+    const passi: PassoTransizione[] = [];
+    const avvertenze: string[] = [];
+    let versioneAttesa: string = input.__versioneAttesa;
+    let firmaAttesa: string = input.__firmaAttesa;
+    let blocco: string | null = null;
+
+    for (const tappa of input.__percorso) {
+      const corrente = commessaInSede(contesto, commessaId);
+      if (!corrente) {
+        blocco = "Commessa non trovata o operazione non autorizzata.";
+        break;
       }
-      const commessa: any = esito.commessa;
-      return {
-        ...baseAzione(nome),
-        stato: "transizione_eseguita",
-        motivo: null,
-        azioneId: `${nome}:commessa:${commessa.id}:${esito.transizioneId}`,
-        auditId: `commesse_transizioni:${esito.transizioneId}`,
-        entitaToccate: [`commessa:${commessa.id}`],
-        prima: { stato: esito.da, versione: esito.versionePrima },
-        dopo: { stato: esito.a, versione: esito.versioneDopo },
-        undoDisponibile: true,
-        undoEntro:
-          "finché stato e versione della commessa restano quelli prodotti da questa transizione",
-        undoVia: {
-          procedura: "commesse.undoTransizione",
-          id: esito.transizioneId,
-        },
-        dati: {
-          commessaId: commessa.id,
+      const verifica = verificaTransizioneCommessa({
+        commessa: corrente,
+        nuovoStato: tappa,
+        haDocumentoRichiesto: dipendenze.haDocumentoRichiesto,
+        documentiRichiesti: dipendenze.documentiRichiesti,
+      });
+      let bypass = false;
+      if (!verifica.consentita) {
+        if (verifica.gate.bloccante && input.scavalcaGate) {
+          bypass = true;
+          avvertenze.push(
+            `Gate documentale scavalcato su richiesta: mancava «${etichetteGate(verifica.gate.richiesti)}» per lo stato «${leggibile(corrente.stato)}».`
+          );
+        } else if (verifica.gate.bloccante) {
+          blocco = `Fermato a «${leggibile(corrente.stato)}»: il passaggio a «${leggibile(tappa)}» è bloccato dal gate documentale, manca «${etichetteGate(verifica.gate.richiesti)}». Se l'utente vuole procedere comunque, richiama lo strumento con scavalcaGate: true (resta registrato).`;
+          break;
+        } else {
+          blocco = verifica.motivo ?? "La transizione non è consentita nello stato corrente.";
+          break;
+        }
+      }
+      try {
+        const esito = await eseguiTransizioneCommessa(
+          {
+            ctx: contestoAutorizzazione(contesto),
+            commessaId,
+            nuovoStato: tappa,
+            origine: "tars",
+            versioneAttesa,
+            firmaAttesa,
+            bypassGateDocumentale: bypass,
+            attoreNome: `Tars — utente ${contesto.utenteId}`,
+          },
+          dipendenze
+        );
+        if (esito.riusata || esito.transizioneId == null) {
+          blocco = "La commessa è già nello stato richiesto.";
+          break;
+        }
+        passi.push({
           da: esito.da,
           a: esito.a,
-          versione: esito.versioneDopo,
-        },
-        evidenze: [evidenzaCommessa(commessa)],
-        freschezza: new Date().toISOString(),
-        versioniEntita: {
-          [`commessa:${commessa.id}`]: esito.versioneDopo,
-        },
-      } as EsitoAzione;
-    } catch (errore) {
-      return nonEseguito(nome, motivoSicuro(errore));
+          transizioneId: esito.transizioneId,
+          gateScavalcato: bypass,
+          versionePrima: esito.versionePrima,
+          versioneDopo: esito.versioneDopo,
+        });
+        versioneAttesa = esito.versioneDopo;
+        const rilettura = commessaInSede(contesto, commessaId);
+        if (!rilettura) {
+          blocco = "Commessa non trovata o operazione non autorizzata.";
+          break;
+        }
+        firmaAttesa = firmaTransizioneCommessa(rilettura);
+      } catch (errore) {
+        blocco = motivoSicuro(errore);
+        break;
+      }
     }
+
+    if (passi.length === 0) {
+      return nonEseguito(nome, blocco ?? "Nessun passaggio eseguito.");
+    }
+    const ultimo = passi[passi.length - 1];
+    const commessa: any = commessaInSede(contesto, commessaId) ?? { id: commessaId };
+    const arrivata = ultimo.a === input.nuovoStato;
+    return {
+      ...baseAzione(nome),
+      stato: arrivata ? "transizione_eseguita" : "transizione_parziale",
+      motivo: arrivata ? null : blocco,
+      azioneId: `${nome}:commessa:${commessaId}:${ultimo.transizioneId}`,
+      auditId: `commesse_transizioni:${ultimo.transizioneId}`,
+      entitaToccate: [`commessa:${commessaId}`],
+      prima: { stato: passi[0].da, versione: passi[0].versionePrima },
+      dopo: { stato: ultimo.a, versione: ultimo.versioneDopo },
+      undoDisponibile: true,
+      undoEntro:
+        "finché stato e versione della commessa restano quelli prodotti dall'ultimo passaggio; i passaggi si annullano uno alla volta, dall'ultimo",
+      undoVia: {
+        procedura: "commesse.undoTransizione",
+        id: ultimo.transizioneId,
+      },
+      avvertenze,
+      dati: {
+        commessaId,
+        da: passi[0].da,
+        a: ultimo.a,
+        statoChiesto: input.nuovoStato,
+        arrivata,
+        passi,
+        versione: ultimo.versioneDopo,
+      },
+      evidenze: [evidenzaCommessa(commessa)],
+      freschezza: new Date().toISOString(),
+      versioniEntita: {
+        [`commessa:${commessaId}`]: ultimo.versioneDopo,
+      },
+    } as EsitoAzione;
   },
 };
 

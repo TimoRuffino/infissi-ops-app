@@ -165,7 +165,8 @@ describe("servizio canonico transizioni commessa", () => {
           ctx: ctx(),
           commessaId: commessa.id,
           nuovoStato: "misure_esecutive",
-          origine: "tars",
+          // Tars libero: Tars può scavalcare (come il board); l'Undo mai.
+          origine: "undo",
           versioneAttesa: modulo.versioneCommessa(commessa),
           bypassGateDocumentale: true,
           attoreNome: "Direzione transizioni",

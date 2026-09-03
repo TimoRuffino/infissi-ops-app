@@ -142,6 +142,12 @@ export function pianificaAllegati(input: {
   });
 }
 
+/** Oltre questa età (giorni) nessuna proposta: regolabile con TARS_SMISTAMENTO_GIORNI_PROPOSTE. */
+export function giorniProposte(): number {
+  const n = Number.parseInt(process.env.TARS_SMISTAMENTO_GIORNI_PROPOSTE ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
+}
+
 /** Sotto questo punteggio un candidato non regge da solo un collegamento automatico. */
 export const PUNTEGGIO_MINIMO_SICURO = 30;
 /** Un secondo candidato commessa entro questo margine rende il caso ambiguo. */
@@ -257,8 +263,10 @@ export async function applicaSmistamento(input: {
   analisi: EsitoAnalisi;
   allegati: readonly AllegatoPerAnalisi[];
   deps?: DipendenzeApplica;
+  adesso?: Date;
 }): Promise<EsitoApplica> {
   const deps = input.deps ?? DIPENDENZE_APPLICA_REALI;
+  const adesso = input.adesso ?? new Date();
   const { comunicazione, candidati, analisi } = input;
   const avvertenze = [...analisi.avvertenze];
 
@@ -306,20 +314,31 @@ export async function applicaSmistamento(input: {
     // Un candidato SOLO cliente (senza commessa) a confidenza media è
     // rumore (riesame 02/09 sera: «il riferimento contiene il cognome
     // Baldacci, coerente con il cliente candidato»): si propone solo se alta.
+    // Una proposta ha senso solo su lavoro vivo: una mail di mesi fa o già
+    // gestita da una persona non si ripropone (direzione, 02/09 notte:
+    // «continua a fare proposte su commesse vecchie mesi o già gestite»).
+    const etaGiorni = (adesso.getTime() - new Date(comunicazione.receivedAt).getTime()) / 86_400_000;
+    const vecchia = etaGiorni > giorniProposte();
+    const giaGestita = comunicazione.stato === "gestita";
     const inutile =
       (proposto.tipo === "cliente" && clienteCollegato === proposto.id) ||
       proposto.confidenza === "bassa" ||
-      (proposto.tipo === "cliente" && proposto.confidenza !== "alta");
+      (proposto.tipo === "cliente" && proposto.confidenza !== "alta") ||
+      vecchia ||
+      giaGestita;
     if (inutile) {
       collegamento = {
         esito: "nessuno",
         commessaId: null,
         clienteId: clienteCollegato,
         confidenza: "bassa",
-        motivo:
-          proposto.confidenza === "bassa"
-            ? `Indizio debole, nessuna proposta: ${proposto.motivo}`
-            : "Cliente già collegato; nessuna commessa individuabile.",
+        motivo: vecchia
+          ? `Comunicazione di ${Math.floor(etaGiorni)} giorni fa: nessuna proposta, solo collegamenti certi.`
+          : giaGestita
+            ? "Comunicazione già gestita: nessuna proposta."
+            : proposto.confidenza === "bassa"
+              ? `Indizio debole, nessuna proposta: ${proposto.motivo}`
+              : "Cliente già collegato; nessuna commessa individuabile.",
       };
     } else {
       collegamento = {

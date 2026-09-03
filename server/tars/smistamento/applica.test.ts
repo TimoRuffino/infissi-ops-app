@@ -303,3 +303,49 @@ describe("pianificaAllegati (D2)", () => {
     expect(daWhatsApp.map(p => p.archiviare)).toEqual([true, false]);
   });
 });
+
+describe("niente proposte su lavoro morto (02/09 notte)", () => {
+  it("una comunicazione di 45 giorni fa non diventa una proposta; una già gestita nemmeno; i collegamenti certi restano", async () => {
+    const lista = [{ tipo: "commessa" as const, id: 4747, etichetta: "COM-2026-047 — Vecchia Mail", punteggio: 50, motivi: [] }];
+    const proposta = { tipo: "commessa" as const, id: 4747, confidenza: "media" as const, motivo: "Riferimento plausibile." };
+    const vecchia = await applicaSmistamento({
+      comunicazione: await inserisci({ receivedAt: new Date(Date.now() - 45 * 86_400_000) }),
+      candidati: candidati({ candidati: lista }),
+      analisi: analisi({ collegamento: proposta }),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(vecchia.propostaStato).toBe("nessuna");
+    expect(vecchia.esito.collegamento.esito).toBe("nessuno");
+    expect(vecchia.esito.collegamento.motivo).toMatch(/45 giorni fa/);
+
+    const gestita = await applicaSmistamento({
+      comunicazione: await inserisci({ stato: "gestita" }),
+      candidati: candidati({ candidati: lista }),
+      analisi: analisi({ collegamento: proposta }),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(gestita.propostaStato).toBe("nessuna");
+    expect(gestita.esito.collegamento.motivo).toMatch(/già gestita/);
+
+    const recente = await applicaSmistamento({
+      comunicazione: await inserisci(),
+      candidati: candidati({ candidati: lista }),
+      analisi: analisi({ collegamento: proposta }),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(recente.propostaStato).toBe("aperta");
+
+    // Un verdetto certo su una mail vecchia si applica lo stesso: è un fatto, non una proposta.
+    const certaVecchia = await applicaSmistamento({
+      comunicazione: await inserisci({ receivedAt: new Date(Date.now() - 45 * 86_400_000) }),
+      candidati: candidati({ certo: { commessaId: 4848, clienteId: 77, motivo: "Codice nel testo." } }),
+      analisi: analisi(),
+      allegati: [],
+      deps: depsFinte(),
+    });
+    expect(certaVecchia.esito.collegamento.esito).toBe("certo");
+  });
+});

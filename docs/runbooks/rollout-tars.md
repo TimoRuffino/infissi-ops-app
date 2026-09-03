@@ -60,6 +60,9 @@ dal 02/09 sera le classi in background viaggiano sempre sul tier
 normale e il ledger scala le tariffe per classe),
 `TARS_SMISTAMENTO_GIORNI_MODELLO` (14: oltre, smistamento deterministico
 senza modello; era 90 e il primo giorno l'arretrato è costato 27 USD),
+`TARS_SMISTAMENTO_GIORNI_PROPOSTE` (30: oltre, nessuna proposta, solo
+collegamenti certi; le proposte aperte più vecchie, già gestite o collegate
+a mano scadono da sole a ogni giro),
 `TARS_MAX_TOOL_STEPS` (6), `TARS_MAX_OUTPUT_TOKENS`
 (1200), `TARS_PROVIDER_TIMEOUT_MS` (45000), `TARS_MAX_MODEL_CALLS` (8),
 `TARS_MAX_RUN_MS` (180000), `TARS_MAX_CONTEXT_CHARS` (120000),

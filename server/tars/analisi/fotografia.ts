@@ -21,6 +21,8 @@ const CASI_MASSIMI = 12;
 const OSSERVAZIONI_MASSIME = 10;
 const TICKET_MASSIMI = 6;
 const GIORNI_INTERVENTI = 7;
+/** Una commessa senza aggiornamenti da così tanto è dormiente: non lavoro da proporre, al più da archiviare. */
+export const GIORNI_DORMIENTE = 120;
 
 function giorniDa(data: Date | string | null | undefined, adesso: Date): number | null {
   if (!data) return null;
@@ -117,6 +119,7 @@ export async function costruisciFotografia(input: {
   }
   const ferme = [...commesse]
     .map(c => ({ c, giorni: giorniDa(c.updatedAt ?? c.createdAt, adesso) ?? 0 }))
+    .filter(x => x.giorni <= GIORNI_DORMIENTE)
     .sort((a, b) => b.giorni - a.giorni)
     .slice(0, COMMESSE_FERME);
   for (const { c, giorni } of ferme) {
@@ -131,9 +134,22 @@ export async function costruisciFotografia(input: {
   sezioni.push({ chiave: "commesse", titolo: "Commesse", fatti: fattiCommesse });
 
   // 2. Casi aperti del Centro Azioni (già deterministici e prioritizzati).
-  const casi = await tenta(() => deps.casiAperti(sedeId), [] as any[]);
+  // I casi su commesse DORMIENTI (ferme da oltre 120 giorni) vanno a parte:
+  // non sono lavoro da proporre, al più roba da archiviare in blocco
+  // (direzione, 02/09 notte: «proposte su commesse vecchie mesi»).
+  const tuttiICasi = await tenta(() => deps.casiAperti(sedeId), [] as any[]);
+  const perCommessa = new Map<number, any>(deps.commesse().map(c => [c.id, c]));
+  const dormiente = (commessaId: number | null | undefined) => {
+    if (commessaId == null) return false;
+    const c = perCommessa.get(commessaId);
+    if (!c) return false;
+    return (giorniDa(c.updatedAt ?? c.createdAt, adesso) ?? 0) > GIORNI_DORMIENTE;
+  };
+  const casi = tuttiICasi.filter(k => !dormiente(k.commessaId));
+  const casiDormienti = tuttiICasi.filter(k => dormiente(k.commessaId));
   contatori.casiAperti = casi.length;
   contatori.casiCritici = casi.filter(k => k.priority === "critica").length;
+  contatori.casiSuCommesseDormienti = casiDormienti.length;
   sezioni.push({
     chiave: "casi",
     titolo: "Casi aperti del Centro Azioni",
@@ -146,6 +162,27 @@ export async function costruisciFotografia(input: {
         entita: [`caso:${k.id}`, ...(k.commessaId ? [`commessa:${k.commessaId}`] : [])],
         link: k.link ?? (k.commessaId ? `/commesse/${k.commessaId}` : null),
       })),
+  });
+
+  const commesseDormienti = commesse.filter(c => dormiente(c.id));
+  contatori.commesseDormienti = commesseDormienti.length;
+  sezioni.push({
+    chiave: "dormienti",
+    titolo: "Commesse dormienti (ferme da oltre 120 giorni): niente lavoro da proporre, al più archiviarle in blocco",
+    fatti:
+      commesseDormienti.length > 0
+        ? [
+            {
+              chiave: "dormienti:elenco",
+              testo: `${commesseDormienti.length} commesse ferme da oltre ${GIORNI_DORMIENTE} giorni: ${commesseDormienti
+                .slice(0, 10)
+                .map(c => `${etichettaCommessa(c)} (${c.stato}, ${giorniDa(c.updatedAt ?? c.createdAt, adesso)} gg)`)
+                .join("; ")}${commesseDormienti.length > 10 ? "; …" : ""}. ${casiDormienti.length} casi aperti le riguardano.`,
+              entita: commesseDormienti.slice(0, 10).map(c => `commessa:${c.id}`),
+              link: "/commesse",
+            },
+          ]
+        : [],
   });
 
   // 3. Osservazioni aperte dell'osservatore.

@@ -87,7 +87,9 @@ export type StatoProposta =
   | "aperta"
   | "approvata"
   | "rifiutata"
-  | "superata";
+  | "superata"
+  // Proposta invecchiata o resa inutile (mail già gestita/collegata a mano): chiusa dal worker (02/09 notte).
+  | "scaduta";
 
 export type RecordSmistamento = {
   comunicazioneId: number;

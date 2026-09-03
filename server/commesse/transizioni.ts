@@ -377,8 +377,12 @@ async function applicaTransizioneCommessa(
   },
   dipendenze: DipendenzeTransizioneCommessa
 ): Promise<EsitoTransizioneCommessa> {
-  if (input.origine !== "router" && input.bypassGateDocumentale) {
-    throw new Error("BYPASS_GATE_VIETATO: Tars e Undo non accettano force.");
+  // Tars libero (02/09/2026 sera): Tars scavalca un gate documentale come
+  // farebbe l'utente dal board («Procedi comunque»), con la stessa
+  // autorizzazione e SOLO su richiesta esplicita (lo decide lo strumento);
+  // resta registrato in `bypassGateDocumentale`. L'Undo non forza mai.
+  if (input.origine === "undo" && input.bypassGateDocumentale) {
+    throw new Error("BYPASS_GATE_VIETATO: l'Undo non accetta force.");
   }
   if (
     input.origine !== "router" &&
@@ -442,8 +446,8 @@ async function applicaTransizioneCommessa(
   });
   if (!verifica.consentita) {
     if (verifica.gate.bloccante && input.bypassGateDocumentale) {
-      // Compatibilità UI: il solo router legacy può oltrepassare il gate
-      // dopo la conferma «Procedi comunque» già esistente.
+      // «Procedi comunque»: dal board (router) o da Tars su richiesta
+      // esplicita dell'utente; il registro conserva il flag.
     } else if (verifica.gate.bloccante) {
       const labels = verifica.gate.richiesti
         .map(tipo => dipendenze.etichettaDocumento(tipo))

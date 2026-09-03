@@ -40,7 +40,7 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
 | `verifica_gate_commessa` — gate | `preventiviContratti.statoHasRequiredDoc` | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, nessuna transizione. |
 | `verifica_transizione_commessa` — preview stato | `commesse/transizioni.verificaTransizioneCommessa` | L0 | R0 | `commessa.read`; sede verificata | T + RT | `azioni/commesse.test.ts`; stato/versione, adiacenza e gate senza effetti. |
-| `transizione_adiacente_commessa` — stato commessa | `commesse/transizioni.eseguiTransizioneCommessa` (stesso comando del router) | L2 | R1 | `commessa.update_operational` + `commessa.change_state`; comando esplicito legato dal server a commessa e target/direzione; optimistic lock; nessun `force` | T + L2 | `commesse/transizioni.test.ts`, `azioni/commesse.test.ts`, `routers/commesse.test.ts`; audit, idempotenza ledger e Undo server-side sicuro. |
+| `transizione_adiacente_commessa` — stato commessa | `commesse/transizioni.eseguiTransizioneCommessa` (stesso comando del router) | L2 | R1 | `commessa.update_operational` + `commessa.change_state`; stato di arrivo anche NON adiacente (un passaggio alla volta, ognuno registrato e annullabile); optimistic lock per passaggio; `scavalcaGate` = «Procedi comunque» del board, solo su richiesta esplicita dell'utente, registrato (`bypassGateDocumentale`) e dichiarato; l'Undo non forza mai (02/09 sera) | T + L2 | `commesse/transizioni.test.ts`, `azioni/commesse.test.ts`, `routers/commesse.test.ts`; audit, idempotenza ledger e Undo server-side sicuro. |
 | `leggi_ordini_fornitore` — ordini | `routers/fornitori` | L0 | R0 | `commessa.read`; economia opzionale e sagomata | T + RT | `orchestratore.test.ts`; esistente. Non richiede capability/flag proposte. |
 | `leggi_analisi_ordine` — Document Intelligence | `documenti/analisi` | L0 | R0 | `commessa.read` + direzione | T + RT + DI | `t6Documenti.test.ts`; esistente, legge run/evidenze senza agire. |
 | `leggi_centro_azioni` — Centro Azioni | `actionCenter/service.listActionCases` | L0 | R0 | `commessa.read`; scope `site` solo direzione | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
@@ -69,7 +69,7 @@ atteso e documentato è **23**; ogni nome compare una volta nella tabella.
 
 | Dominio / operazione trovata | Stato reale e gap |
 | --- | --- |
-| Note e associazione documento alla commessa | La transizione adiacente T3 è ora un tool R1 sul servizio canonico condiviso; `force` resta soltanto nel router legacy. Restano gap della catena Maccari la lettura/classificazione/archiviazione certa dell'allegato e le eventuali note/associazioni tipizzate. |
+| Note e associazione documento alla commessa | La transizione adiacente T3 è ora un tool R1 sul servizio canonico condiviso; lo scavalco del gate (`scavalcaGate`, 02/09 sera) segue la stessa regola del board: solo su richiesta esplicita, registrato. Restano gap della catena Maccari la lettura/classificazione/archiviazione certa dell'allegato e le eventuali note/associazioni tipizzate. |
 | Allegato email, match, archivio e classificazione | Esistono `mail.email.archiviaAllegato`, `archiviaAllegatoComunicazione` e lettura raw, ma nessun tool Tars. Servono servizi tipizzati per match certo/ambiguo e la regressione Maccari. |
 | Economia/FiC e comunicazioni esterne | Le scritture economiche e ogni invio restano fuori catalogo. Nessun tool generico è ammesso; per un invio servono integrazione, preview, una conferma, revalidation e audit. |
 | Proattività L1 | `tars/briefing.ts` ha solo due detector shadow (ordine in ritardo; conflitto date), testati in `briefing.test.ts`. Mancano coda persistente, auto-risoluzione e i detector obbligatori. |
@@ -78,7 +78,7 @@ atteso e documentato è **23**; ogni nome compare una volta nella tabella.
 
 ## Guardrail non negoziabili
 
-- Nessun `force` in un input Tars, anche dove un router legacy lo mantiene per
+- Nessun `force` generico in un input Tars (lo scavalco del gate documentale è tipizzato, esplicito e registrato: `scavalcaGate`), anche dove un router legacy lo mantiene per
   retrocompatibilità.
 - Il modello non invoca procedure tRPC: ogni tool chiama un servizio di dominio
   tipizzato e ne riceve un esito strutturato.

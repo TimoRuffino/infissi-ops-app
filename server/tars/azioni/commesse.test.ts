@@ -4,7 +4,7 @@ import { appRouter } from "../../routers";
 import { descrittoreAzione } from "./registry";
 import { costruisciContesto } from "../contesto";
 import { derivaStatoOperativo } from "../orchestratore";
-import { versioneCommessa } from "../../commesse/transizioni";
+import { storeTransizioniCommessa, versioneCommessa } from "../../commesse/transizioni";
 import { getCommessaById } from "../../routers/commesse";
 
 const SEDE = 98501;
@@ -333,5 +333,101 @@ describe("Tars — transizioni canoniche di commessa", () => {
     });
     expect((await caller.commesse.byId(autorizzata.id)).stato).toBe("preventivo");
     expect((await caller.commesse.byId(altra.id)).stato).toBe("preventivo");
+  });
+});
+
+describe("Tars libero — stato di arrivo non adiacente e gate (02/09/2026 sera)", () => {
+  it("fa i passaggi uno alla volta; il gate lo ferma; con scavalcaGate lo supera, registrato, e l'Undo torna indietro di un passo", async () => {
+    const caller = appRouter.createCaller(contestoTrpc(98516));
+    const commessa = await caller.commesse.create({ cliente: "Tars multi" });
+    await caller.preventiviContratti.upload({
+      commessaId: commessa.id,
+      nome: "preventivo-multi.pdf",
+      tipo: "preventivo",
+      mimeType: "application/pdf",
+      size: 4,
+      dataBase64: "dGVzdA==",
+    });
+    const contesto = (await costruisciContesto(contestoTrpc(98516))) as any;
+    const azione = descrittoreAzione("transizione_adiacente_commessa")!;
+
+    // Senza scavalco: preventivo → misure_esecutive passa (gate del
+    // preventivo soddisfatto), poi «misure» manca → si ferma lì e lo dice.
+    const m1 = await azione.strumento.materializzaInput!(contesto, {
+      commessaId: commessa.id,
+      nuovoStato: "fatture_pagamento",
+    });
+    expect(m1.tipo).toBe("input");
+    if (m1.tipo !== "input") return;
+    const parziale = await azione.strumento.esegui(contesto, m1.input);
+    expect(parziale).toMatchObject({
+      stato: "transizione_parziale",
+      prima: { stato: "preventivo" },
+      dopo: { stato: "misure_esecutive" },
+      dati: { arrivata: false, statoChiesto: "fatture_pagamento" },
+    });
+    expect(parziale.motivo).toMatch(/gate documentale/i);
+    expect(parziale.motivo).toMatch(/scavalcaGate/);
+    expect((await caller.commesse.byId(commessa.id)).stato).toBe("misure_esecutive");
+
+    // Con scavalco esplicito: due passaggi, entrambi col gate scavalcato,
+    // dichiarati nelle avvertenze e registrati nel registro transizioni.
+    const m2 = await azione.strumento.materializzaInput!(contesto, {
+      commessaId: commessa.id,
+      nuovoStato: "fatture_pagamento",
+      scavalcaGate: true,
+    });
+    expect(m2.tipo).toBe("input");
+    if (m2.tipo !== "input") return;
+    const completa = await azione.strumento.esegui(contesto, m2.input);
+    expect(completa).toMatchObject({
+      stato: "transizione_eseguita",
+      prima: { stato: "misure_esecutive" },
+      dopo: { stato: "fatture_pagamento" },
+      undoDisponibile: true,
+      dati: { arrivata: true },
+    });
+    expect(completa.dati.passi).toHaveLength(2);
+    expect(completa.dati.passi.every((p: any) => p.gateScavalcato)).toBe(true);
+    expect(completa.avvertenze).toHaveLength(2);
+    expect(completa.avvertenze[0]).toMatch(/scavalcato/i);
+    const registro = (storeTransizioniCommessa.items as any[]).filter(
+      r => r.commessaId === commessa.id
+    );
+    expect(registro.filter(r => r.bypassGateDocumentale)).toHaveLength(2);
+    expect((await caller.commesse.byId(commessa.id)).stato).toBe("fatture_pagamento");
+
+    // Undo: un passaggio alla volta, dall'ultimo.
+    await (caller.commesse as any).undoTransizione({
+      transizioneId: (completa.undoVia as any).id,
+    });
+    expect((await caller.commesse.byId(commessa.id)).stato).toBe("aggiornamento_contratto");
+
+    // All'indietro: lo stato precedente, senza gate.
+    const m3 = await azione.strumento.materializzaInput!(contesto, {
+      commessaId: commessa.id,
+      nuovoStato: "preventivo",
+    });
+    expect(m3.tipo).toBe("input");
+    if (m3.tipo !== "input") return;
+    const indietro = await azione.strumento.esegui(contesto, m3.input);
+    expect(indietro).toMatchObject({ stato: "transizione_eseguita", dopo: { stato: "preventivo" } });
+    expect(indietro.dati.passi).toHaveLength(2);
+  });
+
+  it("senza scavalco, un gate già bloccante al primo passo → non eseguito con l'istruzione per il modello", async () => {
+    const caller = appRouter.createCaller(contestoTrpc(98517));
+    const commessa = await caller.commesse.create({ cliente: "Tars gate" });
+    const contesto = (await costruisciContesto(contestoTrpc(98517))) as any;
+    const azione = descrittoreAzione("transizione_adiacente_commessa")!;
+    const m = await azione.strumento.materializzaInput!(contesto, {
+      commessaId: commessa.id,
+      nuovoStato: "misure_esecutive",
+    });
+    expect(m).toMatchObject({ tipo: "esito", esito: { stato: "non_eseguito" } });
+    if (m.tipo !== "esito") return;
+    expect(m.esito.motivo).toMatch(/manca «/);
+    expect(m.esito.motivo).toMatch(/scavalcaGate: true/);
+    expect((await caller.commesse.byId(commessa.id)).stato).toBe("preventivo");
   });
 });

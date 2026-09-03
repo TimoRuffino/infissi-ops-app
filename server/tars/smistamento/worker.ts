@@ -16,6 +16,7 @@ import {
 } from "../../comunicazioni/comunicazioni";
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
 import { classificaComunicazione } from "../../comunicazioni/filtroComunicazioni";
+import { giorniProposte } from "./applica";
 import { estraiTestoDocumento } from "../../documenti/parserRegistry";
 import { tarsAttivo } from "../../platform/interruttori";
 import { creaProviderPerRun, statoProvider } from "../costi/providerGovernato";
@@ -181,6 +182,8 @@ async function allegatiPerAnalisi(
 export type EsitoGiro = {
   sedeId: number;
   esaminate: number;
+  /** Proposte aperte chiuse come scadute in questo giro. */
+  scadute: number;
   analizzate: number;
   conModello: number;
   collegateCerte: number;
@@ -270,6 +273,7 @@ export async function smistaComunicazione(input: {
     analisi,
     allegati,
     deps: deps.applica,
+    adesso: now,
   });
   await deps.repository.registra({
     comunicazioneId: comunicazione.id,
@@ -306,9 +310,26 @@ export async function eseguiGiroSmistamento(input: {
     proposte: 0,
     archiviati: 0,
     errori: 0,
+    scadute: 0,
   };
   const daRicevutaAl = new Date(now.getTime() - GIORNI_MASSIMI * 86_400_000);
   const limite = input.limite ?? LOTTO_PER_GIRO;
+  // Manutenzione: le proposte aperte su mail invecchiate, già gestite o
+  // collegate a mano scadono da sole — nessuno deve decidere su roba morta.
+  const limiteProposte = new Date(now.getTime() - giorniProposte() * 86_400_000);
+  for (const record of await deps.repository.proposteAperte(input.sedeId, 200)) {
+    const c = await getLiveComunicazione(record.comunicazioneId, input.sedeId);
+    const morta = !c || new Date(c.receivedAt) < limiteProposte || c.stato === "gestita" || c.commessaId != null;
+    if (!morta) continue;
+    await deps.repository.decidiProposta({
+      sedeId: input.sedeId,
+      comunicazioneId: record.comunicazioneId,
+      stato: "scaduta",
+      utenteId: null,
+      now,
+    });
+    esito.scadute += 1;
+  }
   // Prima le proposte aperte di una versione precedente: un errore
   // sistematico corretto nel codice non deve restare in coda a chi
   // decide. Poi le comunicazioni mai smistate, recenti prima.
