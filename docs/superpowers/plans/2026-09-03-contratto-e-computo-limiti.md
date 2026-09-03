@@ -3078,6 +3078,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 10: Repository e servizio del computo
 
+> **Delta (campi nuovi del motore, Task 2/9):** `computi` ha la colonna `dei_prodotti_cent BIGINT` (dopo `check2_cent`) e `computo_voci` le colonne `inclusa BOOLEAN NOT NULL DEFAULT TRUE`, `in_check1 BOOLEAN NOT NULL DEFAULT TRUE`, `in_check2 BOOLEAN NOT NULL DEFAULT TRUE`; `rowToComputo`/`rowToVoce`, gli INSERT e i test (memoria e Postgres: `ComputoPersist` con `deiProdottiCent`, voci con `inclusa/inCheck1/inCheck2`) li includono. `eseguiComputo` passa a `calcolaLimiti` anche `opzioni: contratto.opzioniComputo` e salva `deiProdottiCent: esito.deiProdottiCent`. Nel test del servizio l'atteso di `massimale_A` con una PF 1900×2400 ×3 è `1067040` come scritto (780 × 13,68).
+
 **Files:**
 - Create: `server/computo/repository.ts`
 - Create: `server/computo/servizio.ts`
@@ -4563,6 +4565,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ### Task 14: Tab «Limiti», badge «da contratto» e riga di stato
+
+> **Delta:** le voci con `inclusa === false` si mostrano attenuate (`text-muted-foreground`) con badge «non inclusa» e non entrano nel `totaleCent` del gruppo (`raggruppaVoci` somma solo le incluse; test: una voce non inclusa non cambia il totale). Il riepilogo in testa aggiunge la card «CHECK 2 · prodotti DEI» con `formatCent(c.deiProdottiCent)` (sei card, `md:grid-cols-6`). Le voci `dei_riga_n` mostrano nel popover «perché» le chiavi di `dettaglio` così come sono (base, oscurante, accessori).
 
 **Files:**
 - Create: `client/src/lib/limitiView.ts`
