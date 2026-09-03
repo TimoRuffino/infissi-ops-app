@@ -62,8 +62,8 @@ afterEach(() => {
 
 describe("registro centrale delle azioni Tars", () => {
   it("registra una volta sola tutti i tool correnti con un descrittore completo", () => {
-    expect(REGISTRO_AZIONI).toHaveLength(49);
-    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(49);
+    expect(REGISTRO_AZIONI).toHaveLength(52);
+    expect(new Set(REGISTRO_AZIONI.map(a => a.nome)).size).toBe(52);
 
     for (const azione of REGISTRO_AZIONI) {
       expect(azione.versioneRegistro).toMatch(/^1\./);
@@ -139,6 +139,9 @@ describe("registro centrale delle azioni Tars", () => {
       aggiorna_ticket: "R1",
       chiudi_ticket: "R1",
       pianifica_intervento: "R1",
+      leggi_agenda: "R0",
+      sposta_intervento: "R1",
+      segna_intervento_fatto: "R1",
       collega_comunicazione: "R1",
       classifica_comunicazione: "R1",
       segna_gestita_comunicazione: "R1",
@@ -242,6 +245,9 @@ describe("registro centrale delle azioni Tars", () => {
       aggiorna_ticket: "entita",
       chiudi_ticket: "entita",
       pianifica_intervento: "entita",
+      leggi_agenda: "sede",
+      sposta_intervento: "entita",
+      segna_intervento_fatto: "entita",
       collega_comunicazione: "entita",
       classifica_comunicazione: "entita",
       segna_gestita_comunicazione: "entita",
@@ -296,6 +302,8 @@ describe("registro centrale delle azioni Tars", () => {
       aggiorna_ticket: false,
       chiudi_ticket: false,
       pianifica_intervento: false,
+      sposta_intervento: false,
+      segna_intervento_fatto: false,
       collega_comunicazione: false,
       classifica_comunicazione: false,
       segna_gestita_comunicazione: false,
@@ -352,7 +360,7 @@ describe("policy dinamica del catalogo", () => {
       intento: "proposta" as const,
     };
     const catalogo = catalogoAzioniPerContesto({ ...contesto(), ...selettori });
-    expect(catalogo).toHaveLength(49);
+    expect(catalogo).toHaveLength(52);
     expect(catalogo.map(a => a.nome)).toContain("proponi_data_consegna");
     expect(catalogo.map(a => a.nome)).toContain("cerca_commesse");
     expect(
@@ -401,7 +409,7 @@ describe("policy dinamica del catalogo", () => {
 
   it("con o senza selettori il catalogo è lo stesso: tutto l'autorizzato", () => {
     const completo = catalogoAzioniPerContesto(contesto()).map(a => a.nome);
-    expect(completo).toHaveLength(49);
+    expect(completo).toHaveLength(52);
     expect(completo).toContain("crea_promemoria");
     expect(completo).toContain("proponi_data_consegna");
 

@@ -12,6 +12,11 @@ const _squadreStore = persistedStore<any>("squadre", (loaded) => {
 });
 const squadre = _squadreStore.items;
 
+// L'agenda di Tars (T4) mette il NOME della squadra accanto all'intervento.
+export function getSquadreStore() {
+  return squadre;
+}
+
 export const squadreRouter = router({
   list: protectedProcedure.query(({ ctx }) => {
     return squadre

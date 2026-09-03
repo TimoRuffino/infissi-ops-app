@@ -15,6 +15,7 @@ import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "../strumenti/proposte";
 import { STRUMENTI_PROATTIVITA } from "../strumenti/proattivita";
+import { STRUMENTI_AGENDA } from "../strumenti/agenda";
 import { STRUMENTI_RICERCA } from "../strumenti/ricerca";
 import { STRUMENTI_TICKET } from "../strumenti/ticket";
 import { STRUMENTI_SCRITTURA } from "../strumenti/scrittura";
@@ -30,7 +31,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.11.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.12.0";
 
 const schemaLettura = z
   .object({
@@ -250,6 +251,10 @@ const METADATI: Record<string, Metadati> = {
   aggiorna_ticket: r1("aggiorna_ticket", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
   chiudi_ticket: r1("chiudi_ticket", "entita", ["generale", "commessa", "post-vendita"], ["commessa", "cliente"], ["tars", "tarsL2Actions"], false),
   pianifica_intervento: r1("pianifica_intervento", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  // Agenda T4 (03/09/2026): il calendario dentro il CRM.
+  leggi_agenda: lettura("sede", ["generale", "commessa", "post-vendita"], ["commessa"]),
+  sposta_intervento: r1("sposta_intervento", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
+  segna_intervento_fatto: r1("segna_intervento_fatto", "entita", ["generale", "commessa", "post-vendita"], ["commessa"], ["tars", "tarsL2Actions"], false),
   collega_comunicazione: r1("collega_comunicazione", "entita", ["generale", "commessa", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
   classifica_comunicazione: r1("classifica_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
   segna_gestita_comunicazione: r1("segna_gestita_comunicazione", "entita", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsL2Actions", "tarsCommunications"], false),
@@ -424,6 +429,7 @@ const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_TICKET,
   ...STRUMENTI_SCRITTURA,
   ...STRUMENTI_RICERCA,
+  ...STRUMENTI_AGENDA,
 ];
 
 function costruisciRegistro(): DescrittoreAzioneTars[] {

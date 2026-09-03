@@ -436,7 +436,9 @@ function dataLocaleDa(quando: string, adesso: Date): { data: string; assunzioni:
 
 const pianificaIntervento: StrumentoTars = {
   nome: "pianifica_intervento",
-  versione: "1.0.0",
+  // 1.1.0 (T4): anche la squadra, dal catalogo — il router esige
+  // intervento.assign quando la squadra viene indicata.
+  versione: "1.1.0",
   categoria: "interventi",
   livello: "L2",
   effetto: "interno",
@@ -444,7 +446,7 @@ const pianificaIntervento: StrumentoTars = {
   capability: ["intervento.plan"],
   interruttore: "tarsL2Actions",
   descrizione:
-    "Pianifica un intervento (rilievo, posa, assistenza, altro) su una commessa (indicata o attiva), in una data: passa «quando» con le parole dell'utente («martedì prossimo», «domani mattina») oppure una data YYYY-MM-DD; orari facoltativi HH:MM. Va nel calendario della sede. Squadra e stato si gestiscono dal calendario.",
+    "Pianifica un intervento (rilievo, posa, assistenza, altro) su una commessa (indicata o attiva), in una data: passa «quando» con le parole dell'utente («martedì prossimo», «domani mattina») oppure una data YYYY-MM-DD; orari facoltativi HH:MM; squadraId se l'utente ha detto quale squadra (leggi_agenda le elenca). Va nel calendario della sede (/planning).",
   schemaInput: z
     .object({
       commessaId: z.number().int().positive().optional(),
@@ -453,6 +455,7 @@ const pianificaIntervento: StrumentoTars = {
       data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       oraInizio: z.string().regex(/^\d{2}:\d{2}$/).optional(),
       oraFine: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      squadraId: z.number().int().positive().optional(),
       indirizzo: z.string().max(160).optional(),
       note: z.string().max(1000).optional(),
     })
@@ -484,6 +487,7 @@ const pianificaIntervento: StrumentoTars = {
         dataPianificata: data,
         oraInizio: input.oraInizio ?? null,
         oraFine: input.oraFine ?? null,
+        ...(input.squadraId != null ? { squadraId: input.squadraId } : {}),
         indirizzo: input.indirizzo ?? commessa.indirizzo ?? undefined,
         note: input.note ? `${input.note} (pianificato da Tars)` : "Pianificato da Tars.",
       });
@@ -493,9 +497,12 @@ const pianificaIntervento: StrumentoTars = {
           stato: "pianificato",
           azioneId: `${nome}:intervento:${intervento.id}`,
           entitaToccate: [`intervento:${intervento.id}`, `commessa:${commessaId}`],
-          dopo: { id: intervento.id, tipo: intervento.tipo, data, oraInizio: intervento.oraInizio, oraFine: intervento.oraFine, link: "/planning" },
+          dopo: { id: intervento.id, tipo: intervento.tipo, data, oraInizio: intervento.oraInizio, oraFine: intervento.oraFine, squadraId: intervento.squadraId ?? null, link: "/planning" },
           evidenze: [evidenzaCommessa(commessa), { tipo: "entita", riferimento: `intervento:${intervento.id}`, descrizione: `${intervento.tipo} il ${data}` }],
-          avvertenze: ["Senza squadra assegnata: si assegna dal calendario."],
+          avvertenze:
+            intervento.squadraId == null
+              ? ["Senza squadra assegnata: indicala o si assegna dal calendario."]
+              : [],
         }),
         assunzioni,
       };
