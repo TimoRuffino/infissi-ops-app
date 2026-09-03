@@ -264,24 +264,34 @@ async function salvaEntriesAtomici(
   if (!sql) return;
   await ensureSchema();
   // I blob vanno congelati insieme prima del BEGIN: un await fra due store
-  // non può così osservare revisioni diverse degli array live.
+  // non può così osservare revisioni diverse degli array live. La fotografia
+  // è la stringa stessa, e una passata basta: prima erano tre — stringify,
+  // parse, e di nuovo stringify dentro il driver — su collezioni da qualche
+  // megabyte, tutte sincrone, con il processo che nel frattempo non poteva
+  // rispondere a nessuno.
+  //
+  // Il `::text` non è ornamentale: senza, postgres-js deduce che il
+  // parametro è jsonb e codifica la stringa COME stringa JSON, e nella
+  // colonna finisce `"[...]"` invece di `[...]`. È già successo (v. la
+  // migrazione di riparazione in server/chat/store.ts); il contratto delle
+  // due forme è fissato in server/_core/jsonbSnapshot.pg.test.ts, su
+  // PostgreSQL vero.
   const payloads = entries.map(entry => ({
     key: entry.key,
-    dati: JSON.parse(JSON.stringify(entry.items)),
+    json: JSON.stringify(entry.items),
   }));
   await withRetry(
     () =>
       sql.begin(async tx => {
         for (const payloadDaSalvare of payloads) {
-          const payload = tx.json(payloadDaSalvare.dati as any);
-        await tx`
-          INSERT INTO kv_store (key, data, updated_at)
-          VALUES (${payloadDaSalvare.key}, ${payload}, NOW())
-          ON CONFLICT (key) DO UPDATE
-            SET data = EXCLUDED.data, updated_at = NOW()
-        `;
-      }
-    }),
+          await tx`
+            INSERT INTO kv_store (key, data, updated_at)
+            VALUES (${payloadDaSalvare.key}, ${payloadDaSalvare.json}::text::jsonb, NOW())
+            ON CONFLICT (key) DO UPDATE
+              SET data = EXCLUDED.data, updated_at = NOW()
+          `;
+        }
+      }),
     `save atomico(${entries.map(entry => entry.key).join(",")})`
   );
 }
