@@ -528,3 +528,51 @@ describe("isolamento sede", () => {
     expect(lista.some(c => c.id === commessa.id)).toBe(false);
   });
 });
+
+describe("margine: imponibile anche per le commesse salvate prima del campo", () => {
+  it("con le fatture FiC collegate il ricavo imponibile si ricava al volo, senza aspettare il sync", async () => {
+    const caller = direzione();
+    const { upsertFatture } = await import("./ficFatture");
+    const commessa = await caller.commesse.create({ cliente: "Tesconi Giorgio" });
+
+    upsertFatture(
+      [
+        {
+          id: 990_501,
+          numero: "118/2026",
+          data: "2026-07-20",
+          clienteNome: "Tesconi Giorgio",
+          clienteVat: null,
+          clienteCf: null,
+          importoNetto: 8_370,
+          importoLordo: 10_212.4,
+          rate: [],
+        },
+      ],
+      1
+    );
+    // Il pattuito viene derivato come in produzione…
+    applicaPattuitoDaFic(commessa.id, [
+      {
+        id: 990_501,
+        tipo: "invoice",
+        numero: "118/2026",
+        data: "2026-07-20",
+        importoLordo: 10_212.4,
+        importoNetto: 8_370,
+        rate: [],
+      },
+    ]);
+    // …ma simuliamo una commessa salvata PRIMA che il campo esistesse.
+    const record: any = getCommessaById(commessa.id);
+    delete record.pattuitoImponibile;
+
+    const margine = await caller.commesse.margine(commessa.id);
+    expect(margine.pattuitoLordo).toBe(10_212.4);
+    expect(margine.ricavi).toBe(8_370);
+    expect(margine.fonteRicavi).toBe("fic_imponibile");
+    // Nessun costo registrato: il margine resta dichiarato incompleto, ma il
+    // ricavo NON è più «manca il totale pattuito».
+    expect(margine.datiIncompleti).toBe(true);
+  });
+});

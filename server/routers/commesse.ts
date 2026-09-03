@@ -311,6 +311,34 @@ export async function createCommessaFromFic(data: {
  * un motivo per cancellare la cifra che l'operatore vede sulla scheda. Da
  * quel momento è di nuovo modificabile a mano.
  */
+/**
+ * L'imponibile del pattuito, anche per le commesse salvate PRIMA che il
+ * campo esistesse (03/09/2026): se `pattuitoImponibile` non c'è ma le
+ * fatture FiC sono collegate, si somma qui il loro importoNetto invece di
+ * aspettare il prossimo sync. Senza questo, ogni commessa già a sistema
+ * mostrava «manca il totale pattuito» nella card economia.
+ *
+ * Import dinamico: `ficFatture` importa `commesse`, un import statico
+ * chiuderebbe il ciclo.
+ */
+export async function pattuitoImponibileDi(commessa: any): Promise<number | null> {
+  if (commessa?.pattuitoImponibile != null) return commessa.pattuitoImponibile;
+  const ids: number[] = commessa?.pattuitoFicDocumentoIds ?? [];
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  const { ficFatture } = await import("./ficFatture");
+  let totale = 0;
+  let trovate = 0;
+  for (const documento of ficFatture as any[]) {
+    if (!ids.includes(documento.id)) continue;
+    const netto = Number(documento.importoNetto);
+    if (!Number.isFinite(netto)) continue;
+    totale += (documento.tipo === "credit_note" ? -1 : 1) * netto;
+    trovate += 1;
+  }
+  if (trovate === 0) return null;
+  return Math.round((totale + Number.EPSILON) * 100) / 100;
+}
+
 export function applicaPattuitoDaFic(
   commessaId: number,
   documenti: readonly DocumentoFicPerPiano[]
@@ -1103,7 +1131,7 @@ export const commesseRouter = router({
 
   // ── Margine (P0.2) ─────────────────────────────────────────────────────────
   // Economia della singola commessa: direzione o amministrazione.
-  margine: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
+  margine: protectedProcedure.input(z.number()).query(async ({ input, ctx }) => {
     requireDirezioneOAmministrazione(ctx.user);
     const c = commesse.find((x) => x.id === input);
     assertSedeScope(c, ctx.sedeId);
@@ -1116,7 +1144,10 @@ export const commesseRouter = router({
           )
         : [];
     return {
-      ...calcolaMargine(c!),
+      ...calcolaMargine({
+        ...c!,
+        pattuitoImponibile: await pattuitoImponibileDi(c!),
+      }),
       ordiniImportabili,
     };
   }),
@@ -1238,16 +1269,19 @@ export const commesseRouter = router({
 
   // Vista aggregata per la pagina /marginalita: solo direzione. Esclude le
   // commesse archiviate (stato o soft-archive) — sono storia, non gestione.
-  marginalita: protectedProcedure.query(({ ctx }) => {
+  marginalita: protectedProcedure.query(async ({ ctx }) => {
     requireDirezione(ctx.user);
     const utenti = getUtentiStore() as any[];
-    return commesse
-      .filter(
-        (c) =>
-          c.sedeId === ctx.sedeId &&
-          c.stato !== "archiviata" &&
-          !c.archivedAt
-      )
+    const mie = commesse.filter(
+      (c) =>
+        c.sedeId === ctx.sedeId && c.stato !== "archiviata" && !c.archivedAt
+    );
+    // Una sola lettura dello store FiC per tutte le righe.
+    const imponibili = new Map<number, number | null>();
+    for (const c of mie) {
+      imponibili.set(c.id, await pattuitoImponibileDi(c));
+    }
+    return mie
       .map((c) => {
         const assegnatario = utenti.find((u) => u.id === c.assegnatoA);
         return {
@@ -1260,7 +1294,10 @@ export const commesseRouter = router({
           assegnatoNome: assegnatario
             ? `${assegnatario.cognome ?? ""} ${assegnatario.nome ?? ""}`.trim()
             : null,
-          ...calcolaMargine(c),
+          ...calcolaMargine({
+            ...c,
+            pattuitoImponibile: imponibili.get(c.id) ?? null,
+          }),
         };
       });
   }),
