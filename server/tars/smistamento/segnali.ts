@@ -7,6 +7,7 @@ import type { ActionSignal } from "../../actionCenter/types";
 import {
   esisteUscitaVerso,
   getComunicazione,
+  normalizzaControparteWhatsApp,
   type Comunicazione,
 } from "../../comunicazioni/comunicazioni";
 import { tarsAttivo } from "../../platform/interruttori";
@@ -23,11 +24,19 @@ const RECENTI_MASSIME = 120;
 /** Una richiesta conta come «senza risposta» dopo questa attesa. */
 const ATTESA_RISPOSTA_MS = 24 * 3_600_000;
 
-/** Deep link del CRM: la pagina email seleziona con `?messaggio=`; WhatsApp apre la lista. */
-export function linkComunicazione(c: Pick<Comunicazione, "id" | "canale">): string {
-  return c.canale === "whatsapp"
-    ? "/messaggi/whatsapp"
-    : `/messaggi/email?messaggio=${c.id}`;
+/**
+ * Deep link del CRM alla SINGOLA comunicazione: la pagina email seleziona
+ * con `?messaggio=`, WhatsApp apre la conversazione con `?conversazione=`
+ * (chiave `wa:<casella>:<controparte>`, la stessa che costruisce l'elenco).
+ * Prima WhatsApp portava alla pagina generale: chi cliccava un riferimento
+ * di Tars doveva ritrovarsi il messaggio a mano (direzione, 03/09/2026).
+ */
+export function linkComunicazione(
+  c: Pick<Comunicazione, "id" | "canale" | "casellaId" | "mittente">
+): string {
+  if (c.canale !== "whatsapp") return `/messaggi/email?messaggio=${c.id}`;
+  const chiave = `wa:${c.casellaId}:${normalizzaControparteWhatsApp(c.mittente)}`;
+  return `/messaggi/whatsapp?conversazione=${encodeURIComponent(chiave)}`;
 }
 
 function ruoloPerCategoria(categoria: string): string {

@@ -152,19 +152,51 @@ export function SezioneAnalisiAzienda({
                   >
                     {ETICHETTA_TIPO[punto.tipo] ?? punto.tipo}
                   </span>
-                  {punto.link && onApriLink ? (
-                    <button
-                      type="button"
-                      className="min-w-0 text-left text-text-1 hover:underline break-words [overflow-wrap:anywhere]"
-                      onClick={() => onApriLink(punto.link!)}
-                    >
-                      {punto.testo}
-                    </button>
-                  ) : (
-                    <span className="min-w-0 text-text-1 break-words [overflow-wrap:anywhere]">
-                      {punto.testo}
-                    </span>
-                  )}
+                  <span className="min-w-0">
+                    {punto.link && onApriLink ? (
+                      <button
+                        type="button"
+                        className="text-left text-text-1 hover:underline break-words [overflow-wrap:anywhere]"
+                        onClick={() => onApriLink(punto.link!)}
+                      >
+                        {punto.testo}
+                      </button>
+                    ) : (
+                      <span className="text-text-1 break-words [overflow-wrap:anywhere]">
+                        {punto.testo}
+                      </span>
+                    )}
+                    {/* I riferimenti col NOME, cliccabili: «commessa:133» non
+                        dice niente a chi legge (direzione 03/09). */}
+                    {punto.entita.length > 0 && (
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {punto.entita.slice(0, 4).map(e =>
+                          e.link && onApriLink ? (
+                            <button
+                              key={e.riferimento}
+                              type="button"
+                              className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2 hover:underline"
+                              onClick={() => onApriLink(e.link!)}
+                            >
+                              {e.etichetta}
+                            </button>
+                          ) : (
+                            <span
+                              key={e.riferimento}
+                              className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-3"
+                            >
+                              {e.etichetta}
+                            </span>
+                          )
+                        )}
+                        {punto.entita.length > 4 && (
+                          <span className="text-[11px] text-text-3">
+                            +{punto.entita.length - 4}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

@@ -9,6 +9,7 @@ import {
   type WhatsAppConversation,
   type WhatsAppThread,
 } from "@/lib/messaggi";
+import { TarsSmistamentoConversazione } from "@/components/tars/TarsSmistamento";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
@@ -172,6 +173,12 @@ export default function WhatsAppThread({
     [current.data?.messaggi, olderMessages]
   );
   const messageIdsKey = messages.map(message => message.id).join(",");
+  // Lo smistamento di Tars si vede dove si legge la conversazione, non solo
+  // nella pagina di Tars (direzione 03/09/2026).
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+    retry: false,
+  });
 
   useEffect(() => {
     onMessageIdsChange(
@@ -351,6 +358,13 @@ export default function WhatsAppThread({
           <PanelRight className="size-5" />
         </Button>
       </header>
+
+      <TarsSmistamentoConversazione
+        comunicazioneIds={messages.map(message => message.id)}
+        abilitato={Boolean(
+          interruttori.data?.tars && interruttori.data?.tarsSmistamento
+        )}
+      />
 
       <div
         ref={viewportRef}

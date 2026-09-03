@@ -138,7 +138,14 @@ export async function costruisciFotografia(input: {
   // non sono lavoro da proporre, al più roba da archiviare in blocco
   // (direzione, 02/09 notte: «proposte su commesse vecchie mesi»).
   const tuttiICasi = await tenta(() => deps.casiAperti(sedeId), [] as any[]);
-  const perCommessa = new Map<number, any>(deps.commesse().map(c => [c.id, c]));
+  // Solo commesse di QUESTA sede (anche archiviate: servono a dare il nome
+  // a un ticket o a un caso che le cita).
+  const perCommessa = new Map<number, any>(
+    deps
+      .commesse()
+      .filter(c => c.sedeId === sedeId)
+      .map(c => [c.id, c])
+  );
   const dormiente = (commessaId: number | null | undefined) => {
     if (commessaId == null) return false;
     const c = perCommessa.get(commessaId);
@@ -158,7 +165,11 @@ export async function costruisciFotografia(input: {
       .slice(0, CASI_MASSIMI)
       .map(k => ({
         chiave: `caso:${k.id}`,
-        testo: `[${k.priority}] ${k.title}${k.nextAction?.label ? ` — prossima azione: ${k.nextAction.label}` : ""}${k.assigneeUserId == null ? " (nessun assegnatario)" : ""}.`,
+        testo: `[${k.priority}] ${k.title}${
+          k.commessaId && perCommessa.get(k.commessaId)
+            ? ` — ${etichettaCommessa(perCommessa.get(k.commessaId))}`
+            : ""
+        }${k.nextAction?.label ? ` — prossima azione: ${k.nextAction.label}` : ""}${k.assigneeUserId == null ? " (nessun assegnatario)" : ""}.`,
         entita: [`caso:${k.id}`, ...(k.commessaId ? [`commessa:${k.commessaId}`] : [])],
         link: k.link ?? (k.commessaId ? `/commesse/${k.commessaId}` : null),
       })),
@@ -193,7 +204,11 @@ export async function costruisciFotografia(input: {
     titolo: "Osservazioni aperte",
     fatti: osservazioni.slice(0, OSSERVAZIONI_MASSIME).map(o => ({
       chiave: `osservazione:${o.id}`,
-      testo: `[${o.priorita}, materialità ${o.materialita}] ${o.titolo}: ${o.sintesi}`,
+      testo: `[${o.priorita}, materialità ${o.materialita}] ${o.titolo}${
+        o.commessaId && perCommessa.get(o.commessaId)
+          ? ` — ${etichettaCommessa(perCommessa.get(o.commessaId))}`
+          : ""
+      }: ${o.sintesi}`,
       entita: [`osservazione:${o.id}`, ...(o.commessaId ? [`commessa:${o.commessaId}`] : [])],
       link: o.commessaId ? `/commesse/${o.commessaId}` : null,
     })),
@@ -261,7 +276,11 @@ export async function costruisciFotografia(input: {
       .slice(0, TICKET_MASSIMI)
       .map(t => ({
         chiave: `ticket:${t.id}`,
-        testo: `[${t.priorita ?? "media"}] ${t.oggetto ?? t.categoria ?? "ticket"} — aperto da ${giorniDa(t.createdAt, adesso) ?? "?"} giorni, stato «${t.stato}»${t.assegnatoA == null ? ", non assegnato" : ""}.`,
+        testo: `[${t.priorita ?? "media"}] «${t.oggetto ?? t.categoria ?? "ticket"}»${
+          t.commessaId && perCommessa.get(t.commessaId)
+            ? ` su ${etichettaCommessa(perCommessa.get(t.commessaId))}`
+            : ""
+        } — aperto da ${giorniDa(t.createdAt, adesso) ?? "?"} giorni, stato «${t.stato}»${t.assegnatoA == null ? ", non assegnato" : ""}.`,
         entita: [`ticket:${t.id}`, ...(t.commessaId ? [`commessa:${t.commessaId}`] : [])],
         link: "/post-vendita",
       })),

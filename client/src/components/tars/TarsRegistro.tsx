@@ -6,32 +6,6 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { History, Loader2, RefreshCw, Undo2 } from "lucide-react";
 
-const ETICHETTA_ENTITA: Record<string, string> = {
-  commessa: "Commessa",
-  cliente: "Cliente",
-  ticket: "Ticket",
-  intervento: "Intervento",
-  comunicazione: "Comunicazione",
-  caso: "Caso",
-  documento: "Documento",
-  promemoria: "Promemoria",
-  proposta: "Proposta",
-};
-
-function linkEntita(riferimento: string): string | null {
-  const [tipo, id] = riferimento.split(":");
-  if (!id) return null;
-  if (tipo === "commessa") return `/commesse/${id}`;
-  if (tipo === "cliente") return `/clienti/${id}`;
-  if (tipo === "comunicazione") return `/messaggi/email?messaggio=${id}`;
-  return null;
-}
-
-function etichettaEntita(riferimento: string): string {
-  const [tipo, id] = riferimento.split(":");
-  return `${ETICHETTA_ENTITA[tipo] ?? tipo} ${id ?? ""}`.trim();
-}
-
 function etichettaStrumento(strumento: string): string {
   const testo = strumento.replace(/_/g, " ");
   return testo.charAt(0).toUpperCase() + testo.slice(1);
@@ -162,22 +136,24 @@ export function TarsRegistro({
                   {riga.entitaToccate.length === 0 && (
                     <span className="text-text-3">—</span>
                   )}
-                  {riga.entitaToccate.map(rif => {
-                    const link = linkEntita(rif);
+                  {/* Etichetta e link arrivano dal server, che sa se una
+                      comunicazione è email o WhatsApp: il click apre QUELLA
+                      comunicazione, non la pagina generale. */}
+                  {riga.entitaToccate.map(entita => {
                     const classe =
                       "rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2";
-                    return link ? (
+                    return entita.link ? (
                       <button
-                        key={rif}
+                        key={entita.riferimento}
                         type="button"
                         className={cn(classe, "hover:underline")}
-                        onClick={() => onApriLink(link)}
+                        onClick={() => onApriLink(entita.link!)}
                       >
-                        {etichettaEntita(rif)}
+                        {entita.etichetta}
                       </button>
                     ) : (
-                      <span key={rif} className={classe}>
-                        {etichettaEntita(rif)}
+                      <span key={entita.riferimento} className={classe}>
+                        {entita.etichetta}
                       </span>
                     );
                   })}

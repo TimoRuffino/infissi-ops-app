@@ -138,16 +138,16 @@ function fixtureDemo(): {
       {
         testo: "Sbloccare le tre commesse ferme definendo una priorità operativa.",
         richiestaPerTars: "Aggiorna come prioritarie le verifiche del prossimo passo per le commesse 182, 183 e 193",
-        entita: ["commessa:182"],
+        entita: [{ riferimento: "commessa:182", etichetta: "COM-2026-182 — Rossi Anna", link: "/commesse/182" }],
         link: "/commesse/182",
       },
       {
         testo: "Aprire il ticket post-vendita per il reclamo WnD fermo da 183 giorni.",
         richiestaPerTars: "Crea un ticket urgente per la commessa 190: reclamo WnD, appuntamento da fissare",
-        entita: ["comunicazione:16295"],
+        entita: [{ riferimento: "comunicazione:16295", etichetta: "Email: reclamo WnD", link: "/messaggi/email?messaggio=16295" }],
         link: "/messaggi/email?messaggio=16295",
       },
-    ] as VoceAnalisi[],
+    ] as unknown as VoceAnalisi[],
   };
 }
 
@@ -630,7 +630,31 @@ export function TarsProposteBoard({
                           suoi strumenti e la scrive nel Registro.
                         </Dettaglio>
                         {p.entita.length > 0 && (
-                          <Dettaglio etichetta="Riguarda">{p.entita.join(", ")}</Dettaglio>
+                          <Dettaglio etichetta="Riguarda">
+                            <span className="inline-flex flex-wrap gap-1">
+                              {/* Nomi, non id: le etichette e i link li
+                                  risolve il server. */}
+                              {p.entita.map(e =>
+                                e.link ? (
+                                  <button
+                                    key={e.riferimento}
+                                    type="button"
+                                    className="rounded-sm bg-surface px-1.5 py-0.5 text-[11px] text-text-1 hover:underline"
+                                    onClick={() => onApriLink(e.link!)}
+                                  >
+                                    {e.etichetta}
+                                  </button>
+                                ) : (
+                                  <span
+                                    key={e.riferimento}
+                                    className="rounded-sm bg-surface px-1.5 py-0.5 text-[11px] text-text-2"
+                                  >
+                                    {e.etichetta}
+                                  </span>
+                                )
+                              )}
+                            </span>
+                          </Dettaglio>
                         )}
                       </>
                     }
@@ -644,7 +668,13 @@ export function TarsProposteBoard({
                         Chiedi a Tars
                       </Button>
                     }
-                    onApri={p.link ? () => onApriLink(p.link!) : undefined}
+                    onApri={
+                      p.link
+                        ? () => onApriLink(p.link!)
+                        : p.entita.find(e => e.link)
+                          ? () => onApriLink(p.entita.find(e => e.link)!.link!)
+                          : undefined
+                    }
                   />
                 ))}
               </Sezione>

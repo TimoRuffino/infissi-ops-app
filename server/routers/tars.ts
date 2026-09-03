@@ -56,7 +56,12 @@ import {
   caricaContestoConversazione,
 } from "../tars/conversazione/context";
 import type { TarsProvider } from "../tars/provider";
-import { getLiveComunicazione } from "../comunicazioni/comunicazioni";
+import {
+  getComunicazioniByIds,
+  getLiveComunicazione,
+} from "../comunicazioni/comunicazioni";
+import { getCommessaById } from "./commesse";
+import { getClienteById } from "./clienti";
 import { modelloSmistamento } from "../tars/smistamento/analisi";
 import { applicaPropostaApprovata } from "../tars/smistamento/applica";
 import { repositorySmistamentoCorrente } from "../tars/smistamento/repository";
@@ -77,8 +82,59 @@ import { generaAnalisiAzienda } from "../tars/analisi/worker";
 import { giornoLocale as giornoLocaleAnalisi } from "../tars/analisi/fotografia";
 import { proiezioneProposta } from "./proposte";
 import { getUtentiStore } from "./utenti";
+import { risolviEntitaTars, type EntitaRisolta } from "../tars/entita";
+import type {
+  EsitoAnalisiAzienda,
+  PropostaAnalisi,
+  PuntoAnalisi,
+  RecordAnalisiAzienda,
+} from "../tars/analisi/types";
 
 const procedura = procedureConInterruttore("tars");
+
+/**
+ * L'analisi esce con i NOMI: punti e proposte portano i riferimenti già
+ * risolti in etichetta e link. Un id nudo («ticket 11», «commessa 133»)
+ * non dice niente a chi decide — segnalazione della direzione, 03/09/2026.
+ */
+type ConEntita<T extends { entita: string[] }> = Omit<T, "entita"> & {
+  entita: EntitaRisolta[];
+};
+type EsitoAnalisiRisolto = Omit<EsitoAnalisiAzienda, "punti" | "proposte"> & {
+  punti: ConEntita<PuntoAnalisi>[];
+  proposte: ConEntita<PropostaAnalisi>[];
+};
+type RecordAnalisiRisolto = Omit<RecordAnalisiAzienda, "esito"> & {
+  esito: EsitoAnalisiRisolto | null;
+};
+
+async function conEntitaRisolte(
+  record: RecordAnalisiAzienda | null,
+  sedeId: number
+): Promise<RecordAnalisiRisolto | null> {
+  if (!record) return null;
+  const esito = record.esito;
+  if (!esito) return { ...record, esito: null };
+  const entita = await risolviEntitaTars(
+    [
+      ...esito.punti.flatMap(p => p.entita),
+      ...esito.proposte.flatMap(p => p.entita),
+    ],
+    sedeId
+  );
+  const risolvi = (riferimenti: readonly string[]): EntitaRisolta[] =>
+    riferimenti.map(
+      r => entita.get(r) ?? { riferimento: r, etichetta: r, link: null }
+    );
+  return {
+    ...record,
+    esito: {
+      ...esito,
+      punti: esito.punti.map(p => ({ ...p, entita: risolvi(p.entita) })),
+      proposte: esito.proposte.map(p => ({ ...p, entita: risolvi(p.entita) })),
+    },
+  };
+}
 
 // Rate limit per principal su `invia` (spec §14, Cost/DoS): finestra
 // scorrevole in-process (replica singola: vincolo documentato §14). I
@@ -1106,26 +1162,34 @@ export const tarsRouter = router({
         if (!ledgerEsecuzioniAutorevoleDisponibile() && process.env.NODE_ENV !== "test") {
           return [];
         }
-        const righe = await ledgerEsecuzioniCorrente().lista({ sedeId: contesto.sedeId });
-        return righe
+        const righe = (await ledgerEsecuzioniCorrente().lista({ sedeId: contesto.sedeId }))
           .filter(r => r.stato !== "reserved" && r.stato !== "expired")
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-          .slice(0, limite)
-          .map(r => ({
-            id: r.id,
-            runId: r.runId,
-            strumento: r.strumento,
-            stato: r.stato,
-            esito: r.esito ?? r.risultato?.stato ?? null,
-            motivo: r.risultato?.motivo ?? null,
-            entitaToccate: r.risultato?.entitaToccate ?? [],
-            utenteId: r.utenteId,
-            utente: utenti.get(r.utenteId) ?? `utente ${r.utenteId}`,
-            azioneId: r.audit.azioneId,
-            undoDisponibile: r.compensazione.disponibile,
-            undoVia: r.compensazione.via,
-            quando: r.createdAt,
-          }));
+          .slice(0, limite);
+        // Le entità toccate diventano riferimenti APRIBILI, col nome che chi
+        // legge riconosce: il server sa se una comunicazione è email o
+        // WhatsApp e come si chiama una commessa (direzione 03/09).
+        const entita = await risolviEntitaTars(
+          righe.flatMap(r => r.risultato?.entitaToccate ?? []),
+          contesto.sedeId
+        );
+        const risolviEntita = (riferimento: string) =>
+          entita.get(riferimento) ?? { riferimento, etichetta: riferimento, link: null };
+        return righe.map(r => ({
+          id: r.id,
+          runId: r.runId,
+          strumento: r.strumento,
+          stato: r.stato,
+          esito: r.esito ?? r.risultato?.stato ?? null,
+          motivo: r.risultato?.motivo ?? null,
+          entitaToccate: (r.risultato?.entitaToccate ?? []).map(risolviEntita),
+          utenteId: r.utenteId,
+          utente: utenti.get(r.utenteId) ?? `utente ${r.utenteId}`,
+          azioneId: r.audit.azioneId,
+          undoDisponibile: r.compensazione.disponibile,
+          undoVia: r.compensazione.via,
+          quando: r.createdAt,
+        }));
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
@@ -1148,7 +1212,10 @@ export const tarsRouter = router({
         });
       }
       const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
-      return { record, oggi: giornoLocaleAnalisi(new Date()) };
+      return {
+        record: await conEntitaRisolte(record, contesto.sedeId),
+        oggi: giornoLocaleAnalisi(new Date()),
+      };
     } catch (errore) {
       if (errore instanceof TRPCError) throw errore;
       comeErrore(errore);
@@ -1171,7 +1238,10 @@ export const tarsRouter = router({
         sedeId: contesto.sedeId,
         richiestaDa: contesto.utenteId,
       });
-      return { record, oggi: giornoLocaleAnalisi(new Date()) };
+      return {
+        record: await conEntitaRisolte(record, contesto.sedeId),
+        oggi: giornoLocaleAnalisi(new Date()),
+      };
     } catch (errore) {
       if (errore instanceof TRPCError) throw errore;
       comeErrore(errore);

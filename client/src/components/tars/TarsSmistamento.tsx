@@ -197,6 +197,111 @@ export function TarsSmistamentoBanner({
   );
 }
 
+/**
+ * Smistamento Tars dentro una conversazione WhatsApp (03/09/2026): la
+ * lettura dell'ultimo messaggio e le proposte ancora aperte sugli altri
+ * messaggi dello stesso filo. Prima la proposta si vedeva solo nella
+ * pagina di Tars, e il link portava alla lista generale: aprire la
+ * conversazione e non trovarci niente era la segnalazione della direzione.
+ */
+export function TarsSmistamentoConversazione({
+  comunicazioneIds,
+  abilitato,
+}: {
+  comunicazioneIds: readonly number[];
+  abilitato: boolean;
+}) {
+  const ultimo =
+    comunicazioneIds.length > 0
+      ? comunicazioneIds[comunicazioneIds.length - 1]
+      : null;
+  const proposte = trpc.tars.smistamentoProposte.useQuery(undefined, {
+    enabled: abilitato && comunicazioneIds.length > 0,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const decidi = useDecisioneSmistamento();
+  if (!abilitato) return null;
+  const altre = (proposte.data ?? []).filter(
+    voce =>
+      voce.comunicazioneId !== ultimo &&
+      comunicazioneIds.includes(voce.comunicazioneId)
+  );
+  if (ultimo == null && altre.length === 0) return null;
+
+  return (
+    <div className="shrink-0 border-b border-border-soft bg-surface-2 px-3 py-2 sm:px-5">
+      {ultimo != null && (
+        <div className="[&>section]:mt-0">
+          <TarsSmistamentoBanner comunicazioneId={ultimo} abilitato={abilitato} />
+        </div>
+      )}
+      {altre.map(voce => {
+        const inCorso =
+          decidi.isPending &&
+          decidi.variables?.comunicazioneId === voce.comunicazioneId;
+        const bersaglio =
+          voce.candidati.find(
+            c => c.tipo === "commessa" && c.id === voce.collegamento.commessaId
+          )?.etichetta ??
+          voce.candidati.find(
+            c => c.tipo === "cliente" && c.id === voce.collegamento.clienteId
+          )?.etichetta ??
+          "il candidato indicato";
+        return (
+          <div
+            key={voce.comunicazioneId}
+            className="mt-2 flex min-w-0 flex-col gap-2 rounded-[var(--radius-control)] border border-accent/40 bg-accent-soft px-3 py-2 sm:flex-row sm:items-center"
+          >
+            <div className="min-w-0 flex-1 text-[13px] leading-5">
+              <span className="inline-flex items-center gap-1 font-semibold text-text-1">
+                <Link2 className="size-3.5" aria-hidden="true" />
+                Su un messaggio precedente Tars propone di collegare a {bersaglio}
+              </span>
+              <p className="text-text-3 break-words [overflow-wrap:anywhere]">
+                {voce.collegamento.motivo}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                className="min-h-11"
+                disabled={inCorso}
+                onClick={() =>
+                  decidi.mutate({
+                    comunicazioneId: voce.comunicazioneId,
+                    decisione: "approva",
+                  })
+                }
+              >
+                {inCorso && decidi.variables?.decisione === "approva" ? (
+                  <Loader2 className="size-4 motion-safe:animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                Collega
+              </Button>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                disabled={inCorso}
+                onClick={() =>
+                  decidi.mutate({
+                    comunicazioneId: voce.comunicazioneId,
+                    decisione: "rifiuta",
+                  })
+                }
+              >
+                <X className="size-4" />
+                No
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 type Voce = {
   comunicazioneId: number;
   canale: "email" | "whatsapp";
