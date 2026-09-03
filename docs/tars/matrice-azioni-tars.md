@@ -95,6 +95,12 @@ tool citati dalle tranche; i nomi completi si ricavano con
   `executeSql` o `updateRecord` nel catalogo.
 - Nessun provider fuori dal governor; capability, sede, feature flag,
   freschezza/versione e audit restano verificati dal server.
+- Destinatari (T6/D4, 03/09/2026): `server/tars/destinatari.ts` deriva il
+  destinatario (assegnatario commessa, ticket in carico, tema/stato
+  amministrativo → amministrazione, altrimenti direzione);
+  `tars.smistamentoProposte` filtra server-side per chi guarda — la coda
+  «di tutti» non esiste più. Notifiche con lo stesso criterio: tranche
+  successiva.
 - Follow-up preventivi (T5/D3, 03/09/2026): deterministico in
   `server/tars/followup/` — promemoria di sollecito a 7 giorni
   (canonicalKey `tars:sollecito-preventivo:<id>:<giorno ultima attività>`)

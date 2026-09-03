@@ -77,6 +77,7 @@ import {
   ledgerEsecuzioniCorrente,
 } from "../tars/azioni/executions";
 import { getProposteStore } from "../proposte/gateway";
+import { destinatarioPerTema, puoVedere } from "../tars/destinatari";
 import { repositoryAnalisiCorrente } from "../tars/analisi/repository";
 import {
   eseguiPropostaAnalisi,
@@ -813,6 +814,18 @@ export const tarsRouter = router({
         if (!esito || esito.collegamento.esito !== "proposto") continue;
         const c = await getLiveComunicazione(record.comunicazioneId, contesto.sedeId);
         if (!c) continue;
+        // T6/D4: la coda «di tutti» sparisce. Il destinatario deriva da
+        // categoria e commessa proposta; chi non è direzione vede SOLO
+        // il proprio (utente o ruolo).
+        const commessaProposta = esito.collegamento.commessaId
+          ? (getCommessaById(esito.collegamento.commessaId) as any)
+          : null;
+        const destinatario = destinatarioPerTema({
+          tema: "comunicazione",
+          categoriaComunicazione: esito.categoria,
+          commessa: commessaProposta,
+        });
+        if (!puoVedere(contesto, destinatario)) continue;
         voci.push({
           comunicazioneId: c.id,
           canale: c.canale,
@@ -826,6 +839,11 @@ export const tarsRouter = router({
           candidati: esito.candidati,
           allegatiDaArchiviare: esito.allegati.filter(a => a.archiviare).map(a => a.nome),
           link: linkComunicazione(c),
+          destinatario: {
+            perTe: destinatario.utenteId === contesto.utenteId,
+            ruolo: destinatario.ruolo,
+            motivo: destinatario.motivo,
+          },
         });
       }
       return voci;

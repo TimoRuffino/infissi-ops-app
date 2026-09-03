@@ -22,10 +22,16 @@ const SEDE = 96_501;
 const ALTRA_SEDE = 96_502;
 const DIREZIONE_ID = 96_511;
 const POSA_ID = 96_512;
+const COMMERCIALE_A = 96_513;
+const COMMERCIALE_B = 96_514;
+const AMMINISTRAZIONE_ID = 96_515;
 
 for (const [id, ruoli] of [
   [DIREZIONE_ID, ["direzione"]],
   [POSA_ID, ["squadra_posa"]],
+  [COMMERCIALE_A, ["commerciale"]],
+  [COMMERCIALE_B, ["commerciale"]],
+  [AMMINISTRAZIONE_ID, ["amministrazione"]],
 ] as const) {
   const utenti = getUtentiStore() as any[];
   if (!utenti.some(u => u.id === id)) {
@@ -155,6 +161,49 @@ describe("tars.smistamento* — kill switch, capability, sede", () => {
     const stato = await direzione().tars.smistamentoStato();
     expect(stato.attivo).toBe(true);
     expect(stato.proposteAperte).toBe(1);
+  });
+});
+
+describe("tars.smistamentoProposte — destinatari (T6/D4)", () => {
+  const caller = (userId: number, ruolo: string) =>
+    appRouter.createCaller(contestoTrpc(userId, [ruolo]));
+
+  it("la coda «di tutti» sparisce: l'assegnatario vede la sua, gli altri no, la direzione tutto; l'amministrativa va all'amministrazione", async () => {
+    const commessa = await direzione().commesse.create({ cliente: "Destinatari Test" });
+    await direzione().commesse.update({ id: commessa.id, assegnatoA: COMMERCIALE_A });
+    const operativa = await comunicazioneConProposta(commessa.id);
+
+    // Una proposta AMMINISTRATIVA sulla stessa commessa assegnata: il tema
+    // vince sull'assegnatario (D4).
+    const amministrativa = await comunicazioneConProposta(commessa.id);
+    const registro = await repository.perComunicazione(SEDE, amministrativa.id);
+    await repository.registra({
+      comunicazioneId: amministrativa.id,
+      sedeId: SEDE,
+      versione: "1.0.0",
+      stato: "analizzata",
+      esito: { ...registro!.esito!, categoria: "amministrativa" },
+      propostaStato: "aperta",
+      ultimoErrore: null,
+      now: new Date(),
+    });
+
+    const vistaA = await caller(COMMERCIALE_A, "commerciale").tars.smistamentoProposte();
+    expect(vistaA.map(p => p.comunicazioneId)).toContain(operativa.id);
+    expect(vistaA.map(p => p.comunicazioneId)).not.toContain(amministrativa.id);
+    expect(vistaA.find(p => p.comunicazioneId === operativa.id)?.destinatario).toMatchObject({ perTe: true });
+
+    const vistaB = await caller(COMMERCIALE_B, "commerciale").tars.smistamentoProposte();
+    expect(vistaB.map(p => p.comunicazioneId)).not.toContain(operativa.id);
+
+    const vistaAmm = await caller(AMMINISTRAZIONE_ID, "amministrazione").tars.smistamentoProposte();
+    expect(vistaAmm.map(p => p.comunicazioneId)).toContain(amministrativa.id);
+    expect(vistaAmm.map(p => p.comunicazioneId)).not.toContain(operativa.id);
+
+    const vistaDirezione = await direzione().tars.smistamentoProposte();
+    expect(vistaDirezione.map(p => p.comunicazioneId)).toEqual(
+      expect.arrayContaining([operativa.id, amministrativa.id])
+    );
   });
 });
 

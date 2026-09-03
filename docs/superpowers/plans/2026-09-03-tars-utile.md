@@ -125,7 +125,7 @@ silenzio → sollecito a chi ha in carico, con la bozza del messaggio al
 cliente; **30 giorni** → proposta di chiuderlo come perso. È qui che si
 vede o non si vede il ritorno.
 
-### T6 — Ogni proposta al suo destinatario (D4)
+### T6 — Ogni proposta al suo destinatario (D4) — FATTO il 03/09/2026 per smistamento (filtro server-side su `tars.smistamentoProposte`: assegnatario/tema/stato, direzione vede tutto) e per i casi del follow-up (assigneeUserId/targetRole); l'analisi resta di direzione per natura. RESTANO: le notifiche con lo stesso criterio e il chip «per te» nella UI
 
 Le proposte e le notifiche nascono con un destinatario derivato da
 assegnatario della commessa, ruolo, stato della commessa e natura del
