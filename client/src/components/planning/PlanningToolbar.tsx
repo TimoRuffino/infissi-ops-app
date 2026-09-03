@@ -8,6 +8,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { ReactNode } from "react";
+
 import { Button } from "@/components/ui/button";
 import { addDays, startOfWeek } from "@/lib/calendario";
 
@@ -23,6 +25,8 @@ export type PlanningToolbarProps = {
   onToday: () => void;
   onNext: () => void;
   onCreate: () => void;
+  /** Campo di ricerca, reso qui per stare sulla stessa riga dei controlli. */
+  ricerca?: ReactNode;
 };
 
 const VISTE: ReadonlyArray<{
@@ -81,6 +85,7 @@ export default function PlanningToolbar({
   onToday,
   onNext,
   onCreate,
+  ricerca,
 }: PlanningToolbarProps) {
   const periodo = etichettaPeriodo(view, cursor);
 
@@ -158,6 +163,12 @@ export default function PlanningToolbar({
           Oggi
         </Button>
       </div>
+
+      {/* Fra il periodo e «Nuovo appuntamento» c'è lo spazio libero della
+          barra: la ricerca sta lì invece che su una riga tutta sua, dove
+          lascerebbe mezzo schermo vuoto. Sotto `lg` va a capo come il
+          resto. */}
+      {ricerca}
 
       {canCreate ? (
         <Button

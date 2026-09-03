@@ -10,6 +10,36 @@ import {
   esecutorePerTipo,
   titoloDaNotaImportata,
 } from "@shared/interventi";
+import {
+  chiaveRicerca,
+  numeroCorrisponde,
+  testoCorrisponde,
+} from "../_core/ricerca";
+import { getClientiStore } from "./clienti";
+import { getSquadreStore } from "./squadre";
+import { getUtentiStore } from "./utenti";
+import { getCommesseStore } from "./commesse";
+
+/** Etichette leggibili dei tipi: chi cerca «ferie» deve trovarle. */
+const CALENDARI_LABEL: Record<string, string> = {
+  rilievo: "Rilievo",
+  posa: "Posa",
+  assistenza: "Interventi Regolazioni",
+  consegna: "Consegna",
+  appuntamento: "Appuntamento",
+  riunione: "Riunione",
+  ferie: "Ferie assenze",
+  altro: "Altro",
+};
+
+/** Giorni fra due date `YYYY-MM-DD`; senza data, in fondo all'elenco. */
+function distanzaGiorni(data: string | null | undefined, oggi: string): number {
+  if (!data) return 10_000;
+  const a = Date.parse(`${data}T12:00:00Z`);
+  const b = Date.parse(`${oggi}T12:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 10_000;
+  return Math.abs(Math.round((a - b) / 86_400_000));
+}
 
 let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
@@ -88,6 +118,112 @@ export const interventiRouter = router({
     if (!i || i.sedeId !== ctx.sedeId) return null;
     return i;
   }),
+
+  /**
+   * Cerca un appuntamento in tutto il calendario, non solo nel periodo
+   * mostrato.
+   *
+   * Filtrare il mese aperto sarebbe inutile: si cerca proprio quello che non
+   * si vede. Quindi la ricerca ignora le date e le restituisce, così chi
+   * trova sa dove andare.
+   *
+   * Stesse regole di clienti e commesse (`_core/ricerca`): senza accenti da
+   * entrambi i lati, e i numeri confrontati per sole cifre — «forli» trova
+   * «Forlì», «3401234567» trova «+39 340 1234567».
+   */
+  cerca: protectedProcedure
+    .input(
+      z.object({
+        q: z.string().min(1).max(200),
+        limite: z.number().int().min(1).max(50).optional(),
+      })
+    )
+    .query(({ input, ctx }) => {
+      const chiave = chiaveRicerca(input.q);
+      if (!chiave) return [];
+      const limite = input.limite ?? 25;
+      const oggi = new Date().toISOString().slice(0, 10);
+      const commesse = new Map<number, any>(
+        (getCommesseStore() as any[])
+          .filter(c => c.sedeId === ctx.sedeId)
+          .map(c => [c.id, c])
+      );
+      const clienti = new Map<number, any>(
+        (getClientiStore() as any[]).map(c => [c.id, c])
+      );
+      const squadre = new Map<number, any>(
+        (getSquadreStore() as any[]).map(s => [s.id, s])
+      );
+      const utenti = new Map<number, any>(
+        (getUtentiStore() as any[]).map(u => [u.id, u])
+      );
+
+      const trovati = interventi
+        .filter(i => i.sedeId === ctx.sedeId && i.stato !== "annullato")
+        .map(i => {
+          const commessa = i.commessaId ? commesse.get(i.commessaId) : null;
+          const cliente = commessa?.clienteId
+            ? clienti.get(commessa.clienteId)
+            : null;
+          const squadra = i.squadraId ? squadre.get(i.squadraId) : null;
+          const tecnico = i.tecnicoId ? utenti.get(i.tecnicoId) : null;
+          const nomeCliente = cliente
+            ? `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim()
+            : (commessa?.cliente ?? "");
+          const esecutore = tecnico
+            ? `${tecnico.cognome ?? ""} ${tecnico.nome ?? ""}`.trim()
+            : squadra
+              ? `${squadra.nome}${squadra.caposquadra ? ` — ${squadra.caposquadra}` : ""}`
+              : null;
+          return { i, commessa, cliente, nomeCliente, esecutore };
+        })
+        .filter(({ i, commessa, cliente, nomeCliente, esecutore }) => {
+          // Tutto quello che una persona ricorda di un appuntamento: chi,
+          // dove, che lavoro, quale commessa, chi ci va, e la nota.
+          const testi = [
+            nomeCliente,
+            // Anche l'ordine inverso: chi cerca digita «Mario Rossi» tanto
+            // quanto «Rossi Mario».
+            cliente ? `${cliente.nome ?? ""} ${cliente.cognome ?? ""}`.trim() : null,
+            i.titolo,
+            i.note,
+            i.indirizzo,
+            commessa?.indirizzo,
+            commessa?.citta,
+            commessa?.codice,
+            esecutore,
+            i.tipo,
+            CALENDARI_LABEL[i.tipo],
+          ];
+          if (testoCorrisponde(testi, chiave)) return true;
+          return numeroCorrisponde(
+            [cliente?.telefono, commessa?.telefono],
+            chiave
+          );
+        })
+        // I più vicini a oggi per primi: si cerca quasi sempre qualcosa di
+        // imminente, non un lavoro di due anni fa. `oggi` si calcola una
+        // volta, non a ogni confronto.
+        .sort((a, b) => {
+          const da = distanzaGiorni(a.i.dataPianificata, oggi);
+          const db = distanzaGiorni(b.i.dataPianificata, oggi);
+          if (da !== db) return da - db;
+          return (a.i.oraInizio ?? "").localeCompare(b.i.oraInizio ?? "");
+        })
+        .slice(0, limite);
+
+      return trovati.map(({ i, commessa, nomeCliente, esecutore }) => ({
+        id: i.id,
+        data: i.dataPianificata ?? null,
+        oraInizio: i.oraInizio ?? null,
+        oraFine: i.oraFine ?? null,
+        tipo: i.tipo,
+        titolo: nomeCliente || i.titolo || null,
+        commessaCodice: commessa?.codice ?? null,
+        indirizzo: i.indirizzo || commessa?.indirizzo || null,
+        esecutore,
+      }));
+    }),
 
   create: protectedProcedure
     .input(z.object({

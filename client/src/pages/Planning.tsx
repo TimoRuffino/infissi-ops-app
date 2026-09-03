@@ -24,6 +24,7 @@ import PlanningInterventoSheet, {
 import PlanningGrigliaOraria, {
   type VoceGriglia,
 } from "@/components/planning/PlanningGrigliaOraria";
+import PlanningRicerca from "@/components/planning/PlanningRicerca";
 import PlanningToolbar from "@/components/planning/PlanningToolbar";
 import { caricoGiornata } from "@/lib/grigliaOraria";
 import { useOperationalContext } from "@/contexts/OperationalContext";
@@ -566,6 +567,22 @@ export default function Planning() {
     // guardiano `gia` basta a non riaprirla dentro la stessa sessione.
   }, [idRichiesto, interventi.data]);
 
+  /** Apre un appuntamento trovato dalla ricerca, ovunque sia nel tempo. */
+  function apriDallaRicerca(id: number, data: string | null) {
+    if (data) setCursor(new Date(`${data}T12:00:00`));
+    const intervento = (interventi.data ?? []).find((i: any) => i.id === id);
+    if (intervento) {
+      openEdit(intervento);
+      return;
+    }
+    // Cade fuori dal periodo caricato: la lista non ce l'ha ancora. Si passa
+    // dal link, che aspetta i dati e apre la scheda appena arrivano. Il
+    // guardiano si azzera, altrimenti un secondo risultato con lo stesso id
+    // non riaprirebbe niente.
+    gia.current = null;
+    setLocation(`/planning?intervento=${id}`);
+  }
+
   function openExternal(id: string) {
     setExtDetail(
       (externalEvents.data ?? []).find((e: any) => e.id === id) ?? null
@@ -1009,6 +1026,7 @@ export default function Planning() {
           className="z-20 border-b border-border-soft bg-surface px-4 py-3 lg:sticky lg:top-0"
         >
           <PlanningToolbar
+            ricerca={<PlanningRicerca onApri={apriDallaRicerca} />}
             view={view}
             cursor={cursor}
             canCreate={permissions.canPlan}
