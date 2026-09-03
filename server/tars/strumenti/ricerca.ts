@@ -8,7 +8,10 @@
 // Sede-scoped come tutto il resto; nessuna query nuova: i servizi del CRM.
 
 import { z } from "zod";
-import { listComunicazioni } from "../../comunicazioni/comunicazioni";
+import {
+  listComunicazioni,
+  listComunicazioniConAllegatiCandidati,
+} from "../../comunicazioni/comunicazioni";
 import { ficFatture } from "../../routers/ficFatture";
 import { getCommessaById } from "../../routers/commesse";
 import { getClienteById } from "../../routers/clienti";
@@ -265,12 +268,10 @@ export function dipendenzeConfermeReali(): DipendenzeConfermeMancanti {
   return {
     commesse: () => getCommesseStore() as any[],
     documentiDiCommessa: commessaId => getDocumentiDiCommessa(commessaId),
+    // Bacino vero: 18 mesi di mail in ingresso con allegati candidati, non
+    // le 200 più recenti a cui listComunicazioni è giustamente limitata.
     comunicazioniConAllegati: sedeId =>
-      listComunicazioni({
-        sedeId,
-        soloConAllegati: true,
-        limit: 400,
-      } as any),
+      listComunicazioniConAllegatiCandidati({ sedeId, giorniIndietro: 540, limite: 1500 }),
     giaArchiviato: (sedeId, comunicazioneId, allegatoIndex) =>
       findDocumentoComunicazione(sedeId, comunicazioneId, allegatoIndex) != null,
     link: c => linkComunicazione(c),

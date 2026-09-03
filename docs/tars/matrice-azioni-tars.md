@@ -44,6 +44,9 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `sposta_intervento` — calendario | `interventi.update` (stessa procedura del Planning) | L2 | R1 | `intervento.plan` (+`intervento.assign` per la squadra, dal router); sede; «quando» in parole risolto server-side | T + L2 | `strumenti/agenda.test.ts`; prima/dopo. |
 | `segna_intervento_fatto` — calendario | `interventi.updateStato` («completato») | L2 | R1 | `intervento.plan`; sede; la commessa NON avanza: `transizioneConsigliata` nell'esito (posa→finiture_saldo, rilievo→misure_esecutive) e il modello usa `transizione_adiacente_commessa` | T + L2 | `strumenti/agenda.test.ts`. |
 | `migra_calendario_google` — calendario | `externalCalendars.events` → `interventi.create` (per evento, con `origineEsterna` come chiave di dedupe) | L2 | R1 | `intervento.plan` + direzione; finestra 1° mese−2 → +180 gg; commessa solo su match univoco (codice o cognome cliente); `anteprima=true` non scrive; RILANCIABILE senza doppioni | T + L2 | `calendario/migrazione.test.ts`, `strumenti/agenda.test.ts`; mandato direzione 03/09 sera («importa gli ultimi 2 mesi e quello corrente»). |
+| `cerca_conferme_ordine_mancanti` — fascicoli | `documenti/confermeMancanti.ts` su `listComunicazioniConAllegatiCandidati` (query dedicata riga-per-allegato, 18 mesi, indice parziale; NON listComunicazioni, che tronca a 200) | L0 | R0 | `commessa.read`; esito per commessa `archiviabile_subito` / `da_confermare` / `non_trovata`; stoplist nomi (conferma di lettura, ordine cliente…) e allowlist mime | T + RT | `documenti/confermeMancanti.test.ts`, `comunicazioni/allegatiCandidati.test.ts`. |
+| `leggi_conferma_ordine` (1.1.0) — documenti | `documenti/letturaConferma.ts` → `estraiTestoDocumento` (parser + OCR locale) su allegato mail O documento del fascicolo | L0 | R0 | `commessa.read`; un file per volta, timeout 120 s, costo medio; restituisce fornitore, riferimento, date, totale, IMPONIBILE e «cita la commessa?» | T + RT + TC | `documenti/letturaConferma.test.ts`; nessun importo registrato da qui. |
+| `registra_costo_fornitore` — economia | `commesse.addCosto` (direzione o amministrazione, dal router) | L2 | R1 | `economia.read`; rilegge il documento e scrive SOLO se `importoImponibile` coincide con l'imponibile estratto (ancora al documento); senza imponibile → «registra a mano», mai scorporo IVA; anti-doppione per documento | T + L2 | `strumenti/scrittura.test.ts` (PDF vero generato nel test). |
 | `collega_fattura_commessa` — economia FiC | `ficFatture.collega` (stessa procedura del router: pattuito, incassi, PDF nel fascicolo) | L2 | R1 | `economia.read`; direzione o amministrazione (router); sede; commessa non archiviata | T + L2 | `strumenti/scrittura.test.ts`; prima/dopo nel ledger, scollegamento solo manuale. |
 | `sposta_documento` — fascicoli | `preventiviContratti.spostaDocumentoDiCommessa` (servizio di dominio) | L2 | R1 | `commessa.manage_documents` (verificata dallo strumento); sede; destinazione non archiviata; rinomina se il nome è preso; `statoAtUpload` riallineato | T + L2 | `strumenti/scrittura.test.ts`; il gate segue il documento. |
 | `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
@@ -70,8 +73,8 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `leggi_memorie` — memoria | `tars/memoria.memorieValide` | L0 | R0 | solo memorie valide di utente+sede | T + TM | `t7Memoria.test.ts`; esistente, non richiede read-tools. |
 
 **Inventario verificabile.** La fonte di verità del conteggio è
-`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.13.0"`) e
-il golden di `registry.test.ts`: **53 azioni**. La tabella sopra descrive i
+`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.16.0"`) e
+il golden di `registry.test.ts`: **56 azioni**. La tabella sopra descrive i
 tool citati dalle tranche; i nomi completi si ricavano con
 `rg -o 'nome: "[^"]+"' server/tars/strumenti/*.ts | sort -u`.
 

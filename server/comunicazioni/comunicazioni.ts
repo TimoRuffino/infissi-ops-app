@@ -368,6 +368,13 @@ export function ensureComunicazioniSchema(): Promise<void> {
       await kvSql!`
         CREATE INDEX IF NOT EXISTS comunicazioni_commessa
           ON comunicazioni (commessa_id)`;
+      // La caccia alle conferme d'ordine (03/09/2026) scandisce solo le
+      // righe con allegati, per sede e all'indietro nel tempo: un indice
+      // parziale copre esattamente quel predicato senza pesare sul resto.
+      await kvSql!`
+        CREATE INDEX IF NOT EXISTS comunicazioni_sede_received_allegati
+          ON comunicazioni (sede_id, received_at DESC)
+          WHERE jsonb_array_length(COALESCE(allegati, '[]'::jsonb)) > 0`;
       // Migrazioni additive per le installazioni che hanno già la tabella.
       await kvSql!`
         ALTER TABLE comunicazioni
@@ -1603,6 +1610,74 @@ export async function listComunicazioni(
     ORDER BY received_at DESC
     LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(fromRow);
+}
+
+/**
+ * Il bacino della caccia alle conferme d'ordine (direzione 03/09/2026:
+ * «deve fare delle ricerche vere e proprie e cercare l'allegato che gli
+ * serve»). SEPARATA da listComunicazioni, il cui tetto di 200 righe
+ * ordinate per data faceva vedere al detector solo le mail più recenti su
+ * ~10.000: le conferme vecchie e scollegate erano invisibili.
+ *
+ * SQL restringe, Node decide: qui entrano solo mail in ingresso, non
+ * spam/marketing, dentro la finestra, con almeno un allegato che per nome,
+ * mime e dimensione POTREBBE essere un documento d'ordine. Il giudizio
+ * fine sul nome resta alle regex del detector.
+ */
+export async function listComunicazioniConAllegatiCandidati(input: {
+  sedeId: number;
+  /** Quanto indietro guardare: 18 mesi di default, tre anni al massimo. */
+  giorniIndietro?: number;
+  limite?: number;
+}): Promise<Comunicazione[]> {
+  const giorni = Math.max(30, Math.min(input.giorniIndietro ?? 540, 1095));
+  const limite = Math.max(1, Math.min(input.limite ?? 1500, 3000));
+  const da = new Date(Date.now() - giorni * 86_400_000);
+  // Pre-filtro GREZZO sul nome: largo apposta, il detector affina.
+  const nomeGrezzo = /conf|ord|acknowledg|bestat|\bc\.?o\.?[\W_]?\d|\bo\.?c\.?[\W_]?\d/i;
+  const mimeAmmesso = /^application\/(pdf|vnd\.openxmlformats|msword|octet-stream)|^text\/plain|^image\//i;
+  const MAX_BYTE = 10 * 1024 * 1024;
+  const allegatoCandidato = (a: Allegato) =>
+    nomeGrezzo.test(a.nome) &&
+    (!a.mimeType || mimeAmmesso.test(a.mimeType)) &&
+    (a.size ?? 0) <= MAX_BYTE;
+
+  if (!kvSql) {
+    return memRows
+      .filter(
+        r =>
+          r.sedeId === input.sedeId &&
+          !r.deletedAt &&
+          r.direzione === "in" &&
+          r.categoria !== "spam" &&
+          r.categoria !== "offerta_marketing" &&
+          r.receivedAt.getTime() >= da.getTime() &&
+          r.allegati.some(allegatoCandidato)
+      )
+      .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+      .slice(0, limite);
+  }
+
+  const sql = kvSql;
+  // Il pattern grezzo in SQL è lo stesso di sopra, in sintassi POSIX.
+  const rows = await sql`
+    SELECT c.*
+    FROM comunicazioni c
+    WHERE c.sede_id = ${input.sedeId}
+      AND c.deleted_at IS NULL
+      AND c.direzione = 'in'
+      AND c.categoria NOT IN ('offerta_marketing', 'spam')
+      AND c.received_at >= ${da}
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(COALESCE(c.allegati, '[]'::jsonb)) a
+        WHERE (a->>'nome') ~* '(conf|ord|acknowledg|bestat|(^|[^a-z])c\\.?o\\.?[^a-z0-9]?[0-9]|(^|[^a-z])o\\.?c\\.?[^a-z0-9]?[0-9])'
+          AND COALESCE((a->>'size')::bigint, 0) <= ${MAX_BYTE}
+      )
+    ORDER BY c.received_at DESC
+    LIMIT ${limite}`;
+  // Il filtro fine su mime e dimensione per singolo allegato resta in Node:
+  // la riga passa se almeno un allegato è candidato.
+  return rows.map(fromRow).filter(c => c.allegati.some(allegatoCandidato));
 }
 
 type GruppoWhatsApp = {
