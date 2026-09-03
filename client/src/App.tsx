@@ -28,6 +28,7 @@ const Tars = lazy(() => import("./pages/Tars"));
 const FornitoriList = lazy(() => import("./pages/FornitoriList"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
+const ConfermeOrdine = lazy(() => import("./pages/ConfermeOrdine"));
 const Pagamenti = lazy(() => import("./pages/Pagamenti"));
 const Marginalita = lazy(() => import("./pages/Marginalita"));
 const ReclamiRifacimenti = lazy(() => import("./pages/ReclamiRifacimenti"));
@@ -99,6 +100,7 @@ function Router() {
             <Route path="/clienti/:id" component={ClienteDetail} />
             <Route path="/kanban" component={KanbanBoard} />
             <Route path="/magazzino" component={Magazzino} />
+            <Route path="/conferme-ordine" component={ConfermeOrdine} />
             <Route path="/pagamenti" component={Pagamenti} />
             <Route path="/economia" component={Economia} />
             <Route path="/marginalita">

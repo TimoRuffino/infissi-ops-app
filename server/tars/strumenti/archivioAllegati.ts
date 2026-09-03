@@ -578,6 +578,7 @@ export function creaStrumentoArchivioAllegato(
           nome: raw.nome,
           tipo: classificazione.tipo,
           note: `Archiviato da Tars per l'utente ${contesto.utenteId}.`,
+          origine: "tars",
           mimeType: raw.mimeType,
           vietaRiassegnazione: true,
           buffer: async () => {

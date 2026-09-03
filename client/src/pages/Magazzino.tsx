@@ -45,14 +45,15 @@ import { deliveryState, type DeliveryState } from "@/lib/operationalRoutes";
 import { STATI_ORDER } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
 
-// Le commesse compaiono a magazzino dallo stato "produzione" in poi. Questo
-// filtro decide solo COSA OFFRIRE come destinazione di un nuovo prodotto: non
-// è una regola autorevole. L'eleggibilità reale resta di `magazzino.create`,
-// che risponde PRECONDITION_FAILED e il cui messaggio mostriamo com'è.
-const PRODUZIONE_IDX = STATI_ORDER.indexOf("produzione");
+// Le commesse compaiono a magazzino dallo stato "da ordinare" in poi (dal
+// 03/09/2026: è lì che parte l'ordine e torna la conferma). Questo filtro
+// decide solo COSA OFFRIRE come destinazione di un nuovo prodotto: non è una
+// regola autorevole. L'eleggibilità reale resta di `magazzino.create`, che
+// risponde PRECONDITION_FAILED e il cui messaggio mostriamo com'è.
+const DA_ORDINARE_IDX = STATI_ORDER.indexOf("da_ordinare");
 function isEligible(c: any): boolean {
   const idx = STATI_ORDER.indexOf(c.stato);
-  return idx >= PRODUZIONE_IDX && c.stato !== "archiviata" && !c.archivedAt;
+  return idx >= DA_ORDINARE_IDX && c.stato !== "archiviata" && !c.archivedAt;
 }
 
 // Company supplier list — fixed dropdown so names stay consistent (and the

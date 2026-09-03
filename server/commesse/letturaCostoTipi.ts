@@ -6,7 +6,7 @@
  * Bump quando cambia il modo di leggere (estrattore, regole di aggancio):
  * il worker rilegge ogni conferma con una versione diversa.
  */
-export const VERSIONE_LETTURA_COSTO = "1.0.0";
+export const VERSIONE_LETTURA_COSTO = "1.1.0"; // 1.1.0: anche la merce a magazzino
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -39,6 +39,19 @@ export type LetturaCostoDocumento = {
   tentativi: number;
   /** Il costo sulla commessa (registrato o collegato). */
   costoId: number | null;
+  /**
+   * La merce in arrivo scritta a magazzino da questa conferma. `undefined`
+   * = lettura di una versione che non la tentava; null = non tentata (testo
+   * non letto).
+   */
+  merce?: MerceDaConferma | null;
+};
+
+export type MerceDaConferma = {
+  /** Righe scritte a magazzino (0 = commessa non ancora eleggibile, o già presenti). */
+  righe: number;
+  dataConsegna: string | null;
+  motivo: string | null;
 };
 
 /** Esiti che chiudono la lettura: il worker non li rivisita. */

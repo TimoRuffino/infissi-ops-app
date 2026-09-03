@@ -8,6 +8,7 @@ const ROUTE_PRESENTATION: Record<string, RoutePresentation> = {
   "/clienti/:id": { section: "Clienti", title: "Dettaglio cliente" },
   "/kanban": { section: "Commesse", title: "Board operativo" },
   "/magazzino": { section: "Ordini e cantiere", title: "Magazzino" },
+  "/conferme-ordine": { section: "Ordini e cantiere", title: "Conferme d'ordine" },
   "/pagamenti": { section: "Economia", title: "Pagamenti" },
   "/economia": { section: "Economia", title: "Contabilità" },
   "/marginalita": { section: "Economia", title: "Marginalità" },

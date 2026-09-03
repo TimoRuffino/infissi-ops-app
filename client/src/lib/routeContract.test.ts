@@ -22,6 +22,7 @@ const EXPECTED_PATHS = [
   "/clienti/:id",
   "/kanban",
   "/magazzino",
+  "/conferme-ordine",
   "/pagamenti",
   "/economia",
   "/marginalita",

@@ -221,6 +221,7 @@ async function archiviaPianificati(input: {
         nome: raw.nome,
         tipo: voce.tipo,
         note: input.nota,
+        origine: "smistamento",
         mimeType: raw.mimeType,
         buffer: raw.buffer,
         createdBy: input.createdBy,

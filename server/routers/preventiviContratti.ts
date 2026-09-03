@@ -23,6 +23,27 @@ import {
   spostaCostoDelDocumento,
 } from "../commesse/costiRegistro";
 import type { LetturaCostoDocumento } from "../commesse/letturaCostoTipi";
+import {
+  prodottiDelDocumento,
+  rimuoviProdottiDelDocumento,
+  spostaProdottiDelDocumento,
+} from "./magazzino";
+import { getUtentiStore } from "./utenti";
+
+/**
+ * Chi ha messo il documento nel fascicolo: serve al registro delle conferme
+ * (direzione 03/09 sera: «crea un registro delle conf. ordine archiviate
+ * automaticamente»).
+ */
+export const ORIGINI_DOCUMENTO = [
+  "upload", // dalla scheda commessa
+  "mail", // a mano dalla pagina Messaggi
+  "tars", // Tars su richiesta di un utente
+  "smistamento", // lo smistamento di Tars, in fondo
+  "automatico", // la regola delle conferme certe, in fondo
+  "fic", // PDF scaricato da Fatture in Cloud
+] as const;
+export type OrigineDocumento = (typeof ORIGINI_DOCUMENTO)[number];
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +85,8 @@ export type Documento = {
    * passa a leggere le conferme senza esito.
    */
   letturaCosto?: LetturaCostoDocumento | null;
+  /** Chi lo ha messo nel fascicolo (backfill dalle note per i vecchi). */
+  origine?: OrigineDocumento;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
@@ -107,9 +130,23 @@ const _documentiStore = persistedStore<Documento>(
       }
       // Conferme archiviate prima della regola del costo: da leggere.
       if ((d as any).letturaCosto === undefined) (d as any).letturaCosto = null;
+      if ((d as any).origine === undefined) (d as any).origine = origineDaRecord(d);
     }
   }
 );
+
+/** Per i documenti nati prima del campo: l'origine si legge da fonte e note. */
+export function origineDaRecord(d: Documento): OrigineDocumento {
+  if (d.source === "fic") return "fic";
+  if (d.source === "comunicazione") {
+    const note = d.note ?? "";
+    if (/smistamento/i.test(note)) return "smistamento";
+    if (/automatic/i.test(note)) return "automatico";
+    if (/tars/i.test(note)) return "tars";
+    return "mail";
+  }
+  return "upload";
+}
 const documenti = _documentiStore.items;
 
 registerMigratableCollection({
@@ -431,6 +468,8 @@ export async function archiviaAllegatoComunicazione(args: {
    * manuale del router mail conserva lo spostamento storico.
    */
   vietaRiassegnazione?: boolean;
+  /** Chi archivia: a mano dai Messaggi (default), Tars, lo smistamento, la regola automatica. */
+  origine?: OrigineDocumento;
 }): Promise<Documento> {
   if (Buffer.isBuffer(args.buffer)) {
     validaAllegatoFascicolo(args.buffer, args.mimeType);
@@ -500,6 +539,7 @@ export async function archiviaAllegatoComunicazione(args: {
     documento.statoAtUpload = commessa.stato ?? null;
     documento.source = "comunicazione";
     documento.sourceRef = sourceRef;
+    documento.origine = args.origine ?? "mail";
 
     try {
       const stored = await putFile(
@@ -779,8 +819,9 @@ export function spostaDocumentoDiCommessa(input: {
   documento.statoAtUpload = destinazione.stato ?? documento.statoAtUpload ?? null;
   if (input.note !== undefined) documento.note = input.note?.trim() || null;
   _documentiStore.save();
-  // Il costo nato dalla conferma segue il documento nel nuovo fascicolo.
+  // Costo e merce nati dalla conferma seguono il documento nel nuovo fascicolo.
   spostaCostoDelDocumento(documento.id, da, input.commessaId);
+  spostaProdottiDelDocumento(documento.id, input.commessaId);
   return { documento, da, a: input.commessaId };
 }
 
@@ -901,6 +942,7 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
     statoAtUpload: commessa.stato ?? null,
     createdBy: input.createdBy,
     createdAt: new Date(),
+    origine: "upload",
   };
 
   try {
@@ -1051,6 +1093,7 @@ export const preventiviContrattiRouter = router({
           await agganciaCostoDaConferma(doc, "riclassificazione");
         } else if (tipoPrima === "conferma_ordine") {
           rimuoviCostoDelDocumento(doc.id, doc.commessaId);
+          rimuoviProdottiDelDocumento(doc.id);
           doc.letturaCosto = null;
           _documentiStore.save();
         }
@@ -1077,8 +1120,9 @@ export const preventiviContrattiRouter = router({
     documenti.splice(idx, 1);
     _documentiStore.save();
     deleteFileQuiet(doc.storageKey);
-    // Il costo nato da questa conferma se ne va con lei.
+    // Costo e merce nati da questa conferma se ne vanno con lei.
     rimuoviCostoDelDocumento(doc.id, doc.commessaId);
+    rimuoviProdottiDelDocumento(doc.id);
 
     // Togliere il PDF di una fattura dal fascicolo E' scollegare la fattura.
     // Finora era solo la cancellazione di un file: la fattura restava
@@ -1105,6 +1149,81 @@ export const preventiviContrattiRouter = router({
     }
     return { success: true };
   }),
+
+  // Il registro delle conferme d'ordine della sede: chi le ha messe nel
+  // fascicolo (a mano, Tars, smistamento, regola automatica) e cosa ne è
+  // nato — costo del margine e merce a magazzino (03/09/2026 sera).
+  registroConferme: protectedProcedure
+    .input(
+      z
+        .object({
+          origine: z.enum(["tutte", "automatiche", "manuali"]).default("tutte"),
+          limite: z.number().int().min(1).max(500).default(200),
+        })
+        .optional()
+    )
+    .query(({ input, ctx }) => {
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const filtro = input?.origine ?? "tutte";
+      const utenti = getUtentiStore() as any[];
+      const nomeUtente = (id: number | null): string | null => {
+        if (id == null) return null;
+        const u = utenti.find(x => x.id === id);
+        return u ? `${u.nome ?? ""} ${u.cognome ?? ""}`.trim() || null : null;
+      };
+      return documentiDiSede(sedeId)
+        .filter(d => d.tipo === "conferma_ordine")
+        .map(d => ({ d, origine: d.origine ?? origineDaRecord(d) }))
+        .filter(({ origine }) =>
+          filtro === "tutte"
+            ? true
+            : filtro === "automatiche"
+              ? origine === "automatico" || origine === "smistamento"
+              : origine !== "automatico" && origine !== "smistamento"
+        )
+        .sort((a, b) => new Date(b.d.createdAt).getTime() - new Date(a.d.createdAt).getTime())
+        .slice(0, input?.limite ?? 200)
+        .map(({ d, origine }) => {
+          const commessa: any = getCommessaById(d.commessaId);
+          const costo = (commessa?.costi ?? []).find((c: any) => c.documentoId === d.id) ?? null;
+          const merce = prodottiDelDocumento(d.id);
+          const lettura = d.letturaCosto ?? null;
+          return {
+            documentoId: d.id,
+            nome: d.nome,
+            mimeType: d.mimeType,
+            createdAt: d.createdAt,
+            origine,
+            archiviatoDa: nomeUtente(d.createdBy),
+            commessa: commessa
+              ? {
+                  id: commessa.id,
+                  codice: commessa.codice ?? null,
+                  cliente: commessa.cliente ?? null,
+                  stato: String(commessa.stato ?? ""),
+                }
+              : null,
+            costo: costo
+              ? { stato: "registrato" as const, importo: Number(costo.importo), costoId: costo.id }
+              : {
+                  stato: (lettura
+                    ? lettura.esito === "registrato" || lettura.esito === "collegato"
+                      ? "rimosso_a_mano"
+                      : lettura.esito
+                    : "in_attesa") as string,
+                  importo: null,
+                  costoId: null,
+                },
+            merce: {
+              righe: merce.length,
+              dataConsegna: merce[0]?.dataConsegna ?? null,
+              arrivate: merce.filter(p => p.arrivato).length,
+            },
+            fonteTesto: lettura?.fonteTesto ?? null,
+            link: `/api/documenti/${d.id}/file`,
+          };
+        });
+    }),
 
   // UI helper: list of doc tipi + whether each is satisfied for the current
   // stato gate. Lets the CommessaDetail page render a neat required/done

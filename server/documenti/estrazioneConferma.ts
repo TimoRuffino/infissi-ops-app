@@ -312,22 +312,37 @@ export function estraiConfermaOrdine(
   // quelle di sola spedizione: dateConsegna[0] alimenta confronto e
   // proposte, e una data di spedizione non deve scavalcarla (revisione).
   const PAROLE_CONSEGNA_FORTI = /(consegna|delivery|liefer)/i;
+  // Una data etichettata come data del DOCUMENTO («del 01/09/2026», «Data:
+  // 01/09/2026») non diventa una consegna solo perché la riga dopo parla di
+  // consegna: la finestra di contesto attraversa le righe, l'etichetta no.
+  const ETICHETTA_DATA_DOCUMENTO =
+    /(?:\bdel|\bdata(?:\s+(?:documento|conferma|ordine))?|\bdate|\bemess[ao]\s+il|\bdocumento|\bin\s+data)\s*[:.]?\s*$/i;
   for (const { pagina, match } of cercaSuPagine(pagine, DATA_RE)) {
     const iso = normalizzaData(match[1], match[2], match[3]);
     if (!iso) continue;
-    const contorno = pagine[pagina].slice(
+    const testoPagina = pagine[pagina];
+    const contorno = testoPagina.slice(
       Math.max(0, match.index - 70),
       match.index + match[0].length + 30
     );
+    const inizioRiga = testoPagina.lastIndexOf("\n", match.index) + 1;
+    const fineRiga = testoPagina.indexOf("\n", match.index);
+    const riga = testoPagina.slice(inizioRiga, fineRiga === -1 ? undefined : fineRiga);
+    const etichettaDocumento = ETICHETTA_DATA_DOCUMENTO.test(
+      testoPagina.slice(Math.max(0, match.index - 25), match.index)
+    );
+    const contestoConsegna =
+      PAROLE_CONSEGNA.test(riga) ||
+      (!etichettaDocumento && PAROLE_CONSEGNA.test(contorno));
     const ev = evidenza(
       pagine,
       pagina,
       match.index,
       match[0].length,
       "pattern_testo",
-      PAROLE_CONSEGNA.test(contorno) ? "media" : "bassa"
+      contestoConsegna ? "media" : "bassa"
     );
-    if (PAROLE_CONSEGNA.test(contorno)) {
+    if (contestoConsegna) {
       if (!risultato.dateConsegna.some(d => d.valore === iso)) {
         risultato.dateConsegna.push({ valore: iso, evidenza: ev });
         (risultato.dateConsegna.at(-1) as any).__forte =

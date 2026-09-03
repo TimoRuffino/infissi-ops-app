@@ -46,6 +46,39 @@ il documento viene marcato `senza_imponibile` e la scheda lo dice.
 7. OCR: mai nel percorso della richiesta (upload/archiviazione), solo nel
    worker; l'esito «da OCR» si dichiara nella nota del costo.
 
+## Seconda tranche (stessa sera): merce, conferme certe, registro
+
+Tre mandati arrivati subito dopo:
+
+1. **Magazzino** — «va aperto nel magazzino la sua commessa e compilare la
+   merce in arrivo in base a quanto scritto nella conf. ordine; una commessa
+   può avere più di 1 conf. ordine». Stessa lettura del documento: le righe
+   di merce (`server/documenti/estrazioneMerce.ts`, tre disegni di tabella,
+   bassa confidenza dichiarata) diventano righe di `magazzino_prodotti` con
+   `documentoId`, fornitore, numero d'ordine, data ordine e data di consegna
+   (data esplicita o lunedì della settimana ISO citata). Senza righe
+   riconosciute entra una riga sola «da completare a mano», così la commessa
+   compare comunque con la data. Più conferme = più gruppi di righe. Il
+   magazzino parte da «Da ordinare» (prima era «Produzione»). Merce e costo
+   seguono il documento (spostamento) e spariscono con lui (cancellazione,
+   riclassificazione). `VERSIONE_LETTURA_COSTO` 1.1.0 fa rileggere al worker
+   le conferme già elaborate per scrivere la merce.
+2. **Conferme certe archiviate da sole** — «vale per tutte le commesse da
+   Da ordinare in poi, quindi vanno cercate e collegate anche se in stati
+   successivi». La ricerca copriva già quegli stati; mancava il
+   collegamento: worker `server/tars/documenti/confermeAutoArchivio.ts`
+   (boot +45 s, ogni 10 min, 10 per giro, `CONFERME_AUTO_ARCHIVIO=off`)
+   archivia i candidati «certi» (mail GIÀ collegata alla commessa + nome
+   file di conferma) con `origine: "automatico"`; i «probabili» restano
+   proposte nella Situazione di Tars. L'archiviazione fa nascere costo e
+   merce.
+3. **Registro** — «crea un registro delle conf. ordine archiviate
+   automaticamente». Campo `Documento.origine` (upload, mail, tars,
+   smistamento, automatico, fic; backfill dalle note), procedura
+   `preventiviContratti.registroConferme` e pagina `/conferme-ordine`
+   («Conferme d'ordine», sotto Cantiere): data, file (si apre), commessa,
+   origine, costo imponibile o perché manca, merce a magazzino.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

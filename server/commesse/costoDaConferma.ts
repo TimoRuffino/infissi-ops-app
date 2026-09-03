@@ -1,13 +1,17 @@
-// Il costo fornitore nasce dalla conferma d'ordine, nel momento in cui il
-// documento entra nel fascicolo (direzione 03/09/2026 sera: «il costo non
-// deve nascere se lo chiedo in chat, il costo deve nascere nel momento in
-// cui la conf. ordine viene allegata alla commessa»).
+// La conferma d'ordine che entra nel fascicolo porta con sé due cose
+// (direzione 03/09/2026 sera): il COSTO fornitore del margine («il costo
+// deve nascere nel momento in cui la conf. ordine viene allegata alla
+// commessa») e la MERCE in arrivo a magazzino («va aperto nel magazzino la
+// sua commessa e compilare la merce in arrivo in base a quanto scritto
+// nella conf. ordine»; una commessa può avere più conferme).
 //
 // Regola di dominio deterministica, come il pattuito che nasce dalla fattura
-// FiC: l'importo è quello scritto nel documento (l'IMPONIBILE, base del
-// margine), letto dallo stesso estrattore dell'analisi documentale. Nessun
-// modello decide niente qui. Se l'imponibile non c'è, non si scorpora l'IVA
-// per stima: il documento resta «senza imponibile» e la scheda lo dice.
+// FiC: l'importo è quello scritto nel documento (l'IMPONIBILE), le righe di
+// merce sono quelle lette nel testo, lo stesso estrattore dell'analisi
+// documentale. Nessun modello decide niente qui. Se l'imponibile non c'è,
+// non si scorpora l'IVA per stima: il documento resta «senza imponibile» e
+// la scheda lo dice; se le righe non si riconoscono, a magazzino entra una
+// riga sola da completare a mano — ma la commessa compare, con la data.
 //
 // Chi chiama: gli agganci del fascicolo (upload, archiviazione da mail,
 // riclassificazione) SENZA OCR — il percorso della richiesta deve restare
@@ -16,11 +20,17 @@
 
 import { getComunicazione } from "../comunicazioni/comunicazioni";
 import { estraiConfermaOrdine } from "../documenti/estrazioneConferma";
+import { dataDaSettimanaIso, estraiRigheMerce } from "../documenti/estrazioneMerce";
 import {
   estraiTestoDocumento,
   type EsitoParser,
 } from "../documenti/parserRegistry";
 import { getCommessaById } from "../routers/commesse";
+import {
+  creaProdottiDaConferma,
+  isCommessaEligibleForMagazzino,
+  prodottiDelDocumento,
+} from "../routers/magazzino";
 import {
   documentiDiSede,
   getDocumentiDiCommessa,
@@ -42,6 +52,7 @@ import {
   VERSIONE_LETTURA_COSTO,
   type EsitoLetturaCosto,
   type LetturaCostoDocumento,
+  type MerceDaConferma,
 } from "./letturaCostoTipi";
 
 export type EsitoCostoDaConferma = {
@@ -49,7 +60,7 @@ export type EsitoCostoDaConferma = {
   commessaId: number | null;
   esito:
     | EsitoLetturaCosto
-    /** C'era già: nessun effetto. */
+    /** C'era già: nessun effetto sul costo. */
     | "gia_registrato"
     /** La lettura dice «registrato» ma il costo è stato tolto a mano: si rispetta. */
     | "rimosso_a_mano"
@@ -63,6 +74,8 @@ export type EsitoCostoDaConferma = {
   fonteTesto: LetturaCostoDocumento["fonteTesto"];
   motivo: string | null;
   nomeFile: string | null;
+  /** Cosa è successo a magazzino in questa lettura (null = testo non letto). */
+  merce: MerceDaConferma | null;
 };
 
 export type DipendenzeCostoDaConferma = {
@@ -156,6 +169,7 @@ export async function registraCostoDaConferma(input: {
     fonteTesto: "nessuna",
     motivo,
     nomeFile: documento?.nome ?? null,
+    merce: null,
     ...extra,
   });
 
@@ -180,47 +194,68 @@ export async function registraCostoDaConferma(input: {
     return completa;
   };
 
-  // Già a registro: nessun effetto. Se il documento non lo ricorda (costo
-  // scritto da Tars prima del campo `documentoId`), lo si annota adesso.
+  const precedente = documento.letturaCosto ?? null;
+  const memoriaValida =
+    precedente != null &&
+    precedente.versione === VERSIONE_LETTURA_COSTO &&
+    (precedente.checksum ?? null) === (documento.checksum ?? null) &&
+    precedente.merce !== undefined;
   const esistente = costoDelDocumento(commessa, documento.id);
-  if (esistente) {
-    const memoria = documento.letturaCosto ?? null;
-    if (!memoria || (memoria.esito !== "registrato" && memoria.esito !== "collegato")) {
+  const merceGiaScritta = prodottiDelDocumento(documento.id);
+
+  // Costo a registro e merce a magazzino: niente da rifare. Se il documento
+  // non lo ricorda con questa versione, lo si annota adesso.
+  if (esistente && merceGiaScritta.length > 0) {
+    if (!memoriaValida) {
       salva({
         esito: "registrato",
-        fonteTesto: memoria?.fonteTesto ?? "nessuna",
+        fonteTesto: precedente?.fonteTesto ?? "nessuna",
         imponibile: esistente.importo,
         fornitore: esistente.fornitore,
         numeroOrdine: esistente.numeroOrdine,
         dataDocumento: esistente.data,
         motivo: null,
-        tentativi: memoria?.tentativi ?? 0,
+        tentativi: precedente?.tentativi ?? 0,
         costoId: esistente.id,
+        merce: {
+          righe: merceGiaScritta.length,
+          dataConsegna: merceGiaScritta[0]?.dataConsegna ?? null,
+          motivo: null,
+        },
       });
     }
     return base(documento, "gia_registrato", null, {
       imponibile: esistente.importo,
       costoId: esistente.id,
+      merce: precedente?.merce ?? {
+        righe: merceGiaScritta.length,
+        dataConsegna: merceGiaScritta[0]?.dataConsegna ?? null,
+        motivo: null,
+      },
     });
   }
 
-  const precedente = documento.letturaCosto ?? null;
-  const memoriaValida =
-    precedente != null &&
-    precedente.versione === VERSIONE_LETTURA_COSTO &&
-    (precedente.checksum ?? null) === (documento.checksum ?? null);
+  // Decisioni già prese con questa versione e questi byte: si rispettano.
   if (memoriaValida && !input.forza) {
     if (precedente.esito === "registrato" || precedente.esito === "collegato") {
       return base(
         documento,
-        "rimosso_a_mano",
-        "Il costo nato da questa conferma è stato tolto a mano: non lo rimetto da solo.",
-        { imponibile: precedente.imponibile, fonteTesto: precedente.fonteTesto }
+        esistente ? "gia_registrato" : "rimosso_a_mano",
+        esistente
+          ? null
+          : "Il costo nato da questa conferma è stato tolto a mano: non lo rimetto da solo.",
+        {
+          imponibile: precedente.imponibile,
+          costoId: esistente?.id ?? null,
+          fonteTesto: precedente.fonteTesto,
+          merce: precedente.merce ?? null,
+        }
       );
     }
     if (ESITI_TERMINALI.has(precedente.esito)) {
       return base(documento, precedente.esito, precedente.motivo, {
         fonteTesto: precedente.fonteTesto,
+        merce: precedente.merce ?? null,
       });
     }
     if (precedente.esito === "da_ocr" && !input.ocr) {
@@ -246,10 +281,12 @@ export async function registraCostoDaConferma(input: {
       motivo,
       tentativi: esito === "errore" ? tentativi + 1 : tentativi,
       costoId: null,
+      merce: null,
     });
     return base(documento, esito, motivo);
   };
 
+  // ── Lettura del documento (una sola volta per costo e merce) ─────────────
   let raw: { buffer: Buffer; nome: string; mimeType: string } | null;
   try {
     raw = await deps.leggiDocumento(documento.id);
@@ -296,23 +333,67 @@ export async function registraCostoDaConferma(input: {
     estrazione.fornitoreCitato?.valore ||
     (await deps.nomeMittente(documento)) ||
     null;
+  const riferimentoDocumento = `«${raw.nome}» (documento:${documento.id})`;
+  const avvisoOcr =
+    fonteTesto === "ocr" ? " — testo da OCR, verificare sul file" : "";
+
+  // ── Merce in arrivo a magazzino ──────────────────────────────────────────
+  const merce = applicaMerceDaConferma({
+    commessa,
+    documento,
+    pagine: parser.pagine,
+    fornitore,
+    numeroOrdine,
+    dataOrdine: dataDocumento,
+    dateConsegna: estrazione.dateConsegna.map(d => d.valore),
+    settimaneConsegna: estrazione.settimaneConsegna.map(s => s.valore),
+    riferimentoDocumento,
+    avvisoOcr,
+    adesso: deps.adesso(),
+  });
+
+  // ── Costo fornitore ──────────────────────────────────────────────────────
+  const memoriaCosto = {
+    fonteTesto,
+    imponibile,
+    fornitore,
+    numeroOrdine,
+    dataDocumento,
+    tentativi,
+    merce,
+  };
+
+  if (esistente) {
+    salva({ ...memoriaCosto, esito: "registrato", motivo: null, costoId: esistente.id });
+    return base(documento, "gia_registrato", null, {
+      imponibile: esistente.importo,
+      costoId: esistente.id,
+      fonteTesto,
+      merce,
+    });
+  }
+  // Un costo nato da questa conferma e poi tolto a mano non rinasce da solo,
+  // qualunque sia la versione della lettura che lo ricorda.
+  if (
+    !input.forza &&
+    precedente &&
+    (precedente.esito === "registrato" || precedente.esito === "collegato")
+  ) {
+    salva({ ...memoriaCosto, esito: precedente.esito, motivo: null, costoId: null });
+    return base(
+      documento,
+      "rimosso_a_mano",
+      "Il costo nato da questa conferma è stato tolto a mano: non lo rimetto da solo.",
+      { imponibile, fonteTesto, merce }
+    );
+  }
 
   if (imponibile == null || imponibile <= 0) {
     const motivo = estrazione.totaleDocumento
       ? `«${raw.nome}» dichiara un totale ma non l'imponibile: l'IVA non si scorpora per stima, il costo va registrato a mano.`
       : `In «${raw.nome}» non c'è un imponibile leggibile: il costo va registrato a mano.`;
-    salva({
-      esito: "senza_imponibile",
-      fonteTesto,
-      imponibile: null,
-      fornitore,
-      numeroOrdine,
-      dataDocumento,
-      motivo,
-      tentativi,
-      costoId: null,
-    });
-    return base(documento, "senza_imponibile", motivo, { fonteTesto });
+    salva({ ...memoriaCosto, esito: "senza_imponibile", motivo, costoId: null });
+    return base(documento, "senza_imponibile", motivo, { fonteTesto, merce });
   }
 
   if (
@@ -323,13 +404,14 @@ export async function registraCostoDaConferma(input: {
       documento,
       "importo_diverso",
       `L'imponibile letto da «${raw.nome}» è diverso da quello indicato: registro solo l'importo che sta nel documento.`,
-      { imponibile, fonteTesto }
+      { imponibile, fonteTesto, merce }
     );
   }
 
-  const nota = `${input.nota?.trim() ? `${input.nota.trim()} ` : ""}Letto dalla conferma d'ordine «${raw.nome}» (documento:${documento.id})${
-    fonteTesto === "ocr" ? " — testo da OCR, verificare l'importo sul file" : ""
-  }`.slice(0, 300);
+  const nota = `${input.nota?.trim() ? `${input.nota.trim()} ` : ""}Letto dalla conferma d'ordine ${riferimentoDocumento}${avvisoOcr}`.slice(
+    0,
+    300
+  );
 
   // Un costo già scritto a mano per lo stesso ordine, lo stesso importo o lo
   // stesso fornitore: la conferma lo lega al documento, non lo raddoppia.
@@ -338,21 +420,12 @@ export async function registraCostoDaConferma(input: {
     costoManualePerFornitore(commessa, fornitore);
   if (manuale) {
     collegaCostoAlDocumento(commessa, manuale, documento.id, nota);
-    salva({
-      esito: "collegato",
-      fonteTesto,
-      imponibile,
-      fornitore,
-      numeroOrdine,
-      dataDocumento,
-      motivo: null,
-      tentativi,
-      costoId: manuale.id,
-    });
+    salva({ ...memoriaCosto, esito: "collegato", motivo: null, costoId: manuale.id });
     return base(documento, "collegato", null, {
       imponibile,
       costoId: manuale.id,
       fonteTesto,
+      merce,
     });
   }
 
@@ -365,22 +438,92 @@ export async function registraCostoDaConferma(input: {
     note: nota,
     documentoId: documento.id,
   });
-  salva({
-    esito: "registrato",
-    fonteTesto,
-    imponibile,
-    fornitore,
-    numeroOrdine,
-    dataDocumento,
-    motivo: null,
-    tentativi,
-    costoId: costo.id,
-  });
+  salva({ ...memoriaCosto, esito: "registrato", motivo: null, costoId: costo.id });
   return base(documento, "registrato", null, {
     imponibile,
     costoId: costo.id,
     fonteTesto,
+    merce,
   });
+}
+
+/**
+ * La merce che la conferma promette, scritta a magazzino sulla commessa:
+ * una riga per articolo riconosciuto, altrimenti una riga sola da completare
+ * a mano — così la commessa compare comunque, con la sua data di arrivo.
+ * Idempotente per documento (le righe già scritte non si raddoppiano).
+ */
+function applicaMerceDaConferma(input: {
+  commessa: any;
+  documento: Documento;
+  pagine: string[];
+  fornitore: string | null;
+  numeroOrdine: string | null;
+  dataOrdine: string | null;
+  dateConsegna: string[];
+  settimaneConsegna: number[];
+  riferimentoDocumento: string;
+  avvisoOcr: string;
+  adesso: Date;
+}): MerceDaConferma {
+  const gia = prodottiDelDocumento(input.documento.id);
+  if (gia.length > 0) {
+    return { righe: gia.length, dataConsegna: gia[0].dataConsegna, motivo: null };
+  }
+  const c = input.commessa;
+  if (c.archivedAt || !isCommessaEligibleForMagazzino(String(c.stato ?? ""))) {
+    return {
+      righe: 0,
+      dataConsegna: null,
+      motivo: `La commessa è in «${c.stato}»: il magazzino parte da «Da ordinare».`,
+    };
+  }
+  const riferimento = input.dataOrdine ? new Date(`${input.dataOrdine}T00:00:00Z`) : input.adesso;
+  const dataConsegna =
+    input.dateConsegna[0] ??
+    (input.settimaneConsegna[0] != null
+      ? dataDaSettimanaIso(
+          input.settimaneConsegna[0],
+          Number.isFinite(riferimento.getTime()) ? riferimento : input.adesso
+        )
+      : null);
+  const daSettimana =
+    !input.dateConsegna[0] && input.settimaneConsegna[0] != null
+      ? ` Consegna: settimana ${input.settimaneConsegna[0]}.`
+      : "";
+  const righe = estraiRigheMerce(input.pagine);
+  const nota = (
+    righe.length > 0
+      ? `Letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}.${daSettimana}`
+      : `Dalla conferma d'ordine ${input.riferimentoDocumento}: righe di merce non riconosciute nel PDF, descrizione da completare a mano.${daSettimana}`
+  ).slice(0, 300);
+  const creati = creaProdottiDaConferma({
+    commessaId: c.id,
+    sedeId: Number(c.sedeId ?? 1),
+    documentoId: input.documento.id,
+    righe:
+      righe.length > 0
+        ? righe.map(r => ({ nome: r.nome, quantita: r.quantita }))
+        : [
+            {
+              nome: `Merce conferma d'ordine ${
+                input.numeroOrdine ? `n. ${input.numeroOrdine}` : input.documento.nome
+              }`,
+              quantita: 1,
+            },
+          ],
+    fornitore: input.fornitore,
+    numeroOrdine: input.numeroOrdine,
+    dataOrdine: input.dataOrdine,
+    dataConsegna,
+    note: nota,
+  });
+  return {
+    righe: creati.length,
+    dataConsegna,
+    motivo:
+      righe.length > 0 ? null : "Righe di merce non riconosciute: una riga sola da completare a mano.",
+  };
 }
 
 /** Stesso fornitore di un costo manuale senza documento: è lo stesso ordine nella quasi totalità dei casi. */

@@ -15,6 +15,7 @@ import {
   spostaDocumentoDiCommessa,
   type DocTipo,
 } from "../routers/preventiviContratti";
+import { getMagazzinoStore } from "../routers/magazzino";
 import { getUtentiStore } from "../routers/utenti";
 import { confermeSenzaCostoDi, registraCostoDaConferma } from "./costoDaConferma";
 import {
@@ -238,6 +239,94 @@ describe("il costo fornitore nasce quando la conferma entra nel fascicolo", () =
       fornitore: "Tesconi Serramenti",
       documentoId: documento.id,
     });
+  });
+});
+
+describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
+  const RIGHE_CON_MERCE = [
+    "TESCONI SRL - Serramenti",
+    "Conferma d'ordine n. 4471 del 01/09/2026",
+    "Consegna prevista: settimana 38",
+    "10   Finestra 2 ante PVC bianco 1200x1400       2    pz   350,00    700,00",
+    "20   Portafinestra 1 anta PVC 800x2200          1    pz   420,00    420,00",
+    "Totale imponibile: EUR 1.120,00",
+  ];
+  const inOrdine = async (cliente: string) => {
+    const commessa = await nuovaCommessa(cliente);
+    (getCommessaById(commessa.id) as any).stato = "da_ordinare";
+    return commessa;
+  };
+  const merceDi = (commessaId: number) =>
+    getMagazzinoStore().filter(p => p.commessaId === commessaId);
+
+  it("una riga per articolo, con fornitore, numero d'ordine e data dalla settimana; più conferme = più righe", async () => {
+    const commessa = await inOrdine("Tesconi Merce");
+    const prima = await carica(commessa.id, RIGHE_CON_MERCE);
+    const righe = merceDi(commessa.id);
+    expect(righe.map(r => [r.nome, r.quantita])).toEqual([
+      ["Finestra 2 ante PVC bianco 1200x1400", 2],
+      ["Portafinestra 1 anta PVC 800x2200", 1],
+    ]);
+    expect(righe[0]).toMatchObject({
+      documentoId: prima.id,
+      dataConsegna: "2026-09-14",
+      dataOrdine: "2026-09-01",
+      arrivato: false,
+    });
+    expect(righe[0].note).toContain("settimana 38");
+    expect(getDocumentoRecordById(prima.id)?.letturaCosto?.merce).toEqual({
+      righe: 2,
+      dataConsegna: "2026-09-14",
+      motivo: null,
+    });
+
+    // Seconda conferma (altro fornitore): altre righe, le prime restano.
+    const seconda = await carica(
+      commessa.id,
+      ["ZANZAR SPA", "Conferma d'ordine n. 77", "Consegna: 20/09/2026", "3 pz Zanzariera a rullo 1200x1400", "Imponibile: EUR 300,00"],
+      { nome: "Conferma_zanzariere.pdf" }
+    );
+    const tutte = merceDi(commessa.id);
+    expect(tutte).toHaveLength(3);
+    expect(tutte.filter(r => r.documentoId === seconda.id)).toHaveLength(1);
+    expect(tutte.find(r => r.documentoId === seconda.id)?.dataConsegna).toBe("2026-09-20");
+    // Due costi, uno per conferma.
+    expect(costiDi(commessa.id)).toHaveLength(2);
+
+    // Rileggere non raddoppia la merce.
+    await registraCostoDaConferma({ documentoId: prima.id, forza: true });
+    expect(merceDi(commessa.id)).toHaveLength(3);
+  });
+
+  it("senza righe riconoscibili entra una riga sola da completare, e la merce segue il documento", async () => {
+    const origine = await inOrdine("Solo Data");
+    const destinazione = await inOrdine("Destinazione Merce");
+    const documento = await carica(origine.id, [
+      "Conferma d'ordine n. 9",
+      "Consegna prevista 25/09/2026",
+      "Totale documento: EUR 4.270,00",
+    ]);
+    const righe = merceDi(origine.id);
+    expect(righe).toHaveLength(1);
+    expect(righe[0]).toMatchObject({ quantita: 1, dataConsegna: "2026-09-25", documentoId: documento.id });
+    expect(righe[0].nome).toContain("Merce conferma d'ordine");
+    expect(righe[0].note).toContain("completare a mano");
+
+    spostaDocumentoDiCommessa({ documentoId: documento.id, commessaId: destinazione.id, sedeId: SEDE });
+    expect(merceDi(origine.id)).toHaveLength(0);
+    expect(merceDi(destinazione.id)).toHaveLength(1);
+
+    await direzione().preventiviContratti.delete(documento.id);
+    expect(merceDi(destinazione.id)).toHaveLength(0);
+  });
+
+  it("prima di «Da ordinare» il magazzino non parte, e lo dice", async () => {
+    const commessa = await nuovaCommessa("Ancora Preventivo");
+    const documento = await carica(commessa.id, RIGHE_CON_MERCE);
+    expect(merceDi(commessa.id)).toHaveLength(0);
+    expect(getDocumentoRecordById(documento.id)?.letturaCosto?.merce?.motivo).toContain("Da ordinare");
+    // Il costo invece nasce comunque: il margine non aspetta lo stato.
+    expect(costiDi(commessa.id)).toHaveLength(1);
   });
 });
 

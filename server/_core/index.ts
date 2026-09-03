@@ -84,6 +84,13 @@ async function startServer() {
     "../commesse/costoDaConfermaWorker"
   );
   startCostoDaConfermaWorker();
+  // Conferme d'ordine certe (mail già collegata alla commessa + file che si
+  // dichiara conferma): archiviate da sole, per tutte le commesse da «Da
+  // ordinare» in poi; le dubbie restano proposte nella Situazione di Tars.
+  const { startConfermeAutoArchivioWorker } = await import(
+    "../tars/documenti/confermeAutoArchivio"
+  );
+  startConfermeAutoArchivioWorker();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();

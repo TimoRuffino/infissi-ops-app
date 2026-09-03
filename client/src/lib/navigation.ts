@@ -1,6 +1,7 @@
 import {
   Archive,
   Banknote,
+  ClipboardCheck,
   Bot,
   Building2,
   Calculator,
@@ -125,6 +126,13 @@ export const menuItems: readonly MenuItem[] = [
         icon: Package,
         label: "Magazzino",
         path: "/magazzino",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
+      {
+        icon: ClipboardCheck,
+        label: "Conferme d'ordine",
+        path: "/conferme-ordine",
         requiredCapabilities: ["commessa.read"],
         loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
       },

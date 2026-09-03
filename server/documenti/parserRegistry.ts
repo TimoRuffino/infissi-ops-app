@@ -75,7 +75,10 @@ const pdfTestoNativo: ParserDocumento = {
     nomeFile.toLowerCase().endsWith(".pdf"),
   async estrai(bytes) {
     try {
-      const pdf = await getDocumentProxy(new Uint8Array(bytes));
+      // verbosity 0 = solo errori: pdf.js altrimenti scrive un «Warning:»
+      // per ogni font che non sa misurare (Math.sumPrecise assente in Node)
+      // e il worker delle conferme ne produce decine per documento.
+      const pdf = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
       const { text } = await extractText(pdf, { mergePages: false });
       const pagine = (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
         String(pagina ?? "")

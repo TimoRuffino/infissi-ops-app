@@ -21,6 +21,17 @@
 > Senza imponibile nel documento non si scorpora l'IVA: la scheda commessa e la
 > fotografia di Tars dicono «registra a mano». La chat di Tars
 > (`registra_costo_fornitore` 1.1.0) serve solo a rimettere un costo tolto a mano.
+>
+> **Stessa sera, seconda tranche.** (1) La stessa lettura scrive la **merce in
+> arrivo a magazzino** (`estrazioneMerce.ts`, righe con `documentoId`; il
+> magazzino parte da «Da ordinare»; senza righe riconosciute una riga sola da
+> completare). (2) Le conferme **certe** (mail già collegata alla commessa +
+> nome file di conferma) si archiviano da sole: worker
+> `tars/documenti/confermeAutoArchivio.ts` (ogni 10 min,
+> `CONFERME_AUTO_ARCHIVIO=off` per spegnerlo), `origine: "automatico"`; le
+> dubbie restano proposte. (3) **Registro conferme d'ordine**: campo
+> `Documento.origine`, procedura `preventiviContratti.registroConferme`, pagina
+> `/conferme-ordine`. Piano: `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`.
 
 ## 1. Contesto
 
