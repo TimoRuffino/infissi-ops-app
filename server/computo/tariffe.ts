@@ -99,6 +99,8 @@ export type Coefficienti = {
   speseProfessionaliMinEuro: number;
   altriServiziPct: number;
   controtelaiMinMq: number;
+  /** Aliquota IVA agevolata del preventivo (0,10): stima l'imponibile da un pattuito lordo. */
+  ivaAgevolata: number;
   avvolgibileExtraL: number;
   avvolgibileExtraLOffset: number;
   avvolgibileExtraH: number;

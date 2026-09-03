@@ -68,13 +68,6 @@ export type EsitoMotore = {
 
 const arrotonda = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
 
-/**
- * Famiglie di controtelaio a cui il foglio applica il minimo di fatturazione
- * (H13/H14: acciaio e misto acciaio-legno; il DEI le scrive «acciao»).
- * L'unico discriminante che il seed porta è il nome della famiglia.
- */
-const FAMIGLIE_CONTROTELAIO_CON_MINIMO = /acciaio|acciao/i;
-
 /** Perimetro per i coprifili (CHECK2 colonne T/W): portefinestre L + 2H, finestre 2(L + H). Metri. */
 function perimetroM(p: Prodotto, l: number, h: number): number {
   return p.portafinestra ? (l + 2 * h) / 1000 : (2 * (l + h)) / 1000;
@@ -256,12 +249,7 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
       continue;
     }
     let misura = v.unita === "cad" ? r.quantita : (r.misuraDei ?? 0);
-    // H13/H14: acciaio e misto acciaio-legno hanno un minimo di fatturazione
-    // sulla misura (analisi §2.2). Il seed porta queste varianti a metro e con
-    // `minimoMq` nullo: il minimo per voce prevale quando c'è, altrimenti vale
-    // il coefficiente delle tariffe. Le varianti a pezzo non hanno minimo.
-    const minimo = v.minimoMq ?? (FAMIGLIE_CONTROTELAIO_CON_MINIMO.test(v.famiglia) ? coeff.controtelaiMinMq : null);
-    if (v.unita !== "cad" && minimo != null && misura > 0 && misura < minimo) misura = minimo;
+    if (v.unita === "mq" && v.minimoMq && misura > 0 && misura < v.minimoMq) misura = v.minimoMq; // H13/H14
     aggiungi({
       gruppo: "controtelai", codice: `controtelaio_${nControtelaio}`, descrizione: `${v.famiglia} — ${v.variante}`,
       codiceDei: v.codice, unita: v.unita, prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(misura),
@@ -333,7 +321,7 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
   opera("posa", a.orePosa, a.orePosa * coeff.installatori * prezzo("posa"), { ore: arrotonda(a.orePosa), installatori: coeff.installatori }); // H33
   opera("pulizia", a.oreTiro, coeff.puliziaFissoEuro + a.oreTiro * prezzo("pulizia"), { ore: arrotonda(a.oreTiro), fisso: coeff.puliziaFissoEuro }); // H34
   // H35 = max(600; 4 % del fatturato). Prima della fattura la base è l'imponibile stimato del pattuito.
-  const imponibileStimato = p.pattuitoTipo === "lordo" ? Math.round(p.pattuitoCent / 1.1) : p.pattuitoCent;
+  const imponibileStimato = p.pattuitoTipo === "lordo" ? Math.round(p.pattuitoCent / (1 + coeff.ivaAgevolata)) : p.pattuitoCent;
   opera("spese_professionali", 1, Math.max(coeff.speseProfessionaliMinEuro, coeff.speseProfessionaliPct * (imponibileStimato / 100)), { base: imponibileStimato / 100, pct: coeff.speseProfessionaliPct, minimo: coeff.speseProfessionaliMinEuro, stima: true });
 
   // ── Servizi eventuali, CHECK1 H39:H43 ────────────────────────────────────
@@ -373,7 +361,7 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
   if (check2Cent == null) incompleto = true;
   const limiteCent = check2Cent == null ? check1Cent : Math.min(check1Cent, check2Cent);
 
-  // Detrazione: stima dell'imponibile dal pattuito (tutto al 10 % se lordo); il valore esatto arriva con la fattura (piano 2).
+  // Detrazione: stima dell'imponibile dal pattuito (aliquota agevolata delle tariffe se lordo); il valore esatto arriva con la fattura (piano 2).
   let detraibileCent: number | null = null;
   let detrazioneStimataCent: number | null = null;
   if (p.detrazioneTipo !== "nessuna" && p.detrazionePct != null) {
