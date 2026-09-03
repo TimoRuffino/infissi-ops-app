@@ -73,6 +73,17 @@ function perimetroM(p: Prodotto, l: number, h: number): number {
   return p.portafinestra ? (l + 2 * h) / 1000 : (2 * (l + h)) / 1000;
 }
 
+/**
+ * L'accessorio vale per questo prodotto? Stessi predicati di `accessoriPer`
+ * (`tariffe.ts`): famiglia compatibile e, se marcato, solo portefinestre.
+ */
+function accessorioApplicabile(a: Accessorio, p: Prodotto): boolean {
+  return (
+    (a.famiglie.length === 0 || a.famiglie.includes(p.famiglia)) &&
+    (!a.soloPortafinestra || p.portafinestra === true)
+  );
+}
+
 /** Costo di un accessorio secondo la regola del foglio (analisi §2.3). */
 function costoAccessorio(
   a: Accessorio,
@@ -92,7 +103,15 @@ function costoAccessorio(
   }
 }
 
-type DeiRiga = { euro: number; codiceDei: string; descrizione: string; dettaglio: VoceComputo["dettaglio"] };
+type DeiRiga = {
+  euro: number;
+  /** Prodotto davvero applicato: per i cassonetti è la classe scelta, non la tipologia indicata. */
+  codiceDei: string;
+  descrizione: string;
+  prezzoUnit: number;
+  unita: Prodotto["unita"];
+  dettaglio: VoceComputo["dettaglio"];
+};
 
 /**
  * Voce DEI «opere compiute» della riga (CHECK2, blocchi «Calcolo Automatici»):
@@ -100,11 +119,18 @@ type DeiRiga = { euro: number; codiceDei: string; descrizione: string; dettaglio
  * null se la riga non ha un prodotto di catalogo (o l'oscurante non ce l'ha).
  */
 function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): DeiRiga | null {
-  const { gruppo } = gruppoPerCategoria(r.categoria);
+  const { gruppo, famiglia } = gruppoPerCategoria(r.categoria);
   if (!gruppo) return null;
   const p = r.tipologia ? prodotto(t, r.tipologia) : null;
   if (!p || p.gruppo !== gruppo) {
     avvertenze.push(`Riga ${n} «${r.descrizione}»: nessuna voce DEI per ${r.categoria}/${r.tipologia ?? "tipologia vuota"} — CHECK2 non calcolabile.`);
+    return null;
+  }
+  // Quando la categoria fissa anche la famiglia (pvc, alluminio, legno), un
+  // codice di un'altra famiglia sarebbe prezzato con il listino sbagliato:
+  // la riga vale come senza voce DEI (fail-closed), non «quasi giusta».
+  if (famiglia && p.famiglia !== famiglia) {
+    avvertenze.push(`Riga ${n} «${r.descrizione}»: la tipologia ${p.codice} è di famiglia ${p.famiglia}, la categoria richiede ${famiglia} — CHECK2 non calcolabile.`);
     return null;
   }
   const c = t.coefficienti;
@@ -115,6 +141,7 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
   const dettaglio: VoceComputo["dettaglio"] = { codiceDei: p.codice, prezzoDei: p.prezzo, mq: arrotonda(mq, 4) };
   let euro = 0;
   let mqEff = mq;
+  let applicato: Prodotto = p;
 
   switch (p.gruppo) {
     case "serramento":
@@ -136,14 +163,30 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
       break;
     }
     case "cassonetto": {
-      // AZ: voce scelta dalla classe di mq per pezzo nella famiglia della tipologia indicata.
+      // AZ: la classe si sceglie per mq/pezzo dentro la SERIE della voce
+      // indicata (il codice DEI prima del «-»): la stessa famiglia porta serie
+      // diverse con gli stessi intervalli e prezzi diversi (C25095/C25096).
       const mqPezzo = q > 0 ? mq / q : 0;
-      const scelto = p.unita === "cad"
-        ? t.prodotti.find(x => x.gruppo === "cassonetto" && x.famiglia === p.famiglia && x.mqPezzoMin != null && mqPezzo >= x.mqPezzoMin && (x.mqPezzoMax == null || mqPezzo < x.mqPezzoMax)) ?? p
-        : p;
-      euro = scelto.unita === "cad" ? scelto.prezzo * q : scelto.prezzo * (r.misuraDei ?? mq);
-      mqEff = q;
+      const serie = p.codice.split("-")[0];
+      const classe = p.unita === "cad"
+        ? t.prodotti.find(x => x.gruppo === "cassonetto" && x.famiglia === p.famiglia && x.codice.split("-")[0] === serie && x.mqPezzoMin != null && mqPezzo >= x.mqPezzoMin && (x.mqPezzoMax == null || mqPezzo < x.mqPezzoMax))
+        : null;
+      if (p.unita === "cad" && !classe) {
+        // Gli intervalli del monoblocco hanno buchi: si dice, non si indovina.
+        avvertenze.push(`Riga ${n} «${r.descrizione}»: nessuna classe di cassonetto copre ${arrotonda(mqPezzo, 4)} mq/pezzo, usata la voce scelta ${p.codice}.`);
+      }
+      const scelto = classe ?? p;
+      if (scelto.unita === "cad") {
+        mqEff = q;
+      } else {
+        // Voci a metro (C25094): la misura DEI è l'unico input, mai i mq.
+        if (r.misuraDei == null) avvertenze.push(`Riga ${n} «${r.descrizione}»: misura DEI mancante, limite zero.`);
+        mqEff = r.misuraDei ?? 0;
+      }
+      euro = scelto.prezzo * mqEff;
+      applicato = scelto;
       dettaglio.voceScelta = scelto.codice;
+      dettaglio.prezzoVoceScelta = scelto.prezzo;
       dettaglio.mqPezzo = arrotonda(mqPezzo, 4);
       break;
     }
@@ -185,20 +228,20 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
       avvertenze.push(`Riga ${n}: accessorio «${acc.codice}» non in catalogo, ignorato nel CHECK2.`);
       continue;
     }
-    let extra: number;
-    if (a.gruppo === p.gruppo) {
-      extra = costoAccessorio(a, p.prezzo, mqEff, acc.quantita, p.nAnte ?? 1, perimetro);
-    } else if (po && a.gruppo === po.gruppo) {
-      extra = costoAccessorio(a, po.prezzo, dettaglio.oscuranteMq as number, acc.quantita, po.nAnte ?? 1, perimetro);
-    } else {
-      avvertenze.push(`Riga ${n}: accessorio «${a.nome}» non applicabile a ${p.nome}, ignorato nel CHECK2.`);
+    // A quale prodotto si riferisce: il serramento o l'oscurante abbinato.
+    const su = a.gruppo === p.gruppo ? p : po && a.gruppo === po.gruppo ? po : null;
+    if (!su || !accessorioApplicabile(a, su)) {
+      avvertenze.push(`Riga ${n}: accessorio «${a.nome}» non applicabile a «${(su ?? p).nome}», ignorato nel CHECK2.`);
       continue;
     }
+    const extra = su === p
+      ? costoAccessorio(a, p.prezzo, mqEff, acc.quantita, p.nAnte ?? 1, perimetro)
+      : costoAccessorio(a, su.prezzo, dettaglio.oscuranteMq as number, acc.quantita, su.nAnte ?? 1, perimetro);
     euro += extra;
     dettaglio[`accessorio ${a.nome}`] = arrotonda(extra, 2);
   }
 
-  return { euro, codiceDei: p.codice, descrizione: p.nome, dettaglio };
+  return { euro, codiceDei: applicato.codice, descrizione: applicato.nome, prezzoUnit: applicato.prezzo, unita: applicato.unita, dettaglio };
 }
 
 export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariffe): EsitoMotore {
@@ -234,7 +277,8 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
     });
   }
   if (a.righeSenzaMisure > 0) {
-    avvertenze.push(`${a.righeSenzaMisure} righe senza misure: contate nei pezzi ma non nei mq.`);
+    const quante = a.righeSenzaMisure === 1 ? "1 riga senza misure" : `${a.righeSenzaMisure} righe senza misure`;
+    avvertenze.push(`${quante}: contate nei pezzi ma non nei mq.`);
   }
 
   // ── Controtelai, CHECK1 righe 11–18: prezzo × misura (min 1,2 mq acciaio/misto) ─
@@ -249,6 +293,9 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
       continue;
     }
     let misura = v.unita === "cad" ? r.quantita : (r.misuraDei ?? 0);
+    if (v.unita !== "cad" && r.misuraDei == null) {
+      avvertenze.push(`Controtelaio «${r.descrizione}»: misura DEI mancante, limite zero.`);
+    }
     if (v.unita === "mq" && v.minimoMq && misura > 0 && misura < v.minimoMq) misura = v.minimoMq; // H13/H14
     aggiungi({
       gruppo: "controtelai", codice: `controtelaio_${nControtelaio}`, descrizione: `${v.famiglia} — ${v.variante}`,
@@ -348,7 +395,8 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
     if (deiProdotti != null) deiProdotti += d.euro;
     aggiungi({
       gruppo: "prodotti", codice: `dei_riga_${iRiga}`, descrizione: `${r.descrizione} — ${d.descrizione}`, codiceDei: d.codiceDei,
-      unita: "mq", prezzoUnitCent: euroToCent(prodotto(t, d.codiceDei)!.prezzo), quantita: d.dettaglio.mqFatturati as number,
+      unita: d.unita === "cad" ? "cad" : d.unita === "m" ? "m" : "mq",
+      prezzoUnitCent: euroToCent(d.prezzoUnit), quantita: d.dettaglio.mqFatturati as number,
       limiteCent: euroToCent(d.euro), dettaglio: d.dettaglio, inclusa: true, inCheck1: false, inCheck2: true,
     });
   }

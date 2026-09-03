@@ -140,4 +140,52 @@ describe("motore limiti — casi limite", () => {
     const e = calcolaLimiti([{ ...righe()[0], accessori: [{ codice: "persiana.C15154-b", quantita: 1 }] }], parametri, t);
     expect(e.avvertenze.join(" ")).toMatch(/accessorio/i);
   });
+
+  const finestra: RigaMotore = { categoria: "serramento_pvc", tipologia: "C25077-c", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "finestra", quantita: 1, larghezzaMm: 1200, altezzaMm: 1400, mq: 1.68, misuraDei: null, prezzoTotCent: 100000, beneSignificativo: true, accessori: [] };
+
+  it("la soglia per portefinestre su una finestra è ignorata con avvertenza, e il limite non cambia", () => {
+    const senza = calcolaLimiti([finestra], parametri, t);
+    const con = calcolaLimiti([{ ...finestra, accessori: [{ codice: "serramento.C25088-c", quantita: 1 }] }], parametri, t);
+    expect(voce(con, "dei_riga_1").limiteCent).toBe(voce(senza, "dei_riga_1").limiteCent);
+    expect(con.check2Cent).toBe(senza.check2Cent);
+    expect(con.avvertenze.join(" ")).toMatch(/soglia.*non applicabile/i);
+  });
+
+  it("un accessorio di un'altra famiglia è ignorato: pellicolatura PVC su un serramento in alluminio", () => {
+    const r: RigaMotore = { categoria: "serramento_alluminio", tipologia: "C15040-c", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "alluminio 2 ante", quantita: 1, larghezzaMm: 1200, altezzaMm: 1400, mq: 1.68, misuraDei: null, prezzoTotCent: 200000, beneSignificativo: true, accessori: [{ codice: "serramento.C25088-a", quantita: 1 }] };
+    const e = calcolaLimiti([r], parametri, t);
+    expect(voce(e, "dei_riga_1").limiteCent).toBe(euroToCent(729.6 * 1.68)); // niente 15 % di pellicolatura
+    expect(e.avvertenze.join(" ")).toMatch(/pellicolat.*non applicabile/i);
+  });
+
+  it("una tipologia di un'altra famiglia rende CHECK2 non calcolabile", () => {
+    const e = calcolaLimiti([{ ...righe()[0], categoria: "serramento_legno" }], parametri, t); // codice PVC su categoria legno
+    expect(e.check2Cent).toBeNull();
+    expect(e.esito).toBe("incompleto");
+    expect(e.avvertenze.join(" ")).toMatch(/famiglia/i);
+  });
+
+  const cassonetto: RigaMotore = { categoria: "cassonetto", tipologia: "C25095-a", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "cassonetti", quantita: 2, larghezzaMm: 1500, altezzaMm: 400, mq: 1.2, misuraDei: null, prezzoTotCent: 60000, beneSignificativo: true, accessori: [] };
+
+  it("la classe del cassonetto si cerca nella serie della voce scelta, non in tutta la famiglia", () => {
+    const e = calcolaLimiti([{ ...cassonetto, tipologia: "C25096-b" }], parametri, t);
+    // 0,6 mq/pezzo → classe 150×40 della serie C25096 (421,16), non 261,13 della C25095.
+    expect(voce(e, "dei_riga_1")).toMatchObject({ limiteCent: euroToCent(421.16 * 2), unita: "cad", prezzoUnitCent: 42116, dettaglio: expect.objectContaining({ voceScelta: "C25096-b" }) });
+  });
+
+  it("un cassonetto fuori da ogni classe tiene la voce scelta e lo dichiara", () => {
+    const r: RigaMotore = { ...cassonetto, tipologia: "C15080-a", quantita: 1, larghezzaMm: 1500, altezzaMm: 700, mq: 1.05 };
+    const e = calcolaLimiti([r], parametri, t); // 1,05 mq/pezzo cade nel buco tra le classi monoblocco
+    expect(voce(e, "dei_riga_1")).toMatchObject({ limiteCent: euroToCent(547.32), dettaglio: expect.objectContaining({ voceScelta: "C15080-a" }) });
+    expect(e.avvertenze.join(" ")).toMatch(/nessuna classe di cassonetto copre 1\.05 mq\/pezzo/i);
+  });
+
+  it("una misura DEI mancante vale zero, dichiarato: controtelaio e cassonetto a metro", () => {
+    const e = calcolaLimiti([...righe(), { categoria: "controtelaio", tipologia: "C15145-a", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "Controtelaio acciaio", quantita: 2, larghezzaMm: null, altezzaMm: null, mq: 0, misuraDei: null, prezzoTotCent: null, beneSignificativo: false, accessori: [] }], parametri, t);
+    expect(voce(e, "controtelaio_1").limiteCent).toBe(0);
+    expect(e.avvertenze.join(" ")).toMatch(/Controtelaio.*misura DEI mancante/i);
+    const e2 = calcolaLimiti([{ ...cassonetto, tipologia: "C25094" }], parametri, t);
+    expect(voce(e2, "dei_riga_1")).toMatchObject({ limiteCent: 0, unita: "m" });
+    expect(e2.avvertenze.join(" ")).toMatch(/misura DEI mancante/i);
+  });
 });

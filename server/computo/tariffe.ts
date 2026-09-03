@@ -98,6 +98,7 @@ export type Coefficienti = {
   speseProfessionaliPct: number;
   speseProfessionaliMinEuro: number;
   altriServiziPct: number;
+  /** Minimo storico del foglio: il motore legge il minimo dalla voce (`controtelai[].minimoMq`), qui resta informativo. */
   controtelaiMinMq: number;
   /** Aliquota IVA agevolata del preventivo (0,10): stima l'imponibile da un pattuito lordo. */
   ivaAgevolata: number;
