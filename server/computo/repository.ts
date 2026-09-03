@@ -146,19 +146,39 @@ export function createPostgresComputiRepository(
           ${c.createdBy}, ${now}
         ) RETURNING *`;
         const id = Number(rows[0].id);
-        const voci: VoceComputo[] = [];
-        for (const v of c.voci) {
-          const ins = await tx`INSERT INTO computo_voci (
-            computo_id, ordine, gruppo, codice, descrizione, codice_dei, unita,
-            prezzo_unit_cent, quantita, limite_cent, dettaglio, inclusa, in_check1, in_check2
-          ) VALUES (
-            ${id}, ${v.ordine}, ${v.gruppo}, ${v.codice}, ${v.descrizione}, ${v.codiceDei},
-            ${v.unita}, ${v.prezzoUnitCent}, ${v.quantita}, ${v.limiteCent}, ${tx.json(v.dettaglio as any)},
-            ${v.inclusa}, ${v.inCheck1}, ${v.inCheck2}
-          ) RETURNING *`;
-          voci.push(rowToVoce(ins[0]));
-        }
-        return rowToComputo(rows[0], voci);
+        // Un computo reale ha una ventina di voci: inserirle una per volta
+        // costava una round trip ciascuna (~147 ms sul database di
+        // produzione). Un solo INSERT multi-riga con l'helper di postgres-js;
+        // `tx.json` resta valido dentro l'helper (il valore passa come
+        // Parameter tipizzato JSONB, non come stringa).
+        const voci = c.voci.length === 0 ? [] : await tx`INSERT INTO computo_voci ${tx(
+          c.voci.map(v => ({
+            computo_id: id,
+            ordine: v.ordine,
+            gruppo: v.gruppo,
+            codice: v.codice,
+            descrizione: v.descrizione,
+            codice_dei: v.codiceDei,
+            unita: v.unita,
+            prezzo_unit_cent: v.prezzoUnitCent,
+            quantita: v.quantita,
+            limite_cent: v.limiteCent,
+            dettaglio: tx.json(v.dettaglio as any),
+            inclusa: v.inclusa,
+            in_check1: v.inCheck1,
+            in_check2: v.inCheck2,
+          })),
+          "computo_id", "ordine", "gruppo", "codice", "descrizione", "codice_dei", "unita",
+          "prezzo_unit_cent", "quantita", "limite_cent", "dettaglio", "inclusa", "in_check1", "in_check2"
+        )} RETURNING *`;
+        // L'ordine del RETURNING non è garantito dal protocollo: lo stesso
+        // ORDER BY della rilettura, qui applicato in memoria.
+        return rowToComputo(
+          rows[0],
+          [...voci]
+            .sort((a, b) => Number(a.ordine) - Number(b.ordine) || Number(a.id) - Number(b.id))
+            .map(rowToVoce)
+        );
       });
     },
     async ultimo(sedeId, commessaId) {

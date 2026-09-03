@@ -39,8 +39,24 @@ describe.skipIf(!conDatabase)("repository contratti (PostgreSQL)", () => {
       prezzoTotCent: 300000, beneSignificativo: true, accessori: [{ codice: "ribalta", quantita: 2 }],
       note: null, origine: "manuale" as const, evidenza: null,
     };
-    const primo = await repo.salva({ contratto: base, righe: [riga, { ...riga, ordine: 2 }], now });
+    // Inserimento in blocco: due righe in una sola INSERT. La prima ha
+    // `evidenza` null e la seconda un oggetto — l'ordine peggiore per
+    // l'inferenza di tipo dell'helper multi-riga di postgres-js.
+    const primo = await repo.salva({
+      contratto: base,
+      righe: [riga, { ...riga, ordine: 2, evidenza: { pagina: 3, frammento: "riga 2" } }],
+      now,
+    });
     expect(primo.righe).toHaveLength(2);
+    expect(primo.righe.map(r => r.ordine)).toEqual([1, 2]);
+    expect(primo.righe[0].evidenza).toBeNull();
+    expect(primo.righe[1].evidenza).toEqual({ pagina: 3, frammento: "riga 2" });
+    expect(primo.righe[0].accessori).toEqual([{ codice: "ribalta", quantita: 2 }]);
+    expect(primo.righe.every(r => r.sedeId === SEDE && r.commessaId === 991001)).toBe(true);
+    expect((await repo.listRighe(SEDE, 991001)).map(r => r.evidenza)).toEqual([
+      null,
+      { pagina: 3, frammento: "riga 2" },
+    ]);
     const secondo = await repo.salva({ contratto: { ...base, pattuitoCent: 1600000 }, righe: [riga], now: new Date("2026-09-04T10:00:00.000Z") });
     expect(secondo.righe).toHaveLength(1);
     expect(secondo.contratto.pattuitoCent).toBe(1600000);

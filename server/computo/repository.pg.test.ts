@@ -32,6 +32,19 @@ describe.skipIf(!conDatabase)("repository computi (PostgreSQL)", () => {
     // La colonna è DATE: il driver la restituisce come Date, non come stringa.
     // Deve tornare "2026-09-03", non un formato locale (es. "Thu Sep 03").
     expect(nuovo.tariffeAl).toBe("2026-09-03");
+    // Inserimento in blocco: le voci tornano dal RETURNING già ordinate per
+    // `ordine` (le abbiamo passate al contrario) e con il JSONB riletto.
+    expect(nuovo.voci.map(v => v.codice)).toEqual(["massimale_A", "posa"]);
+    expect(nuovo.voci[1].dettaglio).toEqual({ ore: 18 });
+    expect(nuovo.voci[0].dettaglio).toEqual({});
+    expect(nuovo.voci[0].inCheck2).toBe(false);
+    // Un computo senza voci non deve produrre un INSERT vuoto.
+    const senzaVoci = await repo.salva({
+      computo: { ...base, commessaId: 992002, voci: [] },
+      now: new Date("2026-09-03T00:00:00Z"),
+    });
+    expect(senzaVoci.voci).toEqual([]);
+    expect((await repo.ultimo(SEDE, 992002))?.voci).toEqual([]);
     const letto = await repo.ultimo(SEDE, 992001);
     expect(letto?.id).toBe(nuovo.id);
     expect(letto?.tariffeAl).toBe("2026-09-03");

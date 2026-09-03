@@ -259,23 +259,45 @@ export function createPostgresContrattiRepository(
         if (!rows[0]) throw new Error("NOT_FOUND: Commessa non trovata.");
         await tx`DELETE FROM commessa_righe
           WHERE sede_id = ${c.sedeId} AND commessa_id = ${c.commessaId}`;
-        const inserite: RigaContratto[] = [];
-        for (const r of righe) {
-          const ins = await tx`INSERT INTO commessa_righe (
-            sede_id, commessa_id, ordine, categoria, tipologia, oscurante_integrato, oscurante_tipologia,
-            descrizione, quantita, larghezza_mm, altezza_mm, mq, misura_dei,
-            prezzo_unit_cent, prezzo_tot_cent, bene_significativo, accessori, note,
-            origine, evidenza, created_at, updated_at
-          ) VALUES (
-            ${c.sedeId}, ${c.commessaId}, ${r.ordine}, ${r.categoria}, ${r.tipologia},
-            ${r.oscuranteIntegrato}, ${r.oscuranteTipologia}, ${r.descrizione}, ${r.quantita}, ${r.larghezzaMm},
-            ${r.altezzaMm}, ${r.mq}, ${r.misuraDei}, ${r.prezzoUnitCent}, ${r.prezzoTotCent},
-            ${r.beneSignificativo}, ${tx.json(r.accessori as any)}, ${r.note}, ${r.origine},
-            ${r.evidenza == null ? null : tx.json(r.evidenza as any)}, ${now}, ${now}
-          ) RETURNING *`;
-          inserite.push(rowToRiga(ins[0]));
-        }
-        return { contratto: rowToContratto(rows[0]), righe: ordina(inserite) };
+        // Un contratto reale ha decine di righe: una round trip per riga
+        // (~147 ms sul database di produzione) rendeva il salvataggio lungo
+        // quanto il numero di righe. Un solo INSERT multi-riga con l'helper
+        // di postgres-js; `tx.json` resta valido dentro l'helper.
+        const inserite = righe.length === 0 ? [] : await tx`INSERT INTO commessa_righe ${tx(
+          righe.map(r => ({
+            // Sede e commessa restano quelle del contratto padre, mai quelle
+            // (eventualmente sbagliate) passate dal chiamante.
+            sede_id: c.sedeId,
+            commessa_id: c.commessaId,
+            ordine: r.ordine,
+            categoria: r.categoria,
+            tipologia: r.tipologia,
+            oscurante_integrato: r.oscuranteIntegrato,
+            oscurante_tipologia: r.oscuranteTipologia,
+            descrizione: r.descrizione,
+            quantita: r.quantita,
+            larghezza_mm: r.larghezzaMm,
+            altezza_mm: r.altezzaMm,
+            mq: r.mq,
+            misura_dei: r.misuraDei,
+            prezzo_unit_cent: r.prezzoUnitCent,
+            prezzo_tot_cent: r.prezzoTotCent,
+            bene_significativo: r.beneSignificativo,
+            accessori: tx.json(r.accessori as any),
+            note: r.note,
+            origine: r.origine,
+            evidenza: r.evidenza == null ? null : tx.json(r.evidenza as any),
+            created_at: now,
+            updated_at: now,
+          })),
+          "sede_id", "commessa_id", "ordine", "categoria", "tipologia", "oscurante_integrato",
+          "oscurante_tipologia", "descrizione", "quantita", "larghezza_mm", "altezza_mm", "mq",
+          "misura_dei", "prezzo_unit_cent", "prezzo_tot_cent", "bene_significativo", "accessori",
+          "note", "origine", "evidenza", "created_at", "updated_at"
+        )} RETURNING *`;
+        // L'ordine del RETURNING non è garantito dal protocollo: `ordina`
+        // riporta le righe nell'ordine di lettura (ordine, poi id).
+        return { contratto: rowToContratto(rows[0]), righe: ordina(inserite.map(rowToRiga)) };
       });
     },
   };

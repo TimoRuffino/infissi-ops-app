@@ -2340,8 +2340,7 @@ Procedere comunque?» — e lo scavalco resta registrato.
   serramenti PVC/alluminio; mancano fogli reali con tapparelle, cassonetti
   e legno per chiudere la copertura delle altre famiglie di prodotto —
   **da chiedere alla direzione** (v. «Debito aperto prioritario» qui sotto).
-- Debito tecnico minore: `computo_voci` inserisce una riga alla volta
-  (nessun batch insert); i test di servizio di `server/contratti` e
+- Debito tecnico minore: i test di servizio di `server/contratti` e
   `server/computo` non possono forzare il repository in memoria quando
   `DATABASE_URL` è impostata — `getContrattiRepository`/`getComputiRepository`
   scelgono il driver da un singleton legato all'env al primo uso, non
