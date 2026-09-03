@@ -29,7 +29,10 @@ export type ActionSignalKind =
   // Smistamento Tars (02/09/2026): una proposta di collegamento da
   // decidere, una richiesta rimasta senza risposta.
   | "comunicazione_decisione"
-  | "comunicazione_risposta";
+  | "comunicazione_risposta"
+  // Follow-up commerciale (T5/D3, 03/09/2026): preventivo fermo da 30+
+  // giorni di attività REALE — proporlo come perso o rilanciare.
+  | "preventivo_followup";
 
 export type ActionSignal = {
   sourceKey: string;

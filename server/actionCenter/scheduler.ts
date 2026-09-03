@@ -1,4 +1,5 @@
 import { getSediStore } from "../routers/sedi";
+import { segnaliFollowupPreventivi } from "../tars/followup/preventivi";
 import { osservaDaReconcile } from "../tars/proattivita/worker";
 import { segnaliSmistamento } from "../tars/smistamento/segnali";
 import { getActionCaseRepository } from "./repository";
@@ -37,7 +38,15 @@ export async function runActionReconcile(sedeId: number): Promise<void> {
       });
       return [];
     });
-    const signals = [...daStore, ...daSmistamento];
+    // Follow-up preventivi (T5/D3): stesso reconcile, mai uno separato.
+    const daFollowup = await segnaliFollowupPreventivi(sedeId, now).catch(error => {
+      console.error("[tars-followup] segnali non disponibili", {
+        sedeId,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+      return [];
+    });
+    const signals = [...daStore, ...daSmistamento, ...daFollowup];
     const drafts = groupSignals(signals, now);
     const result = await reconcileActionCases({
       repository: getActionCaseRepository(),

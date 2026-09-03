@@ -75,6 +75,8 @@ async function startServer() {
   startSmistamentoWorker();
   const { startAnalisiAziendaWorker } = await import("../tars/analisi/worker");
   startAnalisiAziendaWorker();
+  const { startFollowupPreventiviWorker } = await import("../tars/followup/worker");
+  startFollowupPreventiviWorker();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();
