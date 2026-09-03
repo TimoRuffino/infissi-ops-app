@@ -170,3 +170,55 @@ describe("confermeOrdineMancanti", () => {
     expect(righe.every(r => r.esito === "non_trovata")).toBe(true);
   });
 });
+
+describe("nomi che NON sono conferme d'ordine", () => {
+  it("scarta conferme di iscrizione/lettura, ordini del cliente, fatture e DDT", async () => {
+    const rumore = [
+      "conferma_iscrizione.pdf",
+      "conferma di lettura.pdf",
+      "conferma della ricezione.pdf",
+      "conferma_pagamento.pdf",
+      "Ordine_cliente_Rossi.pdf",
+      "ordine di servizio.pdf",
+      "fattura_118.pdf",
+      "DDT_consegna.pdf",
+      "preventivo_ordine.pdf",
+    ];
+    const righe = await confermeOrdineMancanti({
+      sedeId: SEDE,
+      deps: deps({
+        comunicazioniConAllegati: async () => [
+          comunicazione({
+            id: 920,
+            commessaId: 10,
+            allegati: rumore.map(nome => ({
+              nome,
+              mimeType: "application/pdf",
+              size: 10,
+            })),
+          }),
+        ],
+      }),
+    });
+    expect(righe.find(r => r.commessaId === 10)!.candidati).toEqual([]);
+  });
+
+  it("un'immagine o un invito non sono documenti d'ordine, qualunque sia il nome", async () => {
+    const righe = await confermeOrdineMancanti({
+      sedeId: SEDE,
+      deps: deps({
+        comunicazioniConAllegati: async () => [
+          comunicazione({
+            id: 921,
+            commessaId: 10,
+            allegati: [
+              { nome: "conferma_ordine.jpg", mimeType: "image/jpeg", size: 10 },
+              { nome: "conferma_ordine.ics", mimeType: "text/calendar", size: 10 },
+            ],
+          }),
+        ],
+      }),
+    });
+    expect(righe.find(r => r.commessaId === 10)!.candidati).toEqual([]);
+  });
+});

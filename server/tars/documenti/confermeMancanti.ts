@@ -24,17 +24,34 @@ const DA_ORDINARE = STATI_COMMESSA.indexOf("da_ordinare");
 // Nome file che parla di una conferma d'ordine (o dell'ordine stesso).
 // I separatori dei nomi reali sono `_` e `-`, che sono caratteri di parola
 // per `\b`: «CO_4471.pdf» sfuggiva a un confine di parola classico. Qui il
-// confine è esplicito (inizio, separatore o cifra), così «CO_4471» entra e
-// «costo», «conto», «record» restano fuori.
+// confine è esplicito (inizio, separatore o cifra).
 const CONFINE = "(?:^|[\\W_])";
 const NOME_CONFERMA = new RegExp(
-  `conferma|${CONFINE}conf[\\W_]?ord|${CONFINE}c\\.?o\\.?(?=[\\W_]|\\d|$)|${CONFINE}o\\.?c\\.?(?=[\\W_]|\\d|$)|order[\\W_]?confirm|${CONFINE}acknowledg`,
+  `${CONFINE}conferma|${CONFINE}conf[\\W_]?ord|${CONFINE}c\\.?o\\.?(?=[\\W_]|\\d|$)|${CONFINE}o\\.?c\\.?(?=[\\W_]|\\d|$)|order[\\W_]?confirm|${CONFINE}acknowledg`,
   "i"
 );
 const NOME_ORDINE = new RegExp(
   `${CONFINE}ordin|${CONFINE}order(?=[\\W_]|\\d|$)|${CONFINE}oda(?=[\\W_]|\\d|$)|${CONFINE}o\\.d\\.a`,
   "i"
 );
+
+/**
+ * «Conferma» e «ordine» da soli non bastano: in una casella aziendale
+ * girano conferme di iscrizione, di appuntamento, di lettura, e ordini del
+ * CLIENTE verso di noi — che non sono affatto conferme del fornitore.
+ * Questi nomi si scartano prima di diventare un candidato.
+ */
+const NOME_ESCLUSO = new RegExp(
+  [
+    "conferma(?:[\\W_]+\\w{1,5}){0,2}[\\W_]*(iscrizione|appuntamento|lettura|ricezione|ricevuta|registrazione|prenotazione|pagamento|bonifico|spedizione)",
+    "ordine[\\W_]*(cliente|di[\\W_]*servizio|del[\\W_]*giorno)",
+    "(fattura|ddt|preventivo|contratto|listino|catalogo|newsletter|privacy|firmato)",
+  ].join("|"),
+  "i"
+);
+
+/** Solo documenti veri: una conferma non è un'immagine di firma o un .ics. */
+const MIME_AMMESSI = /^application\/(pdf|vnd\.openxmlformats|msword|octet-stream)|^text\/plain/i;
 
 export type CandidatoConferma = {
   comunicazioneId: number;
@@ -139,6 +156,10 @@ export async function confermeOrdineMancanti(input: {
 
       c.allegati.forEach((allegato, indice) => {
         if (deps.giaArchiviato(sedeId, c.id, indice)) return;
+        // Un allegato che si dichiara altro (fattura, DDT, conferma di
+        // lettura, ordine del cliente) non è mai un candidato.
+        if (NOME_ESCLUSO.test(allegato.nome)) return;
+        if (allegato.mimeType && !MIME_AMMESSI.test(allegato.mimeType)) return;
         const conferma = NOME_CONFERMA.test(allegato.nome);
         const ordine = NOME_ORDINE.test(allegato.nome);
         if (!conferma && !ordine) return;
