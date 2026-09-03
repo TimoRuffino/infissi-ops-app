@@ -29,8 +29,12 @@ describe.skipIf(!conDatabase)("repository computi (PostgreSQL)", () => {
     };
     await repo.salva({ computo: { ...base, hashRighe: "vecchio" }, now: new Date("2026-09-01T00:00:00Z") });
     const nuovo = await repo.salva({ computo: base, now: new Date("2026-09-03T00:00:00Z") });
+    // La colonna è DATE: il driver la restituisce come Date, non come stringa.
+    // Deve tornare "2026-09-03", non un formato locale (es. "Thu Sep 03").
+    expect(nuovo.tariffeAl).toBe("2026-09-03");
     const letto = await repo.ultimo(SEDE, 992001);
     expect(letto?.id).toBe(nuovo.id);
+    expect(letto?.tariffeAl).toBe("2026-09-03");
     expect(letto?.voci.map(v => v.codice)).toEqual(["massimale_A", "posa"]);
     expect(letto?.voci[1].dettaglio).toEqual({ ore: 18 });
     expect(letto?.voci[0].inCheck2).toBe(false);

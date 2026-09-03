@@ -17,6 +17,7 @@ describe("repository computi (memoria)", () => {
     expect(secondo.id).toBeGreaterThan(primo.id);
     expect((await repo.ultimo(1, 10))?.hashRighe).toBe("h2");
     expect((await repo.ultimo(1, 10))?.voci[0].codice).toBe("massimale_A");
+    expect((await repo.ultimo(1, 10))?.tariffeAl).toBe("2026-09-03");
     expect(await repo.ultimo(2, 10)).toBeNull();
   });
 });

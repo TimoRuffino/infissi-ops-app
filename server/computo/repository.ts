@@ -38,7 +38,9 @@ function rowToComputo(row: any, voci: VoceComputo[]): Computo {
     commessaId: Number(row.commessa_id),
     hashRighe: row.hash_righe,
     hashParametri: row.hash_parametri,
-    tariffeAl: String(row.tariffe_al).slice(0, 10),
+    tariffeAl: row.tariffe_al instanceof Date
+      ? row.tariffe_al.toISOString().slice(0, 10)
+      : String(row.tariffe_al).slice(0, 10),
     zona: row.zona ?? null,
     esito: row.esito,
     check1Cent: Number(row.check1_cent),
