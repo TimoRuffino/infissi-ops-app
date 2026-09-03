@@ -22,6 +22,13 @@ export const CAPABILITIES = [
   "pagamento.read",
   "pagamento.record",
   "economia.read",
+  // Contratto strutturato e computo limiti (03/09/2026). `contratto.read` è
+  // condivisa: le misure servono a chi rileva e a chi posa. `tariffe.manage`
+  // è solo direzione (via CAPABILITIES completo).
+  "contratto.read",
+  "contratto.manage",
+  "computo.run",
+  "tariffe.manage",
   // D7 slice 3: il doppio requisito dell'approval gateway documentale.
   // `documento.approve_proposals` approva le proposte generate dai
   // documenti; `fornitore.manage_ordini` è l'operazione finale sull'ordine
@@ -49,6 +56,7 @@ const SHARED_CAPABILITIES: Capability[] = [
   "commessa.create",
   "ticket.create",
   "tars.use",
+  "contratto.read",
 ];
 
 const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
@@ -65,6 +73,8 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "pagamento.read",
     "pagamento.record",
     "economia.read",
+    "contratto.manage",
+    "computo.run",
     "tars.approve_low_risk",
     "tars.approve_high_risk",
   ],
@@ -79,6 +89,8 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "commessa.manage_documents",
     "ticket.assign",
     "ticket.manage",
+    "contratto.manage",
+    "computo.run",
     "tars.approve_low_risk",
   ],
   tecnico_rilievi: [
