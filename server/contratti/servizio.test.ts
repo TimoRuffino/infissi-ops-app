@@ -142,16 +142,20 @@ describe("servizio contratto", () => {
     // capitare su un record legacy.
     const commessaRotta: any = getCommesseStore().find((c: any) => c.id === commessaId);
     commessaRotta.dataApertura = "non-una-data";
+    const importoPrima = commessaRotta.importoTotale;
 
     const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe, actorUserId: 5 });
-    // Il contratto (righe, hash, zona) si salva comunque: solo lo specchio fallisce,
-    // e non fa fallire salvaContratto — R12 non promette che la commessa resti
-    // intonsa (applicaPattuitoDaContratto non è a sua volta atomica, ed R12 non
-    // ne cambia il modello), solo che il contratto è la fonte di verità e resta
-    // leggibile con lo stesso hash appena prodotto.
+    // Il contratto (righe, hash, zona) si salva comunque: solo lo specchio
+    // fallisce, e non fa fallire salvaContratto — il contratto è la fonte di
+    // verità e resta leggibile con lo stesso hash appena prodotto.
     expect(esito.righe).toHaveLength(2);
     expect(esito.contratto.hashRighe).toMatch(/^[0-9a-f]{64}$/);
     expect(esito.avvertenze.some(a => a.startsWith("Pattuito non aggiornato sulla commessa: "))).toBe(true);
+    // R20: lo specchio assegna soltanto dopo aver costruito tutto il piano
+    // rate, quindi il guasto non lascia sulla commessa un importo pattuito
+    // senza le rate che lo giustificano.
+    const dopoGuasto: any = getCommessaById(commessaId);
+    expect(dopoGuasto.importoTotale).toBe(importoPrima);
     const letto = await leggiContratto(SEDE, commessaId);
     expect(letto.contratto?.hashRighe).toBe(esito.contratto.hashRighe);
   });

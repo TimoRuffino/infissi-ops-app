@@ -413,10 +413,11 @@ export function applicaPattuitoDaContratto(
     return { applicato: false, motivo: MOTIVO_PATTUITO_BLOCCATO };
   }
   const now = new Date();
-  commessa.importoTotale = input.importoTotale;
-  commessa.pattuitoFonte = "manuale";
   const dataFattura = commessa.dataApertura ? new Date(`${commessa.dataApertura}T00:00:00`) : now;
-  commessa.pianoRate = input.rate.map((rata, i): RataCommessa => {
+  // R20: prima si costruisce tutto il piano, poi si assegna. Una data
+  // corrotta fa lanciare `toISOString()` a metà mappa: se assegnassimo
+  // l'importo per primo, la commessa resterebbe con un pattuito senza rate.
+  const pianoRate = input.rate.map((rata, i): RataCommessa => {
     const scadenza = rata.data
       ?? (rata.giorni == null
         ? null
@@ -437,6 +438,9 @@ export function applicaPattuitoDaContratto(
       updatedAt: null,
     };
   });
+  commessa.importoTotale = input.importoTotale;
+  commessa.pattuitoFonte = "manuale";
+  commessa.pianoRate = pianoRate;
   commessa.pattuitoAggiornatoAt = now;
   commessa.updatedAt = now;
   _store.save();
