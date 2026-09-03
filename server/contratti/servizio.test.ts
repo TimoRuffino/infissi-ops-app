@@ -1,0 +1,133 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
+import { MOTIVO_PATTUITO_BLOCCATO } from "../_core/commessaPattuito";
+import { _resetContrattiRepositoryForTests } from "./repository";
+import { leggiContratto, mqRiga, salvaContratto } from "./servizio";
+import { creaCommessa, getCommessaById, getCommesseStore } from "../routers/commesse";
+import { getClientiStore } from "../routers/clienti";
+import type { TrpcContext } from "../_core/context";
+
+const SEDE = 1;
+function ctx(): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> {
+  return {
+    user: { id: 5, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "Test" } as any,
+    sedeId: SEDE,
+    sediIds: [SEDE],
+  };
+}
+async function commessaDiProva(): Promise<number> {
+  const clienti = getClientiStore() as any[];
+  const cliente = { id: 9001 + clienti.length, sedeId: SEDE, nome: "Elena", cognome: "Bianchi", tipo: "privato", commesseIds: [], cittaLavoro: "Sarzana", createdAt: new Date(), updatedAt: new Date() };
+  clienti.push(cliente);
+  const c = await creaCommessa(ctx(), { clienteId: cliente.id } as any);
+  return (c as any).commessa?.id ?? (c as any).id;
+}
+const righe = [
+  { categoria: "serramento_pvc" as const, tipologia: "portafinestra_2_ante", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "Portafinestra 2 ante", quantita: 3, larghezzaMm: 1900, altezzaMm: 2400, misuraDei: null, prezzoUnitCent: null, prezzoTotCent: 500000, beneSignificativo: true, accessori: [], note: null, origine: "manuale" as const, evidenza: null },
+  { categoria: "serramento_pvc" as const, tipologia: "finestra_2_ante", oscuranteIntegrato: null, oscuranteTipologia: null, descrizione: "Finestra 2 ante", quantita: 2, larghezzaMm: 1660, altezzaMm: 1540, misuraDei: null, prezzoUnitCent: null, prezzoTotCent: 324746, beneSignificativo: true, accessori: [{ codice: "ribalta", quantita: 2 }], note: null, origine: "manuale" as const, evidenza: null },
+];
+const contratto = {
+  pattuitoCent: 1539500, pattuitoTipo: "lordo" as const, posaInclusa: true, notePosa: null,
+  comuneCantiere: "Sarzana", zonaManuale: false, piano: 2, distanzaKm: 18,
+  detrazioneTipo: "ristrutturazione" as const, detrazioneImmobile: "prima_casa" as const,
+  detrazionePct: null, dataFirma: "2026-08-20", rate: [
+    { numero: 1, quotaPct: 50, giorni: 0, data: null, descrizione: "all'ordine" },
+    { numero: 2, quotaPct: 40, giorni: 60, data: null, descrizione: "merce pronta" },
+    { numero: 3, quotaPct: 10, giorni: 75, data: null, descrizione: "posa ultimata" },
+  ], origine: "manuale" as const, documentoId: null,
+  opzioniComputo: OPZIONI_COMPUTO_DEFAULT,
+};
+
+describe("servizio contratto", () => {
+  beforeEach(() => _resetContrattiRepositoryForTests());
+
+  it("calcola i mq da L×H×quantità esatti a sei decimali (non tre)", () => {
+    expect(mqRiga({ quantita: 3, larghezzaMm: 1900, altezzaMm: 2400 })).toBe(13.68);
+    expect(mqRiga({ quantita: 2, larghezzaMm: 1660, altezzaMm: 1540 })).toBe(5.1128);
+    expect(mqRiga({ quantita: 1, larghezzaMm: 1591, altezzaMm: 800 })).toBe(1.2728);
+    expect(mqRiga({ quantita: 1, larghezzaMm: null, altezzaMm: 1540 })).toBe(0);
+  });
+
+  it("salva righe e parametri, deriva zona e percentuale, specchia il pattuito sulla commessa", async () => {
+    const commessaId = await commessaDiProva();
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe, actorUserId: 5 });
+    expect(esito.contratto.zonaClimatica).toBe("D");
+    expect(esito.contratto.detrazionePct).toBe(50);
+    expect(esito.contratto.hashRighe).toMatch(/^[0-9a-f]{64}$/);
+    expect(esito.contratto.opzioniComputo).toEqual(OPZIONI_COMPUTO_DEFAULT);
+    expect(esito.righe.map(r => r.mq)).toEqual([13.68, 5.1128]);
+    expect(esito.righe.map(r => r.ordine)).toEqual([1, 2]);
+    const commessa: any = getCommessaById(commessaId);
+    expect(commessa.importoTotale).toBe(15395);
+    expect(commessa.pianoRate).toHaveLength(3);
+    expect(commessa.pianoRate[1]).toMatchObject({ importo: 6158, origine: "manuale" });
+    const letto = await leggiContratto(SEDE, commessaId);
+    expect(letto.righe).toHaveLength(2);
+  });
+
+  it("segnala il comune non risolto e lascia la zona a null senza bloccare", async () => {
+    const commessaId = await commessaDiProva();
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto: { ...contratto, comuneCantiere: "Comune Inventato" }, righe, actorUserId: 5 });
+    expect(esito.contratto.zonaClimatica).toBeNull();
+    expect(esito.avvertenze.join(" ")).toMatch(/zona climatica/i);
+  });
+
+  it("rispetta la zona manuale e le rate che non sommano a 100 sono rifiutate", async () => {
+    const commessaId = await commessaDiProva();
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto: { ...contratto, zonaManuale: true, zonaClimatica: "E" }, righe, actorUserId: 5 });
+    expect(esito.contratto.zonaClimatica).toBe("E");
+    await expect(salvaContratto({ sedeId: SEDE, commessaId, contratto: { ...contratto, rate: [{ numero: 1, quotaPct: 60, giorni: 0, data: null, descrizione: null }] }, righe, actorUserId: 5 })).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("un'altra sede ottiene NOT_FOUND", async () => {
+    const commessaId = await commessaDiProva();
+    await expect(salvaContratto({ sedeId: 2, commessaId, contratto, righe, actorUserId: 5 })).rejects.toThrow("NOT_FOUND");
+    expect((await leggiContratto(2, commessaId)).contratto).toBeNull();
+  });
+
+  it("una commessa con pattuito già da FiC non viene sovrascritta: il contratto si salva comunque e lo segnala", async () => {
+    const commessaId = await commessaDiProva();
+    const commessaFic: any = getCommesseStore().find((c: any) => c.id === commessaId);
+    commessaFic.pattuitoFicDocumentoIds = [777];
+    commessaFic.pattuitoFonte = "fic";
+    commessaFic.importoTotale = 9999;
+    commessaFic.pianoRate = [{
+      id: 1, numero: 1, importo: 9999, scadenza: null, descrizione: "Fattura 777",
+      origine: "fic", ficDocumentoId: 777, ficRataId: 1, ficSourceKey: "fic:777:1",
+      stato: "attesa", dataPagamento: null, createdAt: new Date(), updatedAt: null,
+    }];
+
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe, actorUserId: 5 });
+    // Il contratto (righe, hash, zona) si salva comunque: solo il pattuito non si specchia.
+    expect(esito.righe).toHaveLength(2);
+    expect(esito.avvertenze).toContain(MOTIVO_PATTUITO_BLOCCATO);
+    const dopo: any = getCommessaById(commessaId);
+    expect(dopo.importoTotale).toBe(9999);
+    expect(dopo.pattuitoFonte).toBe("fic");
+    expect(dopo.pianoRate).toHaveLength(1);
+  });
+
+  it("segnala tipologia DEI mancante o non valida e oscurante senza voce DEI, senza bloccare", async () => {
+    const commessaId = await commessaDiProva();
+    const righeIncomplete = [
+      { ...righe[0], tipologia: null },
+      { ...righe[1], tipologia: "non_esiste_nel_catalogo", oscuranteIntegrato: "tapparella" as const, oscuranteTipologia: null },
+    ];
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeIncomplete, actorUserId: 5 });
+    // Non blocca: il contratto e le righe sono comunque salvati.
+    expect(esito.righe).toHaveLength(2);
+    expect(esito.avvertenze).toContain("Riga 1: tipologia DEI mancante o non valida: il CHECK2 sarà incompleto.");
+    expect(esito.avvertenze).toContain("Riga 2: tipologia DEI mancante o non valida: il CHECK2 sarà incompleto.");
+    expect(esito.avvertenze).toContain("Riga 2: oscurante senza voce DEI.");
+  });
+
+  it("non segnala niente quando tipologia e oscurante sono voci DEI valide del gruppo giusto", async () => {
+    const commessaId = await commessaDiProva();
+    const righeValide = [
+      { ...righe[0], tipologia: "C25077-e" }, // PVC portafinestra 2 ante, a battente — gruppo serramento
+      { ...righe[1], tipologia: "C25077-c", oscuranteIntegrato: "tapparella" as const, oscuranteTipologia: "C25089-a" },
+    ];
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeValide, actorUserId: 5 });
+    expect(esito.avvertenze).toEqual([]);
+  });
+});

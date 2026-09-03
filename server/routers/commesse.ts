@@ -59,6 +59,7 @@ import {
   type DocumentoFicPerPiano,
   type RataCommessa,
 } from "../_core/commessaPattuito";
+import type { RataContratto } from "@shared/limiti/tipi";
 
 // Tipologie di lavorazione che una commessa può comprendere. Elenco chiuso
 // per poter raggruppare e filtrare; "Altro" resta come valvola di sfogo.
@@ -383,6 +384,54 @@ export function azzeraPattuitoDerivato(commessaId: number): boolean {
   commessa.updatedAt = new Date();
   _store.save();
   return true;
+}
+
+/**
+ * Il contratto strutturato è la fonte del pattuito PRIMA della fattura
+ * (decisione 03/09/2026): scrive importo e piano rate come se li avesse
+ * digitati l'operatore (origine `manuale`), così Economia, board e
+ * notifiche non cambiano. Quando una fattura FiC è collegata la fonte
+ * resta FiC e qui non si tocca nulla: la verifica «fattura = contratto» è
+ * del piano 2.
+ */
+export function applicaPattuitoDaContratto(
+  commessaId: number,
+  input: { importoTotale: number; rate: RataContratto[] }
+): { applicato: boolean; motivo: string | null } {
+  const commessa: any = getCommessaById(commessaId);
+  if (!commessa) return { applicato: false, motivo: "Commessa non trovata." };
+  if (!pattuitoModificabileAMano(commessa)) {
+    return { applicato: false, motivo: MOTIVO_PATTUITO_BLOCCATO };
+  }
+  const now = new Date();
+  commessa.importoTotale = input.importoTotale;
+  commessa.pattuitoFonte = "manuale";
+  const dataFattura = commessa.dataApertura ? new Date(`${commessa.dataApertura}T00:00:00`) : now;
+  commessa.pianoRate = input.rate.map((rata, i): RataCommessa => {
+    const scadenza = rata.data
+      ?? (rata.giorni == null
+        ? null
+        : new Date(dataFattura.getTime() + rata.giorni * 86_400_000).toISOString().slice(0, 10));
+    return {
+      id: i + 1,
+      numero: rata.numero,
+      importo: Math.round(input.importoTotale * rata.quotaPct) / 100,
+      scadenza,
+      descrizione: rata.descrizione,
+      origine: "manuale",
+      ficDocumentoId: null,
+      ficRataId: null,
+      ficSourceKey: null,
+      stato: "attesa",
+      dataPagamento: null,
+      createdAt: now,
+      updatedAt: null,
+    };
+  });
+  commessa.pattuitoAggiornatoAt = now;
+  commessa.updatedAt = now;
+  _store.save();
+  return { applicato: true, motivo: null };
 }
 
 /** Guardia condivisa: rifiuta una scrittura manuale su un pattuito FiC. */
