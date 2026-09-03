@@ -951,23 +951,42 @@ describe("integrazione orchestratore, profilo e stato operativo", () => {
     expect(derivaStatoOperativo({ azioni: [azione("creato")] }).stato).toBe("Fatto");
     expect(derivaStatoOperativo({ azioni: [azione("gia_esistente")] }).stato).toBe("Non eseguito");
     expect(derivaStatoOperativo({ azioni: [azione("non_necessaria")] }).stato).toBe("Non eseguito");
+    // Fatto qualcosa e rifiutato qualcos'altro: «Parziale», con il motivo del
+    // rifiuto — mai «Fatto» né «Non eseguito» da soli.
     expect(derivaStatoOperativo({
       azioni: [
         azione("creato"),
         azione("non_eseguito", null, "secondo passo fallito"),
       ],
     })).toMatchObject({
-      stato: "Non eseguito",
+      stato: "Parziale",
       motivo: "secondo passo fallito",
     });
+    expect(derivaStatoOperativo({
+      azioni: [
+        { ...azione("non_eseguito", null, "promemoria rifiutato"), strumento: "crea_promemoria" },
+        { ...azione("creato"), strumento: "crea_ticket" },
+      ],
+    })).toMatchObject({
+      stato: "Parziale",
+      motivo: "promemoria rifiutato",
+    });
+    // Un rifiuto recuperato dallo STESSO strumento (gate scavalcato su
+    // richiesta, commessa chiarita) è «Fatto»: la cosa è stata fatta.
     expect(derivaStatoOperativo({
       azioni: [
         azione("non_eseguito", null, "primo passo fallito"),
         azione("creato"),
       ],
     })).toMatchObject({
+      stato: "Fatto",
+      motivo: null,
+    });
+    expect(derivaStatoOperativo({
+      azioni: [azione("non_eseguito", null, "solo rifiuti")],
+    })).toMatchObject({
       stato: "Non eseguito",
-      motivo: "primo passo fallito",
+      motivo: "solo rifiuti",
     });
     expect(derivaStatoOperativo({
       azioni: [azione("creato")],

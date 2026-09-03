@@ -45,9 +45,13 @@
 > Settimana di APPRONTAMENTO ≠ consegna (data vuota, nota esplicita). Resolver:
 > «commessa 393» = COM-2026-393, mai l'id (prompt v11). OCR: `FLAG_OCR=on`
 > impostato in Railway il 04/09 (prima era spento; i binari c'erano già),
-> tesseract `--psm 6` + `preserve_interword_spaces`. Aperto: lo scavalco dei gate quando l'utente
-> nomina lo stato di arrivo (oggi consentito dal mandato del 02/09) e la
-> lettura con il modello dei PDF scansionati.
+> tesseract `--psm 6` + `preserve_interword_spaces`. Poi: `leggi_conferma_ordine`
+> 1.2.0 (riscontro pieno, vostro riferimento, fornitore dall'intestazione),
+> stato operativo del run = ultima azione decisiva, prompt «Non fatto:» su
+> rifiuto, proposte gestite dietro un toggle e analisi rigenerata (4 h, o 30
+> min se tutte gestite; le scartate non si ripropongono). Aperto: lo scavalco
+> dei gate quando l'utente nomina lo stato di arrivo (oggi consentito dal
+> mandato del 02/09) e la lettura con il modello dei PDF scansionati.
 
 ## 1. Contesto
 

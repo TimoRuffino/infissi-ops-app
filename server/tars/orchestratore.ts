@@ -82,6 +82,8 @@ export type NomeStatoOperativo =
   | "Preparato"
   | "Da confermare"
   | "Non eseguito"
+  /** Qualcosa è stato fatto e qualcosa no: i dettagli stanno nelle azioni. */
+  | "Parziale"
   | "Bloccato";
 
 export type StatoOperativo = {
@@ -113,24 +115,6 @@ export function derivaStatoOperativo(input: {
       motivo: "uno o più strumenti non hanno prodotto un esito valido",
     };
   }
-  const nonEseguita = input.azioni.find(
-    azione => azione.stato === "non_eseguito"
-  );
-  if (nonEseguita) {
-    return {
-      stato: "Non eseguito",
-      fonte: "esiti_tool",
-      motivo: nonEseguita.motivo,
-    };
-  }
-  const daConfermare = input.azioni.find(azione => azione.conferma != null);
-  if (daConfermare) {
-    return {
-      stato: "Da confermare",
-      fonte: "esiti_tool",
-      motivo: daConfermare.motivo,
-    };
-  }
   const statiMutativi = new Set([
     "creato",
     "spostato",
@@ -142,9 +126,44 @@ export function derivaStatoOperativo(input: {
     "rinviato",
     "analizzato",
     "transizione_eseguita",
+    "registrato",
+    "archiviato",
+    "collegato",
   ]);
-  const mutativa = input.azioni.find(azione => statiMutativi.has(azione.stato));
-  if (mutativa) {
+  // Un rifiuto è «recuperato» se lo stesso strumento, richiamato dopo, è
+  // andato a buon fine (gate scavalcato su richiesta, commessa chiarita):
+  // quel run è «Fatto». Un rifiuto non recuperato accanto ad azioni riuscite
+  // è «Parziale», mai «Fatto» né «Non eseguito» da solo (04/09/2026: la chat
+  // mostrava «Non eseguito» sopra «Fatto: … è in finiture e saldo»).
+  const rifiuti = input.azioni
+    .map((azione, indice) => ({ azione, indice }))
+    .filter(({ azione }) => azione.stato === "non_eseguito");
+  const nonRecuperati = rifiuti.filter(
+    ({ azione, indice }) =>
+      !input.azioni.some(
+        (altra, i) =>
+          i > indice &&
+          altra.strumento === azione.strumento &&
+          statiMutativi.has(altra.stato)
+      )
+  );
+  const riuscite = input.azioni.filter(azione => statiMutativi.has(azione.stato));
+  if (nonRecuperati.length > 0) {
+    return {
+      stato: riuscite.length > 0 ? "Parziale" : "Non eseguito",
+      fonte: "esiti_tool",
+      motivo: nonRecuperati[0].azione.motivo,
+    };
+  }
+  const daConfermare = input.azioni.find(azione => azione.conferma != null);
+  if (daConfermare) {
+    return {
+      stato: "Da confermare",
+      fonte: "esiti_tool",
+      motivo: daConfermare.motivo,
+    };
+  }
+  if (riuscite.length > 0) {
     return { stato: "Fatto", fonte: "esiti_tool", motivo: null };
   }
   const nonMutativa = input.azioni[0];

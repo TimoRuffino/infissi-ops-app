@@ -72,6 +72,25 @@ export async function generaAnalisiAzienda(input: {
       adesso,
       deps: deps.fotografia,
     });
+    // Le proposte già scartate oggi dalla direzione entrano nella fotografia
+    // come fatto: il modello non le ripropone, nemmeno riformulate (04/09:
+    // «le proposte di Tars sono inutili, se le rifiuto rimangono lì»).
+    const precedente = await deps.repository.perGiorno(input.sedeId, giorno);
+    const scartate = (precedente?.esito?.proposte ?? []).filter(
+      p => p.esecuzione?.stato === "scartata"
+    );
+    if (scartate.length > 0) {
+      fotografia.sezioni.push({
+        chiave: "proposte_scartate",
+        titolo: "Proposte già scartate oggi dalla direzione (NON riproporle, nemmeno riformulate)",
+        fatti: scartate.slice(0, 12).map((p, i) => ({
+          chiave: `scartata:${i}`,
+          testo: p.testo,
+          entita: [],
+          link: null,
+        })),
+      });
+    }
     const provider = deps.provider(input.sedeId);
     const esito = provider
       ? await analizzaConModello({
@@ -112,7 +131,31 @@ export async function generaAnalisiAzienda(input: {
   }
 }
 
-/** Un giro: per ogni sede, se manca l'analisi di oggi ed è passata l'ora minima, la genera. */
+/** Dopo tante ore l'analisi di oggi è vecchia: si rifà (direzione 04/09: «non ne ho più ricevute di nuove»). */
+export const RIGENERA_DOPO_MS = 4 * 60 * 60 * 1000;
+/** Se tutte le proposte sono state gestite (eseguite o scartate), la prossima arriva dopo mezz'ora. */
+export const RIGENERA_SE_GESTITE_DOPO_MS = 30 * 60 * 1000;
+
+/**
+ * L'analisi di oggi va rifatta? Sì se è in errore ritentabile, se è
+ * vecchia di più di quattro ore, o se ogni sua proposta è già stata
+ * gestita da almeno mezz'ora: una lista di proposte scartate non è lavoro,
+ * e senza rigenerazione la direzione non ne riceveva più fino al giorno
+ * dopo (04/09/2026: «se le rifiuto rimangono lì e non ne ho più ricevute
+ * di nuove»).
+ */
+export function analisiDaRifare(esistente: RecordAnalisiAzienda, adesso: Date): boolean {
+  const eta = adesso.getTime() - esistente.generataAt.getTime();
+  if (esistente.stato === "errore") {
+    return esistente.tentativi < TENTATIVI_MASSIMI && eta >= RITENTO_ERRORE_MS;
+  }
+  if (eta >= RIGENERA_DOPO_MS) return true;
+  const proposte = esistente.esito?.proposte ?? [];
+  const tutteGestite = proposte.length > 0 && proposte.every(p => p.esecuzione != null);
+  return tutteGestite && eta >= RIGENERA_SE_GESTITE_DOPO_MS;
+}
+
+/** Un giro: per ogni sede, se manca l'analisi di oggi (o va rifatta) ed è passata l'ora minima, la genera. */
 export async function giroAnalisi(deps: DipendenzeAnalisi): Promise<{ generate: number[]; saltate: number[] }> {
   const adesso = deps.now();
   const locale = new TZDate(adesso, "Europe/Rome");
@@ -122,17 +165,9 @@ export async function giroAnalisi(deps: DipendenzeAnalisi): Promise<{ generate: 
   const giorno = giornoLocale(adesso);
   for (const sedeId of deps.sedi()) {
     const esistente = await deps.repository.perGiorno(sedeId, giorno);
-    // Pronta: fatta. In errore: si ritenta dopo mezz'ora, al massimo tre
-    // volte; oltre, resta alla direzione rigenerare a mano.
-    if (esistente) {
-      const ritentabile =
-        esistente.stato === "errore" &&
-        esistente.tentativi < TENTATIVI_MASSIMI &&
-        adesso.getTime() - esistente.generataAt.getTime() >= RITENTO_ERRORE_MS;
-      if (!ritentabile) {
-        saltate.push(sedeId);
-        continue;
-      }
+    if (esistente && !analisiDaRifare(esistente, adesso)) {
+      saltate.push(sedeId);
+      continue;
     }
     await generaAnalisiAzienda({ sedeId, richiestaDa: null, deps });
     generate.push(sedeId);

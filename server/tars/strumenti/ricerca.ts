@@ -342,8 +342,10 @@ const leggiConferma: StrumentoTars = {
   nome: "leggi_conferma_ordine",
   // 1.1.0: legge anche un documento GIÀ nel fascicolo (documentoId), non
   // solo un allegato di mail — è il caso della conferma archiviata di cui
-  // resta da registrare il costo.
-  versione: "1.1.0",
+  // resta da registrare il costo. 1.2.0 (04/09): «cita la commessa» vale
+  // anche per cliente, indirizzo e ordini noti (riscontro pieno), e si
+  // leggono il vostro riferimento e il fornitore dall'intestazione.
+  versione: "1.2.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -351,7 +353,7 @@ const leggiConferma: StrumentoTars = {
   capability: ["commessa.read"],
   interruttore: ["tars", "tarsCommunications"],
   descrizione:
-    "Apre e LEGGE una conferma d'ordine: un allegato di una comunicazione (comunicazioneId + allegatoIndex) oppure un documento già nel fascicolo di una commessa (documentoId). Testo del PDF, OCR se è una scansione. Restituisce fornitore, riferimento d'ordine, numero conferma, date di consegna, totale e IMPONIBILE (il costo che vale per il margine), e dice se il documento cita il codice della commessa. Due usi: (1) un candidato «probabile» di cerca_conferme_ordine_mancanti — se cita la commessa, archivialo; (2) la conferma già nel fascicolo di cui manca il costo — mostra l'imponibile all'utente e, dopo il suo sì, registra_costo_fornitore con quello stesso importo. Lettura pesante: un file per volta.",
+    "Apre e LEGGE una conferma d'ordine: un allegato di una comunicazione (comunicazioneId + allegatoIndex) oppure un documento già nel fascicolo di una commessa (documentoId). Testo del PDF, OCR se è una scansione. Restituisce fornitore (anche dall'intestazione), riferimento d'ordine, numero del documento del fornitore, il VOSTRO RIFERIMENTO riportato dal fornitore (di solito il nome del cliente), date di consegna o settimana di approntamento, totale e IMPONIBILE (il costo che vale per il margine), e dice se il documento cita la commessa — codice, cliente anche troncato, indirizzo del cantiere o ordine noto — in «riscontroCommessa» con le prove. Due usi: (1) un candidato «probabile» di cerca_conferme_ordine_mancanti — se cita la commessa, archivialo; (2) la conferma già nel fascicolo di cui manca il costo — mostra l'imponibile all'utente e, dopo il suo sì, registra_costo_fornitore con quello stesso importo (di norma il costo è già nato da solo all'archiviazione). Lettura pesante: un file per volta.",
   schemaInput: z
     .object({
       comunicazioneId: z.number().int().positive().optional(),
@@ -408,6 +410,7 @@ const leggiConferma: StrumentoTars = {
         comunicazione: c,
         allegatoIndex: input.allegatoIndex,
         codiceCommessa: commessa?.codice ?? null,
+        commessa,
         fornitoreAtteso: input.fornitoreAtteso ?? null,
       });
       riferimentoEvidenza = `comunicazione:${c.id}`;
@@ -421,12 +424,23 @@ const leggiConferma: StrumentoTars = {
         fonteTesto: lettura_.fonteTesto,
         pagine: lettura_.pagine,
         citaLaCommessa: lettura_.citaLaCommessa,
+        // Il riscontro pieno: cosa del documento identifica la commessa
+        // (cliente, indirizzo, ordine noto), non solo il codice.
+        riscontroCommessa: lettura_.riscontro
+          ? { ok: lettura_.riscontro.ok, prove: lettura_.riscontro.prove, motivo: lettura_.riscontro.motivo }
+          : null,
         fornitore: e?.fornitoreCitato?.valore ?? null,
         riferimentoOrdine: e?.riferimentoOrdine?.valore ?? null,
         numeroConferma: e?.numeroConferma?.valore ?? null,
+        vostroRiferimento: e?.riferimentoCliente?.valore ?? null,
         dataDocumento: e?.dataDocumento?.valore ?? null,
         dateConsegna: (e?.dateConsegna ?? []).map(d => d.valore),
         settimaneConsegna: (e?.settimaneConsegna ?? []).map(d => d.valore),
+        settimaneApprontamento: (e?.settimaneApprontamento ?? []).map(s => ({
+          settimana: s.valore,
+          anno: s.anno,
+          nota: "merce pronta dal fornitore, non consegna",
+        })),
         codiciCommessaCitati: (e?.codiciCommessaCitati ?? []).map(x => x.valore),
         // Gli importi si dichiarano ma NON si registrano da qui: il costo
         // passa da una conferma umana (sono soldi).

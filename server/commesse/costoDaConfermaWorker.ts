@@ -52,6 +52,10 @@ export type EsitoGiroCosti = {
   nonLeggibili: number;
   daOcr: number;
   errori: number;
+  /** Archiviate da un automatismo ma il testo non cita la commessa: costo e merce ritirati. */
+  senzaRiscontro: number;
+  /** Copie di una conferma già a registro. */
+  duplicati: number;
   /** Quante conferme restano da leggere dopo questo giro. */
   rimaste: number;
 };
@@ -68,6 +72,8 @@ export async function eseguiGiroCostiDaConferma(input?: {
     nonLeggibili: 0,
     daOcr: 0,
     errori: 0,
+    senzaRiscontro: 0,
+    duplicati: 0,
     rimaste: 0,
   };
   for (const documento of documentiDaLeggere(input?.limite)) {
@@ -95,6 +101,23 @@ export async function eseguiGiroCostiDaConferma(input?: {
           break;
         case "errore":
           esito.errori += 1;
+          break;
+        case "senza_riscontro":
+          esito.senzaRiscontro += 1;
+          console.info("[costo-da-conferma] senza riscontro", {
+            documentoId: documento.id,
+            commessaId: documento.commessaId,
+            nome: documento.nome,
+          });
+          break;
+        case "duplicato":
+          esito.duplicati += 1;
+          console.info("[costo-da-conferma] duplicato", {
+            documentoId: documento.id,
+            commessaId: documento.commessaId,
+            nome: documento.nome,
+            di: letto.duplicatoDi,
+          });
           break;
         default:
           break;

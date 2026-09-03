@@ -33,6 +33,7 @@ export type StatoOperativoTars =
   | "Preparato"
   | "Da confermare"
   | "Non eseguito"
+  | "Parziale"
   | "Bloccato";
 
 export type RichiestaUndoTars = {
@@ -154,6 +155,7 @@ const statiOperativi: readonly StatoOperativoTars[] = [
   "Preparato",
   "Da confermare",
   "Non eseguito",
+  "Parziale",
   "Bloccato",
 ];
 
@@ -174,6 +176,7 @@ const classeStato: Record<StatoOperativoTars, string> = {
   Preparato: "border-primary/25 bg-primary-soft text-accent-text",
   "Da confermare": "border-warning/30 bg-warning-soft text-warning",
   "Non eseguito": "border-border-strong bg-surface-2 text-text-2",
+  Parziale: "border-warning/30 bg-warning-soft text-warning",
   Bloccato: "border-danger/25 bg-danger-soft text-danger",
 };
 

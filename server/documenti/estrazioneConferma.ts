@@ -38,6 +38,8 @@ export type ContestoEstrazione = {
   codiceOrdine: string | null;
   fornitoreNome: string | null;
   righeOrdine: readonly RigaOrdinePerConfronto[];
+  /** Nomi da non scambiare per il fornitore nell'intestazione (default: la nostra azienda). */
+  escludiNomi?: readonly string[];
 };
 
 export type RigaRiscontrata = {
@@ -52,6 +54,12 @@ export type EstrazioneConferma = {
   codiciCommessaCitati: Array<CampoEstratto<string>>;
   fornitoreCitato: CampoEstratto<string> | null;
   numeroConferma: CampoEstratto<string> | null;
+  /**
+   * Il NOSTRO riferimento come lo riporta il fornitore («VS.RIFERIMENTO
+   * GIACOMAZZI GIUL»): è il nome del cliente o della commessa scritto da
+   * noi nell'ordine, ed è il primo riscontro che una persona cerca.
+   */
+  riferimentoCliente?: CampoEstratto<string> | null;
   dataDocumento: CampoEstratto<string> | null; // ISO YYYY-MM-DD
   dateConsegna: Array<CampoEstratto<string>>; // ISO, in ordine di apparizione
   settimaneConsegna: Array<CampoEstratto<number>>; // settimana ISO dichiarata
@@ -123,7 +131,9 @@ function normalizzaData(giorno: string, mese: string, anno: string): string | nu
   return `${a}-${String(m).padStart(2, "0")}-${String(g).padStart(2, "0")}`;
 }
 
-const DATA_RE = /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/g;
+// La coda non è `\b`: nei PDF a colonne l'etichetta si incolla alla data
+// («23/02/2026del», Alias) e con `\b` la data spariva.
+const DATA_RE = /\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?!\d)/g;
 
 /**
  * Regex di un riferimento esatto con CONFINI obbligatori: «ORD-10» non
@@ -223,6 +233,7 @@ export function estraiConfermaOrdine(
     codiciCommessaCitati: [],
     fornitoreCitato: null,
     numeroConferma: null,
+    riferimentoCliente: null,
     dataDocumento: null,
     dateConsegna: [],
     settimaneConsegna: [],
@@ -309,6 +320,95 @@ export function estraiConfermaOrdine(
           "media"
         ),
       };
+    }
+  }
+
+  // ── Numero del documento del fornitore (fallback: «N.DOCUMENTO») ───────
+  // Alias scrive «2026 - CV 003746 del 23/02/2026» e SOTTO l'etichetta
+  // «N.DOCUMENTO»: il valore sta nelle righe vicine, prima o dopo.
+  if (!risultato.numeroConferma) {
+    for (const { pagina, match } of cercaSuPagine(pagine, /\bn\.?\s*documento\b/gi)) {
+      const testoPagina = pagine[pagina];
+      const finestra = testoPagina.slice(
+        Math.max(0, match.index - 90),
+        match.index + match[0].length + 90
+      );
+      const numero = /\b([A-Z]{1,4})\s?(\d{4,8})\b/.exec(finestra);
+      if (!numero) continue;
+      risultato.numeroConferma = {
+        valore: `${numero[1]} ${numero[2]}`,
+        evidenza: evidenza(
+          pagine,
+          pagina,
+          match.index,
+          match[0].length,
+          "pattern_testo",
+          "bassa"
+        ),
+      };
+      break;
+    }
+  }
+
+  // ── Fornitore dall'intestazione (fallback senza anagrafica) ────────────
+  // La prima riga con una ragione sociale che non è la nostra azienda né il
+  // destinatario: «ALIAS Srl Porte blindate». Confidenza bassa, dichiarata.
+  if (!risultato.fornitoreCitato && pagine.length > 0) {
+    const righe = pagine[0].split(/\r?\n/).slice(0, 14);
+    const esclusi = (contesto.escludiNomi ?? ["ruffino"]).map(n => n.toLowerCase());
+    const societa =
+      /\b(?:s\.?\s?r\.?\s?l\.?\s?s?|s\.?\s?p\.?\s?a\.?|s\.?\s?n\.?\s?c\.?|s\.?\s?a\.?\s?s\.?|s\.?\s?c\.?\s?a\.?\s?r\.?\s?l\.?|gmbh|ag|ltd|sa|sagl)\b/i;
+    let dopoDestinatario = 0;
+    for (const riga of righe) {
+      const pulita = riga.trim();
+      if (/\b(?:spett(?:\.|abile)|destinatario|cliente|customer)\b/i.test(pulita)) {
+        dopoDestinatario = 3;
+        continue;
+      }
+      if (dopoDestinatario > 0) {
+        dopoDestinatario -= 1;
+        continue;
+      }
+      if (pulita.length < 5 || pulita.length > 80 || !societa.test(pulita)) continue;
+      if (esclusi.some(n => pulita.toLowerCase().includes(n))) continue;
+      if (/\b(?:banca|iban|bank)\b/i.test(pulita)) continue;
+      const indice = pagine[0].indexOf(riga);
+      risultato.fornitoreCitato = {
+        valore: pulita.replace(/\s+/g, " ").slice(0, 80),
+        evidenza: evidenza(pagine, 0, Math.max(0, indice), riga.length, "pattern_testo", "bassa"),
+      };
+      break;
+    }
+  }
+
+  // ── Il nostro riferimento riportato dal fornitore («VS.RIFERIMENTO») ───
+  {
+    const re =
+      /\b(?:vs\.?\s*rif(?:erimento)?|vostro\s+rif(?:erimento)?|rif\.?\s*(?:cliente|cli\.)|riferimento\s+cliente|your\s+ref(?:erence)?|ihr\s+zeichen)\b[\s:.]*([^\n]{0,60})/i;
+    for (const { pagina, match } of cercaSuPagine(pagine, new RegExp(re.source, "gi"))) {
+      const testoPagina = pagine[pagina];
+      let valore = (match[1] ?? "").trim();
+      // Valore sulla riga sotto (layout a colonne): «VS.RIFERIMENTO» ↵ «GIACOMAZZI GIUL».
+      if ((valore.match(/[a-z0-9]/gi) ?? []).length < 2) {
+        const dopo = testoPagina.slice(match.index + match[0].length);
+        const prossima = dopo.split(/\r?\n/).map(r => r.trim()).find(r => r.length >= 2);
+        valore = prossima ?? "";
+      }
+      valore = valore.replace(/\s+/g, " ").trim().slice(0, 60);
+      if ((valore.match(/[a-z0-9]/gi) ?? []).length < 2) continue;
+      if (/^(?:approntamento|compilatore|causale|agente|n\.?\s*documento)\b/i.test(valore)) continue;
+      risultato.riferimentoCliente = {
+        valore,
+        evidenza: evidenza(
+          pagine,
+          pagina,
+          match.index,
+          match[0].length,
+          "pattern_testo",
+          "media"
+        ),
+      };
+      break;
     }
   }
 
@@ -406,8 +506,9 @@ export function estraiConfermaOrdine(
   // documento nella quasi totalità dei layout — e le altre restano come
   // interpretazioni alternative dichiarate (PRD §54.6).
   {
+    // «Totale documento», «Tot. Ordine» (Alias), «Totale»: il maggiore vince.
     const re =
-      /\btotale(?:\s+(?:documento|ordine|conferma|imponibile|netto))?\b[^\d€]{0,20}(?:€|EUR)?\s*([\d.,]+)/gi;
+      /\b(?:totale|tot\.?)(?:\s+(?:documento|ordine|conferma|imponibile|netto|merce|imposta|spese))?\b[^\d€]{0,20}(?:€|EUR)?\s*([\d.,]+)/gi;
     const candidati: Array<{ valore: number; ev: Evidenza }> = [];
     for (const { pagina, match } of cercaSuPagine(pagine, re)) {
       const valore = parseImporto(match[1]);

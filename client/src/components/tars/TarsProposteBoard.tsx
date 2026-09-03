@@ -366,6 +366,10 @@ export function TarsProposteBoard({
 }) {
   const utils = trpc.useUtils();
   const [filtro, setFiltro] = useState<Filtro>("tutte");
+  // Le proposte già gestite (eseguite o scartate) non sono lavoro: restano
+  // dietro un toggle, così la lista mostra solo ciò che aspetta una
+  // decisione (direzione 04/09/2026: «se le rifiuto rimangono lì»).
+  const [mostraGestite, setMostraGestite] = useState(false);
   const [smistamentoInCorso, setSmistamentoInCorso] = useState<number | null>(null);
   const [gatewayInCorso, setGatewayInCorso] = useState<number | null>(null);
   // Le proposte già decise, tolte dalla coda senza aspettare il server.
@@ -457,10 +461,17 @@ export function TarsProposteBoard({
   const nascoste = dati.gateway.length - gatewayVisibili.length;
   const totaleVisibile = dati.totale - nascoste;
 
+  // L'indice originale resta la chiave delle mutation (Esegui/Scarta):
+  // il filtro non lo perde.
+  const analisiTutte = dati.analisi.map((p, i) => ({ p, i }));
+  const analisiAperte = analisiTutte.filter(x => !x.p.esecuzione);
+  const analisiGestite = analisiTutte.length - analisiAperte.length;
+  const analisiVoci = mostraGestite ? analisiTutte : analisiAperte;
+
   const tuttiIFiltri: Array<{ id: Filtro; etichetta: string; n: number }> = [
-    { id: "tutte", etichetta: "Tutte", n: dati.totale - nascoste },
+    { id: "tutte", etichetta: "Tutte", n: dati.totale - nascoste - analisiGestite },
     { id: "comunicazioni", etichetta: "Comunicazioni", n: dati.smistamento.length },
-    { id: "analisi", etichetta: "Analisi di oggi", n: dati.analisi.length },
+    { id: "analisi", etichetta: "Analisi di oggi", n: analisiAperte.length },
     { id: "documenti", etichetta: "Documenti", n: gatewayVisibili.length },
   ];
   const filtri = tuttiIFiltri.filter(f => f.id === "tutte" || f.n > 0);
@@ -651,10 +662,28 @@ export function TarsProposteBoard({
             {mostra("analisi") && dati.analisi.length > 0 && (
               <Sezione
                 titolo="Dall'analisi di oggi"
-                suggerimento="«Esegui» fa la cosa ora e la scrive nel Registro; «Chiedi a Tars» apre la chat"
-                conteggio={dati.analisi.length}
+                suggerimento="«Esegui» fa la cosa ora e la scrive nel Registro; «Chiedi a Tars» apre la chat. Gestite tutte? Una nuova analisi arriva da sola entro mezz'ora."
+                conteggio={analisiAperte.length}
               >
-                {dati.analisi.map((p, i) => (
+                {analisiGestite > 0 && (
+                  <div className="flex items-center justify-between gap-2 px-1 pb-1 text-xs text-text-3">
+                    <span>
+                      {analisiAperte.length === 0
+                        ? "Tutte le proposte di oggi sono state gestite."
+                        : `${analisiGestite} già ${analisiGestite === 1 ? "gestita" : "gestite"}.`}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => setMostraGestite(v => !v)}
+                    >
+                      {mostraGestite ? "Nascondi le gestite" : `Mostra ${analisiGestite} gestite`}
+                    </Button>
+                  </div>
+                )}
+                {analisiVoci.map(({ p, i }) => (
                   <RigaProposta
                     key={i}
                     icona={<Brain className="size-4" aria-hidden="true" />}

@@ -129,6 +129,26 @@ l'OCR».
    tabella restano righe. Lettura con il modello dei PDF scansionati:
    tranche successiva, da decidere.
 
+## Quarta tranche (00:30 del 04/09): la chat e le proposte
+
+- `leggi_conferma_ordine` 1.2.0: «cita la commessa» vale anche per
+  cliente, indirizzo e ordine noto (`riscontroCommessa` con le prove), e
+  restituisce il VOSTRO RIFERIMENTO («VS.RIFERIMENTO GIACOMAZZI GIUL»), il
+  fornitore dall'intestazione («ALIAS Srl Porte blindate»), il numero del
+  documento del fornitore («CV 003746»), la settimana di approntamento. La
+  chat diceva «il file non cita il codice commessa e non riporta fornitore o
+  riferimento ordine» su un documento che li aveva tutti.
+- Stato operativo del run: è quello dell'ULTIMA azione decisiva (un rifiuto
+  seguito da un'azione riuscita è «Fatto»; un rifiuto dopo le riuscite resta
+  «Non eseguito»). Prompt: su `non_eseguito` la risposta comincia con «Non
+  fatto:», mai con «Fatto».
+- Proposte dell'analisi: le gestite (eseguite o scartate) stanno dietro un
+  toggle; l'analisi di oggi si rifà da sola dopo quattro ore, o dopo mezz'ora
+  se ogni proposta è stata gestita; le proposte scartate oggi entrano nella
+  fotografia come «non riproporre».
+- Lettura 1.3.0: il worker rilegge ancora tutte le conferme per prendere
+  fornitore e numero documento dall'intestazione.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

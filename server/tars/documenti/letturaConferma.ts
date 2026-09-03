@@ -4,22 +4,33 @@
 // Il detector `confermeMancanti` lavora sui NOMI dei file: è veloce e gira
 // su tutta la sede. Qui si apre il documento — testo del PDF, OCR quando
 // il PDF è scansionato — e si estrae il contenuto: fornitore, riferimento
-// d'ordine, codici commessa citati, date di consegna e soprattutto
-// l'IMPONIBILE, che è il costo del margine.
+// d'ordine, il NOSTRO riferimento riportato dal fornitore, codici commessa
+// citati, date di consegna e soprattutto l'IMPONIBILE, che è il costo del
+// margine.
 //
-// Serve a decidere: se il documento cita il codice della commessa, il
-// dubbio del nome file si scioglie e l'archiviazione diventa certa.
+// Serve a decidere: se il documento cita la commessa — codice, cliente
+// (anche troncato: «VS.RIFERIMENTO GIACOMAZZI GIUL»), indirizzo del
+// cantiere o un ordine già noto — il dubbio del nome file si scioglie e
+// l'archiviazione diventa certa. Lo stesso riscontro che governa lo
+// smistamento (04/09/2026: «Tars deve controllare sempre anche il
+// riferimento all'interno della conf. ordine»).
 //
 // Costoso (l'OCR può durare minuti): si chiama su UN allegato per volta,
 // mai in massa e mai dalla fotografia giornaliera.
 
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
 import type { Comunicazione } from "../../comunicazioni/comunicazioni";
+import { riferimentiDellaCommessa } from "../../commesse/costoDaConferma";
 import {
   estraiConfermaOrdine,
   type EstrazioneConferma,
 } from "../../documenti/estrazioneConferma";
 import { estraiTestoDocumento } from "../../documenti/parserRegistry";
+import {
+  riscontroCommessaNelTesto,
+  type RiscontroCommessa,
+} from "../../documenti/riscontroCommessa";
+import { getCommessaById } from "../../routers/commesse";
 import { leggiDocumentoCommessaDaStorage } from "../../routers/preventiviContratti";
 
 export type LetturaConferma = {
@@ -29,8 +40,13 @@ export type LetturaConferma = {
   fonteTesto: "testo_pdf" | "ocr" | "nessuna";
   pagine: number;
   estrazione: EstrazioneConferma | null;
-  /** Il codice commessa atteso compare nel documento? */
+  /**
+   * Il documento cita la commessa? Non solo il codice: anche il cliente,
+   * l'indirizzo del cantiere o un ordine già noto (vedi `riscontro`).
+   */
   citaLaCommessa: boolean;
+  /** Il riscontro dettagliato, quando una commessa è nota. */
+  riscontro: RiscontroCommessa | null;
   avvertenze: string[];
 };
 
@@ -81,18 +97,18 @@ export function dipendenzeLetturaReali(): DipendenzeLettura {
   };
 }
 
-export async function leggiConfermaAllegata(input: {
-  comunicazione: Comunicazione;
-  allegatoIndex: number;
-  codiceCommessa?: string | null;
-  fornitoreAtteso?: string | null;
-  deps?: DipendenzeLettura;
-}): Promise<LetturaConferma> {
-  const deps = input.deps ?? dipendenzeLetturaReali();
-  const avvertenze: string[] = [];
-  const raw = await deps.leggiAllegato(input.comunicazione, input.allegatoIndex);
-
-  const testo = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome);
+/** Dal testo letto alla lettura: estrazione, riscontro e avvertenze, uguali per allegato e documento. */
+function componiLettura(input: {
+  raw: { nome: string; mimeType: string };
+  testo:
+    | { pagine: string[]; daOcr: boolean; avvertenze: string[] }
+    | { pagine: null; motivo: string };
+  codiceCommessa: string | null;
+  commessa: any | null;
+  fornitoreAtteso: string | null;
+  numeroOrdineAtteso: string | null;
+}): LetturaConferma {
+  const { raw, testo } = input;
   if (testo.pagine == null) {
     return {
       nomeFile: raw.nome,
@@ -101,57 +117,84 @@ export async function leggiConfermaAllegata(input: {
       pagine: 0,
       estrazione: null,
       citaLaCommessa: false,
-      avvertenze: [
-        `${testo.motivo} Apri il file e registra i dati a mano.`,
-      ],
+      riscontro: null,
+      avvertenze: [`${testo.motivo} Apri il file e registra i dati a mano.`],
     };
   }
   const pagine = testo.pagine;
-  const fonteTesto: LetturaConferma["fonteTesto"] = testo.daOcr
-    ? "ocr"
-    : "testo_pdf";
-  avvertenze.push(...testo.avvertenze);
+  const avvertenze = [...testo.avvertenze];
   if (testo.daOcr) {
     avvertenze.push(
       "PDF scansionato: testo ricostruito con OCR, verifica gli importi prima di registrarli."
     );
   }
-
   const estrazione = estraiConfermaOrdine(pagine, {
-    codiceOrdine: null,
-    fornitoreNome: input.fornitoreAtteso ?? null,
+    codiceOrdine: input.numeroOrdineAtteso,
+    fornitoreNome: input.fornitoreAtteso,
     righeOrdine: [],
   });
 
+  // Riscontro pieno quando la commessa è nota; solo il codice altrimenti.
+  let riscontro: RiscontroCommessa | null = null;
   const codice = input.codiceCommessa?.trim().toLowerCase() ?? null;
-  const citaLaCommessa = codice
-    ? estrazione.codiciCommessaCitati.some(
-        c => c.valore.trim().toLowerCase() === codice
-      ) || pagine.join(" ").toLowerCase().includes(codice)
+  let citaLaCommessa = codice
+    ? estrazione.codiciCommessaCitati.some(c => c.valore.trim().toLowerCase() === codice) ||
+      pagine.join(" ").toLowerCase().includes(codice)
     : false;
+  if (input.commessa) {
+    riscontro = riscontroCommessaNelTesto(pagine, riferimentiDellaCommessa(input.commessa));
+    citaLaCommessa = citaLaCommessa || riscontro.ok;
+  }
 
   if (!estrazione.imponibileDocumento && estrazione.totaleDocumento) {
     avvertenze.push(
       "Il documento dichiara un totale ma non l'imponibile: il costo del margine va confermato a mano (l'IVA non si scorpora per stima)."
     );
   }
+  if (input.commessa && riscontro && !riscontro.ok) {
+    avvertenze.push(
+      `${riscontro.motivo} Non archiviarla né registrarne il costo senza che l'utente confermi che è di questa commessa.`
+    );
+  }
 
   return {
     nomeFile: raw.nome,
     mimeType: raw.mimeType,
-    fonteTesto,
+    fonteTesto: testo.daOcr ? "ocr" : "testo_pdf",
     pagine: pagine.length,
     estrazione,
     citaLaCommessa,
+    riscontro,
     avvertenze,
   };
 }
 
+export async function leggiConfermaAllegata(input: {
+  comunicazione: Comunicazione;
+  allegatoIndex: number;
+  codiceCommessa?: string | null;
+  /** La commessa per cui si legge (oggetto vivo dello store): abilita il riscontro pieno. */
+  commessa?: any | null;
+  fornitoreAtteso?: string | null;
+  deps?: DipendenzeLettura;
+}): Promise<LetturaConferma> {
+  const deps = input.deps ?? dipendenzeLetturaReali();
+  const raw = await deps.leggiAllegato(input.comunicazione, input.allegatoIndex);
+  const testo = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome);
+  return componiLettura({
+    raw,
+    testo,
+    codiceCommessa: input.codiceCommessa ?? input.commessa?.codice ?? null,
+    commessa: input.commessa ?? null,
+    fornitoreAtteso: input.fornitoreAtteso ?? null,
+    numeroOrdineAtteso: null,
+  });
+}
 
 /**
  * Lo stesso, ma su un documento GIÀ nel fascicolo della commessa: è il caso
  * normale quando la conferma è stata archiviata (a mano o da Tars) e resta
- * da leggerne l'importo per il margine.
+ * da leggerne l'importo per il margine. La commessa è quella del fascicolo.
  */
 export async function leggiConfermaDocumento(input: {
   documentoId: number;
@@ -163,7 +206,7 @@ export async function leggiConfermaDocumento(input: {
     leggiDocumento?: (
       documentoId: number,
       sedeId: number
-    ) => Promise<{ buffer: Buffer; nome: string; mimeType: string } | null>;
+    ) => Promise<{ buffer: Buffer; nome: string; mimeType: string; commessaId?: number } | null>;
   };
 }): Promise<LetturaConferma | null> {
   const estraiTesto =
@@ -177,58 +220,21 @@ export async function leggiConfermaDocumento(input: {
         buffer: letto.buffer,
         nome: letto.documento.nome,
         mimeType: letto.documento.mimeType,
+        commessaId: letto.documento.commessaId,
       };
     });
 
   const raw = await leggiDocumento(input.documentoId, input.sedeId);
   if (!raw) return null;
-
-  const avvertenze: string[] = [];
+  const commessa: any =
+    raw.commessaId != null ? (getCommessaById(raw.commessaId) ?? null) : null;
   const testo = await estraiTesto(raw.buffer, raw.mimeType, raw.nome);
-  if (testo.pagine == null) {
-    return {
-      nomeFile: raw.nome,
-      mimeType: raw.mimeType,
-      fonteTesto: "nessuna",
-      pagine: 0,
-      estrazione: null,
-      citaLaCommessa: false,
-      avvertenze: [`${testo.motivo} Apri il file e registra i dati a mano.`],
-    };
-  }
-  const pagine = testo.pagine;
-  avvertenze.push(...testo.avvertenze);
-  if (testo.daOcr) {
-    avvertenze.push(
-      "PDF scansionato: testo ricostruito con OCR, verifica gli importi prima di registrarli."
-    );
-  }
-
-  const estrazione = estraiConfermaOrdine(pagine, {
-    codiceOrdine: input.numeroOrdineAtteso ?? null,
-    fornitoreNome: input.fornitoreAtteso ?? null,
-    righeOrdine: [],
+  return componiLettura({
+    raw,
+    testo,
+    codiceCommessa: input.codiceCommessa ?? commessa?.codice ?? null,
+    commessa,
+    fornitoreAtteso: input.fornitoreAtteso ?? null,
+    numeroOrdineAtteso: input.numeroOrdineAtteso ?? null,
   });
-  const codice = input.codiceCommessa?.trim().toLowerCase() ?? null;
-  const citaLaCommessa = codice
-    ? estrazione.codiciCommessaCitati.some(
-        c => c.valore.trim().toLowerCase() === codice
-      ) || pagine.join(" ").toLowerCase().includes(codice)
-    : false;
-
-  if (!estrazione.imponibileDocumento && estrazione.totaleDocumento) {
-    avvertenze.push(
-      "Il documento dichiara un totale ma non l'imponibile: il costo del margine va confermato a mano (l'IVA non si scorpora per stima)."
-    );
-  }
-
-  return {
-    nomeFile: raw.nome,
-    mimeType: raw.mimeType,
-    fonteTesto: testo.daOcr ? "ocr" : "testo_pdf",
-    pagine: pagine.length,
-    estrazione,
-    citaLaCommessa,
-    avvertenze,
-  };
 }
