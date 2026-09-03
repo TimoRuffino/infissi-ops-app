@@ -197,6 +197,48 @@ describe("servizio contratto", () => {
     ).rejects.toThrow("VALIDAZIONE: zona manuale senza zona indicata.");
   });
 
+  // ── Fix round 2 (review finale): il piano rate somma il pattuito ────────
+
+  it("le rate arrotondate sommano esattamente il pattuito: il resto va sull'ultima", async () => {
+    const commessaId = await commessaDiProva();
+    await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: {
+        ...contratto,
+        pattuitoCent: 10000, // 100,00 €
+        rate: [
+          { numero: 1, quotaPct: 33.33, giorni: 0, data: null, descrizione: null },
+          { numero: 2, quotaPct: 33.33, giorni: 30, data: null, descrizione: null },
+          { numero: 3, quotaPct: 33.34, giorni: 60, data: null, descrizione: null },
+        ],
+      },
+    });
+    const commessa: any = getCommessaById(commessaId);
+    expect(commessa.importoTotale).toBe(100);
+    const importi = commessa.pianoRate.map((r: any) => r.importo);
+    expect(importi).toEqual([33.33, 33.33, 33.34]);
+    expect(Math.round(importi.reduce((s: number, i: number) => s + i, 0) * 100)).toBe(10000);
+
+    // Terzi con tre decimali: arrotondando ogni rata per conto suo il piano
+    // sommava 99,99 € su un pattuito di 100,00 €.
+    await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: {
+        ...contratto,
+        pattuitoCent: 10000,
+        rate: [
+          { numero: 1, quotaPct: 33.333, giorni: 0, data: null, descrizione: null },
+          { numero: 2, quotaPct: 33.333, giorni: 30, data: null, descrizione: null },
+          { numero: 3, quotaPct: 33.334, giorni: 60, data: null, descrizione: null },
+        ],
+      },
+    });
+    const terzi: any = getCommessaById(commessaId);
+    const importiTerzi = terzi.pianoRate.map((r: any) => r.importo);
+    expect(importiTerzi).toEqual([33.33, 33.33, 33.34]);
+    expect(Math.round(importiTerzi.reduce((s: number, i: number) => s + i, 0) * 100)).toBe(10000);
+  });
+
   // ── Fix round 2 (review finale): R33 — aliquote per anno di firma ───────
 
   it("una firma del 2025 o del 2027 deriva la sua aliquota, senza avvertenze", async () => {

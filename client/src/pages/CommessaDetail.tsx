@@ -58,7 +58,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
-import { etichettaTabLimiti } from "@/lib/limitiView";
+import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
@@ -2130,7 +2130,7 @@ export default function CommessaDetail() {
       <ConfirmDialog
         open={!!forceAdvanceTarget}
         onOpenChange={(open) => !open && setForceAdvanceTarget(null)}
-        title="File richiesto non caricato"
+        title={titoloGateBloccato(forceAdvanceTarget?.message)}
         description={forceAdvanceTarget?.message ?? ""}
         destructive={false}
         confirmLabel="Procedi comunque"

@@ -29,10 +29,17 @@ describe("capability contratto/computo/tariffe", () => {
 describe("interruttore limiti", () => {
   it("è nel registro e segue FLAG_LIMITI", () => {
     expect(Object.keys(statoInterruttori())).toContain("limiti");
-    process.env.FLAG_LIMITI = "off";
-    expect(interruttoreAttivo("limiti")).toBe(false);
-    process.env.FLAG_LIMITI = "on";
-    expect(interruttoreAttivo("limiti")).toBe(true);
-    delete process.env.FLAG_LIMITI;
+    // Il flag va ripristinato com'era anche se un'aspettativa fallisce:
+    // cancellarlo alla fine spegnerebbe il gate per le suite successive.
+    const prima = process.env.FLAG_LIMITI;
+    try {
+      process.env.FLAG_LIMITI = "off";
+      expect(interruttoreAttivo("limiti")).toBe(false);
+      process.env.FLAG_LIMITI = "on";
+      expect(interruttoreAttivo("limiti")).toBe(true);
+    } finally {
+      if (prima === undefined) delete process.env.FLAG_LIMITI;
+      else process.env.FLAG_LIMITI = prima;
+    }
   });
 });

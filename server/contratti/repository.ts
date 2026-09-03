@@ -98,7 +98,9 @@ function rowToContratto(row: any): Contratto {
         ? row.data_firma.toISOString().slice(0, 10)
         : String(row.data_firma).slice(0, 10),
     rate: Array.isArray(row.rate) ? row.rate : [],
-    opzioniComputo: row.opzioni_computo ?? OPZIONI_COMPUTO_DEFAULT,
+    // Clone: una riga legacy senza `opzioni_computo` non deve condividere
+    // (e far mutare a distanza) l'oggetto default esportato da shared.
+    opzioniComputo: row.opzioni_computo ?? structuredClone(OPZIONI_COMPUTO_DEFAULT),
     hashRighe: row.hash_righe,
     hashParametri: row.hash_parametri,
     origine: row.origine,

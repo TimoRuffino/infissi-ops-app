@@ -417,15 +417,25 @@ export function applicaPattuitoDaContratto(
   // R20: prima si costruisce tutto il piano, poi si assegna. Una data
   // corrotta fa lanciare `toISOString()` a metà mappa: se assegnassimo
   // l'importo per primo, la commessa resterebbe con un pattuito senza rate.
+  // Arrotondando ogni rata per conto suo la somma può mancare il totale di un
+  // centesimo (33,33 + 33,33 + 33,34 su 100 €): il resto va sull'ultima rata,
+  // così il piano somma sempre esattamente il pattuito.
+  const totaleCent = Math.round(input.importoTotale * 100);
+  let assegnatoCent = 0;
   const pianoRate = input.rate.map((rata, i): RataCommessa => {
     const scadenza = rata.data
       ?? (rata.giorni == null
         ? null
         : new Date(dataFattura.getTime() + rata.giorni * 86_400_000).toISOString().slice(0, 10));
+    const importoCent =
+      i === input.rate.length - 1
+        ? totaleCent - assegnatoCent
+        : Math.round(input.importoTotale * rata.quotaPct);
+    assegnatoCent += importoCent;
     return {
       id: i + 1,
       numero: rata.numero,
-      importo: Math.round(input.importoTotale * rata.quotaPct) / 100,
+      importo: importoCent / 100,
       scadenza,
       descrizione: rata.descrizione,
       origine: "manuale",

@@ -8,6 +8,7 @@ import {
   motivoSintetico,
   raggruppaVoci,
   spiegaVoce,
+  titoloGateBloccato,
 } from "./limitiView";
 
 const voce = (
@@ -173,6 +174,21 @@ describe("limitiView", () => {
       "Le righe del contratto sono cambiate dopo il computo."
     );
     expect(motivoSintetico(null, 3)).toBeNull();
+  });
+
+  it("il titolo del dialog «Procedi comunque» segue il gate che ha bloccato", () => {
+    expect(
+      titoloGateBloccato(
+        'Il computo dei limiti manca o non è aggiornato per lo stato "Aggiornamento contratto": compila il contratto e calcola i limiti dalla tab Limiti. Procedere comunque?'
+      )
+    ).toBe("Computo dei limiti non aggiornato");
+    expect(
+      titoloGateBloccato(
+        'Non è stato caricato il file "Contratto" per lo stato "Aggiornamento contratto". Procedere comunque?'
+      )
+    ).toBe("File richiesto non caricato");
+    expect(titoloGateBloccato(null)).toBe("File richiesto non caricato");
+    expect(titoloGateBloccato(undefined)).toBe("File richiesto non caricato");
   });
 
   it("formatta i centesimi", () => {

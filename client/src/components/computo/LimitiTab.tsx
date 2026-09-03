@@ -92,8 +92,10 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
 
           {c.avvertenze.length > 0 && (
             <ul className="text-xs text-warning space-y-0.5" aria-label="Avvertenze del computo">
-              {c.avvertenze.map(a => (
-                <li key={a} className="flex gap-1">
+              {/* Due righe possono generare la stessa avvertenza: la chiave
+                  è la posizione, non il testo. */}
+              {c.avvertenze.map((a, i) => (
+                <li key={`${i}-${a}`} className="flex gap-1">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   {a}
                 </li>

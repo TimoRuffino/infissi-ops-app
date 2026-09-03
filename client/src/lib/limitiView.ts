@@ -150,6 +150,17 @@ export function etichettaTabLimiti(s: StatoComputoView | undefined): string {
 }
 
 /**
+ * Titolo del dialog «Procedi comunque». Lo stesso dialog copre due gate: con
+ * un titolo fisso, un blocco del computo manderebbe l'operatore a cercare un
+ * file che non manca. Il messaggio del server dice già quale gate è.
+ */
+export function titoloGateBloccato(messaggio: string | null | undefined): string {
+  return messaggio?.toLowerCase().includes("computo dei limiti")
+    ? "Computo dei limiti non aggiornato"
+    : "File richiesto non caricato";
+}
+
+/**
  * Il motivo, quando le avvertenze lo elencano già per esteso («Il computo è
  * incompleto: …»), si ferma alla prima frase: il resto è lì sotto.
  */

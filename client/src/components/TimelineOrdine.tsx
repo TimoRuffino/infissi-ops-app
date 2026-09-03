@@ -21,6 +21,7 @@ import {
 import { useMemo, useState, useEffect } from "react";
 import SearchSelect from "@/components/SearchSelect";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { titoloGateBloccato } from "@/lib/limitiView";
 
 // The 17 PRD steps grouped under the 4 board phases (redesign §4.3).
 // Ranges are by stepNumber (1-based, inclusive). Gli estremi sono scalati di
@@ -441,7 +442,7 @@ export default function TimelineOrdine({ commessaId }: { commessaId: number }) {
       <ConfirmDialog
         open={!!forceStepTarget}
         onOpenChange={(open) => !open && setForceStepTarget(null)}
-        title="File richiesto non caricato"
+        title={titoloGateBloccato(forceStepTarget?.message)}
         description={forceStepTarget?.message ?? ""}
         destructive={false}
         confirmLabel="Procedi comunque"
