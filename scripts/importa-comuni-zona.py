@@ -17,6 +17,15 @@
 # colonne (la modalità di default confonde l'ordine quando ci sono molte note
 # a piè di pagina sulla stessa pagina, es. pag. 32 del PDF).
 #
+# Le sigle di provincia sono quelle del 1993 (così come stampate nel PDF):
+# le province istituite dopo non esistono nella fonte e i loro comuni
+# restano sotto la provincia di origine — es. Lodi/Codogno (LO) sono "MI",
+# Monza/Seregno (MB) sono "MI", i comuni pesaresi (PU) sono "PS", Fermo
+# (FM) è "AP", Barletta/Trani (BT) sono "BA", e Biella/Cossato (BI) sono
+# per lo più ancora "VC". Non è una tabella comune→provincia aggiornata:
+# server/computo/zone.ts ne tiene conto usando la provincia solo per
+# disambiguare gli omonimi, non per scartare un comune trovato univocamente.
+#
 # Uso: python3 scripts/importa-comuni-zona.py tabellaA.pdf
 import json
 import re
@@ -33,7 +42,17 @@ if len(sys.argv) < 2:
 
 
 def norm(s: str) -> str:
-    """Stessa normalizzazione di normalizzaNomeComune() in server/computo/zone.ts."""
+    """Normalizzazione per la dedup e le correzioni manuali di questo script.
+
+    Vicina a normalizzaNomeComune() in server/computo/zone.ts (minuscolo,
+    accenti rimossi, spazi/trattini collassati) ma non identica: qui un
+    apostrofo tipografico (’) verrebbe scartato da encode("ascii",
+    "ignore") invece che sostituito con uno spazio come fa la versione TS.
+    Nella Tabella A i nomi usano solo l'apostrofo dritto (verificato: zero
+    occorrenze di ’ nel JSON prodotto, 322 di apostrofo dritto), quindi
+    la differenza non incide sui dati — ma non è una vera equivalenza, solo
+    una normalizzazione "abbastanza vicina" per questo script una tantum.
+    """
     s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode()
     return " ".join(s.lower().replace("'", " ").replace("-", " ").split())
 
