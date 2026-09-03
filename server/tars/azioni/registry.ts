@@ -15,6 +15,7 @@ import { STRUMENTI_MEMORIA } from "../strumenti/memorie";
 import { STRUMENTI_PROMEMORIA } from "../strumenti/promemoria";
 import { STRUMENTI_PROPOSTE } from "../strumenti/proposte";
 import { STRUMENTI_PROATTIVITA } from "../strumenti/proattivita";
+import { STRUMENTI_RICERCA } from "../strumenti/ricerca";
 import { STRUMENTI_TICKET } from "../strumenti/ticket";
 import { STRUMENTI_SCRITTURA } from "../strumenti/scrittura";
 import type {
@@ -29,7 +30,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.10.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.11.0";
 
 const schemaLettura = z
   .object({
@@ -160,6 +161,11 @@ const r1 = (
 
 const METADATI: Record<string, Metadati> = {
   cerca_commesse: lettura("sede", ["generale", "commessa"], ["commessa"], undefined, true),
+  // Ricerche T1 (03/09/2026): ciò che si tocca tutto il giorno diventa
+  // trovabile — comunicazioni anche per numero, fatture, documenti.
+  cerca_comunicazioni: lettura("sede", ["generale", "comunicazioni"], ["commessa", "cliente"], ["tars", "tarsReadTools", "tarsCommunications"]),
+  cerca_fatture: lettura("sede", ["generale", "economia", "commessa"], ["commessa", "cliente"]),
+  cerca_documenti: lettura("sede", ["generale", "commessa", "documenti-ordini"], ["commessa", "documento"]),
   // Clienti (01/09/2026): entità «commessa» inclusa perché dal fascicolo
   // di una commessa si chiede legittimamente del suo cliente.
   cerca_clienti: lettura(
@@ -417,6 +423,7 @@ const STRUMENTI_CORRENTI: readonly StrumentoTars[] = [
   ...STRUMENTI_PROATTIVITA,
   ...STRUMENTI_TICKET,
   ...STRUMENTI_SCRITTURA,
+  ...STRUMENTI_RICERCA,
 ];
 
 function costruisciRegistro(): DescrittoreAzioneTars[] {
