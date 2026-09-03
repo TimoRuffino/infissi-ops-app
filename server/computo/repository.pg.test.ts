@@ -1,0 +1,41 @@
+// Richiede DATABASE_URL di test; senza, la suite è dichiarata skipped.
+//   DATABASE_URL=postgres://postgres:test@localhost:55432/tars_test pnpm vitest run server/computo/repository.pg.test.ts
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { kvSql } from "../_core/persistence";
+import { createPostgresComputiRepository } from "./repository";
+
+const conDatabase = Boolean(process.env.DATABASE_URL && kvSql);
+
+describe.skipIf(!conDatabase)("repository computi (PostgreSQL)", () => {
+  const sql = kvSql!;
+  const SEDE = 99320;
+  const repo = createPostgresComputiRepository(sql);
+  beforeAll(async () => {
+    await repo.ensureSchema();
+    await sql`DELETE FROM computi WHERE sede_id = ${SEDE}`;
+  });
+  afterAll(async () => {
+    await sql`DELETE FROM computi WHERE sede_id = ${SEDE}`;
+  });
+  it("salva computo e voci, rilegge l'ultimo con le voci in ordine", async () => {
+    const base = {
+      sedeId: SEDE, commessaId: 992001, hashRighe: "h", hashParametri: "p", tariffeAl: "2026-09-03",
+      zona: "D" as const, esito: "ok" as const, check1Cent: 10, check2Cent: 8, deiProdottiCent: 6, limiteCent: 8,
+      detraibileCent: null, detrazioneStimataCent: null, avvertenze: ["a"], createdBy: 1,
+      voci: [
+        { gruppo: "opere" as const, codice: "posa", descrizione: "Posa", codiceDei: "M01024", unita: "h", prezzoUnitCent: 3650, quantita: 18, limiteCent: 131400, dettaglio: { ore: 18 }, ordine: 2, inclusa: true, inCheck1: true, inCheck2: false },
+        { gruppo: "prodotti" as const, codice: "massimale_A", descrizione: "A", codiceDei: null, unita: "€/mq", prezzoUnitCent: 78000, quantita: 20.564, limiteCent: 1603992, dettaglio: {}, ordine: 1, inclusa: true, inCheck1: true, inCheck2: false },
+      ],
+    };
+    await repo.salva({ computo: { ...base, hashRighe: "vecchio" }, now: new Date("2026-09-01T00:00:00Z") });
+    const nuovo = await repo.salva({ computo: base, now: new Date("2026-09-03T00:00:00Z") });
+    const letto = await repo.ultimo(SEDE, 992001);
+    expect(letto?.id).toBe(nuovo.id);
+    expect(letto?.voci.map(v => v.codice)).toEqual(["massimale_A", "posa"]);
+    expect(letto?.voci[1].dettaglio).toEqual({ ore: 18 });
+    expect(letto?.voci[0].inCheck2).toBe(false);
+    expect(letto?.deiProdottiCent).toBe(6);
+    expect(letto?.avvertenze).toEqual(["a"]);
+    expect(await repo.ultimo(SEDE + 1, 992001)).toBeNull();
+  });
+});
