@@ -77,7 +77,7 @@ documenti e delle decisioni, e FiC come fonte della verità economica.
 
 ## 4. Piano
 
-### T1 — Gli strumenti che mancano (sblocca i casi già segnalati)
+### T1 — Gli strumenti che mancano (sblocca i casi già segnalati) — FATTO il 03/09/2026 per ricerche+fatture+documenti; `leggi_timeline`, `completa_step_timeline` e `crea_cliente_da_messaggio` restano da fare (rimandati a T2/T3)
 
 - `cerca_comunicazioni`: testo libero, numero di telefono, mittente,
   periodo, canale. Sede-scoped, estratti.

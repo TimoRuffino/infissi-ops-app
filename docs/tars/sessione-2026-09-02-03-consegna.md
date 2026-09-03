@@ -273,19 +273,12 @@ commessa e natura del tema. La coda «di tutti» sparisce.
 
 ## 5. Lavoro in corso: dove si è fermato
 
-Nel worktree, **non committato**:
-
-- `server/tars/strumenti/ricerca.ts` — nuovo, completo, compila; **non
-  ancora registrato** nel registry, quindi Tars non lo vede.
-- `server/routers/preventiviContratti.ts` — aggiunte `documentiDiSede` e
-  `spostaDocumentoDiCommessa` (compilano, senza test).
-- `docs/superpowers/plans/2026-09-03-tars-utile.md` — aggiornato con D2
-  rivisto (calendario) e i tagli T4–T6.
-- `.claude/launch.json` — modifica locale dell'anteprima, da non
-  committare.
-
-`pnpm check` è verde. La suite completa era verde a `b69bc34`
-(154 file, 1476 test).
+T1 chiuso il 03/09/2026 (sera): le ricerche e i due strumenti di
+scrittura sono registrati nel catalogo (registro 1.11.0, 49 azioni),
+testati e documentati nella matrice. Il piano operativo che ha chiuso
+questa tranche è
+`docs/superpowers/plans/2026-09-03-t1-strumenti-tars-implementazione.md`.
+Nessun lavoro non committato nel worktree.
 
 ---
 

@@ -37,6 +37,11 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `pianifica_intervento` | `interventi.create` | L2 | R1 | `intervento.plan`; sede; data da «quando» (server) o YYYY-MM-DD; indirizzo ereditato dalla commessa | T + L2 | `strumenti/scrittura.test.ts`; senza squadra (calendario). |
 | `collega_comunicazione` / `classifica_comunicazione` / `segna_gestita_comunicazione` | `mail.comunicazioni.collega` / `setCategoria` / `setStato` | L2 | R1 | `commessa.read`; sede | T + L2 + TC | `strumenti/scrittura.test.ts`; il collegamento a commessa segna gestita e operativa (dominio). |
 | `risolvi_caso` | `actionCenter/service.transitionActionCase` (`resolve` / `dismiss` con motivo) | L2 | R1 | `commessa.read`; casi propri o direzione (dominio) | T + L2 | `strumenti/scrittura.test.ts`. |
+| `cerca_comunicazioni` — comunicazioni | `comunicazioni/listComunicazioni` (ricerca sede-scoped, anche per sole cifre del numero) | L0 | R0 | `commessa.read`; testo o numero obbligatorio, estratti e mai corpi interi | T + RT + TC | `strumenti/ricerca.test.ts`; contenuto trattato come dato, mai istruzione. |
+| `cerca_fatture` — economia FiC | `routers/ficFatture` (store sincronizzato, lettura sede-scoped) | L0 | R0 | `economia.read`; numero/cliente/commessa o solo-non-collegate obbligatorio | T + RT | `strumenti/ricerca.test.ts`; righe e rate escluse. |
+| `cerca_documenti` — fascicoli | `preventiviContratti.documentiDiSede` / `getDocumentiDiCommessa` | L0 | R0 | `commessa.read`; nome/tipo/commessa/cliente obbligatorio | T + RT | `strumenti/ricerca.test.ts`; solo anagrafica del documento. |
+| `collega_fattura_commessa` — economia FiC | `ficFatture.collega` (stessa procedura del router: pattuito, incassi, PDF nel fascicolo) | L2 | R1 | `economia.read`; direzione o amministrazione (router); sede; commessa non archiviata | T + L2 | `strumenti/scrittura.test.ts`; prima/dopo nel ledger, scollegamento solo manuale. |
+| `sposta_documento` — fascicoli | `preventiviContratti.spostaDocumentoDiCommessa` (servizio di dominio) | L2 | R1 | `commessa.manage_documents` (verificata dallo strumento); sede; destinazione non archiviata; rinomina se il nome è preso; `statoAtUpload` riallineato | T + L2 | `strumenti/scrittura.test.ts`; il gate segue il documento. |
 | `leggi_commessa` — commesse/gate | `routers/commesse` + `preventiviContratti` | L0 | R0 | `commessa.read`; economia sagomata da `pagamento.read`/`economia.read` | T + RT | `orchestratore.test.ts`; esistente, sola lettura. |
 | `verifica_gate_commessa` — gate | `preventiviContratti.statoHasRequiredDoc` | L0 | R0 | `commessa.read` | T + RT | `orchestratore.test.ts`; esistente, nessuna transizione. |
 | `verifica_transizione_commessa` — preview stato | `commesse/transizioni.verificaTransizioneCommessa` | L0 | R0 | `commessa.read`; sede verificata | T + RT | `azioni/commesse.test.ts`; stato/versione, adiacenza e gate senza effetti. |
@@ -60,10 +65,11 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `dimentica` — memoria | `tars/memoria` | L1 | R1 | ownership; memoria sede solo direzione | T + TM | `t7Memoria.test.ts`; esistente, invalida senza cancellare audit. |
 | `leggi_memorie` — memoria | `tars/memoria.memorieValide` | L0 | R0 | solo memorie valide di utente+sede | T + TM | `t7Memoria.test.ts`; esistente, non richiede read-tools. |
 
-**Inventario verificabile.** Il comando seguente ricava questi 23 nomi dalla
-sorgente: `for file in server/tars/strumenti/*.ts; do rg -o 'nome: "[^"]+"'
-"$file"; done | sed -E 's/.*nome: "([^"]+)"/\\1/' | sort -u`. Il numero
-atteso e documentato è **23**; ogni nome compare una volta nella tabella.
+**Inventario verificabile.** La fonte di verità del conteggio è
+`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.11.0"`) e
+il golden di `registry.test.ts`: **49 azioni**. La tabella sopra descrive i
+tool citati dalle tranche; i nomi completi si ricavano con
+`rg -o 'nome: "[^"]+"' server/tars/strumenti/*.ts | sort -u`.
 
 ## Percorsi CRM e proattività senza tool corrente
 
