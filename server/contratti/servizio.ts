@@ -21,7 +21,7 @@ import {
   type RigaContratto,
   type RigaContrattoInput,
 } from "@shared/limiti/tipi";
-import { percentualeDetrazione, prodotto, tariffeAttive } from "../computo/tariffe";
+import { percentualeDetrazione, prodotto, tariffeAttive, type Tariffe } from "../computo/tariffe";
 import { zonaPerComune } from "../computo/zone";
 import { applicaPattuitoDaContratto, getCommessaById } from "../routers/commesse";
 import { getClienteById } from "../routers/clienti";
@@ -128,6 +128,21 @@ export function mqRiga(r: {
   return Math.round(((r.larghezzaMm * r.altezzaMm * r.quantita) / 1e6) * 1e6) / 1e6;
 }
 
+/**
+ * Un errore di forma (zod) non torna mai grezzo al chiamante: il contratto
+ * d'interfaccia del servizio è solo `NOT_FOUND:`/`VALIDAZIONE:` (R13). Il
+ * percorso del primo problema — es. `righe.1.quantita` o
+ * `contratto.rate.0.quotaPct` — dice subito dove guardare, senza dover
+ * interpretare uno ZodError.
+ */
+function parseOrValidazione<T>(schema: z.ZodType<T>, valore: unknown, prefisso: string): T {
+  const esito = schema.safeParse(valore);
+  if (esito.success) return esito.data;
+  const primo = esito.error.issues[0];
+  const percorso = [prefisso, ...primo.path.map(String)].join(".");
+  throw new Error(`VALIDAZIONE: ${percorso}: ${primo.message}`);
+}
+
 function commessaInSede(sedeId: number, commessaId: number): any {
   const commessa: any = getCommessaById(commessaId);
   if (!commessa || (commessa.sedeId ?? DEFAULT_SEDE_ID) !== sedeId) {
@@ -159,11 +174,19 @@ export async function salvaContratto(input: {
 }): Promise<{ contratto: Contratto; righe: RigaContratto[]; avvertenze: string[] }> {
   const now = input.now ?? new Date();
   const commessa = commessaInSede(input.sedeId, input.commessaId);
-  const parametri = contrattoInputSchema.parse(input.contratto);
-  const righeValide = input.righe.map(r => rigaInputSchema.parse(r));
+  const parametri = parseOrValidazione(contrattoInputSchema, input.contratto, "contratto");
+  const righeValide = input.righe.map((r, i) => parseOrValidazione(rigaInputSchema, r, `righe.${i}`));
   validaRate(parametri.rate);
   const avvertenze: string[] = [];
-  const tariffe = tariffeAttive(now);
+  let tariffe: Tariffe;
+  try {
+    tariffe = tariffeAttive(now);
+  } catch {
+    // Nessuna tariffa prima del DM 14/02/2022 (v. tariffeAttive): un errore
+    // di dati sulla data del contratto, non di sede o di permessi — stesso
+    // contratto VALIDAZIONE degli altri problemi di forma (R13).
+    throw new Error("VALIDAZIONE: tariffe non disponibili per la data del contratto.");
+  }
 
   // Zona: dal comune, salvo override dichiarato.
   let zona = parametri.zonaManuale ? (parametri.zonaClimatica ?? null) : null;
@@ -258,7 +281,7 @@ export async function salvaContratto(input: {
     createdBy: precedente?.createdBy ?? input.actorUserId,
     updatedBy: input.actorUserId,
   };
-  contrattoPersist.hashParametri = hashParametri({ ...contrattoPersist, zonaClimatica: zona, detrazionePct: pct });
+  contrattoPersist.hashParametri = hashParametri(contrattoPersist);
 
   const esito = await getContrattiRepository().salva({
     contratto: contrattoPersist,
@@ -266,11 +289,20 @@ export async function salvaContratto(input: {
     now,
   });
 
-  const specchio = applicaPattuitoDaContratto(input.commessaId, {
-    importoTotale: centToEuro(parametri.pattuitoCent),
-    rate: parametri.rate,
-  });
-  if (!specchio.applicato && specchio.motivo) avvertenze.push(specchio.motivo);
+  try {
+    const specchio = applicaPattuitoDaContratto(input.commessaId, {
+      importoTotale: centToEuro(parametri.pattuitoCent),
+      rate: parametri.rate,
+    });
+    if (!specchio.applicato && specchio.motivo) avvertenze.push(specchio.motivo);
+  } catch (error) {
+    // Il contratto è già salvato (sopra): niente rollback tra store diversi
+    // in questo CRM — non esiste una transazione cross-store (R12). Il
+    // contratto resta la fonte di verità; il prossimo salvataggio ritenta
+    // lo specchio sulla commessa.
+    const messaggio = error instanceof Error ? error.message : String(error);
+    avvertenze.push(`Pattuito non aggiornato sulla commessa: ${messaggio}`);
+  }
 
   return { ...esito, avvertenze };
 }

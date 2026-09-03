@@ -130,4 +130,77 @@ describe("servizio contratto", () => {
     const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeValide, actorUserId: 5 });
     expect(esito.avvertenze).toEqual([]);
   });
+
+  // ── Fix round 1 (review): R12 — atomicità dello specchio ────────────────
+
+  it("se lo specchio del pattuito lancia, il contratto resta salvato e l'errore diventa un'avvertenza (R12)", async () => {
+    const commessaId = await commessaDiProva();
+    // dataApertura corrotta: applicaPattuitoDaContratto costruisce
+    // `new Date(`${dataApertura}T00:00:00`)`, che con questo valore è
+    // Invalid Date — poi `.toISOString()` su una scadenza calcolata da una
+    // Invalid Date lancia RangeError. Nessun mock: è un vero stato che può
+    // capitare su un record legacy.
+    const commessaRotta: any = getCommesseStore().find((c: any) => c.id === commessaId);
+    commessaRotta.dataApertura = "non-una-data";
+
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe, actorUserId: 5 });
+    // Il contratto (righe, hash, zona) si salva comunque: solo lo specchio fallisce,
+    // e non fa fallire salvaContratto — R12 non promette che la commessa resti
+    // intonsa (applicaPattuitoDaContratto non è a sua volta atomica, ed R12 non
+    // ne cambia il modello), solo che il contratto è la fonte di verità e resta
+    // leggibile con lo stesso hash appena prodotto.
+    expect(esito.righe).toHaveLength(2);
+    expect(esito.contratto.hashRighe).toMatch(/^[0-9a-f]{64}$/);
+    expect(esito.avvertenze.some(a => a.startsWith("Pattuito non aggiornato sulla commessa: "))).toBe(true);
+    const letto = await leggiContratto(SEDE, commessaId);
+    expect(letto.contratto?.hashRighe).toBe(esito.contratto.hashRighe);
+  });
+
+  // ── Fix round 1 (review): R13 — errori di forma come VALIDAZIONE ────────
+
+  it("una riga con quantità non valida rifiuta con VALIDAZIONE e il percorso del campo (R13)", async () => {
+    const commessaId = await commessaDiProva();
+    const righeRotte = [{ ...righe[0], quantita: 0 }, righe[1]];
+    await expect(
+      salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeRotte, actorUserId: 5 })
+    ).rejects.toThrow(/^VALIDAZIONE: righe\.0\.quantita/);
+  });
+
+  it("una data del contratto precedente alle tariffe disponibili rifiuta con VALIDAZIONE (R13)", async () => {
+    const commessaId = await commessaDiProva();
+    await expect(
+      salvaContratto({
+        sedeId: SEDE, commessaId, contratto, righe, actorUserId: 5,
+        now: new Date("2020-01-01T00:00:00.000Z"), // precede validoDal del seed (2022-04-15)
+      })
+    ).rejects.toThrow("VALIDAZIONE: tariffe non disponibili per la data del contratto.");
+  });
+
+  // ── Fix round 1 (review): percorsi minori senza copertura ───────────────
+
+  it("una riga senza misure genera l'avvertenza mq, senza bloccare", async () => {
+    const commessaId = await commessaDiProva();
+    const righeSenzaMisure = [{ ...righe[0], larghezzaMm: null }, righe[1]];
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeSenzaMisure, actorUserId: 5 });
+    expect(esito.righe[0].mq).toBe(0);
+    expect(esito.avvertenze).toContain("Alcune righe non hanno misure: il computo le conterà senza mq.");
+  });
+
+  it("zona manuale senza zona indicata rifiuta con VALIDAZIONE", async () => {
+    const commessaId = await commessaDiProva();
+    await expect(
+      salvaContratto({ sedeId: SEDE, commessaId, contratto: { ...contratto, zonaManuale: true, zonaClimatica: null }, righe, actorUserId: 5 })
+    ).rejects.toThrow("VALIDAZIONE: zona manuale senza zona indicata.");
+  });
+
+  it("detrazioneTipo nessuna lascia detrazionePct a null e non genera l'avvertenza di detrazione", async () => {
+    const commessaId = await commessaDiProva();
+    const esito = await salvaContratto({
+      sedeId: SEDE, commessaId,
+      contratto: { ...contratto, detrazioneTipo: "nessuna", detrazioneImmobile: null, detrazionePct: null },
+      righe, actorUserId: 5,
+    });
+    expect(esito.contratto.detrazionePct).toBeNull();
+    expect(esito.avvertenze.some(a => a.toLowerCase().includes("detrazione"))).toBe(false);
+  });
 });
