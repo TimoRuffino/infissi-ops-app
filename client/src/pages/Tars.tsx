@@ -782,9 +782,13 @@ export default function Tars() {
   const ultimoTurnoTars = [...turniServer]
     .reverse()
     .find(turno => turno.ruolo === "tars");
+  // «Operatività ridotta» SOLO dopo un run davvero degradato: con
+  // ultimoRunRidottoId e conversazioneId entrambi null (nessun run, nuova
+  // conversazione) il confronto nudo accendeva il badge su OGNI
+  // conversazione appena aperta (segnalazione direzione 03/09 sera).
   const statoAvatar: StatoTarsAvatar = invioVisibile
     ? "in_lavoro"
-    : ultimoRunRidottoId === conversazioneId ||
+    : (ultimoRunRidottoId != null && ultimoRunRidottoId === conversazioneId) ||
         (ultimoTurnoTars != null &&
           turnoIndicaOperativitaRidotta(ultimoTurnoTars))
       ? "degradato"

@@ -52,6 +52,7 @@ export function useProposteTars(abilitato: boolean) {
     smistamento: demo?.smistamento ?? smistamento.data ?? [],
     gateway: demo?.gateway ?? gateway.data ?? [],
     analisi: demo?.analisi ?? analisi.proposte,
+    analisiId: demo ? 999 : analisi.analisiId,
     totale: demo
       ? demo.smistamento.length + demo.gateway.length + demo.analisi.length
       : (smistamento.data?.length ?? 0) +
@@ -140,12 +141,22 @@ function fixtureDemo(): {
         richiestaPerTars: "Aggiorna come prioritarie le verifiche del prossimo passo per le commesse 182, 183 e 193",
         entita: [{ riferimento: "commessa:182", etichetta: "COM-2026-182 — Rossi Anna", link: "/commesse/182" }],
         link: "/commesse/182",
+        azione: null,
       },
       {
         testo: "Aprire il ticket post-vendita per il reclamo WnD fermo da 183 giorni.",
         richiestaPerTars: "Crea un ticket urgente per la commessa 190: reclamo WnD, appuntamento da fissare",
         entita: [{ riferimento: "comunicazione:16295", etichetta: "Email: reclamo WnD", link: "/messaggi/email?messaggio=16295" }],
         link: "/messaggi/email?messaggio=16295",
+        azione: { strumento: "crea_ticket", input: "{\"commessaId\":190,\"oggetto\":\"Reclamo WnD\",\"categoria\":\"altro\",\"priorita\":\"urgente\"}" },
+      },
+      {
+        testo: "Ricordare lunedì il sollecito del preventivo Soare (già eseguita).",
+        richiestaPerTars: "Ricordami lunedì alle 9 di sollecitare il preventivo Soare",
+        entita: [{ riferimento: "commessa:24", etichetta: "COM-2026-024 — Soare", link: "/commesse/24" }],
+        link: "/commesse/24",
+        azione: { strumento: "crea_promemoria", input: "{\"testo\":\"Sollecitare Soare\",\"quando\":\"lunedì alle 9\"}" },
+        esecuzione: { stato: "creato", motivo: null, azioneId: "crea_promemoria:9", entitaToccate: ["promemoria:9"], quando: adesso, daUtente: 1 },
       },
     ] as unknown as VoceAnalisi[],
   };
@@ -394,6 +405,25 @@ export function TarsProposteBoard({
       toast.error(errore.message || "Applicazione non riuscita.");
     },
   });
+  // T3: «Esegui» su una proposta dell'analisi — il server riverifica
+  // catalogo e input e passa dal ledger R1; qui solo il click e l'esito.
+  const [analisiInCorso, setAnalisiInCorso] = useState<number | null>(null);
+  const eseguiAnalisi = trpc.tars.eseguiPropostaAnalisi.useMutation({
+    onSuccess: ({ esecuzione }) => {
+      setAnalisiInCorso(null);
+      void utils.tars.analisiAzienda.invalidate();
+      if (esecuzione.stato === "non_eseguito") {
+        toast.warning(esecuzione.motivo ?? "Non eseguita.");
+      } else {
+        toast.success("Fatto: lo trovi nel Registro di Tars.");
+      }
+    },
+    onError: errore => {
+      setAnalisiInCorso(null);
+      void utils.tars.analisiAzienda.invalidate();
+      toast.error(errore.message || "Esecuzione non riuscita.");
+    },
+  });
   const rifiuta = trpc.proposte.rifiuta.useMutation({
     onSuccess: () => {
       setGatewayInCorso(null);
@@ -609,7 +639,7 @@ export function TarsProposteBoard({
             {mostra("analisi") && dati.analisi.length > 0 && (
               <Sezione
                 titolo="Dall'analisi di oggi"
-                suggerimento="«Chiedi a Tars» apre la chat con la richiesta già scritta"
+                suggerimento="«Esegui» fa la cosa ora e la scrive nel Registro; «Chiedi a Tars» apre la chat"
                 conteggio={dati.analisi.length}
               >
                 {dati.analisi.map((p, i) => (
@@ -626,8 +656,9 @@ export function TarsProposteBoard({
                     dettagli={
                       <>
                         <Dettaglio etichetta="Cosa succede">
-                          niente finché non lo chiedi: la richiesta va in chat, Tars la esegue con i
-                          suoi strumenti e la scrive nel Registro.
+                          {p.azione
+                            ? `un click: Tars esegue ora «${p.azione.strumento.replaceAll("_", " ")}» con i vincoli del dominio (sede, permessi, gate) e lo scrive nel Registro.`
+                            : "niente finché non lo chiedi: la richiesta va in chat, Tars la esegue con i suoi strumenti e la scrive nel Registro."}
                         </Dettaglio>
                         {p.entita.length > 0 && (
                           <Dettaglio etichetta="Riguarda">
@@ -659,14 +690,68 @@ export function TarsProposteBoard({
                       </>
                     }
                     azioni={
-                      <Button
-                        type="button"
-                        className="min-h-10 flex-1 md:flex-none"
-                        onClick={() => onSuggerimento(p.richiestaPerTars)}
-                      >
-                        <MessageSquarePlus aria-hidden="true" />
-                        Chiedi a Tars
-                      </Button>
+                      p.esecuzione ? (
+                        <div className="flex flex-1 items-center justify-end gap-2 md:flex-none">
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-1 text-[11px] font-semibold",
+                              p.esecuzione.stato === "non_eseguito"
+                                ? "bg-warning-soft text-warning"
+                                : "bg-success-soft text-success"
+                            )}
+                          >
+                            {p.esecuzione.stato === "non_eseguito"
+                              ? (p.esecuzione.motivo ?? "Non eseguita")
+                              : "Fatto da Tars"}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="min-h-10"
+                            onClick={onVaiAlRegistro}
+                          >
+                            Registro
+                          </Button>
+                        </div>
+                      ) : p.azione ? (
+                        <>
+                          <Button
+                            type="button"
+                            className="min-h-10 flex-1 md:flex-none"
+                            disabled={analisiInCorso === i || dati.analisiId == null}
+                            onClick={() => {
+                              setAnalisiInCorso(i);
+                              eseguiAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
+                            }}
+                          >
+                            {analisiInCorso === i ? (
+                              <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Check aria-hidden="true" />
+                            )}
+                            Esegui
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-10"
+                            aria-label="Chiedi a Tars in chat"
+                            title="Chiedi a Tars"
+                            onClick={() => onSuggerimento(p.richiestaPerTars)}
+                          >
+                            <MessageSquarePlus aria-hidden="true" />
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          className="min-h-10 flex-1 md:flex-none"
+                          onClick={() => onSuggerimento(p.richiestaPerTars)}
+                        >
+                          <MessageSquarePlus aria-hidden="true" />
+                          Chiedi a Tars
+                        </Button>
+                      )
                     }
                     onApri={
                       p.link

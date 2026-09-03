@@ -54,6 +54,7 @@ export function useAnalisiAzienda(abilitato = true) {
   return {
     loading: query.isLoading,
     record,
+    analisiId: record?.id ?? null,
     esito: record?.stato === "pronta" ? record.esito : null,
     oggi: query.data?.oggi ?? null,
     // Riservata alla direzione o flag spento: la sezione non esiste.
