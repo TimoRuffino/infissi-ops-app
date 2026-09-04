@@ -599,6 +599,16 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
     expect(versioneCorrente(`fatture-di-commessa:${commessaId}`, SEDE)).not.toBeNull();
   });
 
+  // Il registro delle versioni è fail-closed sui nomi che non conosce: un
+  // nome ereditato dal prototipo di Object non è un interruttore.
+  it("versioneCorrente(\"flag:<nome>\") conosce solo gli interruttori veri", () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    expect(versioneCorrente("flag:fatturazione", SEDE)).toBe("true");
+    for (const finto of ["constructor", "toString", "hasOwnProperty", "inventato"]) {
+      expect(versioneCorrente(`flag:${finto}`, SEDE)).toBeNull();
+    }
+  });
+
   it("Caso 5 (Ruling R33): un flip del flag a runtime invalida il fascicolo cacheato", async () => {
     process.env.FLAG_FATTURAZIONE = "off";
     process.env.FLAG_LIMITI = "on";

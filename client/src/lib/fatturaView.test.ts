@@ -121,6 +121,16 @@ describe("fatturaView", () => {
     });
   });
 
+  // Uno stato nuovo lato server (o una risposta più recente del bundle
+  // che il browser ha in cache) non deve far sparire il badge — e con
+  // lui, in React, la riga che lo contiene.
+  it("badgeStatoFattura non si rompe su uno stato che non conosce", () => {
+    expect(badgeStatoFattura("stato_futuro" as never, false)).toEqual({
+      testo: "stato_futuro",
+      tono: "neutro",
+    });
+  });
+
   // Sequenza reale del generatore: intestazione+2 beni, markup subito dopo
   // l'ultimo bene, poi l'intestazione dei servizi, il servizio, storno e
   // riaddebito BS (in coda, non contigui al markup) e infine una nota.

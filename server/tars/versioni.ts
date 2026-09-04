@@ -91,8 +91,10 @@ export function versioneCorrente(
     // sede, quindi qui (a differenza di ogni altro ramo sopra) non c'è
     // nessun controllo di sede da fare. Un nome sconosciuto (typo, o un
     // interruttore rimosso) torna null: fail-closed, come da contratto di
-    // questo registro.
-    if (!(arg in statoInterruttori())) return null;
+    // questo registro. `Object.hasOwn` e non `in`: un nome come
+    // «toString» o «constructor» esiste sul prototipo di qualunque
+    // oggetto e passerebbe il controllo senza essere un interruttore.
+    if (!Object.hasOwn(statoInterruttori(), arg)) return null;
     return String(interruttoreAttivo(arg as Interruttore));
   }
   if (tipo === "giorno-locale") {

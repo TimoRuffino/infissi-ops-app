@@ -39,7 +39,11 @@ export function badgeStatoFattura(
       ? { testo: "Emessa (prova SdI)", tono: "attenzione" }
       : { testo: "Emessa", tono: "ok" };
   }
-  return BADGE_STATO[stato];
+  // Fallback: uno stato che questa tabella non conosce — un server più
+  // recente del bundle in cache nel browser — deve dare un badge grezzo,
+  // non `undefined`: chi legge `.testo` è un componente React, e la riga
+  // sparirebbe invece di mostrare uno stato sconosciuto.
+  return BADGE_STATO[stato] ?? { testo: String(stato), tono: "neutro" };
 }
 
 /** Variante Badge shadcn per ogni tono: stessa mappa nei punti che mostrano un badge di stato fattura. */
