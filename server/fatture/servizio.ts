@@ -675,7 +675,11 @@ export async function validaPerEmissione(
     }
   }
 
-  if (fattura.computoId == null && !fattura.scavalcoLimiti) {
+  // Ruling R14: una nota di credito storna una fattura già emessa, non
+  // propone prestazioni nuove — il computo e i suoi limiti non la
+  // riguardano. Cliente, configurazione e scadenze restano controllati
+  // come per qualunque fattura.
+  if (fattura.tipo !== "nota_credito" && fattura.computoId == null && !fattura.scavalcoLimiti) {
     errore("computo_non_valido", "Il computo dei limiti non è aggiornato: ricalcolalo o registra lo scavalco.");
   }
 
@@ -711,7 +715,11 @@ export async function validaPerEmissione(
     errore("config_scope", "Configura i permessi di scrittura Fatture in Cloud in Impostazioni → Fatturazione.");
   }
 
-  controlli.push(...verificaLimiti(fattura));
+  // Stessa ragione della guardia sul computo qui sopra (Ruling R14): i
+  // limiti del computo non si applicano a una nota di credito.
+  if (fattura.tipo !== "nota_credito") {
+    controlli.push(...verificaLimiti(fattura));
+  }
   return { fattura, controlli, emettibile: !controlli.some(c => c.esito === "errore") };
 }
 

@@ -5,7 +5,7 @@
 // 1199677, servizi proposti 347500, somma dei limiti 348008.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
-import type { FatturazioneConfig } from "@shared/fatturazione/tipi";
+import type { ClienteSnapshot, FatturazioneConfig } from "@shared/fatturazione/tipi";
 import casi from "../computo/__fixtures__/casi-reali.json";
 import { _resetComputiRepositoryForTests } from "../computo/repository";
 import { eseguiComputo } from "../computo/servizio";
@@ -14,7 +14,7 @@ import { salvaContratto } from "../contratti/servizio";
 import { getClientiStore } from "../routers/clienti";
 import { creaCommessa } from "../routers/commesse";
 import type { TrpcContext } from "../_core/context";
-import { createMemoryFattureRepository, type FattureRepository } from "./repository";
+import { createMemoryFattureRepository, type FattureRepository, type FatturaPersist } from "./repository";
 import {
   aggiornaBozza,
   annullaBozza,
@@ -695,6 +695,90 @@ describe("validaPerEmissione", () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
     await expect(validaPerEmissione(ALTRA_SEDE, fattura.id, dip())).rejects.toThrow("NOT_FOUND: Fattura non trovata.");
+  });
+
+  it("Ruling R14: una nota di credito salta computo e limiti, non cliente/configurazione/scadenze", async () => {
+    const snapshotValido: ClienteSnapshot = {
+      clienteId: null,
+      nome: "Rossi Mario",
+      tipo: "privato",
+      codiceFiscale: "RSSMRA85T10A562S",
+      partitaIva: null,
+      indirizzo: "Via Alta 80",
+      cap: "19038",
+      citta: "Sarzana",
+      provincia: "SP",
+      email: null,
+      pec: null,
+      codiceDestinatario: "0000000",
+      ficEntityId: null,
+    };
+    const persist: FatturaPersist = {
+      sedeId: SEDE,
+      commessaId: 1,
+      computoId: null,
+      hashRighe: null,
+      tipo: "nota_credito",
+      notaCreditoDi: 1,
+      stato: "bozza",
+      ficDocumentId: null,
+      numero: null,
+      data: null,
+      clienteSnapshot: snapshotValido,
+      pattuitoTipo: "lordo",
+      pattuitoCent: 10000,
+      imponibileCent: 10000,
+      ivaCent: 0,
+      totaleCent: 10000,
+      deltaPattuitoCent: 0,
+      markupCent: 0,
+      stornoCent: 0,
+      diciture: ["copia_ade"],
+      note: null,
+      intestazioneCantiere: null,
+      detrazioneTipo: "nessuna",
+      pdfStorageKey: null,
+      xmlStorageKey: null,
+      xmlSha256: null,
+      documentoId: null,
+      eiStatusFic: null,
+      eiErrore: null,
+      inviataDryRun: false,
+      scavalcoLimiti: false,
+      scavalcoMotivo: null,
+      createdBy: ATTORE,
+      emessaDa: null,
+      emessaAt: null,
+    };
+    const nota = await repository.crea({
+      fattura: persist,
+      righe: [],
+      riepilogo: [],
+      // Scadenza deliberatamente disallineata dal totale: prova che il
+      // controllo sulle scadenze resta attivo per la nota di credito.
+      scadenze: [{ numero: 1, quotaPct: 100, data: "2026-09-04", importoCent: 5000, descrizione: "storno" }],
+      now: ora,
+    });
+
+    const esito = await validaPerEmissione(SEDE, nota.id, dip());
+    // Computo e limiti: saltati (R14).
+    expect(errori(esito.controlli)).not.toContain("computo_non_valido");
+    expect(codici(esito.controlli)).not.toContain("limiti_non_verificati");
+    expect(codici(esito.controlli)).not.toContain("limite_totale");
+    expect(codici(esito.controlli)).not.toContain("limiti");
+    expect(codici(esito.controlli)).not.toContain("markup_negativo");
+    // Cliente, configurazione, scadenze: controllati come sempre.
+    expect(codici(esito.controlli)).toContain("cliente"); // anagrafica valida: il controllo resta e passa
+    expect(errori(esito.controlli)).toEqual(
+      expect.arrayContaining([
+        "scadenze_totale",
+        "config_iban",
+        "config_vat_22",
+        "config_vat_10",
+        "config_conto",
+        "config_scope",
+      ])
+    );
   });
 });
 
