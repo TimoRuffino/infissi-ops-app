@@ -93,6 +93,10 @@ export function risolvi(input: InputRisolutore): EsitoRisolutore {
   return {
     prestazioneCent: P,
     markupCent: M,
+    // Con markup negativo lo storno non si applica (niente da restituire
+    // finché i conti non tornano), ma il riepilogo resta calcolato su P:
+    // serve all'operatore per vedere subito cosa non torna, prima che
+    // corregga servizi o beni.
     stornoCent: M < 0 ? 0 : scelto.stornoCent,
     riepilogo: scelto.riepilogo,
     imponibileCent: scelto.imponibileCent,
@@ -104,7 +108,14 @@ export function risolvi(input: InputRisolutore): EsitoRisolutore {
   };
 }
 
-/** Scala le righe bene in proporzione fino a `targetSommaCent`; resto sull'ultima; mai negativi. */
+/**
+ * Scala le righe bene in proporzione fino a `targetSommaCent`. Arrotondamento
+ * cumulativo: si arrotonda la somma progressiva e si prende la differenza dal
+ * passo precedente, invece di arrotondare ogni riga per conto suo — quella
+ * strada può sforare il target (es. [1,1,1,1]→2 darebbe somma 3, non 2).
+ * Così la somma torna sempre esatta e, con input non negativi, nessuna riga
+ * risulta negativa (la somma cumulativa arrotondata non decresce mai).
+ */
 export function riequilibraBeni(righeBeniCent: number[], targetSommaCent: number): number[] {
   if (righeBeniCent.length === 0) return [];
   const somma = righeBeniCent.reduce((s, x) => s + x, 0);
@@ -115,8 +126,14 @@ export function riequilibraBeni(righeBeniCent: number[], targetSommaCent: number
     esito[esito.length - 1] += target - base * righeBeniCent.length;
     return esito;
   }
-  const esito = righeBeniCent.map(x => Math.round((x * target) / somma));
-  const parziale = esito.slice(0, -1).reduce((s, x) => s + x, 0);
-  esito[esito.length - 1] = Math.max(0, target - parziale);
+  const esito: number[] = [];
+  let cumulativo = 0;
+  let cumulativoArrotondato = 0;
+  for (const x of righeBeniCent) {
+    cumulativo += x;
+    const precedente = cumulativoArrotondato;
+    cumulativoArrotondato = Math.round((cumulativo * target) / somma);
+    esito.push(cumulativoArrotondato - precedente);
+  }
   return esito;
 }

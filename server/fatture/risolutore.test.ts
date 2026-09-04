@@ -38,6 +38,16 @@ describe("risolutore — regole", () => {
     expect(e.markupCent).toBeLessThan(0);
     expect(e.avvertenze[0]).toMatch(/superano il pattuito/);
     expect(e.stornoCent).toBe(0);
+    // Il riepilogo resta calcolato su P anche con markup negativo (brief:
+    // «serve alla UI per mostrare cosa non torna»): 22 % su tutto B (nessuno
+    // storno), 10 % sulla P negativa con imposta coerentemente negativa.
+    const riga22 = e.riepilogo.find(r => r.aliquota === 22);
+    const riga10 = e.riepilogo.find(r => r.aliquota === 10);
+    expect(riga22?.imponibileCent).toBe(1298611);
+    expect(riga22?.impostaCent).toBeGreaterThan(0);
+    expect(riga10?.imponibileCent).toBe(e.prestazioneCent);
+    expect(riga10?.imponibileCent).toBeLessThan(0);
+    expect(riga10?.impostaCent).toBeLessThan(0);
   });
   it("senza beni tutto va al 10 %", () => {
     const e = risolvi({ pattuitoCent: 110000, pattuitoTipo: "lordo", beniSignificativiCent: 0, beniAltriCent: 0, serviziCent: 60000 });
@@ -58,9 +68,27 @@ describe("risolutore — regole", () => {
     expect(Math.abs(e.deltaPattuitoCent)).toBeGreaterThan(0);
     expect(Math.abs(e.deltaPattuitoCent)).toBeLessThanOrEqual(3);
   });
-  it("riequilibraBeni scala in proporzione e chiude il resto sull'ultima", () => {
+  it("riequilibraBeni scala in proporzione con arrotondamento cumulativo (somma sempre esatta)", () => {
     expect(riequilibraBeni([1000, 3000], 2000)).toEqual([500, 1500]);
-    expect(riequilibraBeni([333, 333, 334], 500)).toEqual([167, 167, 166]);
+
+    // Arrotondare ogni riga per conto suo sforerebbe qui (1+1+1 già supera il
+    // target 2 prima di arrivare all'ultima riga): l'arrotondamento
+    // cumulativo tiene la somma esatta a costo di alternare 1 e 0.
+    const quattro = riequilibraBeni([1, 1, 1, 1], 2);
+    expect(quattro).toEqual([1, 0, 1, 0]);
+    expect(quattro.reduce((s, x) => s + x, 0)).toBe(2);
+
+    // Nessuna terna fissa "giusta" per 333/333/334 → 500: si verifica
+    // l'invariante (somma esatta, mai negativo, scarto ≤ 1 centesimo dal
+    // valore proporzionale esatto) invece di un solo risultato possibile.
+    const triplo = riequilibraBeni([333, 333, 334], 500);
+    const esatti = [166.5, 166.5, 167];
+    expect(triplo.reduce((s, x) => s + x, 0)).toBe(500);
+    triplo.forEach((x, i) => {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(x - esatti[i])).toBeLessThanOrEqual(1);
+    });
+
     expect(riequilibraBeni([100], 0)).toEqual([0]);
     expect(riequilibraBeni([], 100)).toEqual([]);
   });
