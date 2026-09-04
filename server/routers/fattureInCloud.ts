@@ -17,6 +17,8 @@ import {
   finalizzaSnapshotDocumentiEmessi,
   sincronizzaPattuitoDaFic,
   upsertDocumentiEmessi,
+  type CollegamentoCrmFic,
+  type DocumentoEmessoFicInput,
   type RataFic,
 } from "./ficFatture";
 import type { FicPaymentSyncStats } from "./ficPagamenti";
@@ -507,6 +509,49 @@ async function archiviaPdfFattureCollegate(
   };
 }
 
+/**
+ * L'avviso «FiC e CRM non dicono la stessa cifra» per le fatture emesse dal
+ * CRM (piano 2). `rows` sono i documenti appena letti da FiC in QUESTO
+ * giro di sync (non l'intero storico): basta un id in comune con
+ * `collegamentiCrm` per confrontare il lordo FiC col totale emesso.
+ *
+ * Oltre 1 € di scarto (100 centesimi: FiC arrotonda in stampa, non è mai
+ * un centesimo) un evento sulla fattura CRM lo rende visibile in Registro
+ * — nessun blocco, solo un avviso da controllare a mano.
+ */
+export async function segnalaTotaliDiversi(
+  sedeId: number,
+  rows: readonly Pick<DocumentoEmessoFicInput, "id" | "importoLordo">[],
+  collegamentiCrm: Map<number, CollegamentoCrmFic>
+): Promise<void> {
+  if (collegamentiCrm.size === 0 || rows.length === 0) return;
+  const daSegnalare = rows.flatMap(row => {
+    const link = collegamentiCrm.get(row.id);
+    if (!link) return [];
+    const ficLordoCent = Math.round(row.importoLordo * 100);
+    if (Math.abs(ficLordoCent - link.totaleCent) <= 100) return [];
+    return [{ fatturaId: link.fatturaId, ficLordoCent, totaleCent: link.totaleCent }];
+  });
+  if (daSegnalare.length === 0) return;
+  const { getFattureRepository } = await import("../fatture/repository");
+  const repository = getFattureRepository();
+  await Promise.all(
+    daSegnalare.map(({ fatturaId, ficLordoCent, totaleCent }) =>
+      repository.appendEvento({
+        fatturaId,
+        sedeId,
+        tipo: "modificata",
+        payload: {
+          avviso: "Totale FiC diverso dal totale emesso",
+          ficLordoCent,
+          totaleCent,
+        },
+        actorUserId: null,
+      })
+    )
+  );
+}
+
 // ── Name handling (same CF-validated split used by the manual migration) ────
 function stripAcc(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -832,6 +877,35 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     let costiRimossi = 0;
     const idsCostiDaClassificare: number[] = [];
 
+    // Le fatture FiC il cui id coincide con una fattura già emessa dal CRM
+    // (piano 2) nascono collegate: la mappa si legge PRIMA dell'upsert,
+    // perché è quella che decide se una riga nuova nasce «crm» invece che
+    // «nessuno». `lista` senza `tipo` prende sia fatture sia note di
+    // credito: entrambe passano per la stessa emissione e hanno un
+    // ficDocumentId.
+    const { getFattureRepository } = await import("../fatture/repository");
+    const fattureCrm = await getFattureRepository().lista({
+      sedeId,
+      stati: [
+        "emessa",
+        "inviata",
+        "consegnata",
+        "scartata",
+        "rifiutata",
+        "mancata_consegna",
+      ],
+    });
+    const collegamentiCrm = new Map<number, CollegamentoCrmFic>();
+    for (const fatturaCrm of fattureCrm) {
+      if (fatturaCrm.ficDocumentId == null) continue;
+      collegamentiCrm.set(fatturaCrm.ficDocumentId, {
+        commessaId: fatturaCrm.commessaId,
+        fatturaId: fatturaCrm.id,
+        totaleCent: fatturaCrm.totaleCent,
+      });
+    }
+    const righeEmesseFic: DocumentoEmessoFicInput[] = [];
+
     const processaEmessi = (
       result: PromiseSettledResult<FicPageResult>,
       tipo: "invoice" | "credit_note"
@@ -849,7 +923,8 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
           });
         }
       }
-      const upsert = upsertDocumentiEmessi(rows, sedeId, syncId);
+      righeEmesseFic.push(...rows);
+      const upsert = upsertDocumentiEmessi(rows, sedeId, syncId, collegamentiCrm);
       nuove += upsert.nuove;
       aggiornate += upsert.aggiornate;
       rimossi += finalizzaSnapshotDocumentiEmessi({
@@ -863,6 +938,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     };
     processaEmessi(fattureResult, "invoice");
     processaEmessi(noteResult, "credit_note");
+    await segnalaTotaliDiversi(sedeId, righeEmesseFic, collegamentiCrm);
 
     const processaCosti = (
       result: PromiseSettledResult<FicPageResult>,

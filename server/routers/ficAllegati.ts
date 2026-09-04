@@ -160,6 +160,18 @@ export async function ensureFicInvoiceAttachments(input: {
 
   for (const fattura of collegate) {
     if (input.signal?.aborted) throw input.signal.reason;
+    // Le fatture emesse dal CRM (piano 2) arrivano già con il PDF nel
+    // fascicolo: lo archivia `registraDocumentoFatturaCrm` all'emissione,
+    // con un source/sourceRef diversi da quelli che `findDocumentoFic` sa
+    // cercare. Riscaricarle da FiC ci metterebbe un secondo file.
+    if (fattura.commessaMatch === "crm") {
+      if (fattura.pdfSync.stato !== "archiviata") {
+        fattura.pdfSync.stato = "archiviata";
+        fattura.pdfSync.ultimoErrore = null;
+        saveFicFatture();
+      }
+      continue;
+    }
     const existing = findDocumentoFic(input.sedeId, fattura.id);
     if (
       existing?.commessaId === fattura.commessaId &&

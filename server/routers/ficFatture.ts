@@ -58,6 +58,11 @@ export type CommessaMatchFic =
   // fiscale — la regola corrente (`ficMatch.ts`).
   | "automatico_segnali"
   | "automatico_fattura"
+  // L'id del documento FiC coincide con una fattura già emessa dal CRM
+  // (piano 2, fatturazione dal contratto): nasce collegata, salta il match
+  // automatico e non riscarica il PDF — il CRM l'ha già archiviato
+  // all'emissione. Si corregge solo con una nota di credito.
+  | "crm"
   | "nessuno";
 
 export type PdfSyncFic = {
@@ -256,10 +261,23 @@ export type DocumentoEmessoFicInput = Pick<
     >
   >;
 
+/**
+ * Una fattura FiC il cui id coincide con una fattura già emessa dal CRM
+ * (piano 2). `runFicSync` la costruisce leggendo `getFattureRepository()`
+ * PRIMA dell'upsert: decide se una riga nuova (o ancora "nessuno") nasce
+ * già collegata invece di aspettare il match automatico.
+ */
+export type CollegamentoCrmFic = {
+  commessaId: number;
+  fatturaId: number;
+  totaleCent: number;
+};
+
 export function upsertDocumentiEmessi(
   rows: DocumentoEmessoFicInput[],
   sedeId: number,
-  syncId: string | null = null
+  syncId: string | null = null,
+  collegamentiCrm?: Map<number, CollegamentoCrmFic>
 ): { nuove: number; aggiornate: number; idsVariati: number[] } {
   // Il match del cliente resta dentro la sede: un omonimo altrove non deve
   // agganciare la fattura al cliente sbagliato.
@@ -306,6 +324,7 @@ export function upsertDocumentiEmessi(
           ? "nome_univoco"
           : "nessuno";
     const rate = normalizzaRatePersistite(r.id, r.rate);
+    const crm = collegamentiCrm?.get(r.id);
 
     const esistente = ficFatture.find(
       f => f.id === r.id && f.sedeId === sedeId
@@ -345,6 +364,20 @@ export function upsertDocumentiEmessi(
         esistente.clienteId = clienteId;
         esistente.clienteMatch = clienteMatch;
       }
+      // L'id FiC risulta ora una fattura del CRM: succede quando il sync
+      // aveva letto il documento PRIMA che l'emissione registrasse il suo
+      // ficDocumentId. Una riga già collegata (a mano o dal match) non si
+      // tocca: decide sempre chi l'ha collegata prima.
+      if (crm && esistente.commessaMatch === "nessuno") {
+        esistente.commessaId = crm.commessaId;
+        esistente.commessaMatch = "crm";
+        esistente.collegataAMano = false;
+        esistente.pdfSync = {
+          stato: "archiviata",
+          ultimoTentativoAt: null,
+          ultimoErrore: null,
+        };
+      }
       esistente.presenteInFic = true;
       esistente.ultimoSyncId = syncId;
       esistente.ultimoVistoAt = new Date();
@@ -372,8 +405,11 @@ export function upsertDocumentiEmessi(
         sedeId,
         clienteId,
         clienteMatch,
-        commessaId: null,
-        commessaMatch: "nessuno",
+        // Un id FiC già noto al CRM (fattura emessa dal ciclo fatturazione,
+        // Task 12) nasce collegato: niente coda «da riconciliare» per un
+        // documento che il CRM ha scritto lui stesso.
+        commessaId: crm?.commessaId ?? null,
+        commessaMatch: crm ? "crm" : "nessuno",
         collegataAMano: false,
         commesseEscluse: [],
         ignorata: false,
@@ -382,11 +418,9 @@ export function upsertDocumentiEmessi(
         ultimoSyncId: syncId,
         ultimoVistoAt: new Date(),
         aggiornataAt: new Date(),
-        pdfSync: {
-          stato: "non_collegata",
-          ultimoTentativoAt: null,
-          ultimoErrore: null,
-        },
+        pdfSync: crm
+          ? { stato: "archiviata", ultimoTentativoAt: null, ultimoErrore: null }
+          : { stato: "non_collegata", ultimoTentativoAt: null, ultimoErrore: null },
       });
       idsVariati.push(r.id);
       nuove++;
@@ -687,6 +721,14 @@ export async function scollegaFatturaDaCommessa(input: {
   const { fattura, sedeId } = input;
   const commessaPrecedente = fattura.commessaId;
   if (commessaPrecedente == null) return { commessaPrecedente: null };
+  // Una fattura nata dal CRM non si scollega: è la stessa fattura che il
+  // CRM ha emesso su quella commessa. Un importo sbagliato si corregge con
+  // una nota di credito, non staccando il PDF dal fascicolo.
+  if (fattura.commessaMatch === "crm") {
+    throw new Error(
+      "PRECONDIZIONE: fattura emessa dal CRM: si corregge con una nota di credito."
+    );
+  }
 
   if (input.escludiCommessa !== false) {
     if (!Array.isArray(fattura.commesseEscluse)) fattura.commesseEscluse = [];
