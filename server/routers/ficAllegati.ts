@@ -167,6 +167,7 @@ export async function ensureFicInvoiceAttachments(input: {
     if (fattura.commessaMatch === "crm") {
       if (fattura.pdfSync.stato !== "archiviata") {
         fattura.pdfSync.stato = "archiviata";
+        fattura.pdfSync.ultimoTentativoAt = null;
         fattura.pdfSync.ultimoErrore = null;
         saveFicFatture();
       }

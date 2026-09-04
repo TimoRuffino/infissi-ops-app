@@ -774,6 +774,28 @@ export async function scollegaFatturaDaCommessa(input: {
 }
 
 /**
+ * Ruling R23: il collegamento manuale non sposta una fattura "crm" su
+ * un'altra commessa — è la stessa fattura che il CRM ha emesso su quella
+ * commessa, si corregge solo con una nota di credito (stesso messaggio
+ * della guardia di `scollegaFatturaDaCommessa`). Ri-collegarla alla
+ * STESSA commessa (stesso click ripetuto) non è un tentativo di
+ * spostarla: non lancia.
+ *
+ * Estratta dalla mutation `collega` per essere testabile da sola, senza
+ * passare da un caller tRPC completo.
+ */
+export function verificaRicollegamentoCrm(
+  fattura: Pick<FatturaFic, "commessaMatch" | "commessaId">,
+  nuovoCommessaId: number
+): void {
+  if (fattura.commessaMatch === "crm" && fattura.commessaId !== nuovoCommessaId) {
+    throw new Error(
+      "PRECONDIZIONE: fattura emessa dal CRM: si corregge con una nota di credito."
+    );
+  }
+}
+
+/**
  * Riporta pattuito e piano rate di ogni commessa della sede in linea con le
  * fatture FiC collegate. Dal 26/08/2026 la fonte del pattuito è FiC: qui è
  * dove quella regola diventa un dato.
@@ -1150,6 +1172,22 @@ export const ficFattureRouter = router({
       if (input.commessaId != null) {
         const commessa = getCommessaById(input.commessaId);
         assertSedeScope(commessa ?? null, ctx.sedeId);
+        verificaRicollegamentoCrm(f, input.commessaId);
+        if (f.commessaMatch === "crm") {
+          // La guardia sopra ha già rifiutato una commessa diversa: qui
+          // resta solo lo stesso id di prima, un no-op. Niente
+          // riconciliazione né PDF — sono già a posto, e ripeterli
+          // declasserebbe "crm" a "manuale" e riscaricherebbe un PDF che
+          // il CRM ha già archiviato all'emissione (Task 12).
+          return {
+            success: true as const,
+            paymentStats,
+            correzioniProposte,
+            pdf: { stato: "archiviata" as const, documentoId: null, errore: null },
+            proposteCreate: 0,
+            documentoId: null,
+          };
+        }
         f.commessaId = input.commessaId;
         f.collegataAMano = true;
         f.commessaMatch = "manuale";

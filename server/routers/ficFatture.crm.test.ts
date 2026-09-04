@@ -9,11 +9,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import {
+  _setScaricaFatturaPdfForTests,
   collegaFattureAutomatiche,
   ficFatture,
   scollegaFatturaDaCommessa,
   upsertDocumentiEmessi,
   upsertFatture,
+  verificaRicollegamentoCrm,
   type CollegamentoCrmFic,
   type DocumentoEmessoFicInput,
 } from "./ficFatture";
@@ -301,6 +303,81 @@ describe("fatture FiC emesse dal CRM (commessaMatch crm)", () => {
     expect(risultato).toEqual({ pdfArchiviati: 0, pdfFalliti: 0 });
     expect(f.pdfSync).toMatchObject({ stato: "archiviata", ultimoErrore: null });
   });
+
+  it("verificaRicollegamentoCrm (R23) rifiuta di spostare una riga crm su un'altra commessa", () => {
+    expect(() =>
+      verificaRicollegamentoCrm({ commessaMatch: "crm", commessaId: 10 }, 99)
+    ).toThrow(
+      /PRECONDIZIONE: fattura emessa dal CRM: si corregge con una nota di credito\./
+    );
+  });
+
+  it("verificaRicollegamentoCrm (R23) non lancia ri-collegando alla stessa commessa, né per una riga non-crm", () => {
+    expect(() =>
+      verificaRicollegamentoCrm({ commessaMatch: "crm", commessaId: 10 }, 10)
+    ).not.toThrow();
+    expect(() =>
+      verificaRicollegamentoCrm({ commessaMatch: "manuale", commessaId: 10 }, 99)
+    ).not.toThrow();
+  });
+
+  it("la mutation collega rifiuta di spostare una riga crm su un'altra commessa (R23)", async () => {
+    const sedeId = 950;
+    const ficId = 950_001;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessaOriginale = await caller.commesse.create({
+      cliente: `Cliente crm originale ${sedeId}`,
+    });
+    const commessaAltra = await caller.commesse.create({
+      cliente: `Cliente crm altra ${sedeId}`,
+    });
+    const mappa = new Map<number, CollegamentoCrmFic>([
+      [ficId, { commessaId: commessaOriginale.id, fatturaId: 1, totaleCent: 122_000 }],
+    ]);
+    upsertDocumentiEmessi([rigaFic(ficId)], sedeId, null, mappa);
+
+    await expect(
+      caller.ficFatture.collega({ ficId, commessaId: commessaAltra.id })
+    ).rejects.toThrow(
+      /PRECONDIZIONE: fattura emessa dal CRM: si corregge con una nota di credito\./
+    );
+
+    const f = trova(sedeId, ficId);
+    expect(f.commessaId).toBe(commessaOriginale.id);
+    expect(f.commessaMatch).toBe("crm");
+  });
+
+  it("la mutation collega verso la STESSA commessa e' un no-op per una riga crm (niente PDF, niente declassamento)", async () => {
+    const sedeId = 951;
+    const ficId = 951_001;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({
+      cliente: `Cliente crm no-op ${sedeId}`,
+    });
+    const mappa = new Map<number, CollegamentoCrmFic>([
+      [ficId, { commessaId: commessa.id, fatturaId: 1, totaleCent: 122_000 }],
+    ]);
+    upsertDocumentiEmessi([rigaFic(ficId)], sedeId, null, mappa);
+    const downloadPdf = vi.fn(async () => Buffer.from("%PDF-1.4\n%%EOF"));
+    _setScaricaFatturaPdfForTests(downloadPdf);
+
+    try {
+      const esito = await caller.ficFatture.collega({
+        ficId,
+        commessaId: commessa.id,
+      });
+
+      expect(downloadPdf).not.toHaveBeenCalled();
+      expect(esito.success).toBe(true);
+      expect(esito.pdf).toEqual({ stato: "archiviata", documentoId: null, errore: null });
+      const f = trova(sedeId, ficId);
+      expect(f.commessaId).toBe(commessa.id);
+      expect(f.commessaMatch).toBe("crm");
+      expect(f.collegataAMano).toBe(false);
+    } finally {
+      _setScaricaFatturaPdfForTests(null);
+    }
+  });
 });
 
 describe("segnalaTotaliDiversi: avviso quando FiC e CRM non dicono la stessa cifra", () => {
@@ -317,12 +394,13 @@ describe("segnalaTotaliDiversi: avviso quando FiC e CRM non dicono la stessa cif
       now,
     });
 
-    await segnalaTotaliDiversi(
+    const esito = await segnalaTotaliDiversi(
       sedeId,
       [{ id: 5001, importoLordo: 1001.02 }],
       new Map([[5001, { commessaId: 10, fatturaId: f.id, totaleCent: 100_000 }]])
     );
 
+    expect(esito).toEqual({ segnalate: 1, errori: 0 });
     const eventi = await repo.eventi(sedeId, f.id);
     expect(eventi).toHaveLength(1);
     expect(eventi[0]).toMatchObject({
@@ -348,12 +426,13 @@ describe("segnalaTotaliDiversi: avviso quando FiC e CRM non dicono la stessa cif
       now,
     });
 
-    await segnalaTotaliDiversi(
+    const esito = await segnalaTotaliDiversi(
       sedeId,
       [{ id: 5002, importoLordo: 1001.0 }],
       new Map([[5002, { commessaId: 10, fatturaId: f.id, totaleCent: 100_000 }]])
     );
 
+    expect(esito).toEqual({ segnalate: 0, errori: 0 });
     expect(await repo.eventi(sedeId, f.id)).toEqual([]);
   });
 
@@ -364,6 +443,48 @@ describe("segnalaTotaliDiversi: avviso quando FiC e CRM non dicono la stessa cif
 
     await expect(
       segnalaTotaliDiversi(sedeId, [{ id: 9999, importoLordo: 5000 }], new Map())
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ segnalate: 0, errori: 0 });
+  });
+
+  it("un appendEvento fallito su una fattura non nasconde l'avviso delle altre (Promise.allSettled)", async () => {
+    _resetFattureRepositoryForTests();
+    const repo = getFattureRepository();
+    const sedeId = 1;
+    const now = new Date("2026-09-04T09:00:00Z");
+    const fOk = await repo.crea({
+      fattura: fatturaCrmPersist({ sedeId, ficDocumentId: 5003, totaleCent: 100_000 }),
+      righe: [],
+      riepilogo: [],
+      scadenze: [],
+      now,
+    });
+    const fRotta = await repo.crea({
+      fattura: fatturaCrmPersist({ sedeId, ficDocumentId: 5004, totaleCent: 200_000 }),
+      righe: [],
+      riepilogo: [],
+      scadenze: [],
+      now,
+    });
+    const appendOriginale = repo.appendEvento;
+    repo.appendEvento = evento =>
+      evento.fatturaId === fRotta.id
+        ? Promise.reject(new Error("scrittura fallita"))
+        : appendOriginale(evento);
+
+    const esito = await segnalaTotaliDiversi(
+      sedeId,
+      [
+        { id: 5003, importoLordo: 1001.02 },
+        { id: 5004, importoLordo: 2001.02 },
+      ],
+      new Map([
+        [5003, { commessaId: 10, fatturaId: fOk.id, totaleCent: 100_000 }],
+        [5004, { commessaId: 10, fatturaId: fRotta.id, totaleCent: 200_000 }],
+      ])
+    );
+
+    expect(esito).toEqual({ segnalate: 1, errori: 1 });
+    expect(await repo.eventi(sedeId, fOk.id)).toHaveLength(1);
+    expect(await repo.eventi(sedeId, fRotta.id)).toEqual([]);
   });
 });

@@ -509,6 +509,18 @@ async function archiviaPdfFattureCollegate(
   };
 }
 
+// Toglie URL e token Bearer da un messaggio d'errore prima di loggarlo —
+// stessa regola di `errorePdfSanitizzato` in ficAllegati.ts, duplicata qui
+// (non importata: creerebbe un ciclo statico, ficAllegati.ts importa già
+// `scaricaFatturaPdf` da questo file).
+function messaggioSenzaSegreti(errore: unknown): string {
+  const messaggio = errore instanceof Error ? errore.message : "Errore sconosciuto.";
+  return messaggio
+    .replace(/https?:\/\/\S+/gi, "[URL rimossa]")
+    .replace(/bearer\s+\S+/gi, "Bearer [rimosso]")
+    .slice(0, 300);
+}
+
 /**
  * L'avviso «FiC e CRM non dicono la stessa cifra» per le fatture emesse dal
  * CRM (piano 2). `rows` sono i documenti appena letti da FiC in QUESTO
@@ -518,13 +530,20 @@ async function archiviaPdfFattureCollegate(
  * Oltre 1 € di scarto (100 centesimi: FiC arrotonda in stampa, non è mai
  * un centesimo) un evento sulla fattura CRM lo rende visibile in Registro
  * — nessun blocco, solo un avviso da controllare a mano.
+ *
+ * `Promise.allSettled`, non `Promise.all`: un `appendEvento` fallito su
+ * UNA fattura non deve far sparire l'avviso delle altre. Il chiamante
+ * (`runFicSync`) avvolge comunque l'intera chiamata in un try/catch — un
+ * guasto qui è un avviso mancato, mai un sync fallito.
  */
 export async function segnalaTotaliDiversi(
   sedeId: number,
   rows: readonly Pick<DocumentoEmessoFicInput, "id" | "importoLordo">[],
   collegamentiCrm: Map<number, CollegamentoCrmFic>
-): Promise<void> {
-  if (collegamentiCrm.size === 0 || rows.length === 0) return;
+): Promise<{ segnalate: number; errori: number }> {
+  if (collegamentiCrm.size === 0 || rows.length === 0) {
+    return { segnalate: 0, errori: 0 };
+  }
   const daSegnalare = rows.flatMap(row => {
     const link = collegamentiCrm.get(row.id);
     if (!link) return [];
@@ -532,10 +551,10 @@ export async function segnalaTotaliDiversi(
     if (Math.abs(ficLordoCent - link.totaleCent) <= 100) return [];
     return [{ fatturaId: link.fatturaId, ficLordoCent, totaleCent: link.totaleCent }];
   });
-  if (daSegnalare.length === 0) return;
+  if (daSegnalare.length === 0) return { segnalate: 0, errori: 0 };
   const { getFattureRepository } = await import("../fatture/repository");
   const repository = getFattureRepository();
-  await Promise.all(
+  const esiti = await Promise.allSettled(
     daSegnalare.map(({ fatturaId, ficLordoCent, totaleCent }) =>
       repository.appendEvento({
         fatturaId,
@@ -550,6 +569,8 @@ export async function segnalaTotaliDiversi(
       })
     )
   );
+  const segnalate = esiti.filter(esito => esito.status === "fulfilled").length;
+  return { segnalate, errori: esiti.length - segnalate };
 }
 
 // ── Name handling (same CF-validated split used by the manual migration) ────
@@ -938,7 +959,18 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     };
     processaEmessi(fattureResult, "invoice");
     processaEmessi(noteResult, "credit_note");
-    await segnalaTotaliDiversi(sedeId, righeEmesseFic, collegamentiCrm);
+    // L'avviso è un plus, non un gate: un guasto qui (es. una scrittura
+    // fallita) non deve buttare via tutto il lavoro già fatto sopra —
+    // documenti, collegamenti, pagamenti, PDF — dietro l'errore generico
+    // del catch di fondo di questa funzione.
+    let avvisiTotali = { segnalate: 0, errori: 0 };
+    try {
+      avvisiTotali = await segnalaTotaliDiversi(sedeId, righeEmesseFic, collegamentiCrm);
+    } catch (errore) {
+      console.error(
+        `[fic] segnalazione totali fallita: ${messaggioSenzaSegreti(errore)}`
+      );
+    }
 
     const processaCosti = (
       result: PromiseSettledResult<FicPageResult>,
@@ -994,7 +1026,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
 
     if (controller.signal.aborted) throw controller.signal.reason;
 
-    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · commesse +${commesseCreate.create} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}`;
+    const result = `${completo ? "OK" : "INCOMPLETO"} · documenti +${nuove}/aggiornati ${aggiornate}/rimossi ${rimossi} · clienti +${created} · commesse +${commesseCreate.create} · collegamenti +${links.collegate} · pattuito ${pattuito.aggiornate} · pagamenti +${payments.stats.pagamentiCreati}/aggiornati ${payments.stats.pagamentiAggiornati}/stornati ${payments.stats.pagamentiStornati} · PDF ${pdf.archiviate} archiviati, ${pdf.fallite} falliti · avvisi totali ${avvisiTotali.segnalate} inviati, ${avvisiTotali.errori} falliti · costi +${costiNuovi}/aggiornati ${costiAggiornati}/rimossi ${costiRimossi}`;
     cfg.lastSyncAt = new Date();
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };
