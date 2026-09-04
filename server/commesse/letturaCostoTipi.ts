@@ -18,7 +18,9 @@
 // lettura precedente.
 // 1.7.0: lettura visiva con il modello per scansioni e foto che l'OCR non
 // legge (fonteTesto «visione»); le foto (jpeg, png) passano dall'OCR.
-export const VERSIONE_LETTURA_COSTO = "1.7.0";
+// 1.8.0: un file con più conferme (Bertolotto) si legge a sezioni e il costo
+// è la somma degli imponibili, solo se ogni sezione ha il suo.
+export const VERSIONE_LETTURA_COSTO = "1.8.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -67,6 +69,8 @@ export type LetturaCostoDocumento = {
   merce?: MerceDaConferma | null;
   /** I riferimenti d'ordine del documento (nome file e testo): servono a riconoscere i duplicati. */
   riferimenti?: string[];
+  /** Quante conferme contiene il file (1 di norma; Bertolotto ne manda tre in un PDF). */
+  sezioni?: number;
   /** Il documento di cui questa conferma è un duplicato. */
   duplicatoDi?: number | null;
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */

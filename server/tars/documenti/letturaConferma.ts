@@ -22,7 +22,7 @@ import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
 import type { Comunicazione } from "../../comunicazioni/comunicazioni";
 import { riferimentiDellaCommessa } from "../../commesse/costoDaConferma";
 import {
-  estraiConfermaOrdine,
+  estraiConfermeNelDocumento,
   type EstrazioneConferma,
 } from "../../documenti/estrazioneConferma";
 import type { IdentitaLettura } from "../../documenti/letturaVisiva";
@@ -139,11 +139,20 @@ function componiLettura(input: {
       "PDF scansionato: testo ricostruito con OCR, verifica gli importi prima di registrarli."
     );
   }
-  const estrazione = estraiConfermaOrdine(pagine, {
+  const documentoLetto = estraiConfermeNelDocumento(pagine, {
     codiceOrdine: input.numeroOrdineAtteso,
     fornitoreNome: input.fornitoreAtteso,
     righeOrdine: [],
   });
+  const estrazione = documentoLetto.estrazione;
+  if (documentoLetto.sezioni.length > 1) {
+    avvertenze.push(
+      documentoLetto.motivoSomma ??
+        `Il file contiene ${documentoLetto.sezioni.length} conferme (${documentoLetto.sezioni
+          .map(s => `${s.estrazione.numeroConferma?.valore ?? `pagine ${s.da + 1}-${s.a + 1}`}: ${s.estrazione.imponibileDocumento?.valore?.toFixed(2) ?? "?"}`)
+          .join("; ")}): l'imponibile riportato è la somma.`
+    );
+  }
 
   // Riscontro pieno quando la commessa è nota; solo il codice altrimenti.
   let riscontro: RiscontroCommessa | null = null;

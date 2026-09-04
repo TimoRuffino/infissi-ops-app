@@ -30,7 +30,10 @@
 // già archiviate prima di questa regola.
 
 import { getComunicazione } from "../comunicazioni/comunicazioni";
-import { estraiConfermaOrdine, type EstrazioneConferma } from "../documenti/estrazioneConferma";
+import {
+  estraiConfermeNelDocumento,
+  type EstrazioneConferma,
+} from "../documenti/estrazioneConferma";
 import {
   dataDaSettimanaIso,
   ESTRATTORE_MERCE_VERSIONE,
@@ -354,7 +357,7 @@ export async function verificaConfermaPerFascicolo(input: {
       duplicatoDi: null,
     };
   }
-  const estrazione = estraiConfermaOrdine(parser.pagine, {
+  const { estrazione } = estraiConfermeNelDocumento(parser.pagine, {
     codiceOrdine: null,
     fornitoreNome: null,
     righeOrdine: [],
@@ -557,11 +560,15 @@ export async function registraCostoDaConferma(input: {
   const fonteTesto: LetturaCostoDocumento["fonteTesto"] =
     parser.visione != null ? "visione" : parser.ocr != null ? "ocr" : "testo_pdf";
 
-  const estrazione = estraiConfermaOrdine(parser.pagine, {
+  // Un file può contenere più conferme (Bertolotto): si legge a sezioni e
+  // l'imponibile è la somma, solo se ogni sezione ha il suo.
+  const documentoLetto = estraiConfermeNelDocumento(parser.pagine, {
     codiceOrdine: input.numeroOrdine ?? null,
     fornitoreNome: input.fornitore ?? null,
     righeOrdine: [],
   });
+  const estrazione = documentoLetto.estrazione;
+  const sezioni = documentoLetto.sezioni.length;
   const imponibile =
     estrazione.imponibileDocumento?.valore != null
       ? arrotonda(estrazione.imponibileDocumento.valore)
@@ -594,6 +601,7 @@ export async function registraCostoDaConferma(input: {
     dataDocumento,
     tentativi,
     riferimenti,
+    sezioni,
   };
 
   // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
@@ -761,9 +769,11 @@ export async function registraCostoDaConferma(input: {
   }
 
   if (imponibile == null || imponibile <= 0) {
-    const motivo = estrazione.totaleDocumento
-      ? `«${raw.nome}» dichiara un totale ma non l'imponibile: l'IVA non si scorpora per stima, il costo va registrato a mano.`
-      : `In «${raw.nome}» non c'è un imponibile leggibile: il costo va registrato a mano.`;
+    const motivo =
+      documentoLetto.motivoSomma ??
+      (estrazione.totaleDocumento
+        ? `«${raw.nome}» dichiara un totale ma non l'imponibile: l'IVA non si scorpora per stima, il costo va registrato a mano.`
+        : `In «${raw.nome}» non c'è un imponibile leggibile: il costo va registrato a mano.`);
     salva({ ...memoriaCosto, esito: "senza_imponibile", motivo, costoId: null });
     return base(documento, "senza_imponibile", motivo, { fonteTesto, merce });
   }
@@ -783,8 +793,12 @@ export async function registraCostoDaConferma(input: {
   // La nota comincia SEMPRE con l'impronta della regola: è così che una
   // rilettura riconosce un costo scritto da lei (una nota di chi chiama va in coda).
   const nota = `${NOTA_COSTO_DA_CONFERMA}${riferimentoDocumento}${avvisoOcr}${
-    input.nota?.trim() ? ` — ${input.nota.trim()}` : ""
-  }`.slice(0, 300);
+    sezioni > 1
+      ? ` — ${sezioni} conferme nel file, imponibile = somma (${documentoLetto.sezioni
+          .map(s => euro(s.estrazione.imponibileDocumento?.valore ?? 0))
+          .join(" + ")})`
+      : ""
+  }${input.nota?.trim() ? ` — ${input.nota.trim()}` : ""}`.slice(0, 300);
 
   // Un costo già scritto a mano per lo stesso ordine, lo stesso importo o lo
   // stesso fornitore: la conferma lo lega al documento, non lo raddoppia.

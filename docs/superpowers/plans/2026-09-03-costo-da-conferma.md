@@ -251,6 +251,26 @@ principale e quando fallisce costo e merce non nascono.
 4. `fonteTesto` conosce «visione»; lettura 1.7.0 rilegge tutte le
    conferme (le `non_leggibile` passano dal modello).
 
+## Settima tranche (04/09): più conferme in un file
+
+«Conferme Bertolotto 19-02-2026.pdf»: otto pagine, tre ordini con il loro
+riquadro «RIEPILOGO COSTI». Letto come un documento solo, il «TOT. MERCE»
+di listino (12.612,01) vinceva come totale e l'imponibile era quello di un
+ordine solo.
+
+1. `estrazioneConferma.ts`: `sezioniConferma` (ogni pagina con un riquadro
+   totali chiude una sezione; le code restano all'ultima) e
+   `estraiConfermeNelDocumento` (ogni sezione letta da sola, pagine delle
+   evidenze riportate al file intero; la lettura principale SOMMA imponibili
+   e totali solo se ogni sezione ha il suo, altrimenti `motivoSomma`). Il
+   totale del documento («TOTALE ORDINE») batte i parziali («TOT. MERCE»)
+   anche se più piccolo. Numero dall'intestazione a colonne «NUMERO DATA
+   PAGINA» / «VI/26/2292 19/02/2026».
+2. `costoDaConferma.ts` e `letturaConferma.ts` (strumento Tars) leggono a
+   sezioni: un costo solo con la somma, nota «3 conferme nel file, imponibile
+   = somma (…)», `letturaCosto.sezioni`; l'avvertenza in chat elenca le
+   sezioni. Lettura 1.8.0.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

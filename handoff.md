@@ -96,7 +96,11 @@
 > chat); mai in upload, archiviazione o smistamento. I turni utente del
 > provider portano immagini (`immagini[]`), l'adapter le manda come
 > `input_image` (`openai/corpo.ts`), il governor le conta nella stima.
-> Lettura 1.7.0. Ancora aperto: PDF con più conferme (Bertolotto).
+> Lettura 1.7.0. Poi (settima tranche) i PDF con più conferme (Bertolotto,
+> tre ordini in otto pagine): `sezioniConferma` ed
+> `estraiConfermeNelDocumento` leggono ogni sezione da sola e il costo è la
+> SOMMA degli imponibili, solo se ogni sezione ha il suo (`motivoSomma`
+> altrimenti); «TOTALE ORDINE» batte «TOT. MERCE». Lettura 1.8.0.
 
 ## 1. Contesto
 

@@ -619,6 +619,26 @@ export function estraiConfermaOrdine(
     }
   }
 
+  // ── Intestazione a colonne «NUMERO   DATA   PAGINA» e sotto «VI/26/2292   19/02/2026   1/3» (Bertolotto)
+  if (!risultato.numeroConferma) {
+    const re =
+      /\bnumero\b[^\n]{0,40}\bdata\b[^\n]*\n\s*([A-Z]{1,4}[\/\-]\d{2}[\/\-]\d{1,6}|[A-Z]{0,4}\d{4,10}(?:[\/\-]\d{1,6})?)\s+(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/gi;
+    const [primo] = cercaSuPagine(pagine, re);
+    if (primo && numeroConfermaPlausibile(primo.match[1])) {
+      risultato.numeroConferma = {
+        valore: primo.match[1].trim(),
+        evidenza: evidenza(
+          pagine,
+          primo.pagina,
+          primo.match.index,
+          primo.match[0].length,
+          "pattern_testo",
+          "media"
+        ),
+      };
+    }
+  }
+
   // ── «nostro riferimento n. OV-2025-WU/230417» (Primed): il numero d'ordine del fornitore
   if (!risultato.numeroConferma) {
     const re =
@@ -804,7 +824,7 @@ export function estraiConfermaOrdine(
       `\\b(?:totale|tot\\.?)(?:\\s+(?:documento|ordine|conferma|imponibile|netto|merce|imposta|spese|fornitura|generale|fattura|righe))?\\b${FINESTRA_ETICHETTA_IMPORTO}(?:€|EUR)?\\s*${IMPORTO_CON_DECIMALI}`,
       "gi"
     );
-    const candidati: Array<{ valore: number; ev: Evidenza }> = [];
+    const candidati: Array<{ valore: number; ev: Evidenza; grado: number }> = [];
     for (const { pagina, match } of cercaSuPagine(pagine, re)) {
       const valore = parseImporto(match[1]);
       if (valore == null || valore <= 0) continue;
@@ -814,10 +834,19 @@ export function estraiConfermaOrdine(
         imponibiliEspliciti.push({ valore, ev });
         continue;
       }
-      candidati.push({ valore, ev });
+      // Il totale del DOCUMENTO batte i parziali anche se più piccolo:
+      // «TOT. MERCE 12612,01» (listino prima dello sconto, Bertolotto) non è
+      // il totale dell'ordine, che sta in «TOTALE ORDINE 5.954,80».
+      const etichetta = match[0].toLowerCase();
+      const grado = /documento|ordine|fattura|generale|fornitura|conferma/.test(etichetta)
+        ? 2
+        : /merce|righe|imposta|spese|imponibile/.test(etichetta)
+          ? 0
+          : 1;
+      candidati.push({ valore, ev, grado });
     }
     if (candidati.length > 0) {
-      candidati.sort((a, b) => b.valore - a.valore);
+      candidati.sort((a, b) => b.grado - a.grado || b.valore - a.valore);
       const [principale, ...altri] = candidati;
       risultato.totaleDocumento = {
         valore: principale.valore,
@@ -1024,4 +1053,155 @@ export function estraiConfermaOrdine(
 
 function escapeRegexTemp(value: string): RegExp {
   return new RegExp(escapeRegex(value), "gi");
+}
+
+// ── Più conferme nello stesso file ────────────────────────────────────────
+// «Conferme Bertolotto 19-02-2026.pdf» (04/09/2026): otto pagine, tre ordini
+// diversi, ognuno con il suo riquadro totali. Letto come un documento solo,
+// il totale più alto di uno vinceva sull'imponibile di un altro. Il file si
+// divide in SEZIONI: ogni pagina con un riquadro totali chiude la sua, e
+// ogni sezione si legge da sola.
+
+/** Una pagina che chiude una conferma: porta il totale o l'imponibile del documento. */
+const CHIUSURA_SEZIONE =
+  /\b(?:tot(?:ale|\.)\s*(?:imponibile|documento|ordine|fattura|generale|fornitura)|totale\s+netto\s*\(iva\s+esclusa\))\b/i;
+
+/** Le sezioni [da, a] (indici di pagina, inclusivi) di un file con più conferme; una sola se non se ne riconoscono. */
+export function sezioniConferma(pagine: readonly string[]): Array<{ da: number; a: number }> {
+  const sezioni: Array<{ da: number; a: number }> = [];
+  let da = 0;
+  pagine.forEach((testo, indice) => {
+    if (CHIUSURA_SEZIONE.test(testo)) {
+      sezioni.push({ da, a: indice });
+      da = indice + 1;
+    }
+  });
+  if (sezioni.length === 0) return [{ da: 0, a: Math.max(0, pagine.length - 1) }];
+  // Le pagine dopo l'ultimo riquadro (allegati, condizioni) restano con l'ultima sezione.
+  if (da < pagine.length) sezioni[sezioni.length - 1].a = pagine.length - 1;
+  return sezioni;
+}
+
+export type SezioneConferma = {
+  /** Indici di pagina inclusivi, 0-based. */
+  da: number;
+  a: number;
+  estrazione: EstrazioneConferma;
+};
+
+export type EstrazioneDocumento = {
+  /** La lettura da usare: il documento intero se ha una conferma sola, la somma delle sezioni altrimenti. */
+  estrazione: EstrazioneConferma;
+  sezioni: SezioneConferma[];
+  /** Perché la somma non c'è (una sezione senza imponibile), altrimenti null. */
+  motivoSomma: string | null;
+};
+
+function spostaPagine<T>(campo: CampoEstratto<T> | null | undefined, di: number): CampoEstratto<T> | null {
+  if (!campo) return null;
+  return {
+    ...campo,
+    evidenza: { ...campo.evidenza, pagina: campo.evidenza.pagina + di },
+    ...(campo.alternative
+      ? { alternative: campo.alternative.map(a => ({ ...a, evidenza: { ...a.evidenza, pagina: a.evidenza.pagina + di } })) }
+      : {}),
+  };
+}
+
+/**
+ * Legge un file che può contenere più conferme. Con una sezione sola è la
+ * lettura di sempre. Con più sezioni la lettura «principale» somma gli
+ * imponibili (e i totali) SOLO se ogni sezione ha il suo: altrimenti niente
+ * imponibile e il motivo lo dice — una somma parziale sarebbe un costo
+ * sbagliato con l'aria di quello giusto.
+ */
+export function estraiConfermeNelDocumento(
+  pagine: readonly string[],
+  contesto: ContestoEstrazione
+): EstrazioneDocumento {
+  const intervalli = sezioniConferma(pagine);
+  if (intervalli.length <= 1) {
+    const estrazione = estraiConfermaOrdine(pagine, contesto);
+    return { estrazione, sezioni: [{ da: 0, a: Math.max(0, pagine.length - 1), estrazione }], motivoSomma: null };
+  }
+  const sezioni: SezioneConferma[] = intervalli.map(({ da, a }) => {
+    const locale = estraiConfermaOrdine(pagine.slice(da, a + 1), contesto);
+    const estrazione: EstrazioneConferma = {
+      ...locale,
+      riferimentoOrdine: spostaPagine(locale.riferimentoOrdine, da),
+      fornitoreCitato: spostaPagine(locale.fornitoreCitato, da),
+      numeroConferma: spostaPagine(locale.numeroConferma, da),
+      riferimentoCliente: spostaPagine(locale.riferimentoCliente, da),
+      dataDocumento: spostaPagine(locale.dataDocumento, da),
+      totaleDocumento: spostaPagine(locale.totaleDocumento, da),
+      imponibileDocumento: spostaPagine(locale.imponibileDocumento, da),
+      codiciCommessaCitati: locale.codiciCommessaCitati.map(c => spostaPagine(c, da)!),
+      dateConsegna: locale.dateConsegna.map(c => spostaPagine(c, da)!),
+      settimaneConsegna: locale.settimaneConsegna.map(c => spostaPagine(c, da)!),
+      settimaneApprontamento: (locale.settimaneApprontamento ?? []).map(s => ({ ...spostaPagine(s, da)!, anno: s.anno })),
+    };
+    return { da, a, estrazione };
+  });
+
+  const prima = sezioni[0].estrazione;
+  const senzaImponibile = sezioni.filter(s => s.estrazione.imponibileDocumento == null);
+  const sommaImponibile =
+    senzaImponibile.length === 0
+      ? Math.round(sezioni.reduce((s, x) => s + (x.estrazione.imponibileDocumento?.valore ?? 0), 0) * 100) / 100
+      : null;
+  const senzaTotale = sezioni.filter(s => s.estrazione.totaleDocumento == null);
+  const sommaTotale =
+    senzaTotale.length === 0
+      ? Math.round(sezioni.reduce((s, x) => s + (x.estrazione.totaleDocumento?.valore ?? 0), 0) * 100) / 100
+      : null;
+  const primoCon = <K extends keyof EstrazioneConferma>(campo: K): EstrazioneConferma[K] =>
+    (sezioni.find(s => s.estrazione[campo] != null)?.estrazione[campo] ?? null) as EstrazioneConferma[K];
+  const numeri = sezioni.map(s => s.estrazione.numeroConferma?.valore).filter((v): v is string => !!v);
+  const unione = <T extends { valore: unknown }>(campo: (e: EstrazioneConferma) => T[]): T[] => {
+    const visti = new Set<string>();
+    const tutti: T[] = [];
+    for (const s of sezioni) {
+      for (const v of campo(s.estrazione)) {
+        const chiave = String(v.valore);
+        if (visti.has(chiave)) continue;
+        visti.add(chiave);
+        tutti.push(v);
+      }
+    }
+    return tutti;
+  };
+  const evidenzaSomma = (campo: "imponibileDocumento" | "totaleDocumento"): Evidenza => ({
+    pagina: sezioni[sezioni.length - 1].estrazione[campo]?.evidenza.pagina ?? 1,
+    frammento: `somma di ${sezioni.length} conferme nel file: ${sezioni
+      .map(s => s.estrazione[campo]?.valore?.toFixed(2) ?? "?")
+      .join(" + ")}`,
+    metodo: "pattern_testo",
+    confidenza: "media",
+  });
+
+  const estrazione: EstrazioneConferma = {
+    riferimentoOrdine: primoCon("riferimentoOrdine"),
+    codiciCommessaCitati: unione(e => e.codiciCommessaCitati),
+    fornitoreCitato: primoCon("fornitoreCitato") ?? prima.fornitoreCitato,
+    numeroConferma:
+      numeri.length > 0
+        ? { valore: numeri.join(" + "), evidenza: primoCon("numeroConferma")!.evidenza }
+        : null,
+    riferimentoCliente: primoCon("riferimentoCliente"),
+    dataDocumento: primoCon("dataDocumento"),
+    dateConsegna: unione(e => e.dateConsegna),
+    settimaneConsegna: unione(e => e.settimaneConsegna),
+    settimaneApprontamento: unione(e => e.settimaneApprontamento ?? []),
+    totaleDocumento: sommaTotale != null ? { valore: sommaTotale, evidenza: evidenzaSomma("totaleDocumento") } : null,
+    imponibileDocumento:
+      sommaImponibile != null ? { valore: sommaImponibile, evidenza: evidenzaSomma("imponibileDocumento") } : null,
+    righe: sezioni.flatMap(s => s.estrazione.righe),
+  };
+  const motivoSomma =
+    senzaImponibile.length > 0
+      ? `Il file contiene ${sezioni.length} conferme e ${senzaImponibile.length === 1 ? "una" : senzaImponibile.length} (pagine ${senzaImponibile
+          .map(s => `${s.da + 1}-${s.a + 1}`)
+          .join(", ")}) non ha un imponibile leggibile: la somma non si fa.`
+      : null;
+  return { estrazione, sezioni, motivoSomma };
 }
