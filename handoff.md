@@ -2527,7 +2527,9 @@ in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
   `fattura_eventi`) in `server/fatture/repository.ts` (memoria senza
   `DATABASE_URL`, Postgres altrimenti — `ensureSchema` memoizzato con ALTER
   additivi); blocco ottimistico su `revisione` in `aggiornaBozza` ed
-  `emettiFattura`; ogni scrittura tocca un contatore in
+  `emettiFattura`, più il lease dell'emissione (`aggiornaStato` con
+  `atteso: { stato, revisione }`, compare-and-swap che incrementa la
+  revisione, R35); ogni scrittura tocca un contatore in
   `server/fatture/versioni.ts`, letto da Tars.
 - Motore puro: `server/fatture/risolutore.ts` (`risolvi` deriva prestazione,
   markup, storno e riepilogo IVA da G/B/N/S; `riequilibraBeni` con
@@ -2631,9 +2633,18 @@ ledger completo in** `.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/pro
 **, grep `Ruling R`; questi «R» sono numeri di ruling di questo piano, non i
 livelli di rischio R0–R4 di Tars).**
 
-- R1: `emettiFattura` confronta la revisione **solo alla partenza**
-  (`bozza`), prima di toccare il contesto FiC; da `in_emissione` in poi
-  ogni ripresa è idempotente per stato, mai un secondo blocco ottimistico.
+- R1: `emettiFattura` confronta la revisione **chiesta dall'utente** solo
+  alla partenza (`bozza`), prima di toccare il contesto FiC; da
+  `in_emissione` in poi ogni ripresa è idempotente per stato e non la
+  pretende più.
+- R35: la corsa fra due giri sovrapposti la governa invece il **lease**:
+  ogni run di `emettiFattura` apre con un compare-and-swap nel repository
+  (`aggiornaStato` con `atteso: { stato, revisione }` → `UPDATE … WHERE
+  stato = … AND revisione = …`, 0 righe → `CONFLITTO`), che incrementa la
+  revisione. Due «Emetti» sovrapposti sulla stessa bozza: il secondo
+  riceve CONFLITTO prima di toccare Fatture in Cloud, mai due numeri.
+  Vale anche per le riprese; da `emessa`/`inviata` il lease non riporta
+  indietro lo stato, serializza soltanto.
 - R4: `riequilibraBeni` — arrotondamento cumulativo: somma sempre esatta al
   target, righe mai negative, scarto ≤ 1 centesimo a riga.
 - R8: senza voci con limite, `verificaLimiti` dà avviso «limiti non

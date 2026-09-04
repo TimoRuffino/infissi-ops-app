@@ -80,12 +80,23 @@ export type PatchStato = Partial<
     | "imponibileCent"
     | "ivaCent"
     | "totaleCent"
-    // L'emissione la incrementa passando a `in_emissione` (Ruling R1):
-    // `aggiornaStato` non ha blocco ottimistico, ma dopo quel passaggio
-    // una bozza non si modifica più con la revisione di prima.
+    // Resta per compatibilità (Ruling R1): un chiamante può ancora
+    // scrivere la revisione a mano. Nel percorso di emissione non serve
+    // più — la incrementa il compare-and-swap di `atteso` (Ruling R35),
+    // che quando è presente ha la precedenza su questa chiave.
     | "revisione"
   >
 >;
+
+/**
+ * Compare-and-swap di `aggiornaStato` (Ruling R35): la scrittura avviene
+ * SOLO se la riga è ancora in quello stato e a quella revisione,
+ * altrimenti `CONFLITTO`. È il lease dell'emissione: due chiamate
+ * sovrapposte sulla stessa fattura non possono entrambe arrivare a
+ * creare un documento su Fatture in Cloud. Chi vince trova la revisione
+ * incrementata di uno dal CAS stesso.
+ */
+export type StatoAtteso = { stato: StatoFattura; revisione: number };
 
 export type FiltroFatture = {
   sedeId: number;
@@ -125,8 +136,14 @@ export type FattureRepository = {
     scadenze: ScadenzaFatturaInput[];
     now: Date;
   }): Promise<Fattura>;
-  /** Cambia stato/campi di emissione senza toccare le righe. */
-  aggiornaStato(input: { sedeId: number; id: number; patch: PatchStato; now: Date }): Promise<Fattura>;
+  /** Cambia stato/campi di emissione senza toccare le righe. Con `atteso` è un compare-and-swap: scrive solo se stato e revisione sono ancora quelli, incrementa la revisione e altrimenti solleva `CONFLITTO` (Ruling R35). */
+  aggiornaStato(input: {
+    sedeId: number;
+    id: number;
+    patch: PatchStato;
+    atteso?: StatoAtteso;
+    now: Date;
+  }): Promise<Fattura>;
   aggiornaScadenza(input: {
     sedeId: number;
     fatturaId: number;
@@ -281,10 +298,20 @@ export function createMemoryFattureRepository(): FattureRepository {
       toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(f);
     },
-    async aggiornaStato({ sedeId, id, patch, now }) {
+    async aggiornaStato({ sedeId, id, patch, atteso, now }) {
       const f = trova(sedeId, id);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
+      // Compare-and-swap (Ruling R35): il confronto e la scrittura stanno
+      // nella stessa istruzione sincrona, come l'UPDATE … WHERE del
+      // backend Postgres — nessun await in mezzo, nessuna finestra per
+      // una seconda chiamata sovrapposta.
+      if (atteso && (f.stato !== atteso.stato || f.revisione !== atteso.revisione)) {
+        throw new Error("CONFLITTO: la fattura è cambiata nel frattempo: ricarica.");
+      }
       Object.assign(f, conSnapshot(clona(senzaUndefined(patch))), { updatedAt: now });
+      // La revisione la decide il CAS, non il patch: `atteso` vince su
+      // un'eventuale `patch.revisione` scritta a mano.
+      if (atteso) f.revisione = atteso.revisione + 1;
       toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(f);
     },
@@ -843,7 +870,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       });
     },
 
-    async aggiornaStato({ sedeId, id, patch, now }) {
+    async aggiornaStato({ sedeId, id, patch, atteso, now }) {
       await ensureSchema();
       return sql.begin(async tx => {
         // FOR UPDATE blocca la riga per la durata della transazione: un
@@ -883,11 +910,26 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         if (patch.imponibileCent !== undefined) colonne.imponibile_cent = patch.imponibileCent;
         if (patch.ivaCent !== undefined) colonne.iva_cent = patch.ivaCent;
         if (patch.totaleCent !== undefined) colonne.totale_cent = patch.totaleCent;
-        if (patch.revisione !== undefined) colonne.revisione = patch.revisione;
+        // Con il CAS la revisione la scrive la clausola dedicata qui
+        // sotto (`revisione = revisione + 1`): nominarla due volte nello
+        // stesso SET sarebbe un errore SQL, e comunque il lease vince.
+        if (patch.revisione !== undefined && !atteso) colonne.revisione = patch.revisione;
 
-        const rows = await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
-          WHERE id = ${id} AND sede_id = ${sedeId}
-          RETURNING *`;
+        // Compare-and-swap (Ruling R35): stato e revisione entrano nella
+        // WHERE. Zero righe aggiornate significa che qualcun altro ha
+        // già preso la fattura — la riga esiste (il FOR UPDATE sopra l'ha
+        // trovata), quindi è un CONFLITTO, non un NOT_FOUND.
+        const rows = atteso
+          ? await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}, revisione = revisione + 1
+              WHERE id = ${id} AND sede_id = ${sedeId}
+                AND stato = ${atteso.stato} AND revisione = ${atteso.revisione}
+              RETURNING *`
+          : await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
+              WHERE id = ${id} AND sede_id = ${sedeId}
+              RETURNING *`;
+        if (!rows[0]) {
+          throw new Error("CONFLITTO: la fattura è cambiata nel frattempo: ricarica.");
+        }
         // Letture dentro la stessa transazione (tx, non sql): aggiornaStato
         // non tocca i figli, ma restano coerenti con lo snapshot della
         // riga appena scritta invece di aprire una connessione a parte.

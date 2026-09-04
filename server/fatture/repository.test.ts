@@ -133,6 +133,60 @@ describe("repository fatture (memoria)", () => {
     expect(rilettaDopo?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
   });
 
+  // Ruling R35: il lease dell'emissione. `atteso` rende `aggiornaStato` un
+  // compare-and-swap — scrive solo se la riga è ancora in quello stato e a
+  // quella revisione — e incrementa la revisione da sé.
+  it("aggiornaStato con `atteso` è un compare-and-swap: incrementa la revisione e rifiuta la seconda", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    expect(f.revisione).toBe(1);
+
+    const presa = await repo.aggiornaStato({
+      sedeId: 1, id: f.id, patch: { stato: "in_emissione" },
+      atteso: { stato: "bozza", revisione: 1 }, now: ora,
+    });
+    expect(presa.stato).toBe("in_emissione");
+    expect(presa.revisione).toBe(2);
+
+    // La seconda chiamata ha in mano la revisione di prima: CONFLITTO,
+    // nessuna scrittura.
+    await expect(
+      repo.aggiornaStato({
+        sedeId: 1, id: f.id, patch: { stato: "in_emissione" },
+        atteso: { stato: "bozza", revisione: 1 }, now: ora,
+      })
+    ).rejects.toThrow(/^CONFLITTO/);
+    expect((await repo.perId(1, f.id))?.revisione).toBe(2);
+
+    // Stato giusto ma revisione vecchia, e viceversa: entrambi CONFLITTO.
+    await expect(
+      repo.aggiornaStato({
+        sedeId: 1, id: f.id, patch: { eiErrore: "x" },
+        atteso: { stato: "in_emissione", revisione: 1 }, now: ora,
+      })
+    ).rejects.toThrow(/^CONFLITTO/);
+    await expect(
+      repo.aggiornaStato({
+        sedeId: 1, id: f.id, patch: { eiErrore: "x" },
+        atteso: { stato: "emessa", revisione: 2 }, now: ora,
+      })
+    ).rejects.toThrow(/^CONFLITTO/);
+    expect((await repo.perId(1, f.id))?.eiErrore).toBeNull();
+
+    // Un'altra sede non vede la fattura: NOT_FOUND, mai CONFLITTO.
+    await expect(
+      repo.aggiornaStato({
+        sedeId: 2, id: f.id, patch: { stato: "in_emissione" },
+        atteso: { stato: "in_emissione", revisione: 2 }, now: ora,
+      })
+    ).rejects.toThrow(/^NOT_FOUND/);
+  });
+
+  it("senza `atteso` aggiornaStato non tocca la revisione (contratto R1 invariato)", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    const dopo = await repo.aggiornaStato({ sedeId: 1, id: f.id, patch: { eiErrore: "guasto" }, now: ora });
+    expect(dopo.revisione).toBe(1);
+  });
+
   // Fix round 1 (Task 17, item 5c): parità col backend Postgres, che salta
   // sia l'UPDATE sia il bump quando il patch non ha nessuna colonna da
   // scrivere — un patch vuoto non è una scrittura.

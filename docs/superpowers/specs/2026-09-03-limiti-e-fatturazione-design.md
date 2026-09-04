@@ -351,8 +351,8 @@ Prerequisito una tantum per sede: scope OAuth FiC
 → ri-autorizzazione da Impostazioni; `fatturazione_config.scope_scrittura_ok`
 verificato con una chiamata di lettura a `/issued_documents/info`.
 
-1. `stato = in_emissione`, evento `emissione_avviata` (blocco ottimistico su
-   `revisione`).
+1. `stato = in_emissione`, evento `emissione_avviata` (lease:
+   compare-and-swap su stato e `revisione`, v. le precisazioni in fondo).
 2. Cliente su FiC: cerca per CF/P.IVA (`GET /entities/clients?q=`), altrimenti
    `POST /entities/clients` con `e_invoice: true`, `ei_code`, indirizzo; salva
    `fic_entity_id` sul cliente. Evento `cliente_fic`.
@@ -387,11 +387,19 @@ Ripetizione sicura: se `fic_document_id` esiste, non si ricrea; ogni passo
 riparte da dove si è fermato. **Mai** cancellazione automatica su FiC.
 
 **Precisazioni dall'implementazione (piano 2, 04/09/2026).** La revisione
-si confronta **solo alla partenza** (`fattura.stato === "bozza"`), prima
-di toccare il contesto FiC: dal passaggio a `in_emissione` in poi ogni
-ripresa è idempotente per stato e non la richiede di nuovo — un doppio
-click simultaneo produce al più un `CONFLITTO` sul secondo, mai due
-documenti FiC (Ruling R1). `eiErrore` è sempre riscritto in fondo a ogni
+chiesta dall'utente si confronta **solo alla partenza**
+(`fattura.stato === "bozza"`), prima di toccare il contesto FiC: dal
+passaggio a `in_emissione` in poi ogni ripresa è idempotente per stato e
+non la richiede di nuovo (Ruling R1). A impedire due documenti FiC non è
+quel confronto ma il **lease** (Ruling R35): ogni giro — partenza o
+ripresa — apre con un compare-and-swap nel repository
+(`aggiornaStato` con `atteso: { stato, revisione }` → `UPDATE … WHERE
+stato = … AND revisione = …`, zero righe → `CONFLITTO`), che incrementa
+la revisione. Due «Emetti» sovrapposti sulla stessa bozza (doppio click
+da due schede, ricarica, secondo amministratore): il secondo riceve
+`CONFLITTO` **prima** di toccare Fatture in Cloud, mai due numeri
+fiscali; da `emessa`/`inviata` il lease non riporta indietro lo stato, si
+limita a serializzare i giri. `eiErrore` è sempre riscritto in fondo a ogni
 passaggio, sia in `emettiFattura` sia nella sonda, mai lasciato appiccicato
 da un giro precedente risolto; l'XML si riverifica a ogni ripresa finché
 la fattura non è `inviata`; un privato registrato con un nome di una sola

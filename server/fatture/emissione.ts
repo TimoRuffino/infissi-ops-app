@@ -6,6 +6,12 @@
 // mancante invece di rifare tutto. Su Fatture in Cloud non si cancella
 // mai nulla: un documento creato resta, e il secondo giro lo rilegge.
 //
+// Ripetibile non vuol dire simultaneo: ogni giro apre con un lease
+// (compare-and-swap su stato e revisione nel repository, Ruling R35), e
+// due chiamate sovrapposte sulla stessa fattura non arrivano mai
+// entrambe a creare il documento — la seconda riceve CONFLITTO prima di
+// toccare Fatture in Cloud.
+//
 // Cosa NON vive qui: le regole di dominio (validazioni, limiti, totali)
 // stanno in `servizio.ts` e nel risolutore; il trasporto HTTP sta in
 // `server/fic/emissione.ts`. Questo modulo è solo la coreografia, e ogni
@@ -407,10 +413,13 @@ export async function emettiFattura(
   }
   const config = await repository.config(input.sedeId);
 
-  // Blocco ottimistico solo alla partenza: da `in_emissione` in poi i
-  // passi sono idempotenti per stato e una ripresa non deve pretendere di
-  // nuovo la revisione (Ruling R1). Prima del contesto FiC: una richiesta
-  // già superata non deve nemmeno far rinnovare un token.
+  // Blocco ottimistico sulla revisione CHIESTA DALL'UTENTE solo alla
+  // partenza: chi preme «Emetti» deve avere in mano l'ultima versione
+  // della bozza. Da `in_emissione` in poi i passi sono idempotenti per
+  // stato e una ripresa non la pretende più (Ruling R1) — la corsa fra
+  // due giri sovrapposti la governa il lease qui sotto (Ruling R35), non
+  // questo controllo. Prima del contesto FiC: una richiesta già superata
+  // non deve nemmeno far rinnovare un token.
   if (fattura.stato === "bozza" && fattura.revisione !== input.revisione) {
     throw new Error(
       "CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica."
@@ -421,24 +430,37 @@ export async function emettiFattura(
   // fattura non deve nemmeno passare a «in_emissione».
   const ctx = await (input.contesto ?? contestoFicPerSede)(input.sedeId);
 
-  if (fattura.stato === "bozza") {
-    fattura = await repository.aggiornaStato({
-      sedeId: input.sedeId,
-      id: fattura.id,
-      patch: {
-        stato: "in_emissione",
-        emessaDa: input.actorUserId,
-        revisione: fattura.revisione + 1,
-        eiErrore: null,
-      },
-      now,
-    });
+  // Il lease (Ruling R35). OGNI giro — partenza da bozza o ripresa — si
+  // prende la fattura con un compare-and-swap su stato e revisione letti
+  // un attimo fa: la seconda chiamata sovrapposta (doppio click da due
+  // schede, ricarica della pagina, un secondo amministratore) trova la
+  // revisione cambiata e riceve CONFLITTO PRIMA di toccare Fatture in
+  // Cloud, dove un documento creato non si cancella più. Chi perde deve
+  // ricaricare: non prosegue mai su uno stato che non ha letto.
+  // Da `emessa`/`inviata` il lease NON riporta indietro lo stato — la
+  // fattura è già su FiC, i passi restano quelli della ripresa — ma
+  // serializza comunque i giri, così due riprese non rispediscono la
+  // stessa fattura allo SdI.
+  const partenza = fattura.stato;
+  fattura = await repository.aggiornaStato({
+    sedeId: input.sedeId,
+    id: fattura.id,
+    patch:
+      partenza === "bozza"
+        ? { stato: "in_emissione", emessaDa: input.actorUserId, eiErrore: null }
+        : partenza === "in_emissione"
+          ? { stato: "in_emissione" }
+          : {},
+    atteso: { stato: partenza, revisione: fattura.revisione },
+    now,
+  });
+  if (partenza === "bozza") {
     await eventoDi(fattura.id, "emissione_avviata", {
       revisione: fattura.revisione,
     });
     segna("validazione", "fatto");
   } else {
-    segna("validazione", "saltato", `ripresa da «${fattura.stato}»`);
+    segna("validazione", "saltato", `ripresa da «${partenza}»`);
   }
 
   /** Un passo bloccante: l'errore diventa `EMISSIONE: <passo>: …`. */

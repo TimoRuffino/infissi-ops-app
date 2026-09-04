@@ -83,6 +83,50 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     expect(await repo.eventi(SEDE_B, f.id)).toEqual([]);
   });
 
+  // Ruling R35: il lease dell'emissione sul database vero — l'UPDATE con
+  // `stato`/`revisione` nella WHERE torna 0 righe alla seconda chiamata.
+  it("aggiornaStato con `atteso` è un compare-and-swap: 0 righe → CONFLITTO", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    expect(f.revisione).toBe(1);
+
+    const presa = await repo.aggiornaStato({
+      sedeId: SEDE_A, id: f.id, patch: { stato: "in_emissione" },
+      atteso: { stato: "bozza", revisione: 1 }, now: ora,
+    });
+    expect(presa.stato).toBe("in_emissione");
+    expect(presa.revisione).toBe(2);
+
+    await expect(
+      repo.aggiornaStato({
+        sedeId: SEDE_A, id: f.id, patch: { stato: "in_emissione" },
+        atteso: { stato: "bozza", revisione: 1 }, now: ora,
+      })
+    ).rejects.toThrow(/^CONFLITTO/);
+    await expect(
+      repo.aggiornaStato({
+        sedeId: SEDE_A, id: f.id, patch: { eiErrore: "x" },
+        atteso: { stato: "in_emissione", revisione: 1 }, now: ora,
+      })
+    ).rejects.toThrow(/^CONFLITTO/);
+    const riletta = await repo.perId(SEDE_A, f.id);
+    expect(riletta?.revisione).toBe(2);
+    expect(riletta?.eiErrore).toBeNull();
+
+    // Un'altra sede non vede la fattura: NOT_FOUND, mai CONFLITTO.
+    await expect(
+      repo.aggiornaStato({
+        sedeId: SEDE_B, id: f.id, patch: { stato: "in_emissione" },
+        atteso: { stato: "in_emissione", revisione: 2 }, now: ora,
+      })
+    ).rejects.toThrow(/^NOT_FOUND/);
+
+    // Senza `atteso` la revisione non si muove: contratto R1 invariato.
+    const senzaLease = await repo.aggiornaStato({
+      sedeId: SEDE_A, id: f.id, patch: { eiErrore: "guasto" }, now: ora,
+    });
+    expect(senzaLease.revisione).toBe(2);
+  });
+
   it("config: default poi salvataggio per sede", async () => {
     const c = await repo.config(SEDE_A);
     expect(c.metodoPagamento).toBe("MP05");

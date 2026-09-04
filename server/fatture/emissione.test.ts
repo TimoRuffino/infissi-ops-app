@@ -11,7 +11,7 @@
 // driver `local` di `putFile`. La cartella è ignorata da git e il
 // precedente è `server/routers/ficAllegati.test.ts`, che fa lo stesso da
 // prima di questo piano.
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DICITURE } from "@shared/fatturazione/diciture";
 import type { Fattura, FatturazioneConfig } from "@shared/fatturazione/tipi";
 import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
@@ -759,6 +759,122 @@ describe("emettiFattura", () => {
 
     expect(b.registro).toEqual([]);
     expect((await repository.perId(SEDE, fattura.id))!.stato).toBe("bozza");
+  });
+
+  // ── Il lease (Ruling R35) ─────────────────────────────────────────────
+  // Due chiamate sovrapposte sulla stessa fattura — doppio click da due
+  // schede, ricarica della pagina, un secondo amministratore — non devono
+  // mai arrivare entrambe a `creaDocumento`: sarebbero due numeri fiscali
+  // veri, che su Fatture in Cloud non si cancellano.
+  //
+  // Il montaggio: `contesto` (l'ultimo await prima del lease) parcheggia
+  // le due run finché entrambe hanno letto la stessa revisione; poi le
+  // sblocca insieme. Esito scelto: chi perde riceve SEMPRE `CONFLITTO`,
+  // anche se il lease è già stato consumato — ha in mano una revisione
+  // superata e deve ricaricare, non proseguire alla cieca su uno stato
+  // che non ha letto.
+  function cancelloContesto(quante: number): {
+    contesto: () => Promise<{ companyId: number; token: string }>;
+    entrambeInAttesa: () => Promise<void>;
+    sblocca: () => void;
+  } {
+    let arrivate = 0;
+    let apri: () => void = () => {};
+    const cancello = new Promise<void>(resolve => {
+      apri = resolve;
+    });
+    return {
+      contesto: async () => {
+        arrivate++;
+        await cancello;
+        return { companyId: 77, token: "token-finto" };
+      },
+      entrambeInAttesa: () => vi.waitFor(() => expect(arrivate).toBe(quante)),
+      sblocca: () => apri(),
+    };
+  }
+
+  it("due emissioni sovrapposte sulla stessa bozza: un solo documento FiC, l'altra riceve CONFLITTO", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const b = banco(copioneFelice(fattura));
+    const cancello = cancelloContesto(2);
+    const dip = { ...b.dip, contesto: cancello.contesto };
+    const avvia = () =>
+      emettiFattura({
+        sedeId: SEDE,
+        id: fattura.id,
+        actorUserId: ATTORE,
+        revisione: fattura.revisione,
+        ...dip,
+      });
+
+    const prima = avvia();
+    const seconda = avvia();
+    await cancello.entrambeInAttesa();
+    cancello.sblocca();
+    const esiti = await Promise.allSettled([prima, seconda]);
+
+    const respinte = esiti.filter(e => e.status === "rejected");
+    expect(esiti.filter(e => e.status === "fulfilled")).toHaveLength(1);
+    expect(respinte).toHaveLength(1);
+    expect(
+      String((respinte[0] as PromiseRejectedResult).reason?.message)
+    ).toMatch(/^CONFLITTO/);
+
+    expect(metodi(b.registro).filter(m => m === "creaDocumento")).toEqual([
+      "creaDocumento",
+    ]);
+    const salvata = await repository.perId(SEDE, fattura.id);
+    expect(salvata!.ficDocumentId).toBe(FIC_DOCUMENT_ID);
+    // Un solo `emissione_avviata`: il lease è stato preso una volta sola.
+    expect(
+      (await tipiEvento(SEDE, fattura.id)).filter(
+        t => t === "emissione_avviata"
+      )
+    ).toHaveLength(1);
+  });
+
+  it("due riprese sovrapposte da «in_emissione»: il lease vale anche lì", async () => {
+    const { fattura } = await bozzaEmettibile();
+    // Lo stato che resta se il processo muore dopo il lease e prima di
+    // `creaDocumento`: in emissione, ancora senza documento su FiC.
+    const interrotta = await repository.aggiornaStato({
+      sedeId: SEDE,
+      id: fattura.id,
+      patch: { stato: "in_emissione" },
+      atteso: { stato: fattura.stato, revisione: fattura.revisione },
+      now: ora,
+    });
+    const b = banco(copioneFelice(fattura));
+    const cancello = cancelloContesto(2);
+    const dip = { ...b.dip, contesto: cancello.contesto };
+    const avvia = () =>
+      emettiFattura({
+        sedeId: SEDE,
+        id: fattura.id,
+        actorUserId: ATTORE,
+        revisione: interrotta.revisione,
+        ...dip,
+      });
+
+    const prima = avvia();
+    const seconda = avvia();
+    await cancello.entrambeInAttesa();
+    cancello.sblocca();
+    const esiti = await Promise.allSettled([prima, seconda]);
+
+    expect(esiti.filter(e => e.status === "fulfilled")).toHaveLength(1);
+    const respinte = esiti.filter(e => e.status === "rejected");
+    expect(respinte).toHaveLength(1);
+    expect(
+      String((respinte[0] as PromiseRejectedResult).reason?.message)
+    ).toMatch(/^CONFLITTO/);
+    expect(metodi(b.registro).filter(m => m === "creaDocumento")).toEqual([
+      "creaDocumento",
+    ]);
+    expect((await repository.perId(SEDE, fattura.id))!.ficDocumentId).toBe(
+      FIC_DOCUMENT_ID
+    );
   });
 
   it("(i) fattura di un'altra sede: NOT_FOUND, mai un indizio che esista", async () => {
