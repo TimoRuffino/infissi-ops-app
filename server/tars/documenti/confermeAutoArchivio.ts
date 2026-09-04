@@ -80,6 +80,8 @@ export type EsitoGiroAutoArchivio = {
   errori: number;
   /** Mail collegate alla commessa perché il testo della conferma la citava. */
   collegate: number;
+  /** Cosa ha visto la ricerca: quanti candidati, e cosa dice il loro testo. */
+  candidati: { certe: number; probabili: number; nonLetti: number; nonLeggibili: number };
   dettagli: Array<{
     commessaId: number;
     codice: string | null;
@@ -108,6 +110,7 @@ export async function eseguiGiroAutoArchivio(input: {
     saltate: 0,
     errori: 0,
     collegate: 0,
+    candidati: { certe: 0, probabili: 0, nonLetti: 0, nonLeggibili: 0 },
     dettagli: [],
   };
   const righe = await confermeOrdineMancanti({
@@ -117,6 +120,12 @@ export async function eseguiGiroAutoArchivio(input: {
   });
   for (const riga of righe) {
     esito.commesseEsaminate += 1;
+    for (const c of riga.candidati) {
+      if (c.certezza === "certa") esito.candidati.certe += 1;
+      else esito.candidati.probabili += 1;
+      if (c.riscontroTesto === "non_letto") esito.candidati.nonLetti += 1;
+      if (c.riscontroTesto === "non_leggibile") esito.candidati.nonLeggibili += 1;
+    }
     const certe = riga.candidati.filter(c => c.certezza === "certa");
     if (certe.length === 0) continue;
     // Più conferme certe sulla stessa commessa (più fornitori): tutte, una
@@ -235,10 +244,14 @@ async function giroTutteLeSedi(): Promise<void> {
     inCorso.add(sede.id);
     try {
       const esito = await eseguiGiroAutoArchivio({ sedeId: sede.id });
-      if (esito.archiviate > 0 || esito.errori > 0 || esito.saltate > 0) {
+      const candidati = esito.candidati.certe + esito.candidati.probabili;
+      // Anche un giro senza effetti dice cosa ha visto: «se non l'ha
+      // trovata deve dirmelo» vale pure per i log.
+      if (esito.archiviate > 0 || esito.errori > 0 || esito.saltate > 0 || candidati > 0) {
         console.info("[conferme-auto-archivio] giro", {
           sedeId: sede.id,
           commesseEsaminate: esito.commesseEsaminate,
+          candidati: esito.candidati,
           archiviate: esito.archiviate,
           collegate: esito.collegate,
           saltate: esito.saltate,

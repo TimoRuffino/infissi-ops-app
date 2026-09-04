@@ -224,9 +224,13 @@ type TestoLetto = {
   lettoIl: number;
   /** Letto senza il modello: con un'identità si può ritentare la visione. */
   senzaVisione: boolean;
+  /** La lettura è fallita per un errore (non per il contenuto): si ritenta prima. */
+  fallita?: boolean;
 };
 
 const TTL_MS = 12 * 60 * 60 * 1000;
+/** Una lettura FALLITA (storage o IMAP non raggiungibili) si ritenta prima: non è un fatto sul documento. */
+const TTL_ERRORE_MS = 30 * 60 * 1000;
 const VOCI_MASSIME = 400;
 const memoria = new Map<string, TestoLetto>();
 
@@ -287,7 +291,8 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
   const leggi = async (sorgente: SorgenteAllegato): Promise<TestoLetto> => {
     const chiave = `${sorgente.sedeId}:${sorgente.comunicazioneId}:${sorgente.allegatoIndex}`;
     const nota = memoria.get(chiave);
-    const valida = nota != null && now() - nota.lettoIl < TTL_MS;
+    const valida =
+      nota != null && now() - nota.lettoIl < (nota.fallita ? TTL_ERRORE_MS : TTL_MS);
     // Una lettura senza testo fatta senza il modello si ritenta con
     // l'identità: la scansione che l'OCR non legge la legge la visione.
     const daRitentare = valida && nota!.pagine == null && nota!.senzaVisione && Boolean(opzioni.visione);
@@ -305,8 +310,10 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
     }
     letture += 1;
     let voce: TestoLetto;
+    let nome = `${sorgente.comunicazioneId}:${sorgente.allegatoIndex}`;
     try {
       const raw = await sorgente.leggi();
+      nome = raw.nome;
       const parser = await estrai(raw.buffer, raw.mimeType, raw.nome, {
         visione: opzioni.visione ?? null,
       });
@@ -345,9 +352,29 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
         motivo: `Lettura fallita: ${errore instanceof Error ? errore.message.slice(0, 160) : "errore"}`,
         lettoIl: now(),
         senzaVisione: !opzioni.visione,
+        fallita: true,
       };
     }
     ricorda(chiave, voce);
+    // Ogni lettura nuova lascia una riga nei log: chi legge la produzione
+    // vede cosa è stato aperto e con quale esito, senza sonde.
+    if (voce.pagine) {
+      console.info("[ricerca-commessa] letto", {
+        comunicazioneId: sorgente.comunicazioneId,
+        allegatoIndex: sorgente.allegatoIndex,
+        file: nome.slice(0, 60),
+        fonte: voce.fonteTesto,
+        caratteri: voce.pagine.join("").length,
+        fornitore: voce.fornitore,
+      });
+    } else {
+      console.warn("[ricerca-commessa] non letto", {
+        comunicazioneId: sorgente.comunicazioneId,
+        allegatoIndex: sorgente.allegatoIndex,
+        file: nome.slice(0, 60),
+        motivo: voce.motivo,
+      });
+    }
     return voce;
   };
 
@@ -371,6 +398,15 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
       paroleInterne: paroleInterne(sorgente.sedeId),
       riferimenti: opzioni.riferimenti,
     });
+    if (commesse.length > 0) {
+      console.info("[ricerca-commessa] riscontro", {
+        comunicazioneId: sorgente.comunicazioneId,
+        allegatoIndex: sorgente.allegatoIndex,
+        esito: ricerca.esito,
+        commessaId: ricerca.commessaId,
+        candidati: ricerca.candidati.slice(0, 4).map(c => `${c.commessaId}:${c.forza}:${c.prove.join("/")}`),
+      });
+    }
     return {
       ...ricerca,
       fonteTesto: testo.fonteTesto,
