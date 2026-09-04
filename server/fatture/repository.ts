@@ -77,6 +77,10 @@ export type PatchStato = Partial<
     | "imponibileCent"
     | "ivaCent"
     | "totaleCent"
+    // L'emissione la incrementa passando a `in_emissione` (Ruling R1):
+    // `aggiornaStato` non ha blocco ottimistico, ma dopo quel passaggio
+    // una bozza non si modifica più con la revisione di prima.
+    | "revisione"
   >
 >;
 
@@ -831,6 +835,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         if (patch.imponibileCent !== undefined) colonne.imponibile_cent = patch.imponibileCent;
         if (patch.ivaCent !== undefined) colonne.iva_cent = patch.ivaCent;
         if (patch.totaleCent !== undefined) colonne.totale_cent = patch.totaleCent;
+        if (patch.revisione !== undefined) colonne.revisione = patch.revisione;
 
         const rows = await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
           WHERE id = ${id} AND sede_id = ${sedeId}
