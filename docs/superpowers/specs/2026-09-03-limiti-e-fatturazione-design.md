@@ -404,7 +404,10 @@ ripresa — apre con un compare-and-swap nel repository
 stato = … AND revisione = …`, zero righe → `CONFLITTO`), che incrementa
 la revisione. Due «Emetti» sovrapposti sulla stessa bozza (doppio click
 da due schede, ricarica, secondo amministratore): il secondo riceve
-`CONFLITTO` **prima** di toccare Fatture in Cloud, mai due numeri
+`CONFLITTO` **prima** di toccare Fatture in Cloud: mai due numeri quando
+le due run hanno letto la stessa revisione (una run avviata dopo il lease e
+prima della scrittura di `ficDocumentId`, possibile solo via API diretta,
+resta la finestra rinviata alla ricerca su FiC, R11/R40)
 fiscali; da `emessa`/`inviata` il lease non riporta indietro lo stato, si
 limita a serializzare i giri. `eiErrore` è sempre riscritto in fondo a ogni
 passaggio, sia in `emettiFattura` sia nella sonda, mai lasciato appiccicato

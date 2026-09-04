@@ -2627,8 +2627,10 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    dal supporto), oppure accettare il numero e stornarlo subito con una
    nota di credito. Un operatore, una scheda, e nessun retry finché la
    chiamata non risponde: due «Emetti» sovrapposti sulla stessa bozza
-   danno `CONFLITTO` al secondo (il lease, R35), mai due numeri — ma la
-   regola operativa resta aspettare.
+   danno `CONFLITTO` al secondo quando hanno letto la stessa revisione (il
+   lease, R35); una chiamata API diretta avviata dopo il lease e prima che
+   FiC risponda resta scoperta (R40, chiusura rinviata alla ricerca su FiC
+   di R11): per questo la regola operativa resta aspettare.
 5. XML scaricato dalla tab Fattura e verificato dal commercialista.
 6. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
    variabile Railway di **tutto il deployment**, non un campo per sede nel
