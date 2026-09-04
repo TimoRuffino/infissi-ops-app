@@ -42,6 +42,14 @@ export function badgeStatoFattura(
   return BADGE_STATO[stato];
 }
 
+/** Variante Badge shadcn per ogni tono: stessa mappa nei punti che mostrano un badge di stato fattura. */
+export const VARIANTE_BADGE = {
+  neutro: "outline",
+  ok: "success",
+  attenzione: "warning",
+  errore: "danger",
+} as const;
+
 export type GruppoRigheView = {
   chiave: "beni" | "servizi" | "derivate" | "note";
   titolo: string;
@@ -246,7 +254,7 @@ export const DICITURE_SELEZIONABILI: ChiaveDicitura[] = [
 ];
 
 /** Stati che, senza scarti né bocciature, contano come «fattura emessa con successo». */
-const STATI_EMESSA_PIU: ReadonlySet<StatoFattura> = new Set([
+export const STATI_EMESSA_PIU: ReadonlySet<StatoFattura> = new Set([
   "emessa",
   "inviata",
   "consegnata",

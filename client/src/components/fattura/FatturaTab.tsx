@@ -7,19 +7,12 @@ import { toast } from "sonner";
 import { FileText, Plus } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
-import { badgeStatoFattura } from "@/lib/fatturaView";
+import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
 import { formatCent } from "@/lib/limitiView";
 import BozzaFatturaEditor from "@/components/fattura/BozzaFatturaEditor";
 import FatturaEmessaView from "@/components/fattura/FatturaEmessaView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-const VARIANTE_BADGE = {
-  neutro: "outline",
-  ok: "success",
-  attenzione: "warning",
-  errore: "danger",
-} as const;
 
 export default function FatturaTab({ commessaId }: { commessaId: number }) {
   const utils = trpc.useUtils();

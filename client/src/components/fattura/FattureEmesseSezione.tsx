@@ -12,7 +12,7 @@ import { Link } from "wouter";
 
 import { STATI_FATTURA, TIPI_FATTURA } from "@shared/fatturazione/tipi";
 import type { StatoFattura, TipoFattura } from "@shared/fatturazione/tipi";
-import { badgeStatoFattura } from "@/lib/fatturaView";
+import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
 import { formatCent } from "@/lib/limitiView";
 import { trpc } from "@/lib/trpc";
 import { permessoNegato } from "@/lib/trpcErrors";
@@ -35,13 +35,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const VARIANTE_BADGE = {
-  neutro: "outline",
-  ok: "success",
-  attenzione: "warning",
-  errore: "danger",
-} as const;
 
 const TUTTI = "tutti";
 

@@ -19,6 +19,7 @@ import {
   riepilogoControlli,
   riepilogoView,
   testoDicitura,
+  VARIANTE_BADGE,
 } from "@/lib/fatturaView";
 import { formatCent } from "@/lib/limitiView";
 import DataSurface from "@/components/patterns/DataSurface";
@@ -35,13 +36,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const VARIANTE_BADGE = {
-  neutro: "outline",
-  ok: "success",
-  attenzione: "warning",
-  errore: "danger",
-} as const;
 
 const ETICHETTA_EVENTO: Record<string, string> = {
   creata: "Bozza creata",

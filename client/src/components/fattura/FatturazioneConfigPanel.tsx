@@ -212,6 +212,16 @@ export default function FatturazioneConfigPanel() {
       setEsito(risposta);
       if (risposta.opzioni) setOpzioni(risposta.opzioni);
       aggiornaCache(risposta.config, risposta.config.scopeScritturaOk);
+      // Con `sporco` attivo l'effetto sopra è fermo: il conto FiC assegnato
+      // da solo dal server sparirebbe al prossimo «Salva» come valore nullo.
+      const contoAssegnato = risposta.config.paymentAccountIdFic;
+      if (typeof contoAssegnato === "number") {
+        setModulo(m =>
+          m.contoFic.trim() === ""
+            ? { ...m, contoFic: String(contoAssegnato) }
+            : m
+        );
+      }
       if (risposta.ok) toast.success("Permessi di scrittura confermati");
       else toast.error(risposta.motivo ?? "Verifica non riuscita");
     },
@@ -411,6 +421,7 @@ export default function FatturazioneConfigPanel() {
               id="fatturazione-iban"
               className="h-11 font-mono text-xs"
               placeholder="IT60X0542811101000000123456"
+              // +8 di margine per gli spazi di raggruppamento digitati inserendo l'IBAN.
               maxLength={MAX_IBAN + 8}
               aria-invalid={ibanKo || undefined}
               aria-describedby={ibanKo ? "fatturazione-iban-errore" : undefined}

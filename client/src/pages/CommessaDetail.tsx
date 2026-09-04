@@ -58,7 +58,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
-import { etichettaTabFattura } from "@/lib/fatturaView";
+import { etichettaTabFattura, STATI_EMESSA_PIU } from "@/lib/fatturaView";
 import type { StatoFattura } from "@shared/fatturazione/tipi";
 import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
@@ -2870,13 +2870,6 @@ function PianoRateSezione({
   );
 }
 
-/** Fatture che hanno già lasciato il CRM: da qui in poi il pattuito è il documento. */
-const STATI_FATTURA_USCITA: ReadonlySet<StatoFattura> = new Set([
-  "emessa",
-  "inviata",
-  "consegnata",
-]);
-
 function PagamentiCard({
   commessa,
   commessaId,
@@ -2922,7 +2915,7 @@ function PagamentiCard({
   // si corregge con una nota di credito, non riscrivendo la cifra.
   const daFatturaCrm =
     !pattuitoDaFic &&
-    (fatture ?? []).some(f => STATI_FATTURA_USCITA.has(f.stato));
+    (fatture ?? []).some(f => STATI_EMESSA_PIU.has(f.stato));
   // Capability effettive (ruoli + override individuali): decidono se offrire
   // i comandi di registrazione. Il registro stesso segue il payload: se il
   // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
