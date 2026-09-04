@@ -555,7 +555,7 @@ const leggiFascicolo: StrumentoTars = {
   reversibile: true,
   capability: ["commessa.read"],
   descrizione:
-    "Il fascicolo sintetico della commessa (C3): fatti operativi, gate, ordini con date, domande aperte deterministiche. SENZA economia per costruzione (per gli importi usa leggi_commessa). Se marcato stale, dillo e non basarci azioni.",
+    "Il fascicolo sintetico della commessa (C3): fatti operativi, gate, ordini con date, domande aperte deterministiche, e — se la fatturazione è attiva — lo stato della fattura o nota di credito ed esito SdI. SENZA economia per costruzione (per gli importi usa leggi_commessa). Se marcato stale, dillo e non basarci azioni.",
   schemaInput: z.object({ commessaId: z.number().int().positive() }).strict(),
   async esegui(contesto, input) {
     const fascicolo = await fascicoloCommessa({

@@ -7,9 +7,26 @@
 // risposte su entità cambiate nel TTL.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Fattura, FatturazioneConfig } from "@shared/fatturazione/tipi";
+import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
 import type { TrpcContext } from "../_core/context";
+import { sha256Hex } from "../_core/fileStorage";
+import casiFatture from "../computo/__fixtures__/casi-reali.json";
+import { _resetComputiRepositoryForTests } from "../computo/repository";
+import { eseguiComputo } from "../computo/servizio";
+import { _resetContrattiRepositoryForTests } from "../contratti/repository";
+import { salvaContratto } from "../contratti/servizio";
+import type { DocumentoFicCreato } from "../fic/emissione";
+import { creaClientFicFinto, type ChiamataFic } from "../fic/fake";
+import { emettiFattura, type DipendenzeEmissione } from "../fatture/emissione";
+import {
+  _resetFattureRepositoryForTests,
+  getFattureRepository,
+} from "../fatture/repository";
+import { aggiornaBozza, annullaBozza, creaBozza } from "../fatture/servizio";
+import { getClientiStore } from "../routers/clienti";
+import { creaCommessa, getCommessaById } from "../routers/commesse";
 import { appRouter } from "../routers";
-import { getCommessaById } from "../routers/commesse";
 import { azzeraArchivioPerTest } from "./archivio";
 import { costruisciContesto } from "./contesto";
 import {
@@ -83,6 +100,8 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.FLAG_TARS;
   delete process.env.FLAG_TARS_READ_TOOLS;
+  delete process.env.FLAG_FATTURAZIONE;
+  delete process.env.FLAG_LIMITI;
 });
 
 describe("tars T3 — fascicolo C3", () => {
@@ -238,5 +257,277 @@ describe("tars T3 — C0 v2 con versioni di entità", () => {
     const terza = await eseguiRun({ contesto, provider: copione(), messaggio });
     expect(terza.cache.c0Hit).toBe(false); // entità cambiata → niente riuso
     expect(chiamateProvider).toBeGreaterThan(dopoPrima);
+  });
+});
+
+describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
+  const ATTORE_FATTURE = DIREZIONE_ID;
+  const ORA_FATTURE = new Date("2026-09-04T10:00:00Z");
+  const PATTUITO_FATTURE = 1549472;
+
+  // Stesso caso reale 127/2026 usato da servizio.test.ts, emissione.test.ts
+  // e notaCredito.test.ts: contratto e computo veri (non inventati), per
+  // non inseguire un edge case del risolutore che non ha niente a che
+  // fare con questo task.
+  const caso127 = (casiFatture.casi as any[]).find(c => c.nome === "fattura-127-2026")!;
+  const RIGHE_127: RigaContrattoInput[] = caso127.righe.map((r: any) => ({
+    categoria: r.categoria,
+    tipologia: r.tipologia,
+    oscuranteIntegrato: null,
+    oscuranteTipologia: null,
+    descrizione: r.descrizione,
+    quantita: r.quantita,
+    larghezzaMm: r.larghezzaMm,
+    altezzaMm: r.altezzaMm,
+    misuraDei: null,
+    prezzoUnitCent: null,
+    prezzoTotCent: r.prezzoTotCent,
+    beneSignificativo: true,
+    accessori: (r.accessori as string[]).map((codice: string) => ({ codice, quantita: r.quantita })),
+    note: null,
+    origine: "manuale" as const,
+    evidenza: null,
+  }));
+
+  const CONTRATTO_127 = (): ContrattoInput => ({
+    pattuitoCent: PATTUITO_FATTURE,
+    pattuitoTipo: "lordo",
+    posaInclusa: true,
+    notePosa: null,
+    comuneCantiere: "Sarzana",
+    zonaManuale: false,
+    piano: 2,
+    distanzaKm: null,
+    detrazioneTipo: "ristrutturazione",
+    detrazioneImmobile: "prima_casa",
+    detrazionePct: null,
+    dataFirma: "2026-09-03",
+    rate: [],
+    origine: "manuale",
+    documentoId: null,
+    opzioniComputo: { rilievo: "foro", speseProfessionali: false, eventuali: [] },
+  });
+
+  const CONFIG_FATTURAZIONE_COMPLETA = (sedeId: number): FatturazioneConfig => ({
+    sedeId,
+    iban: "IT60X0542811101000000123456",
+    banca: "BPM",
+    intestatario: "Ruffino Group",
+    metodoPagamento: "MP05",
+    numerazioneFic: null,
+    paymentAccountIdFic: 5,
+    vatIdsFic: { 22: 3, 10: 9 },
+    dicituraFooter: null,
+    speseDocumentazioneCent: 15000,
+    scopeScritturaOk: true,
+    scopeVerificatoAt: ORA_FATTURE,
+    updatedAt: ORA_FATTURE,
+  });
+
+  let progressivoClienteFatture = 0;
+  function nuovoClienteFatture(sedeId: number): any {
+    const clienti = getClientiStore() as any[];
+    const cliente = {
+      id: 98900 + progressivoClienteFatture++,
+      sedeId,
+      nome: "Cliente",
+      cognome: "Prova T17",
+      tipo: "privato",
+      codiceFiscale: "RSSMRA85T10A562S",
+      indirizzo: "Via Alta 80",
+      cap: "19038",
+      citta: "Sarzana (SP)",
+      cittaLavoro: "Sarzana",
+      pec: null,
+      codiceDestinatario: null,
+      ficEntityId: null,
+      commesseIds: [],
+      createdAt: ORA_FATTURE,
+      updatedAt: ORA_FATTURE,
+    };
+    clienti.push(cliente);
+    return cliente;
+  }
+
+  const ctxDiretto = (sedeId: number): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> => ({
+    user: { id: ATTORE_FATTURE, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "T17" } as any,
+    sedeId,
+    sediIds: [sedeId],
+  });
+
+  async function nuovaCommessaConContratto(sedeId: number): Promise<number> {
+    const cliente = nuovoClienteFatture(sedeId);
+    const c: any = await creaCommessa(ctxDiretto(sedeId) as any, {
+      clienteId: cliente.id,
+      indirizzo: "Via Alta 80",
+      citta: "Sarzana",
+    } as any);
+    return (c.commessa?.id ?? c.id) as number;
+  }
+
+  /**
+   * Bozza pronta all'emissione: configurazione di sede completa e beni
+   * riequilibrati a markup 0 (senza, il markup negativo blocca la
+   * validazione — v. servizio.test.ts).
+   */
+  async function bozzaFatturabile(sedeId: number): Promise<{ fattura: Fattura; commessaId: number }> {
+    const commessaId = await nuovaCommessaConContratto(sedeId);
+    await salvaContratto({
+      sedeId,
+      commessaId,
+      actorUserId: ATTORE_FATTURE,
+      now: ORA_FATTURE,
+      contratto: CONTRATTO_127(),
+      righe: RIGHE_127,
+    });
+    await eseguiComputo({ sedeId, commessaId, actorUserId: ATTORE_FATTURE, now: ORA_FATTURE });
+    await getFattureRepository().salvaConfig(CONFIG_FATTURAZIONE_COMPLETA(sedeId));
+    const { fattura } = await creaBozza({
+      sedeId,
+      commessaId,
+      actorUserId: ATTORE_FATTURE,
+      now: () => ORA_FATTURE,
+    });
+    const esito = await aggiornaBozza({
+      sedeId,
+      id: fattura.id,
+      revisione: fattura.revisione,
+      actorUserId: ATTORE_FATTURE,
+      modifica: { riequilibraBeniAMarkupCent: 0 },
+      now: () => ORA_FATTURE,
+    });
+    return { fattura: esito.fattura, commessaId };
+  }
+
+  const documentoFicDa = (f: Fattura): DocumentoFicCreato => ({
+    id: 88900 + f.id,
+    number: 127,
+    numeration: "/2026",
+    date: "2026-09-04",
+    amount_net: f.imponibileCent / 100,
+    amount_vat: f.ivaCent / 100,
+    amount_gross: f.totaleCent / 100,
+    url: "https://fatture.example.test/127.pdf",
+    ei_status: null,
+    payments_list: f.scadenze.map((s, i) => ({ id: 9900 + i, amount: s.importoCent / 100, due_date: s.data })),
+  });
+
+  const XML_FINTO = Buffer.from('<?xml version="1.0"?><FatturaElettronica/>', "utf-8");
+  const PDF_FINTO = Buffer.from("%PDF-1.4 finto\n%%EOF\n", "utf-8");
+
+  /** Stesso montaggio del banco() di emissione.test.ts, senza registro/timeline: qui serve solo l'esito, non le sue tappe. */
+  function emettiInDryRun(fattura: Fattura, sedeId: number) {
+    const registro: ChiamataFic[] = [];
+    const dip: DipendenzeEmissione = {
+      now: () => ORA_FATTURE,
+      client: creaClientFicFinto(
+        {
+          cercaClienti: async () => [],
+          creaCliente: async () => ({ id: 424242 }),
+          creaDocumento: async () => documentoFicDa(fattura),
+          verificaXml: async () => ({ success: true, errori: [] }),
+          inviaEInvoice: async () => ({ name: "IT01234567890_00001.xml", date: "2026-09-04" }),
+          scaricaXml: async () => XML_FINTO,
+          scaricaPdf: async () => PDF_FINTO,
+        },
+        registro
+      ),
+      contesto: async () => ({ companyId: 77, token: "token-finto" }),
+      dryRun: () => true,
+      storage: {
+        putFile: async (collection, parentId, recordId, _nome, buffer) => ({
+          storageKey: `${collection}/${parentId}/${recordId}-finto`,
+          checksum: sha256Hex(buffer),
+        }),
+      },
+      salvaFicEntityId: () => {},
+      timeline: () => 1,
+    };
+    return emettiFattura({
+      sedeId,
+      id: fattura.id,
+      actorUserId: ATTORE_FATTURE,
+      revisione: fattura.revisione,
+      ...dip,
+    });
+  }
+
+  beforeEach(() => {
+    _resetContrattiRepositoryForTests();
+    _resetComputiRepositoryForTests();
+    _resetFattureRepositoryForTests();
+  });
+
+  it("Caso 1: fattura emessa in dry-run — «prova SdI» nel fascicolo, mai importi", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const { fattura, commessaId } = await bozzaFatturabile(SEDE);
+    await emettiInDryRun(fattura, SEDE);
+
+    const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(f!.fatturazione).toHaveLength(1);
+    expect(f!.fatturazione[0]).toContain("Fattura n.");
+    expect(f!.fatturazione[0]).toContain("prova SdI");
+
+    // ANTI-LEAK (Ruling R31): niente importi, mai un «totale € X».
+    const serializzato = JSON.stringify(f);
+    expect(serializzato).not.toMatch(/importo/i);
+    expect(JSON.stringify(f!.fatturazione)).not.toContain("€");
+  });
+
+  it("Caso 2: col flag spento la sezione non compare, anche con una fattura vera", async () => {
+    // Non basta `delete`: senza la variabile, interruttoreAttivo ricade sul
+    // default d'ambiente, acceso in test (v. server/platform/interruttori.ts).
+    process.env.FLAG_FATTURAZIONE = "off";
+    process.env.FLAG_LIMITI = "on";
+    const { commessaId } = await bozzaFatturabile(SEDE);
+
+    const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(f!.fatturazione).toEqual([]);
+    expect(JSON.stringify(f)).not.toContain("Fattura");
+  });
+
+  it("Caso 3: una scrittura sulla fattura invalida il fascicolo (nuova versione)", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const { fattura, commessaId } = await bozzaFatturabile(SEDE);
+
+    const prima = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(prima!.fatturazione).toHaveLength(1);
+    expect(prima!.fatturazione[0]).toMatch(/^Fattura: bozza #\d+, \d+ controlli aperti$/);
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(1);
+
+    await annullaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE_FATTURE,
+      motivo: "prova T17",
+      now: () => ORA_FATTURE,
+    });
+
+    const dopo = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(2);
+    expect(dopo!.fatturazione[0]).not.toBe(prima!.fatturazione[0]);
+    expect(dopo!.fatturazione[0]).toContain("Annullata");
+  });
+
+  it("Caso 4: nessuna fattura — «nessuna» solo nello stato fatture_pagamento", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const commessaId = await nuovaCommessaConContratto(SEDE);
+
+    // Stato di default («preventivo»): nessuna fattura non è una domanda
+    // aperta, la sezione resta vuota.
+    const primaDelGate = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(primaDelGate!.fatturazione).toEqual([]);
+
+    const c: any = getCommessaById(commessaId);
+    c.stato = "fatture_pagamento";
+    toccaCommessa(commessaId); // stessa versione «commessa:<id>»: senza, il fascicolo servirebbe la voce di prima
+
+    const dopoIlGate = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(dopoIlGate!.fatturazione).toEqual([
+      "Fattura: nessuna (bozza da generare dai limiti)",
+    ]);
   });
 });

@@ -30,6 +30,7 @@ import {
   type TipoFattura,
 } from "@shared/fatturazione/tipi";
 import { normalizzaSnapshot } from "./cliente";
+import { toccaFattureCommessa } from "./versioni";
 
 export type FatturaPersist = Omit<
   Fattura,
@@ -216,6 +217,10 @@ export function createMemoryFattureRepository(): FattureRepository {
         scadenze: scadenzeDa(id, scadenze, []),
       };
       fatture.set(id, f);
+      // Task 17: ogni scrittura tocca la versione osservata dal fascicolo
+      // Tars della commessa (server/fatture/versioni.ts), qui e nelle
+      // altre quattro scritture sotto.
+      toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(f);
     },
     async perId(sedeId, id) {
@@ -273,19 +278,24 @@ export function createMemoryFattureRepository(): FattureRepository {
         riepilogo: ordinaRiepilogo(clona(riepilogo)),
         scadenze: scadenzeDa(id, scadenze, f.scadenze),
       });
+      toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(f);
     },
     async aggiornaStato({ sedeId, id, patch, now }) {
       const f = trova(sedeId, id);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
       Object.assign(f, conSnapshot(clona(senzaUndefined(patch))), { updatedAt: now });
+      toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(f);
     },
     async aggiornaScadenza({ sedeId, fatturaId, numero, patch }) {
       const f = trova(sedeId, fatturaId);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
       const s = f.scadenze.find(x => x.numero === numero);
-      if (s) Object.assign(s, senzaUndefined(patch));
+      if (s) {
+        Object.assign(s, senzaUndefined(patch));
+        toccaFattureCommessa(f.sedeId, f.commessaId);
+      }
     },
     // Non verifica che `fatturaId` appartenga davvero a `sedeId`: chi
     // chiama (il servizio, Task 6) ha già in mano la fattura corretta.
@@ -295,6 +305,11 @@ export function createMemoryFattureRepository(): FattureRepository {
     async appendEvento(e) {
       const evento: EventoFattura = { ...clona(e), id: prossimoEventoId++, createdAt: e.createdAt ?? new Date() };
       eventi.push(evento);
+      // Stesso limite del commento sopra `eventi()`: un evento orfano (sede
+      // o fatturaId sbagliati) non tocca nessuna versione, semplicemente
+      // perché non si sa quale — non è la garanzia di questo metodo.
+      const f = trova(e.sedeId, e.fatturaId);
+      if (f) toccaFattureCommessa(f.sedeId, f.commessaId);
       return clona(evento);
     },
     async eventi(sedeId, fatturaId) {
@@ -680,6 +695,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const id = Number(rows[0].id);
         // Una fattura nuova non ha scadenze precedenti da conservare.
         const figli = await inserisciFigli(tx, id, righe, riepilogo, scadenze, []);
+        // Task 17: nessuna query in più, `f` è l'input già in mano.
+        toccaFattureCommessa(f.sedeId, f.commessaId);
         return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
       });
     },
@@ -815,6 +832,9 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         await tx`DELETE FROM fattura_scadenze WHERE fattura_id = ${id}`;
 
         const figli = await inserisciFigli(tx, id, righe, riepilogo, scadenze, precedenti);
+        // Task 17: `commessa_id` è già nella riga tornata dalla UPDATE
+        // sopra, nessuna query in più.
+        toccaFattureCommessa(sedeId, Number(rows[0].commessa_id));
         return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
       });
     },
@@ -864,6 +884,9 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const rows = await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
           WHERE id = ${id} AND sede_id = ${sedeId}
           RETURNING *`;
+        // Task 17: `commessa_id` è già nella riga RETURNING, nessuna query
+        // in più.
+        toccaFattureCommessa(sedeId, Number(rows[0].commessa_id));
         // Letture dentro la stessa transazione (tx, non sql): aggiornaStato
         // non tocca i figli, ma restano coerenti con lo snapshot della
         // riga appena scritta invece di aprire una connessione a parte.
@@ -883,7 +906,10 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
     async aggiornaScadenza({ sedeId, fatturaId, numero, patch }) {
       await ensureSchema();
       return sql.begin(async tx => {
-        const fatturaRows = await tx`SELECT id FROM fatture WHERE id = ${fatturaId} AND sede_id = ${sedeId}`;
+        // `commessa_id` in più nella stessa SELECT (Task 17): nessuna
+        // query aggiunta, serve solo per toccare la versione a fine
+        // metodo se la scrittura sotto avviene davvero.
+        const fatturaRows = await tx`SELECT id, commessa_id FROM fatture WHERE id = ${fatturaId} AND sede_id = ${sedeId}`;
         if (!fatturaRows[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
         // FOR UPDATE sulla riga che stiamo per patchare (non su `fatture`,
         // qui solo un controllo di appartenenza): un webhook di pagamento
@@ -900,6 +926,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
 
         await tx`UPDATE fattura_scadenze SET ${tx(colonne, ...Object.keys(colonne))}
           WHERE fattura_id = ${fatturaId} AND numero = ${numero}`;
+        toccaFattureCommessa(sedeId, Number(fatturaRows[0].commessa_id));
       });
     },
     // Non verifica che `fatturaId` appartenga davvero a `sedeId` (nessun
@@ -911,10 +938,25 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
     async appendEvento(e) {
       await ensureSchema();
       const createdAt = e.createdAt ?? new Date();
-      const rows = await sql`INSERT INTO fattura_eventi (fattura_id, sede_id, tipo, payload, actor_user_id, created_at)
-        VALUES (${e.fatturaId}, ${e.sedeId}, ${e.tipo}, ${sql.json(e.payload as any)}, ${e.actorUserId}, ${createdAt})
-        RETURNING *`;
-      return rowToEvento(rows[0]);
+      // Task 17: un solo giro (CTE + LEFT JOIN), non un INSERT più una
+      // SELECT — l'evento è la scrittura più frequente della pipeline di
+      // emissione e raddoppiarne i round trip si sentirebbe. Il LEFT JOIN
+      // (non un JOIN secco) preserva l'evento «orfano» del commento sopra
+      // `eventi()`: se `fattura_id` non appaia in `fatture`, la riga
+      // dell'evento torna comunque, solo senza `evento_commessa_id`.
+      const rows = await sql`
+        WITH ins AS (
+          INSERT INTO fattura_eventi (fattura_id, sede_id, tipo, payload, actor_user_id, created_at)
+          VALUES (${e.fatturaId}, ${e.sedeId}, ${e.tipo}, ${sql.json(e.payload as any)}, ${e.actorUserId}, ${createdAt})
+          RETURNING *
+        )
+        SELECT ins.*, f.commessa_id AS evento_commessa_id
+        FROM ins LEFT JOIN fatture f ON f.id = ins.fattura_id AND f.sede_id = ins.sede_id`;
+      const row = rows[0];
+      if (row.evento_commessa_id != null) {
+        toccaFattureCommessa(e.sedeId, Number(row.evento_commessa_id));
+      }
+      return rowToEvento(row);
     },
     async eventi(sedeId, fatturaId) {
       await ensureSchema();

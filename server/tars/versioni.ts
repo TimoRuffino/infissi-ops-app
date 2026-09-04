@@ -10,6 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { versioneRegistroPagamenti } from "../_core/commessaPayments";
+import { versioneFattureCommessa } from "../fatture/versioni";
 import { getCommessaById, getCommesseStore } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
 import { getDocumentiDiCommessa } from "../routers/preventiviContratti";
@@ -69,6 +70,15 @@ export function versioneCorrente(
         `${(d as any).tipo}:${(d as any).statoAtUpload ?? "-"}:${versioneData((d as any).createdAt)}`,
       ])
     );
+  }
+  if (tipo === "fatture-di-commessa") {
+    // La versione vive in server/fatture/versioni.ts (contatore in
+    // memoria, Task 17): qui solo il controllo di sede, come gli altri
+    // riferimenti scoped a una commessa.
+    const commessaId = Number(arg);
+    const c: any = getCommessaById(commessaId);
+    if (!c || c.sedeId !== sedeId) return null;
+    return versioneFattureCommessa(sedeId, commessaId);
   }
   if (tipo === "giorno-locale") {
     // Cambia alla mezzanotte di Roma: i derivati che dipendono da «oggi»

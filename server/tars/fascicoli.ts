@@ -9,6 +9,9 @@
 // versioni osservate non coincidono più con le correnti; su errore si
 // serve l'ultima versione valida marcata stale (mai per azioni).
 
+import { ETICHETTA_STATO_FATTURA, type Fattura } from "@shared/fatturazione/tipi";
+import { fatturePerCommessa, verificaLimiti } from "../fatture/servizio";
+import { interruttoreAttivo } from "../platform/interruttori";
 import { getCommessaById, STATI_COMMESSA } from "../routers/commesse";
 import {
   REQUIRED_DOC_TIPI_PER_STATO,
@@ -47,6 +50,8 @@ export type FascicoloCommessa = {
   transizioni: { precedente: string | null; successivo: string | null };
   ordini: OrdineFascicolo[];
   domandeAperte: string[];
+  /** Task 17: una riga per fattura/nota di credito, senza importi. `[]` col flag «fatturazione» spento. */
+  fatturazione: string[];
   fonti: string[];
   versioni: Record<string, string>;
   generatoIl: string;
@@ -68,10 +73,71 @@ export function azzeraFascicoliPerTest(): void {
   azzeraCachePersistentePerTest();
 }
 
-function costruisciContenuto(
+/**
+ * Task 17: quanti controlli di `verificaLimiti` sono davvero «aperti»
+ * (bloccano l'emissione) su una bozza. Solo l'esito «errore» conta: un
+ * «avviso» — incluso «limiti non verificati», che qui compare sempre
+ * perché non si rilegge un computo fresco solo per questa riga di testo
+ * (nessuna query in più: v. `fatturePerCommessa` sotto) — non impedisce
+ * l'emissione, quindi non è «da chiudere» (Ruling libera, documentata nel
+ * report del task: l'alternativa "errore + avviso" resterebbe quasi
+ * sempre ≥ 1 per costruzione, un contatore che non distingue più nulla).
+ */
+function controlliApertiBozza(f: Fattura): number {
+  return verificaLimiti(f).filter(controllo => controllo.esito === "errore").length;
+}
+
+/** « · prova SdI» e/o « · avviso: …»: solo per fatture dall'emissione in poi e per le note di credito (mai per una bozza). */
+function codaSdiEAvviso(f: Fattura): string {
+  let coda = "";
+  if (f.inviataDryRun) coda += " · prova SdI";
+  if (f.eiErrore) coda += ` · avviso: ${f.eiErrore}`;
+  return coda;
+}
+
+/** Una riga di testo per fattura o nota di credito. NIENTE importi (ANTI-LEAK, Ruling R31): id, numero, data, stato leggibile, esito SdI. */
+function rigaFatturazione(f: Fattura): string {
+  if (f.tipo === "nota_credito") {
+    const numero = f.numero ?? `#${f.id}`;
+    return `Nota di credito n. ${numero}: ${ETICHETTA_STATO_FATTURA[f.stato]}${codaSdiEAvviso(f)}`;
+  }
+  if (f.stato === "bozza") {
+    return `Fattura: bozza #${f.id}, ${controlliApertiBozza(f)} controlli aperti`;
+  }
+  const numero = f.numero ?? `#${f.id}`;
+  const conData = f.data ? ` del ${f.data}` : "";
+  return `Fattura n. ${numero}${conData}: ${ETICHETTA_STATO_FATTURA[f.stato]}${codaSdiEAvviso(f)}`;
+}
+
+/**
+ * La sezione «Fatturazione» del fascicolo (Task 17): chi chiama verifica
+ * già `interruttoreAttivo("fatturazione")` prima di invocarla, per non
+ * pagare la lettura quando la sezione non compare comunque. Ordinate per
+ * id crescente: `fatturePerCommessa` torna «più recente prima».
+ */
+async function righeFatturazione(
+  sedeId: number,
+  commessaId: number,
+  statoCommessa: string
+): Promise<string[]> {
+  const fatture = (await fatturePerCommessa(sedeId, commessaId))
+    .slice()
+    .sort((a, b) => a.id - b.id);
+  if (fatture.length === 0) {
+    // Solo nello stato in cui la bozza si genera dai limiti: prima (o
+    // dopo, con la commessa già chiusa) «nessuna fattura» non è una
+    // domanda aperta.
+    return statoCommessa === "fatture_pagamento"
+      ? ["Fattura: nessuna (bozza da generare dai limiti)"]
+      : [];
+  }
+  return fatture.map(rigaFatturazione);
+}
+
+async function costruisciContenuto(
   sedeId: number,
   commessaId: number
-): FascicoloCommessa | null {
+): Promise<FascicoloCommessa | null> {
   const c: any = getCommessaById(commessaId);
   if (!c || c.sedeId !== sedeId) return null;
 
@@ -131,6 +197,13 @@ function costruisciContenuto(
     }
   }
 
+  // Task 17: la sezione (e la sua versione) esiste solo col flag acceso —
+  // spento, il fascicolo resta byte-identico a prima di questo task.
+  const fatturazioneAttiva = interruttoreAttivo("fatturazione");
+  const fatturazione = fatturazioneAttiva
+    ? await righeFatturazione(sedeId, c.id, c.stato)
+    : [];
+
   const versioni: Record<string, string> = {
     [`commessa:${c.id}`]: versioneCorrente(`commessa:${c.id}`, sedeId) ?? "-",
     [`ordini-di-commessa:${c.id}`]:
@@ -143,6 +216,12 @@ function costruisciContenuto(
       versioneCorrente(`registroPagamenti:commessa:${c.id}`, sedeId) ?? "-",
     // «inRitardo» dipende da oggi: il rollover di giornata invalida.
     "giorno-locale": versioneCorrente("giorno-locale", sedeId) ?? "-",
+    ...(fatturazioneAttiva
+      ? {
+          [`fatture-di-commessa:${c.id}`]:
+            versioneCorrente(`fatture-di-commessa:${c.id}`, sedeId) ?? "-",
+        }
+      : {}),
   };
 
   return {
@@ -163,9 +242,11 @@ function costruisciContenuto(
     },
     ordini,
     domandeAperte,
+    fatturazione,
     fonti: [
       "commessa CRM (stato, gate, date)",
       "ordini fornitori CRM (stati e date di consegna)",
+      ...(fatturazioneAttiva ? ["fatture CRM (stato ed esito SdI, senza importi)"] : []),
     ],
     versioni,
     generatoIl: new Date().toISOString(),
@@ -183,7 +264,12 @@ function costruisciContenuto(
 export async function fascicoloCommessa(
   input: { sedeId: number; commessaId: number },
   opzioni: {
-    costruttore?: typeof costruisciContenuto;
+    // Sincrona o asincrona (Task 17: costruisciContenuto ora legge le
+    // fatture): i test esistenti passano ancora finti sincroni.
+    costruttore?: (
+      sedeId: number,
+      commessaId: number
+    ) => FascicoloCommessa | null | Promise<FascicoloCommessa | null>;
   } = {}
 ): Promise<FascicoloCommessa | null> {
   const chiave = `fascicolo:commessa:${input.sedeId}:${input.commessaId}`;
@@ -200,7 +286,7 @@ export async function fascicoloCommessa(
 
   let contenuto: FascicoloCommessa | null;
   try {
-    contenuto = costruttore(input.sedeId, input.commessaId);
+    contenuto = await costruttore(input.sedeId, input.commessaId);
   } catch (errore) {
     if (voce) {
       // Ultima versione valida, dichiarata stale: mai per azioni.

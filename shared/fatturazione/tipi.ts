@@ -217,3 +217,22 @@ export const STATI_MODIFICABILI: ReadonlySet<StatoFattura> = new Set(["bozza"]);
 export function fatturaModificabile(stato: StatoFattura): boolean {
   return stato === "bozza";
 }
+
+/**
+ * Stato leggibile in italiano (Task 17, fascicolo Tars C3): stessa
+ * sostanza delle badge di `client/src/lib/fatturaView.ts` (che restano
+ * lì, con la propria variante «Emessa (prova SdI)» — qui il dry-run è
+ * una coda separata, v. `server/tars/fascicoli.ts`), ma questa mappa
+ * server-side non importa dal client e non lo sostituisce.
+ */
+export const ETICHETTA_STATO_FATTURA: Record<StatoFattura, string> = {
+  bozza: "Bozza",
+  in_emissione: "In emissione",
+  emessa: "Emessa",
+  inviata: "Inviata allo SdI",
+  consegnata: "Consegnata",
+  scartata: "Scartata dallo SdI",
+  rifiutata: "Rifiutata dal cliente",
+  mancata_consegna: "Mancata consegna",
+  annullata: "Annullata",
+};
