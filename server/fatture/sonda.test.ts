@@ -498,4 +498,67 @@ describe("startSondaFattureWorker", () => {
     expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 40_000);
   });
+
+  it("stopSondaFattureWorker azzera anche il setTimeout del primo giro, non solo l'intervallo", async () => {
+    vi.useFakeTimers();
+    const giro = vi.fn(async () => ({
+      controllate: 0,
+      cambiate: 0,
+      errori: 0,
+    }));
+
+    startSondaFattureWorker({ giro });
+    stopSondaFattureWorker();
+    await vi.advanceTimersByTimeAsync(40_000);
+
+    // Se stopSondaFattureWorker non azzerasse anche il setTimeout del
+    // primo giro (solo l'intervallo), questo scatterebbe comunque.
+    expect(giro).not.toHaveBeenCalled();
+  });
+
+  it("il flag spento non fa scattare il giro; acceso lo fa scattare una volta, e un tick concorrente si salta mentre inCorso", async () => {
+    vi.useFakeTimers();
+    const flagOriginale = process.env.FLAG_FATTURAZIONE;
+    try {
+      process.env.FLAG_FATTURAZIONE = "off";
+      const giroSpento = vi.fn(async () => ({
+        controllate: 0,
+        cambiate: 0,
+        errori: 0,
+      }));
+      startSondaFattureWorker({ giro: giroSpento });
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(giroSpento).not.toHaveBeenCalled();
+      stopSondaFattureWorker();
+
+      process.env.FLAG_FATTURAZIONE = "on";
+      let sblocca: (() => void) | undefined;
+      const attesa = new Promise<void>(resolve => {
+        sblocca = resolve;
+      });
+      const giroAcceso = vi.fn(async () => {
+        await attesa;
+        return { controllate: 1, cambiate: 1, errori: 0 };
+      });
+      startSondaFattureWorker({ giro: giroAcceso });
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(giroAcceso).toHaveBeenCalledTimes(1);
+
+      // Il primo giro non si è ancora risolto (inCorso resta true): il
+      // tick dell'intervallo successivo (15 minuti dopo) deve saltarlo,
+      // non richiamare giro una seconda volta in parallelo.
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      expect(giroAcceso).toHaveBeenCalledTimes(1);
+
+      // Sbloccato il primo giro, inCorso torna libero: il giro successivo
+      // richiama di nuovo giro (non è rimasto incastrato per sempre).
+      sblocca!();
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      expect(giroAcceso).toHaveBeenCalledTimes(2);
+    } finally {
+      if (flagOriginale === undefined) delete process.env.FLAG_FATTURAZIONE;
+      else process.env.FLAG_FATTURAZIONE = flagOriginale;
+    }
+  });
 });

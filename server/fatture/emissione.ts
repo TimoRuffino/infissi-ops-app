@@ -92,11 +92,11 @@ const STATI_DI_PARTENZA = new Set<Fattura["stato"]>([
 /** Scarto ammesso per campo nel confronto con i totali di Fatture in Cloud. */
 const TOLLERANZA_CENT = 1;
 
-function repo(dip?: DipendenzeEmissione): FattureRepository {
+export function repo(dip?: DipendenzeEmissione): FattureRepository {
   return dip?.repository ?? getFattureRepository();
 }
 
-function messaggio(errore: unknown): string {
+export function messaggio(errore: unknown): string {
   const testo = String((errore as any)?.message ?? errore ?? "").trim();
   return testo || "errore sconosciuto";
 }

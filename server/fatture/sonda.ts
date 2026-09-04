@@ -16,18 +16,10 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import {
   archiviaFattura,
   contestoFicPerSede,
+  messaggio,
+  repo,
   type DipendenzeEmissione,
 } from "./emissione";
-import { getFattureRepository, type FattureRepository } from "./repository";
-
-function repo(dip?: DipendenzeEmissione): FattureRepository {
-  return dip?.repository ?? getFattureRepository();
-}
-
-function messaggio(errore: unknown): string {
-  const testo = String((errore as any)?.message ?? errore ?? "").trim();
-  return testo || "errore sconosciuto";
-}
 
 /** spec §7.5.8: ei_status di Fatture in Cloud → stato del CRM. Chiavi
  * assenti (`not_sent`, `missing`, sconosciute) e `null` non mappano a
@@ -231,6 +223,7 @@ const INTERVALLO_MS = 15 * 60 * 1000;
 const PRIMO_GIRO_MS = 40_000;
 
 let timer: NodeJS.Timeout | null = null;
+let primoGiroTimer: NodeJS.Timeout | null = null;
 let inCorso = false;
 
 /**
@@ -239,14 +232,23 @@ let inCorso = false;
  * `unref` (non tiene vivo il processo da solo), primo giro anticipato via
  * `setTimeout`. Attivo solo con `interruttoreAttivo("fatturazione")`: il
  * kill switch si controlla ad ogni tick, non una volta sola all'avvio.
+ * `dip.giro` (default `giroSonda`) è iniettabile solo per i test: la
+ * produzione non lo passa mai.
  */
-export function startSondaFattureWorker(): void {
+export function startSondaFattureWorker(dip?: {
+  giro?: () => Promise<{
+    controllate: number;
+    cambiate: number;
+    errori: number;
+  }>;
+}): void {
   if (timer) return;
+  const giro = dip?.giro ?? giroSonda;
   const tick = async () => {
     if (inCorso || !interruttoreAttivo("fatturazione")) return;
     inCorso = true;
     try {
-      await giroSonda();
+      await giro();
     } catch (errore) {
       console.error("[fatture] sonda:", messaggio(errore));
     } finally {
@@ -255,11 +257,14 @@ export function startSondaFattureWorker(): void {
   };
   timer = setInterval(() => void tick(), INTERVALLO_MS);
   timer.unref?.();
-  setTimeout(() => void tick(), PRIMO_GIRO_MS).unref?.();
+  primoGiroTimer = setTimeout(() => void tick(), PRIMO_GIRO_MS);
+  primoGiroTimer.unref?.();
 }
 
-/** Solo test/hot-reload: azzera il timer, come il suo pari in followup/worker.ts. */
+/** Solo test/hot-reload: azzera entrambi i timer, come il suo pari in followup/worker.ts. */
 export function stopSondaFattureWorker(): void {
   if (timer) clearInterval(timer);
+  if (primoGiroTimer) clearTimeout(primoGiroTimer);
   timer = null;
+  primoGiroTimer = null;
 }
