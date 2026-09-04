@@ -74,7 +74,7 @@ Nella colonna flag, `T` = `FLAG_TARS` (master obbligatorio per ogni tool),
 | `leggi_memorie` — memoria | `tars/memoria.memorieValide` | L0 | R0 | solo memorie valide di utente+sede | T + TM | `t7Memoria.test.ts`; esistente, non richiede read-tools. |
 
 **Inventario verificabile.** La fonte di verità del conteggio è
-`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.19.0"`) e
+`server/tars/azioni/registry.ts` (`VERSIONE_REGISTRO_AZIONI = "1.20.0"`) e
 il golden di `registry.test.ts`: **56 azioni**. La tabella sopra descrive i
 tool citati dalle tranche; i nomi completi si ricavano con
 `rg -o 'nome: "[^"]+"' server/tars/strumenti/*.ts | sort -u`.
