@@ -1229,7 +1229,16 @@ export const fattureInCloudRouter = router({
       return { url, redirectUri };
     }),
 
-  disconnectOAuth: adminProcedure.mutation(({ ctx }) => {
+  disconnectOAuth: adminProcedure.mutation(async ({ ctx }) => {
+    // Prima la configurazione di fatturazione, poi il collegamento: se la
+    // scrittura fallisce non resta un OAuth scollegato con lo scope di
+    // scrittura ancora dichiarato verificato — l'operazione fallisce
+    // tutta e si ritenta. `await import` come altrove in questo modulo:
+    // il repository fatture importa da qui (ciclo).
+    const { azzeraScopeScritturaVerificato } = await import(
+      "../fatture/config"
+    );
+    await azzeraScopeScritturaVerificato(ctx.sedeId ?? DEFAULT_SEDE_ID);
     const cfg = getCfg(ctx.sedeId);
     cfg.accessTokenCifrato = null;
     cfg.refreshTokenCifrato = null;

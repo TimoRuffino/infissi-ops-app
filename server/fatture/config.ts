@@ -88,12 +88,43 @@ export async function salvaConfigFatturazione(input: {
 }
 
 /**
- * Chiama GET /c/{company}/issued_documents/info?type=invoice: se risponde,
- * il token ha davvero i permessi di scrittura (non solo quelli concessi in
- * fase di consenso OAuth, che l'utente potrebbe aver limitato dal pannello
- * Fatture in Cloud) e la risposta porta gli id da usare per emettere —
- * aliquote IVA, conti di pagamento, numerazioni, metodi di pagamento — che
- * qui vengono messi in cache sulla configurazione di sede.
+ * Scollegando OAuth FiC, la verifica dello scope di scrittura non vale
+ * più: era di QUEL collegamento. Azzera i due soli campi che ne
+ * dipendono, senza toccare il resto della configurazione di sede (IBAN,
+ * numerazione, conti: non c'entrano con l'account collegato).
+ *
+ * Non è `salvaConfigFatturazione`: quel percorso è alimentato
+ * dall'input del router e allargarne il patch a `scopeScritturaOk`
+ * significherebbe permettere a chi salva l'IBAN di dichiararsi
+ * verificato. Se non c'è niente da azzerare non scrive: una sede che non
+ * ha mai configurato la fatturazione non si ritrova una riga nuova.
+ */
+export async function azzeraScopeScritturaVerificato(
+  sedeId: number
+): Promise<void> {
+  const repo = getFattureRepository();
+  await repo.ensureSchema();
+  const attuale = await repo.config(sedeId);
+  if (!attuale.scopeScritturaOk && attuale.scopeVerificatoAt == null) return;
+  await repo.salvaConfig({
+    ...attuale,
+    scopeScritturaOk: false,
+    scopeVerificatoAt: null,
+  });
+}
+
+/**
+ * Chiama GET /c/{company}/issued_documents/info?type=invoice: prova che il
+ * token vive ed è agganciato all'azienda giusta, e carica gli id che
+ * servono per emettere — aliquote IVA, conti di pagamento, numerazioni,
+ * metodi di pagamento — mettendoli in cache sulla configurazione di sede.
+ *
+ * NON dimostra però lo scope di SCRITTURA: `/issued_documents/info` è una
+ * lettura, e un token con i soli permessi di lettura risponde lo stesso.
+ * Il permesso di creare documenti si vede solo alla prima emissione vera,
+ * quando `POST /issued_documents` passa o torna 401/403. `scopeScritturaOk`
+ * va quindi letto come «il collegamento FiC risponde e la configurazione è
+ * completa», non come una garanzia di poter emettere.
  */
 export async function verificaScopeScrittura(input: {
   sedeId: number;
@@ -161,6 +192,8 @@ export async function verificaScopeScrittura(input: {
       paymentAccountIdFic:
         attuale.paymentAccountIdFic ??
         (conti.length === 1 ? conti[0].id : null),
+      // «Il collegamento risponde e gli id ci sono», non «il token può
+      // scrivere»: v. la nota in testa alla funzione.
       scopeScritturaOk: true,
       scopeVerificatoAt: input.now ?? new Date(),
     });

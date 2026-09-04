@@ -6,7 +6,8 @@
 // mockare per i test qui sotto.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
-import { _resetFattureRepositoryForTests } from "../fatture/repository";
+import { _resetFattureRepositoryForTests, getFattureRepository } from "../fatture/repository";
+import { getCfg } from "./fattureInCloud";
 import { appRouter } from "../routers";
 
 function context(sedeId: number, userId: number, ruoli: string[]): TrpcContext {
@@ -111,5 +112,38 @@ describe("router fatturazioneConfig", () => {
     const altraSede = appRouter.createCaller(context(2, 16, ["amministrazione"]));
     const esito = await altraSede.fatturazioneConfig.get();
     expect(esito.config.iban).toBeNull();
+  });
+
+  // M3: scollegare OAuth non lascia in giro il permesso di scrittura
+  // dell'account precedente. `scopeScritturaOk` vive in
+  // `fatturazione_config` (l'ultima verifica riuscita), `scopeScrittura`
+  // in `FicConfig` (l'intento OAuth): erano legati a QUEL collegamento e
+  // scompaiono con lui.
+  it("disconnectOAuth azzera anche scopeScritturaOk e la data di verifica", async () => {
+    const sedeId = 17;
+    const direzione = appRouter.createCaller(context(sedeId, 17, ["direzione"]));
+    const cfg = getCfg(sedeId);
+    cfg.companyId = 4242;
+    cfg.enabled = true;
+    cfg.scopeScrittura = true;
+    const repo = getFattureRepository();
+    await repo.ensureSchema();
+    await repo.salvaConfig({
+      ...(await repo.config(sedeId)),
+      iban: "IT60X0542811101000000123456",
+      scopeScritturaOk: true,
+      scopeVerificatoAt: new Date("2026-09-04T09:00:00Z"),
+    });
+    expect((await direzione.fatturazioneConfig.get()).scopeScritturaOk).toBe(true);
+
+    await direzione.fattureInCloud.disconnectOAuth();
+
+    const dopo = await direzione.fatturazioneConfig.get();
+    expect(dopo.scopeScrittura).toBe(false);
+    expect(dopo.scopeScritturaOk).toBe(false);
+    expect(dopo.config.scopeVerificatoAt).toBeNull();
+    // Il resto della configurazione di sede non si tocca: l'IBAN non
+    // c'entra niente col collegamento OAuth.
+    expect(dopo.config.iban).toBe("IT60X0542811101000000123456");
   });
 });
