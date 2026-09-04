@@ -20,6 +20,7 @@ import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import {
   migraTipiDocumento,
+  validaAllegatoFascicolo,
   validaUploadManualeFascicolo,
 } from "./preventiviContratti";
 import {
@@ -73,6 +74,22 @@ describe("upload manuale del fascicolo commessa", () => {
     expect(() => validaUploadManualeFascicolo(1, "text\/html")).toThrow(
       /non consentito/
     );
+  });
+
+  // Ruling R37: l'XML della fattura elettronica vive nello storage
+  // `fatture_xml` ed è servito da `fatture.documento`, non dal fascicolo.
+  // Nessun percorso del CRM lo carica come allegato: l'allowlist non deve
+  // offrire una porta che nessuno usa (l'anteprima del client apre gli
+  // allegati in un iframe con un blob: dell'origine dell'app).
+  it("rifiuta l'XML: non è un allegato del fascicolo, né a mano né dai canali", () => {
+    for (const mimeType of ["application/xml", "text/xml"]) {
+      expect(() => validaUploadManualeFascicolo(1, mimeType)).toThrow(
+        /non consentito/
+      );
+      expect(() =>
+        validaAllegatoFascicolo(Buffer.from("<x/>"), mimeType)
+      ).toThrow(/non consentito/);
+    }
   });
 
   it("rifiuta base64 malformato senza creare metadati vuoti", async () => {

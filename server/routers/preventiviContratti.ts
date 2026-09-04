@@ -187,9 +187,9 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  // XML FatturaPA archiviato dal CRM (piano 2): mai offerto all'upload manuale
-  "application/xml",
-  "text/xml",
+  // Niente XML: l'XML FatturaPA del piano 2 vive nello storage
+  // `fatture_xml` e si scarica da `fatture.documento`, non entra nel
+  // fascicolo (Ruling R37).
 ]);
 
 export function validaAllegatoFascicolo(
