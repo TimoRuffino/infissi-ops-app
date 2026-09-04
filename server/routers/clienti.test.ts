@@ -149,3 +149,32 @@ describe("clienti.createConCommessa", () => {
     expect(chiaviCommessa(commessa)).toEqual(chiaviCommessa(commessaSeparata));
   });
 });
+
+describe("recapito della fattura elettronica", () => {
+  it("crea e aggiorna PEC, codice destinatario e id FiC; il codice malformato è rifiutato", async () => {
+    const caller = direzione();
+    const cliente = await caller.clienti.create({
+      nome: " ",
+      cognome: "Alfa Srl",
+      tipo: "azienda",
+      partitaIva: "01500270119",
+      pec: "alfa@pec.it",
+      codiceDestinatario: "ABC1234",
+      ficEntityId: 7788,
+    });
+    expect(cliente).toMatchObject({ pec: "alfa@pec.it", codiceDestinatario: "ABC1234", ficEntityId: 7788 });
+
+    // Senza i campi il record li porta comunque, vuoti: lo snapshot della
+    // fattura (server/fatture/cliente.ts) non deve indovinarli.
+    const privato = await caller.clienti.create({ nome: "Mario", cognome: "Rossi" });
+    expect(privato).toMatchObject({ pec: null, codiceDestinatario: null, ficEntityId: null });
+
+    await caller.clienti.update({ id: privato.id, codiceDestinatario: "0000000", pec: "rossi@pec.it" });
+    expect(getClienteById(privato.id)).toMatchObject({ codiceDestinatario: "0000000", pec: "rossi@pec.it" });
+
+    await expect(
+      caller.clienti.create({ nome: "X", cognome: "Y", codiceDestinatario: "abc123" })
+    ).rejects.toThrow();
+    await expect(caller.clienti.update({ id: privato.id, pec: "non-una-pec" })).rejects.toThrow();
+  });
+});

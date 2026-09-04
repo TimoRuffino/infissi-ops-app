@@ -135,6 +135,13 @@ const creaClienteInput = z.object({
   tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
   codiceFiscale: z.string().optional(),
   partitaIva: z.string().optional(),
+  // Recapito della fattura elettronica: la PEC e il codice destinatario
+  // SdI (7 caratteri alfanumerici; "0000000" è il default dei privati e
+  // non si scrive qui). `ficEntityId` è il cliente corrispondente su
+  // Fatture in Cloud, riusato all'emissione invece di ricrearlo.
+  pec: z.string().email().optional(),
+  codiceDestinatario: z.string().regex(/^[A-Z0-9]{7}$/).optional(),
+  ficEntityId: z.number().int().optional(),
   // Legacy "indirizzo/citta/cap" → kept as RESIDENZA (used by admin
   // for fatture). New explicit fields below for work-site address.
   indirizzo: z.string().optional(),
@@ -194,6 +201,11 @@ export async function creaCliente(
     // Stamp the active sede so the cliente belongs to the current showroom.
     sedeId: ctx.sedeId ?? 1,
     tipo: input.tipo ?? "privato",
+    // Sempre presenti nel record, anche vuoti: lo snapshot della fattura
+    // (server/fatture/cliente.ts) li legge senza doverli indovinare.
+    pec: input.pec ?? null,
+    codiceDestinatario: input.codiceDestinatario ?? null,
+    ficEntityId: input.ficEntityId ?? null,
     detrazione: input.detrazione ?? false,
     tipoDetrazione: input.tipoDetrazione ?? null,
     interesseFinanziamento: input.interesseFinanziamento ?? false,
@@ -436,6 +448,10 @@ export const clientiRouter = router({
         tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
         codiceFiscale: z.string().optional(),
         partitaIva: z.string().optional(),
+        // Recapito della fattura elettronica (v. `creaClienteInput`).
+        pec: z.string().email().optional(),
+        codiceDestinatario: z.string().regex(/^[A-Z0-9]{7}$/).optional(),
+        ficEntityId: z.number().int().optional(),
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         cap: z.string().optional(),
