@@ -10,7 +10,7 @@
 // testo per le archiviazioni automatiche, duplicati per riferimento
 // d'ordine, settimana di approntamento (04/09/2026 notte).
 // 1.3.0: fornitore dall'intestazione e numero documento del fornitore.
-export const VERSIONE_LETTURA_COSTO = "1.3.0";
+export const VERSIONE_LETTURA_COSTO = "1.4.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;

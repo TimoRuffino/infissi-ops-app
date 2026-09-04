@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 03/09/2026<br>
+**Aggiornato:** 04/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -52,6 +52,28 @@
 > min se tutte gestite; le scartate non si ripropongono). Aperto: lo scavalco
 > dei gate quando l'utente nomina lo stato di arrivo (oggi consentito dal
 > mandato del 02/09) e la lettura con il modello dei PDF scansionati.
+>
+> **Mattina del 04/09, «è ancora troppo stupido» (conferma BT Glass per De
+> Petris, letta senza importi e con il fornitore sbagliato).** Il testo dei
+> PDF nativi ora viene ricostruito dalla GEOMETRIA dei frammenti
+> (`documenti/testoPdf.ts`, parser 2.0.0, stile `pdftotext -layout`): righe
+> vere, celle separate da tre spazi, valori allineati sotto le etichette.
+> Estrattore 1.1.0: imponibile anche per aritmetica dell'IVA, «Imposta» come
+> IVA, importi solo con decimali, «IVA esclusa» → il totale è l'imponibile,
+> numero mai una data, fornitore non è agente/banca/destinatario (poi firma
+> in calce, poi dominio), «vs. riferimento» nella cella accanto o sotto,
+> colonna «Consegna». Merce 1.2.0 a celle, unità a misura, righe uguali
+> sommate. Riscontro con un carattere di tolleranza sul cognome. Lettura
+> 1.4.0: rilettura di tutte le conferme. Corpus di 15 conferme reali (non
+> nel repo): 5 nativi giusti, 8 scansioni su 10 leggibili con l'OCR locale,
+> 1 pagina ruotata illeggibile, 1 PDF con più conferme (totali mescolati:
+> da spezzare, prossima tranche). Scoperto e corretto nei log: lo store
+> `fic_pagamenti_links` si registrava DOPO `bootstrapAll` (modulo importato
+> solo dinamicamente) e i suoi salvataggi venivano rinviati per sempre
+> («save deferred … bootstrap not complete yet» ogni secondo): import
+> statico in `_core/index.ts` e store tardivi che si caricano da soli in
+> `persistence.ts`. Piano: `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`
+> (quinta tranche).
 
 ## 1. Contesto
 

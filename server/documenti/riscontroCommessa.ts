@@ -56,6 +56,44 @@ function contieneParola(testo: string, parola: string): boolean {
   return new RegExp(`(?<![a-z0-9])${parola}(?![a-z0-9])`).test(testo);
 }
 
+/** Distanza di Levenshtein limitata a 1: basta sapere se è 0, 1 o di più. */
+function quasiUguali(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let differenze = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    differenze += 1;
+    if (differenze > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  return differenze + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * Il cognome del cliente anche con un carattere sbagliato: le scansioni
+ * passano dall'OCR e i fornitori scrivono a mano («Rif. POCCJ» per Pocci).
+ * Solo per nomi lunghi almeno sei lettere, dove un errore non crea equivoci.
+ */
+function contieneParolaQuasi(paroleTesto: ReadonlySet<string>, parola: string): boolean {
+  if (parola.length < 6) return false;
+  for (const candidata of paroleTesto) {
+    if (candidata.length >= 5 && quasiUguali(candidata, parola)) return true;
+  }
+  return false;
+}
+
 /** «COM-2026-096» e il testo normalizzato «com 2026 096» si cercano in entrambe le forme. */
 function contieneCodice(testo: string, codice: string): boolean {
   const norm = normalizza(codice);
@@ -87,6 +125,11 @@ export function riscontroCommessaNelTesto(
     ((trovate[0] === parole[0] && parole[0].length >= 5) || trovate.length >= 2)
   ) {
     prove.push(`cliente ${trovate.join(" ")}`);
+  } else {
+    // Quasi uguale: un carattere di differenza sul cognome (OCR, refusi).
+    const paroleTesto = new Set(corpo.split(" ").filter(p => p.length >= 5));
+    const quasi = parole.find(p => contieneParolaQuasi(paroleTesto, p));
+    if (quasi) prove.push(`cliente ~${quasi}`);
   }
 
   // L'indirizzo del cantiere: via e città insieme, o due parole della via.

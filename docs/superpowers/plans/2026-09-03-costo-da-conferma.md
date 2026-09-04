@@ -149,6 +149,61 @@ l'OCR».
 - Lettura 1.3.0: il worker rilegge ancora tutte le conferme per prendere
   fornitore e numero documento dall'intestazione.
 
+## Quinta tranche (mattina del 04/09): «è ancora troppo stupido»
+
+Caso guida: conferma BT Glass per De Petris (COM-2026-052), archiviata da
+Tars in chat alle 08:45 e letta «senza imponibile né totale, fornitore
+Ruffino Group». Il documento aveva tutto: pdf.js consegnava il testo
+nell'ordine del flusso, con il riquadro totali spezzato (importi dieci righe
+prima delle etichette) e l'agente al posto del fornitore. Poi la direzione
+ha mandato quindici conferme di fornitori diversi: dieci sono SCANSIONI.
+
+1. **Righe dalla geometria** (`server/documenti/testoPdf.ts`, parser
+   `pdf-testo-nativo` 2.0.0): ogni frammento pdf.js torna alla sua riga
+   (stessa quota) e alla sua colonna (x / larghezza media di un carattere),
+   come `pdftotext -layout`. Etichette e valori restano affiancati, le celle
+   di una tabella sono separate da almeno tre spazi, un valore resta sotto la
+   sua etichetta anche nella riga dopo.
+2. **Estrattore 1.1.0** (`estrazioneConferma.ts`): imponibile per
+   **aritmetica dell'IVA** (imponibile + IVA = totale con un'aliquota
+   italiana; Gianesin, riquadri OCR); `Imposta` come etichetta dell'IVA;
+   importi solo con decimali (una partita IVA o «Consegna 3» non sono
+   totali); «+ IVA / IVA esclusa / a vostro carico IVA» → il totale letto È
+   l'imponibile; «Totale (iva esclusa)» idem; numero non è una data («N.
+   000183 del 12/03/2026», «nostro riferimento n. OV-2025-…», cella sotto
+   «N.DOCUMENTO»); fornitore dall'intestazione senza scambiarlo con agente,
+   banca o destinatario (righe di etichette, marcatore a destra), poi la
+   firma in calce, poi il dominio del sito; «vs. riferimento» = valore
+   accanto o nella cella sotto, mai un'altra etichetta né una frase; «del
+   23/02/2026» è la data del documento anche con «Settimana 21» accanto; la
+   colonna «Consegna» di una tabella dà le date di consegna.
+3. **Merce 1.2.0** (`estrazioneMerce.ts`): righe a celle (codice |
+   descrizione | um | quantità), quantità prima o dopo l'unità, unità a
+   misura nel nome («LAMIERA A DISEGNO (4,70 ML)») con i pezzi dalla riga
+   sotto, articoli uguali sommati (tre sistemi scorrevoli = 1 riga × 3),
+   frasi delle condizioni e opzioni (maggiorazioni, imballi) scartate.
+4. **Riscontro** (`riscontroCommessa.ts`): il cognome anche con un carattere
+   sbagliato («Rif. POCCJ» per Pocci): le scansioni passano dall'OCR.
+5. **Lettura 1.4.0**: il worker rilegge tutte le conferme; la merce letta con
+   l'estrattore vecchio si rigenera se nessuno l'ha toccata.
+6. **`fic_pagamenti_links` mai salvato** (scoperto nei log della stessa
+   mattina): il modulo `routers/ficPagamenti.ts` era importato solo in modo
+   dinamico, il suo persistedStore si registrava DOPO `bootstrapAll` e ogni
+   salvataggio veniva rinviato per sempre («save deferred … bootstrap not
+   complete yet» una volta al secondo, per ore; i link delle riconciliazioni
+   FiC vivevano solo in memoria). Import statico in `_core/index.ts` e, in
+   `persistence.ts`, uno store registrato tardi si carica da solo.
+
+Sul corpus dei quindici file (non nel repo: dati di clienti), dopo la
+tranche: i cinque PDF con testo nativo escono giusti (fornitore, numero,
+riferimento, consegna, imponibile, merce); delle dieci scansioni con
+l'OCR locale (solo `eng` sul Mac; in Railway c'è anche `ita`) otto danno
+fornitore e imponibile plausibili, una è una pagina ruotata (testo
+illeggibile: l'OCR non raddrizza), una ha i totali in una tabella che
+tesseract sbriciola. Un PDF «Conferme» conteneva più conferme: i totali si
+mescolano, va spezzato per documento (prossima tranche). La lettura con il
+modello (vision) delle scansioni resta la strada per il resto.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

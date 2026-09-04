@@ -5,6 +5,12 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
+// Lo store `fic_pagamenti_links` vive in un modulo che i router importano
+// solo in modo dinamico (per spezzare un ciclo): senza questa import statica
+// il suo persistedStore si registrava DOPO bootstrapAll, restava «non
+// caricato» e ogni salvataggio veniva rinviato per sempre (04/09/2026: un
+// «save deferred» al secondo per ore, link mai scritti su Postgres).
+import "../routers/ficPagamenti";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { serveWellKnown } from "./wellKnown";

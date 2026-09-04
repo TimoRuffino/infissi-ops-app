@@ -190,7 +190,7 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
     expect(proposta.evidenza?.frammento).toContain("24/09/2026");
     expect(proposta.evidenza?.pagina).toBe(1);
     expect(proposta.motivazione).toContain("2026-09-24");
-    expect(proposta.versioni.estrattore).toBe("1.0.0");
+    expect(proposta.versioni.estrattore).toBe("1.1.0");
     expect(proposta.effetto).toContain(ordine.codiceOrdine);
     expect(proposta.effetto).toContain("10/09/2026 → 24/09/2026");
 

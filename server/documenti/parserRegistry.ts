@@ -19,6 +19,7 @@ import {
   eseguiOcrPdf,
   type ConfigOcr,
 } from "./ocr";
+import { pagineDaDocumento, type DocumentoPdf } from "./testoPdf";
 
 export type MetadatiOcr = {
   lingue: string;
@@ -67,9 +68,27 @@ export type ParserDocumento = {
 
 const MAX_BYTE_ANALISI = 15 * 1024 * 1024;
 
+/**
+ * Le pagine di un PDF con testo nativo: righe ricostruite dalla geometria
+ * dei frammenti (2.0.0). Se la geometria manca (frammenti senza coordinate)
+ * resta il testo piatto di unpdf, nell'ordine del flusso.
+ */
+async function pagineNative(pdf: unknown): Promise<string[]> {
+  try {
+    return await pagineDaDocumento(pdf as DocumentoPdf);
+  } catch {
+    const { text } = await extractText(pdf as any, { mergePages: false });
+    return (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
+      String(pagina ?? "")
+    );
+  }
+}
+
 const pdfTestoNativo: ParserDocumento = {
   nome: "pdf-testo-nativo",
-  versione: "1.0.0",
+  // 2.0.0 (04/09/2026): righe dalla geometria, non dal flusso di contenuto —
+  // etichette e valori tornano affiancati, le colonne restano celle.
+  versione: "2.0.0",
   supporta: (mimeType, nomeFile) =>
     (mimeType ?? "").toLowerCase().includes("pdf") ||
     nomeFile.toLowerCase().endsWith(".pdf"),
@@ -79,11 +98,11 @@ const pdfTestoNativo: ParserDocumento = {
       // per ogni font che non sa misurare (Math.sumPrecise assente in Node)
       // e il worker delle conferme ne produce decine per documento.
       const pdf = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
-      const { text } = await extractText(pdf, { mergePages: false });
-      const pagine = (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
-        String(pagina ?? "")
-          .replace(/[ \t]+\n/g, "\n")
-          .trim()
+      // Si tolgono gli spazi in coda alle righe e le righe vuote ai bordi,
+      // NON il rientro iniziale: è la colonna del frammento, e un valore
+      // sotto la sua etichetta si riconosce da lì.
+      const pagine = (await pagineNative(pdf)).map(pagina =>
+        pagina.replace(/[ \t]+\n/g, "\n").replace(/^\n+/, "").replace(/\s+$/, "")
       );
       const totale = pagine.reduce((somma, p) => somma + p.length, 0);
       if (totale === 0) {
