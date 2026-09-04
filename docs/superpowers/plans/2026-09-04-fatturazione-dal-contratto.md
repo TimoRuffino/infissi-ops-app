@@ -1902,6 +1902,44 @@ git commit -m "feat(fic): le fatture emesse dal CRM nascono collegate nel sync, 
 
 ---
 
+### Task 12b: Adeguamenti dalle otto fatture reali del 04/09 (spese al 22 %, righe manuali, pratica edilizia)
+
+Il 04/09/2026 la direzione ha fornito altre otto fatture 2026 (92, 99, 106, 107, 113, 119, 120, NDC-1). Confronto col piano (analisi del controller, testi mai nel repo):
+
+| Fattura | Cosa mostra | Conseguenza |
+|---|---|---|
+| 92, 106 | «Spese professionali Bonus Casa» / «Spese per documentazione detrazione» € 150,00 **al 22 %**, sommate ai beni significativi nel riepilogo (22 % = B + 150 − P) | la voce `spese_professionali` non è un servizio al 10 %: è una riga al 22 % che entra in B |
+| 106, 119 | maniglie/voci aggiunte a mano; «Manutenzione Straordinaria D.P.R. 380/2001 (art. 3, 1°comma, lettera b)» + riga «CILA N. … del …, rilasciata dal Comune di … e intestata a …» | righe manuali in bozza; dicitura straordinaria + pratica edilizia |
+| 107, 113 | zanzariere: tutto al 10 %, posa inclusa, nessun markup, nessuna sezione limiti | già coperto (B = 0 → tutto al 10 %) |
+| 119 | porte interne: maniglie contate tra i beni significativi, B ≤ P → tutto al 10 % | già coperto |
+| 99, 120 | B2B: solo 22 %; nuova costruzione con **IVA 4 %** e «Documento privo di valenza fiscale…» | **fuori ambito v1** (fatture libere, D6/§12): documentato nel handoff |
+| NDC-1 | nota di credito FiC con **importi negativi** in stampa; prima riga «Accredito su ns. fatt. N del … per …»; riga «Calcolo limite…» | il segno si verifica alla prima nota reale (runbook); la prima riga diventa `intestazione` |
+
+**Files:**
+- Modify: `shared/fatturazione/tipi.ts` (`FatturazioneConfig.speseDocumentazioneCent: number` default 15000; `ModificaBozza` cresce lato servizio), `shared/fatturazione/diciture.ts` (+ `intervento_straordinaria`, `pratica_edilizia` template)
+- Modify: `server/fatture/repository.ts` (colonna additiva `spese_documentazione_cent BIGINT NOT NULL DEFAULT 15000` in `fatturazione_config`, mapper, memoria)
+- Modify: `server/fatture/generatore.ts`, `server/fatture/servizio.ts`, `server/fatture/notaCredito.ts`, `server/fatture/config.ts`
+- Test: `server/fatture/generatore.test.ts`, `server/fatture/servizio.test.ts`, `server/fatture/notaCredito.test.ts`, `server/fatture/repository.test.ts` (+ pg)
+
+**Regole (ruling del controller):**
+
+1. **R17 — spese professionali al 22 %**: quando `contratto.opzioniComputo.speseProfessionali` è vero il generatore emette una riga `bene` (non `servizio`) con descrizione «Spese per documentazione detrazione», `aliquota: 22`, `beneSignificativo: true`, `importoCent = config.speseDocumentazioneCent` (default 15000), `voceComputoCodice: "spese_professionali"`, `limiteCent` = limite della voce del computo; la voce `spese_professionali` NON compare più tra i servizi al 10 %. La dicitura `spese_professionali_escluse` resta solo quando l'opzione è falsa. Test: con l'opzione vera la riga è tra i beni, il riepilogo 22 % include i 150 €, nessun servizio `spese_professionali`.
+2. **R18 — righe manuali**: `ModificaBozza` accetta `righeAggiunte?: Array<{ tipo: "bene" | "servizio"; descrizione: string; importoCent: number; aliquota: 22 | 10; beneSignificativo: boolean }>` (max 20; `bene` ⇒ aliquota 22; `servizio` ⇒ 10; descrizione 1–300; importo intero ≥ 0) e `righeRimosse?: number[]` (ordini di righe non derivate `bene`/`servizio` con `rigaCommessaId == null` e `voceComputoCodice == null`: le righe del contratto e del computo non si cancellano, si azzerano). Le righe aggiunte vanno in coda al gruppo del loro tipo (bene prima del markup; servizio prima di storno/riaddebito), poi `ricalcola`. Evento `modificata` con `{ righeAggiunte: n, righeRimosse: n }`. Test: aggiunta «N.6 Maniglie» 60000 @22 significativa → B cresce e il markup cala di conseguenza; rimozione di una riga manuale; rifiuto della rimozione di una riga del contratto.
+3. **R19 — pratica edilizia**: `DICITURE.intervento_straordinaria = "Manutenzione Straordinaria\nD.P.R. 380/2001 (art. 3, 1°comma, lettera b)"`; `DICITURE.pratica_edilizia = "{tipo} N. {numero} del {data}, rilasciata dal Comune di {comune} e intestata a {intestatario}."`. Il generatore sceglie `intervento_straordinaria` al posto di `intervento_manutenzione` quando `cliente.praticaEdilizia ∈ {"cila","scia"}` (campo già presente sul cliente: leggerlo nello `ClienteSnapshot` come `praticaEdilizia: "nessuna"|"cil"|"cila"|"scia"`), e aggiunge in `note` il template `pratica_edilizia` con `{tipo}` = CILA/SCIA/CIL e gli altri segnaposto da compilare a mano (restano tra graffe finché l'operatore non li sostituisce: `validaPerEmissione` dà `avviso` `pratica_edilizia_incompleta` se `note` contiene ancora `{`). Test sul generatore e sulla validazione.
+4. **R20 — nota di credito**: la prima riga della nota è un'`intestazione` «Accredito su ns. fattura n. X del Y» (+ motivo se passato: `creaNotaCredito` accetta `motivo?: string` ≤ 300 e lo accoda); gli importi restano positivi (FatturaPA TD04 li vuole positivi; FiC li stampa col segno): il runbook (Task 18) impone di verificare alla prima nota reale che FiC non la registri come una fattura positiva e, in caso, di passare a importi negativi con `type: credit_note`. Test: prima riga intestazione con numero/data dell'origine.
+5. **R21 — fuori ambito dichiarato**: aliquota 4 %, fatture senza commessa/contratto (B2B di sola fornitura) e «documento privo di valenza fiscale» restano fuori dal piano 2; `ALIQUOTE` resta `[22, 10]`. Il handoff (Task 18) lo scrive con le fatture 99 e 120 come esempi.
+6. `speseDocumentazioneCent` è modificabile dal pannello Fatturazione (Task 16: campo «Spese documentazione detrazione (€)»).
+
+- [ ] **Step 1: Test (fallisce)** — i casi elencati nelle regole 1–4 (generatore, servizio, notaCredito, repository memoria + pg per la colonna nuova).
+- [ ] **Step 2–4: fallire, implementare, verdi, commit**
+
+```bash
+git add shared/fatturazione server/fatture
+git commit -m "feat(fatture): spese di documentazione al 22 %, righe manuali in bozza, pratica edilizia e intestazione della nota di credito"
+```
+
+---
+
 ### Task 13: Router tRPC `fatture` e `fatturazioneConfig`
 
 **Files:**
