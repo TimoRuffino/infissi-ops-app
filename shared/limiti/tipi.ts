@@ -100,6 +100,8 @@ export type Contratto = {
   pattuitoCent: number;
   pattuitoTipo: PattuitoTipo;
   posaInclusa: boolean;
+  /** Prezzo della posa quando il contratto la dichiara separatamente (piano 3); non sempre presente. */
+  posaCent: number | null;
   notePosa: string | null;
   comuneCantiere: string | null;
   codiceIstat: string | null;
@@ -117,6 +119,8 @@ export type Contratto = {
   hashParametri: string;
   origine: "estrazione" | "manuale";
   documentoId: number | null;
+  /** Estrazione IA (piano 3) che ha proposto questo contratto; null se scritto a mano. */
+  estrazioneId: number | null;
   createdBy: number | null;
   updatedBy: number | null;
   createdAt: Date;
@@ -127,7 +131,14 @@ export type ContrattoInput = Omit<
   Contratto,
   | "commessaId" | "sedeId" | "hashRighe" | "hashParametri" | "zonaClimatica"
   | "codiceIstat" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt"
-> & { zonaClimatica?: ZonaClimatica | null };
+  | "posaCent" | "estrazioneId"
+> & {
+  zonaClimatica?: ZonaClimatica | null;
+  // Opzionali con default lato servizio (null): un contratto scritto a mano
+  // non dichiara quasi mai una posa a sé o un'estrazione di origine.
+  posaCent?: number | null;
+  estrazioneId?: number | null;
+};
 
 export type GruppoVoce = "prodotti" | "controtelai" | "opere" | "eventuali";
 

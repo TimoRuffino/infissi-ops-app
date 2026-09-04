@@ -24,13 +24,13 @@ describe.skipIf(!conDatabase)("repository contratti (PostgreSQL)", () => {
     const now = new Date("2026-09-03T10:00:00.000Z");
     const base = {
       commessaId: 991001, sedeId: SEDE, pattuitoCent: 1539500, pattuitoTipo: "lordo" as const,
-      posaInclusa: true, notePosa: null, comuneCantiere: "Sarzana", codiceIstat: null,
+      posaInclusa: true, posaCent: null, notePosa: null, comuneCantiere: "Sarzana", codiceIstat: null,
       zonaClimatica: "D" as const, zonaManuale: false, piano: 2, distanzaKm: 18,
       detrazioneTipo: "ristrutturazione" as const, detrazioneImmobile: "prima_casa" as const,
       detrazionePct: 50, dataFirma: "2026-08-20", rate: [],
       opzioniComputo: { rilievo: "foro" as const, speseProfessionali: false, eventuali: [] },
       hashRighe: "h", hashParametri: "p",
-      origine: "manuale" as const, documentoId: null, createdBy: 1, updatedBy: 1,
+      origine: "manuale" as const, documentoId: null, estrazioneId: null, createdBy: 1, updatedBy: 1,
     };
     const riga = {
       sedeId: SEDE, commessaId: 991001, ordine: 1, categoria: "serramento_pvc" as const,
@@ -72,13 +72,36 @@ describe.skipIf(!conDatabase)("repository contratti (PostgreSQL)", () => {
     const now = new Date();
     const c = {
       commessaId: 991002, sedeId: SEDE, pattuitoCent: 100, pattuitoTipo: "imponibile" as const,
-      posaInclusa: false, notePosa: null, comuneCantiere: null, codiceIstat: null, zonaClimatica: null,
+      posaInclusa: false, posaCent: null, notePosa: null, comuneCantiere: null, codiceIstat: null, zonaClimatica: null,
       zonaManuale: false, piano: null, distanzaKm: null, detrazioneTipo: "nessuna" as const,
       detrazioneImmobile: null, detrazionePct: null, dataFirma: null, rate: [],
       opzioniComputo: { rilievo: "foro" as const, speseProfessionali: false, eventuali: [] },
-      hashRighe: "h", hashParametri: "p", origine: "manuale" as const, documentoId: null, createdBy: null, updatedBy: null,
+      hashRighe: "h", hashParametri: "p", origine: "manuale" as const, documentoId: null, estrazioneId: null, createdBy: null, updatedBy: null,
     };
     await repo.salva({ contratto: c, righe: [], now });
     await expect(repo.salva({ contratto: { ...c, sedeId: SEDE + 1 }, righe: [], now })).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("salva e rilegge posaCent ed estrazioneId; un contratto legacy senza i campi torna con null", async () => {
+    const now = new Date("2026-09-05T10:00:00.000Z");
+    const base = {
+      commessaId: 991003, sedeId: SEDE, pattuitoCent: 100000, pattuitoTipo: "lordo" as const,
+      posaInclusa: true, posaCent: 110000, notePosa: null, comuneCantiere: null, codiceIstat: null,
+      zonaClimatica: null, zonaManuale: false, piano: null, distanzaKm: null,
+      detrazioneTipo: "nessuna" as const, detrazioneImmobile: null, detrazionePct: null,
+      dataFirma: null, rate: [],
+      opzioniComputo: { rilievo: "foro" as const, speseProfessionali: false, eventuali: [] },
+      hashRighe: "h", hashParametri: "p", origine: "manuale" as const, documentoId: null,
+      estrazioneId: 7, createdBy: null, updatedBy: null,
+    };
+    const salvato = await repo.salva({ contratto: base, righe: [], now });
+    expect(salvato.contratto.posaCent).toBe(110000);
+    expect(salvato.contratto.estrazioneId).toBe(7);
+    expect(await repo.getContratto(SEDE, 991003)).toMatchObject({ posaCent: 110000, estrazioneId: 7 });
+
+    // Un contratto legacy (le colonne esistevano già, aggiunte NULL dalla migrazione additiva) torna con null, non undefined.
+    const legacy = await repo.salva({ contratto: { ...base, posaCent: null, estrazioneId: null }, righe: [], now });
+    expect(legacy.contratto.posaCent).toBeNull();
+    expect(legacy.contratto.estrazioneId).toBeNull();
   });
 });

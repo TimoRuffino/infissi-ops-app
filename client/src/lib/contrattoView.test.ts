@@ -283,6 +283,7 @@ describe("contrattoView", () => {
     const p = parametriVuoti();
     expect(p.opzioniComputo).toEqual(OPZIONI_COMPUTO_DEFAULT);
     expect(p.rate.map(r => r.quotaPct)).toEqual([50, 40, 10]);
+    expect(p.posaCent).toBeNull();
     // Niente riferimenti condivisi: modificare il form non tocca la costante.
     p.opzioniComputo.eventuali.push("dime");
     expect(OPZIONI_COMPUTO_DEFAULT.eventuali).toEqual([]);
@@ -291,14 +292,16 @@ describe("contrattoView", () => {
   it("un contratto salvato torna nel form senza hash né firme", () => {
     const p = parametriDaServer({
       commessaId: 42, sedeId: 1, pattuitoCent: 1539500, pattuitoTipo: "lordo", posaInclusa: true,
-      notePosa: null, comuneCantiere: "Sarzana", codiceIstat: "011026", zonaClimatica: "D",
+      posaCent: 110000, notePosa: null, comuneCantiere: "Sarzana", codiceIstat: "011026", zonaClimatica: "D",
       zonaManuale: false, piano: 2, distanzaKm: 18, detrazioneTipo: "ristrutturazione",
       detrazioneImmobile: "prima_casa", detrazionePct: 50, dataFirma: "2026-08-20",
       rate: rateDefault(), opzioniComputo: { rilievo: "pezzo", speseProfessionali: true, eventuali: ["dime"] },
-      hashRighe: "h1", hashParametri: "h2", origine: "manuale", documentoId: null,
+      hashRighe: "h1", hashParametri: "h2", origine: "manuale", documentoId: null, estrazioneId: 7,
       createdBy: 1, updatedBy: 1, createdAt: new Date(), updatedAt: new Date(),
     });
     expect(p.pattuitoCent).toBe(1539500);
+    expect(p.posaCent).toBe(110000);
+    expect(p.estrazioneId).toBe(7);
     expect(p.zonaClimatica).toBe("D");
     expect(p.opzioniComputo).toEqual({ rilievo: "pezzo", speseProfessionali: true, eventuali: ["dime"] });
     // La percentuale non torna indietro: per il servizio sarebbe un override

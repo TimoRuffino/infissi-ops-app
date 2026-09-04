@@ -6,12 +6,14 @@ const NOW = new Date("2026-09-03T10:00:00.000Z");
 function contratto(sedeId = 1, commessaId = 10): ContrattoPersist {
   return {
     commessaId, sedeId, pattuitoCent: 1539500, pattuitoTipo: "lordo", posaInclusa: true,
+    posaCent: null,
     notePosa: null, comuneCantiere: "Sarzana", codiceIstat: null, zonaClimatica: "D",
     zonaManuale: false, piano: 2, distanzaKm: 18, detrazioneTipo: "ristrutturazione",
     detrazioneImmobile: "prima_casa", detrazionePct: 50, dataFirma: "2026-08-20",
     rate: [{ numero: 1, quotaPct: 50, giorni: 0, data: null, descrizione: "all'ordine" }],
     opzioniComputo: { rilievo: "foro", speseProfessionali: false, eventuali: [] },
     hashRighe: "h1", hashParametri: "p1", origine: "manuale", documentoId: null,
+    estrazioneId: null,
     createdBy: 7, updatedBy: 7,
   };
 }
@@ -65,5 +67,25 @@ describe("repository contratti (memoria)", () => {
     const esito = await repo.salva({ contratto: contratto(2, 20), righe: [riga(20, 1)], now: NOW });
     expect(esito.righe[0].sedeId).toBe(2);
     expect((await repo.listRighe(2, 20))[0].sedeId).toBe(2);
+  });
+  it("salva e rilegge posaCent ed estrazioneId; un contratto legacy senza i campi torna con null", async () => {
+    const repo = createMemoryContrattiRepository();
+    const esito = await repo.salva({
+      contratto: { ...contratto(1, 11), posaCent: 110000, estrazioneId: 7 },
+      righe: [],
+      now: NOW,
+    });
+    expect(esito.contratto.posaCent).toBe(110000);
+    expect(esito.contratto.estrazioneId).toBe(7);
+    expect(await repo.getContratto(1, 11)).toMatchObject({ posaCent: 110000, estrazioneId: 7 });
+
+    // Un contratto legacy (prima del piano 3, o senza posa/estrazione dichiarate) torna con null.
+    const legacy = await repo.salva({
+      contratto: { ...contratto(1, 12), posaCent: null, estrazioneId: null },
+      righe: [],
+      now: NOW,
+    });
+    expect(legacy.contratto.posaCent).toBeNull();
+    expect(legacy.contratto.estrazioneId).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Plus, Save, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatEuro, parseEuroNonNegativo } from "@/lib/euro";
+import { euroToCent } from "@shared/euroCent";
 import {
   avvisiForm,
   erroriForm,
@@ -68,6 +69,7 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
   const [parametri, setParametri] = useState<ContrattoInput>(parametriVuoti);
   const [righe, setRighe] = useState<RigaForm[]>([]);
   const [pattuitoTesto, setPattuitoTesto] = useState("");
+  const [posaTesto, setPosaTesto] = useState("");
   // Quote in corso di digitazione: senza questo «12,5» verrebbe riscritto in
   // «12» a ogni tasto e il decimale sarebbe impossibile da inserire.
   const [quoteTesto, setQuoteTesto] = useState<Record<number, string>>({});
@@ -80,6 +82,7 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
     if (c) {
       setParametri(parametriDaServer(c));
       setPattuitoTesto(formatEuro(c.pattuitoCent / 100));
+      setPosaTesto(c.posaCent != null ? formatEuro(c.posaCent / 100) : "");
     }
     setRighe(q.data.righe.map(rigaDaServer));
     setQuoteTesto({});
@@ -296,11 +299,41 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
               checked={parametri.posaInclusa}
               disabled={!puoModificare}
               aria-label="Posa inclusa nel prezzo"
-              onCheckedChange={v => aggiornaParametri({ posaInclusa: v })}
+              onCheckedChange={v => {
+                // Senza posa nel contratto non ha senso un suo prezzo a sé:
+                // si azzera insieme all'interruttore, non resta un valore
+                // nascosto pronto a essere salvato per sbaglio.
+                if (!v) setPosaTesto("");
+                aggiornaParametri({ posaInclusa: v, posaCent: v ? parametri.posaCent : null });
+              }}
             />
             inclusa nel prezzo
           </Label>
         </div>
+        {parametri.posaInclusa && (
+          <div className="space-y-1">
+            <Label htmlFor="posa" className="text-xs text-text-3">Prezzo posa nel contratto (€)</Label>
+            <Input
+              id="posa"
+              inputMode="decimal"
+              value={posaTesto}
+              disabled={!puoModificare}
+              onChange={e => {
+                setPosaTesto(e.target.value);
+                const euro = parseEuroNonNegativo(e.target.value);
+                if (euro != null) aggiornaParametri({ posaCent: euroToCent(euro) });
+                else if (e.target.value.trim() === "") aggiornaParametri({ posaCent: null });
+              }}
+              onBlur={() => {
+                // Testo illeggibile o vuoto: si rimette in chiaro il prezzo
+                // posa che il form ha davvero (anche se assente).
+                const euro = parseEuroNonNegativo(posaTesto);
+                setPosaTesto(euro != null ? formatEuro(euro) : "");
+                aggiornaParametri({ posaCent: euro != null ? euroToCent(euro) : null });
+              }}
+            />
+          </div>
+        )}
       </section>
 
       {/* Rate */}

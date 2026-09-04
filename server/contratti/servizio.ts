@@ -67,6 +67,7 @@ export const contrattoInputSchema = z.object({
   pattuitoCent: z.number().int().min(0),
   pattuitoTipo: z.enum(PATTUITO_TIPI),
   posaInclusa: z.boolean(),
+  posaCent: z.number().int().min(0).nullable().default(null),
   notePosa: z.string().trim().max(500).nullable(),
   comuneCantiere: z.string().trim().max(120).nullable(),
   zonaClimatica: z.enum(ZONE_CLIMATICHE).nullable().optional(),
@@ -101,6 +102,7 @@ export const contrattoInputSchema = z.object({
     .default(OPZIONI_COMPUTO_DEFAULT),
   origine: z.enum(["estrazione", "manuale"]),
   documentoId: z.number().int().nullable(),
+  estrazioneId: z.number().int().nullable().default(null),
 });
 
 export type RigaLegacy = {

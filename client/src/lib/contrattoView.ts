@@ -271,6 +271,7 @@ export function parametriVuoti(): ContrattoInput {
     pattuitoCent: 0,
     pattuitoTipo: "lordo",
     posaInclusa: true,
+    posaCent: null,
     notePosa: null,
     comuneCantiere: null,
     zonaClimatica: null,
@@ -285,6 +286,7 @@ export function parametriVuoti(): ContrattoInput {
     opzioniComputo: { ...OPZIONI_COMPUTO_DEFAULT, eventuali: [] },
     origine: "manuale",
     documentoId: null,
+    estrazioneId: null,
   };
 }
 
@@ -294,6 +296,7 @@ export function parametriDaServer(c: Contratto): ContrattoInput {
     pattuitoCent: c.pattuitoCent,
     pattuitoTipo: c.pattuitoTipo,
     posaInclusa: c.posaInclusa,
+    posaCent: c.posaCent,
     notePosa: c.notePosa,
     comuneCantiere: c.comuneCantiere,
     // La zona derivata dal comune resta visibile: serve già scritta se poi
@@ -318,6 +321,7 @@ export function parametriDaServer(c: Contratto): ContrattoInput {
     },
     origine: c.origine,
     documentoId: c.documentoId,
+    estrazioneId: c.estrazioneId,
   };
 }
 

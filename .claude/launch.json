@@ -51,7 +51,8 @@
         "BOOTSTRAP_ADMIN_SURNAME": "Demo",
         "OPENAI_API_KEY": "sk-promo-capture-placeholder-never-called",
         "FLAG_LIMITI": "on",
-        "FLAG_FATTURAZIONE": "on"
+        "FLAG_FATTURAZIONE": "on",
+        "FLAG_CONTRATTO_ESTRAZIONE": "on"
       },
       "port": 5198
     }

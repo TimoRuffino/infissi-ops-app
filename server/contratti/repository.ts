@@ -82,6 +82,7 @@ function rowToContratto(row: any): Contratto {
     pattuitoCent: Number(row.pattuito_cent),
     pattuitoTipo: row.pattuito_tipo,
     posaInclusa: Boolean(row.posa_inclusa),
+    posaCent: row.posa_cent == null ? null : Number(row.posa_cent),
     notePosa: row.note_posa ?? null,
     comuneCantiere: row.comune_cantiere ?? null,
     codiceIstat: row.codice_istat ?? null,
@@ -105,6 +106,7 @@ function rowToContratto(row: any): Contratto {
     hashParametri: row.hash_parametri,
     origine: row.origine,
     documentoId: row.documento_id == null ? null : Number(row.documento_id),
+    estrazioneId: row.estrazione_id == null ? null : Number(row.estrazione_id),
     createdBy: row.created_by == null ? null : Number(row.created_by),
     updatedBy: row.updated_by == null ? null : Number(row.updated_by),
     createdAt: new Date(row.created_at),
@@ -175,6 +177,12 @@ export function createPostgresContrattiRepository(
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Additivo (piano 3, 04/09/2026): riferimento all'estrazione IA che ha
+        // proposto il contratto e prezzo della posa quando è dichiarato a sé
+        // nel documento. Nullable, senza DEFAULT: i contratti già salvati
+        // restano con NULL finché non vengono ri-letti o modificati.
+        await tx`ALTER TABLE commessa_contratti ADD COLUMN IF NOT EXISTS estrazione_id BIGINT`;
+        await tx`ALTER TABLE commessa_contratti ADD COLUMN IF NOT EXISTS posa_cent BIGINT`;
         await tx`CREATE INDEX IF NOT EXISTS commessa_contratti_sede_idx
           ON commessa_contratti (sede_id, commessa_id)`;
         await tx`CREATE TABLE IF NOT EXISTS commessa_righe (
@@ -232,21 +240,21 @@ export function createPostgresContrattiRepository(
       await ensureSchema();
       return sql.begin(async tx => {
         const rows = await tx`INSERT INTO commessa_contratti (
-          commessa_id, sede_id, pattuito_cent, pattuito_tipo, posa_inclusa, note_posa,
+          commessa_id, sede_id, pattuito_cent, pattuito_tipo, posa_inclusa, posa_cent, note_posa,
           comune_cantiere, codice_istat, zona_climatica, zona_manuale, piano, distanza_km,
           detrazione_tipo, detrazione_immobile, detrazione_pct, data_firma, rate, opzioni_computo,
-          hash_righe, hash_parametri, origine, documento_id, created_by, updated_by,
+          hash_righe, hash_parametri, origine, documento_id, estrazione_id, created_by, updated_by,
           created_at, updated_at
         ) VALUES (
-          ${c.commessaId}, ${c.sedeId}, ${c.pattuitoCent}, ${c.pattuitoTipo}, ${c.posaInclusa},
+          ${c.commessaId}, ${c.sedeId}, ${c.pattuitoCent}, ${c.pattuitoTipo}, ${c.posaInclusa}, ${c.posaCent},
           ${c.notePosa}, ${c.comuneCantiere}, ${c.codiceIstat}, ${c.zonaClimatica},
           ${c.zonaManuale}, ${c.piano}, ${c.distanzaKm}, ${c.detrazioneTipo},
           ${c.detrazioneImmobile}, ${c.detrazionePct}, ${c.dataFirma},
           ${tx.json(c.rate as any)}, ${tx.json(c.opzioniComputo as any)}, ${c.hashRighe}, ${c.hashParametri}, ${c.origine},
-          ${c.documentoId}, ${c.createdBy}, ${c.updatedBy}, ${now}, ${now}
+          ${c.documentoId}, ${c.estrazioneId}, ${c.createdBy}, ${c.updatedBy}, ${now}, ${now}
         ) ON CONFLICT (commessa_id) DO UPDATE SET
           pattuito_cent = EXCLUDED.pattuito_cent, pattuito_tipo = EXCLUDED.pattuito_tipo,
-          posa_inclusa = EXCLUDED.posa_inclusa, note_posa = EXCLUDED.note_posa,
+          posa_inclusa = EXCLUDED.posa_inclusa, posa_cent = EXCLUDED.posa_cent, note_posa = EXCLUDED.note_posa,
           comune_cantiere = EXCLUDED.comune_cantiere, codice_istat = EXCLUDED.codice_istat,
           zona_climatica = EXCLUDED.zona_climatica, zona_manuale = EXCLUDED.zona_manuale,
           piano = EXCLUDED.piano, distanza_km = EXCLUDED.distanza_km,
@@ -254,8 +262,8 @@ export function createPostgresContrattiRepository(
           detrazione_pct = EXCLUDED.detrazione_pct, data_firma = EXCLUDED.data_firma,
           rate = EXCLUDED.rate, opzioni_computo = EXCLUDED.opzioni_computo, hash_righe = EXCLUDED.hash_righe,
           hash_parametri = EXCLUDED.hash_parametri, origine = EXCLUDED.origine,
-          documento_id = EXCLUDED.documento_id, updated_by = EXCLUDED.updated_by,
-          updated_at = EXCLUDED.updated_at
+          documento_id = EXCLUDED.documento_id, estrazione_id = EXCLUDED.estrazione_id,
+          updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at
         WHERE commessa_contratti.sede_id = EXCLUDED.sede_id
         RETURNING *`;
         if (!rows[0]) throw new Error("NOT_FOUND: Commessa non trovata.");
