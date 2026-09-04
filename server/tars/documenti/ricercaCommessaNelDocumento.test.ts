@@ -19,7 +19,7 @@ const COMMESSE: CommessaRicercabile[] = [
   { id: 1, codice: "COM-2026-001", cliente: "Pistone Angelo", stato: "produzione" },
   { id: 2, codice: "COM-2026-002", cliente: "Giacomazzi Giulia", stato: "da_ordinare", indirizzo: "Via Roma 12", citta: "Sarzana" },
   { id: 3, codice: "COM-2026-003", cliente: "Giacomazzi Giulia", stato: "preventivo" },
-  { id: 4, codice: "COM-2026-004", cliente: "Rossi Mario", stato: "produzione" },
+  { id: 4, codice: "COM-2026-004", cliente: "Lotti Mario", stato: "produzione" },
   { id: 5, codice: "COM-2026-005", cliente: "Ruffino Group Srls", stato: "produzione" },
   { id: 6, codice: "COM-2026-006", cliente: "Archiviata Tizia", stato: "produzione", archivedAt: new Date() },
 ];
@@ -75,7 +75,7 @@ describe("cercaCommessaNelTesto", () => {
 
   it("un cognome corto o quasi uguale è un indizio debole: decide una persona", () => {
     const esito = cercaCommessaNelTesto({
-      pagine: ["Rif. ROSSI"],
+      pagine: ["Rif. LOTTI"],
       commesse: COMMESSE,
       paroleInterne: INTERNE,
       riferimenti,

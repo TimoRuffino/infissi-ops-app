@@ -45,6 +45,34 @@ const PAROLE_GENERICHE = new Set([
   "eredi", "fratelli", "flli", "figli", "via", "viale", "piazza", "corso", "largo",
   "strada", "localita", "frazione", "snc", "cliente", "commessa", "lavori", "cantiere",
   "appartamento", "casa", "villa", "villetta", "nuovo", "nuova", "vecchio", "vecchia",
+  // Località, enti e parole di ragione sociale che stanno nel nome di molti
+  // clienti («Comune della Spezia», «Marina di Lerici», «Hotel Riviera») e in
+  // ogni conferma (04/09/2026: «spezia» faceva riscontrare tre enti a ogni
+  // PDF). Da sole non identificano nessuno.
+  "spezia", "sarzana", "lerici", "genova", "massa", "carrara", "lucca", "pisa", "livorno",
+  "liguria", "toscana", "italia", "levante", "riviera", "marina", "porto", "centro",
+  "comune", "provincia", "regione", "stato", "polizia", "scuola", "istituto", "ospedale",
+  "parrocchia", "hotel", "albergo", "ristorante", "bar", "residence", "residenza",
+]);
+
+/**
+ * Cognomi fra i più diffusi: da soli sono di tutti (un agente, un tecnico
+ * del fornitore); valgono con il nome accanto sulla stessa riga.
+ */
+const COGNOMI_DIFFUSI = new Set([
+  "rossi", "russo", "ferrari", "esposito", "bianchi", "romano", "colombo", "ricci",
+  "marino", "greco", "bruno", "gallo", "conti", "costa", "mancini", "rizzo", "lombardi",
+  "moretti", "barbieri", "fontana", "santoro", "mariani", "rinaldi", "caruso", "ferrara",
+  "galli", "martini", "leone", "longo", "gentile", "martinelli", "vitale", "lombardo",
+  "serra", "coppola", "desantis", "marchetti", "parisi", "villa", "conte", "ferraro",
+  "ferri", "fabbri", "bianco", "marini", "grasso", "valentini", "messina", "sala",
+  "deangelis", "gatti", "pellegrini", "palumbo", "sanna", "farina", "rizzi", "monti",
+  "cattaneo", "morelli", "amato", "silvestri", "mazza", "testa", "grassi", "pellegrino",
+  "carbone", "giuliani", "benedetti", "barone", "rossetti", "caputo", "montanari",
+  "guerra", "palmieri", "bernardi", "martino", "fiore", "derosa", "ferretti", "bellini",
+  "basile", "riva", "donati", "piras", "vitali", "battaglia", "sartori", "neri",
+  "costantini", "milani", "pagano", "ruggiero", "sorrentino", "damico", "orlando",
+  "damico", "negri", "sorrentino", "ruffino",
 ]);
 
 /**
@@ -261,7 +289,7 @@ export function riscontroCommessaNelTesto(
   const parole = paroleUtili(riferimenti.cliente).filter(p => !escluseCliente.has(p));
   const cognomeAnagrafica = paroleUtili(riferimenti.cognome).filter(p => !escluseCliente.has(p));
   const identificanti = (cognomeAnagrafica.length > 0 ? cognomeAnagrafica : parole).filter(
-    p => !NOMI_PROPRI_COMUNI.has(p)
+    p => !NOMI_PROPRI_COMUNI.has(p) && !COGNOMI_DIFFUSI.has(p)
   );
   if (parole.length >= 2 && paroleVicine(righeCorpo, parole)) {
     prove.push(`cliente ${parole.join(" ")}`);
@@ -287,7 +315,11 @@ export function riscontroCommessaNelTesto(
   const viaParole = paroleUtili(riferimenti.indirizzo, 5).filter(
     p => !PAROLE_DI_VIA_COMUNI.has(p) && !escluse.has(p)
   );
-  const cittaParole = paroleUtili(riferimenti.citta, 4);
+  // La città è solo di supporto (compare nella prova, non la decide): qui le
+  // località non passano dallo stoplist.
+  const cittaParole = normalizza(riferimenti.citta ?? "")
+    .split(" ")
+    .filter(p => p.length >= 4 && !/^\d+$/.test(p));
   const dopoStrada = paroleDopoMarcatoreStrada(corpo);
   const viaTrovate = viaParole.filter(p => dopoStrada.has(p) || [...dopoStrada].some(d => d.length >= 5 && quasiUguali(d, p)));
   const cittaTrovata = cittaParole.some(p => contieneParola(corpo, p));
