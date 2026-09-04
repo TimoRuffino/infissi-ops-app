@@ -79,7 +79,7 @@ function adesso(dip?: Dipendenze): Date {
  * fa la stessa cosa ma vive in un modulo che tira dentro tutto Tars, e
  * un servizio di dominio non ci si appoggia.
  */
-function iso(d: Date): string {
+export function iso(d: Date): string {
   const locale = new TZDate(d, FUSO);
   const mm = String(locale.getMonth() + 1).padStart(2, "0");
   const gg = String(locale.getDate()).padStart(2, "0");
@@ -535,6 +535,12 @@ export async function rigeneraBozza(
   const repository = repo(input);
   const now = adesso(input);
   const fattura = await bozzaModificabile(repository, input.sedeId, input.id);
+  // Ruling R16: rigenerare rilegge il contratto e il computo — una nota di
+  // credito non ha né l'uno né l'altro, le sue righe vengono dalla fattura
+  // che storna (v. notaCredito.ts).
+  if (fattura.tipo === "nota_credito") {
+    throw new Error("PRECONDIZIONE: la nota di credito rispecchia la fattura di origine e non si rigenera.");
+  }
   const commessa = commessaInSede(input.sedeId, fattura.commessaId);
   const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(
     repository,
@@ -665,7 +671,11 @@ export async function validaPerEmissione(
   const errore = (codice: string, messaggio: string) => controlli.push({ codice, esito: "errore", messaggio });
   const avviso = (codice: string, messaggio: string) => controlli.push({ codice, esito: "avviso", messaggio });
 
-  if (fattura.detrazioneTipo !== "nessuna") {
+  // Ruling R15: la nota di credito copia il cantiere e non la dicitura del
+  // bonifico dell'origine (v. notaCredito.ts) — il vincolo di forma della
+  // detrazione (indirizzo cantiere, dicitura del bonifico parlante) riguarda
+  // la fattura che il cliente paga, non la nota che la storna.
+  if (fattura.tipo !== "nota_credito" && fattura.detrazioneTipo !== "nessuna") {
     if (!fattura.intestazioneCantiere) {
       errore("cantiere", "Con la detrazione la fattura deve indicare l'indirizzo del cantiere.");
     }

@@ -273,6 +273,11 @@ describe("creaNotaCredito", () => {
     expect(nota.computoId).toBe(origine.computoId);
     expect(nota.hashRighe).toBe(origine.hashRighe);
     expect(nota.detrazioneTipo).toBe(origine.detrazioneTipo);
+    // Ruling R15: il cantiere si copia (informativo — il vincolo di forma
+    // della detrazione non riguarda la nota, ma l'indirizzo è lo stesso).
+    expect(origine.detrazioneTipo).not.toBe("nessuna"); // il contratto 127 di default ha detrazione
+    expect(nota.intestazioneCantiere).not.toBeNull();
+    expect(nota.intestazioneCantiere).toBe(origine.intestazioneCantiere);
     expect(nota.pattuitoTipo).toBe(origine.pattuitoTipo);
     expect(nota.clienteSnapshot).toEqual(origine.clienteSnapshot);
     expect(nota.scavalcoLimiti).toBe(false);
@@ -359,6 +364,92 @@ describe("creaNotaCredito", () => {
     ]);
   });
 
+  it("parziale: bene significativo + servizio + markup (parte) — B' > P': storno e riaddebito ricalcolati sul sottoinsieme", async () => {
+    const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
+    const origine = await comeEmessa(fattura);
+    const beneMinore = origine.righe
+      .filter(r => r.tipo === "bene" && r.beneSignificativo)
+      .sort((a, b) => a.importoCent - b.importoCent)[0]!;
+    const progettazione = origine.righe.find(r => r.descrizione.startsWith("Progettazione"))!;
+    const markup = origine.righe.find(r => r.tipo === "markup")!;
+    expect(beneMinore.importoCent).toBe(93087);
+    expect(progettazione.importoCent).toBe(8900);
+    expect(markup.importoCent).toBeGreaterThanOrEqual(5000);
+
+    const { fattura: nota } = await creaNotaCredito({
+      sedeId: SEDE,
+      fatturaId: origine.id,
+      actorUserId: ATTORE,
+      selezione: {
+        tipo: "parziale",
+        righe: [
+          { ordine: beneMinore.ordine, importoCent: beneMinore.importoCent },
+          { ordine: progettazione.ordine, importoCent: progettazione.importoCent },
+          { ordine: markup.ordine, importoCent: 5000 },
+        ],
+      },
+      ...dip(),
+    });
+
+    // B' = 93087 (bene), P' = 8900 (servizio) + 5000 (markup) = 13900.
+    // B' > P' → Q' = min(B', P') = 13900.
+    expect(nota.righe).toHaveLength(5); // bene + servizio + markup + storno_bs + riaddebito_bs
+    const storno = nota.righe.find(r => r.tipo === "storno_bs")!;
+    const riaddebito = nota.righe.find(r => r.tipo === "riaddebito_bs")!;
+    expect(storno.importoCent).toBe(-13900);
+    expect(storno.aliquota).toBe(22);
+    expect(riaddebito.importoCent).toBe(13900);
+    expect(riaddebito.aliquota).toBe(10);
+    expect(nota.stornoCent).toBe(13900);
+    expect(nota.markupCent).toBe(5000);
+
+    // 22 % = B' − Q' = 93087 − 13900 = 79187; 10 % = P' + Q' = 13900 + 13900 = 27800.
+    expect(nota.riepilogo).toEqual([
+      { aliquota: 22, imponibileCent: 79187, impostaCent: 17421 },
+      { aliquota: 10, imponibileCent: 27800, impostaCent: 2780 },
+    ]);
+    expect(nota.totaleCent).toBe(127188);
+  });
+
+  it("parziale: bene significativo + servizio grande — B' ≤ P': tutto atterra al 10 %, niente riga al 22 %", async () => {
+    const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
+    const origine = await comeEmessa(fattura);
+    const beneMinore = origine.righe
+      .filter(r => r.tipo === "bene" && r.beneSignificativo)
+      .sort((a, b) => a.importoCent - b.importoCent)[0]!;
+    const posaInOpera = origine.righe.find(r => r.descrizione.startsWith("Posa in opera"))!;
+    expect(beneMinore.importoCent).toBe(93087);
+    expect(posaInOpera.importoCent).toBe(131400);
+
+    const { fattura: nota } = await creaNotaCredito({
+      sedeId: SEDE,
+      fatturaId: origine.id,
+      actorUserId: ATTORE,
+      selezione: {
+        tipo: "parziale",
+        righe: [
+          { ordine: beneMinore.ordine, importoCent: beneMinore.importoCent },
+          { ordine: posaInOpera.ordine, importoCent: posaInOpera.importoCent },
+        ],
+      },
+      ...dip(),
+    });
+
+    // B' = 93087, P' = 131400 → B' ≤ P' → Q' = min(B', P') = 93087: il
+    // 22 % (93087 − 93087 = 0) netta a zero e sparisce dal riepilogo.
+    expect(nota.righe).toHaveLength(4); // bene + servizio + storno_bs + riaddebito_bs
+    const storno = nota.righe.find(r => r.tipo === "storno_bs")!;
+    const riaddebito = nota.righe.find(r => r.tipo === "riaddebito_bs")!;
+    expect(storno.importoCent).toBe(-93087);
+    expect(riaddebito.importoCent).toBe(93087);
+    expect(nota.stornoCent).toBe(93087);
+    expect(nota.markupCent).toBe(0);
+
+    expect(nota.riepilogo).toEqual([{ aliquota: 10, imponibileCent: 224487, impostaCent: 22449 }]);
+    expect(nota.riepilogo.some(r => r.aliquota === 22)).toBe(false);
+    expect(nota.totaleCent).toBe(246936);
+  });
+
   it("l'importo di una riga scelta non può superare l'originale", async () => {
     const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
     const origine = await comeEmessa(fattura);
@@ -370,6 +461,91 @@ describe("creaNotaCredito", () => {
         fatturaId: origine.id,
         actorUserId: ATTORE,
         selezione: { tipo: "parziale", righe: [{ ordine: rilievo.ordine, importoCent: rilievo.importoCent + 1 }] },
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("l'importo di una riga scelta deve essere maggiore di zero", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+    const servizio = origine.righe.find(r => r.tipo === "servizio")!;
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "parziale", righe: [{ ordine: servizio.ordine, importoCent: 0 }] },
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("l'importo di una riga scelta deve essere in centesimi interi", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+    const servizio = origine.righe.find(r => r.tipo === "servizio")!;
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "parziale", righe: [{ ordine: servizio.ordine, importoCent: 100.5 }] },
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("un ordine di riga ripetuto nella selezione è rifiutato", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+    const servizio = origine.righe.find(r => r.tipo === "servizio")!;
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: {
+          tipo: "parziale",
+          righe: [
+            { ordine: servizio.ordine, importoCent: 100 },
+            { ordine: servizio.ordine, importoCent: 200 },
+          ],
+        },
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("un ordine di riga inesistente nella fattura di origine è rifiutato", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "parziale", righe: [{ ordine: 9999, importoCent: 100 }] },
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  it("una riga non bene/servizio/markup (es. intestazione) non è selezionabile singolarmente", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+    const intestazione = origine.righe.find(r => r.tipo === "intestazione")!;
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "parziale", righe: [{ ordine: intestazione.ordine, importoCent: 100 }] },
         ...dip(),
       })
     ).rejects.toThrow("VALIDAZIONE");
@@ -423,14 +599,37 @@ describe("creaNotaCredito", () => {
       creaNotaCredito({ sedeId: ALTRA_SEDE, fatturaId: origine.id, actorUserId: ATTORE, selezione: { tipo: "totale" }, ...dip() })
     ).rejects.toThrow("NOT_FOUND: Fattura non trovata.");
   });
+
+  it("Ruling R16: una nota di credito non si storna con un'altra nota", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const origine = await comeEmessa(fattura);
+    const { fattura: prima } = await creaNotaCredito({
+      sedeId: SEDE,
+      fatturaId: origine.id,
+      actorUserId: ATTORE,
+      selezione: { tipo: "totale" },
+      ...dip(),
+    });
+    const notaEmessa = await comeEmessa(prima, "127/2026-NC1", "2026-09-04");
+
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: notaEmessa.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "totale" },
+        ...dip(),
+      })
+    ).rejects.toThrow("PRECONDIZIONE: una nota di credito non si storna con un'altra nota.");
+  });
 });
 
 describe("nota di credito attraverso emettiFattura", () => {
   it("creaDocumento riceve type «credit_note» e il fascicolo registra tipo «nota_credito»", async () => {
-    // Detrazione «nessuna»: isola il test sulla meccanica della pipeline,
-    // senza intrecciarlo con cantiere/dicitura del bonifico parlante
-    // (non toccati da questo task per la nota di credito).
-    const { fattura: bozzaOrigine } = await bozzaEmettibile({ detrazioneTipo: "nessuna" });
+    // Detrazione «ristrutturazione»: prova che la nota (Ruling R15, salta
+    // cantiere/dicitura del bonifico) attraversa davvero l'emissione anche
+    // quando l'origine ha la detrazione — non solo nel caso senza.
+    const { fattura: bozzaOrigine } = await bozzaEmettibile({ detrazioneTipo: "ristrutturazione" });
     const bancoOrigine = banco(copioneFelice(bozzaOrigine, FIC_DOCUMENT_ID_FATTURA));
     const esitoOrigine = await emettiFattura({
       sedeId: SEDE,

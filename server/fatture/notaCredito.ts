@@ -21,7 +21,6 @@
 //   NOT_FOUND:     la fattura di origine non esiste — o è di un'altra sede
 //   PRECONDIZIONE: stato di origine non ammesso, o nota già in bozza
 //   VALIDAZIONE:   la selezione parziale non sta in piedi
-import { TZDate } from "@date-fns/tz";
 import { DICITURE } from "@shared/fatturazione/diciture";
 import {
   ALIQUOTE,
@@ -33,22 +32,13 @@ import {
 } from "@shared/fatturazione/tipi";
 import { getFattureRepository, type FattureRepository } from "./repository";
 import { impostaCent } from "./risolutore";
-import type { Dipendenze } from "./servizio";
-
-const FUSO = "Europe/Rome";
+import { iso, type Dipendenze } from "./servizio";
 
 function repo(dip?: Dipendenze): FattureRepository {
   return dip?.repository ?? getFattureRepository();
 }
 function adesso(dip?: Dipendenze): Date {
   return dip?.now?.() ?? new Date();
-}
-/** Lo stesso giorno di calendario italiano di `servizio.ts` (v. lì il perché: TZ, non UTC). */
-function oggi(d: Date): string {
-  const locale = new TZDate(d, FUSO);
-  const mm = String(locale.getMonth() + 1).padStart(2, "0");
-  const gg = String(locale.getDate()).padStart(2, "0");
-  return `${locale.getFullYear()}-${mm}-${gg}`;
 }
 
 /** Gli stati da cui si può stornare: la fattura deve essere già uscita verso il cliente. */
@@ -163,6 +153,7 @@ function righeParziale(
   }
   righeScelte.sort((a, b) => a.ordineOrigine - b.ordineOrigine);
 
+  // da tenere allineato a riepilogoPer in risolutore.ts
   const B = righeScelte.filter(r => r.tipo === "bene" && r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const altriBeni = righeScelte.filter(r => r.tipo === "bene" && !r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const servizi = righeScelte.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
@@ -195,6 +186,11 @@ export async function creaNotaCredito(
   // servizio.ts).
   const origine = await repository.perId(input.sedeId, input.fatturaId);
   if (!origine) throw new Error("NOT_FOUND: Fattura non trovata.");
+  // Ruling R16: una nota storna una fattura, non un'altra nota — a
+  // catena non avrebbe un'origine unica da specchiare.
+  if (origine.tipo === "nota_credito") {
+    throw new Error("PRECONDIZIONE: una nota di credito non si storna con un'altra nota.");
+  }
   if (!STATI_STORNABILI.has(origine.stato)) {
     throw new Error(
       `PRECONDIZIONE: la fattura #${origine.id} è in stato «${origine.stato}»: si storna solo una fattura già emessa.`
@@ -245,7 +241,10 @@ export async function creaNotaCredito(
       stornoCent,
       diciture: ["copia_ade"],
       note: `Nota di credito a storno della fattura n. ${origine.numero ?? origine.id} del ${origine.data ?? ""}`,
-      intestazioneCantiere: null,
+      // Solo informativo (Ruling R15): il vincolo di forma della
+      // detrazione non si applica alla nota, ma il cantiere resta lo
+      // stesso dell'origine ed è utile vederlo anche qui.
+      intestazioneCantiere: origine.intestazioneCantiere,
       detrazioneTipo: origine.detrazioneTipo,
       pdfStorageKey: null,
       xmlStorageKey: null,
@@ -262,7 +261,7 @@ export async function creaNotaCredito(
     },
     righe,
     riepilogo,
-    scadenze: [{ numero: 1, quotaPct: 100, data: oggi(now), importoCent: totaleCent, descrizione: "storno" }],
+    scadenze: [{ numero: 1, quotaPct: 100, data: iso(now), importoCent: totaleCent, descrizione: "storno" }],
     now,
   });
 

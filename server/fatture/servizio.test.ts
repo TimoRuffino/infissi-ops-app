@@ -780,6 +780,80 @@ describe("validaPerEmissione", () => {
       ])
     );
   });
+
+  it("Ruling R15: una nota di credito salta anche cantiere e dicitura del bonifico (detrazione)", async () => {
+    const snapshotValido: ClienteSnapshot = {
+      clienteId: null,
+      nome: "Rossi Mario",
+      tipo: "privato",
+      codiceFiscale: "RSSMRA85T10A562S",
+      partitaIva: null,
+      indirizzo: "Via Alta 80",
+      cap: "19038",
+      citta: "Sarzana",
+      provincia: "SP",
+      email: null,
+      pec: null,
+      codiceDestinatario: "0000000",
+      ficEntityId: null,
+    };
+    const persist: FatturaPersist = {
+      sedeId: SEDE,
+      commessaId: 1,
+      computoId: null,
+      hashRighe: null,
+      tipo: "nota_credito",
+      notaCreditoDi: 1,
+      stato: "bozza",
+      ficDocumentId: null,
+      numero: null,
+      data: null,
+      clienteSnapshot: snapshotValido,
+      pattuitoTipo: "lordo",
+      pattuitoCent: 10000,
+      imponibileCent: 10000,
+      ivaCent: 0,
+      totaleCent: 10000,
+      deltaPattuitoCent: 0,
+      markupCent: 0,
+      stornoCent: 0,
+      // Detrazione presente ma senza cantiere né dicitura del bonifico:
+      // se R15 non saltasse questi controlli, "cantiere" e
+      // "dicitura_bonifico" bloccherebbero l'emissione.
+      diciture: ["copia_ade"],
+      note: null,
+      intestazioneCantiere: null,
+      detrazioneTipo: "ristrutturazione",
+      pdfStorageKey: null,
+      xmlStorageKey: null,
+      xmlSha256: null,
+      documentoId: null,
+      eiStatusFic: null,
+      eiErrore: null,
+      inviataDryRun: false,
+      scavalcoLimiti: false,
+      scavalcoMotivo: null,
+      createdBy: ATTORE,
+      emessaDa: null,
+      emessaAt: null,
+    };
+    const nota = await repository.crea({
+      fattura: persist,
+      righe: [],
+      riepilogo: [],
+      // Scadenza allineata e configurazione completa: isola il test sul
+      // solo cantiere/dicitura, il resto è già a posto.
+      scadenze: [{ numero: 1, quotaPct: 100, data: "2026-09-04", importoCent: 10000, descrizione: "storno" }],
+      now: ora,
+    });
+    await repository.salvaConfig(CONFIG_COMPLETA());
+
+    const esito = await validaPerEmissione(SEDE, nota.id, dip());
+    expect(codici(esito.controlli)).not.toContain("cantiere");
+    expect(codici(esito.controlli)).not.toContain("dicitura_bonifico");
+    expect(errori(esito.controlli)).toEqual([]);
+    expect(esito.emettibile).toBe(true);
+  });
 });
 
 describe("rigeneraBozza", () => {
@@ -837,6 +911,57 @@ describe("rigeneraBozza", () => {
     await expect(
       rigeneraBozza({ sedeId: SEDE, id: fattura.id, revisione: 1, actorUserId: ATTORE, ...dip() })
     ).rejects.toThrow("FATTURA_IMMUTABILE:");
+  });
+
+  it("Ruling R16: una nota di credito in bozza non si rigenera (non ha contratto né computo propri)", async () => {
+    const persist: FatturaPersist = {
+      sedeId: SEDE,
+      commessaId: 1,
+      computoId: null,
+      hashRighe: null,
+      tipo: "nota_credito",
+      notaCreditoDi: 1,
+      stato: "bozza",
+      ficDocumentId: null,
+      numero: null,
+      data: null,
+      clienteSnapshot: null,
+      pattuitoTipo: "lordo",
+      pattuitoCent: 10000,
+      imponibileCent: 10000,
+      ivaCent: 0,
+      totaleCent: 10000,
+      deltaPattuitoCent: 0,
+      markupCent: 0,
+      stornoCent: 0,
+      diciture: ["copia_ade"],
+      note: null,
+      intestazioneCantiere: null,
+      detrazioneTipo: "nessuna",
+      pdfStorageKey: null,
+      xmlStorageKey: null,
+      xmlSha256: null,
+      documentoId: null,
+      eiStatusFic: null,
+      eiErrore: null,
+      inviataDryRun: false,
+      scavalcoLimiti: false,
+      scavalcoMotivo: null,
+      createdBy: ATTORE,
+      emessaDa: null,
+      emessaAt: null,
+    };
+    const nota = await repository.crea({
+      fattura: persist,
+      righe: [],
+      riepilogo: [],
+      scadenze: [{ numero: 1, quotaPct: 100, data: "2026-09-04", importoCent: 10000, descrizione: "storno" }],
+      now: ora,
+    });
+
+    await expect(
+      rigeneraBozza({ sedeId: SEDE, id: nota.id, revisione: 1, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow("PRECONDIZIONE: la nota di credito rispecchia la fattura di origine e non si rigenera.");
   });
 });
 
