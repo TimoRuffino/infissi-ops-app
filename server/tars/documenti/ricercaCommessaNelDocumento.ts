@@ -120,10 +120,15 @@ export function paroleInterneDiSede(sedeId: number): Set<string> {
   return parole;
 }
 
-/** Un cognome pieno (o due parole) vale «forte»; il quasi-uguale e i cognomi corti «debole». */
+/**
+ * Codice, ordine noto o cognome pieno (o due parole) valgono «forte»; il
+ * quasi-uguale, i cognomi corti e il SOLO indirizzo «debole»: un indirizzo
+ * senza il nome del cliente lo decide una persona (le conferme portano anche
+ * l'indirizzo del fornitore e quello dell'azienda).
+ */
 function forzaDelleProve(prove: readonly string[]): "forte" | "debole" {
   for (const prova of prove) {
-    if (/^(codice|ordine|indirizzo) /.test(prova)) return "forte";
+    if (/^(codice|ordine) /.test(prova)) return "forte";
     if (prova.startsWith("cliente ~")) continue;
     if (prova.startsWith("cliente ")) {
       const parole = prova.slice("cliente ".length).split(" ").filter(Boolean);
@@ -358,22 +363,30 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
     ricorda(chiave, voce);
     // Ogni lettura nuova lascia una riga nei log: chi legge la produzione
     // vede cosa è stato aperto e con quale esito, senza sonde.
+    // Una riga sola per voce: i log di Railway spezzano gli oggetti su più
+    // righe e mescolano le letture parallele.
     if (voce.pagine) {
-      console.info("[ricerca-commessa] letto", {
-        comunicazioneId: sorgente.comunicazioneId,
-        allegatoIndex: sorgente.allegatoIndex,
-        file: nome.slice(0, 60),
-        fonte: voce.fonteTesto,
-        caratteri: voce.pagine.join("").length,
-        fornitore: voce.fornitore,
-      });
+      console.info(
+        "[ricerca-commessa] letto " +
+          JSON.stringify({
+            comunicazioneId: sorgente.comunicazioneId,
+            allegatoIndex: sorgente.allegatoIndex,
+            file: nome.slice(0, 60),
+            fonte: voce.fonteTesto,
+            caratteri: voce.pagine.join("").length,
+            fornitore: voce.fornitore,
+          })
+      );
     } else {
-      console.warn("[ricerca-commessa] non letto", {
-        comunicazioneId: sorgente.comunicazioneId,
-        allegatoIndex: sorgente.allegatoIndex,
-        file: nome.slice(0, 60),
-        motivo: voce.motivo,
-      });
+      console.warn(
+        "[ricerca-commessa] non letto " +
+          JSON.stringify({
+            comunicazioneId: sorgente.comunicazioneId,
+            allegatoIndex: sorgente.allegatoIndex,
+            file: nome.slice(0, 60),
+            motivo: voce.motivo,
+          })
+      );
     }
     return voce;
   };
@@ -399,13 +412,18 @@ export function creaLettoreCommessaNelDocumento(opzioni: {
       riferimenti: opzioni.riferimenti,
     });
     if (commesse.length > 0) {
-      console.info("[ricerca-commessa] riscontro", {
-        comunicazioneId: sorgente.comunicazioneId,
-        allegatoIndex: sorgente.allegatoIndex,
-        esito: ricerca.esito,
-        commessaId: ricerca.commessaId,
-        candidati: ricerca.candidati.slice(0, 4).map(c => `${c.commessaId}:${c.forza}:${c.prove.join("/")}`),
-      });
+      console.info(
+        "[ricerca-commessa] riscontro " +
+          JSON.stringify({
+            comunicazioneId: sorgente.comunicazioneId,
+            allegatoIndex: sorgente.allegatoIndex,
+            esito: ricerca.esito,
+            commessaId: ricerca.commessaId,
+            candidati: ricerca.candidati
+              .slice(0, 4)
+              .map(c => `${c.commessaId}:${c.forza}:${c.prove.join("/")}`),
+          })
+      );
     }
     return {
       ...ricerca,

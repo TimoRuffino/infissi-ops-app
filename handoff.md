@@ -137,7 +137,18 @@
 > «vuoi che proceda?»). Registro azioni 1.21.0
 > (`cerca_conferme_ordine_mancanti` 1.1.0). Costi: al più 8 letture nuove
 > per giro del worker (10 min), 10 per giro di smistamento, 6 per
-> fotografia/chat; il testo letto resta in memoria 12 ore.
+> fotografia/chat; il testo letto resta in memoria 12 ore (30 minuti se la
+> lettura è fallita). Primo giro vero (15:18): 8 file letti (nativi e OCR),
+> tutti «ambigui» — l'indirizzo dell'azienda (Via Crispi, La Spezia) sta in
+> ogni conferma e faceva riscontrare quattro commesse, e la data «31/07/26»
+> letta come «310726» passava per ordine noto. Riscontro corretto
+> (`documenti/riscontroCommessa.ts`): l'indirizzo vale solo con una parola
+> DISTINTIVA della via (≥5 lettere, non articoli né nomi da toponomastica,
+> non la via della sede) subito dopo «via/piazza/loc.»; il solo indirizzo è
+> una prova debole (decide una persona); `sembraData` esclude le date dai
+> riferimenti d'ordine (anche nei nomi file). Ogni lettura e ogni riscontro
+> lasciano una riga `[ricerca-commessa]` nei log, e il giro del worker
+> conta i candidati (certe/probabili/non letti).
 
 ## 1. Contesto
 

@@ -54,6 +54,7 @@ import {
 } from "../documenti/riscontroCommessa";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
+import { getSediStore } from "../routers/sedi";
 import {
   creaProdottiDaConferma,
   getMagazzinoStore,
@@ -248,12 +249,19 @@ export function riferimentiDellaCommessa(commessa: any): RiferimentiCommessa {
     for (const r of d.letturaCosto?.riferimenti ?? []) riferimentiOrdine.add(r);
     if (d.letturaCosto?.numeroOrdine) riferimentiOrdine.add(d.letturaCosto.numeroOrdine);
   }
+  // La via dell'azienda compare in ogni conferma come destinatario: non è
+  // mai la prova che il documento parla di QUESTO cantiere.
+  const sede = getSediStore().find(s => s.id === commessa.sedeId);
+  const paroleEscluse = String(sede?.indirizzo ?? "")
+    .split(/[\s,.'’-]+/)
+    .filter(p => p.length >= 3);
   return {
     codice: commessa.codice ?? null,
     cliente: commessa.cliente ?? null,
     indirizzo: commessa.indirizzo ?? null,
     citta: commessa.citta ?? null,
     riferimentiOrdine: [...riferimentiOrdine],
+    paroleEscluse,
   };
 }
 

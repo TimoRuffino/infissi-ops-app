@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   riferimentiOrdineDocumento,
   riscontroCommessaNelTesto,
+  sembraData,
   stessoOrdine,
 } from "./riscontroCommessa";
 
@@ -70,6 +71,64 @@ describe("riscontroCommessaNelTesto", () => {
       cliente: "Condominio Via Roma",
     });
     expect(r.ok).toBe(false);
+  });
+
+  it("la via dell'azienda, la città e le parole comuni di via non sono un indirizzo di cantiere (04/09/2026)", () => {
+    const conferma = [
+      "Spett.le RUFFINO GROUP SRLS",
+      "Via Francesco Crispi 12 - 19124 La Spezia",
+      "Conferma d'ordine n. 4471 del 31/07/26",
+      "Consegna: c/o Vs. sede",
+    ].join("\n");
+    // Un cantiere in Via Crispi (la via dell'azienda): non si distingue.
+    expect(
+      riscontroCommessaNelTesto(conferma, {
+        codice: null,
+        cliente: "Bianchi Paolo",
+        indirizzo: "Via Francesco Crispi 30",
+        citta: "La Spezia",
+        paroleEscluse: ["Francesco", "Crispi"],
+      }).ok
+    ).toBe(false);
+    // «Via della Chiesa, La Spezia»: «della» e «chiesa» non identificano nessuno.
+    expect(
+      riscontroCommessaNelTesto(conferma + "\nVia della Chiesa", {
+        codice: null,
+        cliente: "Verdi Anna",
+        indirizzo: "Via della Chiesa 3",
+        citta: "La Spezia",
+      }).ok
+    ).toBe(false);
+    // Una via distintiva subito dopo «via» vale, anche con un refuso.
+    const r = riscontroCommessaNelTesto(conferma + "\nCantiere: Via Rosselli 8, Lerici", {
+      codice: null,
+      cliente: "Neri Luca",
+      indirizzo: "Via Roselli 8",
+      citta: "Lerici",
+    });
+    expect(r.ok).toBe(true);
+    expect(r.prove[0]).toMatch(/^indirizzo roselli lerici/);
+    // Una data (31/07/26 → «310726») non è un ordine noto.
+    expect(
+      riscontroCommessaNelTesto(conferma, {
+        codice: null,
+        cliente: "Gialli Ugo",
+        riferimentiOrdine: ["310726"],
+      }).ok
+    ).toBe(false);
+  });
+});
+
+describe("sembraData", () => {
+  it("riconosce le date a sei e otto cifre, non i numeri d'ordine", () => {
+    expect(sembraData("310726")).toBe(true);
+    expect(sembraData("01092026")).toBe(true);
+    expect(sembraData("20260901")).toBe(true);
+    expect(sembraData("2634169")).toBe(false);
+    expect(sembraData("1684077")).toBe(false);
+    expect(sembraData("cv003746")).toBe(false);
+    expect(riferimentiOrdineDocumento({ nomeFile: "richiesta bonifico per merce_310726 (2).pdf" })).toEqual([]);
+    expect(riferimentiOrdineDocumento({ nomeFile: "conf. montagnana03-08-2026-152737.pdf" })).toEqual(["152737"]);
   });
 });
 
