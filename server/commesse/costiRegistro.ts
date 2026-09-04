@@ -18,8 +18,28 @@ export type CostoRegistrato = {
   note: string | null;
   /** Il documento del fascicolo da cui il costo è nato, se c'è. */
   documentoId: number | null;
+  /** Una persona ha modificato l'importo dalla scheda: nessuna rilettura lo tocca più. */
+  modificatoAMano?: boolean;
   createdAt: Date;
 };
+
+/** Le impronte che la regola lascia su un costo che scrive lei. */
+export const DESCRIZIONE_COSTO_DA_CONFERMA = "Conferma d'ordine ";
+export const NOTA_COSTO_DA_CONFERMA = "Letto dalla conferma d'ordine ";
+
+/**
+ * Un costo NATO dalla regola e mai toccato da una persona: porta la
+ * descrizione e la nota che scrive lei, non è stato modificato dalla scheda
+ * e non è un costo manuale collegato dopo. Solo questo una rilettura può
+ * correggere.
+ */
+export function costoNatoDallaRegola(costo: CostoRegistrato): boolean {
+  if (costo.documentoId == null || costo.modificatoAMano) return false;
+  return (
+    String(costo.descrizione ?? "").startsWith(DESCRIZIONE_COSTO_DA_CONFERMA) &&
+    String(costo.note ?? "").startsWith(NOTA_COSTO_DA_CONFERMA)
+  );
+}
 
 export function costiDi(commessa: any): CostoRegistrato[] {
   if (!Array.isArray(commessa.costi)) commessa.costi = [];

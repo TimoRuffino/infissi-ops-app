@@ -13,7 +13,10 @@
 // 1.5.0 (04/09/2026): una rilettura corregge i costi nati dalla regola e mai
 // toccati; la conferma aggiornata dello stesso ordine sostituisce la vecchia;
 // il CAP non è più un riferimento d'ordine.
-export const VERSIONE_LETTURA_COSTO = "1.5.0";
+// 1.6.0: il costo «nato dalla regola» si riconosce dalla sua impronta
+// (descrizione, nota, nessuna modifica a mano), non dal confronto con la
+// lettura precedente.
+export const VERSIONE_LETTURA_COSTO = "1.6.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;

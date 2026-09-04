@@ -77,7 +77,10 @@
 > redirezioni vanno quotate localmente), lettura 1.5.0: una rilettura
 > corregge i costi nati dalla regola e mai toccati (tre Pail a «22,00»), la
 > conferma aggiornata dello stesso ordine sostituisce la vecchia (Oskura
-> «(2).pdf»), il CAP non è un riferimento d'ordine (Brianzatende). Piano:
+> «(2).pdf»), il CAP non è un riferimento d'ordine (Brianzatende). Un costo
+> è «nato dalla regola» se porta la sua impronta (descrizione e nota) e
+> nessuno l'ha modificato dalla scheda (`costi[].modificatoAMano`, marcato
+> da `commesse.updateCosto`): solo quello una rilettura corregge. Piano:
 > `docs/superpowers/plans/2026-09-03-costo-da-conferma.md` (quinta tranche).
 
 ## 1. Contesto

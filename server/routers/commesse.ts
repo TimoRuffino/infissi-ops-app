@@ -1295,7 +1295,12 @@ export const commesseRouter = router({
       assertSedeScope(c, ctx.sedeId);
       const co = (c!.costi ?? []).find((x: any) => x.id === input.costoId);
       if (!co) throw new Error("Costo non trovato");
-      if (input.importo !== undefined) co.importo = input.importo;
+      if (input.importo !== undefined) {
+        // Una persona decide l'importo: da qui in poi nessuna rilettura della
+        // conferma d'ordine lo tocca più (server/commesse/costoDaConferma.ts).
+        if (Math.abs((co.importo ?? 0) - input.importo) >= 0.005) co.modificatoAMano = true;
+        co.importo = input.importo;
+      }
       if (input.fornitore !== undefined) co.fornitore = input.fornitore?.trim() || null;
       if (input.descrizione !== undefined) co.descrizione = input.descrizione?.trim() || null;
       if (input.data !== undefined) co.data = input.data || null;

@@ -117,7 +117,25 @@ describe("la rilettura di una conferma già letta", () => {
     });
   });
 
-  it("non tocca un costo che una persona ha modificato, ma lo segnala", async () => {
+  it("corregge anche se la lettura precedente aveva già letto giusto senza toccare il costo (le Pail a «22,00»)", async () => {
+    const commessa = await direzione().commesse.create({ cliente: "Pail Ventidue" });
+    const documento = await carica(
+      commessa.id,
+      "conf. ordine Berardi (rapido).pdf",
+      righeConferma("2610056", "185,85", "40,89", "226,74")
+    );
+    const [costo] = costiDi(commessa.id);
+    costo.importo = 22;
+    // La lettura precedente dice 185,85 (giusto) ma il costo è rimasto a 22.
+    letturaVecchiaConImporto(documento.id, 185.85);
+
+    await registraCostoDaConferma({ documentoId: documento.id });
+
+    expect(costiDi(commessa.id)[0].importo).toBe(185.85);
+    expect(costiDi(commessa.id)[0].note).toContain("era 22,00");
+  });
+
+  it("non tocca un costo che una persona ha modificato dalla scheda, ma lo segnala", async () => {
     const commessa = await direzione().commesse.create({ cliente: "Modificato A Mano" });
     const documento = await carica(
       commessa.id,
@@ -125,8 +143,13 @@ describe("la rilettura di una conferma già letta", () => {
       righeConferma("2610056", "185,85", "40,89", "226,74")
     );
     const [costo] = costiDi(commessa.id);
-    // Una persona ha corretto l'importo a mano (la lettura diceva 185,85).
-    costo.importo = 190;
+    // Una persona ha corretto l'importo dalla scheda.
+    await direzione().commesse.updateCosto({
+      commessaId: commessa.id,
+      costoId: costo.id,
+      importo: 190,
+    });
+    expect(costiDi(commessa.id)[0].modificatoAMano).toBe(true);
     letturaVecchiaConImporto(documento.id, 185.85);
 
     const esito = await registraCostoDaConferma({ documentoId: documento.id });
@@ -192,7 +215,11 @@ describe("la conferma aggiornata dello stesso ordine", () => {
       "Commessa-N-1012780 (ORDINE).pdf",
       righeConferma("1012780", "1.391,87", "306,21", "1.698,08")
     );
-    costiDi(commessa.id)[0].importo = 1400;
+    await direzione().commesse.updateCosto({
+      commessaId: commessa.id,
+      costoId: costiDi(commessa.id)[0].id,
+      importo: 1400,
+    });
 
     const seconda = await carica(
       commessa.id,

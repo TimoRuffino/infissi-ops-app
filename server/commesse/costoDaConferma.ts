@@ -71,8 +71,12 @@ import {
   collegaCostoAlDocumento,
   costoDelDocumento,
   costoManualeCorrispondente,
+  costoNatoDallaRegola,
+  DESCRIZIONE_COSTO_DA_CONFERMA,
+  NOTA_COSTO_DA_CONFERMA,
   riferimentoNormalizzato,
   rimuoviCostoDelDocumento,
+  type CostoRegistrato,
 } from "./costiRegistro";
 import {
   ESITI_TERMINALI,
@@ -181,16 +185,23 @@ function piuRecente(a: Documento, b: Documento): boolean {
 }
 
 /**
- * Il costo a registro è ancora quello scritto dalla lettura precedente: nessuna
- * persona l'ha modificato. Solo allora una rilettura migliore può correggerlo.
+ * Il costo a registro l'ha scritto la regola e nessuna persona l'ha
+ * modificato: porta descrizione e nota della regola (non è un costo manuale
+ * collegato dopo) e la scheda non l'ha toccato. Solo allora una rilettura
+ * migliore può correggerlo. (Non basta confrontarlo con la lettura
+ * precedente: la 1.4.0 aveva già letto giusto le tre Pail a «22,00» senza
+ * correggerle, e il confronto con lei le faceva sembrare modificate a mano.)
  */
 function costoScrittoDallaRegola(
-  costo: { importo: number },
+  costo: CostoRegistrato,
   precedente: LetturaCostoDocumento | null
 ): boolean {
+  if (precedente?.esito === "collegato") return false;
+  if (costoNatoDallaRegola(costo)) return true;
   return (
     precedente?.esito === "registrato" &&
     precedente.imponibile != null &&
+    !costo.modificatoAMano &&
     Math.abs(costo.importo - precedente.imponibile) < 0.005
   );
 }
@@ -746,10 +757,11 @@ export async function registraCostoDaConferma(input: {
     );
   }
 
-  const nota = `${input.nota?.trim() ? `${input.nota.trim()} ` : ""}Letto dalla conferma d'ordine ${riferimentoDocumento}${avvisoOcr}`.slice(
-    0,
-    300
-  );
+  // La nota comincia SEMPRE con l'impronta della regola: è così che una
+  // rilettura riconosce un costo scritto da lei (una nota di chi chiama va in coda).
+  const nota = `${NOTA_COSTO_DA_CONFERMA}${riferimentoDocumento}${avvisoOcr}${
+    input.nota?.trim() ? ` — ${input.nota.trim()}` : ""
+  }`.slice(0, 300);
 
   // Un costo già scritto a mano per lo stesso ordine, lo stesso importo o lo
   // stesso fornitore: la conferma lo lega al documento, non lo raddoppia.
@@ -770,7 +782,7 @@ export async function registraCostoDaConferma(input: {
   const costo = aggiungiCosto(commessa, {
     importo: imponibile,
     fornitore,
-    descrizione: `Conferma d'ordine ${raw.nome}`.slice(0, 160),
+    descrizione: `${DESCRIZIONE_COSTO_DA_CONFERMA}${raw.nome}`.slice(0, 160),
     data: dataDocumento,
     numeroOrdine,
     note: nota,

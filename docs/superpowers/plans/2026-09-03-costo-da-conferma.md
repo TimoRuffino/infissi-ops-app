@@ -205,6 +205,13 @@ ha mandato quindici conferme di fornitori diversi: dieci sono SCANSIONI.
    `duplicato` con il motivo; una copia identica resta una copia. Il CAP
    («19124») letto come numero di conferma non è più un riferimento
    d'ordine (due ordini Brianzatende erano diventati un duplicato).
+   Rilettura 1.6.0: il costo «nato dalla regola» si riconosce dalla sua
+   impronta (descrizione `Conferma d'ordine …`, nota `Letto dalla conferma
+   d'ordine …`, nessuna modifica dalla scheda: `costi[].modificatoAMano`,
+   che `commesse.updateCosto` marca quando una persona cambia l'importo),
+   non dal confronto con la lettura precedente — la 1.4.0 aveva già letto
+   giusto le tre Pail senza correggerle, e il confronto le faceva sembrare
+   modificate a mano.
 
 Sul corpus dei quindici file (non nel repo: dati di clienti), dopo la
 tranche: i cinque PDF con testo nativo escono giusti (fornitore, numero,
