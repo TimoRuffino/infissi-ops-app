@@ -3,6 +3,8 @@ import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
 import {
   buildFicAuthUrl,
+  FIC_SCOPES_LETTURA,
+  FIC_SCOPES_SCRITTURA,
   handleFicOAuthCallback,
   issueFicOAuthState,
 } from "./fattureInCloud";
@@ -163,5 +165,59 @@ describe("OAuth Fatture in Cloud", () => {
       client_secret: "secret-test",
       refresh_token: "r/refresh-abcdefghijklmnopqrstuvwxyz012345",
     });
+  });
+
+  it("oauthStartUrl({ scrittura: true }) chiede lo scope di scrittura e il callback lo salva", async () => {
+    const { url } = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.oauthStartUrl({ scrittura: true });
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get("scope")).toBe(FIC_SCOPES_SCRITTURA);
+    const state = parsed.searchParams.get("state")!;
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(200, {
+          access_token: "a/scrittura-abcdefghijklmnopqrstuvwxyz",
+          refresh_token: "r/scrittura-abcdefghijklmnopqrstuvwxyz",
+          expires_in: 86_400,
+        })
+      )
+      .mockResolvedValueOnce(response(200, { data: { companies: [] } }));
+    global.fetch = fetchMock as any;
+
+    await handleFicOAuthCallback("c/scrittura", state);
+    const status = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.status();
+    expect(status.scopeScrittura).toBe(true);
+  });
+
+  it("oauthStartUrl senza scrittura resta sullo scope di lettura", async () => {
+    const { url } = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.oauthStartUrl();
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get("scope")).toBe(FIC_SCOPES_LETTURA);
+    const state = parsed.searchParams.get("state")!;
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(200, {
+          access_token: "a/lettura-abcdefghijklmnopqrstuvwxyz",
+          refresh_token: "r/lettura-abcdefghijklmnopqrstuvwxyz",
+          expires_in: 86_400,
+        })
+      )
+      .mockResolvedValueOnce(response(200, { data: { companies: [] } }));
+    global.fetch = fetchMock as any;
+
+    await handleFicOAuthCallback("c/lettura", state);
+    const status = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.status();
+    expect(status.scopeScrittura).toBe(false);
   });
 });

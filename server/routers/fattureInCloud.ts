@@ -34,8 +34,16 @@ import {
 const FIC = "https://api-v2.fattureincloud.it";
 const FIC_REQUEST_TIMEOUT_MS = 30_000;
 const FIC_SYNC_TIMEOUT_MS = 10 * 60_000;
-const FIC_SCOPES =
+// Lettura: il sync automatico che legge fatture/clienti/pagamenti da FiC.
+export const FIC_SCOPES_LETTURA =
   "entity.clients:r issued_documents.invoices:r issued_documents.credit_notes:r received_documents:r";
+/** Alias storico, mantenuto perché importato altrove. */
+export const FIC_SCOPES = FIC_SCOPES_LETTURA;
+// Scrittura: emissione di fatture/note di credito dal CRM (fatturazione dal
+// contratto). Richiesta solo quando l'utente collega esplicitamente questa
+// modalità — il sync automatico di sola lettura non la chiede mai.
+export const FIC_SCOPES_SCRITTURA =
+  "entity.clients:r entity.clients:a issued_documents.invoices:r issued_documents.invoices:a issued_documents.credit_notes:r issued_documents.credit_notes:a received_documents:r settings:r";
 const FIC_CALLBACK_PATH = "/api/oauth/fic/callback";
 
 type FicAuthMode = "manual" | "oauth";
@@ -44,10 +52,15 @@ export type FicSyncResult = {
   result: string;
   complete: boolean;
   stats: FicPaymentSyncStats;
-  commesseCreate?: { create: number; existing: number; ambiguous: number; skipped: number };
+  commesseCreate?: {
+    create: number;
+    existing: number;
+    ambiguous: number;
+    skipped: number;
+  };
 };
 
-type FicConfig = {
+export type FicConfig = {
   id: number;
   // Una configurazione per sede: due sedi possono fatturare da due aziende
   // diverse su Fatture in Cloud, con token e company id propri.
@@ -66,6 +79,9 @@ type FicConfig = {
   lastResult: string | null;
   lastStats: FicPaymentSyncStats | null;
   economicScopesReady: boolean;
+  // true quando l'ultimo callback OAuth è stato avviato con lo scope di
+  // scrittura (fatturazione dal contratto), non solo quello di lettura.
+  scopeScrittura: boolean;
 };
 
 let nextCfgId = 2;
@@ -93,12 +109,13 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
     if (c.authMode !== "oauth") c.authMode = "manual";
     if (c.lastStats === undefined) c.lastStats = null;
     if (c.economicScopesReady === undefined) c.economicScopesReady = false;
+    if (c.scopeScrittura === undefined) c.scopeScrittura = false;
   }
   nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
 const cfgRows = _cfgStore.items;
 
-function getCfg(sedeId: number | null): FicConfig {
+export function getCfg(sedeId: number | null): FicConfig {
   const sede = sedeId ?? DEFAULT_SEDE_ID;
   let c = cfgRows.find(x => x.sedeId === sede);
   if (!c) {
@@ -116,6 +133,7 @@ function getCfg(sedeId: number | null): FicConfig {
       lastResult: null,
       lastStats: null,
       economicScopesReady: false,
+      scopeScrittura: false,
     };
     cfgRows.push(c);
     _cfgStore.save();
@@ -161,6 +179,9 @@ export function ficOAuthClientFromEnv(): {
 type PendingFicState = {
   sedeId: number;
   redirectUri: string;
+  // true quando l'utente ha avviato il collegamento chiedendo esplicitamente
+  // i permessi di scrittura (fatturazione dal contratto).
+  scrittura: boolean;
   expiresAt: number;
 };
 
@@ -168,12 +189,14 @@ const pendingFicStates = new Map<string, PendingFicState>();
 
 export function issueFicOAuthState(
   sedeId: number,
-  redirectUri: string
+  redirectUri: string,
+  scrittura = false
 ): string {
   const state = crypto.randomBytes(24).toString("base64url");
   pendingFicStates.set(state, {
     sedeId,
     redirectUri,
+    scrittura,
     expiresAt: Date.now() + 10 * 60_000,
   });
   return state;
@@ -188,7 +211,8 @@ function consumeFicOAuthState(state: string): PendingFicState | null {
 
 export function buildFicAuthUrl(
   redirectUri: string,
-  state: string
+  state: string,
+  scope: string = FIC_SCOPES_LETTURA
 ): string | null {
   const client = ficOAuthClientFromEnv();
   if (!client) return null;
@@ -196,7 +220,7 @@ export function buildFicAuthUrl(
     response_type: "code",
     client_id: client.clientId,
     redirect_uri: redirectUri,
-    scope: FIC_SCOPES,
+    scope,
     state,
   });
   return `${FIC}/oauth/authorize?${params.toString()}`;
@@ -314,6 +338,7 @@ export async function handleFicOAuthCallback(
     throw new Error("Fatture in Cloud non ha restituito il refresh token");
   }
   const cfg = getCfg(pending.sedeId);
+  cfg.scopeScrittura = pending.scrittura;
   salvaTokenOAuth(cfg, token);
 
   // Riduce un passaggio: quando l'account espone una sola azienda, la
@@ -402,7 +427,7 @@ function messaggioErroreFic(status: number, corpo: string): string {
   return `Fatture in Cloud HTTP ${status}: ${corpo.slice(0, 200)}`;
 }
 
-async function ficGet(
+export async function ficGet(
   path: string,
   token: string,
   signal?: AbortSignal
@@ -579,10 +604,7 @@ async function ficListAll(
   return { rows, complete: false };
 }
 
-export function normalizzaRate(
-  value: unknown,
-  documentoId: number
-): RataFic[] {
+export function normalizzaRate(value: unknown, documentoId: number): RataFic[] {
   return (Array.isArray(value) ? value : []).map((p: any, index) => {
     const id = p.id == null ? null : Number(p.id);
     const importo = Number(p.amount ?? 0);
@@ -621,7 +643,9 @@ function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
     clienteIndirizzo: entity.address_street
       ? String(entity.address_street).trim()
       : null,
-    clienteCitta: entity.address_city ? String(entity.address_city).trim() : null,
+    clienteCitta: entity.address_city
+      ? String(entity.address_city).trim()
+      : null,
     clienteCap: entity.address_postal_code
       ? String(entity.address_postal_code).trim()
       : null,
@@ -903,7 +927,12 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };
     _cfgStore.save();
-    return { result, complete: completo, stats: payments.stats, commesseCreate };
+    return {
+      result,
+      complete: completo,
+      stats: payments.stats,
+      commesseCreate,
+    };
   } catch (e: any) {
     const cfg2 = getCfg(sedeId);
     cfg2.economicScopesReady = false;
@@ -929,27 +958,24 @@ const INTERVALLO_SYNC_MS = 60 * 60 * 1000;
 let ficTimer: NodeJS.Timeout | null = null;
 export function startFicScheduler(): void {
   if (ficTimer) return;
-  ficTimer = setInterval(
-    async () => {
-      // Ogni sede col suo giro: se una ha il token scaduto, le altre
-      // continuano. Un errore per sede non ferma la fila.
-      for (const sedeId of allSedeIds()) {
-        try {
-          const cfg = getCfg(sedeId);
-          const hasCredential =
-            !!cfg.accessTokenCifrato ||
-            !!cfg.refreshTokenCifrato ||
-            !!(cfg as any).accessToken;
-          if (cfg.enabled && hasCredential && cfg.companyId) {
-            await runFicSync(sedeId);
-          }
-        } catch (e) {
-          console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
+  ficTimer = setInterval(async () => {
+    // Ogni sede col suo giro: se una ha il token scaduto, le altre
+    // continuano. Un errore per sede non ferma la fila.
+    for (const sedeId of allSedeIds()) {
+      try {
+        const cfg = getCfg(sedeId);
+        const hasCredential =
+          !!cfg.accessTokenCifrato ||
+          !!cfg.refreshTokenCifrato ||
+          !!(cfg as any).accessToken;
+        if (cfg.enabled && hasCredential && cfg.companyId) {
+          await runFicSync(sedeId);
         }
+      } catch (e) {
+        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
       }
-    },
-    INTERVALLO_SYNC_MS
-  );
+    }
+  }, INTERVALLO_SYNC_MS);
   ficTimer.unref?.();
 }
 
@@ -980,6 +1006,7 @@ export const fattureInCloudRouter = router({
       syncAvviataAt: run?.startedAt ?? null,
       permessiEconomiciDaAggiornare:
         (!!token || !!cfg.refreshTokenCifrato) && !cfg.economicScopesReady,
+      scopeScrittura: cfg.scopeScrittura ?? false,
     };
   }),
 
@@ -1018,31 +1045,39 @@ export const fattureInCloudRouter = router({
       return { success: true } as const;
     }),
 
-  oauthStartUrl: adminProcedure.mutation(({ ctx }) => {
-    assertChiaveCifratura();
-    if (!ficOAuthClientFromEnv()) {
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message:
-          "Configura FIC_OAUTH_CLIENT_ID e FIC_OAUTH_CLIENT_SECRET sul server prima di collegare l'account.",
-      });
-    }
-    const redirectUri =
-      process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
-      `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
-    const state = issueFicOAuthState(
-      ctx.sedeId ?? DEFAULT_SEDE_ID,
-      redirectUri
-    );
-    const url = buildFicAuthUrl(redirectUri, state);
-    if (!url) {
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "OAuth FIC non configurato",
-      });
-    }
-    return { url, redirectUri };
-  }),
+  oauthStartUrl: adminProcedure
+    .input(z.object({ scrittura: z.boolean().optional() }).optional())
+    .mutation(({ ctx, input }) => {
+      assertChiaveCifratura();
+      if (!ficOAuthClientFromEnv()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Configura FIC_OAUTH_CLIENT_ID e FIC_OAUTH_CLIENT_SECRET sul server prima di collegare l'account.",
+        });
+      }
+      const redirectUri =
+        process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
+        `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
+      const scrittura = input?.scrittura ?? false;
+      const state = issueFicOAuthState(
+        ctx.sedeId ?? DEFAULT_SEDE_ID,
+        redirectUri,
+        scrittura
+      );
+      const url = buildFicAuthUrl(
+        redirectUri,
+        state,
+        scrittura ? FIC_SCOPES_SCRITTURA : FIC_SCOPES_LETTURA
+      );
+      if (!url) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "OAuth FIC non configurato",
+        });
+      }
+      return { url, redirectUri };
+    }),
 
   disconnectOAuth: adminProcedure.mutation(({ ctx }) => {
     const cfg = getCfg(ctx.sedeId);
