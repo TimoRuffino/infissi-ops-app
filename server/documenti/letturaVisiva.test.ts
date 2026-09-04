@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RichiestaProvider, TarsProvider } from "../tars/provider";
+import { ErroreProvider, type RichiestaProvider, type TarsProvider } from "../tars/provider";
 import {
   MAX_PAGINE_VISIONE,
   TOKEN_STIMATI_PER_PAGINA,
@@ -113,6 +113,25 @@ describe("trascriviImmagini — lettura visiva dietro il provider governato", ()
       motivo: "Lettura visiva disattivata (FLAG_LETTURA_VISIVA).",
     });
     expect(richieste).toHaveLength(0);
+  });
+
+  it("una pagina bianca (risposta vuota del provider) è una pagina vuota, non un documento fallito", async () => {
+    const { provider } = providerChe((_, n) =>
+      n === 2
+        ? new ErroreProvider("Il provider non ha prodotto né testo né chiamate strumento.", "risposta_invalida", true)
+        : `pagina ${n}`
+    );
+    const esito = await trascriviImmagini({
+      immagini: [
+        { bytes: Buffer.concat([PNG, Buffer.from([7])]), mime: "image/png" },
+        { bytes: Buffer.concat([PNG, Buffer.from([8])]), mime: "image/png" },
+        { bytes: Buffer.concat([PNG, Buffer.from([9])]), mime: "image/png" },
+      ],
+      identita: { sedeId: 1, utenteId: 7 },
+      nome: "tre.pdf",
+      deps: { provider: () => provider, modello: "m" },
+    });
+    expect(esito.esito === "trascritto" && esito.pagine).toEqual(["pagina 1", "", "pagina 3"]);
   });
 
   it("senza provider reale dice perché; troppe pagine o un errore del provider fermano tutto", async () => {

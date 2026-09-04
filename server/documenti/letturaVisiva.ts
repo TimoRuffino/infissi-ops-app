@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { creaProviderPerRun, statoProvider } from "../tars/costi/providerGovernato";
-import type { TarsProvider } from "../tars/provider";
+import { ErroreProvider, type TarsProvider } from "../tars/provider";
 
 export const VISIONE_VERSIONE = "1.0.0";
 
@@ -220,6 +220,14 @@ export async function trascriviImmagini(input: {
       uso.output += risposta.uso.output;
       pagine.push(pulisciTrascrizione(risposta.testo));
     } catch (errore: any) {
+      // Una pagina bianca (il retro di una scansione, un separatore): il
+      // modello non scrive niente e l'adapter lo segnala come risposta
+      // vuota. È una pagina vuota, non un documento fallito (04/09/2026,
+      // «Conferma d'ordine Galliadi», pagina 2).
+      if (errore instanceof ErroreProvider && errore.categoria === "risposta_invalida") {
+        pagine.push("");
+        continue;
+      }
       return {
         esito: "visione_fallita",
         motivo: `Lettura visiva fallita sulla pagina ${indice + 1}: ${String(errore?.message ?? errore).slice(0, 200)}`,
