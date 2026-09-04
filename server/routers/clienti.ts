@@ -28,18 +28,31 @@ type Referente = {
 
 let nextId = 1;
 
+/**
+ * Backfill dei campi aggiunti dopo il primo salvataggio: un record scritto
+ * da una versione precedente non ha la chiave, e `undefined` viaggia
+ * diverso da `null` verso lo snapshot della fattura e verso la UI.
+ * Funzione pura che `onLoad` applica a ogni record (stesso schema di
+ * `backfillPattuito` per le commesse), esportata perché i test la possano
+ * chiamare senza ricaricare lo store.
+ */
+export function backfillCliente(c: any): void {
+  // Backfill assegnatoA on legacy records — defaults to createdBy if present.
+  if (c.assegnatoA === undefined) c.assegnatoA = c.createdBy ?? null;
+  // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
+  if (c.sedeId === undefined) c.sedeId = 1;
+  // Soft-archive flag (ISO string when archived, else null).
+  if (c.archivedAt === undefined) c.archivedAt = null;
+  // Recapito della fattura elettronica (piano fatturazione 2026-09):
+  // PEC, codice destinatario SdI e id del cliente su Fatture in Cloud.
+  if (c.pec === undefined) c.pec = null;
+  if (c.codiceDestinatario === undefined) c.codiceDestinatario = null;
+  if (c.ficEntityId === undefined) c.ficEntityId = null;
+}
+
 const _store = persistedStore<any>("clienti", (items) => {
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
-  // Backfill assegnatoA on legacy records — defaults to createdBy if present.
-  for (const c of items) {
-    if ((c as any).assegnatoA === undefined) {
-      (c as any).assegnatoA = (c as any).createdBy ?? null;
-    }
-    // Backfill sede scope → default sede (id 1) for pre-multi-sede records.
-    if ((c as any).sedeId === undefined) (c as any).sedeId = 1;
-    // Soft-archive flag (ISO string when archived, else null).
-    if ((c as any).archivedAt === undefined) (c as any).archivedAt = null;
-  }
+  for (const c of items) backfillCliente(c);
 });
 const clienti = _store.items;
 
@@ -127,6 +140,18 @@ export function getClienteById(id: number) {
 const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
 const TIPO_DETRAZIONE = ["ecobonus", "ristrutturazione"] as const;
 
+// Recapito della fattura elettronica. Il codice destinatario SdI è
+// alfanumerico a 7 caratteri e si scrive maiuscolo: chi lo copia da una
+// mail lo porta spesso minuscolo, e rifiutarlo per quello sarebbe solo
+// un dispetto — si normalizza. "0000000" (il default dei privati senza
+// PEC) resta un valore ammesso: lo snapshot della fattura lo mette
+// comunque quando il campo è vuoto.
+const codiceDestinatarioSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9]{7}$/, "il codice destinatario SdI ha 7 caratteri alfanumerici");
+
 // ── Creazione cliente ───────────────────────────────────────────────────────
 
 const creaClienteInput = z.object({
@@ -135,12 +160,11 @@ const creaClienteInput = z.object({
   tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]).optional(),
   codiceFiscale: z.string().optional(),
   partitaIva: z.string().optional(),
-  // Recapito della fattura elettronica: la PEC e il codice destinatario
-  // SdI (7 caratteri alfanumerici; "0000000" è il default dei privati e
-  // non si scrive qui). `ficEntityId` è il cliente corrispondente su
-  // Fatture in Cloud, riusato all'emissione invece di ricrearlo.
+  // Recapito della fattura elettronica; `ficEntityId` è il cliente
+  // corrispondente su Fatture in Cloud, riusato all'emissione invece di
+  // ricrearlo.
   pec: z.string().email().optional(),
-  codiceDestinatario: z.string().regex(/^[A-Z0-9]{7}$/).optional(),
+  codiceDestinatario: codiceDestinatarioSchema.optional(),
   ficEntityId: z.number().int().optional(),
   // Legacy "indirizzo/citta/cap" → kept as RESIDENZA (used by admin
   // for fatture). New explicit fields below for work-site address.
@@ -449,9 +473,11 @@ export const clientiRouter = router({
         codiceFiscale: z.string().optional(),
         partitaIva: z.string().optional(),
         // Recapito della fattura elettronica (v. `creaClienteInput`).
-        pec: z.string().email().optional(),
-        codiceDestinatario: z.string().regex(/^[A-Z0-9]{7}$/).optional(),
-        ficEntityId: z.number().int().optional(),
+        // Qui `null` è ammesso: è così che si svuota un campo sbagliato,
+        // mentre `undefined` significa «non toccarlo».
+        pec: z.string().email().nullable().optional(),
+        codiceDestinatario: codiceDestinatarioSchema.nullable().optional(),
+        ficEntityId: z.number().int().nullable().optional(),
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         cap: z.string().optional(),

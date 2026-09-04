@@ -17,7 +17,7 @@ import { TRPCError } from "@trpc/server";
 import type { TrpcContext } from "../_core/context";
 import { authorizeCoreOperation } from "../authz/enforcement";
 import { appRouter } from "../routers";
-import { getClienteById, getClientiStore } from "./clienti";
+import { backfillCliente, getClienteById, getClientiStore } from "./clienti";
 import { getCommessaById, getCommesseStore } from "./commesse";
 
 const SEDE = 90201;
@@ -151,7 +151,7 @@ describe("clienti.createConCommessa", () => {
 });
 
 describe("recapito della fattura elettronica", () => {
-  it("crea e aggiorna PEC, codice destinatario e id FiC; il codice malformato è rifiutato", async () => {
+  it("crea e aggiorna PEC, codice destinatario e id FiC; il minuscolo si normalizza, null svuota", async () => {
     const caller = direzione();
     const cliente = await caller.clienti.create({
       nome: " ",
@@ -159,7 +159,7 @@ describe("recapito della fattura elettronica", () => {
       tipo: "azienda",
       partitaIva: "01500270119",
       pec: "alfa@pec.it",
-      codiceDestinatario: "ABC1234",
+      codiceDestinatario: "abc1234", // copiato da una mail, minuscolo
       ficEntityId: 7788,
     });
     expect(cliente).toMatchObject({ pec: "alfa@pec.it", codiceDestinatario: "ABC1234", ficEntityId: 7788 });
@@ -169,12 +169,54 @@ describe("recapito della fattura elettronica", () => {
     const privato = await caller.clienti.create({ nome: "Mario", cognome: "Rossi" });
     expect(privato).toMatchObject({ pec: null, codiceDestinatario: null, ficEntityId: null });
 
-    await caller.clienti.update({ id: privato.id, codiceDestinatario: "0000000", pec: "rossi@pec.it" });
-    expect(getClienteById(privato.id)).toMatchObject({ codiceDestinatario: "0000000", pec: "rossi@pec.it" });
+    await caller.clienti.update({ id: privato.id, codiceDestinatario: " 0000000 ", pec: "rossi@pec.it", ficEntityId: 12 });
+    expect(getClienteById(privato.id)).toMatchObject({
+      codiceDestinatario: "0000000",
+      pec: "rossi@pec.it",
+      ficEntityId: 12,
+    });
 
-    await expect(
-      caller.clienti.create({ nome: "X", cognome: "Y", codiceDestinatario: "abc123" })
-    ).rejects.toThrow();
+    // `null` svuota il campo, l'assenza lo lascia stare.
+    await caller.clienti.update({ id: privato.id, codiceDestinatario: null, ficEntityId: null });
+    expect(getClienteById(privato.id)).toMatchObject({
+      codiceDestinatario: null,
+      ficEntityId: null,
+      pec: "rossi@pec.it",
+    });
+
+    await expect(caller.clienti.create({ nome: "X", cognome: "Y", codiceDestinatario: "abc12" })).rejects.toThrow();
     await expect(caller.clienti.update({ id: privato.id, pec: "non-una-pec" })).rejects.toThrow();
+  });
+
+  it("il backfill di onLoad dà i campi nuovi a null senza toccare quelli già scritti", () => {
+    const legacy: any = { id: 1, nome: "Anna", cognome: "Verdi", createdBy: 7 };
+    backfillCliente(legacy);
+    expect(legacy).toMatchObject({
+      pec: null,
+      codiceDestinatario: null,
+      ficEntityId: null,
+      assegnatoA: 7,
+      sedeId: 1,
+      archivedAt: null,
+    });
+
+    const gia: any = {
+      id: 2,
+      pec: "x@pec.it",
+      codiceDestinatario: "ABC1234",
+      ficEntityId: 9,
+      assegnatoA: 3,
+      sedeId: 4,
+      archivedAt: "2026-01-01",
+    };
+    backfillCliente(gia);
+    expect(gia).toMatchObject({
+      pec: "x@pec.it",
+      codiceDestinatario: "ABC1234",
+      ficEntityId: 9,
+      assegnatoA: 3,
+      sedeId: 4,
+      archivedAt: "2026-01-01",
+    });
   });
 });

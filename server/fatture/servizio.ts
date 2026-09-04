@@ -16,9 +16,11 @@
 //   VALIDAZIONE:        l'input non sta in piedi
 //   FATTURA_IMMUTABILE: dalla bozza in poi si corregge con una nota di credito
 //   CONFLITTO:          revisione superata (propagato dal repository)
+import { TZDate } from "@date-fns/tz";
 import type { ChiaveDicitura } from "@shared/fatturazione/diciture";
 import {
   fatturaModificabile,
+  type ClienteSnapshot,
   type EventoFattura,
   type Fattura,
   type RigaFattura,
@@ -26,15 +28,16 @@ import {
   type ScadenzaFattura,
   type ScadenzaFatturaInput,
 } from "@shared/fatturazione/tipi";
+import type { Contratto } from "@shared/limiti/tipi";
 import { ultimoComputo } from "../computo/servizio";
 import { leggiContratto } from "../contratti/servizio";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
 import { controlliCliente, snapshotCliente } from "./cliente";
-import { generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
+import { generaBozza, ricalcola, scadenzeDaRate, type Bozza } from "./generatore";
 import { getFattureRepository, type FattureRepository, type PatchBozza } from "./repository";
-import { riequilibraBeni } from "./risolutore";
+import { riequilibraBeni, type EsitoRisolutore } from "./risolutore";
 
 export type Controllo = { codice: string; esito: "ok" | "avviso" | "errore"; messaggio: string };
 export type Dipendenze = { now?: () => Date; repository?: FattureRepository };
@@ -53,6 +56,7 @@ export type ModificaBozza = {
 
 /** Scarto ammesso sul markup dopo il riequilibrio: l'IVA non restituisce sempre il centesimo esatto. */
 const TOLLERANZA_MARKUP_CENT = 3;
+const FUSO = "Europe/Rome";
 
 // Stesso formattatore di `risolutore.ts` e `generatore.ts`: tenuto locale
 // come lì, perché è testo di messaggio e non una conversione di dominio
@@ -67,8 +71,19 @@ function repo(dip?: Dipendenze): FattureRepository {
 function adesso(dip?: Dipendenze): Date {
   return dip?.now?.() ?? new Date();
 }
+/**
+ * Il giorno di calendario italiano, non quello UTC: a mezzanotte e mezza
+ * di Sarzana l'UTC è ancora ieri, e una scadenza datata ieri nascerebbe
+ * già «passata». Stesso `TZDate` usato dal resto del CRM (reminders,
+ * briefing, agenda); il `giornoLocale` di `tars/analisi/fotografia.ts`
+ * fa la stessa cosa ma vive in un modulo che tira dentro tutto Tars, e
+ * un servizio di dominio non ci si appoggia.
+ */
 function iso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const locale = new TZDate(d, FUSO);
+  const mm = String(locale.getMonth() + 1).padStart(2, "0");
+  const gg = String(locale.getDate()).padStart(2, "0");
+  return `${locale.getFullYear()}-${mm}-${gg}`;
 }
 
 function commessaInSede(sedeId: number, commessaId: number): any {
@@ -109,9 +124,20 @@ const comeScadenzaInput = (s: ScadenzaFattura): ScadenzaFatturaInput => ({
   descrizione: s.descrizione,
 });
 
-/** Le righe generate hanno sempre quantità 1: il prezzo unitario segue l'importo, non resta indietro. */
-const prezzoUnit = (importoCent: number, quantita: number): number =>
-  quantita > 0 ? Math.round(importoCent / quantita) : importoCent;
+/**
+ * Quantità e prezzo unitario di una riga corretta a mano. Fatture in
+ * Cloud ricalcola il totale come `qty × net_price`: i due devono
+ * rimoltiplicarsi nell'importo esatto, o la fattura emessa non
+ * quadrerebbe con la bozza. Le righe generate hanno quantità 1 (il numero
+ * di serramenti sta nella descrizione, «N.3 …»), quindi la divisione è
+ * esatta; se una quantità diversa non divide il nuovo importo senza
+ * resto, la riga diventa una riga singola da `importoCent` invece di
+ * perdere centesimi nell'arrotondamento.
+ */
+function misuraRiga(importoCent: number, quantita: number): { quantita: number; prezzoUnitCent: number } {
+  if (quantita > 0 && importoCent % quantita === 0) return { quantita, prezzoUnitCent: importoCent / quantita };
+  return { quantita: 1, prezzoUnitCent: importoCent };
+}
 
 function controlliClienteDi(f: Fattura): Controllo[] {
   if (!f.clienteSnapshot) {
@@ -122,36 +148,38 @@ function controlliClienteDi(f: Fattura): Controllo[] {
   return controlliCliente(f.clienteSnapshot, f.detrazioneTipo);
 }
 
-// ── Creazione ───────────────────────────────────────────────────────────
+type Proposta = {
+  contratto: Contratto;
+  clienteSnapshot: ClienteSnapshot;
+  computoId: number | null;
+  bozza: Bozza;
+  righe: RigaFatturaInput[];
+  esito: EsitoRisolutore;
+  avvertenze: string[];
+};
 
-export async function creaBozza(
-  input: { sedeId: number; commessaId: number; actorUserId: number | null } & Dipendenze
-): Promise<{ fattura: Fattura; avvertenze: string[] }> {
-  const repository = repo(input);
-  const now = adesso(input);
-  const commessa = commessaInSede(input.sedeId, input.commessaId);
-  const { contratto, righe } = await leggiContratto(input.sedeId, input.commessaId);
+/**
+ * La proposta del sistema per una commessa: contratto, computo, snapshot
+ * del cliente, righe e totali. `creaBozza` la persiste in una fattura
+ * nuova e `rigeneraBozza` la sovrascrive su una esistente — «cosa
+ * proporre» è la stessa domanda, cambia solo dove finisce la risposta.
+ *
+ * `generaBozza` non restituisce l'esito del risolutore: `ricalcola` è
+ * idempotente sulle righe già complete (scarta le derivate e le rifà),
+ * quindi una seconda passata dà le stesse righe più l'esito da cui
+ * prendere riepilogo e totali.
+ */
+async function proponiDalContratto(
+  repository: FattureRepository,
+  sedeId: number,
+  commessa: any,
+  now: Date
+): Promise<Proposta> {
+  const { contratto, righe } = await leggiContratto(sedeId, commessa.id);
   if (!contratto) throw new Error("PRECONDIZIONE: Manca il contratto strutturato.");
-
-  // Una sola fattura per commessa: la seconda è una nota di credito
-  // (Task 11). Le note di credito hanno un ciclo proprio e non entrano in
-  // questo conteggio.
-  const precedenti = (await repository.perCommessa(input.sedeId, input.commessaId)).filter(f => f.tipo === "fattura");
-  const bozzaAperta = precedenti.find(f => f.stato === "bozza");
-  if (bozzaAperta) {
-    throw new Error(`PRECONDIZIONE: Esiste già una bozza per questa commessa (#${bozzaAperta.id}).`);
-  }
-  const emessa = precedenti.find(f => f.stato !== "annullata");
-  if (emessa) {
-    throw new Error(`PRECONDIZIONE: La commessa ha già la fattura #${emessa.id}: usa la nota di credito.`);
-  }
-
-  const { computo, valido } = await ultimoComputo(input.sedeId, input.commessaId);
-  const config = await repository.config(input.sedeId);
-  const clienteSnapshot = snapshotCliente(
-    commessa.clienteId ? getClienteById(commessa.clienteId) : null,
-    commessa
-  );
+  const { computo, valido, motivo } = await ultimoComputo(sedeId, commessa.id);
+  const config = await repository.config(sedeId);
+  const clienteSnapshot = snapshotCliente(commessa.clienteId ? getClienteById(commessa.clienteId) : null, commessa);
 
   const bozza = generaBozza({
     contratto,
@@ -165,24 +193,65 @@ export async function creaBozza(
   const avvertenze = [...bozza.avvertenze];
   // Un computo scaduto non impedisce la bozza: i limiti restano la
   // migliore stima disponibile, ma l'emissione li richiederà freschi
-  // (o uno scavalco registrato).
-  if (computo && !valido) avvertenze.push("Computo non aggiornato alle righe correnti: ricalcola i limiti.");
+  // (o uno scavalco registrato). Il motivo arriva da `ultimoComputo`:
+  // righe cambiate, parametri cambiati o computo incompleto.
+  if (computo && !valido) {
+    avvertenze.push(
+      `Computo non aggiornato alle righe correnti: ricalcola i limiti.${motivo ? ` (${motivo})` : ""}`
+    );
+  }
 
-  // `generaBozza` non restituisce l'esito del risolutore: `ricalcola` è
-  // idempotente sulle righe già complete (le derivate vengono scartate e
-  // rifatte), quindi una seconda passata dà gli stessi numeri e in più
-  // l'esito da cui prendere riepilogo e totali.
   const { righe: righeComplete, esito } = ricalcola({
     righe: bozza.righe,
     pattuitoCent: contratto.pattuitoCent,
     pattuitoTipo: contratto.pattuitoTipo,
   });
+  return {
+    contratto,
+    clienteSnapshot,
+    computoId: valido && computo ? computo.id : null,
+    bozza,
+    righe: righeComplete,
+    esito,
+    avvertenze,
+  };
+}
+
+// ── Creazione ───────────────────────────────────────────────────────────
+
+export async function creaBozza(
+  input: { sedeId: number; commessaId: number; actorUserId: number | null } & Dipendenze
+): Promise<{ fattura: Fattura; avvertenze: string[] }> {
+  const repository = repo(input);
+  const now = adesso(input);
+  const commessa = commessaInSede(input.sedeId, input.commessaId);
+
+  // Una sola fattura per commessa: la seconda è una nota di credito
+  // (Task 11). Le note di credito hanno un ciclo proprio e non entrano in
+  // questo conteggio. Le guardie vengono prima della proposta: inutile
+  // generare una bozza che non si potrà salvare.
+  const precedenti = (await repository.perCommessa(input.sedeId, input.commessaId)).filter(f => f.tipo === "fattura");
+  const bozzaAperta = precedenti.find(f => f.stato === "bozza");
+  if (bozzaAperta) {
+    throw new Error(`PRECONDIZIONE: Esiste già una bozza per questa commessa (#${bozzaAperta.id}).`);
+  }
+  const emessa = precedenti.find(f => f.stato !== "annullata");
+  if (emessa) {
+    throw new Error(`PRECONDIZIONE: La commessa ha già la fattura #${emessa.id}: usa la nota di credito.`);
+  }
+
+  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(
+    repository,
+    input.sedeId,
+    commessa,
+    now
+  );
 
   const fattura = await repository.crea({
     fattura: {
       sedeId: input.sedeId,
       commessaId: input.commessaId,
-      computoId: valido && computo ? computo.id : null,
+      computoId,
       hashRighe: contratto.hashRighe,
       tipo: "fattura",
       notaCreditoDi: null,
@@ -218,7 +287,7 @@ export async function creaBozza(
       emessaDa: null,
       emessaAt: null,
     },
-    righe: righeComplete,
+    righe,
     riepilogo: esito.riepilogo,
     scadenze: bozza.scadenze,
     now,
@@ -282,6 +351,9 @@ function applicaRighe(
     if (mod.descrizione !== undefined && mod.descrizione.trim() === "") {
       throw new Error(`VALIDAZIONE: la riga ${mod.ordine} non può restare senza descrizione.`);
     }
+    // Due correzioni sulla stessa riga: quale vince non è deducibile, e
+    // l'ultima che passa sarebbe un caso silenzioso.
+    if (richieste.has(mod.ordine)) throw new Error(`VALIDAZIONE: ordine di riga duplicato: ${mod.ordine}.`);
     richieste.set(mod.ordine, mod);
   }
   return righe.map(r => {
@@ -290,7 +362,7 @@ function applicaRighe(
     return {
       ...r,
       importoCent: mod.importoCent,
-      prezzoUnitCent: prezzoUnit(mod.importoCent, r.quantita),
+      ...misuraRiga(mod.importoCent, r.quantita),
       descrizione: mod.descrizione?.trim() ?? r.descrizione,
     };
   });
@@ -323,16 +395,16 @@ function riequilibra(righe: RigaFatturaInput[], fattura: Fattura, markupDesidera
   }
   const altri = fisse.filter(r => r.tipo === "bene" && !r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const servizi = fisse.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
-  const target = Math.max(0, targetBeniSignificativi(fattura, altri, servizi, markupDesideratoCent));
+  // `riequilibraBeni` clampa da sé un target negativo (beni a zero).
   const nuovi = riequilibraBeni(
     significativi.map(r => r.importoCent),
-    target
+    targetBeniSignificativi(fattura, altri, servizi, markupDesideratoCent)
   );
   const perOrdine = new Map(significativi.map((r, i) => [r.ordine, nuovi[i]]));
   return righe.map(r => {
     const importoCent = perOrdine.get(r.ordine);
     if (importoCent === undefined) return r;
-    return { ...r, importoCent, prezzoUnitCent: prezzoUnit(importoCent, r.quantita) };
+    return { ...r, importoCent, ...misuraRiga(importoCent, r.quantita) };
   });
 }
 
@@ -464,32 +536,12 @@ export async function rigeneraBozza(
   const now = adesso(input);
   const fattura = await bozzaModificabile(repository, input.sedeId, input.id);
   const commessa = commessaInSede(input.sedeId, fattura.commessaId);
-  const { contratto, righe } = await leggiContratto(input.sedeId, fattura.commessaId);
-  if (!contratto) throw new Error("PRECONDIZIONE: Manca il contratto strutturato.");
-  const { computo, valido } = await ultimoComputo(input.sedeId, fattura.commessaId);
-  const config = await repository.config(input.sedeId);
-  const clienteSnapshot = snapshotCliente(
-    commessa.clienteId ? getClienteById(commessa.clienteId) : null,
-    commessa
+  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(
+    repository,
+    input.sedeId,
+    commessa,
+    now
   );
-
-  const bozza = generaBozza({
-    contratto,
-    righe,
-    computo,
-    cliente: clienteSnapshot,
-    commessa: { codice: commessa.codice, indirizzo: commessa.indirizzo ?? null, citta: commessa.citta ?? null },
-    config,
-    dataFattura: iso(now),
-  });
-  const avvertenze = [...bozza.avvertenze];
-  if (computo && !valido) avvertenze.push("Computo non aggiornato alle righe correnti: ricalcola i limiti.");
-
-  const { righe: righeComplete, esito } = ricalcola({
-    righe: bozza.righe,
-    pattuitoCent: contratto.pattuitoCent,
-    pattuitoTipo: contratto.pattuitoTipo,
-  });
 
   const aggiornata = await repository.aggiornaBozza({
     sedeId: input.sedeId,
@@ -500,7 +552,7 @@ export async function rigeneraBozza(
       pattuitoTipo: contratto.pattuitoTipo,
       detrazioneTipo: contratto.detrazioneTipo,
       clienteSnapshot,
-      computoId: valido && computo ? computo.id : null,
+      computoId,
       hashRighe: contratto.hashRighe,
       diciture: bozza.diciture,
       intestazioneCantiere: bozza.intestazioneCantiere,
@@ -510,10 +562,15 @@ export async function rigeneraBozza(
       deltaPattuitoCent: esito.deltaPattuitoCent,
       markupCent: esito.markupCent,
       stornoCent: esito.stornoCent,
+      // La bozza torna alla proposta del sistema: uno scavalco deciso
+      // sulle righe di prima non vale più su righe che non sono più
+      // quelle. Se serve ancora, si registra di nuovo (con il motivo).
+      scavalcoLimiti: false,
+      scavalcoMotivo: null,
       // `note` resta fuori dal patch di proposito: è testo di chi
       // fattura, non un derivato del contratto.
     },
-    righe: righeComplete,
+    righe,
     riepilogo: esito.riepilogo,
     scadenze: bozza.scadenze,
     now,
@@ -552,11 +609,18 @@ export function verificaLimiti(f: Fattura): Controllo[] {
   }
 
   // Il confronto ha senso solo se il computo ha davvero proposto delle
-  // voci con un limite: senza, il termine di paragone è zero e ogni
-  // prestazione sembrerebbe fuori limite (a segnalare il computo assente
-  // ci pensa `computo_non_valido` in `validaPerEmissione`).
+  // voci con un limite: senza, il termine di paragone sarebbe zero e ogni
+  // prestazione sembrerebbe fuori limite. Ma nemmeno si può dire che i
+  // limiti siano rispettati: non sono stati verificati, e va detto
+  // (Ruling R8) — un «ok» qui sarebbe una rassicurazione falsa.
   const conLimite = servizi.filter(r => r.limiteCent != null);
-  if (conLimite.length > 0) {
+  if (conLimite.length === 0) {
+    controlli.push({
+      codice: "limiti_non_verificati",
+      esito: "avviso",
+      messaggio: "Limiti non verificati: computo assente o senza voci proposte.",
+    });
+  } else {
     const prestazione = servizi.reduce((s, r) => s + r.importoCent, 0) + f.markupCent;
     const limite = conLimite.reduce((s, r) => s + (r.limiteCent ?? 0), 0);
     if (prestazione > limite) {

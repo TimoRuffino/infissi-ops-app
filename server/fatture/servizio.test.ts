@@ -268,7 +268,9 @@ describe("creaBozza", () => {
     });
     const { fattura, avvertenze } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
     expect(fattura.computoId).toBeNull();
-    expect(avvertenze).toContain("Computo non aggiornato alle righe correnti: ricalcola i limiti.");
+    expect(avvertenze).toContain(
+      "Computo non aggiornato alle righe correnti: ricalcola i limiti. (I parametri del contratto sono cambiati dopo il computo.)"
+    );
     // I servizi ci sono comunque: il computo vecchio resta la migliore stima disponibile.
     expect(importo(fattura, "posa")).toBe(131400);
   });
@@ -372,6 +374,37 @@ describe("aggiornaBozza", () => {
     expect(errori(b.controlli)).toEqual(["limite_totale"]);
   });
 
+  it("un servizio oltre il proprio limite: avviso sulla riga, errore sul totale", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    // Posa a 2000,00 (limite 1314,00) e markup portato a 100.000: la
+    // prestazione sale a 5161,00 contro 3480,08 di limiti proposti.
+    const esito = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: 1,
+      actorUserId: ATTORE,
+      modifica: {
+        righe: [{ ordine: ordineDi(fattura, "posa"), importoCent: 200000 }],
+        riequilibraBeniAMarkupCent: 100000,
+      },
+      ...dip(),
+    });
+    expect(importo(esito.fattura, "posa")).toBe(200000);
+    expect(esito.fattura.markupCent).toBe(100000);
+    expect(esito.fattura.righe.filter(r => r.tipo === "bene").map(r => r.importoCent)).toEqual([555056, 210422, 90009]);
+    expect(esito.controlli.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
+      { codice: "cliente", esito: "ok" },
+      { codice: "limite_riga", esito: "avviso" },
+      { codice: "limite_totale", esito: "errore" },
+    ]);
+    const riga = esito.controlli.find(c => c.codice === "limite_riga")!;
+    expect(riga.messaggio).toContain("supera il limite di € 1314,00");
+    expect(esito.controlli.find(c => c.codice === "limite_totale")!.messaggio).toBe(
+      "Le prestazioni in fattura (€ 5161,00) superano il limite del computo (€ 3480,08)."
+    );
+  });
+
   it("revisione vecchia → CONFLITTO; fattura emessa → FATTURA_IMMUTABILE", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
@@ -468,6 +501,12 @@ describe("aggiornaBozza", () => {
     await expect(modifica([{ ordine: posa, importoCent: -1 }])).rejects.toThrow(
       `VALIDAZIONE: l'importo della riga ${posa} non può essere negativo.`
     );
+    await expect(
+      modifica([
+        { ordine: posa, importoCent: 1000 },
+        { ordine: posa, importoCent: 2000 },
+      ])
+    ).rejects.toThrow(`VALIDAZIONE: ordine di riga duplicato: ${posa}.`);
   });
 
   it("lo scavalco dei limiti è registrato con l'evento e il motivo", async () => {
@@ -494,10 +533,13 @@ describe("aggiornaBozza", () => {
     });
     expect(b.fattura.scavalcoLimiti).toBe(true);
     expect(b.fattura.scavalcoMotivo).toBe("Extra concordati fuori computo");
-    expect(errori(b.controlli)).toEqual([]);
-    const limite = b.controlli.find(c => c.codice === "limite_totale")!;
-    expect(limite.esito).toBe("avviso");
-    expect(limite.messaggio).toContain("scavalcato: Extra concordati fuori computo");
+    expect(b.controlli.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
+      { codice: "cliente", esito: "ok" },
+      { codice: "limite_totale", esito: "avviso" },
+    ]);
+    expect(b.controlli.find(c => c.codice === "limite_totale")!.messaggio).toContain(
+      "scavalcato: Extra concordati fuori computo"
+    );
 
     const letta = await leggiFattura(SEDE, fattura.id, dip());
     expect(letta!.eventi.map(e => e.tipo)).toEqual(["creata", "modificata", "modificata", "scavalco_limiti"]);
@@ -534,6 +576,21 @@ describe("verificaLimiti", () => {
     expect(totaleOltre.filter(c => c.esito === "errore").map(c => c.codice)).toEqual(["limite_totale"]);
     expect(verificaLimiti({ ...fattura, markupCent: SOMMA_LIMITI - SERVIZI_PROPOSTI })).toEqual([
       { codice: "limiti", esito: "ok", messaggio: "Prestazioni entro i limiti del computo." },
+    ]);
+
+    // Senza voci proposte manca il metro: si dichiara che i limiti non
+    // sono stati verificati, mai che sono rispettati (Ruling R8).
+    const senzaServizi = verificaLimiti({
+      ...fattura,
+      markupCent: 0,
+      righe: fattura.righe.filter(r => r.tipo !== "servizio"),
+    });
+    expect(senzaServizi).toEqual([
+      {
+        codice: "limiti_non_verificati",
+        esito: "avviso",
+        messaggio: "Limiti non verificati: computo assente o senza voci proposte.",
+      },
     ]);
   });
 });
@@ -613,6 +670,13 @@ describe("validaPerEmissione", () => {
     expect(avviso.esito).toBe("avviso");
     expect(avviso.messaggio).toContain("2026-01-15");
     expect(esito.emettibile).toBe(false);
+    // Nessuna voce proposta: i limiti non sono verificati, e non si finge
+    // che siano a posto (Ruling R8).
+    expect(esito.controlli.find(c => c.codice === "limiti_non_verificati")).toMatchObject({
+      esito: "avviso",
+      messaggio: "Limiti non verificati: computo assente o senza voci proposte.",
+    });
+    expect(codici(esito.controlli)).not.toContain("limiti");
 
     // Lo scavalco registrato sostituisce il computo valido (spec §7.3).
     await aggiornaBozza({
@@ -643,7 +707,11 @@ describe("rigeneraBozza", () => {
       id: fattura.id,
       revisione: 1,
       actorUserId: ATTORE,
-      modifica: { righe: [{ ordine: ordineDi(fattura, "posa"), importoCent: 100000 }], note: "a mano" },
+      modifica: {
+        righe: [{ ordine: ordineDi(fattura, "posa"), importoCent: 100000 }],
+        note: "a mano",
+        scavalcoLimiti: { attivo: true, motivo: "limiti verificati a mano" },
+      },
       ...dip(),
     });
 
@@ -664,6 +732,9 @@ describe("rigeneraBozza", () => {
     expect(esito.fattura.revisione).toBe(3);
     expect(importo(esito.fattura, "posa")).toBe(131400); // la modifica a mano è stata riscritta
     expect(esito.fattura.note).toBe("a mano"); // la nota di chi fattura non è un derivato del contratto: resta
+    // Lo scavalco riguardava righe che non ci sono più: torna a zero.
+    expect(esito.fattura.scavalcoLimiti).toBe(false);
+    expect(esito.fattura.scavalcoMotivo).toBeNull();
     expect(esito.fattura.markupCent).toBe(-208322);
     expect(esito.fattura.totaleCent).toBe(1600001);
     // Il centesimo che l'IVA non restituisce: dichiarato, non nascosto.
