@@ -53,6 +53,9 @@ const PAROLE_GENERICHE = new Set([
   "liguria", "toscana", "italia", "levante", "riviera", "marina", "porto", "centro",
   "comune", "provincia", "regione", "stato", "polizia", "scuola", "istituto", "ospedale",
   "parrocchia", "hotel", "albergo", "ristorante", "bar", "residence", "residenza",
+  // Articoli e preposizioni lunghi abbastanza da passare il filtro («Case
+  // delle Rose» → «delle» non è nessuno).
+  "delle", "della", "dello", "degli", "dell", "sulla", "sulle", "nella", "nelle",
 ]);
 
 /**
@@ -313,7 +316,7 @@ export function riscontroCommessaNelTesto(
   // riscontro per ogni conferma che citava l'azienda.
   const escluse = new Set((riferimenti.paroleEscluse ?? []).map(p => normalizza(p)));
   const viaParole = paroleUtili(riferimenti.indirizzo, 5).filter(
-    p => !PAROLE_DI_VIA_COMUNI.has(p) && !escluse.has(p)
+    p => !PAROLE_DI_VIA_COMUNI.has(p) && !NOMI_PROPRI_COMUNI.has(p) && !escluse.has(p)
   );
   // La città è solo di supporto (compare nella prova, non la decide): qui le
   // località non passano dallo stoplist.
