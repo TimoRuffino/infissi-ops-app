@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { riscontroCommessaNelTesto } from "./riscontroCommessa";
+import { riferimentiOrdineDocumento, riscontroCommessaNelTesto } from "./riscontroCommessa";
+
+describe("riferimentiOrdineDocumento — numeri corti", () => {
+  it("un CAP o un anno letti come numero di conferma non diventano un riferimento d'ordine", () => {
+    // Brianzatende, 04/09/2026: «19124» (CAP di La Spezia) faceva di due ordini un duplicato.
+    expect(riferimentiOrdineDocumento({ nomeFile: "2026013149.pdf", numeroConferma: "19124" })).toEqual([
+      "2026013149",
+    ]);
+    expect(riferimentiOrdineDocumento({ nomeFile: "conferma.pdf", numeroConferma: "2026" })).toEqual([]);
+    expect(riferimentiOrdineDocumento({ nomeFile: "conferma.pdf", numeroConferma: "003746" })).toEqual([
+      "003746",
+    ]);
+    expect(riferimentiOrdineDocumento({ nomeFile: "conferma.pdf", numeroConferma: "CV 003746" })).toEqual([
+      "cv003746",
+    ]);
+  });
+});
 
 // Le scansioni passano dall'OCR e i fornitori scrivono i nomi a mano
 // («Rif. POCCJ» per un cliente Pocci, 04/09/2026): un carattere sbagliato su

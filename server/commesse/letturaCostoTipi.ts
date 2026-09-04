@@ -10,7 +10,10 @@
 // testo per le archiviazioni automatiche, duplicati per riferimento
 // d'ordine, settimana di approntamento (04/09/2026 notte).
 // 1.3.0: fornitore dall'intestazione e numero documento del fornitore.
-export const VERSIONE_LETTURA_COSTO = "1.4.0";
+// 1.5.0 (04/09/2026): una rilettura corregge i costi nati dalla regola e mai
+// toccati; la conferma aggiornata dello stesso ordine sostituisce la vecchia;
+// il CAP non è più un riferimento d'ordine.
+export const VERSIONE_LETTURA_COSTO = "1.5.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;

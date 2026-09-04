@@ -83,6 +83,28 @@ export function costoManualeCorrispondente(
   );
 }
 
+/**
+ * Una rilettura migliore corregge l'importo di un costo NATO dalla regola e
+ * mai toccato da una persona (04/09/2026: tre conferme Pail lette «22,00»
+ * — l'aliquota IVA — da un estrattore vecchio). Chi chiama ha verificato
+ * che l'importo a registro è ancora quello scritto dalla lettura precedente.
+ */
+export function aggiornaImportoCosto(
+  commessa: any,
+  costo: CostoRegistrato,
+  importo: number,
+  nota: string,
+  completa: { fornitore?: string | null; data?: string | null; numeroOrdine?: string | null } = {}
+): void {
+  costo.importo = importo;
+  if (!costo.fornitore && completa.fornitore) costo.fornitore = completa.fornitore;
+  if (!costo.data && completa.data) costo.data = completa.data;
+  if (!costo.numeroOrdine && completa.numeroOrdine) costo.numeroOrdine = completa.numeroOrdine;
+  costo.note = costo.note ? `${costo.note} ${nota}`.slice(0, 300) : nota;
+  commessa.updatedAt = new Date();
+  saveCommesseStore();
+}
+
 export function collegaCostoAlDocumento(
   commessa: any,
   costo: CostoRegistrato,

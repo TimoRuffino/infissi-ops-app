@@ -72,8 +72,13 @@
 > solo dinamicamente) e i suoi salvataggi venivano rinviati per sempre
 > («save deferred … bootstrap not complete yet» ogni secondo): import
 > statico in `_core/index.ts` e store tardivi che si caricano da soli in
-> `persistence.ts`. Piano: `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`
-> (quinta tranche).
+> `persistence.ts`. Poi, letta la produzione con una sonda in sola lettura
+> (`railway ssh -- node …`, i comandi passano da una shell remota: pipe e
+> redirezioni vanno quotate localmente), lettura 1.5.0: una rilettura
+> corregge i costi nati dalla regola e mai toccati (tre Pail a «22,00»), la
+> conferma aggiornata dello stesso ordine sostituisce la vecchia (Oskura
+> «(2).pdf»), il CAP non è un riferimento d'ordine (Brianzatende). Piano:
+> `docs/superpowers/plans/2026-09-03-costo-da-conferma.md` (quinta tranche).
 
 ## 1. Contesto
 

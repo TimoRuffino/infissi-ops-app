@@ -66,6 +66,7 @@ import {
   type Documento,
 } from "../routers/preventiviContratti";
 import {
+  aggiornaImportoCosto,
   aggiungiCosto,
   collegaCostoAlDocumento,
   costoDelDocumento,
@@ -162,6 +163,36 @@ function motivoSicuro(errore: unknown): string {
 
 function arrotonda(valore: number): number {
   return Math.round((valore + Number.EPSILON) * 100) / 100;
+}
+
+/** «1.709,44»: scrittura italiana senza dipendere dai dati di locale di Node. */
+function euro(valore: number): string {
+  const [intero, decimali] = Math.abs(valore).toFixed(2).split(".");
+  const conPunti = intero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${valore < 0 ? "-" : ""}${conPunti},${decimali}`;
+}
+
+/** Il documento entrato dopo nel fascicolo (a parità di istante, l'id più alto). */
+function piuRecente(a: Documento, b: Documento): boolean {
+  const ta = new Date(a.createdAt as any).getTime();
+  const tb = new Date(b.createdAt as any).getTime();
+  if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta > tb;
+  return a.id > b.id;
+}
+
+/**
+ * Il costo a registro è ancora quello scritto dalla lettura precedente: nessuna
+ * persona l'ha modificato. Solo allora una rilettura migliore può correggerlo.
+ */
+function costoScrittoDallaRegola(
+  costo: { importo: number },
+  precedente: LetturaCostoDocumento | null
+): boolean {
+  return (
+    precedente?.esito === "registrato" &&
+    precedente.imponibile != null &&
+    Math.abs(costo.importo - precedente.imponibile) < 0.005
+  );
 }
 
 /** Le archiviazioni fatte da un automatismo: qui il testo deve citare la commessa. */
@@ -562,23 +593,56 @@ export async function registraCostoDaConferma(input: {
     dataDocumento,
   });
   if (duplicato) {
-    const ritirato = ritira(commessa, documento);
-    const motivo = `Stessa conferma di «${duplicato.documento.nome}» (riferimento ${duplicato.riferimento}): il costo e la merce restano quelli dell'originale.${
-      ritirato ? " Costo e merce doppi ritirati." : ""
-    }`;
-    salva({
-      ...memoriaBase,
+    // Stesso ordine ma importo diverso, e questo documento è entrato DOPO:
+    // è la conferma aggiornata, non una copia (04/09/2026, Oskura: la
+    // «(2).pdf» dello stesso ordine con il totale rivisto). Il costo e la
+    // merce seguono la versione più recente — se il costo dell'originale
+    // era ancora quello scritto dalla regola, mai toccato da una persona.
+    const originale = duplicato.documento;
+    const costoOriginale = costoDelDocumento(commessa, originale.id);
+    const letturaOriginale = originale.letturaCosto ?? null;
+    const revisione =
+      imponibile != null &&
+      imponibile > 0 &&
+      costoOriginale != null &&
+      costoScrittoDallaRegola(costoOriginale, letturaOriginale) &&
+      Math.abs(costoOriginale.importo - imponibile) >= 0.005 &&
+      piuRecente(documento, originale);
+    if (!revisione) {
+      const ritirato = ritira(commessa, documento);
+      const importoDiverso =
+        imponibile != null && costoOriginale != null && Math.abs(costoOriginale.importo - imponibile) >= 0.005
+          ? ` Attenzione: qui l'imponibile è ${euro(imponibile)}, a registro c'è ${euro(costoOriginale.importo)}.`
+          : "";
+      const motivo = `Stessa conferma di «${originale.nome}» (riferimento ${duplicato.riferimento}): il costo e la merce restano quelli dell'originale.${
+        ritirato ? " Costo e merce doppi ritirati." : ""
+      }${importoDiverso}`;
+      salva({
+        ...memoriaBase,
+        esito: "duplicato",
+        motivo,
+        costoId: null,
+        merce: null,
+        duplicatoDi: originale.id,
+        riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+      });
+      return base(documento, "duplicato", motivo, {
+        fonteTesto,
+        imponibile,
+        duplicatoDi: originale.id,
+      });
+    }
+    ritira(commessa, originale);
+    salvaLetturaCostoDocumento(originale.id, {
+      ...(letturaOriginale as LetturaCostoDocumento),
       esito: "duplicato",
-      motivo,
+      motivo: `Sostituita dalla versione più recente «${raw.nome}» (documento:${documento.id}): costo e merce seguono quella (qui l'imponibile era ${euro(
+        letturaOriginale?.imponibile ?? costoOriginale!.importo
+      )}).`,
       costoId: null,
       merce: null,
-      duplicatoDi: duplicato.documento.id,
-      riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
-    });
-    return base(documento, "duplicato", motivo, {
-      fonteTesto,
-      imponibile,
-      duplicatoDi: duplicato.documento.id,
+      duplicatoDi: documento.id,
+      quando: deps.adesso().toISOString(),
     });
   }
 
@@ -605,8 +669,41 @@ export async function registraCostoDaConferma(input: {
   };
 
   if (esistente) {
-    salva({ ...memoriaCosto, esito: "registrato", motivo: null, costoId: esistente.id });
-    return base(documento, "gia_registrato", null, {
+    const esitoEsistente: EsitoLetturaCosto =
+      precedente?.esito === "collegato" ? "collegato" : "registrato";
+    const diverso =
+      imponibile != null && imponibile > 0 && Math.abs(esistente.importo - imponibile) >= 0.005;
+    // Una rilettura migliore corregge un costo nato dalla regola e mai
+    // toccato da nessuno (04/09/2026: conferme Pail registrate a «22,00»,
+    // l'aliquota IVA letta come imponibile da un estrattore vecchio). Un
+    // costo scritto o modificato da una persona non si tocca: si dice.
+    if (diverso && costoScrittoDallaRegola(esistente, precedente) && input.importoAtteso == null) {
+      const era = esistente.importo;
+      aggiornaImportoCosto(
+        commessa,
+        esistente,
+        imponibile!,
+        `Importo corretto dalla rilettura di ${riferimentoDocumento}: era ${euro(era)}${avvisoOcr}.`,
+        { fornitore, data: dataDocumento, numeroOrdine }
+      );
+      salva({
+        ...memoriaCosto,
+        esito: "registrato",
+        motivo: `Importo corretto dalla rilettura: era ${euro(era)}.`,
+        costoId: esistente.id,
+      });
+      return base(documento, "registrato", null, {
+        imponibile: imponibile!,
+        costoId: esistente.id,
+        fonteTesto,
+        merce,
+      });
+    }
+    const motivo = diverso
+      ? `La rilettura di «${raw.nome}» dice ${euro(imponibile!)}, a registro c'è ${euro(esistente.importo)} (scritto o modificato a mano): non lo tocco.`
+      : null;
+    salva({ ...memoriaCosto, esito: esitoEsistente, motivo, costoId: esistente.id });
+    return base(documento, "gia_registrato", motivo, {
       imponibile: esistente.importo,
       costoId: esistente.id,
       fonteTesto,

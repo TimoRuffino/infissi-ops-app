@@ -194,6 +194,18 @@ ha mandato quindici conferme di fornitori diversi: dieci sono SCANSIONI.
    FiC vivevano solo in memoria). Import statico in `_core/index.ts` e, in
    `persistence.ts`, uno store registrato tardi si carica da solo.
 
+7. **Rilettura 1.5.0, dopo la sonda sul database di produzione** (39
+   conferme rilette): una rilettura migliore CORREGGE l'importo di un costo
+   nato dalla regola e mai toccato da una persona (tre conferme Pail erano a
+   registro a «22,00», l'aliquota IVA letta come imponibile da un estrattore
+   vecchio); un costo scritto o modificato a mano non si tocca, la lettura lo
+   dice. La conferma AGGIORNATA dello stesso ordine (stesso riferimento,
+   importo diverso, entrata dopo: le «(2).pdf» Oskura) sostituisce la vecchia
+   — costo e merce seguono la versione più recente, la vecchia diventa
+   `duplicato` con il motivo; una copia identica resta una copia. Il CAP
+   («19124») letto come numero di conferma non è più un riferimento
+   d'ordine (due ordini Brianzatende erano diventati un duplicato).
+
 Sul corpus dei quindici file (non nel repo: dati di clienti), dopo la
 tranche: i cinque PDF con testo nativo escono giusti (fornitore, numero,
 riferimento, consegna, imponibile, merce); delle dieci scansioni con

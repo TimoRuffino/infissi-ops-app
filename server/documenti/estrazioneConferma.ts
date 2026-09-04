@@ -278,7 +278,7 @@ const DOMINI_GENERICI =
   /(?:gmail|libero|hotmail|outlook|yahoo|icloud|tim|alice|virgilio|tiscali|fastweb|pec|legalmail|arubapec|pecimprese|postecert|sicurezzapostale|mypec|cert)\./i;
 
 const ETICHETTA_DI_SERVIZIO =
-  /^(?:agente|agenzia|rappresentante|vettore|trasport\w*|spedizion\w*|corriere|banca|destinazione|consegna|committente|compilatore|c\/o)\b/i;
+  /^(?:agente|agenzia|rappresentante|vettore|trasport\w*|spedizion\w*|corriere|banca|bonifico|intestat\w*|beneficiario|pagamento|iban|destinazione|consegna|committente|compilatore|c\/o)\b/i;
 
 const MARCATORE_DESTINATARIO = /\b(?:spett(?:\.|abile)|destinatario|cliente|customer)\b/i;
 
@@ -327,9 +327,11 @@ function fornitoreDallIntestazione(
     for (const [indice, cella] of celle.entries()) {
       const testo = cella.testo;
       if (MARCATORE_DESTINATARIO.test(testo)) {
-        // Il blocco del destinatario sta a destra: le celle a destra del
-        // marcatore, in questa riga e nelle tre sotto, sono sue.
-        if (indice === celle.length - 1) {
+        // Il blocco del destinatario sta a destra («BT GLASS Srl   Spett.le»):
+        // le celle a destra del marcatore, in questa riga e nelle tre sotto,
+        // sono sue. Un marcatore a sinistra non blocca niente: la nostra
+        // azienda è già esclusa per nome, e sotto può esserci il fornitore.
+        if (indice === celle.length - 1 && cella.inizio > 20) {
           righeDopoDestinatario = 3;
           colonnaDestinatario = cella.inizio;
         }
@@ -545,7 +547,14 @@ export function estraiConfermaOrdine(
     const re =
       /\b(?:conferma(?:\s+d['’]?ordine)?|order\s+confirmation|auftragsbest(?:ä|ae)tigung|AB)[\s:]*(?:n[°.ro]*\s*)?([A-Z0-9][A-Z0-9\/\-.]{2,20})/gi;
     const trovati = cercaSuPagine(pagine, re);
-    const primo = trovati.find(({ match }) => numeroConfermaPlausibile(match[1] ?? ""));
+    // «Conferma d'ordine … 19124 LA SPEZIA»: cinque cifre seguite da una
+    // città sono il CAP del destinatario, non il numero della conferma.
+    const primo = trovati.find(({ pagina, match }) => {
+      const valore = match[1] ?? "";
+      if (!numeroConfermaPlausibile(valore)) return false;
+      const dopo = pagine[pagina].slice(match.index + match[0].length, match.index + match[0].length + 30);
+      return !(/^\d{5}$/.test(valore) && /^\s+[A-ZÀ-Ú]{2,}/.test(dopo));
+    });
     if (primo) {
       risultato.numeroConferma = {
         valore: primo.match[1],

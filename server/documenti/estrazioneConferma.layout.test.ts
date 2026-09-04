@@ -183,11 +183,13 @@ describe("rumore da OCR", () => {
   it("un intero nudo non è un totale né un'IVA: partita IVA e aliquota non entrano nei conti", () => {
     const e = estraiConfermaOrdine(
       [
-        "Totale Iva   Consegna   3",
-        "Partita IVA 04500270111",
-        "Aliquota IVA   22   Imponibile   157,95",
-        "IVA 22%   34,75",
-        "Totale   192,70",
+        [
+          "Totale Iva   Consegna   3",
+          "Partita IVA 04500270111",
+          "Aliquota IVA   22   Imponibile   157,95",
+          "IVA 22%   34,75",
+          "Totale   192,70",
+        ].join("\n"),
       ],
       contesto
     );
@@ -197,11 +199,39 @@ describe("rumore da OCR", () => {
 
   it("«Totale (iva esclusa)» è un imponibile, non il totale", () => {
     const e = estraiConfermaOrdine(
-      ["Totale (iva esclusa) €3.299,70", "IVA 22% €725,93", "Totale documento €4.025,63"],
+      [["Totale (iva esclusa) €3.299,70", "IVA 22% €725,93", "Totale documento €4.025,63"].join("\n")],
       contesto
     );
     expect(e.imponibileDocumento?.valore).toBe(3299.7);
     expect(e.totaleDocumento?.valore).toBe(4025.63);
+  });
+
+  it("il CAP del destinatario dopo «Conferma d'ordine» non è il numero della conferma", () => {
+    const e = estraiConfermaOrdine(
+      [
+        [
+          "CONFERMA D'ORDINE                       Spett.le RUFFINO GROUP SRLS",
+          "                                        19124 LA SPEZIA SP",
+          "Numero documento 2026013149 del 30/07/2026",
+        ].join("\n"),
+      ],
+      contesto
+    );
+    expect(e.numeroConferma?.valore ?? null).not.toBe("19124");
+  });
+
+  it("«Bonifico Bancario Intestato a …» non è il fornitore", () => {
+    const e = estraiConfermaOrdine(
+      [
+        [
+          "Bonifico Bancario Intestato a BANCA POPOLARE SPA",
+          "Spett.le RUFFINO GROUP SRLS",
+          "Primed s.r.l.   Tel +39 0995623969",
+        ].join("\n"),
+      ],
+      contesto
+    );
+    expect(e.fornitoreCitato?.valore).toBe("Primed s.r.l.");
   });
 
   it("una frase delle condizioni non è un riferimento cliente", () => {

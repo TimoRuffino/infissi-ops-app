@@ -176,7 +176,12 @@ export function riferimentiOrdineDocumento(input: {
   for (const m of input.nomeFile.matchAll(/\d{5,}/g)) riferimenti.add(m[0]);
   for (const valore of [input.riferimentoOrdine, input.numeroConferma]) {
     const norm = normalizza(valore ?? "").replace(/ /g, "");
-    if (norm.length >= 4) riferimenti.add(norm);
+    // Un numero nudo corto non identifica un ordine: il CAP «19124» letto
+    // come numero di conferma faceva di due ordini Brianzatende un duplicato
+    // (04/09/2026). Con lettere («cv003746») bastano quattro caratteri.
+    if (norm.length < 4) continue;
+    if (/^\d+$/.test(norm) && norm.length < 6) continue;
+    riferimenti.add(norm);
   }
   return [...riferimenti];
 }
