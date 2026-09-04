@@ -80,7 +80,9 @@ export type Documento = {
   statoAtUpload: string | null; // commessa.stato at time of upload (for gates)
   createdBy: number | null;
   createdAt: Date;
-  source?: "fic" | "comunicazione";
+  // "crm": prodotto dal CRM stesso (il PDF della fattura emessa dal
+  // ciclo di fatturazione), non importato né caricato a mano.
+  source?: "fic" | "comunicazione" | "crm";
   sourceRef?: string;
   /**
    * Cosa ha dato la lettura del documento come conferma d'ordine (il costo
@@ -665,6 +667,106 @@ export async function upsertDocumentoFic(args: {
     delete doc.dataBase64;
   } catch {
     throw new StorageAllegatoTemporaneamenteNonDisponibile();
+  }
+
+  if (existing) Object.assign(existing, doc);
+  else documenti.push(doc);
+  _documentiStore.save();
+  if (oldStorageKey && oldStorageKey !== doc.storageKey) {
+    deleteFileQuiet(oldStorageKey);
+  }
+  return doc;
+}
+
+/** Il riferimento del PDF di una fattura emessa dal CRM (ciclo fatturazione). */
+function crmFatturaSourceRef(fatturaId: number): string {
+  return `crm:fattura:${fatturaId}`;
+}
+
+/**
+ * Il PDF della fattura emessa dal CRM entra nel fascicolo della commessa:
+ * è il documento che soddisfa il gate «fattura» di `fatture_pagamento`.
+ * Upsert per `sourceRef`, come `upsertDocumentoFic`: una ripresa
+ * dell'emissione non deve produrre un secondo file. A differenza di
+ * quella funzione, se lo storage non risponde il PDF resta inline
+ * (fallback base64 di `caricaDocumentoCommessaDaBuffer`): il gate vale più
+ * di un byte fuori posto, e l'alternativa sarebbe una fattura emessa
+ * davvero e una commessa bloccata.
+ */
+export async function registraDocumentoFatturaCrm(args: {
+  sedeId: number;
+  commessaId: number;
+  fatturaId: number;
+  numero: string;
+  tipo: "fattura" | "nota_credito";
+  pdf: Buffer;
+  createdBy: number | null;
+}): Promise<Documento> {
+  validaAllegatoFascicolo(args.pdf, "application/pdf");
+  const commessa = commessaInSede(args.commessaId, args.sedeId);
+  if (!commessa) throw new Error("Commessa non trovata");
+
+  const sourceRef = crmFatturaSourceRef(args.fatturaId);
+  const existing =
+    documenti.find(d => d.source === "crm" && d.sourceRef === sourceRef) ?? null;
+  const numeroSicuro = args.numero
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  const etichetta = args.tipo === "nota_credito" ? "Nota di credito" : "Fattura";
+  const nome = dedupeName(
+    `${etichetta} ${numeroSicuro || args.fatturaId}.pdf`,
+    args.commessaId,
+    existing?.id
+  );
+  const oldStorageKey = existing?.storageKey;
+  const doc: Documento = existing
+    ? { ...existing }
+    : {
+        id: nextId++,
+        commessaId: args.commessaId,
+        nome,
+        tipo: args.tipo,
+        mimeType: "application/pdf",
+        size: args.pdf.length,
+        note: null,
+        statoAtUpload: commessa.stato ?? null,
+        createdBy: args.createdBy,
+        createdAt: new Date(),
+      };
+
+  doc.commessaId = args.commessaId;
+  doc.nome = nome;
+  doc.tipo = args.tipo;
+  doc.mimeType = "application/pdf";
+  doc.size = args.pdf.length;
+  doc.note = `Emessa dal CRM · ${etichetta} ${numeroSicuro}`.trim();
+  doc.statoAtUpload = commessa.stato ?? null;
+  doc.source = "crm";
+  doc.sourceRef = sourceRef;
+  doc.origine = "automatico";
+
+  try {
+    const stored = await putFile(
+      "preventivi_documenti",
+      args.commessaId,
+      doc.id,
+      nome,
+      args.pdf,
+      "application/pdf"
+    );
+    doc.storageKey = stored.storageKey;
+    doc.checksum = stored.checksum;
+    delete doc.dataBase64;
+  } catch (e) {
+    if (args.pdf.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
+      throw new StorageAllegatoTemporaneamenteNonDisponibile();
+    }
+    console.warn(
+      "[preventiviContratti] storage put fallito per la fattura, fallback base64 inline:",
+      e
+    );
+    doc.dataBase64 = args.pdf.toString("base64");
   }
 
   if (existing) Object.assign(existing, doc);
