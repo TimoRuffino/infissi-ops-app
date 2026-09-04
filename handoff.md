@@ -153,9 +153,17 @@
 > cognome dall'anagrafica, o una parola che non sia un nome), il nome
 > completo vale solo se le sue parole stanno sulla stessa riga entro tre
 > parole, e un cognome solo su una commessa che non aspetta la conferma
-> (preventivo) non aggancia da solo. Ogni lettura e ogni riscontro lasciano
-> una riga `[ricerca-commessa]` nei log, e il giro del worker conta i
-> candidati (certe/probabili/non letti).
+> (preventivo) non aggancia da solo. Terzo giro (15:38): «spezia» dentro il
+> nome di tre enti clienti → località, enti, articoli lunghi e i cognomi
+> più diffusi (Rossi, Bianchi, Ferrari…) fra le parole che da sole non
+> identificano nessuno (il cognome diffuso vale con il nome accanto).
+> Quarto giro (15:50): riscontro pulito — Cecconi (Alias) unica sulla sua
+> commessa (già archiviata: copia), gli altri sette file solo indizi deboli
+> («~isanto», «~scotti») → restano proposte «va confermato» nella
+> fotografia. Ogni lettura e ogni riscontro lasciano una riga
+> `[ricerca-commessa]` nei log, e il giro del worker conta i candidati
+> (certe/probabili/non letti). Metodo che ha funzionato: leggere i log del
+> giro dopo ogni deploy e togliere UNA classe di falsi positivi per volta.
 
 ## 1. Contesto
 
