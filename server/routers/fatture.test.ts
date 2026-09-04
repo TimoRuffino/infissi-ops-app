@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
 import type { TrpcContext } from "../_core/context";
+import { getPolicyRepository } from "../authz/repository";
 import { _resetContrattiRepositoryForTests } from "../contratti/repository";
 import { _resetFattureRepositoryForTests, getFattureRepository } from "../fatture/repository";
 import { getClientiStore } from "./clienti";
@@ -146,6 +147,82 @@ describe("router fatture — autorizzazione", () => {
     const commerciale = appRouter.createCaller(context(1, 22, ["commerciale"]));
     await expect(commerciale.fatture.emetti({ id: 1, revisione: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(emettiFattura).not.toHaveBeenCalled();
+  });
+
+  // Ruling R34: «Procedi comunque» sui limiti è una decisione di chi
+  // emette, non di chi compila la bozza. Nessun ruolo di oggi ha `draft`
+  // senza `emit`, quindi il profilo si costruisce con un override
+  // individuale — l'unico modo per cui la differenza esiste davvero.
+  it("chi ha solo fattura.draft non può attivare lo scavalco dei limiti (FORBIDDEN)", async () => {
+    const commessaId = await commessaConContratto();
+    const utenteId = 23;
+    await getPolicyRepository().createOverride({
+      sedeId: 1,
+      userId: utenteId,
+      capability: "fattura.draft",
+      effect: "allow",
+      reason: "Prova R34: bozza sì, emissione no",
+      createdBy: 1,
+      startsAt: null,
+      expiresAt: null,
+      createdAt: new Date(),
+    });
+    const soloBozza = appRouter.createCaller(context(1, utenteId, ["commerciale"]));
+
+    // La bozza la crea e la modifica: è quello che `fattura.draft` dà.
+    const { fattura } = await soloBozza.fatture.creaBozza({ commessaId });
+    const aggiornata = await soloBozza.fatture.aggiornaBozza({
+      id: fattura.id,
+      revisione: fattura.revisione,
+      modifica: { note: "senza scavalco" },
+    });
+
+    await expect(
+      soloBozza.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: aggiornata.fattura.revisione,
+        modifica: { scavalcoLimiti: { attivo: true, motivo: "Extra concordati" } },
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Il rifiuto è prima di ogni scrittura: niente scavalco, niente evento.
+    const letta = await soloBozza.fatture.byId({ id: fattura.id });
+    expect(letta.fattura.scavalcoLimiti).toBe(false);
+    expect(letta.eventi.some(e => e.tipo === "scavalco_limiti")).toBe(false);
+
+    // Spegnere lo scavalco resta un'operazione da `fattura.draft`: si
+    // torna sempre alla regola senza chiedere il permesso di derogarci.
+    await expect(
+      soloBozza.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: aggiornata.fattura.revisione,
+        modifica: { scavalcoLimiti: { attivo: false, motivo: null } },
+      })
+    ).resolves.toBeDefined();
+  });
+
+  it("con fattura.emit lo scavalco passa e resta registrato; senza motivo è BAD_REQUEST", async () => {
+    const commessaId = await commessaConContratto();
+    const amministrazione = appRouter.createCaller(context(1, 24, ["amministrazione"]));
+    const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
+
+    await expect(
+      amministrazione.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: fattura.revisione,
+        modifica: { scavalcoLimiti: { attivo: true, motivo: null } },
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const scavalcata = await amministrazione.fatture.aggiornaBozza({
+      id: fattura.id,
+      revisione: fattura.revisione,
+      modifica: { scavalcoLimiti: { attivo: true, motivo: "Extra concordati fuori computo" } },
+    });
+    expect(scavalcata.fattura.scavalcoLimiti).toBe(true);
+
+    const letta = await amministrazione.fatture.byId({ id: fattura.id });
+    expect(letta.eventi.filter(e => e.tipo === "scavalco_limiti")).toHaveLength(1);
   });
 });
 

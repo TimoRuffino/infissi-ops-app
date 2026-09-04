@@ -2695,6 +2695,11 @@ livelli di rischio R0–R4 di Tars).**
 - R30 (parcheggiato): il gate client del pannello Fatturazione resta
   `isDirezione`, come tutta la sezione Contabilità — non un pre-check
   isolato.
+- R34: attivare lo scavalco dei limiti («Procedi comunque») da
+  `fatture.aggiornaBozza` richiede una **seconda** autorizzazione con
+  capability `fattura.emit` (endpoint `fatture.scavalcoLimiti`) e un
+  motivo non vuoto, controllato nel servizio perché valga anche fuori dal
+  router. Spegnerlo resta un'operazione da `fattura.draft`.
 - R31: la riga fattura nel fascicolo Tars non porta **mai** un importo —
   il fascicolo vive dietro `commessa.read`, non dietro le capability
   economiche.

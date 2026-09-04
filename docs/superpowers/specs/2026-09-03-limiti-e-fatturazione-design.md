@@ -326,7 +326,11 @@ la Σ delle opere/eventuali che il generatore ha proposto; `limite_totale`
 (markup, storno, riaddebito) non entrano mai in queste somme. Ogni blocco
 oltre il proprio limite → emissione bloccata; «Procedi comunque» solo con
 capability `fattura.emit`, registrato (`scavalco_limiti`, motivo) e
-dichiarato nel fascicolo. Ruling R26: se la somma di riferimento di un
+dichiarato nel fascicolo (controllo lato server, Ruling R34: seconda
+autorizzazione dentro `fatture.aggiornaBozza` — endpoint
+`fatture.scavalcoLimiti` — quando `scavalcoLimiti.attivo`, e motivo
+obbligatorio nel servizio, così vale anche per una chiamata diretta;
+spegnere lo scavalco resta un'operazione da `fattura.draft`). Ruling R26: se la somma di riferimento di un
 blocco è 0 (nessuna voce del gruppo, o limite complessivo assente) quel
 blocco non è «entro il limite» né un errore — sarebbe un «ok» falso — ma
 un avviso `limiti_non_verificati`; senza computo lo stesso avviso copre

@@ -199,6 +199,21 @@ export const fattureRouter = router({
         resource: { sedeId },
         legacyAllowed: "capability",
       });
+      // Ruling R34: «Procedi comunque» sui limiti è una decisione di chi
+      // emette, non di chi compila la bozza — spec §7.3. Seconda
+      // autorizzazione, mai un controllo lasciato alla UI. Spegnere lo
+      // scavalco resta un'operazione da `fattura.draft`: si torna alla
+      // regola, non ci si deroga.
+      if (input.modifica.scavalcoLimiti?.attivo) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "fatture.scavalcoLimiti",
+          capability: "fattura.emit",
+          resourceType: "fattura",
+          resource: { sedeId },
+          legacyAllowed: "capability",
+        });
+      }
       try {
         return await aggiornaBozzaServizio({
           sedeId,

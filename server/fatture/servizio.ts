@@ -574,6 +574,15 @@ export async function aggiornaBozza(
   const fattura = await bozzaModificabile(repository, input.sedeId, input.id);
   const modifica = input.modifica;
 
+  // Ruling R34: attivare «Procedi comunque» sui limiti si registra
+  // (evento `scavalco_limiti`), e un registro senza motivo non spiega
+  // niente a chi lo rileggerà. Qui, non solo nel router: vale anche per
+  // una chiamata diretta al servizio. Spegnerlo è tornare alla regola e
+  // non richiede una giustificazione.
+  if (modifica.scavalcoLimiti?.attivo && !modifica.scavalcoLimiti.motivo?.trim()) {
+    throw new Error("VALIDAZIONE: indica il motivo dello scavalco.");
+  }
+
   let righe = fattura.righe.map(comeRigaInput);
   // Correzioni e rimozioni parlano degli ordini correnti: si applicano
   // prima delle aggiunte, che quegli ordini li sposterebbero.

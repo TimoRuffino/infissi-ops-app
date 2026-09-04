@@ -779,6 +779,42 @@ describe("aggiornaBozza", () => {
     expect(letta!.eventi.map(e => e.tipo)).toEqual(["creata", "modificata", "modificata", "scavalco_limiti"]);
     expect((letta!.eventi.at(-1)!.payload as any).motivo).toBe("Extra concordati fuori computo");
   });
+
+  // Ruling R34: «Procedi comunque» si registra, e un registro senza motivo
+  // non serve a nessuno. Il controllo sta nel servizio, non solo nel
+  // router: vale anche per una chiamata diretta.
+  it("attivare lo scavalco senza motivo è un errore di validazione", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const senzaMotivo = (motivo: string | null) =>
+      aggiornaBozza({
+        sedeId: SEDE,
+        id: fattura.id,
+        revisione: fattura.revisione,
+        actorUserId: ATTORE,
+        modifica: { scavalcoLimiti: { attivo: true, motivo } },
+        ...dip(),
+      });
+
+    await expect(senzaMotivo(null)).rejects.toThrow("VALIDAZIONE: indica il motivo dello scavalco.");
+    await expect(senzaMotivo("   ")).rejects.toThrow("VALIDAZIONE: indica il motivo dello scavalco.");
+
+    // Nessuna scrittura: né lo scavalco né l'evento.
+    const letta = await leggiFattura(SEDE, fattura.id, dip());
+    expect(letta!.fattura.scavalcoLimiti).toBe(false);
+    expect(letta!.eventi.map(e => e.tipo)).toEqual(["creata"]);
+
+    // Spegnere lo scavalco non richiede un motivo: si torna alla regola.
+    const spento = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: fattura.revisione,
+      actorUserId: ATTORE,
+      modifica: { scavalcoLimiti: { attivo: false, motivo: null } },
+      ...dip(),
+    });
+    expect(spento.fattura.scavalcoLimiti).toBe(false);
+  });
 });
 
 describe("verificaLimiti", () => {
