@@ -222,8 +222,17 @@ export function creaProviderRealeGrezzo(): TarsProvider {
               .map(c => String(c.text ?? ""))
               .join("");
       if (!testo) {
+        // Solo lo stato e il motivo di incompletezza (mai il body): serve a
+        // distinguere una pagina bianca da un tetto di output raggiunto.
+        const stato = typeof dati?.status === "string" ? dati.status : "sconosciuto";
+        const motivo =
+          typeof dati?.incomplete_details?.reason === "string"
+            ? dati.incomplete_details.reason
+            : null;
         throw new ErroreProvider(
-          "Il provider non ha prodotto né testo né chiamate strumento.",
+          `Il provider non ha prodotto né testo né chiamate strumento (stato ${stato}${
+            motivo ? `, ${motivo}` : ""
+          }).`,
           "risposta_invalida",
           true
         );
