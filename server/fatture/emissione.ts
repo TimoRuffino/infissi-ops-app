@@ -513,50 +513,16 @@ export async function emettiFattura(
   }
 
   // ── 3. documento su Fatture in Cloud ──────────────────────────────────
-  // Il confronto dei totali serve solo finché la fattura non è passata a
-  // `emessa`: dopo, il documento non si rilegge nemmeno.
+  // Il documento si crea una volta sola. Si rilegge quando serve al
+  // confronto dei totali (finché la fattura è «in_emissione») oppure
+  // quando c'è un appaiamento di scadenze da riparare (Ruling R12).
   const confrontoDaFare = fattura.stato === "in_emissione";
   let documento: DocumentoFicCreato | null = null;
+  let creato: DocumentoFicCreato | null = null;
 
-  if (fattura.ficDocumentId != null) {
-    const gia = `già creato (#${fattura.ficDocumentId})`;
-    if (confrontoDaFare) {
-      // Il `saltato` si scrive solo dopo che la rilettura è riuscita: se
-      // fallisce, `bloccante` ha già segnato l'errore e non deve restare
-      // anche un secondo esito per lo stesso passo.
-      documento = await bloccante("documento_fic", () =>
-        client.leggiDocumento(ctx, fattura.ficDocumentId!)
-      );
-      // Ripresa dopo un'interruzione: le scadenze rimaste senza
-      // `ficPaymentId` si riappaiano qui, non aspettano la prossima
-      // fattura.
-      const appaiamento = await appaiaPagamenti(
-        repository,
-        input.sedeId,
-        fattura,
-        documento.payments_list
-      );
-      fattura = appaiamento.fattura;
-      if (appaiamento.problema) problemi.push(appaiamento.problema);
-      segna(
-        "documento_fic",
-        "saltato",
-        [
-          gia,
-          appaiamento.appaiate > 0
-            ? `${appaiamento.appaiate} scadenze riappaiate`
-            : null,
-          appaiamento.problema,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      );
-    } else {
-      segna("documento_fic", "saltato", gia);
-    }
-  } else {
-    documento = await bloccante("documento_fic", async () => {
-      const creato = await client.creaDocumento(
+  if (fattura.ficDocumentId == null) {
+    creato = await bloccante("documento_fic", async () => {
+      const nuovo = await client.creaDocumento(
         ctx,
         costruisciDocumentoFic(
           fattura,
@@ -567,39 +533,85 @@ export async function emettiFattura(
         ),
         { fix_payments: true }
       );
-      const numero = numeroDocumento(creato, now);
       fattura = await repository.aggiornaStato({
         sedeId: input.sedeId,
         id: fattura.id,
         patch: {
-          ficDocumentId: creato.id,
-          numero,
-          data: creato.date || fattura.data,
-          eiStatusFic: creato.ei_status,
+          ficDocumentId: nuovo.id,
+          numero: numeroDocumento(nuovo, now),
+          data: nuovo.date || fattura.data,
+          eiStatusFic: nuovo.ei_status,
         },
         now,
       });
-      const appaiamento = await appaiaPagamenti(
-        repository,
-        input.sedeId,
-        fattura,
-        creato.payments_list
-      );
-      fattura = appaiamento.fattura;
-      if (appaiamento.problema) problemi.push(appaiamento.problema);
-      await eventoDi(fattura.id, "creata_fic", {
-        ficDocumentId: creato.id,
-        numero,
-        amount_gross: creato.amount_gross,
-        scadenzeAppaiate: appaiamento.appaiate,
-      });
-      segna(
-        "documento_fic",
-        "fatto",
-        [numero, appaiamento.problema].filter(Boolean).join(" · ")
-      );
-      return creato;
+      return nuovo;
     });
+    documento = creato;
+  } else if (confrontoDaFare) {
+    // La rilettura sta dentro `bloccante`: se fallisce, l'errore è già
+    // segnato e non deve restare anche un secondo esito per lo stesso
+    // passo — per questo l'esito «saltato» si scrive più in basso.
+    documento = await bloccante("documento_fic", () =>
+      client.leggiDocumento(ctx, fattura.ficDocumentId!)
+    );
+  }
+
+  // Appaiamento delle scadenze ai pagamenti FiC: si tenta a OGNI giro
+  // finché resta una scadenza scollegata, non solo finché la fattura è
+  // «in_emissione» (Ruling R12). Un'interruzione fra la creazione del
+  // documento e la scrittura degli id lascerebbe altrimenti le scadenze
+  // orfane per sempre, e il disallineamento sparirebbe da `eiErrore` al
+  // primo giro di archivio riuscito. Se sono già tutte appaiate non si
+  // rilegge niente: nessuna chiamata a FiC in più.
+  let appaiate = 0;
+  let problemaScadenze: string | null = null;
+  const daRiappaiare = fattura.scadenze.some(s => s.ficPaymentId == null);
+  if (fattura.ficDocumentId != null && daRiappaiare) {
+    if (!documento) {
+      documento = await bloccante("documento_fic", () =>
+        client.leggiDocumento(ctx, fattura.ficDocumentId!)
+      );
+    }
+    const appaiamento = await appaiaPagamenti(
+      repository,
+      input.sedeId,
+      fattura,
+      documento.payments_list
+    );
+    fattura = appaiamento.fattura;
+    appaiate = appaiamento.appaiate;
+    problemaScadenze = appaiamento.problema;
+    if (problemaScadenze) problemi.push(problemaScadenze);
+  }
+
+  if (creato) {
+    await eventoDi(fattura.id, "creata_fic", {
+      ficDocumentId: creato.id,
+      numero: fattura.numero,
+      amount_gross: creato.amount_gross,
+      scadenzeAppaiate: appaiate,
+    });
+    segna(
+      "documento_fic",
+      "fatto",
+      [fattura.numero, problemaScadenze].filter(Boolean).join(" · ")
+    );
+  } else {
+    segna(
+      "documento_fic",
+      "saltato",
+      [
+        `già creato (#${fattura.ficDocumentId})`,
+        daRiappaiare
+          ? appaiate > 0
+            ? `${appaiate} scadenze riappaiate`
+            : "riappaiamento tentato"
+          : null,
+        problemaScadenze,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    );
   }
 
   // ── 4. confronto dei totali ───────────────────────────────────────────

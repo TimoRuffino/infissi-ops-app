@@ -863,6 +863,107 @@ describe("emettiFattura", () => {
     expect(esito.fattura.eiErrore).toBeNull();
   });
 
+  it("scadenze scollegate su una fattura già emessa: si riprova a ogni giro finché non tornano", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const unSoloPagamento = [
+      {
+        id: 9000,
+        amount: fattura.totaleCent / 100,
+        due_date: fattura.scadenze[0].data,
+      },
+    ];
+
+    // Giro 1: FiC restituisce una scadenza sola e il PDF non si scarica.
+    const primo = banco(
+      copioneFelice(fattura, {
+        creaDocumento: async () =>
+          documentoFicDa(fattura, { payments_list: unSoloPagamento }),
+        scaricaPdf: async () => {
+          throw new Error("Download PDF fattura fallito (HTTP 502).");
+        },
+      })
+    );
+    const g1 = await emettiFattura({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: fattura.revisione,
+      ...primo.dip,
+    });
+    expect(g1.fattura.stato).toBe("emessa");
+    expect(g1.fattura.scadenze.map(s => s.ficPaymentId)).toEqual([
+      9000,
+      null,
+      null,
+    ]);
+    expect(g1.fattura.eiErrore).toContain("FiC ha restituito 1 scadenze");
+    expect(g1.fattura.eiErrore).toContain("PDF non archiviato");
+
+    // Giro 2: il PDF si archivia, ma FiC insiste con una scadenza sola.
+    // L'archivio riuscito non deve cancellare il disallineamento, e la
+    // fattura non è più «in_emissione»: il riappaiamento si tenta lo
+    // stesso (Ruling R12).
+    const secondo = banco(
+      copioneFelice(g1.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(fattura, { payments_list: unSoloPagamento }),
+      })
+    );
+    const g2 = await emettiFattura({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: g1.fattura.revisione,
+      ...secondo.dip,
+    });
+    expect(metodi(secondo.registro)).toContain("leggiDocumento");
+    expect(g2.fattura.pdfStorageKey).toContain("fatture_pdf/");
+    expect(g2.fattura.documentoId).not.toBeNull();
+    expect(g2.fattura.eiErrore).toContain("FiC ha restituito 1 scadenze");
+    expect(g2.fattura.eiErrore).not.toContain("PDF non archiviato");
+    expect(g2.passi.find(p => p.passo === "documento_fic")!.dettaglio).toBe(
+      `già creato (#${FIC_DOCUMENT_ID}) · riappaiamento tentato · ` +
+        "FiC ha restituito 1 scadenze, il CRM ne ha 3: verifica il piano di pagamento."
+    );
+
+    // Giro 3: FiC restituisce il piano completo. Le due scadenze rimaste
+    // si collegano e l'avviso sparisce perché non è più vero.
+    const terzo = banco(
+      copioneFelice(g2.fattura, {
+        leggiDocumento: async () => documentoFicDa(fattura),
+      })
+    );
+    const g3 = await emettiFattura({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: g2.fattura.revisione,
+      ...terzo.dip,
+    });
+    expect(g3.fattura.scadenze.map(s => s.ficPaymentId)).toEqual([
+      9000, 9001, 9002,
+    ]);
+    expect(g3.fattura.eiErrore).toBeNull();
+    expect(g3.passi.find(p => p.passo === "documento_fic")!.dettaglio).toBe(
+      `già creato (#${FIC_DOCUMENT_ID}) · 2 scadenze riappaiate`
+    );
+
+    // Giro 4: tutto appaiato, nessuna rilettura del documento.
+    const quarto = banco(copioneFelice(g3.fattura));
+    const g4 = await emettiFattura({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: g3.fattura.revisione,
+      ...quarto.dip,
+    });
+    expect(metodi(quarto.registro)).toEqual(["verificaXml"]);
+    expect(g4.passi.find(p => p.passo === "documento_fic")!.dettaglio).toBe(
+      `già creato (#${FIC_DOCUMENT_ID})`
+    );
+    expect(g4.fattura.eiErrore).toBeNull();
+  });
+
   it("senza numerazione FiC il numero si compone con l'anno della data", async () => {
     const { fattura } = await bozzaEmettibile();
     const b = banco(
