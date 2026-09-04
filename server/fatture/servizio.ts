@@ -790,6 +790,26 @@ export function verificaLimiti(f: Fattura, computo?: Computo | null): Controllo[
     );
   };
 
+  // Ruling R26: un termine di paragone a zero (nessuna voce del gruppo, o
+  // limite complessivo non calcolato) non è «entro il limite» — sarebbe un
+  // «ok» falso — ma nemmeno un blocco vero: è quel blocco, da solo, che non
+  // si può verificare. Gli altri due, se hanno un termine di paragone,
+  // procedono comunque (a differenza di `!computo` qui sotto, dove manca
+  // tutto il computo e nessuno dei tre si può giudicare).
+  const blocco = (
+    codice: string,
+    importoCent: number,
+    limiteCent: number,
+    testoErrore: string,
+    messaggioNonVerificabile: string
+  ) => {
+    if (limiteCent <= 0) {
+      controlli.push({ codice: "limiti_non_verificati", esito: "avviso", messaggio: messaggioNonVerificabile });
+      return;
+    }
+    controlloBlocco(codice, testoErrore, importoCent, limiteCent);
+  };
+
   // Il confronto ha senso solo se il computo è arrivato con le sue voci:
   // senza, il termine di paragone sarebbe zero e ogni blocco sembrerebbe
   // fuori limite. Ma nemmeno si può dire che i limiti siano rispettati: non
@@ -804,39 +824,48 @@ export function verificaLimiti(f: Fattura, computo?: Computo | null): Controllo[
   } else {
     // Prodotti (R25): beni senza voce di computo — righe del contratto e
     // righe manuali (R18), la spesa di documentazione ne ha una ed esce —
-    // più il markup, contro l'Allegato A (CHECK1, i `massimale_*`).
+    // più il markup, contro l'Allegato A (CHECK1, i `massimale_*`). Solo
+    // righe non derivate (R26): markup/storno/riaddebito hanno un proprio
+    // `tipo`, quindi `!r.derivata` è difensivo, non correttivo.
     const prodottiCent =
-      f.righe.filter(r => r.tipo === "bene" && r.voceComputoCodice == null).reduce((s, r) => s + r.importoCent, 0) +
-      f.markupCent;
+      f.righe
+        .filter(r => r.tipo === "bene" && r.voceComputoCodice == null && !r.derivata)
+        .reduce((s, r) => s + r.importoCent, 0) + f.markupCent;
     const massimaleCent = computo.voci
       .filter(v => v.gruppo === "prodotti" && v.codice.startsWith("massimale_"))
       .reduce((s, v) => s + v.limiteCent, 0);
-    controlloBlocco(
+    blocco(
       "limite_prodotti",
-      `Beni e markup (€ ${euro(prodottiCent)}) superano il massimale dei prodotti (€ ${euro(massimaleCent)})`,
       prodottiCent,
-      massimaleCent
+      massimaleCent,
+      `Beni e markup (€ ${euro(prodottiCent)}) superano il massimale dei prodotti (€ ${euro(massimaleCent)})`,
+      "Limiti dei prodotti non verificabili: il computo non ha massimali."
     );
 
-    // Servizi (manuali compresi) contro le sole voci opere/eventuali che il
-    // generatore ha davvero proposto: stesso insieme di `servizioProposto`
-    // (altri_servizi e spese di documentazione esclusi, come in bozza).
-    const serviziCent = f.righe.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
+    // Servizi (manuali compresi, righe derivate escluse per lo stesso
+    // motivo) contro le sole voci opere/eventuali che il generatore ha
+    // davvero proposto: stesso insieme di `servizioProposto` (altri_servizi
+    // e spese di documentazione esclusi, come in bozza).
+    const serviziCent = f.righe
+      .filter(r => r.tipo === "servizio" && !r.derivata)
+      .reduce((s, r) => s + r.importoCent, 0);
     const opereCent = computo.voci.filter(servizioProposto).reduce((s, v) => s + v.limiteCent, 0);
-    controlloBlocco(
+    blocco(
       "limite_servizi",
-      `I servizi (€ ${euro(serviziCent)}) superano i limiti delle opere (€ ${euro(opereCent)})`,
       serviziCent,
-      opereCent
+      opereCent,
+      `I servizi (€ ${euro(serviziCent)}) superano i limiti delle opere (€ ${euro(opereCent)})`,
+      "Limiti dei servizi non verificabili: il computo non propone opere."
     );
 
     // Imponibile complessivo contro il limite del computo (minimo fra
     // CHECK1 e CHECK2).
-    controlloBlocco(
+    blocco(
       "limite_totale",
-      `L'imponibile (€ ${euro(f.imponibileCent)}) supera il limite del computo (€ ${euro(computo.limiteCent)})`,
       f.imponibileCent,
-      computo.limiteCent
+      computo.limiteCent,
+      `L'imponibile (€ ${euro(f.imponibileCent)}) supera il limite del computo (€ ${euro(computo.limiteCent)})`,
+      "Limite complessivo non verificabile."
     );
   }
 

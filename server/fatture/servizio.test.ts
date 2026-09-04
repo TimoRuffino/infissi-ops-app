@@ -7,7 +7,7 @@
 // Riequilibrato al markup reale della fattura 129 (215359): beni senza
 // voce di computo 817926 (R25, `describe("verificaLimiti")`).
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
+import type { Computo, ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
 import type { ClienteSnapshot, FatturazioneConfig } from "@shared/fatturazione/tipi";
 import casi from "../computo/__fixtures__/casi-reali.json";
 import { _resetComputiRepositoryForTests } from "../computo/repository";
@@ -867,6 +867,20 @@ describe("verificaLimiti", () => {
       { codice: "limiti", esito: "ok", messaggio: "Prestazioni entro i limiti del computo." },
     ]);
 
+    // R26: una riga bene derivata non entra nel blocco prodotti — oggi solo
+    // markup/storno/riaddebito lo sono, con un `tipo` proprio che le esclude
+    // già da sole; `!r.derivata` è difensivo, e questo lo dimostra: un
+    // importo enorme (5.000.000, ben oltre il massimale) non sposta l'esito.
+    const beneDerivato = {
+      ...fattura.righe.find(r => r.tipo === "bene" && r.voceComputoCodice == null)!,
+      ordine: Math.max(...fattura.righe.map(r => r.ordine)) + 1,
+      importoCent: 5000000,
+      derivata: true,
+    };
+    expect(verificaLimiti({ ...fattura, righe: [...fattura.righe, beneDerivato] }, computo)).toEqual([
+      { codice: "limiti", esito: "ok", messaggio: "Prestazioni entro i limiti del computo." },
+    ]);
+
     // Un servizio manuale da 500.000: solo il blocco servizi sfora (i
     // prodotti e il totale restano quelli di sopra, invariati).
     const servizioManuale: (typeof fattura.righe)[number] = {
@@ -910,6 +924,50 @@ describe("verificaLimiti", () => {
       { codice: "limite_servizi", esito: "avviso" },
     ]);
     expect(scavalcato.every(c => c.messaggio.includes("scavalcato: Extra concordati fuori computo"))).toBe(true);
+  });
+
+  // Ruling R26: un computo con termine di paragone a zero non è «ok» (il
+  // blocco non è mai stato davvero confrontato) né un blocco vero (non è
+  // colpa della fattura). Ogni blocco lo dichiara per conto proprio.
+  it("R26: un computo senza voci non finge «ok» — ogni blocco si dichiara non verificabile", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const computoVuoto: Computo = {
+      id: 999999,
+      sedeId: SEDE,
+      commessaId,
+      hashRighe: "hash-vuoto",
+      hashParametri: "hash-vuoto",
+      tariffeAl: "2026-01",
+      zona: null,
+      esito: "ok",
+      check1Cent: 0,
+      check2Cent: 0,
+      deiProdottiCent: 0,
+      limiteCent: 0,
+      detraibileCent: 0,
+      detrazioneStimataCent: 0,
+      avvertenze: [],
+      voci: [],
+      createdBy: ATTORE,
+      createdAt: ora,
+    };
+    // markup a 0: isola i tre blocchi da `markup_negativo`.
+    const controlli = verificaLimiti({ ...fattura, markupCent: 0 }, computoVuoto);
+    expect(controlli).toEqual([
+      {
+        codice: "limiti_non_verificati",
+        esito: "avviso",
+        messaggio: "Limiti dei prodotti non verificabili: il computo non ha massimali.",
+      },
+      {
+        codice: "limiti_non_verificati",
+        esito: "avviso",
+        messaggio: "Limiti dei servizi non verificabili: il computo non propone opere.",
+      },
+      { codice: "limiti_non_verificati", esito: "avviso", messaggio: "Limite complessivo non verificabile." },
+    ]);
+    expect(controlli.some(c => c.esito === "errore")).toBe(false);
   });
 });
 
