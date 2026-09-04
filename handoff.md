@@ -2506,6 +2506,223 @@ demo va riavviato dopo ogni modifica server, `tsx` senza `watch` non
 ricarica i router (un `tariffe.limiti` → 404 «No procedure found» è un
 processo vecchio, non un bug).
 
+## 11-vicies quaterdecies. Fatturazione dal contratto — piano 2 (04/09/2026)
+
+Piano 2 di 3 (`docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`,
+18 task) chiuso su `feature/fatturazione`, **mai integrato su `main`**. Spec
+di riferimento: `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md`
+(§7-§13, allineata da questo task). Sopra il piano 1 (§11-vicies terdecies):
+dal contratto strutturato e dal computo limiti nasce la bozza fattura, che il
+CRM emette su Fatture in Cloud (FiC) con invio SdI in prova, archivia PDF/XML
+e ne segue lo stato; nota di credito totale o parziale sulla stessa pipeline.
+Le tre fatture reali del 2026 usate come fixture d'oro (127, 129, 130 —
+`server/fatture/__fixtures__/fatture-reali.json`) sono le uniche citabili
+qui: nessun nome cliente, indirizzo, CF o importo di fattura reale altrove
+in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
+
+**Cosa c'è.**
+
+- Persistenza: 6 tabelle Postgres (`fatturazione_config`, `fatture`,
+  `fattura_righe`, `fattura_riepilogo_iva`, `fattura_scadenze`,
+  `fattura_eventi`) in `server/fatture/repository.ts` (memoria senza
+  `DATABASE_URL`, Postgres altrimenti — `ensureSchema` memoizzato con ALTER
+  additivi); blocco ottimistico su `revisione` in `aggiornaBozza` ed
+  `emettiFattura`; ogni scrittura tocca un contatore in
+  `server/fatture/versioni.ts`, letto da Tars.
+- Motore puro: `server/fatture/risolutore.ts` (`risolvi` deriva prestazione,
+  markup, storno e riepilogo IVA da G/B/N/S; `riequilibraBeni` con
+  arrotondamento cumulativo), `server/fatture/generatore.ts` (`generaBozza`,
+  righe da contratto+computo+config, pura), verificati al centesimo sulle
+  tre fatture reali in `server/fatture/__fixtures__/fatture-reali.json`.
+- Servizio: `server/fatture/servizio.ts` (`creaBozza`, `aggiornaBozza`,
+  `rigeneraBozza`, `annullaBozza`, `verificaLimiti`, `validaPerEmissione`),
+  `server/fatture/cliente.ts` (snapshot cliente con fallback per record
+  legacy, commit 57ae726), `server/fatture/config.ts` (config per sede +
+  `verificaScopeScrittura`, IBAN col modulo 97), `server/fatture/dryRun.ts`
+  (`sdiDryRun`).
+- Emissione: `server/fatture/emissione.ts` (`emettiFattura`, idempotente per
+  passo: validazione → cliente_fic → documento_fic → confronto_totali → xml
+  → invio → archivio → documento_fascicolo → timeline), `server/fic/emissione.ts`
+  (client HTTP: clienti, documenti, XML, invio SdI) con fake a copione in
+  `server/fic/fake.ts`; `server/fatture/sonda.ts` (`giroSonda`,
+  `aggiornaStatoFattura`, `startSondaFattureWorker` ogni 15 minuti, avviato
+  una volta sola da `server/_core/index.ts`); `server/fatture/notaCredito.ts`
+  (`creaNotaCredito`, totale o parziale, stessa pipeline con
+  `type: credit_note`).
+- Router: `server/routers/fatture.ts` (`trpc.fatture`: perCommessa, byId,
+  creaBozza, aggiornaBozza, rigeneraBozza, validazioni, emetti,
+  aggiornaStato, notaCredito, download PDF/XML) e
+  `server/routers/fatturazioneConfig.ts` (`trpc.fatturazioneConfig`: get,
+  salva, verificaScope) — dietro `FLAG_FATTURAZIONE` in middleware
+  (`procedureConInterruttore`) e `FLAG_LIMITI` per handler
+  (`assicuraInterruttore("limiti")`). Capability nuove in
+  `server/authz/capabilities.ts`: `fattura.read` (amministrazione,
+  commerciale, direzione), `fattura.draft`/`fattura.emit`/`fattura.credit_note`
+  (amministrazione, direzione).
+- UI: 7 componenti in `client/src/components/fattura/` (`FatturaTab`,
+  `BozzaFatturaEditor`, `ScadenzeEditor`, `NotaCreditoDialog`,
+  `FatturaEmessaView`, `FatturazioneConfigPanel`, `FattureEmesseSezione`),
+  presentazione pura in `client/src/lib/fatturaView.ts`; montati nella
+  commessa (tab «Fattura»), in Impostazioni → Contabilità (pannello
+  Fatturazione, gate `isDirezione` come tutta la sezione) e in
+  `/pagamenti` (Cassa, sezione «Fatture emesse dal CRM»). Solo gli helper
+  di `client/src/lib/euro.ts`, nessun hex locale.
+- Sync FiC esistente: `server/routers/ficFatture.ts` collega da sé un
+  documento FiC il cui id combacia con `fatture.fic_document_id`
+  (`commessaMatch: "crm"`, mai match automatico né secondo PDF); il worker
+  di sync allegati (`server/routers/ficAllegati.ts`) salta il ridownload —
+  il PDF è già nel fascicolo da `registraDocumentoFatturaCrm` all'emissione.
+- Tars: nessuno strumento nuovo (v. `docs/tars/matrice-azioni-tars.md`).
+  `leggi_fascicolo_commessa` (invariato) espone, col flag acceso, una riga
+  per fattura/nota — MAI un importo — da `server/tars/fascicoli.ts`;
+  l'invalidazione passa da `server/fatture/versioni.ts` +
+  `server/tars/versioni.ts` (chiavi `fatture-di-commessa:<id>` e
+  `flag:fatturazione`, quest'ultima sempre presente per accorgersi anche di
+  un flip a runtime del flag, non solo di una scrittura).
+
+**Come si attiva.** `FLAG_FATTURAZIONE=on` per deployment/ambiente
+(fail-closed, non un campo per sede) — richiede `FLAG_LIMITI=on` sullo
+stesso ambiente, verificato da ogni handler dei due router. Poi, per sede:
+Impostazioni → Contabilità (direzione) → riga «Permessi di scrittura
+fatture» → «Ri-autorizza con permessi di scrittura» (bottone visibile solo
+con OAuth client FiC configurato) rifà il consenso OAuth chiedendo anche la
+scrittura; nel pannello Fatturazione, «Verifica permessi» chiama
+`/issued_documents/info` e carica in cache le aliquote IVA 22/10, le
+numerazioni, i conti e i metodi di pagamento — il conto si auto-assegna se
+è l'unico e, dopo la verifica, entra nel modulo solo se il campo era vuoto
+(un conto scelto a mano non si perde con un modulo sporco, Ruling R29).
+Restano da compilare IBAN, banca, intestatario, metodo di pagamento,
+numerazione FiC e spese di documentazione (default 150,00 € per sede).
+
+**Runbook della prima fattura reale.**
+
+1. Sede/ambiente di prova, `FLAG_LIMITI` e `FLAG_FATTURAZIONE` accesi lì
+   soltanto; `FATTURAZIONE_SDI_DRY_RUN` resta al suo default (attivo:
+   nessuna variabile da toccare).
+2. Una commessa reale già fatturata a mano nel 2026: contratto strutturato
+   + computo → «Genera bozza dai limiti» → confronto **riga per riga** col
+   PDF della fattura reale — beni, servizi, markup, storno, riepilogo IVA,
+   scadenze, spese di documentazione (22 %), dicitura straordinaria/pratica
+   edilizia, scadenze 50/40/10 (0/60/75/90 giorni, il resto sull'ultima) —
+   e «Riequilibra i beni» fino ai valori tenuti dalla commercialista.
+3. «Emetti» in dry-run: FiC **numera davvero** il documento (non ha bozze).
+   Usare la company di prova FiC consigliata dalla spec §11 (licenza trial
+   dal supporto), oppure accettare il numero e stornarlo subito con una
+   nota di credito.
+4. XML scaricato dalla tab Fattura e verificato dal commercialista.
+5. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
+   variabile Railway di **tutto il deployment**, non un campo per sede nel
+   database — si spegne su un ambiente dedicato alla sede di prova, come
+   già `FLAG_LIMITI` nel runbook del piano 1 (§11-vicies terdecies).
+
+Con dry-run acceso l'invio è simulato: lo stato resta `emessa` (mai
+`inviata`) con l'etichetta «Emessa (prova SdI)». La sonda
+(`startSondaFattureWorker`) gira ogni 15 minuti in un solo processo e **non
+ritenta l'invio**, solo la lettura dello stato SdI e l'archivio mancante.
+Alla **prima nota di credito reale**: verificare sul PDF FiC il segno del
+totale — il CRM manda righe positive speculari all'origine con
+intestazione «Accredito su ns. fattura n. X del Y», le note reali del 2026
+in mano alla commercialista stampano il totale in negativo; se FiC inverte
+da sé il segno in output va bene così, altrimenti il generatore va
+corretto prima della seconda nota (v. spec §7.6, «Aperto»).
+
+**Decisioni prese in corso d'opera che cambiano un contratto (ruling R1–R33,
+ledger completo in** `.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/progress.md`
+**, grep `Ruling R`; questi «R» sono numeri di ruling di questo piano, non i
+livelli di rischio R0–R4 di Tars).**
+
+- R1: `emettiFattura` confronta la revisione **solo alla partenza**
+  (`bozza`), prima di toccare il contesto FiC; da `in_emissione` in poi
+  ogni ripresa è idempotente per stato, mai un secondo blocco ottimistico.
+- R4: `riequilibraBeni` — arrotondamento cumulativo: somma sempre esatta al
+  target, righe mai negative, scarto ≤ 1 centesimo a riga.
+- R8: senza voci con limite, `verificaLimiti` dà avviso «limiti non
+  verificati», mai un «ok» di comodo; `rigeneraBozza` azzera scavalco e
+  motivo, tornando alla proposta di sistema.
+- R11: `eiErrore` riscritto in fondo a ogni passaggio (emissione o sonda),
+  mai lasciato appiccicato; XML riverificato a ogni ripresa finché non è
+  `inviata`; un privato con un nome di una sola parola nasce su FiC come
+  `company`, non `person` (FiC rifiuta una `person` senza nome proprio).
+- R12: il riappaiamento `ficPaymentId` ↔ scadenza si ritenta a **ogni
+  giro** finché ne resta una scollegata, non solo mentre la fattura è
+  `in_emissione`.
+- R14/R15: la nota di credito salta i controlli di computo/limiti e quelli
+  di forma della detrazione (storna, non propone prestazioni nuove) ma
+  mantiene cliente, configurazione FiC e scadenze.
+- R16: `rigeneraBozza` rifiuta una nota di credito; una nota di credito non
+  si storna con un'altra nota.
+- R17: le spese di documentazione sono una riga **bene** al 22 % (non un
+  servizio), configurabili per sede (`speseDocumentazioneCent`, default
+  150,00 €), escluse sia dal blocco prodotti sia dal blocco servizi dei
+  limiti.
+- R18: righe manuali aggiungibili/rimovibili in bozza (max 20 per
+  operazione, 300 caratteri di descrizione).
+- R19: dicitura «manutenzione straordinaria» + template della pratica
+  edilizia, con avviso `pratica_edilizia_incompleta` quando CILA/SCIA sono
+  dichiarate ma il testo lascia segnaposto fra graffe da compilare a mano.
+- R20: la nota di credito apre con una riga «Accredito su ns. fattura n. X
+  del Y»; gli importi che il CRM manda a FiC restano positivi, speculari
+  all'origine — segno da verificare alla prima nota reale (v. runbook).
+- R21: IVA al 4 % e B2B senza contratto restano fuori ambito v1.
+- R23: la mutation manuale di collegamento del sync FiC rifiuta di
+  ricollegare una riga `commessaMatch: "crm"` a un'altra commessa: si
+  corregge solo con una nota di credito.
+- R24: con `FLAG_LIMITI` spento ogni mutation dei due router risponde
+  `PRECONDITION_FAILED`, come tutti i router del repository — non
+  `NOT_FOUND` come ipotizzato in una prima stesura del piano.
+- R25/R26: i limiti si verificano per **tre blocchi separati** — prodotti
+  (beni + markup) contro i massimali, servizi contro le opere proposte,
+  imponibile contro il limite del computo — mai come un totale unico; un
+  termine di paragone a zero è un avviso `limiti_non_verificati`, mai un
+  errore né un «ok».
+- R28: la lista delle diciture selezionabili in bozza
+  (`DICITURE_SELEZIONABILI`) mostra solo quelle di piè di pagina, non le
+  chiavi che il generatore stampa già come testo di riga.
+- R29: dopo «Verifica permessi» il conto FiC auto-assegnato dal server
+  entra nel modulo solo se il campo è vuoto — un conto scelto a mano non si
+  perde con un modulo sporco.
+- R30 (parcheggiato): il gate client del pannello Fatturazione resta
+  `isDirezione`, come tutta la sezione Contabilità — non un pre-check
+  isolato.
+- R31: la riga fattura nel fascicolo Tars non porta **mai** un importo —
+  il fascicolo vive dietro `commessa.read`, non dietro le capability
+  economiche.
+- R32/R33: il fascicolo si invalida da solo a ogni scrittura sulla fattura
+  (chiave `fatture-di-commessa:<id>`) e a ogni flip del flag
+  `fatturazione` (chiave sintetica `flag:fatturazione`, sempre presente),
+  mai per un cambio scollegato come il rollover di giornata.
+
+**Debito e fuori ambito** (voce completa in «Debito aperto prioritario»
+qui sotto). PEC, codice destinatario e `ficEntityId` del cliente sono campi
+server (`clienti.update`) senza UI nel form cliente. Fatture libere,
+acconti, IVA al 4 % e B2B senza contratto restano fuori ambito v1 (D3/D6
+della spec, R21). I ~20 fogli «CALCOLO NUOVI LIMITI» reali raccolti il
+04/09 (xlsm, Desktop, mai nel repository) diventano fixture d'oro del
+motore computo in un task a parte, dopo questo piano (R22). Piano 3
+(lettura del contratto PDF via
+provider governato di Tars + OCR esistente):
+`docs/superpowers/plans/2026-09-04-lettura-contratto.md`, non iniziato.
+Aperti da confermare col commercialista: aliquote di detrazione 2025/2027
+nel seed (piano 1), segno della nota di credito (v. runbook), company FiC
+di prova per la prima emissione reale (la numerazione è reale, non
+simulata).
+
+**Verifica (04/09/2026, allineamento documentale).** `pnpm check` pulito
+(nessun errore); `pnpm test` 210 file passati e 7 saltati (217), 2018 test
+passati e 32 saltati (2050), 0 falliti — i saltati sono le suite
+`*.pg.test.ts` (incluse quelle di `server/fatture` e `server/contratti`/`server/computo`)
+che girano solo con `DATABASE_URL`, non eseguite da questo task documentale;
+`pnpm build` completa (`dist/public` + `dist/index.js`) con l'unico avviso
+noto, esbuild su `dist/index.js` a 2,9 MB (1,1 MB alla baseline del 31/08,
+1,3 MB al gate piano 1 del 03-04/09): cresce con ogni feature del bundle
+server, non introdotto da questo task che non tocca codice. La verifica
+funzionale end-to-end del ramo (browser 1440×900 e 390×844, Postgres 16
+reale, review finale con lente su aritmetica/idempotenza/sede/nota di
+credito/sync/Tars) è quella descritta in
+`.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/final-review-brief.md`
+e nel ledger `progress.md` dello stesso piano, non ripetuta in questa
+sezione.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
@@ -2570,6 +2787,24 @@ processo vecchio, non un bug).
     2026) coprono solo serramenti PVC/alluminio; servono fogli reali con
     tapparelle, cassonetti e legno per le altre famiglie — **da chiedere
     alla direzione** (v. §11-vicies terdecies).
+15. **Fatturazione dal contratto (piano 2, 04/09/2026)**: PEC, codice
+    destinatario e `ficEntityId` del cliente sono campi server
+    (`clienti.update`) senza UI nel form cliente — verificato, nessun
+    riferimento in `client/src`; restano da esporre in un'estensione
+    operativa successiva. Fatture libere e acconti restano fuori ambito
+    (D3/D6 della spec); IVA al 4 % e B2B senza contratto pure (Ruling
+    R21). Gli ~20 fogli «CALCOLO NUOVI LIMITI» reali raccolti il 04/09
+    (xlsm, Desktop, mai nel repository) sono il materiale che può chiudere
+    il punto 14 qui sopra (fixture d'oro del motore computo), in un task a
+    parte dopo questo piano (Ruling R22). `tsconfig` esclude `*.test.ts`
+    da `tsc`: i test restano controllati solo da vitest a runtime, non dal
+    type-check di `pnpm check`. Piano 3 (lettura del contratto PDF via
+    provider governato di Tars + OCR esistente):
+    `docs/superpowers/plans/2026-09-04-lettura-contratto.md`, non
+    iniziato. Aperti da confermare col commercialista: aliquote di
+    detrazione 2025/2027 nel seed (piano 1); segno con cui Fatture in
+    Cloud stampa il totale di una nota di credito; company FiC di prova
+    per la prima emissione reale (la numerazione è reale, non simulata).
 
 ## 13. Cosa resta della piattaforma
 

@@ -294,12 +294,44 @@ tutto al 10 %.
 - Verifica: `fattura 127/2026` → G 15.395,00, B 8.847,46, S 2.545,00 →
   P 4.695,00, M 2.150,00, 22 % su 4.152,46, 10 % su 9.390,00, IVA 1.852,54.
 
+**Nota (Ruling D-A, piano 2 —
+`docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`).** Con B
+ai prezzi di riga del contratto, M risulta negativo su tutte e tre le
+fatture reali: in pratica la commercialista **abbassa i beni** per fare
+posto a servizi e markup al 10 %, non riduce i servizi. Modello adottato in
+bozza: G resta fisso; B (beni significativi) e N (altri beni) nascono dai
+prezzi di riga ma sono **modificabili**; S nasce dai limiti (arrotondato
+all'euro, mai per eccesso) ed è modificabile; **M resta sempre derivato**,
+mai un input diretto. Con M < 0 la bozza resta salvabile ma non emettibile
+(`markup_negativo`, errore bloccante); il pulsante «Riequilibra i beni»
+scala le righe di beni significativi in proporzione fino al markup
+desiderato (default 0) con `riequilibraBeni`: arrotondamento cumulativo,
+somma sempre esatta al target, righe mai negative, scarto ≤ 1 centesimo a
+riga.
+
 ### 7.3 Verifica limiti sulla bozza
 
-Per voce: importo ≤ limite (indicatore). Totale imponibile ≤ limite.
-Eccedenza → emissione bloccata; «Procedi comunque» solo con capability
-`fatture.emetti`, registrato (`scavalco_limiti`, motivo) e dichiarato nel
-fascicolo. Detraibile e detrazione stimata ricalcolati sulla bozza.
+Per singola voce collegata al computo (servizi e, da Ruling R17, la riga
+«Spese per documentazione detrazione») l'eccedenza resta un indicatore
+(avviso `limite_riga`): la fattura resta ammessa, cambia solo la
+detrazione stimata del cliente. Tre confronti sono invece un vincolo vero
+— verificati **separatamente**, mai come un totale unico (Ruling R25: un
+caso reale mostra il foglio che confronta beni+markup coi soli massimali
+dell'Allegato A, mai markup e servizi insieme contro le opere):
+`limite_prodotti` = beni senza voce di computo (righe di contratto e righe
+manuali) più il markup, contro la Σ dei `massimale_*`; `limite_servizi` =
+Σ dei servizi (manuali compresi, spese di documentazione escluse) contro
+la Σ delle opere/eventuali che il generatore ha proposto; `limite_totale`
+= imponibile contro il minore fra CHECK1/CHECK2. Le righe derivate
+(markup, storno, riaddebito) non entrano mai in queste somme. Ogni blocco
+oltre il proprio limite → emissione bloccata; «Procedi comunque» solo con
+capability `fattura.emit`, registrato (`scavalco_limiti`, motivo) e
+dichiarato nel fascicolo. Ruling R26: se la somma di riferimento di un
+blocco è 0 (nessuna voce del gruppo, o limite complessivo assente) quel
+blocco non è «entro il limite» né un errore — sarebbe un «ok» falso — ma
+un avviso `limiti_non_verificati`; senza computo lo stesso avviso copre
+tutti e tre i blocchi, mai un «ok» di comodo. Detraibile e detrazione
+stimata restano ricalcolati sulla bozza.
 
 ### 7.4 Validazioni prima dell'emissione
 
@@ -354,18 +386,68 @@ verificato con una chiamata di lettura a `/issued_documents/info`.
 Ripetizione sicura: se `fic_document_id` esiste, non si ricrea; ogni passo
 riparte da dove si è fermato. **Mai** cancellazione automatica su FiC.
 
+**Precisazioni dall'implementazione (piano 2, 04/09/2026).** La revisione
+si confronta **solo alla partenza** (`fattura.stato === "bozza"`), prima
+di toccare il contesto FiC: dal passaggio a `in_emissione` in poi ogni
+ripresa è idempotente per stato e non la richiede di nuovo — un doppio
+click simultaneo produce al più un `CONFLITTO` sul secondo, mai due
+documenti FiC (Ruling R1). `eiErrore` è sempre riscritto in fondo a ogni
+passaggio, sia in `emettiFattura` sia nella sonda, mai lasciato appiccicato
+da un giro precedente risolto; l'XML si riverifica a ogni ripresa finché
+la fattura non è `inviata`; un privato registrato con un nome di una sola
+parola nasce su FiC come `company`, non `person` (FiC rifiuta una `person`
+senza nome proprio) (Ruling R11). Il riappaiamento `ficPaymentId` ↔
+scadenza si ritenta a **ogni giro** (emissione o sonda) finché ne resta
+una scollegata, non solo mentre la fattura è `in_emissione` — altrimenti
+un'interruzione fra la creazione del documento e la scrittura degli id la
+lascerebbe orfana per sempre (Ruling R12). Con dry-run acceso lo stato
+resta `emessa` (mai `inviata`) con `inviataDryRun = true`; l'etichetta
+mostrata è «Emessa (prova SdI)», non «inviata (prova)». Con `FLAG_LIMITI`
+spento ogni mutation del router risponde `PRECONDITION_FAILED`, come tutti
+i router del repository, non `NOT_FOUND` come ipotizzato in una prima
+stesura di questo stesso documento (Ruling R24).
+
 Integrazione col sync esistente (`ficFatture.upsertDocumentiEmessi`): un
 documento FiC il cui id corrisponde a `fatture.fic_document_id` nasce già
-collegato (`commessaMatch = "crm"`, nuovo valore), non passa dal match
-automatico, non rigenera il PDF, alimenta pattuito/rate/incassi come oggi.
-Un avviso compare se `|totale fattura − pattuito contratto| > 1 €`.
+collegato (`commessaMatch: "crm"`, nuovo valore), non passa dal match
+automatico, non rigenera il PDF (il sync degli allegati lo salta: il PDF è
+già entrato nel fascicolo da `registraDocumentoFatturaCrm` all'emissione),
+alimenta pattuito/rate/incassi come oggi. Un avviso compare se `|totale
+fattura − pattuito contratto| > 1 €`. La mutation manuale di collegamento
+del sync rifiuta di ricollegare una riga `commessaMatch: "crm"` a
+un'altra commessa (stesso messaggio della guardia sullo scollegamento): si
+corregge solo con una nota di credito, mai spostando il collegamento a
+mano (Ruling R23).
 
 ### 7.6 Nota di credito
 
-Da una fattura `emessa`+ → `tipo = nota_credito`, `nota_credito_di`, righe
-proposte = specchio negativo (totale) o selezione (parziale), stessa pipeline
-con `type: credit_note` e scope `issued_documents.credit_notes:a`; la fattura
-originale riceve evento `nota_credito` e il fascicolo mostra il legame.
+Da una fattura `emessa`+ (stati stornabili: `emessa`, `inviata`,
+`consegnata`, `rifiutata`, `mancata_consegna`) → `tipo = nota_credito`,
+`notaCreditoDi`; per il totale le righe sono uno **specchio esatto**
+dell'origine, segno compreso — lo storno dei beni significativi resta
+negativo com'era, niente si inverte (non uno «specchio negativo»: l'unica
+cosa che cambia davvero è l'intestazione) — per il parziale solo le righe
+bene/servizio/markup scelte, con storno/riaddebito ricalcolato sul
+sottoinsieme; niente risolutore, gli importi sono già decisi dalla fattura
+di origine. Stessa pipeline di emissione con `type: credit_note` e scope
+`issued_documents.credit_notes:a`; la fattura originale riceve evento
+`nota_credito` e il fascicolo mostra il legame.
+
+Prima riga della nota: un'`intestazione` «Accredito su ns. fattura n. X
+del Y», col motivo quando c'è (Ruling R20). La nota salta i controlli di
+computo/limiti e quelli di forma della detrazione (cantiere, dicitura del
+bonifico) — storna una fattura già emessa, non propone prestazioni nuove —
+ma mantiene i controlli su cliente, configurazione FiC e scadenze (Ruling
+R14/R15); `creaNotaCredito` copia comunque l'indirizzo del cantiere
+dall'origine, solo informativo. `rigeneraBozza` rifiuta una nota di
+credito (rilegge contratto e computo, che la nota non ha); una nota di
+credito non si storna con un'altra nota di credito (Ruling R16). **Aperto**:
+il segno con cui Fatture in Cloud stampa il totale della nota va
+verificato alla prima nota reale — le righe che il CRM manda sono positive
+e speculari all'origine, le note reali del 2026 stampano il totale in
+negativo; se FiC inverte da solo il segno in output va bene così, altrimenti
+il generatore va corretto prima della seconda nota (v. handoff, runbook
+della prima fattura reale).
 
 ## 8. Gate e transizioni
 
@@ -424,17 +506,39 @@ direzione), `computo.run` (come `contratto.manage`), `fattura.read`
 (amministrazione, direzione), `tariffe.manage` (direzione). Record di altra
 sede → `NOT_FOUND`. Ogni scrittura registra `actor` ed evento.
 
+Nomi confermati a fine implementazione (piano 2, 04/09/2026): identici a
+questa stesura in `server/authz/capabilities.ts` — l'unico refuso rimasto
+nel documento era `fatture.emetti` in §7.3, corretto in `fattura.emit`; la
+tabella UI di §9 (riga «Tab Fattura (stato)») cita ancora la forma vecchia
+e non è stata toccata da questo allineamento.
+
 Tars: i servizi di dominio sono tipizzati e riusabili come strumenti in una
-fase successiva (`leggiContratto`, `calcolaLimiti`, `preparaBozzaFattura`;
+fase successiva (`leggiContratto`, `calcolaLimiti`, `generaBozza`/`creaBozza`;
 `emettiFattura` = effetto esterno → proposta con anteprima e conferma umana).
-Nessuno strumento Tars in v1.
+`preparaBozzaFattura`, citato in una stesura precedente di questo paragrafo,
+non esiste nel codice: il nome reale della funzione pura è `generaBozza`
+(`server/fatture/generatore.ts`), quello del servizio che la persiste è
+`creaBozza` (`server/fatture/servizio.ts`). Nessuno strumento Tars in v1
+(§10 resta vincolante: v. `docs/tars/matrice-azioni-tars.md`).
 
 ## 11. Flag, rollout, test
 
-Interruttori (fail-closed, come `platform/interruttori.ts`): `FLAG_LIMITI`
-(contratto, computo, gate — piano 1), `FLAG_FATTURAZIONE` (tab Limiti/Fattura,
-emissione — piano 2), `FLAG_CONTRATTO_ESTRAZIONE` (piano 3),
-`FATTURAZIONE_SDI_DRY_RUN` (default acceso in produzione).
+Interruttori (fail-closed, come `platform/interruttori.ts`; per
+deployment/ambiente, non un campo per sede nel database): `FLAG_LIMITI`
+(contratto, computo, gate — piano 1, **necessario anche alla
+fatturazione**: ogni handler dei router `fatture`/`fatturazioneConfig`
+chiama `assicuraInterruttore("limiti")` oltre al proprio interruttore),
+`FLAG_FATTURAZIONE` (tab Limiti/Fattura, emissione — piano 2, in
+middleware su tutto il router), `FLAG_CONTRATTO_ESTRAZIONE` (piano 3, non
+ancora nel codice).
+
+`FATTURAZIONE_SDI_DRY_RUN` **non è un interruttore** di
+`platform/interruttori.ts`: è una variabile letta direttamente da
+`server/fatture/dryRun.ts` (`sdiDryRun()`), fail-**open** per costruzione —
+attiva a meno che non valga esplicitamente `off`/`false`/`0`/`spento`/`no`
+— l'opposto dei kill switch fail-closed qui sopra, perché la prima
+fattura reale deve passare dal commercialista prima di uscire davvero: il
+default è sempre «in prova», mai «spento».
 
 Test:
 
