@@ -197,8 +197,11 @@ async function costruisciContenuto(
     }
   }
 
-  // Task 17: la sezione (e la sua versione) esiste solo col flag acceso —
-  // spento, il fascicolo resta byte-identico a prima di questo task.
+  // Task 17: col flag spento `fatturazione` resta comunque `[]` (un campo
+  // presente e vuoto, non assente) e `fonti`/`versioni` non guadagnano le
+  // voci sotto legate alla fatturazione — non più «byte-identico» a prima
+  // del task in senso stretto, ma il resto del fascicolo (gate, ordini,
+  // domande aperte) sì.
   const fatturazioneAttiva = interruttoreAttivo("fatturazione");
   const fatturazione = fatturazioneAttiva
     ? await righeFatturazione(sedeId, c.id, c.stato)
@@ -216,6 +219,14 @@ async function costruisciContenuto(
       versioneCorrente(`registroPagamenti:commessa:${c.id}`, sedeId) ?? "-",
     // «inRitardo» dipende da oggi: il rollover di giornata invalida.
     "giorno-locale": versioneCorrente("giorno-locale", sedeId) ?? "-",
+    // Ruling R33 (fix round 1): SEMPRE registrata, acceso o spento —
+    // altrimenti una voce costruita col flag spento non porta alcuna
+    // chiave che dipenda da esso, e un flip del flag a runtime passerebbe
+    // inosservato finché non cambia anche qualcos'altro (fino al rollover
+    // di giornata). Un riferimento che il registro non sa sondare è
+    // fail-closed (null → ricostruzione), quindi la chiave deve esistere
+    // ED essere sondabile: v. il ramo "flag" in versioni.ts.
+    "flag:fatturazione": versioneCorrente("flag:fatturazione", sedeId) ?? "-",
     ...(fatturazioneAttiva
       ? {
           [`fatture-di-commessa:${c.id}`]:

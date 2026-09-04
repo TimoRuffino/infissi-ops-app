@@ -11,6 +11,11 @@
 import { createHash } from "node:crypto";
 import { versioneRegistroPagamenti } from "../_core/commessaPayments";
 import { versioneFattureCommessa } from "../fatture/versioni";
+import {
+  interruttoreAttivo,
+  statoInterruttori,
+  type Interruttore,
+} from "../platform/interruttori";
 import { getCommessaById, getCommesseStore } from "../routers/commesse";
 import { getOrdiniFornitoreDiSede } from "../routers/fornitori";
 import { getDocumentiDiCommessa } from "../routers/preventiviContratti";
@@ -79,6 +84,16 @@ export function versioneCorrente(
     const c: any = getCommessaById(commessaId);
     if (!c || c.sedeId !== sedeId) return null;
     return versioneFattureCommessa(sedeId, commessaId);
+  }
+  if (tipo === "flag") {
+    // Ruling R33 (fix round 1, Task 17): sede-INDIPENDENTE per costruzione
+    // — un interruttore vale per l'intera installazione, non per una
+    // sede, quindi qui (a differenza di ogni altro ramo sopra) non c'è
+    // nessun controllo di sede da fare. Un nome sconosciuto (typo, o un
+    // interruttore rimosso) torna null: fail-closed, come da contratto di
+    // questo registro.
+    if (!(arg in statoInterruttori())) return null;
+    return String(interruttoreAttivo(arg as Interruttore));
   }
   if (tipo === "giorno-locale") {
     // Cambia alla mezzanotte di Roma: i derivati che dipendono da «oggi»

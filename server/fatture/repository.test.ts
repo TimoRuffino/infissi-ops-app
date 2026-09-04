@@ -3,6 +3,7 @@
 // suite Postgres in repository.pg.test.ts, senza database).
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMemoryFattureRepository, type FattureRepository } from "./repository";
+import { versioneFattureCommessa } from "./versioni";
 
 const ora = new Date("2026-09-04T09:00:00Z");
 const fattura = (sedeId = 1) => ({
@@ -130,5 +131,19 @@ describe("repository fatture (memoria)", () => {
     expect(rilettaDopo?.pdfStorageKey).toBe("fatture/2026/f1.pdf");
     // diciture non era mai nel patch: deve restare quella creata sopra.
     expect(rilettaDopo?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
+  });
+
+  // Fix round 1 (Task 17, item 5c): parità col backend Postgres, che salta
+  // sia l'UPDATE sia il bump quando il patch non ha nessuna colonna da
+  // scrivere — un patch vuoto non è una scrittura.
+  it("aggiornaScadenza tocca la versione fatture-di-commessa solo quando scrive davvero", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [scadenza(1)], now: ora });
+    const primaDelPatch = versioneFattureCommessa(1, 10); // commessaId di fattura()
+
+    await repo.aggiornaScadenza({ sedeId: 1, fatturaId: f.id, numero: 1, patch: {} });
+    expect(versioneFattureCommessa(1, 10)).toBe(primaDelPatch);
+
+    await repo.aggiornaScadenza({ sedeId: 1, fatturaId: f.id, numero: 1, patch: { ficPaymentId: 77, stato: "pagata" } });
+    expect(versioneFattureCommessa(1, 10)).not.toBe(primaDelPatch);
   });
 });

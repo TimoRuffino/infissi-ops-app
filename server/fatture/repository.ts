@@ -292,10 +292,14 @@ export function createMemoryFattureRepository(): FattureRepository {
       const f = trova(sedeId, fatturaId);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
       const s = f.scadenze.find(x => x.numero === numero);
-      if (s) {
-        Object.assign(s, senzaUndefined(patch));
-        toccaFattureCommessa(f.sedeId, f.commessaId);
-      }
+      if (!s) return;
+      // Fix round 1 (parità col backend Postgres, che salta anche
+      // l'UPDATE quando non c'è nessuna colonna da scrivere): un patch
+      // senza chiavi definite non è una scrittura, quindi niente bump.
+      const patchDefinito = senzaUndefined(patch);
+      if (Object.keys(patchDefinito).length === 0) return;
+      Object.assign(s, patchDefinito);
+      toccaFattureCommessa(f.sedeId, f.commessaId);
     },
     // Non verifica che `fatturaId` appartenga davvero a `sedeId`: chi
     // chiama (il servizio, Task 6) ha già in mano la fattura corretta.
@@ -884,9 +888,6 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const rows = await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
           WHERE id = ${id} AND sede_id = ${sedeId}
           RETURNING *`;
-        // Task 17: `commessa_id` è già nella riga RETURNING, nessuna query
-        // in più.
-        toccaFattureCommessa(sedeId, Number(rows[0].commessa_id));
         // Letture dentro la stessa transazione (tx, non sql): aggiornaStato
         // non tocca i figli, ma restano coerenti con lo snapshot della
         // riga appena scritta invece di aprire una connessione a parte.
@@ -895,6 +896,12 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
           tx`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ${id} ORDER BY aliquota DESC`,
           tx`SELECT * FROM fattura_scadenze WHERE fattura_id = ${id} ORDER BY numero, id`,
         ]);
+        // Task 17 (fix round 1: spostato qui, ultima istruzione prima del
+        // return come nelle altre scritture): `commessa_id` è già nella
+        // riga RETURNING, nessuna query in più — ma se una delle SELECT
+        // sopra fallisse, meglio niente bump per una lettura mai arrivata
+        // in fondo.
+        toccaFattureCommessa(sedeId, Number(rows[0].commessa_id));
         return rowToFattura(
           rows[0],
           righeRows.map(rowToRiga),
@@ -940,10 +947,15 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       const createdAt = e.createdAt ?? new Date();
       // Task 17: un solo giro (CTE + LEFT JOIN), non un INSERT più una
       // SELECT — l'evento è la scrittura più frequente della pipeline di
-      // emissione e raddoppiarne i round trip si sentirebbe. Il LEFT JOIN
-      // (non un JOIN secco) preserva l'evento «orfano» del commento sopra
-      // `eventi()`: se `fattura_id` non appaia in `fatture`, la riga
-      // dell'evento torna comunque, solo senza `evento_commessa_id`.
+      // emissione e raddoppiarne i round trip si sentirebbe. `fattura_id`
+      // esiste SEMPRE in `fatture` (FK NOT NULL: l'INSERT fallirebbe
+      // altrimenti), quindi il LEFT JOIN (non un JOIN secco) non serve a
+      // quel caso, ma a quello — fix round 1 — di un `sedeId` che non è
+      // davvero quello della fattura (il "chiamante malformato" del
+      // commento sopra `eventi()`): il join in più su `f.sede_id =
+      // ins.sede_id` non trova riga, l'evento viene comunque inserito e
+      // restituito, solo senza `evento_commessa_id` (niente bump: non si
+      // sa quale commessa toccare).
       const rows = await sql`
         WITH ins AS (
           INSERT INTO fattura_eventi (fattura_id, sede_id, tipo, payload, actor_user_id, created_at)

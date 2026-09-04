@@ -36,6 +36,7 @@ import {
 } from "./fascicoli";
 import { chiamataTool, creaProviderFinto, rispostaTesto } from "./openai/fake";
 import { azzeraCacheTarsPerTest, eseguiRun } from "./orchestratore";
+import { versioneCorrente } from "./versioni";
 
 const SEDE = 98001;
 const ALTRA_SEDE = 98002;
@@ -485,6 +486,12 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
     const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
     expect(f!.fatturazione).toEqual([]);
     expect(JSON.stringify(f)).not.toContain("Fattura");
+    // Fix round 1 (item 5b): la fonte e la chiave di versione legate alla
+    // fatturazione non compaiono affatto col flag spento, non solo la riga.
+    expect(f!.fonti.some(riga => riga.includes("fatture CRM"))).toBe(false);
+    expect(
+      Object.keys(f!.versioni).some(chiave => chiave.startsWith("fatture-di-commessa:"))
+    ).toBe(false);
   });
 
   it("Caso 3: una scrittura sulla fattura invalida il fascicolo (nuova versione)", async () => {
@@ -529,5 +536,40 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
     expect(dopoIlGate!.fatturazione).toEqual([
       "Fattura: nessuna (bozza da generare dai limiti)",
     ]);
+  });
+
+  it("versioneCorrente(\"fatture-di-commessa:<id>\", ALTRA_SEDE) è null: la commessa non è di quella sede", async () => {
+    const commessaId = await nuovaCommessaConContratto(SEDE);
+    expect(versioneCorrente(`fatture-di-commessa:${commessaId}`, ALTRA_SEDE)).toBeNull();
+    expect(versioneCorrente(`fatture-di-commessa:${commessaId}`, SEDE)).not.toBeNull();
+  });
+
+  it("Caso 5 (Ruling R33): un flip del flag a runtime invalida il fascicolo cacheato", async () => {
+    process.env.FLAG_FATTURAZIONE = "off";
+    process.env.FLAG_LIMITI = "on";
+    const commessaId = await nuovaCommessaConContratto(SEDE);
+    const c: any = getCommessaById(commessaId);
+    // Nello stato in cui, a flag acceso, comparirebbe la riga «nessuna»:
+    // se il flip non invalidasse, il fascicolo servirebbe per sempre la
+    // voce costruita col flag spento (fatturazione: []).
+    c.stato = "fatture_pagamento";
+
+    const conFlagSpento = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(conFlagSpento!.fatturazione).toEqual([]);
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(1);
+
+    // Nessun'altra versione cambia: né la commessa (stato già impostato
+    // sopra, updatedAt intatto) né ordini/documenti/pagamenti/giorno.
+    process.env.FLAG_FATTURAZIONE = "on";
+    const conFlagAcceso = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(2);
+    expect(conFlagAcceso!.fatturazione).toEqual([
+      "Fattura: nessuna (bozza da generare dai limiti)",
+    ]);
+
+    process.env.FLAG_FATTURAZIONE = "off";
+    const conFlagSpentoDiNuovo = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(CONTATORI_FASCICOLI.costruzioni).toBe(3);
+    expect(conFlagSpentoDiNuovo!.fatturazione).toEqual([]);
   });
 });
