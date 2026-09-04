@@ -1,0 +1,17 @@
+{
+  "_nota": "Tre fatture reali del 2026 (127, 129, 130) ridotte a importi: nessun dato personale. G è il totale che la commercialista ha scelto di tenere (spec §1 analisi: lordo del contratto in 127 e 129, imponibile in 130). Riepiloghi copiati dal PDF, al centesimo.",
+  "casi": [
+    { "nome": "fattura-127-2026", "input": { "pattuitoCent": 1549652, "pattuitoTipo": "lordo", "beniSignificativiCent": 884746, "beniAltriCent": 0, "serviziCent": 264500 },
+      "atteso": { "prestazioneCent": 479859, "markupCent": 215359, "stornoCent": 479859, "caso": "b_maggiore_p",
+                  "riepilogo": [ { "aliquota": 22, "imponibileCent": 404887, "impostaCent": 89075 }, { "aliquota": 10, "imponibileCent": 959718, "impostaCent": 95972 } ],
+                  "imponibileCent": 1364605, "ivaCent": 185047, "totaleCent": 1549652, "deltaPattuitoCent": 0 } },
+    { "nome": "fattura-129-2026", "input": { "pattuitoCent": 1409200, "pattuitoTipo": "lordo", "beniSignificativiCent": 356200, "beniAltriCent": 302091, "serviziCent": 505800 },
+      "atteso": { "prestazioneCent": 924891, "markupCent": 117000, "stornoCent": 356200, "caso": "b_minore_uguale_p",
+                  "riepilogo": [ { "aliquota": 10, "imponibileCent": 1281091, "impostaCent": 128109 } ],
+                  "imponibileCent": 1281091, "ivaCent": 128109, "totaleCent": 1409200, "deltaPattuitoCent": 0 } },
+    { "nome": "fattura-130-2026", "input": { "pattuitoCent": 571128, "pattuitoTipo": "imponibile", "beniSignificativiCent": 326228, "beniAltriCent": 0, "serviziCent": 184900 },
+      "atteso": { "prestazioneCent": 244900, "markupCent": 60000, "stornoCent": 244900, "caso": "b_maggiore_p",
+                  "riepilogo": [ { "aliquota": 22, "imponibileCent": 81328, "impostaCent": 17892 }, { "aliquota": 10, "imponibileCent": 489800, "impostaCent": 48980 } ],
+                  "imponibileCent": 571128, "ivaCent": 66872, "totaleCent": 638000, "deltaPattuitoCent": 0 } }
+  ]
+}
