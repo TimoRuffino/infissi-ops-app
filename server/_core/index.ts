@@ -75,7 +75,9 @@ async function startServer() {
   startSmistamentoWorker();
   const { startAnalisiAziendaWorker } = await import("../tars/analisi/worker");
   startAnalisiAziendaWorker();
-  const { startFollowupPreventiviWorker } = await import("../tars/followup/worker");
+  const { startFollowupPreventiviWorker } = await import(
+    "../tars/followup/worker"
+  );
   startFollowupPreventiviWorker();
   // Costo fornitore dalla conferma d'ordine (03/09/2026): il flusso vivo lo
   // registra all'archiviazione; il worker legge le conferme già nei
@@ -124,6 +126,10 @@ async function startServer() {
   // Fatture in Cloud → clienti sync (every 6h when enabled).
   const { startFicScheduler } = await import("../routers/fattureInCloud");
   startFicScheduler();
+
+  // Sonda degli stati SdI delle fatture emesse (ogni 15 minuti).
+  const { startSondaFattureWorker } = await import("../fatture/sonda");
+  startSondaFattureWorker();
 
   // Ingestione posta IMAP (ogni 5 minuti, solo per le caselle attive).
   const { avviaPollerMail } = await import("../comunicazioni/imap");
