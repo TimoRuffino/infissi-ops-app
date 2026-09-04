@@ -124,6 +124,7 @@ const CONFIG_COMPLETA = (sedeId = SEDE): FatturazioneConfig => ({
   paymentAccountIdFic: 5,
   vatIdsFic: { 22: 3, 10: 9 },
   dicituraFooter: "Grazie per la fiducia.",
+  speseDocumentazioneCent: 15000,
   scopeScritturaOk: true,
   scopeVerificatoAt: ora,
   updatedAt: ora,

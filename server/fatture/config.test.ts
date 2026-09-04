@@ -44,6 +44,18 @@ describe("config fatturazione", () => {
       "IT60X0542811101000000123456"
     );
   });
+  it("salva le spese di documentazione e rifiuta importi non interi o negativi", async () => {
+    const c = await salvaConfigFatturazione({ sedeId: 1, patch: { speseDocumentazioneCent: 20000 } });
+    expect(c.speseDocumentazioneCent).toBe(20000);
+    await expect(
+      salvaConfigFatturazione({ sedeId: 1, patch: { speseDocumentazioneCent: -1 } })
+    ).rejects.toThrow(/^VALIDAZIONE: spese di documentazione/);
+    await expect(
+      salvaConfigFatturazione({ sedeId: 1, patch: { speseDocumentazioneCent: 150.5 } })
+    ).rejects.toThrow(/^VALIDAZIONE: spese di documentazione/);
+    expect((await configFatturazione(1)).speseDocumentazioneCent).toBe(20000);
+  });
+
   it("verificaScopeScrittura mette in cache id IVA, conti e numerazioni", async () => {
     const ficGet = vi.fn(async () => ({
       data: {

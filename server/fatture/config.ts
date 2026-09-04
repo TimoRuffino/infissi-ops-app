@@ -45,6 +45,7 @@ export async function salvaConfigFatturazione(input: {
       | "numerazioneFic"
       | "paymentAccountIdFic"
       | "dicituraFooter"
+      | "speseDocumentazioneCent"
     >
   >;
 }): Promise<FatturazioneConfig> {
@@ -60,6 +61,16 @@ export async function salvaConfigFatturazione(input: {
     !/^MP\d{2}$/.test(input.patch.metodoPagamento)
   ) {
     throw new Error("VALIDAZIONE: metodo di pagamento non valido (es. MP05).");
+  }
+  // R17: è un importo in centesimi, come ogni cifra del CRM.
+  if (
+    input.patch.speseDocumentazioneCent != null &&
+    (!Number.isInteger(input.patch.speseDocumentazioneCent) ||
+      input.patch.speseDocumentazioneCent < 0)
+  ) {
+    throw new Error(
+      "VALIDAZIONE: spese di documentazione non valide (centesimi interi, mai negativi)."
+    );
   }
   const repo = getFattureRepository();
   await repo.ensureSchema();

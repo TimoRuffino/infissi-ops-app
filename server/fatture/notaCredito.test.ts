@@ -102,6 +102,7 @@ const CONFIG_COMPLETA = (sedeId = SEDE): FatturazioneConfig => ({
   paymentAccountIdFic: 5,
   vatIdsFic: { 22: 3, 10: 9 },
   dicituraFooter: "Grazie per la fiducia.",
+  speseDocumentazioneCent: 15000,
   scopeScritturaOk: true,
   scopeVerificatoAt: ora,
   updatedAt: ora,
@@ -300,7 +301,10 @@ describe("creaNotaCredito", () => {
     // Le righe sono lo specchio esatto dell'origine: stessi tipi, stessi
     // importi, segno compreso — lo storno beni significativi resta
     // negativo (è un trasferimento fra aliquote, non un importo in più).
-    expect(nota.righe.map(r => ({ tipo: r.tipo, aliquota: r.aliquota, importoCent: r.importoCent }))).toEqual(
+    // R20: la prima riga è l'intestazione dell'accredito; lo specchio
+    // dell'origine comincia dalla seconda.
+    expect(nota.righe[0].tipo).toBe("intestazione");
+    expect(nota.righe.slice(1).map(r => ({ tipo: r.tipo, aliquota: r.aliquota, importoCent: r.importoCent }))).toEqual(
       origine.righe.map(r => ({ tipo: r.tipo, aliquota: r.aliquota, importoCent: r.importoCent }))
     );
     const storno = nota.righe.find(r => r.tipo === "storno_bs")!;
@@ -348,9 +352,9 @@ describe("creaNotaCredito", () => {
       ...dip(),
     });
 
-    expect(nota.righe).toHaveLength(2);
-    expect(nota.righe.every(r => r.tipo === "servizio" && r.aliquota === 10)).toBe(true);
-    expect(nota.righe.map(r => r.importoCent).sort((a, b) => a - b)).toEqual([8500, 12000]);
+    expect(nota.righe).toHaveLength(3); // intestazione dell'accredito + due servizi
+    expect(nota.righe.slice(1).every(r => r.tipo === "servizio" && r.aliquota === 10)).toBe(true);
+    expect(nota.righe.slice(1).map(r => r.importoCent).sort((a, b) => a - b)).toEqual([8500, 12000]);
     expect(nota.righe.some(r => r.tipo === "storno_bs" || r.tipo === "riaddebito_bs")).toBe(false);
 
     expect(nota.riepilogo).toEqual([{ aliquota: 10, imponibileCent: 20500, impostaCent: 2050 }]);
@@ -393,7 +397,7 @@ describe("creaNotaCredito", () => {
 
     // B' = 93087 (bene), P' = 8900 (servizio) + 5000 (markup) = 13900.
     // B' > P' → Q' = min(B', P') = 13900.
-    expect(nota.righe).toHaveLength(5); // bene + servizio + markup + storno_bs + riaddebito_bs
+    expect(nota.righe).toHaveLength(6); // intestazione + bene + servizio + markup + storno_bs + riaddebito_bs
     const storno = nota.righe.find(r => r.tipo === "storno_bs")!;
     const riaddebito = nota.righe.find(r => r.tipo === "riaddebito_bs")!;
     expect(storno.importoCent).toBe(-13900);
@@ -437,7 +441,7 @@ describe("creaNotaCredito", () => {
 
     // B' = 93087, P' = 131400 → B' ≤ P' → Q' = min(B', P') = 93087: il
     // 22 % (93087 − 93087 = 0) netta a zero e sparisce dal riepilogo.
-    expect(nota.righe).toHaveLength(4); // bene + servizio + storno_bs + riaddebito_bs
+    expect(nota.righe).toHaveLength(5); // intestazione + bene + servizio + storno_bs + riaddebito_bs
     const storno = nota.righe.find(r => r.tipo === "storno_bs")!;
     const riaddebito = nota.righe.find(r => r.tipo === "riaddebito_bs")!;
     expect(storno.importoCent).toBe(-93087);
@@ -448,6 +452,67 @@ describe("creaNotaCredito", () => {
     expect(nota.riepilogo).toEqual([{ aliquota: 10, imponibileCent: 224487, impostaCent: 22449 }]);
     expect(nota.riepilogo.some(r => r.aliquota === 22)).toBe(false);
     expect(nota.totaleCent).toBe(246936);
+  });
+
+  // R20 (nota di credito NDC-1): la stampa FiC apre con «Accredito su ns.
+  // fatt. N del … per …»; qui è una riga `intestazione` a zero.
+  it("R20: la prima riga è l'intestazione dell'accredito, col motivo quando c'è", async () => {
+    const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
+    const origine = await comeEmessa(fattura);
+
+    const { fattura: nota } = await creaNotaCredito({
+      sedeId: SEDE,
+      fatturaId: origine.id,
+      actorUserId: ATTORE,
+      selezione: { tipo: "totale" },
+      motivo: "serramento sostituito in garanzia",
+      ...dip(),
+    });
+    const intestazione = nota.righe[0];
+    expect(intestazione.tipo).toBe("intestazione");
+    expect(intestazione.descrizione).toBe(
+      `Accredito su ns. fattura n. ${origine.numero} del ${origine.data}: serramento sostituito in garanzia`
+    );
+    expect(intestazione.importoCent).toBe(0);
+    expect(intestazione.aliquota).toBeNull();
+    expect(intestazione.derivata).toBe(false);
+    expect(nota.righe.map(r => r.ordine)).toEqual(nota.righe.map((_, i) => i + 1));
+    expect(nota.righe).toHaveLength(origine.righe.length + 1);
+    // Gli importi non cambiano: l'intestazione vale zero.
+    expect(nota.totaleCent).toBe(origine.totaleCent);
+  });
+
+  it("R20: senza motivo l'intestazione resta la sola frase dell'accredito, anche sulla nota parziale", async () => {
+    const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
+    const origine = await comeEmessa(fattura);
+    const rilievo = origine.righe.find(r => r.descrizione.startsWith("Rilievo misure"))!;
+
+    const { fattura: nota } = await creaNotaCredito({
+      sedeId: SEDE,
+      fatturaId: origine.id,
+      actorUserId: ATTORE,
+      selezione: { tipo: "parziale", righe: [{ ordine: rilievo.ordine, importoCent: 12000 }] },
+      ...dip(),
+    });
+    expect(nota.righe[0].descrizione).toBe(`Accredito su ns. fattura n. ${origine.numero} del ${origine.data}`);
+    expect(nota.righe).toHaveLength(2);
+    expect(nota.righe[1].tipo).toBe("servizio");
+    expect(nota.totaleCent).toBe(13200);
+  });
+
+  it("R20: un motivo oltre i 300 caratteri è rifiutato", async () => {
+    const { fattura } = await bozzaEmettibile({ pattuitoCent: PATTUITO_REALE }, SEDE, MARKUP_REALE);
+    const origine = await comeEmessa(fattura);
+    await expect(
+      creaNotaCredito({
+        sedeId: SEDE,
+        fatturaId: origine.id,
+        actorUserId: ATTORE,
+        selezione: { tipo: "totale" },
+        motivo: "x".repeat(301),
+        ...dip(),
+      })
+    ).rejects.toThrow("VALIDAZIONE: il motivo della nota di credito non può superare i 300 caratteri.");
   });
 
   it("l'importo di una riga scelta non può superare l'originale", async () => {

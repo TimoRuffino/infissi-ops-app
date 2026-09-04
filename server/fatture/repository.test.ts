@@ -68,9 +68,13 @@ describe("repository fatture (memoria)", () => {
     const c = await repo.config(1);
     expect(c.metodoPagamento).toBe("MP05");
     expect(c.scopeScritturaOk).toBe(false);
-    const salvata = await repo.salvaConfig({ ...c, iban: "IT00X", vatIdsFic: { 22: 3, 10: 4 } });
+    // R17: le spese di documentazione detrazione, 150,00 € salvo diverso valore di sede.
+    expect(c.speseDocumentazioneCent).toBe(15000);
+    const salvata = await repo.salvaConfig({ ...c, iban: "IT00X", vatIdsFic: { 22: 3, 10: 4 }, speseDocumentazioneCent: 20000 });
     expect((await repo.config(1)).vatIdsFic).toEqual({ 22: 3, 10: 4 });
+    expect((await repo.config(1)).speseDocumentazioneCent).toBe(20000);
     expect((await repo.config(2)).iban).toBeNull();
+    expect((await repo.config(2)).speseDocumentazioneCent).toBe(15000);
     expect(salvata.updatedAt).toBeInstanceOf(Date);
   });
 

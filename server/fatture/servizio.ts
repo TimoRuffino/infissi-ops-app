@@ -17,7 +17,7 @@
 //   FATTURA_IMMUTABILE: dalla bozza in poi si corregge con una nota di credito
 //   CONFLITTO:          revisione superata (propagato dal repository)
 import { TZDate } from "@date-fns/tz";
-import type { ChiaveDicitura } from "@shared/fatturazione/diciture";
+import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import {
   fatturaModificabile,
   type ClienteSnapshot,
@@ -45,6 +45,16 @@ export type Dipendenze = { now?: () => Date; repository?: FattureRepository };
 export type ModificaBozza = {
   /** Solo righe bene/servizio non derivate, identificate per `ordine`. */
   righe?: Array<{ ordine: number; importoCent: number; descrizione?: string }>;
+  /** Righe scritte a mano in bozza (R18): maniglie, voci extra. Vanno in coda al gruppo del loro tipo. */
+  righeAggiunte?: Array<{
+    tipo: "bene" | "servizio";
+    descrizione: string;
+    importoCent: number;
+    aliquota: 22 | 10;
+    beneSignificativo: boolean;
+  }>;
+  /** Ordini di righe aggiunte a mano: quelle del contratto e del computo si azzerano, non si cancellano (R18). */
+  righeRimosse?: number[];
   scadenze?: ScadenzaFatturaInput[];
   note?: string | null;
   diciture?: ChiaveDicitura[];
@@ -56,6 +66,9 @@ export type ModificaBozza = {
 
 /** Scarto ammesso sul markup dopo il riequilibrio: l'IVA non restituisce sempre il centesimo esatto. */
 const TOLLERANZA_MARKUP_CENT = 3;
+/** Quante righe si aggiungono in una sola modifica: oltre non è più una correzione, è un'altra fattura. */
+const MAX_RIGHE_AGGIUNTE = 20;
+const MAX_DESCRIZIONE_RIGA = 300;
 const FUSO = "Europe/Rome";
 
 // Stesso formattatore di `risolutore.ts` e `generatore.ts`: tenuto locale
@@ -316,7 +329,11 @@ export async function leggiFattura(
   const eventi = await repository.eventi(sedeId, id);
   // Cliente e limiti si vedono sempre; la configurazione della sede è una
   // domanda sull'emissione, non sulla fattura: sta in `validaPerEmissione`.
-  return { fattura, controlli: [...controlliClienteDi(fattura), ...verificaLimiti(fattura)], eventi };
+  // Sulla nota di credito i limiti del computo non dicono nulla (Ruling
+  // R14, stessa guardia di `validaPerEmissione`): in lettura sarebbero
+  // solo rumore.
+  const limiti = fattura.tipo === "nota_credito" ? [] : verificaLimiti(fattura);
+  return { fattura, controlli: [...controlliClienteDi(fattura), ...limiti], eventi };
 }
 
 export async function fatturePerCommessa(sedeId: number, commessaId: number, dip?: Dipendenze): Promise<Fattura[]> {
@@ -366,6 +383,112 @@ function applicaRighe(
       descrizione: mod.descrizione?.trim() ?? r.descrizione,
     };
   });
+}
+
+/**
+ * Dove finisce una riga scritta a mano: in coda alle righe del suo tipo —
+ * un bene prima del markup, un servizio prima di storno e riaddebito, che
+ * `ricalcola` rimette al loro posto subito dopo. Senza righe di quel tipo
+ * un bene precede l'intestazione delle prestazioni (stessa scelta di
+ * `posizioneMarkup` in generatore.ts) e un servizio chiude il corpo, prima
+ * delle righe `nota`.
+ */
+function posizioneAggiunta(righe: RigaFatturaInput[], tipo: "bene" | "servizio"): number {
+  const ultimo = righe.map(r => r.tipo).lastIndexOf(tipo);
+  if (ultimo >= 0) return ultimo + 1;
+  if (tipo === "bene") {
+    const prestazioni = righe.findIndex(r => r.tipo === "intestazione" && r.descrizione === DICITURE.prestazioni);
+    if (prestazioni >= 0) return prestazioni;
+  }
+  const primaNota = righe.findIndex(r => r.tipo === "nota");
+  return primaNota >= 0 ? primaNota : righe.length;
+}
+
+/**
+ * Le righe scritte a mano in bozza (R18, fatture 106 e 119: maniglie e
+ * voci aggiunte in fase di fatturazione). Non hanno riga di contratto né
+ * voce di computo — non vengono da nessun documento — quindi nascono
+ * senza limite e con quantità 1: il numero dei pezzi sta nella
+ * descrizione, come nelle righe generate. L'aliquota segue il tipo: un
+ * bene è al 22 %, un servizio al 10 %; il resto lo fa `ricalcola`.
+ */
+function aggiungiRighe(
+  righe: RigaFatturaInput[],
+  aggiunte: NonNullable<ModificaBozza["righeAggiunte"]>
+): RigaFatturaInput[] {
+  if (aggiunte.length > MAX_RIGHE_AGGIUNTE) {
+    throw new Error(`VALIDAZIONE: non si aggiungono più di ${MAX_RIGHE_AGGIUNTE} righe alla volta.`);
+  }
+  // Ordini provvisori oltre l'ultimo esistente: `ricalcola` rinumera tutto
+  // alla fine, ma finché non lo fa nessuna riga deve condividere l'ordine
+  // con un'altra (il riequilibrio dei beni le distingue così).
+  let prossimoOrdine = righe.reduce((max, r) => Math.max(max, r.ordine), 0) + 1;
+  let esito = righe;
+  for (const a of aggiunte) {
+    const descrizione = a.descrizione.trim();
+    if (!descrizione) throw new Error("VALIDAZIONE: una riga aggiunta senza descrizione non si salva.");
+    if (descrizione.length > MAX_DESCRIZIONE_RIGA) {
+      throw new Error(
+        `VALIDAZIONE: la descrizione di una riga aggiunta non può superare i ${MAX_DESCRIZIONE_RIGA} caratteri.`
+      );
+    }
+    if (!Number.isInteger(a.importoCent) || a.importoCent < 0) {
+      throw new Error(`VALIDAZIONE: l'importo della riga "${descrizione}" non è in centesimi interi non negativi.`);
+    }
+    const attesa = a.tipo === "bene" ? 22 : 10;
+    if (a.aliquota !== attesa) {
+      throw new Error(`VALIDAZIONE: una riga «${a.tipo}» va al ${attesa} %, non al ${a.aliquota} %.`);
+    }
+    const riga: RigaFatturaInput = {
+      ordine: prossimoOrdine++,
+      tipo: a.tipo,
+      descrizione,
+      quantita: 1,
+      prezzoUnitCent: a.importoCent,
+      importoCent: a.importoCent,
+      aliquota: a.aliquota,
+      voceComputoCodice: null,
+      rigaCommessaId: null,
+      limiteCent: null,
+      // Solo un bene entra in B: un servizio è prestazione per definizione.
+      beneSignificativo: a.tipo === "bene" && a.beneSignificativo,
+      derivata: false,
+    };
+    const posizione = posizioneAggiunta(esito, a.tipo);
+    esito = [...esito.slice(0, posizione), riga, ...esito.slice(posizione)];
+  }
+  return esito;
+}
+
+/**
+ * Si toglie solo ciò che è stato aggiunto a mano. Una riga che viene dal
+ * contratto o dal computo si azzera (`righe`), non si cancella: la fattura
+ * deve continuare a mostrare cosa è stato venduto e cosa il computo aveva
+ * proposto, anche a importo zero. Le derivate le rifà il risolutore.
+ */
+function rimuoviRighe(righe: RigaFatturaInput[], ordini: number[]): RigaFatturaInput[] {
+  const perOrdine = new Map(righe.map(r => [r.ordine, r]));
+  const daTogliere = new Set<number>();
+  for (const ordine of ordini) {
+    if (daTogliere.has(ordine)) throw new Error(`VALIDAZIONE: ordine di riga duplicato: ${ordine}.`);
+    const riga = perOrdine.get(ordine);
+    if (!riga) throw new Error(`VALIDAZIONE: la riga ${ordine} non esiste in questa fattura.`);
+    if (riga.derivata) {
+      throw new Error(
+        `VALIDAZIONE: la riga ${ordine} è derivata dal risolutore: si cambia agendo su beni e servizi.`
+      );
+    }
+    if (riga.tipo !== "bene" && riga.tipo !== "servizio") {
+      throw new Error(`VALIDAZIONE: la riga ${ordine} non è una riga aggiunta a mano.`);
+    }
+    if (riga.rigaCommessaId != null || riga.voceComputoCodice != null) {
+      throw new Error(
+        `VALIDAZIONE: la riga ${ordine} viene dal contratto o dal computo: azzera l'importo, non si cancella.`
+      );
+    }
+    daTogliere.add(ordine);
+  }
+  return righe.filter(r => !daTogliere.has(r.ordine));
 }
 
 /**
@@ -451,7 +574,11 @@ export async function aggiornaBozza(
   const modifica = input.modifica;
 
   let righe = fattura.righe.map(comeRigaInput);
+  // Correzioni e rimozioni parlano degli ordini correnti: si applicano
+  // prima delle aggiunte, che quegli ordini li sposterebbero.
   if (modifica.righe) righe = applicaRighe(righe, modifica.righe);
+  if (modifica.righeRimosse) righe = rimuoviRighe(righe, modifica.righeRimosse);
+  if (modifica.righeAggiunte) righe = aggiungiRighe(righe, modifica.righeAggiunte);
   if (modifica.riequilibraBeniAMarkupCent !== undefined) {
     righe = riequilibra(righe, fattura, modifica.riequilibraBeniAMarkupCent);
   }
@@ -509,7 +636,15 @@ export async function aggiornaBozza(
     fatturaId: aggiornata.id,
     sedeId: input.sedeId,
     tipo: "modificata",
-    payload: { campi: Object.keys(modifica) },
+    payload: {
+      campi: Object.keys(modifica),
+      ...(modifica.righeAggiunte || modifica.righeRimosse
+        ? {
+            righeAggiunte: modifica.righeAggiunte?.length ?? 0,
+            righeRimosse: modifica.righeRimosse?.length ?? 0,
+          }
+        : {}),
+    },
     actorUserId: input.actorUserId,
   });
   if (modifica.scavalcoLimiti) {
@@ -603,8 +738,11 @@ export async function rigeneraBozza(
  */
 export function verificaLimiti(f: Fattura): Controllo[] {
   const controlli: Controllo[] = [];
-  const servizi = f.righe.filter(r => r.tipo === "servizio");
-  for (const r of servizi) {
+  // Le righe legate a una voce del computo: i servizi al 10 % e — da R17 —
+  // le spese di documentazione, che sono un bene al 22 %. Il limite della
+  // voce si verifica su tutte…
+  const conVoce = f.righe.filter(r => r.tipo === "servizio" || r.voceComputoCodice != null);
+  for (const r of conVoce) {
     if (r.limiteCent != null && r.importoCent > r.limiteCent) {
       controlli.push({
         codice: "limite_riga",
@@ -613,6 +751,10 @@ export function verificaLimiti(f: Fattura): Controllo[] {
       });
     }
   }
+
+  // …ma nel confronto della prestazione complessiva entra solo ciò che sta
+  // nel blocco prestazioni: una riga al 22 % è nei beni (R17).
+  const servizi = conVoce.filter(r => r.aliquota !== 22);
 
   // Il confronto ha senso solo se il computo ha davvero proposto delle
   // voci con un limite: senza, il termine di paragone sarebbe zero e ogni
@@ -708,6 +850,16 @@ export async function validaPerEmissione(
     for (const s of fattura.scadenze) {
       if (s.data < oggi) avviso("scadenza_passata", `La scadenza del ${s.data} è già passata.`);
     }
+  }
+
+  // R19: il template della pratica edilizia esce dal generatore con i
+  // segnaposto fra graffe (numero, data, comune, intestatario). Non blocca
+  // — la fattura resta valida — ma stampare «{numero}» al cliente no.
+  if (fattura.note?.includes("{")) {
+    avviso(
+      "pratica_edilizia_incompleta",
+      "Le note hanno ancora segnaposto fra graffe da compilare (pratica edilizia)."
+    );
   }
 
   const config = await repository.config(sedeId);

@@ -1,7 +1,8 @@
 // server/fatture/generatore.test.ts
 import { describe, expect, it } from "vitest";
 import type { Computo, Contratto, RigaContratto } from "@shared/limiti/tipi";
-import { FATTURAZIONE_CONFIG_DEFAULT } from "@shared/fatturazione/tipi";
+import { DICITURE } from "@shared/fatturazione/diciture";
+import { FATTURAZIONE_CONFIG_DEFAULT, type ClienteSnapshot } from "@shared/fatturazione/tipi";
 import { descrizioneRigaBene, generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
 
 const ora = new Date("2026-09-04T10:00:00Z");
@@ -42,6 +43,19 @@ function computo(): Computo {
     ],
   } as Computo;
 }
+/** Lo stesso computo con la voce delle spese professionali inclusa: è quello che il motore produce con l'opzione attiva sul contratto. */
+function computoConSpese(): Computo {
+  const c = computo();
+  return { ...c, voci: c.voci.map(v => (v.codice === "spese_professionali" ? { ...v, inclusa: true } : v)) };
+}
+function cliente(praticaEdilizia: ClienteSnapshot["praticaEdilizia"]): ClienteSnapshot {
+  return {
+    clienteId: 1, nome: "Rossi Mario", tipo: "privato", codiceFiscale: "RSSMRA85T10A562S", partitaIva: null,
+    indirizzo: "Via Alta 80", cap: "19038", citta: "Sarzana", provincia: "SP", email: null, pec: null,
+    codiceDestinatario: "0000000", ficEntityId: null, praticaEdilizia,
+  };
+}
+const SPESE_PROFESSIONALI = { rilievo: "foro" as const, speseProfessionali: true, eventuali: [] };
 const righe = [riga(1, "Portafinestra a 2 ante a battente", 3, 1900, 2400, 778373), riga(2, "Finestra a 2 ante a battente", 2, 1660, 1540, 295082), riga(3, "Maniglie mod. Lama", 6, 0, 0, 60000, false)];
 const base = { cliente: null, commessa: { codice: "COM-2026-001", indirizzo: "Via Alta 80", citta: "Sarzana" }, config: { ...FATTURAZIONE_CONFIG_DEFAULT, sedeId: 1, updatedAt: ora }, dataFattura: "2026-09-04" };
 
@@ -78,6 +92,68 @@ describe("generaBozza", () => {
     expect(b.righe.map(r => r.ordine)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(b.righe.filter(r => r.tipo === "storno_bs" || r.tipo === "riaddebito_bs")).toHaveLength(0); // B=0 → storno 0
     expect(b.avvertenze.filter(a => a.includes("senza prezzo"))).toHaveLength(3);
+  });
+
+  // R17 (fatture 92 e 106): le spese di documentazione non sono una
+  // prestazione al 10 %, sono una riga al 22 % che entra nei beni
+  // significativi — nel riepilogo il 22 % vale B + 150 − P.
+  it("R17: le spese di documentazione sono un bene al 22 % dalla configurazione, non un servizio al 10 %", () => {
+    const conSpese = contratto({ opzioniComputo: SPESE_PROFESSIONALI });
+    const b = generaBozza({ contratto: conSpese, righe, computo: computoConSpese(), ...base });
+    const spese = b.righe.find(r => r.voceComputoCodice === "spese_professionali")!;
+    expect(spese.tipo).toBe("bene");
+    expect(spese.descrizione).toBe("Spese per documentazione detrazione");
+    expect(spese.aliquota).toBe(22);
+    expect(spese.beneSignificativo).toBe(true);
+    expect(spese.quantita).toBe(1);
+    expect(spese.importoCent).toBe(15000);
+    expect(spese.prezzoUnitCent).toBe(15000);
+    expect(spese.limiteCent).toBe(60000);
+    expect(spese.derivata).toBe(false);
+    expect(spese.rigaCommessaId).toBeNull();
+    // Niente servizio al 10 % per la stessa voce, e la dicitura «escluse» sparisce.
+    expect(b.righe.filter(r => r.tipo === "servizio").map(r => r.voceComputoCodice)).toEqual(["rilievo_foro", "posa"]);
+    expect(b.diciture).not.toContain("spese_professionali_escluse");
+    // Sta nel blocco dei beni significativi, prima dei beni autonomi.
+    expect(b.righe.findIndex(r => r.descrizione === DICITURE.beni_autonomi)).toBeGreaterThan(b.righe.indexOf(spese));
+
+    const beniSignificativi = b.righe.filter(r => r.tipo === "bene" && r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
+    expect(beniSignificativi).toBe(778373 + 295082 + 15000);
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: conSpese.pattuitoCent, pattuitoTipo: conSpese.pattuitoTipo });
+    expect(esito.riepilogo.find(r => r.aliquota === 22)!.imponibileCent).toBe(
+      beniSignificativi - Math.min(beniSignificativi, esito.prestazioneCent)
+    );
+  });
+
+  it("R17: l'importo delle spese viene dalla configurazione di sede; senza computo resta senza limite", () => {
+    const b = generaBozza({
+      contratto: contratto({ opzioniComputo: SPESE_PROFESSIONALI }), righe, computo: null, ...base,
+      config: { ...base.config, speseDocumentazioneCent: 20000 },
+    });
+    const spese = b.righe.find(r => r.voceComputoCodice === "spese_professionali")!;
+    expect(spese.importoCent).toBe(20000);
+    expect(spese.limiteCent).toBeNull();
+    expect(b.diciture).not.toContain("spese_professionali_escluse");
+  });
+
+  // R19 (fatture 106 e 119).
+  it("R19: con la CILA l'intervento è straordinario e le note portano il template della pratica", () => {
+    const b = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, cliente: cliente("cila") });
+    expect(b.diciture).toContain("intervento_straordinaria");
+    expect(b.diciture).not.toContain("intervento_manutenzione");
+    expect(b.note).toBe("CILA N. {numero} del {data}, rilasciata dal Comune di {comune} e intestata a {intestatario}.");
+  });
+
+  it("R19: la CIL compila il tipo ma lascia la manutenzione ordinaria; senza pratica le note restano vuote", () => {
+    const conCil = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, cliente: cliente("cil") });
+    expect(conCil.note?.startsWith("CIL N. {numero}")).toBe(true);
+    expect(conCil.diciture).toContain("intervento_manutenzione");
+    const conScia = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, cliente: cliente("scia") });
+    expect(conScia.note?.startsWith("SCIA N. {numero}")).toBe(true);
+    expect(conScia.diciture).toContain("intervento_straordinaria");
+    const senza = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, cliente: cliente("nessuna") });
+    expect(senza.note).toBeNull();
+    expect(senza.diciture).toContain("intervento_manutenzione");
   });
 });
 

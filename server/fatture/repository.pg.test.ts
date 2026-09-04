@@ -86,9 +86,13 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     const c = await repo.config(SEDE_A);
     expect(c.metodoPagamento).toBe("MP05");
     expect(c.scopeScritturaOk).toBe(false);
-    const salvata = await repo.salvaConfig({ ...c, iban: "IT00X", vatIdsFic: { 22: 3, 10: 4 } });
+    // R17: colonna additiva `spese_documentazione_cent`, default 150,00 €.
+    expect(c.speseDocumentazioneCent).toBe(15000);
+    const salvata = await repo.salvaConfig({ ...c, iban: "IT00X", vatIdsFic: { 22: 3, 10: 4 }, speseDocumentazioneCent: 20000 });
     expect((await repo.config(SEDE_A)).vatIdsFic).toEqual({ 22: 3, 10: 4 });
+    expect((await repo.config(SEDE_A)).speseDocumentazioneCent).toBe(20000);
     expect((await repo.config(SEDE_B)).iban).toBeNull();
+    expect((await repo.config(SEDE_B)).speseDocumentazioneCent).toBe(15000);
     expect(salvata.updatedAt).toBeInstanceOf(Date);
   });
 

@@ -53,6 +53,10 @@ export const TIPI_EVENTO = [
 ] as const;
 export type TipoEvento = (typeof TIPI_EVENTO)[number];
 
+/** Pratica edilizia dichiarata sul cliente: decide la dicitura dell'intervento in fattura (R19). */
+export const PRATICHE_EDILIZIE = ["nessuna", "cil", "cila", "scia"] as const;
+export type PraticaEdilizia = (typeof PRATICHE_EDILIZIE)[number];
+
 export type RigaFattura = {
   id: number;
   fatturaId: number;
@@ -125,6 +129,8 @@ export type ClienteSnapshot = {
   /** "0000000" per privati senza PEC. */
   codiceDestinatario: string;
   ficEntityId: number | null;
+  /** Dal cliente: CILA e SCIA rendono l'intervento manutenzione straordinaria (R19). */
+  praticaEdilizia: PraticaEdilizia;
 };
 
 export type Fattura = {
@@ -184,6 +190,8 @@ export type FatturazioneConfig = {
   paymentAccountIdFic: number | null;
   vatIdsFic: { 22: number | null; 10: number | null };
   dicituraFooter: string | null;
+  /** Spese per documentazione detrazione: riga bene al 22 % quando il contratto le prevede (R17). */
+  speseDocumentazioneCent: number;
   scopeScritturaOk: boolean;
   scopeVerificatoAt: Date | null;
   updatedAt: Date;
@@ -198,6 +206,7 @@ export const FATTURAZIONE_CONFIG_DEFAULT = {
   paymentAccountIdFic: null,
   vatIdsFic: { 22: null, 10: null },
   dicituraFooter: null,
+  speseDocumentazioneCent: 15000,
   scopeScritturaOk: false,
   scopeVerificatoAt: null,
 } satisfies Omit<FatturazioneConfig, "sedeId" | "updatedAt">;

@@ -94,6 +94,32 @@ function rigaDerivata(tipo: "storno_bs" | "riaddebito_bs", importoCent: number, 
   };
 }
 
+const MAX_MOTIVO = 300;
+
+/**
+ * R20 (nota NDC-1): la nota si apre dichiarando cosa storna — «Accredito
+ * su ns. fattura n. X del Y», col motivo quando c'è. È una riga
+ * `intestazione`: descrittiva, a zero, senza aliquota, come le aperture
+ * che il generatore mette in fattura.
+ */
+function intestazioneAccredito(origine: Fattura, motivo: string | null): RigaFatturaInput {
+  const testo = `Accredito su ns. fattura n. ${origine.numero ?? origine.id} del ${origine.data ?? ""}`;
+  return {
+    ordine: 0,
+    tipo: "intestazione",
+    descrizione: motivo ? `${testo}: ${motivo}` : testo,
+    quantita: 1,
+    prezzoUnitCent: 0,
+    importoCent: 0,
+    aliquota: null,
+    voceComputoCodice: null,
+    rigaCommessaId: null,
+    limiteCent: null,
+    beneSignificativo: false,
+    derivata: false,
+  };
+}
+
 /** Totale: specchio della fattura, riga per riga, segno compreso — lo storno resta negativo com'è nell'origine (v. commento di testata). */
 function righeTotale(origine: Fattura): { righe: RigaFatturaInput[]; markupCent: number; stornoCent: number } {
   return {
@@ -176,10 +202,16 @@ export async function creaNotaCredito(
     fatturaId: number;
     actorUserId: number | null;
     selezione: SelezioneNotaCredito;
+    /** Perché si accredita: finisce nell'intestazione della nota (R20). */
+    motivo?: string;
   } & Dipendenze
 ): Promise<{ fattura: Fattura; avvertenze: string[] }> {
   const repository = repo(input);
   const now = adesso(input);
+  const motivo = input.motivo?.trim() || null;
+  if (motivo && motivo.length > MAX_MOTIVO) {
+    throw new Error(`VALIDAZIONE: il motivo della nota di credito non può superare i ${MAX_MOTIVO} caratteri.`);
+  }
 
   // `perId` filtra già per sede: una fattura di un'altra sede non esiste,
   // mai un indizio che esista (stesso pattern di `bozzaModificabile` in
@@ -208,8 +240,9 @@ export async function creaNotaCredito(
     );
   }
 
-  const { righe, markupCent, stornoCent } =
+  const { righe: righeStornate, markupCent, stornoCent } =
     input.selezione.tipo === "totale" ? righeTotale(origine) : righeParziale(origine, input.selezione.righe);
+  const righe = rinumera([intestazioneAccredito(origine, motivo), ...righeStornate]);
 
   const riepilogo = riepilogoDaRighe(righe);
   const imponibileCent = riepilogo.reduce((s, r) => s + r.imponibileCent, 0);

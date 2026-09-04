@@ -94,6 +94,7 @@ const CONFIG_COMPLETA = (): FatturazioneConfig => ({
   paymentAccountIdFic: 5,
   vatIdsFic: { 22: 3, 10: 9 },
   dicituraFooter: null,
+  speseDocumentazioneCent: 15000,
   scopeScritturaOk: true,
   scopeVerificatoAt: ora,
   updatedAt: ora,
@@ -273,6 +274,39 @@ describe("creaBozza", () => {
     );
     // I servizi ci sono comunque: il computo vecchio resta la migliore stima disponibile.
     expect(importo(fattura, "posa")).toBe(131400);
+  });
+
+  // R17 (fatture 92 e 106): con l'opzione attiva le spese di
+  // documentazione sono un bene al 22 %, non un servizio al 10 %.
+  it("R17: le spese di documentazione nascono fra i beni al 22 %, fuori dal confronto sui limiti dei servizi", async () => {
+    const { commessaId } = await scenario127({
+      opzioniComputo: { rilievo: "foro", speseProfessionali: true, eventuali: [] },
+    });
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+
+    const spese = fattura.righe.find(r => r.voceComputoCodice === "spese_professionali")!;
+    expect(spese.tipo).toBe("bene");
+    expect(spese.aliquota).toBe(22);
+    expect(spese.beneSignificativo).toBe(true);
+    expect(spese.importoCent).toBe(15000);
+    expect(spese.limiteCent).toBe(60000);
+    expect(fattura.righe.filter(r => r.tipo === "servizio").map(r => r.voceComputoCodice)).not.toContain(
+      "spese_professionali"
+    );
+    expect(fattura.diciture).not.toContain("spese_professionali_escluse");
+
+    // I 150 € entrano in B e quindi nel blocco al 22 % del riepilogo.
+    const beniSignificativi = fattura.righe
+      .filter(r => r.tipo === "bene" && r.beneSignificativo)
+      .reduce((s, r) => s + r.importoCent, 0);
+    expect(beniSignificativi).toBe(BENI_SIGNIFICATIVI + 15000);
+    expect(fattura.riepilogo.find(r => r.aliquota === 22)!.imponibileCent).toBe(
+      beniSignificativi - Math.min(beniSignificativi, fattura.markupCent + SERVIZI_PROPOSTI)
+    );
+    // I servizi al 10 % restano quelli del computo: il confronto sui
+    // limiti non cambia (la riga al 22 % sta nel blocco beni).
+    expect(fattura.righe.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0)).toBe(SERVIZI_PROPOSTI);
+    expect(codici(verificaLimiti(fattura))).toEqual(["markup_negativo"]);
   });
 });
 
@@ -509,6 +543,148 @@ describe("aggiornaBozza", () => {
     ).rejects.toThrow(`VALIDAZIONE: ordine di riga duplicato: ${posa}.`);
   });
 
+  // R18 (fatture 106 e 119): maniglie e voci aggiunte a mano in bozza.
+  it("R18: una riga manuale entra in coda ai beni, alza B e abbassa il markup; poi si toglie", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    expect(fattura.markupCent).toBe(-259882);
+
+    const aggiunta = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: 1,
+      actorUserId: ATTORE,
+      modifica: {
+        righeAggiunte: [
+          { tipo: "bene", descrizione: "N.6 Maniglie mod. Lama", importoCent: 60000, aliquota: 22, beneSignificativo: true },
+        ],
+      },
+      ...dip(),
+    });
+    const f = aggiunta.fattura;
+    const manuale = f.righe.find(r => r.descrizione === "N.6 Maniglie mod. Lama")!;
+    expect(manuale.tipo).toBe("bene");
+    expect(manuale.aliquota).toBe(22);
+    expect(manuale.beneSignificativo).toBe(true);
+    expect(manuale.quantita).toBe(1);
+    expect(manuale.prezzoUnitCent).toBe(60000);
+    expect(manuale.importoCent).toBe(60000);
+    expect(manuale.rigaCommessaId).toBeNull();
+    expect(manuale.voceComputoCodice).toBeNull();
+    expect(manuale.limiteCent).toBeNull();
+    expect(manuale.derivata).toBe(false);
+    // In coda al gruppo dei beni: subito prima del markup, e con gli ordini rifatti da `ricalcola`.
+    expect(f.righe.filter(r => r.tipo === "bene").at(-1)!.descrizione).toBe("N.6 Maniglie mod. Lama");
+    expect(f.righe[f.righe.findIndex(r => r.ordine === manuale.ordine) + 1].tipo).toBe("markup");
+    expect(f.righe.map(r => r.ordine)).toEqual(f.righe.map((_, i) => i + 1));
+
+    expect(f.righe.filter(r => r.tipo === "bene").reduce((s, r) => s + r.importoCent, 0)).toBe(BENI_SIGNIFICATIVI + 60000);
+    expect(f.markupCent).toBe(-334575);
+    expect(f.totaleCent).toBe(PATTUITO);
+
+    const letta = await leggiFattura(SEDE, f.id, dip());
+    expect(letta!.eventi.at(-1)!.payload).toMatchObject({ righeAggiunte: 1, righeRimosse: 0 });
+
+    const rimossa = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: f.revisione,
+      actorUserId: ATTORE,
+      modifica: { righeRimosse: [manuale.ordine] },
+      ...dip(),
+    });
+    expect(rimossa.fattura.righe.some(r => r.descrizione === "N.6 Maniglie mod. Lama")).toBe(false);
+    expect(rimossa.fattura.righe.filter(r => r.tipo === "bene").reduce((s, r) => s + r.importoCent, 0)).toBe(BENI_SIGNIFICATIVI);
+    expect(rimossa.fattura.markupCent).toBe(-259882);
+    expect(rimossa.fattura.righe).toHaveLength(fattura.righe.length);
+    expect(rimossa.fattura.righe.map(r => r.ordine)).toEqual(fattura.righe.map(r => r.ordine));
+  });
+
+  it("R18: un servizio manuale entra in coda ai servizi e toglie al markup esattamente il suo importo", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const esito = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: 1,
+      actorUserId: ATTORE,
+      modifica: {
+        righeAggiunte: [
+          { tipo: "servizio", descrizione: "Assistenza muraria aggiuntiva", importoCent: 5000, aliquota: 10, beneSignificativo: false },
+        ],
+      },
+      ...dip(),
+    });
+    const f = esito.fattura;
+    const manuale = f.righe.find(r => r.descrizione === "Assistenza muraria aggiuntiva")!;
+    expect(manuale.tipo).toBe("servizio");
+    expect(manuale.aliquota).toBe(10);
+    expect(manuale.beneSignificativo).toBe(false);
+    expect(manuale.limiteCent).toBeNull();
+    expect(f.righe.filter(r => r.tipo === "servizio").at(-1)!.descrizione).toBe("Assistenza muraria aggiuntiva");
+    // La nota del calcolo limite resta in fondo, dopo le righe.
+    expect(f.righe.at(-1)!.tipo).toBe("nota");
+    // Il pattuito è lordo: la prestazione P non cambia (dipende da G e B), quindi il markup scende di 5000.
+    expect(f.markupCent).toBe(-259882 - 5000);
+    // Una riga senza limite non entra nel confronto per riga, ma entra nella prestazione complessiva.
+    expect(codici(esito.controlli)).not.toContain("limite_riga");
+  });
+
+  it("R18: non si cancellano le righe del contratto, quelle del computo e le derivate", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const rimuovi = (ordini: number[]) =>
+      aggiornaBozza({ sedeId: SEDE, id: fattura.id, revisione: 1, actorUserId: ATTORE, modifica: { righeRimosse: ordini }, ...dip() });
+
+    const bene = fattura.righe.find(r => r.rigaCommessaId != null)!;
+    const posa = fattura.righe.find(r => r.voceComputoCodice === "posa")!;
+    const markup = fattura.righe.find(r => r.tipo === "markup")!;
+    const intestazione = fattura.righe.find(r => r.tipo === "intestazione")!;
+
+    await expect(rimuovi([bene.ordine])).rejects.toThrow(
+      `VALIDAZIONE: la riga ${bene.ordine} viene dal contratto o dal computo: azzera l'importo, non si cancella.`
+    );
+    await expect(rimuovi([posa.ordine])).rejects.toThrow(
+      `VALIDAZIONE: la riga ${posa.ordine} viene dal contratto o dal computo: azzera l'importo, non si cancella.`
+    );
+    await expect(rimuovi([markup.ordine])).rejects.toThrow(
+      `VALIDAZIONE: la riga ${markup.ordine} è derivata dal risolutore: si cambia agendo su beni e servizi.`
+    );
+    await expect(rimuovi([intestazione.ordine])).rejects.toThrow(
+      `VALIDAZIONE: la riga ${intestazione.ordine} non è una riga aggiunta a mano.`
+    );
+    await expect(rimuovi([9999])).rejects.toThrow("VALIDAZIONE: la riga 9999 non esiste in questa fattura.");
+    const letta = await leggiFattura(SEDE, fattura.id, dip());
+    expect(letta!.fattura.revisione).toBe(1);
+  });
+
+  it("R18: tipo e aliquota devono corrispondere, la descrizione serve e le righe aggiunte hanno un tetto", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const aggiungi = (righeAggiunte: NonNullable<Parameters<typeof aggiornaBozza>[0]["modifica"]["righeAggiunte"]>) =>
+      aggiornaBozza({ sedeId: SEDE, id: fattura.id, revisione: 1, actorUserId: ATTORE, modifica: { righeAggiunte }, ...dip() });
+    const riga = (over: Record<string, unknown> = {}) =>
+      [{ tipo: "bene" as const, descrizione: "Maniglie", importoCent: 1000, aliquota: 22 as const, beneSignificativo: true, ...over }];
+
+    await expect(aggiungi(riga({ aliquota: 10 }) as any)).rejects.toThrow("VALIDAZIONE: una riga «bene» va al 22 %, non al 10 %.");
+    await expect(aggiungi(riga({ tipo: "servizio" }) as any)).rejects.toThrow("VALIDAZIONE: una riga «servizio» va al 10 %, non al 22 %.");
+    await expect(aggiungi(riga({ descrizione: "   " }) as any)).rejects.toThrow(
+      "VALIDAZIONE: una riga aggiunta senza descrizione non si salva."
+    );
+    await expect(aggiungi(riga({ descrizione: "x".repeat(301) }) as any)).rejects.toThrow(
+      "VALIDAZIONE: la descrizione di una riga aggiunta non può superare i 300 caratteri."
+    );
+    await expect(aggiungi(riga({ importoCent: -1 }) as any)).rejects.toThrow(
+      'VALIDAZIONE: l\'importo della riga "Maniglie" non è in centesimi interi non negativi.'
+    );
+    await expect(aggiungi(riga({ importoCent: 10.5 }) as any)).rejects.toThrow(
+      'VALIDAZIONE: l\'importo della riga "Maniglie" non è in centesimi interi non negativi.'
+    );
+    await expect(
+      aggiungi(Array.from({ length: 21 }, () => riga()[0]) as any)
+    ).rejects.toThrow("VALIDAZIONE: non si aggiungono più di 20 righe alla volta.");
+  });
+
   it("lo scavalco dei limiti è registrato con l'evento e il motivo", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
@@ -689,6 +865,34 @@ describe("validaPerEmissione", () => {
     });
     const dopo = await validaPerEmissione(SEDE, fattura.id, dip());
     expect(errori(dopo.controlli)).not.toContain("computo_non_valido");
+  });
+
+  // R19 (fatture 106 e 119): la riga della pratica edilizia nasce come
+  // template e va compilata a mano prima di emettere.
+  it("R19: i segnaposto della pratica edilizia rimasti nelle note sono un avviso, non un blocco", async () => {
+    const commessaId = await nuovaCommessa(SEDE, nuovoCliente(SEDE, { praticaEdilizia: "cila" }));
+    await salvaContratto({
+      sedeId: SEDE, commessaId, actorUserId: ATTORE, now: ora, contratto: CONTRATTO_127(), righe: RIGHE_127,
+    });
+    await eseguiComputo({ sedeId: SEDE, commessaId, actorUserId: ATTORE, now: ora });
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    expect(fattura.diciture).toContain("intervento_straordinaria");
+    expect(fattura.note).toBe("CILA N. {numero} del {data}, rilasciata dal Comune di {comune} e intestata a {intestatario}.");
+
+    const prima = await validaPerEmissione(SEDE, fattura.id, dip());
+    const avviso = prima.controlli.find(c => c.codice === "pratica_edilizia_incompleta")!;
+    expect(avviso.esito).toBe("avviso");
+
+    await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: fattura.revisione,
+      actorUserId: ATTORE,
+      modifica: { note: "CILA N. 41 del 02/03/2026, rilasciata dal Comune di Sarzana e intestata a Mario Rossi." },
+      ...dip(),
+    });
+    const dopo = await validaPerEmissione(SEDE, fattura.id, dip());
+    expect(codici(dopo.controlli)).not.toContain("pratica_edilizia_incompleta");
   });
 
   it("la fattura di un'altra sede non esiste", async () => {
@@ -978,6 +1182,32 @@ describe("leggiFattura e fatturePerCommessa", () => {
     expect(lista.map(f => f.id)).toEqual([seconda.fattura.id, fattura.id]);
     expect(lista.map(f => f.stato)).toEqual(["bozza", "annullata"]);
     expect(await fatturePerCommessa(ALTRA_SEDE, commessaId, dip())).toEqual([]);
+  });
+
+  // Stessa ragione del Ruling R14 su `validaPerEmissione`: i limiti del
+  // computo non dicono nulla su una nota di credito, e in lettura
+  // sarebbero solo rumore («limiti non verificati» su ogni nota).
+  it("la lettura di una nota di credito non passa dai limiti del computo", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    // Stessa fattura, ribattezzata nota di credito: i campi che il
+    // repository assegna da sé (id, revisione, date, figli) restano fuori.
+    const { id, revisione: _rev, createdAt: _c, updatedAt: _u, righe: _r, riepilogo: _ri, scadenze: _s, ...persist } = fattura;
+    const nota = await repository.crea({
+      fattura: { ...persist, tipo: "nota_credito", notaCreditoDi: id, computoId: null },
+      righe: [],
+      riepilogo: [],
+      scadenze: [],
+      now: ora,
+    });
+
+    const letta = await leggiFattura(SEDE, nota.id, dip());
+    expect(letta!.fattura.tipo).toBe("nota_credito");
+    expect(codici(letta!.controlli)).not.toContain("limiti_non_verificati");
+    expect(codici(letta!.controlli)).not.toContain("limiti");
+    expect(codici(letta!.controlli)).not.toContain("markup_negativo");
+    // La fattura di origine, invece, i limiti li vede eccome.
+    expect(codici((await leggiFattura(SEDE, fattura.id, dip()))!.controlli)).toContain("markup_negativo");
   });
 });
 

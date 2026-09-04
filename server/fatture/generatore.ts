@@ -4,14 +4,14 @@
 // riaddebito dei beni significativi) escono dal risolutore a ogni ricalcolo,
 // mai a mano. Funzione pura: il servizio la chiama e persiste.
 import { DICITURE, dicitureDefault, type ChiaveDicitura } from "@shared/fatturazione/diciture";
-import type { ClienteSnapshot, FatturazioneConfig, RigaFatturaInput, ScadenzaFatturaInput } from "@shared/fatturazione/tipi";
+import type { ClienteSnapshot, FatturazioneConfig, PraticaEdilizia, RigaFatturaInput, ScadenzaFatturaInput } from "@shared/fatturazione/tipi";
 import type { CategoriaRiga, Computo, Contratto, RataContratto, RigaContratto, VoceComputo } from "@shared/limiti/tipi";
 import { risolvi, type EsitoRisolutore } from "./risolutore";
 
 export type InputGeneratore = {
   contratto: Contratto; righe: RigaContratto[]; computo: Computo | null;
   cliente: ClienteSnapshot | null; commessa: { codice: string; indirizzo: string | null; citta: string | null };
-  /** Non ancora consumata qui: riservata al task di emissione (IBAN, banca, numerazione FiC…). */
+  /** Qui serve solo `speseDocumentazioneCent` (R17); il resto è dell'emissione (IBAN, banca, numerazione FiC…). */
   config: FatturazioneConfig;
   dataFattura: string;
 };
@@ -41,9 +41,24 @@ function euro(cent: number): string {
   return (cent / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const VOCE_SPESE_DOCUMENTAZIONE = "spese_professionali";
+const DESCRIZIONE_SPESE_DOCUMENTAZIONE = "Spese per documentazione detrazione";
+
+/**
+ * R17 (fatture 92 e 106): `spese_professionali` non è una prestazione al
+ * 10 %, è la riga «Spese per documentazione detrazione» al 22 % fra i beni
+ * significativi — resta fuori dai servizi proposti anche quando il computo
+ * la include.
+ */
 function servizioProposto(v: VoceComputo): boolean {
-  return (v.gruppo === "opere" || v.gruppo === "eventuali") && v.inclusa && v.limiteCent > 0 && v.codice !== "altri_servizi";
+  return (
+    (v.gruppo === "opere" || v.gruppo === "eventuali") && v.inclusa && v.limiteCent > 0 &&
+    v.codice !== "altri_servizi" && v.codice !== VOCE_SPESE_DOCUMENTAZIONE
+  );
 }
+
+/** CIL/CILA/SCIA come vanno scritte in fattura; "nessuna" non produce nessuna riga. */
+const ETICHETTA_PRATICA: Record<Exclude<PraticaEdilizia, "nessuna">, string> = { cil: "CIL", cila: "CILA", scia: "SCIA" };
 
 function notaLimite(computo: Computo): string {
   const righe = computo.voci
@@ -138,6 +153,19 @@ export function generaBozza(input: InputGeneratore): Bozza {
     if (r.prezzoTotCent == null) { avvertenze.push(`Riga "${r.descrizione}" senza prezzo: non è in fattura.`); continue; }
     if (r.beneSignificativo) righe.push(bene(r));
   }
+  // R17: le spese di documentazione chiudono il blocco dei beni
+  // significativi — importo dalla configurazione di sede, limite (se c'è)
+  // dalla voce del computo, così il controllo per riga resta possibile.
+  if (contratto.opzioniComputo.speseProfessionali) {
+    const voce = computo?.voci.find(v => v.codice === VOCE_SPESE_DOCUMENTAZIONE) ?? null;
+    righe.push({
+      ...rigaBase("bene", DESCRIZIONE_SPESE_DOCUMENTAZIONE, input.config.speseDocumentazioneCent, 22),
+      voceComputoCodice: VOCE_SPESE_DOCUMENTAZIONE,
+      limiteCent: voce && voce.limiteCent > 0 ? voce.limiteCent : null,
+      beneSignificativo: true,
+    });
+  }
+
   const altri = input.righe.filter(r => !r.beneSignificativo && r.prezzoTotCent != null);
   if (altri.length > 0) {
     righe.push(rigaBase("intestazione", DICITURE.beni_autonomi, 0, null));
@@ -157,7 +185,8 @@ export function generaBozza(input: InputGeneratore): Bozza {
   const { righe: complete, esito } = ricalcola({ righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
   avvertenze.push(...esito.avvertenze);
 
-  const diciture = dicitureDefault(contratto.detrazioneTipo);
+  const praticaEdilizia = input.cliente?.praticaEdilizia ?? "nessuna";
+  const diciture = dicitureDefault(contratto.detrazioneTipo, praticaEdilizia);
   const quote = contratto.rate.map(r => r.quotaPct);
   if (quote.length === 0 || (quote.length === 3 && quote[0] === 50 && quote[1] === 40 && quote[2] === 10)) diciture.push("pagamento_50_40_10");
   if (!contratto.opzioniComputo.speseProfessionali) diciture.push("spese_professionali_escluse");
@@ -169,9 +198,16 @@ export function generaBozza(input: InputGeneratore): Bozza {
   if (!intestazioneCantiere && contratto.detrazioneTipo !== "nessuna") avvertenze.push("Indirizzo del cantiere mancante.");
   if (contratto.detrazioneTipo !== "nessuna" && !input.cliente?.codiceFiscale) avvertenze.push("Cliente senza codice fiscale: obbligatorio con la detrazione.");
 
+  // R19: la riga della pratica edilizia nasce come template — il tipo lo
+  // sa il CRM, numero, data, comune e intestatario no: restano fra graffe
+  // finché l'operatore non li compila (`validaPerEmissione` lo ricorda).
+  const note = praticaEdilizia === "nessuna"
+    ? null
+    : DICITURE.pratica_edilizia.replace("{tipo}", ETICHETTA_PRATICA[praticaEdilizia]);
+
   return {
     righe: complete,
     scadenze: scadenzeDaRate(contratto.rate, esito.totaleCent, input.dataFattura),
-    diciture, intestazioneCantiere, note: null, avvertenze,
+    diciture, intestazioneCantiere, note, avvertenze,
   };
 }

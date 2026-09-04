@@ -5,8 +5,13 @@
 // l'emissione. Funzioni pure: il servizio (servizio.ts) le chiama e
 // persiste.
 import { codiceFiscaleValido, normalizzaProvincia, partitaIvaValida } from "@shared/fatturazione/fiscale";
-import type { ClienteSnapshot, Fattura } from "@shared/fatturazione/tipi";
+import { PRATICHE_EDILIZIE, type ClienteSnapshot, type Fattura, type PraticaEdilizia } from "@shared/fatturazione/tipi";
 import type { Controllo } from "./servizio";
+
+/** La pratica edilizia com'è in anagrafica: i record che non l'hanno mai avuta (o portano un valore che il CRM non conosce più) valgono "nessuna". */
+function praticaEdiliziaDi(valore: unknown): PraticaEdilizia {
+  return PRATICHE_EDILIZIE.includes(valore as PraticaEdilizia) ? (valore as PraticaEdilizia) : "nessuna";
+}
 
 /**
  * Il nome del cliente segue la convenzione del CRM (requisiti §5.2, come
@@ -46,6 +51,7 @@ export function snapshotCliente(
     // errore, è il default previsto dal tracciato.
     codiceDestinatario: String(cliente?.codiceDestinatario ?? "0000000").trim().toUpperCase(),
     ficEntityId: cliente?.ficEntityId ?? null,
+    praticaEdilizia: praticaEdiliziaDi(cliente?.praticaEdilizia),
   };
 }
 

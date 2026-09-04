@@ -425,6 +425,10 @@ function rowToConfig(row: any): FatturazioneConfig {
     paymentAccountIdFic: row.payment_account_id_fic == null ? null : Number(row.payment_account_id_fic),
     vatIdsFic: row.vat_ids_fic ?? { 22: null, 10: null },
     dicituraFooter: row.dicitura_footer ?? null,
+    speseDocumentazioneCent:
+      row.spese_documentazione_cent == null
+        ? FATTURAZIONE_CONFIG_DEFAULT.speseDocumentazioneCent
+        : Number(row.spese_documentazione_cent),
     scopeScritturaOk: Boolean(row.scope_scrittura_ok),
     scopeVerificatoAt: row.scope_verificato_at == null ? null : new Date(row.scope_verificato_at),
     updatedAt: new Date(row.updated_at),
@@ -529,9 +533,14 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
           numerazione_fic TEXT, payment_account_id_fic BIGINT,
           vat_ids_fic JSONB NOT NULL DEFAULT '{"22":null,"10":null}'::jsonb,
           dicitura_footer TEXT,
+          spese_documentazione_cent BIGINT NOT NULL DEFAULT 15000,
           scope_scrittura_ok BOOLEAN NOT NULL DEFAULT FALSE, scope_verificato_at TIMESTAMPTZ,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Additiva per le configurazioni già in produzione (R17): la
+        // colonna nasce con il default di 150,00 €, nessun backfill da fare.
+        await tx`ALTER TABLE fatturazione_config
+          ADD COLUMN IF NOT EXISTS spese_documentazione_cent BIGINT NOT NULL DEFAULT 15000`;
         await tx`CREATE TABLE IF NOT EXISTS fatture (
           id BIGSERIAL PRIMARY KEY, sede_id BIGINT NOT NULL, commessa_id BIGINT NOT NULL,
           computo_id BIGINT, hash_righe TEXT,
@@ -614,18 +623,21 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       const now = new Date();
       const rows = await sql`INSERT INTO fatturazione_config (
           sede_id, iban, banca, intestatario, metodo_pagamento, numerazione_fic,
-          payment_account_id_fic, vat_ids_fic, dicitura_footer, scope_scrittura_ok,
-          scope_verificato_at, updated_at
+          payment_account_id_fic, vat_ids_fic, dicitura_footer, spese_documentazione_cent,
+          scope_scrittura_ok, scope_verificato_at, updated_at
         ) VALUES (
           ${c.sedeId}, ${c.iban}, ${c.banca}, ${c.intestatario}, ${c.metodoPagamento},
           ${c.numerazioneFic}, ${c.paymentAccountIdFic}, ${sql.json(c.vatIdsFic as any)},
-          ${c.dicituraFooter}, ${c.scopeScritturaOk}, ${c.scopeVerificatoAt}, ${now}
+          ${c.dicituraFooter}, ${c.speseDocumentazioneCent}, ${c.scopeScritturaOk},
+          ${c.scopeVerificatoAt}, ${now}
         )
         ON CONFLICT (sede_id) DO UPDATE SET
           iban = EXCLUDED.iban, banca = EXCLUDED.banca, intestatario = EXCLUDED.intestatario,
           metodo_pagamento = EXCLUDED.metodo_pagamento, numerazione_fic = EXCLUDED.numerazione_fic,
           payment_account_id_fic = EXCLUDED.payment_account_id_fic, vat_ids_fic = EXCLUDED.vat_ids_fic,
-          dicitura_footer = EXCLUDED.dicitura_footer, scope_scrittura_ok = EXCLUDED.scope_scrittura_ok,
+          dicitura_footer = EXCLUDED.dicitura_footer,
+          spese_documentazione_cent = EXCLUDED.spese_documentazione_cent,
+          scope_scrittura_ok = EXCLUDED.scope_scrittura_ok,
           scope_verificato_at = EXCLUDED.scope_verificato_at, updated_at = EXCLUDED.updated_at
         RETURNING *`;
       return rowToConfig(rows[0]);

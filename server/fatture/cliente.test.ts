@@ -25,6 +25,20 @@ describe("snapshotCliente", () => {
     expect(s.citta).toBe("Sarzana");
   });
 
+  // R19: la pratica edilizia guida la dicitura dell'intervento in fattura
+  // (generatore.ts). Il campo esiste sul cliente dal CRM: qui si fotografa
+  // com'è, con "nessuna" come default per i record che non l'hanno mai avuto.
+  it("la pratica edilizia entra nello snapshot, «nessuna» quando manca o non è riconosciuta", () => {
+    const con = (praticaEdilizia: unknown) =>
+      snapshotCliente({ id: 3, tipo: "privato", nome: "Mario", cognome: "Rossi", praticaEdilizia }, {}).praticaEdilizia;
+    expect(con("cila")).toBe("cila");
+    expect(con("scia")).toBe("scia");
+    expect(con("cil")).toBe("cil");
+    expect(con(undefined)).toBe("nessuna");
+    expect(con("permesso_di_costruire")).toBe("nessuna");
+    expect(snapshotCliente(null, {}).praticaEdilizia).toBe("nessuna");
+  });
+
   it("senza cliente collegato ricade sui dati della commessa", () => {
     const s = snapshotCliente(null, { cliente: "Bianchi Elena", indirizzo: "Via Alta 80", citta: "Sarzana" });
     expect(s).toMatchObject({ clienteId: null, nome: "Bianchi Elena", tipo: "privato", indirizzo: "Via Alta 80", citta: "Sarzana", provincia: "", cap: "" });
