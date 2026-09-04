@@ -501,7 +501,9 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
 
     const prima = await fascicoloCommessa({ sedeId: SEDE, commessaId });
     expect(prima!.fatturazione).toHaveLength(1);
-    expect(prima!.fatturazione[0]).toMatch(/^Fattura: bozza #\d+, \d+ controlli aperti$/);
+    // Ruling R36: la bozza dice quello che è, non un conteggio calcolato
+    // senza il computo fresco che lo renderebbe vero.
+    expect(prima!.fatturazione[0]).toMatch(/^Fattura: bozza #\d+$/);
     expect(CONTATORI_FASCICOLI.costruzioni).toBe(1);
 
     await annullaBozza({
@@ -536,6 +538,59 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
     expect(dopoIlGate!.fatturazione).toEqual([
       "Fattura: nessuna (bozza da generare dai limiti)",
     ]);
+  });
+
+  // Ruling R36: `eiErrore` è testo che nasce da Fatture in Cloud e dal
+  // confronto dei totali — ci finiscono dentro gli importi. Il fascicolo
+  // sta al pavimento `commessa.read`: la coda avviso è una frase FISSA
+  // che rimanda alla tab Fattura, mai il messaggio vero.
+  it("Caso 6 (anti-leak): un eiErrore con dentro un importo non arriva mai nel fascicolo", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const { fattura, commessaId } = await bozzaFatturabile(SEDE);
+    await emettiInDryRun(fattura, SEDE);
+
+    const repo = getFattureRepository();
+    const emessa = (await repo.perCommessa(SEDE, commessaId))[0];
+    await repo.aggiornaStato({
+      sedeId: SEDE,
+      id: emessa.id,
+      patch: {
+        eiErrore: "Totali FiC diversi dai nostri: totale € 1.234,56 contro € 1.200,00.",
+      },
+      now: ORA_FATTURE,
+    });
+
+    const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(f!.fatturazione[0]).toContain(
+      " · avviso: esito SdI/FiC da verificare nella tab Fattura"
+    );
+    const serializzato = JSON.stringify(f);
+    expect(serializzato).not.toContain("€");
+    expect(serializzato).not.toContain("1.234");
+    expect(serializzato).not.toContain("Totali FiC");
+  });
+
+  it("la bozza con lo scavalco dei limiti attivo lo dichiara, senza conteggi", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const { fattura, commessaId } = await bozzaFatturabile(SEDE);
+    await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: fattura.revisione,
+      actorUserId: ATTORE_FATTURE,
+      modifica: { scavalcoLimiti: { attivo: true, motivo: "Extra concordati fuori computo" } },
+      now: () => ORA_FATTURE,
+    });
+
+    const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(f!.fatturazione[0]).toMatch(
+      /^Fattura: bozza #\d+ · scavalco limiti attivo$/
+    );
+    // Il motivo è testo libero di un operatore: resta nel registro della
+    // fattura, non nel fascicolo condiviso di sede.
+    expect(JSON.stringify(f)).not.toContain("Extra concordati");
   });
 
   it("versioneCorrente(\"fatture-di-commessa:<id>\", ALTRA_SEDE) è null: la commessa non è di quella sede", async () => {

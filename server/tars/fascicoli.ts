@@ -10,7 +10,7 @@
 // serve l'ultima versione valida marcata stale (mai per azioni).
 
 import { ETICHETTA_STATO_FATTURA, type Fattura } from "@shared/fatturazione/tipi";
-import { fatturePerCommessa, verificaLimiti } from "../fatture/servizio";
+import { fatturePerCommessa } from "../fatture/servizio";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getCommessaById, STATI_COMMESSA } from "../routers/commesse";
 import {
@@ -74,24 +74,20 @@ export function azzeraFascicoliPerTest(): void {
 }
 
 /**
- * Task 17: quanti controlli di `verificaLimiti` sono davvero «aperti»
- * (bloccano l'emissione) su una bozza. Solo l'esito «errore» conta: un
- * «avviso» — incluso «limiti non verificati», che qui compare sempre
- * perché non si rilegge un computo fresco solo per questa riga di testo
- * (nessuna query in più: v. `fatturePerCommessa` sotto) — non impedisce
- * l'emissione, quindi non è «da chiudere» (Ruling libera, documentata nel
- * report del task: l'alternativa "errore + avviso" resterebbe quasi
- * sempre ≥ 1 per costruzione, un contatore che non distingue più nulla).
+ * « · prova SdI» e/o « · avviso: …»: solo per fatture dall'emissione in
+ * poi e per le note di credito (mai per una bozza).
+ *
+ * L'avviso è una frase FISSA, mai il testo di `eiErrore` (Ruling R36):
+ * quel campo nasce da Fatture in Cloud e dal confronto dei totali, e ci
+ * finiscono dentro gli importi — «Totali FiC diversi dai nostri: totale
+ * € …». Il fascicolo vive al pavimento `commessa.read` e per costruzione
+ * non porta economia (Ruling R31): qui si dice che c'è qualcosa da
+ * guardare, il dettaglio si legge nella tab Fattura.
  */
-function controlliApertiBozza(f: Fattura): number {
-  return verificaLimiti(f).filter(controllo => controllo.esito === "errore").length;
-}
-
-/** « · prova SdI» e/o « · avviso: …»: solo per fatture dall'emissione in poi e per le note di credito (mai per una bozza). */
 function codaSdiEAvviso(f: Fattura): string {
   let coda = "";
   if (f.inviataDryRun) coda += " · prova SdI";
-  if (f.eiErrore) coda += ` · avviso: ${f.eiErrore}`;
+  if (f.eiErrore) coda += " · avviso: esito SdI/FiC da verificare nella tab Fattura";
   return coda;
 }
 
@@ -102,7 +98,13 @@ function rigaFatturazione(f: Fattura): string {
     return `Nota di credito n. ${numero}: ${ETICHETTA_STATO_FATTURA[f.stato]}${codaSdiEAvviso(f)}`;
   }
   if (f.stato === "bozza") {
-    return `Fattura: bozza #${f.id}, ${controlliApertiBozza(f)} controlli aperti`;
+    // Nessun conteggio di controlli: senza rileggere un computo fresco
+    // (una query in più per una riga di testo) `verificaLimiti` non ha i
+    // termini di paragone e restituirebbe un numero che non descrive la
+    // bozza (Ruling R36). Quello che si sa senza chiedere niente a
+    // nessuno è se l'operatore ha già deciso di derogare ai limiti: il
+    // motivo, testo libero, resta nel registro della fattura.
+    return `Fattura: bozza #${f.id}${f.scavalcoLimiti ? " · scavalco limiti attivo" : ""}`;
   }
   const numero = f.numero ?? `#${f.id}`;
   const conData = f.data ? ` del ${f.data}` : "";

@@ -2575,8 +2575,14 @@ in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
   di sync allegati (`server/routers/ficAllegati.ts`) salta il ridownload —
   il PDF è già nel fascicolo da `registraDocumentoFatturaCrm` all'emissione.
 - Tars: nessuno strumento nuovo (v. `docs/tars/matrice-azioni-tars.md`).
-  `leggi_fascicolo_commessa` (invariato) espone, col flag acceso, una riga
-  per fattura/nota — MAI un importo — da `server/tars/fascicoli.ts`;
+  `leggi_fascicolo_commessa` (nome, capability e schema invariati;
+  `descrizione` aggiornata dal Task 17) espone, col flag acceso, una riga
+  per fattura/nota — MAI un importo — da `server/tars/fascicoli.ts`:
+  bozza → `Fattura: bozza #<id>` (+ ` · scavalco limiti attivo`);
+  emessa+ → `Fattura n. X del Y: <stato leggibile>[ · prova SdI][ ·
+  avviso: esito SdI/FiC da verificare nella tab Fattura]` — la coda
+  avviso è una frase fissa, mai il testo di `eiErrore`, che porta importi
+  (R36);
   l'invalidazione passa da `server/fatture/versioni.ts` +
   `server/tars/versioni.ts` (chiavi `fatture-di-commessa:<id>` e
   `flag:fatturazione`, quest'ultima sempre presente per accorgersi anche di
@@ -2703,6 +2709,11 @@ livelli di rischio R0–R4 di Tars).**
 - R31: la riga fattura nel fascicolo Tars non porta **mai** un importo —
   il fascicolo vive dietro `commessa.read`, non dietro le capability
   economiche.
+- R36: per lo stesso motivo la riga non stampa `eiErrore` verbatim (ci
+  finiscono i totali FiC) ma la frase fissa « · avviso: esito SdI/FiC da
+  verificare nella tab Fattura», e la bozza non porta un conteggio di
+  controlli che senza un computo fresco non descriverebbe niente: dice
+  solo l'id e, se c'è, lo scavalco dei limiti attivo.
 - R32/R33: il fascicolo si invalida da solo a ogni scrittura sulla fattura
   (chiave `fatture-di-commessa:<id>`) e a ogni flip del flag
   `fatturazione` (chiave sintetica `flag:fatturazione`, sempre presente),
