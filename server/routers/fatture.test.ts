@@ -19,9 +19,18 @@ vi.mock("../_core/fileStorage", async importOriginal => {
   const actual = await importOriginal<typeof import("../_core/fileStorage")>();
   return { ...actual, getFile: vi.fn(actual.getFile) };
 });
+// creaNotaCredito richiede una fattura già emessa (STATI_STORNABILI): per
+// verificare che il router valida, autorizza e inoltra gli argomenti non
+// serve costruire davvero quello stato con la pipeline di emissione —
+// si mocka anche questo, come emettiFattura.
+vi.mock("../fatture/notaCredito", async importOriginal => {
+  const actual = await importOriginal<typeof import("../fatture/notaCredito")>();
+  return { ...actual, creaNotaCredito: vi.fn() };
+});
 
 import { getFile } from "../_core/fileStorage";
 import { emettiFattura } from "../fatture/emissione";
+import { creaNotaCredito } from "../fatture/notaCredito";
 import { appRouter } from "../routers";
 
 function context(sedeId: number, userId: number, ruoli: string[]): TrpcContext {
@@ -80,6 +89,7 @@ beforeEach(() => {
   _resetFattureRepositoryForTests();
   vi.mocked(emettiFattura).mockReset();
   vi.mocked(getFile).mockClear();
+  vi.mocked(creaNotaCredito).mockReset();
 });
 
 describe("router fatture — interruttori", () => {
@@ -130,6 +140,12 @@ describe("router fatture — autorizzazione", () => {
     await expect(
       commerciale.fatture.notaCredito({ fatturaId: 1, selezione: { tipo: "totale" } })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("il commerciale non può emettere", async () => {
+    const commerciale = appRouter.createCaller(context(1, 22, ["commerciale"]));
+    await expect(commerciale.fatture.emetti({ id: 1, revisione: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(emettiFattura).not.toHaveBeenCalled();
   });
 });
 
@@ -189,12 +205,56 @@ describe("router fatture — ciclo bozza/emissione", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("una dicitura sconosciuta in aggiornaBozza dà BAD_REQUEST", async () => {
+    const commessaId = await commessaConContratto();
+    const amministrazione = appRouter.createCaller(context(1, 38, ["amministrazione"]));
+    const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
+    await expect(
+      amministrazione.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: fattura.revisione,
+        modifica: { diciture: ["non_esiste"] as any },
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("annullare la bozza la porta in stato annullata", async () => {
     const commessaId = await commessaConContratto();
     const amministrazione = appRouter.createCaller(context(1, 32, ["amministrazione"]));
     const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
     const annullata = await amministrazione.fatture.annullaBozza({ id: fattura.id, motivo: "errore di battitura" });
     expect(annullata.stato).toBe("annullata");
+  });
+});
+
+describe("router fatture — nota di credito", () => {
+  it("l'amministrazione crea una nota di credito parziale (creaNotaCredito mockato)", async () => {
+    const commessaId = await commessaConContratto();
+    const amministrazione = appRouter.createCaller(context(1, 39, ["amministrazione"]));
+    const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
+
+    const selezione = { tipo: "parziale" as const, righe: [{ ordine: 1, importoCent: 10000 }] };
+    vi.mocked(creaNotaCredito).mockResolvedValue({
+      fattura: { ...fattura, id: fattura.id + 1, tipo: "nota_credito", notaCreditoDi: fattura.id } as any,
+      avvertenze: [],
+    });
+
+    const esito = await amministrazione.fatture.notaCredito({
+      fatturaId: fattura.id,
+      selezione,
+      motivo: "reso parziale",
+    });
+    expect(esito.fattura.tipo).toBe("nota_credito");
+    expect(esito.fattura.notaCreditoDi).toBe(fattura.id);
+    expect(creaNotaCredito).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sedeId: 1,
+        fatturaId: fattura.id,
+        actorUserId: 39,
+        selezione,
+        motivo: "reso parziale",
+      })
+    );
   });
 });
 

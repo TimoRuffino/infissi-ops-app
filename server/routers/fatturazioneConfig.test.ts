@@ -36,13 +36,29 @@ describe("router fatturazioneConfig", () => {
     }
   });
 
-  it("get restituisce i default per una sede senza configurazione, con dryRun e scopeScrittura", async () => {
+  it("FLAG_LIMITI spento blocca la configurazione anche col flag fatturazione acceso (PRECONDITION_FAILED)", async () => {
+    const prima = process.env.FLAG_LIMITI;
+    try {
+      process.env.FLAG_LIMITI = "off";
+      const direzione = appRouter.createCaller(context(1, 1, ["direzione"]));
+      await expect(direzione.fatturazioneConfig.get()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    } finally {
+      if (prima === undefined) delete process.env.FLAG_LIMITI;
+      else process.env.FLAG_LIMITI = prima;
+    }
+  });
+
+  it("get restituisce i default per una sede senza configurazione, con dryRun e i due flag di scope distinti", async () => {
     const direzione = appRouter.createCaller(context(1, 1, ["direzione"]));
     const esito = await direzione.fatturazioneConfig.get();
     expect(esito.config.sedeId).toBe(1);
     expect(esito.config.metodoPagamento).toBe("MP05");
     expect(esito).toHaveProperty("dryRun");
+    // scopeScrittura (FicConfig, l'OAuth chiesto) e scopeScritturaOk
+    // (FatturazioneConfig, l'ultima verifica riuscita) sono due flag
+    // distinti: una sede nuova non ha né l'uno né l'altro.
     expect(esito.scopeScrittura).toBe(false);
+    expect(esito.scopeScritturaOk).toBe(false);
   });
 
   it("il commerciale legge ma non può salvare la configurazione (FORBIDDEN)", async () => {

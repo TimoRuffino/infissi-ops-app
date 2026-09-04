@@ -14,6 +14,7 @@ import { authorizeCoreOperation } from "../authz/enforcement";
 import { configFatturazione, salvaConfigFatturazione, verificaScopeScrittura } from "../fatture/config";
 import { sdiDryRun } from "../fatture/dryRun";
 import { erroreServizioComeTrpc } from "./contratti";
+import { getCfg } from "./fattureInCloud";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
 const procedura = procedureConInterruttore("fatturazione");
@@ -51,7 +52,19 @@ export const fatturazioneConfigRouter = router({
       legacyAllowed: "capability",
     });
     const config = await configFatturazione(sedeId);
-    return { config, dryRun: sdiDryRun(), scopeScrittura: config.scopeScritturaOk };
+    // Due flag distinti (revisione): `scopeScrittura` è l'intento — l'ultimo
+    // OAuth avviato chiedendo anche lo scope di scrittura (FicConfig, v.
+    // server/routers/fattureInCloud.ts) — `scopeScritturaOk` è la verifica —
+    // l'ultima chiamata a /issued_documents/info che ha confermato che il
+    // token la esercita davvero (v. server/fatture/config.ts). La UI ne ha
+    // bisogno di entrambi: il primo senza il secondo è «richiesta fatta, mai
+    // verificata».
+    return {
+      config,
+      dryRun: sdiDryRun(),
+      scopeScrittura: getCfg(sedeId).scopeScrittura ?? false,
+      scopeScritturaOk: config.scopeScritturaOk,
+    };
   }),
 
   salva: procedura

@@ -67,8 +67,8 @@ export type ModificaBozza = {
 /** Scarto ammesso sul markup dopo il riequilibrio: l'IVA non restituisce sempre il centesimo esatto. */
 const TOLLERANZA_MARKUP_CENT = 3;
 /** Quante righe si aggiungono in una sola modifica: oltre non è più una correzione, è un'altra fattura. */
-const MAX_RIGHE_AGGIUNTE = 20;
-const MAX_DESCRIZIONE_RIGA = 300;
+export const MAX_RIGHE_AGGIUNTE = 20;
+export const MAX_DESCRIZIONE_RIGA = 300;
 const FUSO = "Europe/Rome";
 
 // Stesso formattatore di `risolutore.ts` e `generatore.ts`: tenuto locale

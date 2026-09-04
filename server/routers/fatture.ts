@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { STATI_FATTURA, TIPI_FATTURA } from "@shared/fatturazione/tipi";
-import type { ChiaveDicitura } from "@shared/fatturazione/diciture";
+import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
@@ -27,6 +27,8 @@ import {
   creaBozza as creaBozzaServizio,
   fatturePerCommessa,
   leggiFattura,
+  MAX_DESCRIZIONE_RIGA,
+  MAX_RIGHE_AGGIUNTE,
   rigeneraBozza as rigeneraBozzaServizio,
   validaPerEmissione,
 } from "../fatture/servizio";
@@ -39,8 +41,6 @@ const procedura = procedureConInterruttore("fatturazione");
 
 /** 10 MB: un PDF di una fattura reale non li avvicina nemmeno; oltre, qualcosa non va e non deve gonfiare la risposta tRPC. */
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
-const MAX_RIGHE_AGGIUNTE = 20;
-const MAX_DESCRIZIONE_RIGA = 300;
 
 function sedeCorrente(ctx: { sedeId: number | null }): number {
   return ctx.sedeId ?? DEFAULT_SEDE_ID;
@@ -92,10 +92,9 @@ const modificaBozzaSchema = z.object({
   righeRimosse: z.array(z.number().int().min(1)).max(200).optional(),
   scadenze: z.array(scadenzaInputSchema).max(12).optional(),
   note: z.string().trim().max(1000).nullable().optional(),
-  // Chiavi ammesse in shared/fatturazione/diciture.ts: qui solo la forma
-  // (stringa corta, elenco limitato) — non l'appartenenza al catalogo, che
-  // resta un dettaglio di rendering e non blocca il salvataggio.
-  diciture: z.array(z.string().max(60)).max(20).optional(),
+  // Solo le chiavi che esistono davvero in shared/fatturazione/diciture.ts:
+  // una dicitura sconosciuta non deve poter finire silenziosa in fattura.
+  diciture: z.array(z.enum(Object.keys(DICITURE) as [ChiaveDicitura, ...ChiaveDicitura[]])).max(20).optional(),
   intestazioneCantiere: z.string().trim().max(300).nullable().optional(),
   riequilibraBeniAMarkupCent: z.number().int().min(0).optional(),
   scavalcoLimiti: z
@@ -206,13 +205,7 @@ export const fattureRouter = router({
           id: input.id,
           revisione: input.revisione,
           actorUserId: ctx.user.id,
-          modifica: {
-            ...input.modifica,
-            // Il tipo di dominio è più stretto (ChiaveDicitura[]) della
-            // validazione qui sopra (forma, non appartenenza): v. commento
-            // sullo schema.
-            diciture: input.modifica.diciture as ChiaveDicitura[] | undefined,
-          },
+          modifica: input.modifica,
         });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
